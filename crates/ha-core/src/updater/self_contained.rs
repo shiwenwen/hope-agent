@@ -34,6 +34,13 @@ pub struct InstallOutcome {
     pub archive_bytes: u64,
     pub binary_swapped: bool,
     pub service_restart: Option<String>,
+    /// `Some(msg)` when binary swap succeeded but the relaunch step
+    /// failed (no installed service AND `lifecycle::restart()` refused,
+    /// or the supervisor's kick returned an error). The caller is
+    /// expected to surface this to the user — the new binary is on disk
+    /// but the running process is still the old one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_failure: Option<String>,
 }
 
 /// Phase events emitted on `app_update:progress` so the UI / status tool
@@ -49,6 +56,12 @@ pub enum Phase {
     Backing,
     Swapping,
     Restarting,
+    /// Binary swap succeeded but the relaunch step did NOT (no service
+    /// installed and no respawn path available, or supervisor refused).
+    /// Used by `install()` to distinguish "fully done" from "the binary
+    /// is in place but the running process is still the old one" — the
+    /// app_update tool surfaces this to the user.
+    SwapDone,
     Done,
 }
 
@@ -62,6 +75,7 @@ impl Phase {
             Self::Backing => "backing",
             Self::Swapping => "swapping",
             Self::Restarting => "restarting",
+            Self::SwapDone => "swap_done",
             Self::Done => "done",
         }
     }
@@ -149,26 +163,80 @@ pub async fn install(
     })?;
 
     emit_phase(job_id, Phase::Restarting);
-    // NOTE: do NOT call `stop_if_running` here — `restart_service`
-    // already does atomic kill+restart on every platform
-    // (launchctl kickstart -k / systemctl --user restart / schtasks
-    // /End + /Run). When self-update runs inside the daemon itself,
-    // a separate SIGTERM would trigger our own signal handler's
-    // `exit(0)`, and systemd's `Restart=on-failure` would NOT pull
-    // us back up after a clean exit — the service would stay
-    // stopped with the new binary in place.
-    let restart = service_control::restart_service().ok();
+    // Pick the relaunch strategy by formfactor:
+    //   - installed service: let the supervisor (launchctl / systemctl /
+    //     schtasks) kill us and start the new binary. `restart_service`
+    //     does an atomic stop+start so we don't need a separate SIGTERM.
+    //   - foreground server with no installed service: hand off to
+    //     `lifecycle::restart`, which spawns a detached child running the
+    //     captured launch argv and schedules self-exit. Without this the
+    //     newly-swapped binary would never actually load.
+    //   - desktop / acp: we shouldn't be reaching this code path
+    //     (self_contained is only routed for headless), but if we do, we
+    //     leave it to the caller to relaunch and report the gap.
+    let restart_status = if crate::service_install::is_service_installed() {
+        match service_control::restart_service() {
+            Ok(msg) => RestartStatus::Service(msg),
+            Err(e) => RestartStatus::ServiceFailed(e.to_string()),
+        }
+    } else {
+        match crate::lifecycle::restart() {
+            Ok(outcome) => RestartStatus::Lifecycle(outcome.detail),
+            Err(e) => RestartStatus::ManualRequired(e.to_string()),
+        }
+    };
 
     backup::prune();
-    emit_phase(job_id, Phase::Done);
+    let failure_msg = restart_status.failure_msg().map(str::to_string);
+    let phase_after_restart = if failure_msg.is_some() {
+        Phase::SwapDone
+    } else {
+        Phase::Done
+    };
+    emit_phase(job_id, phase_after_restart);
 
     Ok(InstallOutcome {
         from_version,
         to_version,
         archive_bytes,
         binary_swapped: true,
-        service_restart: restart,
+        service_restart: restart_status.into_label(),
+        restart_failure: failure_msg,
     })
+}
+
+#[derive(Debug)]
+enum RestartStatus {
+    /// `service_control::restart_service` returned Ok — supervisor accepted
+    /// the kick. The string is the supervisor's ack.
+    Service(String),
+    /// `service_control::restart_service` returned Err — supervisor exists
+    /// but the kick failed. New binary is on disk, but the running process
+    /// is still the old one.
+    ServiceFailed(String),
+    /// No installed service — `lifecycle::restart()` handled the relaunch
+    /// (`Respawn` for foreground server, etc.). String is the ack detail.
+    Lifecycle(String),
+    /// No installed service AND `lifecycle::restart()` refused (e.g. ACP /
+    /// unknown role). Caller / user must manually relaunch.
+    ManualRequired(String),
+}
+
+impl RestartStatus {
+    fn into_label(self) -> Option<String> {
+        match self {
+            Self::Service(s) | Self::Lifecycle(s) => Some(s),
+            Self::ServiceFailed(s) => Some(format!("service restart failed: {s}")),
+            Self::ManualRequired(s) => Some(format!("manual restart required: {s}")),
+        }
+    }
+
+    fn failure_msg(&self) -> Option<&str> {
+        match self {
+            Self::ServiceFailed(s) | Self::ManualRequired(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
 }
 
 pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
@@ -192,6 +260,7 @@ pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
         archive_bytes: 0,
         binary_swapped: true,
         service_restart: restart,
+        restart_failure: None,
     })
 }
 

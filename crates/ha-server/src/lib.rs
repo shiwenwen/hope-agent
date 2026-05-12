@@ -57,13 +57,13 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
     let router = build_router_with_cors(ctx, &config.cors_origins, config.api_key.clone());
 
-    let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            ha_core::server_status::mark_failed(format!("bind {}: {}", config.bind_addr, e));
-            return Err(e.into());
-        }
-    };
+    // Bind with retry — `lifecycle::respawn` spawns a fresh `hope-agent
+    // server` child before the parent has actually exited, so the new
+    // child races the parent on `TcpListener::bind`. Same window opens up
+    // on `systemctl --user restart` (OS supervisor may relaunch before
+    // the old process fully released the socket) and during dev cycles
+    // when the kernel is still in `TIME_WAIT`. 10 × 200ms covers both.
+    let listener = bind_with_retry(&config.bind_addr).await?;
     let actual_addr = listener.local_addr().unwrap_or_else(|_| {
         // Fallback to a parsed form of the configured string if the kernel
         // refuses local_addr() — we still want to mark "started" so the GUI
@@ -86,6 +86,41 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
 }
 
 // ── Internal Helpers ────────────────────────────────────────────
+
+/// Retry `TcpListener::bind` up to `MAX_BIND_RETRIES` times with a fixed
+/// 200ms backoff. Only retries on `AddrInUse` — any other error (permission
+/// denied, invalid addr, …) bails immediately, matching the pre-retry
+/// behavior. `server_status::mark_failed` is only set on the terminal
+/// failure so the UI doesn't flicker through transient retries.
+async fn bind_with_retry(addr: &str) -> anyhow::Result<tokio::net::TcpListener> {
+    const MAX_BIND_RETRIES: u32 = 10;
+    const RETRY_INTERVAL_MS: u64 = 200;
+    let mut last_err: Option<std::io::Error> = None;
+    for attempt in 0..MAX_BIND_RETRIES {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => return Ok(l),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                last_err = Some(e);
+                tokio::time::sleep(std::time::Duration::from_millis(RETRY_INTERVAL_MS)).await;
+                if attempt + 1 < MAX_BIND_RETRIES {
+                    eprintln!(
+                        "[ha-server] bind {addr} in use, retrying ({}/{MAX_BIND_RETRIES})",
+                        attempt + 1
+                    );
+                }
+            }
+            Err(e) => {
+                ha_core::server_status::mark_failed(format!("bind {addr}: {e}"));
+                return Err(e.into());
+            }
+        }
+    }
+    let e = last_err.unwrap_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::AddrInUse, "bind retries exhausted")
+    });
+    ha_core::server_status::mark_failed(format!("bind {addr}: {e} (after retries)"));
+    Err(e.into())
+}
 
 /// Build the router with specific CORS origins and optional API key auth.
 fn build_router_with_cors(

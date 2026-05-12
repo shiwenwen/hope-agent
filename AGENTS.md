@@ -288,6 +288,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **UpdaterBridge trait** ([`updater::UpdaterBridge`](crates/ha-core/src/updater/mod.rs)) 由 src-tauri 在 `setup.rs` 注册 (`crate::commands::update_bridge::register`)；ha-core 通过 `OnceLock` 反向调用，**严禁** ha-core 直接依赖 tauri-plugin-updater
 - **Bare-binary release artifact**：`.github/workflows/release.yml` 每平台 build 后跑 `Bundle + sign bare binary` step，用同一 Minisign 私钥签 `tar.gz` (Unix) / `zip` (Windows)；`patch-manifest` job (`needs: build`) 合并 `bare_binary.platforms.<key>` 写回 `latest.json`
 - **Binary swap 必须走 [`platform::atomic_replace_binary`](crates/ha-core/src/platform/mod.rs)**——Unix `rename(2)` 不影响在跑进程，Windows `MoveFileExW` 把 in-use binary rename-aside；**禁止 `fs::write` 直接覆盖运行中 binary**
+- **Self-contained install 重启路径按 `is_service_installed` 分流**：已安装服务走 [`service_control::restart_service`](crates/ha-core/src/updater/service_control.rs)，**失败不吞**——写入 `InstallOutcome.restart_failure` + phase `swap_done`（区分于 `done`）。未安装服务时转 [`lifecycle::restart`](crates/ha-core/src/lifecycle/mod.rs)（Respawn / Unsupported）。`app_update(action="status")` 把每帧 `app_update:progress` 同步到 in-memory tracker，状态可见 `checking → downloading → verifying → staging → backing → swapping → restarting → done | swap_done | failed`
 
 ### App 重启（lifecycle）
 

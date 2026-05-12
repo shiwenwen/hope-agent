@@ -402,6 +402,7 @@ fn spawn_install_thread(
         };
         rt.block_on(async move {
             update_phase(&job_id, "running");
+            let _phase_sync = spawn_phase_tracker_sync(&job_id);
             let result = match path {
                 RecommendedPath::SelfContained => {
                     run_self_contained(&job_id, &to_version, manifest).await
@@ -419,6 +420,44 @@ fn spawn_install_thread(
             }
         });
     });
+}
+
+/// Mirror `app_update:progress` EventBus frames for this job into the
+/// in-memory `tracker()` so callers polling `app_update(action="status",
+/// job_id=…)` see the live phase string (`downloading` / `verifying` /
+/// `staging` / `swapping` / `restarting` / `swap_done` / `done`).
+/// Without this the tracker stays on `"running"` for the entire install,
+/// which the tool schema + skill methodology both promise it doesn't.
+///
+/// Returned task handle is held by the install thread until install
+/// finishes; finalize_ok / finalize_failed override the phase anyway.
+fn spawn_phase_tracker_sync(job_id: &str) -> tokio::task::JoinHandle<()> {
+    let job_id = job_id.to_string();
+    tokio::spawn(async move {
+        let Some(bus) = crate::get_event_bus() else {
+            return;
+        };
+        let mut rx = bus.subscribe();
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if event.name != "app_update:progress" {
+                        continue;
+                    }
+                    let event_job_id = event.payload.get("job_id").and_then(|v| v.as_str());
+                    if event_job_id != Some(job_id.as_str()) {
+                        continue;
+                    }
+                    if let Some(phase) = event.payload.get("phase").and_then(|v| v.as_str()) {
+                        update_phase(&job_id, phase);
+                    }
+                }
+                // `Closed` and `Lagged`: stop syncing — finalize_* will
+                // write the terminal state and the tracker stays correct.
+                Err(_) => return,
+            }
+        }
+    })
 }
 
 async fn run_self_contained(
@@ -474,10 +513,19 @@ fn update_phase(job_id: &str, phase: &str) {
 
 fn finalize_ok(job_id: &str, outcome: Value) {
     let now = now_secs();
+    // Self-contained install signals "binary swapped but relaunch couldn't
+    // happen automatically" via `restart_failure`. Surface that distinct
+    // terminal state so status polls / `app_update:completed` consumers
+    // know the new binary is on disk but the running process is still old.
+    let restart_failed = outcome
+        .get("restart_failure")
+        .and_then(|v| v.as_str())
+        .is_some();
+    let terminal_phase = if restart_failed { "swap_done" } else { "done" };
     {
         let mut g = tracker().lock().unwrap_or_else(|p| p.into_inner());
         if let Some(s) = g.get_mut(job_id) {
-            s.phase = "done".into();
+            s.phase = terminal_phase.into();
             s.completed_at = Some(now);
             s.outcome = Some(outcome.clone());
         }
@@ -486,7 +534,7 @@ fn finalize_ok(job_id: &str, outcome: Value) {
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
             "app_update:completed",
-            json!({"job_id": job_id, "status": "done", "outcome": outcome}),
+            json!({"job_id": job_id, "status": terminal_phase, "outcome": outcome}),
         );
     }
 }

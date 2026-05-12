@@ -10,7 +10,7 @@ pub fn get_app_update_tool() -> ToolDefinition {
 Actions:\n\
 - `check` — read-only. Returns `{current_version, latest_version, has_update, recommended_path, install_source, notes, pub_date, bare_binary_available}`. Use this first to decide whether to suggest an upgrade.\n\
 - `install` — perform the upgrade. Asks the user for confirmation via `ask_user_question` before doing anything (cannot be bypassed). On confirm, downloads the new binary, verifies its Minisign signature against the same pubkey `tauri-plugin-updater` uses, atomically swaps the executable, and restarts the user service (`launchctl` / `systemctl --user` / Windows Task Scheduler). Long-running — pass `run_in_background: true` and poll with `job_status`.\n\
-- `status` — given a `job_id` from a prior `install`, returns the current phase (`downloading | verifying | staging | swapping | restarting | done | failed`) and percentage. Read-only.\n\
+- `status` — given a `job_id` from a prior `install`, returns the current phase (`checking | downloading | verifying | staging | backing | swapping | restarting | done | swap_done | failed`) and percentage. `swap_done` means the new binary is on disk but the relaunch step failed (no installed service AND no respawn route) — surface `outcome.restart_failure` to the user and ask them to relaunch manually. Read-only.\n\
 - `rollback` — restore the previous binary from `~/.hope-agent/updater/backup/`. Asks the user before swapping. Use when an install completed but the new version misbehaves.\n\n\
 Path routing (`install` picks automatically unless `prefer_path` is set):\n\
 - Desktop GUI in foreground → routes through `tauri-plugin-updater` (signed installer). Frontend handles the install UI.\n\

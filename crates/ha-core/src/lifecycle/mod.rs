@@ -147,10 +147,11 @@ pub fn restart() -> Result<RestartOutcome> {
         }
         Route::Respawn => {
             let pid = respawn::respawn_detached_server()?;
-            // Spawn succeeded — schedule our own graceful exit a moment later
-            // so the EventBus / tool result has time to flush. The child has
-            // its own bind socket retry loop (ServerConfig::bind_addr) so a
-            // 200ms window where neither process holds the port is fine.
+            // Spawn succeeded — schedule our own graceful exit so EventBus
+            // emit + tool result flush finishes. Port handoff: the parent
+            // still holds the bind socket while the child boots, so the
+            // child relies on `ha_server::bind_with_retry` (10 × 200ms,
+            // `AddrInUse` only) to ride out the window.
             respawn::schedule_self_exit();
             Ok(RestartOutcome {
                 route,

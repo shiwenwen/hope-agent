@@ -94,15 +94,20 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 ## Service restart 契约
 
-binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/updater/service_control.rs) 跑：
+binary 换好后按 [`is_service_installed`](../../crates/ha-core/src/service_install.rs) 分流：
 
-- macOS：`launchctl kickstart -k gui/$UID/ai.hopeagent.server`
-- Linux：`systemctl --user restart hope-agent.service`
-- Windows：`schtasks /End /TN "Hope Agent" && schtasks /Run /TN "Hope Agent"`
+- **已安装服务**走 [`service_control::restart_service`](../../crates/ha-core/src/updater/service_control.rs)：
+  - macOS：`launchctl kickstart -k gui/$UID/ai.hopeagent.server`
+  - Linux：`systemctl --user restart hope-agent.service`
+  - Windows：`schtasks /End /TN "Hope Agent" && schtasks /Run /TN "Hope Agent"`
 
-成功 ≈ 1-2s 不可用窗口。已注册 service 时由 OS 重启；未注册时返回 best-effort 提示让用户手动重启。
+  成功 ≈ 1-2s 不可用窗口。失败时不吞错误——把 stderr 写入 `InstallOutcome.restart_failure`，phase 推到 `swap_done`（不是 `done`），`app_update:completed` payload 的 `status` 也是 `"swap_done"`。
 
-桌面 GUI 进程的"重启"是用户手动操作——`update_bridge.rs` 故意不调 `app.restart()`，避免升级中切断用户正在打的字。
+- **未安装服务**（前台 `hope-agent server start`、手动 binary 部署）转交 [`lifecycle::restart`](../../crates/ha-core/src/lifecycle/mod.rs)：在 `runtime_role == "server"` 时走 `Respawn`（spawn detached 子进程 + 200ms 后 exit），让新 binary 立即接管 bind 端口；ACP 或未知 role 时 `lifecycle::restart` 拒绝，错误同样写入 `restart_failure` + phase `swap_done`。
+
+- 桌面 GUI 进程的"重启"是用户手动操作——`update_bridge.rs` 故意不调 `app.restart()`，避免升级中切断用户正在打的字。
+
+`swap_done` 与 `done` 的区分契约：`swap_done = 新 binary 在磁盘上但跑的进程还是旧的`；模型 / IM client 看到该状态时应该读 `outcome.restart_failure` 并提示用户手动 `hope-agent server stop && start` 或相应渠道的命令。详见 [`app-lifecycle.md`](app-lifecycle.md) 关于 `lifecycle::route` 的形态决策。
 
 ## Backup / rollback
 
