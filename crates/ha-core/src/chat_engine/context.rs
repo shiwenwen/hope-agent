@@ -216,10 +216,8 @@ fn failed_partial_context(
                     parts.push(content.to_string());
                 }
             }
-            session::MessageRole::ThinkingBlock => {
-                if !msg.content.trim().is_empty() {
-                    had_partial_output = true;
-                }
+            session::MessageRole::ThinkingBlock if !msg.content.trim().is_empty() => {
+                had_partial_output = true;
             }
             session::MessageRole::Tool => {
                 had_partial_output = true;
