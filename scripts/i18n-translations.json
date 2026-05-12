@@ -693,7 +693,14 @@
       "featureReachDesc": "ローカルのデスクトップアプリとして使うことも、常駐サービスとして動かすことも、チャネルや定期ルーチンに組み込むこともできます。",
       "releases": "リリース",
       "feedback": "フィードバックと課題",
-      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。"
+      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。",
+      "restartApp": "アプリを再起動",
+      "restartConfirmTitle": "Hope Agent を再起動しますか？",
+      "restartConfirmDesc": "現在のプロセスが終了し、新しいインスタンスが自動的に起動します。進行中の会話や実行中のツールは中断されます。",
+      "restartConfirmAction": "今すぐ再起動",
+      "restartCancel": "キャンセル",
+      "restarting": "再起動中...",
+      "restartFailed": "再起動に失敗しました：{{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -1464,7 +1471,14 @@
       "featureReachDesc": "로컬 데스크톱 앱으로 쓰거나, 서비스처럼 계속 실행하거나, 채널과 예약된 루틴에 연결할 수 있습니다.",
       "releases": "릴리스",
       "feedback": "피드백 및 이슈",
-      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
+      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다.",
+      "restartApp": "앱 재시작",
+      "restartConfirmTitle": "Hope Agent를 재시작할까요?",
+      "restartConfirmDesc": "현재 프로세스가 종료되고 새 인스턴스가 자동으로 시작됩니다. 진행 중인 채팅이나 실행 중인 도구는 중단됩니다.",
+      "restartConfirmAction": "지금 재시작",
+      "restartCancel": "취소",
+      "restarting": "재시작 중...",
+      "restartFailed": "재시작 실패: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -2235,7 +2249,14 @@
       "featureReachDesc": "可以是本地桌面應用，也可以常駐為服務，接入聊天渠道和定時任務。",
       "releases": "發行版本",
       "feedback": "回饋與問題",
-      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。"
+      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。",
+      "restartApp": "重啟應用",
+      "restartConfirmTitle": "重啟 Hope Agent？",
+      "restartConfirmDesc": "目前的處理程序會結束，新的執行個體會自動啟動。未保存的會話流和正在執行的工具會被中斷。",
+      "restartConfirmAction": "立即重啟",
+      "restartCancel": "取消",
+      "restarting": "正在重啟...",
+      "restartFailed": "重啟失敗：{{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -3006,7 +3027,14 @@
       "featureReachDesc": "Yerel masaüstü uygulaması olarak kullanın, hizmet olarak sürekli çalıştırın ya da kanallara ve zamanlanmış rutinlere bağlayın.",
       "releases": "Sürümler",
       "feedback": "Geri bildirim ve sorunlar",
-      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
+      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı.",
+      "restartApp": "Uygulamayı yeniden başlat",
+      "restartConfirmTitle": "Hope Agent yeniden başlatılsın mı?",
+      "restartConfirmDesc": "Mevcut işlem sonlandırılacak ve yeni bir örnek otomatik olarak başlatılacak. Devam eden tüm sohbetler ve çalışan araçlar kesintiye uğrar.",
+      "restartConfirmAction": "Şimdi yeniden başlat",
+      "restartCancel": "İptal",
+      "restarting": "Yeniden başlatılıyor...",
+      "restartFailed": "Yeniden başlatma başarısız: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -3777,7 +3805,14 @@
       "featureReachDesc": "Dùng như ứng dụng desktop cục bộ, giữ chạy như một dịch vụ, hoặc kết nối vào các kênh và lịch trình định kỳ.",
       "releases": "Bản phát hành",
       "feedback": "Phản hồi và lỗi",
-      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
+      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài.",
+      "restartApp": "Khởi động lại ứng dụng",
+      "restartConfirmTitle": "Khởi động lại Hope Agent?",
+      "restartConfirmDesc": "Tiến trình hiện tại sẽ thoát và một phiên bản mới sẽ tự động khởi động. Mọi cuộc trò chuyện hoặc công cụ đang chạy sẽ bị gián đoạn.",
+      "restartConfirmAction": "Khởi động lại ngay",
+      "restartCancel": "Hủy",
+      "restarting": "Đang khởi động lại...",
+      "restartFailed": "Khởi động lại thất bại: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -4548,7 +4583,14 @@
       "featureReachDesc": "Use como app local de desktop, mantenha rodando como serviço ou conecte a canais e rotinas agendadas.",
       "releases": "Lançamentos",
       "feedback": "Feedback e problemas",
-      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo."
+      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo.",
+      "restartApp": "Reiniciar app",
+      "restartConfirmTitle": "Reiniciar o Hope Agent?",
+      "restartConfirmDesc": "O processo atual será encerrado e uma nova instância será iniciada automaticamente. Qualquer conversa ou ferramenta em andamento será interrompida.",
+      "restartConfirmAction": "Reiniciar agora",
+      "restartCancel": "Cancelar",
+      "restarting": "Reiniciando...",
+      "restartFailed": "Falha ao reiniciar: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -5319,7 +5361,14 @@
       "featureReachDesc": "Используйте его как локальное настольное приложение, держите как сервис или подключайте к каналам и расписаниям.",
       "releases": "Релизы",
       "feedback": "Отзывы и проблемы",
-      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании."
+      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании.",
+      "restartApp": "Перезапустить приложение",
+      "restartConfirmTitle": "Перезапустить Hope Agent?",
+      "restartConfirmDesc": "Текущий процесс завершится, и новый экземпляр запустится автоматически. Любые активные диалоги или работающие инструменты будут прерваны.",
+      "restartConfirmAction": "Перезапустить сейчас",
+      "restartCancel": "Отмена",
+      "restarting": "Перезапуск...",
+      "restartFailed": "Не удалось перезапустить: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -6090,7 +6139,14 @@
       "featureReachDesc": "استخدمه كتطبيق مكتبي محلي، أو أبقه يعمل كخدمة، أو وصله بالقنوات والمهام المجدولة.",
       "releases": "الإصدارات",
       "feedback": "الملاحظات والمشكلات",
-      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل."
+      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل.",
+      "restartApp": "إعادة تشغيل التطبيق",
+      "restartConfirmTitle": "هل تريد إعادة تشغيل Hope Agent؟",
+      "restartConfirmDesc": "ستنتهي العملية الحالية وستبدأ نسخة جديدة تلقائياً. ستتم مقاطعة أي محادثات أو أدوات قيد التنفيذ.",
+      "restartConfirmAction": "إعادة التشغيل الآن",
+      "restartCancel": "إلغاء",
+      "restarting": "جارٍ إعادة التشغيل...",
+      "restartFailed": "فشلت إعادة التشغيل: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -6861,7 +6917,14 @@
       "featureReachDesc": "Úsalo como app local de escritorio, mantenlo como servicio o intégralo en canales y rutinas programadas.",
       "releases": "Lanzamientos",
       "feedback": "Comentarios y problemas",
-      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
+      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo.",
+      "restartApp": "Reiniciar app",
+      "restartConfirmTitle": "¿Reiniciar Hope Agent?",
+      "restartConfirmDesc": "El proceso actual se cerrará y se iniciará una nueva instancia automáticamente. Cualquier turno de chat o herramienta en curso se interrumpirá.",
+      "restartConfirmAction": "Reiniciar ahora",
+      "restartCancel": "Cancelar",
+      "restarting": "Reiniciando...",
+      "restartFailed": "Error al reiniciar: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -7632,7 +7695,14 @@
       "featureReachDesc": "Gunakannya sebagai aplikasi desktop tempatan, kekalkan ia berjalan sebagai perkhidmatan, atau sambungkan ke saluran dan rutin berjadual.",
       "releases": "Keluaran",
       "feedback": "Maklum balas dan isu",
-      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
+      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang.",
+      "restartApp": "Mulakan semula apl",
+      "restartConfirmTitle": "Mulakan semula Hope Agent?",
+      "restartConfirmDesc": "Proses semasa akan keluar dan instans baharu akan dimulakan secara automatik. Sebarang perbualan atau alat yang sedang berjalan akan diganggu.",
+      "restartConfirmAction": "Mulakan semula sekarang",
+      "restartCancel": "Batal",
+      "restarting": "Memulakan semula...",
+      "restartFailed": "Mulakan semula gagal: {{error}}"
     },
     "onboarding": {
       "importOpenClaw": {

@@ -892,6 +892,23 @@
 - **影响面**：理论 bug。命中时用户看到「更新已安装，正在重新启动 Hope Agent...」但 app 没起来（前端 fallback 文案 `about.updateRestartManually` 已经覆盖了"用户感知"层）
 - **触发时机建议**：用户实际报上来时启动调查；或下次动 plugin-process / single-instance 集成时
 
+### F-087 抽 `platform::spawn_fully_detached` 统一三处 detached-spawn 模式
+
+- **来源**：2026-05-12 `app_restart` PR `/simplify` review（reuse agent）
+- **现象**：三处独立实现"启动 detached 子进程"的 OS 适配：
+  - [`local_llm/mod.rs#spawn_ollama_serve`](../../crates/ha-core/src/local_llm/mod.rs)：Unix 啥都不设、Windows `DETACHED_PROCESS | CREATE_NO_WINDOW`
+  - [`acp_control/runtime_stdio.rs`](../../crates/ha-core/src/acp_control/runtime_stdio.rs)：Unix `setpgid(0,0)`（新进程组，便于 kill tree）
+  - [`lifecycle/respawn.rs`](../../crates/ha-core/src/lifecycle/respawn.rs)：Unix `setsid()`（新 session，脱离 TTY）+ Windows `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`
+  
+  三处的 detachment 语义真的不一样（ollama 自己 fork、acp 需要 kill tree、respawn 需要完全脱离父终端），不是简单 copy-paste，但 OS 适配模板（`pre_exec` + `creation_flags` + null stdio）一致
+- **为什么留**：当期 PR 只需要 respawn 一个调用点；强抽公共需要给 `DetachLevel { SamePgrp / NewPgrp / NewSession }` enum，三处迁移都涉及行为兼容性验证（特别是 ACP backend 的 kill-tree 路径），范围会膨胀到至少 +200 行测试
+- **改的话要做什么**：[`crates/ha-core/src/platform/`](../../crates/ha-core/src/platform/) 新加 `process_spawn.rs`，导出 `spawn_detached(cmd: &mut Command, level: DetachLevel) -> io::Result<Child>`。三个调用点改成调它。重点验证：
+  - ollama 启动后能正确 fork 进 background
+  - ACP backend 父进程被 SIGKILL 时子树仍能被 `setpgid(0,0)` + `killpg` 清理
+  - respawn 路径子进程在 sshd 终端关闭后存活
+- **影响面**：纯重构，零行为变化（理论上）。当前每处独立的实现都被测试间接覆盖
+- **触发时机建议**：下次动 ACP backend / local_llm spawn / respawn 任一处时顺手统一；或独立 "platform 子系统清理" PR
+
 ---
 
 ## Closed

@@ -12,6 +12,13 @@
     "feedback": "フィードバックと課題",
     "github": "GitHub",
     "releases": "リリース",
+    "restartApp": "アプリを再起動",
+    "restartCancel": "キャンセル",
+    "restartConfirmAction": "今すぐ再起動",
+    "restartConfirmDesc": "現在のプロセスが終了し、新しいインスタンスが自動的に起動します。進行中の会話や実行中のツールは中断されます。",
+    "restartConfirmTitle": "Hope Agent を再起動しますか？",
+    "restartFailed": "再起動に失敗しました：{{error}}",
+    "restarting": "再起動中...",
     "tagline": "デバイスとチャットの間で会話をそのまま引き継ぎ、使うほどあなたを理解していくデスクトップAIアシスタント。",
     "techStack": "技術スタック",
     "title": "概要",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "今は更新を確認できません。",
     "updateChecking": "更新を確認しています...",
     "updateDownloadProgress": "ダウンロード進捗: {{percent}}%",
-    "updateInstall": "v{{version}} をインストール",
-    "updateInstallFailed": "更新のダウンロードまたはインストールに失敗しました。",
     "updateErrorDetails": "エラー詳細",
     "updateErrorLogHint": "完全なトレースは ~/.hope-agent/logs.db に書き込まれています（category: updater）。/ha-logs で確認するか、問題報告の際に該当ファイルを添付してください。",
+    "updateInstall": "v{{version}} をインストール",
     "updateInstalled": "更新をインストールしました。Hope Agent を再起動しています...",
+    "updateInstallFailed": "更新のダウンロードまたはインストールに失敗しました。",
     "updateInstalling": "v{{version}} をインストール中...",
-    "updateRestartManually": "更新はインストールされましたが、自動再起動に失敗しました。Hope Agent を手動で終了して再度開いてください。",
     "updateReady": "GitHub Releases で新しいデスクトップ版を確認するか、Hope Agent に直接更新をインストールさせることができます。",
+    "updateRestartManually": "更新はインストールされましたが、自動再起動に失敗しました。Hope Agent を手動で終了して再度開いてください。",
     "updateUpToDate": "現在の v{{version}} は最新です。",
     "version": "バージョン"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "システム稼働時間",
       "virtualMem": "仮想メモリ"
     },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均実行時間",
+      "byAgent": "Agent 別",
+      "byAgentCompleted": "完了",
+      "byProject": "プロジェクト別",
+      "completionRate": "完了率",
+      "created": "作成",
+      "creationTrend": "作成トレンド (30 日)",
+      "empty": "選択した期間に Plan がありません。",
+      "noProject": "プロジェクトなし",
+      "sampleSize": "完了 {{count}} 件をサンプリング",
+      "stateDistribution": "状態分布",
+      "total": "Plan 総数"
+    },
     "tabs": {
       "dreaming": "ドリーム",
       "errors": "エラー監視",
       "insights": "インサイト",
       "learning": "学習",
+      "plans": "Plan",
       "recap": "レビュー",
       "sessions": "セッション分析",
       "system": "システム監視",
       "tasks": "タスク統計",
       "tokens": "トークン使用量",
-      "tools": "ツール使用",
-      "plans": "Plan"
+      "tools": "ツール使用"
     },
     "task": {
       "activeJobs": "アクティブ",
@@ -899,21 +921,6 @@
       "frequency": "呼び出し頻度",
       "name": "ツール名",
       "totalMs": "合計 (ms)"
-    },
-    "plans": {
-      "active": "進行中",
-      "avgExecution": "平均実行時間",
-      "byAgent": "Agent 別",
-      "byAgentCompleted": "完了",
-      "byProject": "プロジェクト別",
-      "completionRate": "完了率",
-      "created": "作成",
-      "creationTrend": "作成トレンド (30 日)",
-      "empty": "選択した期間に Plan がありません。",
-      "noProject": "プロジェクトなし",
-      "sampleSize": "完了 {{count}} 件をサンプリング",
-      "stateDistribution": "状態分布",
-      "total": "Plan 総数"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "使うほどあなたを理解していく AI アシスタント——デスクトップ、クラウド、IM でいつでも呼び出せます。\n以下は簡単なセットアップです——モデル選択以外はすべてスキップできます。",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "現在のチャットに Plan 参照を追加",
+    "badge": {
+      "archived": "アーカイブ済み",
+      "completed": "完了",
+      "executing": "実行中",
+      "orphan": "孤立",
+      "planning": "計画中",
+      "review": "レビュー中"
+    },
+    "count": "Plan: {{count}} 件",
+    "empty": "Plan はありません。",
+    "emptyPlan": "この Plan ファイルは空です。",
+    "filter": {
+      "allAgents": "すべての Agent",
+      "state": {
+        "all": "すべての状態",
+        "archived": "アーカイブ (終了済み)",
+        "completed": "完了",
+        "executing": "実行中",
+        "planning": "計画中",
+        "review": "レビュー中"
+      }
+    },
+    "openInSession": "所属セッションへ移動",
+    "refresh": "更新",
+    "selectHint": "左側で Plan を選択してください。",
+    "sessionDeleted": "所属セッションは削除されました",
+    "title": "Plan 履歴",
+    "untitled": "無題の Plan"
   },
   "planMode": {
     "approveAndExecute": "実行開始",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "/v1/chat/completions 互換サービス",
     "openaiResponsesDesc": "/v1/responses 互換サービス",
     "selectApiType": "API タイプを選択"
-  },
-  "plans": {
-    "addToChat": "現在のチャットに Plan 参照を追加",
-    "badge": {
-      "archived": "アーカイブ済み",
-      "completed": "完了",
-      "executing": "実行中",
-      "orphan": "孤立",
-      "planning": "計画中",
-      "review": "レビュー中"
-    },
-    "count": "Plan: {{count}} 件",
-    "empty": "Plan はありません。",
-    "emptyPlan": "この Plan ファイルは空です。",
-    "filter": {
-      "allAgents": "すべての Agent",
-      "state": {
-        "all": "すべての状態",
-        "archived": "アーカイブ (終了済み)",
-        "completed": "完了",
-        "executing": "実行中",
-        "planning": "計画中",
-        "review": "レビュー中"
-      }
-    },
-    "openInSession": "所属セッションへ移動",
-    "refresh": "更新",
-    "selectHint": "左側で Plan を選択してください。",
-    "sessionDeleted": "所属セッションは削除されました",
-    "title": "Plan 履歴",
-    "untitled": "無題の Plan"
   }
 }

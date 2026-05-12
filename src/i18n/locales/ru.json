@@ -12,6 +12,13 @@
     "feedback": "Отзывы и проблемы",
     "github": "GitHub",
     "releases": "Релизы",
+    "restartApp": "Перезапустить приложение",
+    "restartCancel": "Отмена",
+    "restartConfirmAction": "Перезапустить сейчас",
+    "restartConfirmDesc": "Текущий процесс завершится, и новый экземпляр запустится автоматически. Любые активные диалоги или работающие инструменты будут прерваны.",
+    "restartConfirmTitle": "Перезапустить Hope Agent?",
+    "restartFailed": "Не удалось перезапустить: {{error}}",
+    "restarting": "Перезапуск...",
     "tagline": "Настольный ИИ-ассистент, который без шва переходит между вашими устройствами и чатами и узнаёт вас всё лучше с каждым днём.",
     "techStack": "Технологии",
     "title": "О программе",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "Сейчас не удалось проверить обновления.",
     "updateChecking": "Проверка обновлений...",
     "updateDownloadProgress": "Прогресс загрузки: {{percent}}%",
-    "updateInstall": "Установить v{{version}}",
-    "updateInstallFailed": "Не удалось скачать или установить обновление.",
     "updateErrorDetails": "Подробности ошибки",
     "updateErrorLogHint": "Полный трейс записан в ~/.hope-agent/logs.db (category: updater). Используйте /ha-logs для разбора или приложите этот файл к отчёту о проблеме.",
+    "updateInstall": "Установить v{{version}}",
     "updateInstalled": "Обновление установлено. Перезапускаю Hope Agent...",
+    "updateInstallFailed": "Не удалось скачать или установить обновление.",
     "updateInstalling": "Установка v{{version}}...",
-    "updateRestartManually": "Обновление установлено, но автоматический перезапуск не удался. Закройте Hope Agent вручную и откройте его снова.",
     "updateReady": "Можно посмотреть новый настольный релиз на GitHub Releases или поручить Hope Agent установить его напрямую.",
+    "updateRestartManually": "Обновление установлено, но автоматический перезапуск не удался. Закройте Hope Agent вручную и откройте его снова.",
     "updateUpToDate": "У вас уже установлена последняя версия v{{version}}.",
     "version": "Версия"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "Время работы системы",
       "virtualMem": "Виртуальная память"
     },
+    "plans": {
+      "active": "В работе",
+      "avgExecution": "Среднее время выполнения",
+      "byAgent": "По Agent",
+      "byAgentCompleted": "Завершено",
+      "byProject": "По проектам",
+      "completionRate": "Доля завершённых",
+      "created": "Создано",
+      "creationTrend": "Тренд создания (30 дней)",
+      "empty": "Нет данных Plan в выбранном окне.",
+      "noProject": "Без проекта",
+      "sampleSize": "Выборка из {{count}} завершённых",
+      "stateDistribution": "Распределение по состояниям",
+      "total": "Всего планов"
+    },
     "tabs": {
       "dreaming": "Сновидения",
       "errors": "Ошибки",
       "insights": "Инсайты",
       "learning": "Обучение",
+      "plans": "Планы",
       "recap": "Разбор",
       "sessions": "Сессии",
       "system": "Система",
       "tasks": "Задачи",
       "tokens": "Использование токенов",
-      "tools": "Использование инструментов",
-      "plans": "Планы"
+      "tools": "Использование инструментов"
     },
     "task": {
       "activeJobs": "Активные",
@@ -899,21 +921,6 @@
       "frequency": "Частота вызовов",
       "name": "Название",
       "totalMs": "Всего (мс)"
-    },
-    "plans": {
-      "active": "В работе",
-      "avgExecution": "Среднее время выполнения",
-      "byAgent": "По Agent",
-      "byAgentCompleted": "Завершено",
-      "byProject": "По проектам",
-      "completionRate": "Доля завершённых",
-      "created": "Создано",
-      "creationTrend": "Тренд создания (30 дней)",
-      "empty": "Нет данных Plan в выбранном окне.",
-      "noProject": "Без проекта",
-      "sampleSize": "Выборка из {{count}} завершённых",
-      "stateDistribution": "Распределение по состояниям",
-      "total": "Всего планов"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "ИИ-ассистент, который узнаёт вас всё лучше с каждым использованием — на рабочем столе, в облаке и в мессенджерах, всегда на связи.\nДалее — краткое знакомство: пропустить можно любой шаг, кроме выбора модели.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Добавить ссылку на Plan в текущий чат",
+    "badge": {
+      "archived": "Архивировано",
+      "completed": "Завершено",
+      "executing": "Выполняется",
+      "orphan": "Сирота",
+      "planning": "Планирование",
+      "review": "На проверке"
+    },
+    "count": "Планов: {{count}}",
+    "empty": "Планов пока нет.",
+    "emptyPlan": "Файл Plan пуст.",
+    "filter": {
+      "allAgents": "Все Agent",
+      "state": {
+        "all": "Все состояния",
+        "archived": "Архив (выход)",
+        "completed": "Завершено",
+        "executing": "Выполняется",
+        "planning": "Планирование",
+        "review": "На проверке"
+      }
+    },
+    "openInSession": "Открыть в сессии",
+    "refresh": "Обновить",
+    "selectHint": "Выберите Plan слева, чтобы посмотреть содержимое.",
+    "sessionDeleted": "Сессия-владелец удалена",
+    "title": "Планы",
+    "untitled": "Plan без названия"
   },
   "planMode": {
     "approveAndExecute": "Начать выполнение",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "Сервисы, совместимые с /v1/chat/completions",
     "openaiResponsesDesc": "Сервисы, совместимые с /v1/responses",
     "selectApiType": "Выберите тип API"
-  },
-  "plans": {
-    "addToChat": "Добавить ссылку на Plan в текущий чат",
-    "badge": {
-      "archived": "Архивировано",
-      "completed": "Завершено",
-      "executing": "Выполняется",
-      "orphan": "Сирота",
-      "planning": "Планирование",
-      "review": "На проверке"
-    },
-    "count": "Планов: {{count}}",
-    "empty": "Планов пока нет.",
-    "emptyPlan": "Файл Plan пуст.",
-    "filter": {
-      "allAgents": "Все Agent",
-      "state": {
-        "all": "Все состояния",
-        "archived": "Архив (выход)",
-        "completed": "Завершено",
-        "executing": "Выполняется",
-        "planning": "Планирование",
-        "review": "На проверке"
-      }
-    },
-    "openInSession": "Открыть в сессии",
-    "refresh": "Обновить",
-    "selectHint": "Выберите Plan слева, чтобы посмотреть содержимое.",
-    "sessionDeleted": "Сессия-владелец удалена",
-    "title": "Планы",
-    "untitled": "Plan без названия"
   }
 }

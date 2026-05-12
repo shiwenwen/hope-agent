@@ -1,8 +1,27 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { LucideIcon } from "lucide-react"
-import { Brain, Download, ExternalLink, Globe, Loader2, Monitor, RefreshCw } from "lucide-react"
+import {
+  Brain,
+  Download,
+  ExternalLink,
+  Globe,
+  Loader2,
+  Monitor,
+  Power,
+  RefreshCw,
+} from "lucide-react"
 import alphaLogoUrl from "@/assets/alpha-logo.png"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import {
@@ -35,6 +54,9 @@ export default function AboutPanel() {
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+  const [restartError, setRestartError] = useState<string | null>(null)
   const desktopUpdaterAvailable = isDesktopUpdaterAvailable()
 
   function describeError(err: unknown): string {
@@ -146,6 +168,28 @@ export default function AboutPanel() {
       void handleCheckForUpdates()
     }
   })
+
+  async function handleConfirmRestart() {
+    setRestarting(true)
+    setRestartError(null)
+    logger.info("lifecycle", "AboutPanel::handleConfirmRestart", "user-initiated restart")
+    try {
+      await getTransport().call("request_app_restart", {})
+      // request_app_restart routes through ha_core::lifecycle::restart which
+      // hands off to the OS supervisor / guardian; the process should die
+      // within a few hundred ms. If we're still here after 3s assume the
+      // handoff failed silently and surface the dialog state.
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      logger.error("lifecycle", "AboutPanel::handleConfirmRestart", "restart failed", {
+        error: detail,
+      })
+      setRestartError(detail)
+    } finally {
+      setRestarting(false)
+    }
+  }
 
   async function handleInstallUpdate() {
     if (!pendingUpdate) return
@@ -263,6 +307,16 @@ export default function AboutPanel() {
                       {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
                     </Button>
                   )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-auto gap-1.5 rounded-full border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:bg-primary/8 hover:text-foreground active:scale-[0.97]"
+                    onClick={() => setRestartDialogOpen(true)}
+                    disabled={installingUpdate}
+                  >
+                    <Power className="h-3.5 w-3.5" />
+                    {t("about.restartApp")}
+                  </Button>
                   {updateStatus && !pendingUpdate && (
                     <span className="text-xs text-muted-foreground/70">{updateStatus}</span>
                   )}
@@ -382,6 +436,39 @@ export default function AboutPanel() {
           </p>
         </section>
       </div>
+
+      <AlertDialog open={restartDialogOpen} onOpenChange={setRestartDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("about.restartConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("about.restartConfirmDesc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {restartError && (
+            <p className="text-xs text-destructive">
+              {t("about.restartFailed", { error: restartError })}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restarting}>{t("about.restartCancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                void handleConfirmRestart()
+              }}
+              disabled={restarting}
+            >
+              {restarting ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  {t("about.restarting")}
+                </>
+              ) : (
+                t("about.restartConfirmAction")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

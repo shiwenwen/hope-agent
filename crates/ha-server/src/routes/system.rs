@@ -1,22 +1,35 @@
-//! Desktop-only system-level commands.
-//!
-//! In the Tauri desktop shell these manipulate the host application window
-//! / autostart registration / process lifecycle. The HTTP server has no
-//! window to restart, so every handler in this file is a no-op acknowledgement
-//! returning 200 with `note: "desktop-only"` — enough to keep the client
-//! from receiving a 404.
+//! System-level commands. The desktop GUI delegates here for restart now
+//! that `ha_core::lifecycle::restart` covers both server and desktop modes;
+//! the same endpoint also handles foreground / installed-service restarts
+//! when called by an HTTP client (`hope-agent server` daemon).
 
 use axum::Json;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
 
-/// `POST /api/system/restart` — desktop-only. Ignored in server mode.
+/// `POST /api/system/restart` — restart the running process. Routes through
+/// [`ha_core::lifecycle::restart`] which picks the right strategy for the
+/// current runtime (desktop / installed-service / foreground / acp).
+///
+/// Note: this endpoint does NOT run the pre-flight / Yes-No confirmation
+/// gates that the `app_restart` tool wraps around the same call. It's
+/// meant for the GUI's own "Restart App" button, which has already done
+/// its own UX-level "Are you sure?" — and for advanced HTTP clients that
+/// want a programmatic restart without involving the LLM.
 pub async fn request_app_restart() -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({
-        "ok": false,
-        "note": "desktop-only: server mode does not own an app process to restart",
-    })))
+    match ha_core::lifecycle::restart() {
+        Ok(outcome) => Ok(Json(json!({
+            "ok": true,
+            "route": outcome.route.as_str(),
+            "detail": outcome.detail,
+        }))),
+        Err(e) => Ok(Json(json!({
+            "ok": false,
+            "error": e.to_string(),
+            "runtime_role": ha_core::app_init::runtime_role().unwrap_or("unknown"),
+        }))),
+    }
 }
 
 /// `GET /api/system/timezone` — server's IANA timezone.

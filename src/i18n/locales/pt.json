@@ -12,6 +12,13 @@
     "feedback": "Feedback e problemas",
     "github": "GitHub",
     "releases": "Lançamentos",
+    "restartApp": "Reiniciar app",
+    "restartCancel": "Cancelar",
+    "restartConfirmAction": "Reiniciar agora",
+    "restartConfirmDesc": "O processo atual será encerrado e uma nova instância será iniciada automaticamente. Qualquer conversa ou ferramenta em andamento será interrompida.",
+    "restartConfirmTitle": "Reiniciar o Hope Agent?",
+    "restartFailed": "Falha ao reiniciar: {{error}}",
+    "restarting": "Reiniciando...",
     "tagline": "Um assistente de IA de desktop que acompanha você entre dispositivos e apps de chat, e te conhece melhor quanto mais você usa.",
     "techStack": "Stack Tecnológico",
     "title": "Sobre",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "Não foi possível verificar atualizações agora.",
     "updateChecking": "Verificando atualizações...",
     "updateDownloadProgress": "Progresso do download: {{percent}}%",
-    "updateInstall": "Instalar v{{version}}",
-    "updateInstallFailed": "Falha ao baixar ou instalar a atualização.",
     "updateErrorDetails": "Detalhes do erro",
     "updateErrorLogHint": "O registro completo foi gravado em ~/.hope-agent/logs.db (category: updater). Use /ha-logs para investigar ou anexe esse arquivo ao relatar o problema.",
+    "updateInstall": "Instalar v{{version}}",
     "updateInstalled": "Atualização instalada. Reiniciando o Hope Agent...",
+    "updateInstallFailed": "Falha ao baixar ou instalar a atualização.",
     "updateInstalling": "Instalando v{{version}}...",
-    "updateRestartManually": "A atualização foi instalada, mas o reinício automático falhou. Saia do Hope Agent manualmente e abra-o novamente.",
     "updateReady": "Você pode conferir uma nova versão desktop no GitHub Releases ou deixar o Hope Agent instalá-la para você.",
+    "updateRestartManually": "A atualização foi instalada, mas o reinício automático falhou. Saia do Hope Agent manualmente e abra-o novamente.",
     "updateUpToDate": "Você já está na versão mais recente v{{version}}.",
     "version": "Versão"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "Uptime do sistema",
       "virtualMem": "Memória virtual"
     },
+    "plans": {
+      "active": "Em andamento",
+      "avgExecution": "Tempo médio de execução",
+      "byAgent": "Por Agent",
+      "byAgentCompleted": "Concluídos",
+      "byProject": "Por projeto",
+      "completionRate": "Taxa de conclusão",
+      "created": "Criados",
+      "creationTrend": "Tendência de criação (30 dias)",
+      "empty": "Sem dados de Plan na janela selecionada.",
+      "noProject": "Sem projeto",
+      "sampleSize": "{{count}} execuções concluídas amostradas",
+      "stateDistribution": "Distribuição de estados",
+      "total": "Total de planos"
+    },
     "tabs": {
       "dreaming": "Sonhos",
       "errors": "Erros",
       "insights": "Insights",
       "learning": "Aprendizado",
+      "plans": "Planos",
       "recap": "Recap",
       "sessions": "Sessões",
       "system": "Sistema",
       "tasks": "Tarefas",
       "tokens": "Uso de tokens",
-      "tools": "Uso de ferramentas",
-      "plans": "Planos"
+      "tools": "Uso de ferramentas"
     },
     "task": {
       "activeJobs": "Ativas",
@@ -899,21 +921,6 @@
       "frequency": "Frequência de chamadas",
       "name": "Nome",
       "totalMs": "Total (ms)"
-    },
-    "plans": {
-      "active": "Em andamento",
-      "avgExecution": "Tempo médio de execução",
-      "byAgent": "Por Agent",
-      "byAgentCompleted": "Concluídos",
-      "byProject": "Por projeto",
-      "completionRate": "Taxa de conclusão",
-      "created": "Criados",
-      "creationTrend": "Tendência de criação (30 dias)",
-      "empty": "Sem dados de Plan na janela selecionada.",
-      "noProject": "Sem projeto",
-      "sampleSize": "{{count}} execuções concluídas amostradas",
-      "stateDistribution": "Distribuição de estados",
-      "total": "Total de planos"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "Um assistente de IA que te conhece melhor a cada uso — no desktop, na nuvem e na mensageria, sempre pronto.\nSegue um guia rápido — todas as etapas são opcionais, exceto escolher um modelo.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Adicionar referência do Plan ao chat atual",
+    "badge": {
+      "archived": "Arquivado",
+      "completed": "Concluído",
+      "executing": "Executando",
+      "orphan": "Órfão",
+      "planning": "Planejando",
+      "review": "Em revisão"
+    },
+    "count": "{{count}} planos",
+    "empty": "Sem planos ainda.",
+    "emptyPlan": "Este arquivo de Plan está vazio.",
+    "filter": {
+      "allAgents": "Todos os Agents",
+      "state": {
+        "all": "Todos os estados",
+        "archived": "Arquivado (saída)",
+        "completed": "Concluído",
+        "executing": "Executando",
+        "planning": "Planejando",
+        "review": "Em revisão"
+      }
+    },
+    "openInSession": "Abrir na sessão",
+    "refresh": "Atualizar",
+    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
+    "sessionDeleted": "Sessão proprietária excluída",
+    "title": "Planos",
+    "untitled": "Plan sem título"
   },
   "planMode": {
     "approveAndExecute": "Iniciar execução",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "Serviços compatíveis com /v1/chat/completions",
     "openaiResponsesDesc": "Serviços compatíveis com /v1/responses",
     "selectApiType": "Selecione o Tipo de API"
-  },
-  "plans": {
-    "addToChat": "Adicionar referência do Plan ao chat atual",
-    "badge": {
-      "archived": "Arquivado",
-      "completed": "Concluído",
-      "executing": "Executando",
-      "orphan": "Órfão",
-      "planning": "Planejando",
-      "review": "Em revisão"
-    },
-    "count": "{{count}} planos",
-    "empty": "Sem planos ainda.",
-    "emptyPlan": "Este arquivo de Plan está vazio.",
-    "filter": {
-      "allAgents": "Todos os Agents",
-      "state": {
-        "all": "Todos os estados",
-        "archived": "Arquivado (saída)",
-        "completed": "Concluído",
-        "executing": "Executando",
-        "planning": "Planejando",
-        "review": "Em revisão"
-      }
-    },
-    "openInSession": "Abrir na sessão",
-    "refresh": "Atualizar",
-    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
-    "sessionDeleted": "Sessão proprietária excluída",
-    "title": "Planos",
-    "untitled": "Plan sem título"
   }
 }

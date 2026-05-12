@@ -124,6 +124,34 @@ pub fn service_status() -> Result<String> {
     bail!("Service status is not supported on this platform")
 }
 
+/// `true` iff `hope-agent server install` has produced its platform-specific
+/// service definition (launchd plist / systemd unit / scheduled task). The
+/// `lifecycle` module uses this to decide whether to delegate a restart to
+/// the OS supervisor (`launchctl kickstart` / `systemctl --user restart` /
+/// `schtasks /End` + `/Run`) or to detach a fresh child and self-exit.
+///
+/// Probes only the on-disk artifact — a service that was uninstalled with
+/// `launchctl unload` but whose plist still exists still reads as installed,
+/// which matches the restart path's intent (re-emit + kick).
+pub fn is_service_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        plist_path().map(|p| p.exists()).unwrap_or(false)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        unit_path().map(|p| p.exists()).unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        windows_task::is_scheduled_task_installed()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        false
+    }
+}
+
 /// Stop the running Hope Agent server.
 ///
 /// Unix: sends SIGTERM to the PID in `~/.hope-agent/server.pid`.
@@ -676,6 +704,20 @@ mod windows_task {
         }
 
         Ok(())
+    }
+
+    /// Probe whether `Hope Agent` is registered as a Scheduled Task. Used by
+    /// `is_service_installed` on the restart path; same `schtasks /Query`
+    /// "does not exist" recognition as `status_scheduled_task` but boolean.
+    pub(super) fn is_scheduled_task_installed() -> bool {
+        let output = Command::new("schtasks")
+            .args(["/Query", "/TN", TASK_NAME])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        match output {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
     }
 
     pub(super) fn status_scheduled_task() -> Result<String> {

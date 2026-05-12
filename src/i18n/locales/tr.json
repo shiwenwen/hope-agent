@@ -12,6 +12,13 @@
     "feedback": "Geri bildirim ve sorunlar",
     "github": "GitHub",
     "releases": "Sürümler",
+    "restartApp": "Uygulamayı yeniden başlat",
+    "restartCancel": "İptal",
+    "restartConfirmAction": "Şimdi yeniden başlat",
+    "restartConfirmDesc": "Mevcut işlem sonlandırılacak ve yeni bir örnek otomatik olarak başlatılacak. Devam eden tüm sohbetler ve çalışan araçlar kesintiye uğrar.",
+    "restartConfirmTitle": "Hope Agent yeniden başlatılsın mı?",
+    "restartFailed": "Yeniden başlatma başarısız: {{error}}",
+    "restarting": "Yeniden başlatılıyor...",
     "tagline": "Cihazların ve sohbet uygulamalarının arasında akıcı şekilde geçen, kullandıkça seni daha iyi tanıyan bir masaüstü yapay zeka asistanı.",
     "techStack": "Teknoloji",
     "title": "Hakkında",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "Şu anda güncellemeler denetlenemedi.",
     "updateChecking": "Güncellemeler denetleniyor...",
     "updateDownloadProgress": "İndirme ilerlemesi: %{{percent}}",
-    "updateInstall": "v{{version}} sürümünü yükle",
-    "updateInstallFailed": "Güncelleme indirilemedi veya kurulamadı.",
     "updateErrorDetails": "Hata ayrıntıları",
     "updateErrorLogHint": "Tam izleme ~/.hope-agent/logs.db dosyasına yazıldı (category: updater). Araştırmak için /ha-logs kullanın veya sorunu bildirirken bu dosyayı ekleyin.",
+    "updateInstall": "v{{version}} sürümünü yükle",
     "updateInstalled": "Güncelleme yüklendi. Hope Agent yeniden başlatılıyor...",
+    "updateInstallFailed": "Güncelleme indirilemedi veya kurulamadı.",
     "updateInstalling": "v{{version}} sürümü yükleniyor...",
-    "updateRestartManually": "Güncelleme yüklendi ancak otomatik yeniden başlatma başarısız oldu. Lütfen Hope Agent'ı manuel olarak kapatıp yeniden açın.",
     "updateReady": "Yeni bir masaüstü sürümünü GitHub Releases'ten kontrol edebilir veya Hope Agent'ın güncellemeyi senin için kurmasına izin verebilirsin.",
+    "updateRestartManually": "Güncelleme yüklendi ancak otomatik yeniden başlatma başarısız oldu. Lütfen Hope Agent'ı manuel olarak kapatıp yeniden açın.",
     "updateUpToDate": "v{{version}} sürümünde güncelsin.",
     "version": "Sürüm"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "Sistem çalışma süresi",
       "virtualMem": "Sanal bellek"
     },
+    "plans": {
+      "active": "Devam ediyor",
+      "avgExecution": "Ortalama yürütme süresi",
+      "byAgent": "Agent bazında",
+      "byAgentCompleted": "Tamamlanan",
+      "byProject": "Proje bazında",
+      "completionRate": "Tamamlanma oranı",
+      "created": "Oluşturulan",
+      "creationTrend": "Oluşturma trendi (30 gün)",
+      "empty": "Seçili pencerede Plan verisi yok.",
+      "noProject": "Proje yok",
+      "sampleSize": "{{count}} tamamlanmış örnek",
+      "stateDistribution": "Durum dağılımı",
+      "total": "Toplam Plan"
+    },
     "tabs": {
       "dreaming": "Rüyalar",
       "errors": "Hatalar",
       "insights": "İçgörüler",
       "learning": "Öğrenme",
+      "plans": "Planlar",
       "recap": "Özet",
       "sessions": "Oturumlar",
       "system": "Sistem",
       "tasks": "Görevler",
       "tokens": "Token kullanımı",
-      "tools": "Araç kullanımı",
-      "plans": "Planlar"
+      "tools": "Araç kullanımı"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -899,21 +921,6 @@
       "frequency": "Çağrı sıklığı",
       "name": "Ad",
       "totalMs": "Toplam (ms)"
-    },
-    "plans": {
-      "active": "Devam ediyor",
-      "avgExecution": "Ortalama yürütme süresi",
-      "byAgent": "Agent bazında",
-      "byAgentCompleted": "Tamamlanan",
-      "byProject": "Proje bazında",
-      "completionRate": "Tamamlanma oranı",
-      "created": "Oluşturulan",
-      "creationTrend": "Oluşturma trendi (30 gün)",
-      "empty": "Seçili pencerede Plan verisi yok.",
-      "noProject": "Proje yok",
-      "sampleSize": "{{count}} tamamlanmış örnek",
-      "stateDistribution": "Durum dağılımı",
-      "total": "Toplam Plan"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "Kullandıkça seni daha iyi tanıyan bir AI asistanı — masaüstü, bulut ve IM; her an hazır.\nAşağıda kısa bir kurulum var — model seçimi dışındaki tüm adımlar atlanabilir.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Plan referansını mevcut sohbete ekle",
+    "badge": {
+      "archived": "Arşivlenmiş",
+      "completed": "Tamamlandı",
+      "executing": "Yürütülüyor",
+      "orphan": "Sahipsiz",
+      "planning": "Planlanıyor",
+      "review": "İnceleme"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Henüz Plan yok.",
+    "emptyPlan": "Bu Plan dosyası boş.",
+    "filter": {
+      "allAgents": "Tüm Agent'lar",
+      "state": {
+        "all": "Tüm durumlar",
+        "archived": "Arşivlenmiş (çıkış)",
+        "completed": "Tamamlandı",
+        "executing": "Yürütülüyor",
+        "planning": "Planlanıyor",
+        "review": "İnceleme"
+      }
+    },
+    "openInSession": "Oturumda aç",
+    "refresh": "Yenile",
+    "selectHint": "Sol taraftan bir Plan seçin.",
+    "sessionDeleted": "Sahip oturum silinmiş",
+    "title": "Planlar",
+    "untitled": "İsimsiz plan"
   },
   "planMode": {
     "approveAndExecute": "Yürütmeyi başlat",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
     "openaiResponsesDesc": "/v1/responses uyumlu servisler",
     "selectApiType": "API Türü Seçin"
-  },
-  "plans": {
-    "addToChat": "Plan referansını mevcut sohbete ekle",
-    "badge": {
-      "archived": "Arşivlenmiş",
-      "completed": "Tamamlandı",
-      "executing": "Yürütülüyor",
-      "orphan": "Sahipsiz",
-      "planning": "Planlanıyor",
-      "review": "İnceleme"
-    },
-    "count": "{{count}} Plan",
-    "empty": "Henüz Plan yok.",
-    "emptyPlan": "Bu Plan dosyası boş.",
-    "filter": {
-      "allAgents": "Tüm Agent'lar",
-      "state": {
-        "all": "Tüm durumlar",
-        "archived": "Arşivlenmiş (çıkış)",
-        "completed": "Tamamlandı",
-        "executing": "Yürütülüyor",
-        "planning": "Planlanıyor",
-        "review": "İnceleme"
-      }
-    },
-    "openInSession": "Oturumda aç",
-    "refresh": "Yenile",
-    "selectHint": "Sol taraftan bir Plan seçin.",
-    "sessionDeleted": "Sahip oturum silinmiş",
-    "title": "Planlar",
-    "untitled": "İsimsiz plan"
   }
 }

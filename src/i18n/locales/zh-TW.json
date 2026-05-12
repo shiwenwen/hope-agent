@@ -12,6 +12,13 @@
     "feedback": "回饋與問題",
     "github": "GitHub",
     "releases": "發行版本",
+    "restartApp": "重啟應用",
+    "restartCancel": "取消",
+    "restartConfirmAction": "立即重啟",
+    "restartConfirmDesc": "目前的處理程序會結束，新的執行個體會自動啟動。未保存的會話流和正在執行的工具會被中斷。",
+    "restartConfirmTitle": "重啟 Hope Agent？",
+    "restartFailed": "重啟失敗：{{error}}",
+    "restarting": "正在重啟...",
     "tagline": "跨端交接、越用越懂你的桌面 AI 助手。",
     "techStack": "技術棧",
     "title": "關于",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "暫時無法檢查更新。",
     "updateChecking": "正在檢查更新...",
     "updateDownloadProgress": "下載進度：{{percent}}%",
-    "updateInstall": "安裝 v{{version}}",
-    "updateInstallFailed": "下載或安裝更新失敗。",
     "updateErrorDetails": "錯誤詳情",
     "updateErrorLogHint": "完整堆疊已寫入 ~/.hope-agent/logs.db（category: updater），可透過 /ha-logs 排查或在回報問題時附上該檔案。",
+    "updateInstall": "安裝 v{{version}}",
     "updateInstalled": "更新已安裝，正在重新啟動 Hope Agent...",
+    "updateInstallFailed": "下載或安裝更新失敗。",
     "updateInstalling": "正在安裝 v{{version}}...",
-    "updateRestartManually": "更新已安裝，但自動重啟失敗，請手動退出後重新打開 Hope Agent。",
     "updateReady": "可以在 GitHub Releases 查看新版本，也可以讓 Hope Agent 直接安裝桌面更新。",
+    "updateRestartManually": "更新已安裝，但自動重啟失敗，請手動退出後重新打開 Hope Agent。",
     "updateUpToDate": "目前已是最新版本 v{{version}}。",
     "version": "版本"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "系統運行",
       "virtualMem": "虛擬內存"
     },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均執行時間",
+      "byAgent": "依 Agent 分組",
+      "byAgentCompleted": "已完成",
+      "byProject": "依專案分組",
+      "completionRate": "完成率",
+      "created": "新建",
+      "creationTrend": "30 天建立趨勢",
+      "empty": "所選時間範圍內無 Plan 資料。",
+      "noProject": "未歸屬專案",
+      "sampleSize": "已取樣 {{count}} 個完成的 Plan",
+      "stateDistribution": "狀態分佈",
+      "total": "Plan 總數"
+    },
     "tabs": {
       "dreaming": "記憶夢境",
       "errors": "異常監控",
       "insights": "綜合概覽",
       "learning": "學習追蹤",
+      "plans": "Plan",
       "recap": "複盤",
       "sessions": "會話分析",
       "system": "系統監控",
       "tasks": "任務統計",
       "tokens": "Token 用量",
-      "tools": "工具使用",
-      "plans": "Plan"
+      "tools": "工具使用"
     },
     "task": {
       "activeJobs": "活躍任務",
@@ -899,21 +921,6 @@
       "frequency": "調用頻次",
       "name": "工具名稱",
       "totalMs": "總耗時(ms)"
-    },
-    "plans": {
-      "active": "進行中",
-      "avgExecution": "平均執行時間",
-      "byAgent": "依 Agent 分組",
-      "byAgentCompleted": "已完成",
-      "byProject": "依專案分組",
-      "completionRate": "完成率",
-      "created": "新建",
-      "creationTrend": "30 天建立趨勢",
-      "empty": "所選時間範圍內無 Plan 資料。",
-      "noProject": "未歸屬專案",
-      "sampleSize": "已取樣 {{count}} 個完成的 Plan",
-      "stateDistribution": "狀態分佈",
-      "total": "Plan 總數"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "越用越懂你的 AI 助手——桌面、雲端、IM，隨叫隨到。\n下面是一段簡短的引導——除了選擇模型，其它每一步都可以跳過。",
       "title": "欢迎使用 Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "將該 Plan 加入目前對話",
+    "badge": {
+      "archived": "已封存",
+      "completed": "已完成",
+      "executing": "執行中",
+      "orphan": "孤立檔案",
+      "planning": "規劃中",
+      "review": "審核中"
+    },
+    "count": "共 {{count}} 個 Plan",
+    "empty": "尚無 Plan。",
+    "emptyPlan": "此 Plan 檔案為空。",
+    "filter": {
+      "allAgents": "全部 Agent",
+      "state": {
+        "all": "全部狀態",
+        "archived": "已封存 (已離開)",
+        "completed": "已完成",
+        "executing": "執行中",
+        "planning": "規劃中",
+        "review": "審核中"
+      }
+    },
+    "openInSession": "前往所屬會話",
+    "refresh": "重新整理",
+    "selectHint": "請在左側選擇一個 Plan 以檢視內容。",
+    "sessionDeleted": "所屬會話已刪除",
+    "title": "Plan 歷史",
+    "untitled": "未命名 Plan"
   },
   "planMode": {
     "approveAndExecute": "開始執行",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "兼容 /v1/chat/completions 的服務",
     "openaiResponsesDesc": "兼容 /v1/responses 的服務",
     "selectApiType": "選擇 API 類型"
-  },
-  "plans": {
-    "addToChat": "將該 Plan 加入目前對話",
-    "badge": {
-      "archived": "已封存",
-      "completed": "已完成",
-      "executing": "執行中",
-      "orphan": "孤立檔案",
-      "planning": "規劃中",
-      "review": "審核中"
-    },
-    "count": "共 {{count}} 個 Plan",
-    "empty": "尚無 Plan。",
-    "emptyPlan": "此 Plan 檔案為空。",
-    "filter": {
-      "allAgents": "全部 Agent",
-      "state": {
-        "all": "全部狀態",
-        "archived": "已封存 (已離開)",
-        "completed": "已完成",
-        "executing": "執行中",
-        "planning": "規劃中",
-        "review": "審核中"
-      }
-    },
-    "openInSession": "前往所屬會話",
-    "refresh": "重新整理",
-    "selectHint": "請在左側選擇一個 Plan 以檢視內容。",
-    "sessionDeleted": "所屬會話已刪除",
-    "title": "Plan 歷史",
-    "untitled": "未命名 Plan"
   }
 }

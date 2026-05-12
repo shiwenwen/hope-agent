@@ -2,6 +2,7 @@ mod core_tools;
 mod extra_tools;
 mod plan_tools;
 mod registry;
+mod restart_tools;
 mod special_tools;
 mod task_tools;
 mod types;

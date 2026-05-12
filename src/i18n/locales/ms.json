@@ -12,6 +12,13 @@
     "feedback": "Maklum balas dan isu",
     "github": "GitHub",
     "releases": "Keluaran",
+    "restartApp": "Mulakan semula apl",
+    "restartCancel": "Batal",
+    "restartConfirmAction": "Mulakan semula sekarang",
+    "restartConfirmDesc": "Proses semasa akan keluar dan instans baharu akan dimulakan secara automatik. Sebarang perbualan atau alat yang sedang berjalan akan diganggu.",
+    "restartConfirmTitle": "Mulakan semula Hope Agent?",
+    "restartFailed": "Mulakan semula gagal: {{error}}",
+    "restarting": "Memulakan semula...",
     "tagline": "Pembantu AI desktop yang berpindah dengan lancar antara peranti dan apl sembang anda, dan semakin mengenali anda setiap kali digunakan.",
     "techStack": "Tumpukan Teknologi",
     "title": "Tentang",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "Tidak dapat menyemak kemas kini sekarang.",
     "updateChecking": "Sedang menyemak kemas kini...",
     "updateDownloadProgress": "Kemajuan muat turun: {{percent}}%",
-    "updateInstall": "Pasang v{{version}}",
-    "updateInstallFailed": "Muat turun atau pemasangan kemas kini gagal.",
     "updateErrorDetails": "Butiran ralat",
     "updateErrorLogHint": "Jejak penuh telah ditulis ke ~/.hope-agent/logs.db (category: updater). Gunakan /ha-logs untuk menyiasat atau lampirkan fail tersebut semasa melaporkan masalah.",
+    "updateInstall": "Pasang v{{version}}",
     "updateInstalled": "Kemas kini telah dipasang. Sedang memulakan semula Hope Agent...",
+    "updateInstallFailed": "Muat turun atau pemasangan kemas kini gagal.",
     "updateInstalling": "Sedang memasang v{{version}}...",
-    "updateRestartManually": "Kemas kini telah dipasang tetapi mulakan semula automatik gagal. Sila keluar Hope Agent secara manual lalu buka semula.",
     "updateReady": "Anda boleh melihat binaan desktop baharu di GitHub Releases atau biarkan Hope Agent memasang kemas kini itu untuk anda.",
+    "updateRestartManually": "Kemas kini telah dipasang tetapi mulakan semula automatik gagal. Sila keluar Hope Agent secara manual lalu buka semula.",
     "updateUpToDate": "Anda sudah menggunakan versi terkini v{{version}}.",
     "version": "Versi"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "Masa berjalan sistem",
       "virtualMem": "Memori maya"
     },
+    "plans": {
+      "active": "Sedang berlangsung",
+      "avgExecution": "Tempoh perlaksanaan purata",
+      "byAgent": "Mengikut Agent",
+      "byAgentCompleted": "Selesai",
+      "byProject": "Mengikut projek",
+      "completionRate": "Kadar penyelesaian",
+      "created": "Dicipta",
+      "creationTrend": "Trend penciptaan (30 hari)",
+      "empty": "Tiada data Plan dalam tempoh dipilih.",
+      "noProject": "Tanpa projek",
+      "sampleSize": "Disampel {{count}} larian selesai",
+      "stateDistribution": "Taburan keadaan",
+      "total": "Jumlah Plan"
+    },
     "tabs": {
       "dreaming": "Mimpi",
       "errors": "Ralat",
       "insights": "Cerapan",
       "learning": "Pembelajaran",
+      "plans": "Plan",
       "recap": "Tinjauan",
       "sessions": "Sesi",
       "system": "Sistem",
       "tasks": "Tugasan",
       "tokens": "Penggunaan Token",
-      "tools": "Penggunaan Alat",
-      "plans": "Plan"
+      "tools": "Penggunaan Alat"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -899,21 +921,6 @@
       "frequency": "Kekerapan panggilan",
       "name": "Nama",
       "totalMs": "Jumlah (ms)"
-    },
-    "plans": {
-      "active": "Sedang berlangsung",
-      "avgExecution": "Tempoh perlaksanaan purata",
-      "byAgent": "Mengikut Agent",
-      "byAgentCompleted": "Selesai",
-      "byProject": "Mengikut projek",
-      "completionRate": "Kadar penyelesaian",
-      "created": "Dicipta",
-      "creationTrend": "Trend penciptaan (30 hari)",
-      "empty": "Tiada data Plan dalam tempoh dipilih.",
-      "noProject": "Tanpa projek",
-      "sampleSize": "Disampel {{count}} larian selesai",
-      "stateDistribution": "Taburan keadaan",
-      "total": "Jumlah Plan"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "Pembantu AI yang semakin mengenali anda setiap kali digunakan — di desktop, di awan dan di IM, sentiasa bersedia.\nDi bawah ialah panduan ringkas — semua langkah boleh dilangkau kecuali memilih model.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Tambah rujukan Plan ke perbualan semasa",
+    "badge": {
+      "archived": "Diarkibkan",
+      "completed": "Selesai",
+      "executing": "Sedang dijalankan",
+      "orphan": "Yatim",
+      "planning": "Sedang merancang",
+      "review": "Dalam semakan"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Tiada Plan lagi.",
+    "emptyPlan": "Fail Plan ini kosong.",
+    "filter": {
+      "allAgents": "Semua Agent",
+      "state": {
+        "all": "Semua keadaan",
+        "archived": "Diarkibkan (keluar)",
+        "completed": "Selesai",
+        "executing": "Sedang dijalankan",
+        "planning": "Sedang merancang",
+        "review": "Dalam semakan"
+      }
+    },
+    "openInSession": "Buka dalam sesi",
+    "refresh": "Muat semula",
+    "selectHint": "Pilih satu Plan di sebelah kiri untuk melihat kandungannya.",
+    "sessionDeleted": "Sesi pemilik telah dipadam",
+    "title": "Plan",
+    "untitled": "Plan tanpa tajuk"
   },
   "planMode": {
     "approveAndExecute": "Mula pelaksanaan",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "Perkhidmatan serasi dengan /v1/chat/completions",
     "openaiResponsesDesc": "Perkhidmatan serasi dengan /v1/responses",
     "selectApiType": "Pilih Jenis API"
-  },
-  "plans": {
-    "addToChat": "Tambah rujukan Plan ke perbualan semasa",
-    "badge": {
-      "archived": "Diarkibkan",
-      "completed": "Selesai",
-      "executing": "Sedang dijalankan",
-      "orphan": "Yatim",
-      "planning": "Sedang merancang",
-      "review": "Dalam semakan"
-    },
-    "count": "{{count}} Plan",
-    "empty": "Tiada Plan lagi.",
-    "emptyPlan": "Fail Plan ini kosong.",
-    "filter": {
-      "allAgents": "Semua Agent",
-      "state": {
-        "all": "Semua keadaan",
-        "archived": "Diarkibkan (keluar)",
-        "completed": "Selesai",
-        "executing": "Sedang dijalankan",
-        "planning": "Sedang merancang",
-        "review": "Dalam semakan"
-      }
-    },
-    "openInSession": "Buka dalam sesi",
-    "refresh": "Muat semula",
-    "selectHint": "Pilih satu Plan di sebelah kiri untuk melihat kandungannya.",
-    "sessionDeleted": "Sesi pemilik telah dipadam",
-    "title": "Plan",
-    "untitled": "Plan tanpa tajuk"
   }
 }

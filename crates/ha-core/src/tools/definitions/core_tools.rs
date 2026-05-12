@@ -1295,6 +1295,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     // ── Self-Update (Meta tier — always eager so model can suggest upgrades) ──
     tools.push(super::update_tools::get_app_update_tool());
 
+    // ── Lifecycle restart (Meta tier — same rationale as app_update) ──
+    tools.push(super::restart_tools::get_app_restart_tool());
+
     // ── Agent Team (deferred — discovered via tool_search) ──
     tools.push(super::special_tools::get_team_tool());
 

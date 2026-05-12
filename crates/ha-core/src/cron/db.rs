@@ -243,6 +243,28 @@ impl CronDB {
         Ok(jobs)
     }
 
+    /// List jobs with a non-null `running_at` — i.e. currently executing. Used
+    /// by the restart pre-flight to warn the user before tearing down a
+    /// process that has cron tasks in-flight.
+    pub fn list_running_jobs(&self) -> Result<Vec<CronJob>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
+             FROM cron_jobs WHERE running_at IS NOT NULL"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            row_to_cron_job(row).map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
+        })?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row?);
+        }
+        Ok(jobs)
+    }
+
     /// Get all jobs that are due for execution (status=active, not running, next_run_at <= now).
     pub fn get_due_jobs(&self, now: &DateTime<Utc>) -> Result<Vec<CronJob>> {
         let now_str = now.to_rfc3339();

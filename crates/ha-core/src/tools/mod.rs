@@ -2,6 +2,7 @@ use serde_json::Value;
 
 pub(crate) mod acp_spawn;
 mod agents;
+mod app_restart;
 mod app_update;
 mod apply_patch;
 pub(crate) mod approval;
@@ -105,6 +106,7 @@ pub const TOOL_TASK_CREATE: &str = "task_create";
 pub const TOOL_TASK_UPDATE: &str = "task_update";
 pub const TOOL_TASK_LIST: &str = "task_list";
 pub const TOOL_APP_UPDATE: &str = "app_update";
+pub const TOOL_APP_RESTART: &str = "app_restart";
 pub const TOOL_JOB_STATUS: &str = "job_status";
 pub const TOOL_RUNTIME_CANCEL: &str = "runtime_cancel";
 pub const TOOL_PROJECT_READ_FILE: &str = "project_read_file";

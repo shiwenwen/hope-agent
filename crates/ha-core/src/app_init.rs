@@ -54,6 +54,29 @@ pub fn app_version() -> &'static str {
         .unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
+/// Original `hope-agent server …` argv (everything after the `server`
+/// subcommand) captured at startup so [`crate::lifecycle::restart`] can
+/// re-spawn a detached child with the same bind / api-key / flags when the
+/// process is running foreground (no system service to delegate to). Stored
+/// as `Vec<String>` rather than `&'static [&str]` because argv is owned by
+/// `main` and we need a `'static` snapshot.
+static SERVER_LAUNCH_ARGS: OnceLock<Vec<String>> = OnceLock::new();
+
+/// Called from the `server` binary entrypoint with the slice that was passed
+/// to `parse_server_args` (`args[2..]`). First-write-wins.
+pub fn set_server_launch_args(args: Vec<String>) {
+    let _ = SERVER_LAUNCH_ARGS.set(args);
+}
+
+/// Returns the captured argv slice, or an empty slice if `init_runtime` is
+/// running in a non-`server` mode or no caller registered.
+pub fn server_launch_args() -> &'static [String] {
+    SERVER_LAUNCH_ARGS
+        .get()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
+}
+
 /// Returns the role string from the first `init_runtime()` call, or `None`
 /// if `init_runtime` hasn't run yet. Most callers want [`is_desktop`] for
 /// readable mode checks instead of comparing the string directly.

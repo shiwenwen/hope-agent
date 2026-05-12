@@ -12,6 +12,13 @@
     "feedback": "الملاحظات والمشكلات",
     "github": "GitHub",
     "releases": "الإصدارات",
+    "restartApp": "إعادة تشغيل التطبيق",
+    "restartCancel": "إلغاء",
+    "restartConfirmAction": "إعادة التشغيل الآن",
+    "restartConfirmDesc": "ستنتهي العملية الحالية وستبدأ نسخة جديدة تلقائياً. ستتم مقاطعة أي محادثات أو أدوات قيد التنفيذ.",
+    "restartConfirmTitle": "هل تريد إعادة تشغيل Hope Agent؟",
+    "restartFailed": "فشلت إعادة التشغيل: {{error}}",
+    "restarting": "جارٍ إعادة التشغيل...",
     "tagline": "مساعد ذكاء اصطناعي مكتبي يتنقل معك بسلاسة بين أجهزتك ومحادثاتك، ويعرفك أكثر كلما استخدمته.",
     "techStack": "المكدس التقني",
     "title": "حول",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "تعذر التحقق من التحديثات الآن.",
     "updateChecking": "جارٍ التحقق من التحديثات...",
     "updateDownloadProgress": "تقدم التنزيل: {{percent}}%",
-    "updateInstall": "تثبيت v{{version}}",
-    "updateInstallFailed": "فشل تنزيل التحديث أو تثبيته.",
     "updateErrorDetails": "تفاصيل الخطأ",
     "updateErrorLogHint": "تم تسجيل التتبع الكامل في ~/.hope-agent/logs.db (category: updater). استخدم /ha-logs للتحقيق أو أرفق هذا الملف عند الإبلاغ عن المشكلة.",
+    "updateInstall": "تثبيت v{{version}}",
     "updateInstalled": "تم تثبيت التحديث. جارٍ إعادة تشغيل Hope Agent...",
+    "updateInstallFailed": "فشل تنزيل التحديث أو تثبيته.",
     "updateInstalling": "جارٍ تثبيت v{{version}}...",
-    "updateRestartManually": "تم تثبيت التحديث ولكن فشلت إعادة التشغيل التلقائية. يرجى إنهاء Hope Agent يدويًا ثم إعادة فتحه.",
     "updateReady": "يمكنك مراجعة GitHub Releases لإصدار سطح مكتب أحدث أو ترك Hope Agent يثبّت التحديث لك.",
+    "updateRestartManually": "تم تثبيت التحديث ولكن فشلت إعادة التشغيل التلقائية. يرجى إنهاء Hope Agent يدويًا ثم إعادة فتحه.",
     "updateUpToDate": "أنت تستخدم أحدث إصدار v{{version}}.",
     "version": "الإصدار"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "وقت تشغيل النظام",
       "virtualMem": "الذاكرة الافتراضية"
     },
+    "plans": {
+      "active": "قيد التنفيذ",
+      "avgExecution": "متوسط زمن التنفيذ",
+      "byAgent": "حسب Agent",
+      "byAgentCompleted": "مكتمل",
+      "byProject": "حسب المشروع",
+      "completionRate": "نسبة الإكمال",
+      "created": "تم إنشاؤها",
+      "creationTrend": "اتجاه الإنشاء (30 يومًا)",
+      "empty": "لا توجد بيانات خطط في النافذة المختارة.",
+      "noProject": "بدون مشروع",
+      "sampleSize": "تم أخذ عينة من {{count}} مكتملة",
+      "stateDistribution": "توزيع الحالات",
+      "total": "إجمالي الخطط"
+    },
     "tabs": {
       "dreaming": "الأحلام",
       "errors": "الأخطاء",
       "insights": "رؤى",
       "learning": "التعلّم",
+      "plans": "الخطط",
       "recap": "المراجعة",
       "sessions": "الجلسات",
       "system": "النظام",
       "tasks": "المهام",
       "tokens": "استخدام الرموز",
-      "tools": "استخدام الأدوات",
-      "plans": "الخطط"
+      "tools": "استخدام الأدوات"
     },
     "task": {
       "activeJobs": "النشطة",
@@ -899,21 +921,6 @@
       "frequency": "تكرار الاستدعاءات",
       "name": "الاسم",
       "totalMs": "الإجمالي (ms)"
-    },
-    "plans": {
-      "active": "قيد التنفيذ",
-      "avgExecution": "متوسط زمن التنفيذ",
-      "byAgent": "حسب Agent",
-      "byAgentCompleted": "مكتمل",
-      "byProject": "حسب المشروع",
-      "completionRate": "نسبة الإكمال",
-      "created": "تم إنشاؤها",
-      "creationTrend": "اتجاه الإنشاء (30 يومًا)",
-      "empty": "لا توجد بيانات خطط في النافذة المختارة.",
-      "noProject": "بدون مشروع",
-      "sampleSize": "تم أخذ عينة من {{count}} مكتملة",
-      "stateDistribution": "توزيع الحالات",
-      "total": "إجمالي الخطط"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "مساعد ذكاء اصطناعي يفهمك أكثر كلما استخدمته — على سطح المكتب والسحابة والمحادثات، جاهز دائمًا عند الطلب.\nفيما يلي إرشادات سريعة — يمكن تخطي جميع الخطوات باستثناء اختيار النموذج.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "إضافة مرجع الخطة إلى المحادثة الحالية",
+    "badge": {
+      "archived": "مؤرشف",
+      "completed": "مكتمل",
+      "executing": "قيد التنفيذ",
+      "orphan": "يتيم",
+      "planning": "قيد التخطيط",
+      "review": "قيد المراجعة"
+    },
+    "count": "{{count}} خطة",
+    "empty": "لا توجد خطط بعد.",
+    "emptyPlan": "ملف الخطة فارغ.",
+    "filter": {
+      "allAgents": "كل الـ Agent",
+      "state": {
+        "all": "كل الحالات",
+        "archived": "مؤرشف (تم الخروج)",
+        "completed": "مكتمل",
+        "executing": "قيد التنفيذ",
+        "planning": "قيد التخطيط",
+        "review": "قيد المراجعة"
+      }
+    },
+    "openInSession": "الفتح في الجلسة",
+    "refresh": "تحديث",
+    "selectHint": "اختر خطة على اليسار لعرض محتواها.",
+    "sessionDeleted": "تم حذف الجلسة المالكة",
+    "title": "الخطط",
+    "untitled": "خطة بدون عنوان"
   },
   "planMode": {
     "approveAndExecute": "بدء التنفيذ",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "خدمات متوافقة مع /v1/chat/completions",
     "openaiResponsesDesc": "خدمات متوافقة مع /v1/responses",
     "selectApiType": "اختر نوع API"
-  },
-  "plans": {
-    "addToChat": "إضافة مرجع الخطة إلى المحادثة الحالية",
-    "badge": {
-      "archived": "مؤرشف",
-      "completed": "مكتمل",
-      "executing": "قيد التنفيذ",
-      "orphan": "يتيم",
-      "planning": "قيد التخطيط",
-      "review": "قيد المراجعة"
-    },
-    "count": "{{count}} خطة",
-    "empty": "لا توجد خطط بعد.",
-    "emptyPlan": "ملف الخطة فارغ.",
-    "filter": {
-      "allAgents": "كل الـ Agent",
-      "state": {
-        "all": "كل الحالات",
-        "archived": "مؤرشف (تم الخروج)",
-        "completed": "مكتمل",
-        "executing": "قيد التنفيذ",
-        "planning": "قيد التخطيط",
-        "review": "قيد المراجعة"
-      }
-    },
-    "openInSession": "الفتح في الجلسة",
-    "refresh": "تحديث",
-    "selectHint": "اختر خطة على اليسار لعرض محتواها.",
-    "sessionDeleted": "تم حذف الجلسة المالكة",
-    "title": "الخطط",
-    "untitled": "خطة بدون عنوان"
   }
 }

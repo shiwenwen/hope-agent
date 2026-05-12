@@ -289,6 +289,19 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **Bare-binary release artifact**：`.github/workflows/release.yml` 每平台 build 后跑 `Bundle + sign bare binary` step，用同一 Minisign 私钥签 `tar.gz` (Unix) / `zip` (Windows)；`patch-manifest` job (`needs: build`) 合并 `bare_binary.platforms.<key>` 写回 `latest.json`
 - **Binary swap 必须走 [`platform::atomic_replace_binary`](crates/ha-core/src/platform/mod.rs)**——Unix `rename(2)` 不影响在跑进程，Windows `MoveFileExW` 把 in-use binary rename-aside；**禁止 `fs::write` 直接覆盖运行中 binary**
 
+### App 重启（lifecycle）
+
+详见 [`app-lifecycle.md`](docs/architecture/app-lifecycle.md)。
+
+- **四档路由**（按 `runtime_role` + `is_service_installed`）：`Desktop`（Tauri guardian 接管 `exit(42)`）/ `Service`（复用 `updater::service_control::restart_service` 调 launchctl / systemctl / schtasks）/ `Respawn`（前台 server 起 detached 子进程 + 200ms 后 `exit(0)`）/ `Unsupported`（ACP 拒绝，IDE 自己重启）
+- **`app_restart` 工具**（`tools::app_restart`，tier=`Core{Meta}`，`internal=false`，`async_capable=false`）：唯一 `action="restart"`（保留字段，省略也行）。**两道 `ask_user_question` 都不走权限引擎**——Plan / YOLO / Global YOLO 都跳不过去：
+  1. **Pre-flight**：[`lifecycle::collect_inflight`](crates/ha-core/src/lifecycle/inflight.rs) 扫描 active chat turn / async tool job / running cron job 三类，非空时多弹一次"会中断这些事，仍要继续吗？"
+  2. **Confirmation**：永远弹的 Yes/No，带 Route label
+- **AppLifecycleBridge trait** ([`lifecycle::AppLifecycleBridge`](crates/ha-core/src/lifecycle/mod.rs)) 由 src-tauri 在 `setup.rs` 注册（`crate::commands::lifecycle_bridge::register`）；ha-core 通过 `OnceLock` 反向调用，**严禁** ha-core 直接依赖 tauri runtime
+- **server 启动 argv 单一真相源**：[`app_init::set_server_launch_args`](crates/ha-core/src/app_init.rs) 在 [`main.rs#run_server`](src-tauri/src/main.rs) 启动时把 `args[2..]` 存进 `OnceLock`；detach respawn 路径读 `server_launch_args()` 还原 `--bind` / `--api-key` 等。**新增任何 `server` 子命令参数时必须确保它包含在 `args[2..]` 切片里**——否则 detach 重启会丢失这个参数
+- **三入口共用 `lifecycle::restart()` 单一真相源**：模型工具 / `/restart` 斜杠（[`skills/ha-restart/SKILL.md`](skills/ha-restart/SKILL.md)）/ GUI "重启应用"按钮（`POST /api/system/restart` + Tauri `request_app_restart` command）。**禁止单独再写一条 `app.exit(42)` 直调** ——绕开 lifecycle 会少做 pre-flight / 错过 IM/Service 模式路由
+- **detach respawn 路径自杀前必须留 ≥ 200ms grace** ([`respawn::SELF_EXIT_GRACE`](crates/ha-core/src/lifecycle/respawn.rs))——给 EventBus emit / 工具结果 flush 留时间。改小这个值前先验证 streaming 工具结果不会被截断
+
 ## 编码规范
 
 ### 通用

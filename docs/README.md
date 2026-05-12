@@ -79,6 +79,7 @@
 | [安全子系统](architecture/security.md)         | SSRF 三档 policy、`trusted_hosts`、Metadata IP 硬拒、Dangerous Mode (YOLO)、HTTP 响应封顶 | `security/`             |
 | [跨平台抽象层](architecture/platform.md)       | OS 适配入口集合（进程组 kill、安全文件写、shell 命令、系统代理探测、Chrome 定位、advisory lock、GPU 探测、原子 binary swap 等）、Unix/Windows 双实现 | `platform/`             |
 | [自升级](architecture/self-update.md)        | 三档路径（Tauri bundle / 包管理器 / 自包含 binary swap）、Minisign 单一 pubkey、`app_update` 工具 + `ha-self-update` skill、bare-binary 发布产物 | `updater/`, `tools/app_update.rs`, `src-tauri/src/commands/update_bridge.rs` |
+| [App 重启](architecture/app-lifecycle.md)    | 四档形态路由（Desktop guardian / Service supervisor / detached respawn / ACP 拒绝）、pre-flight 在飞工作扫描、`app_restart` 工具 + `/restart` 斜杠 + GUI 按钮三入口共用 `lifecycle::restart()` | `lifecycle/`, `tools/app_restart.rs`, `src-tauri/src/commands/lifecycle_bridge.rs` |
 
 
 ## 平台支持

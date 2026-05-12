@@ -12,6 +12,13 @@
     "feedback": "Phản hồi và lỗi",
     "github": "GitHub",
     "releases": "Bản phát hành",
+    "restartApp": "Khởi động lại ứng dụng",
+    "restartCancel": "Hủy",
+    "restartConfirmAction": "Khởi động lại ngay",
+    "restartConfirmDesc": "Tiến trình hiện tại sẽ thoát và một phiên bản mới sẽ tự động khởi động. Mọi cuộc trò chuyện hoặc công cụ đang chạy sẽ bị gián đoạn.",
+    "restartConfirmTitle": "Khởi động lại Hope Agent?",
+    "restartFailed": "Khởi động lại thất bại: {{error}}",
+    "restarting": "Đang khởi động lại...",
     "tagline": "Trợ lý AI desktop chuyển tiếp liền mạch giữa thiết bị và ứng dụng trò chuyện của bạn, càng dùng càng hiểu bạn hơn.",
     "techStack": "Công nghệ",
     "title": "Giới thiệu",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "Không thể kiểm tra cập nhật lúc này.",
     "updateChecking": "Đang kiểm tra cập nhật...",
     "updateDownloadProgress": "Tiến độ tải xuống: {{percent}}%",
-    "updateInstall": "Cài đặt v{{version}}",
-    "updateInstallFailed": "Tải xuống hoặc cài đặt bản cập nhật thất bại.",
     "updateErrorDetails": "Chi tiết lỗi",
     "updateErrorLogHint": "Toàn bộ trace đã được ghi vào ~/.hope-agent/logs.db (category: updater). Dùng /ha-logs để tra cứu hoặc đính kèm tệp đó khi báo lỗi.",
+    "updateInstall": "Cài đặt v{{version}}",
     "updateInstalled": "Đã cài đặt bản cập nhật. Đang khởi động lại Hope Agent...",
+    "updateInstallFailed": "Tải xuống hoặc cài đặt bản cập nhật thất bại.",
     "updateInstalling": "Đang cài đặt v{{version}}...",
-    "updateRestartManually": "Đã cài đặt bản cập nhật nhưng tự động khởi động lại thất bại. Vui lòng thoát Hope Agent thủ công rồi mở lại.",
     "updateReady": "Bạn có thể xem bản desktop mới trên GitHub Releases hoặc để Hope Agent tự cài đặt cho bạn.",
+    "updateRestartManually": "Đã cài đặt bản cập nhật nhưng tự động khởi động lại thất bại. Vui lòng thoát Hope Agent thủ công rồi mở lại.",
     "updateUpToDate": "Bạn đang ở phiên bản mới nhất v{{version}}.",
     "version": "Phiên bản"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "Thời gian hoạt động hệ thống",
       "virtualMem": "Bộ nhớ ảo"
     },
+    "plans": {
+      "active": "Đang tiến hành",
+      "avgExecution": "Thời gian thực thi trung bình",
+      "byAgent": "Theo Agent",
+      "byAgentCompleted": "Hoàn tất",
+      "byProject": "Theo dự án",
+      "completionRate": "Tỷ lệ hoàn tất",
+      "created": "Tạo",
+      "creationTrend": "Xu hướng tạo (30 ngày)",
+      "empty": "Không có dữ liệu Plan trong khoảng đã chọn.",
+      "noProject": "Không có dự án",
+      "sampleSize": "Đã lấy mẫu {{count}} lần hoàn tất",
+      "stateDistribution": "Phân bố trạng thái",
+      "total": "Tổng số Plan"
+    },
     "tabs": {
       "dreaming": "Giấc mơ",
       "errors": "Lỗi",
       "insights": "Insights",
       "learning": "Học tập",
+      "plans": "Plan",
       "recap": "Đánh giá",
       "sessions": "Phiên",
       "system": "Hệ thống",
       "tasks": "Tác vụ",
       "tokens": "Sử dụng token",
-      "tools": "Sử dụng công cụ",
-      "plans": "Plan"
+      "tools": "Sử dụng công cụ"
     },
     "task": {
       "activeJobs": "Hoạt động",
@@ -899,21 +921,6 @@
       "frequency": "Tần suất gọi",
       "name": "Tên",
       "totalMs": "Tổng (ms)"
-    },
-    "plans": {
-      "active": "Đang tiến hành",
-      "avgExecution": "Thời gian thực thi trung bình",
-      "byAgent": "Theo Agent",
-      "byAgentCompleted": "Hoàn tất",
-      "byProject": "Theo dự án",
-      "completionRate": "Tỷ lệ hoàn tất",
-      "created": "Tạo",
-      "creationTrend": "Xu hướng tạo (30 ngày)",
-      "empty": "Không có dữ liệu Plan trong khoảng đã chọn.",
-      "noProject": "Không có dự án",
-      "sampleSize": "Đã lấy mẫu {{count}} lần hoàn tất",
-      "stateDistribution": "Phân bố trạng thái",
-      "total": "Tổng số Plan"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "Một trợ lý AI càng dùng càng hiểu bạn — trên máy tính, trên đám mây và trong IM, luôn sẵn sàng.\nDưới đây là hướng dẫn nhanh — ngoại trừ chọn mô hình, mọi bước đều có thể bỏ qua.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Thêm tham chiếu Plan vào cuộc trò chuyện hiện tại",
+    "badge": {
+      "archived": "Đã lưu trữ",
+      "completed": "Hoàn tất",
+      "executing": "Đang thực thi",
+      "orphan": "Mồ côi",
+      "planning": "Đang lên kế hoạch",
+      "review": "Đang xét duyệt"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Chưa có Plan nào.",
+    "emptyPlan": "Tệp Plan này trống.",
+    "filter": {
+      "allAgents": "Tất cả Agent",
+      "state": {
+        "all": "Tất cả trạng thái",
+        "archived": "Đã lưu trữ (đã thoát)",
+        "completed": "Hoàn tất",
+        "executing": "Đang thực thi",
+        "planning": "Đang lên kế hoạch",
+        "review": "Đang xét duyệt"
+      }
+    },
+    "openInSession": "Mở trong phiên",
+    "refresh": "Làm mới",
+    "selectHint": "Chọn một Plan ở bên trái để xem nội dung.",
+    "sessionDeleted": "Phiên sở hữu đã bị xoá",
+    "title": "Lịch sử Plan",
+    "untitled": "Plan chưa đặt tên"
   },
   "planMode": {
     "approveAndExecute": "Bắt đầu thực thi",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "Dịch vụ tương thích /v1/chat/completions",
     "openaiResponsesDesc": "Dịch vụ tương thích /v1/responses",
     "selectApiType": "Chọn loại API"
-  },
-  "plans": {
-    "addToChat": "Thêm tham chiếu Plan vào cuộc trò chuyện hiện tại",
-    "badge": {
-      "archived": "Đã lưu trữ",
-      "completed": "Hoàn tất",
-      "executing": "Đang thực thi",
-      "orphan": "Mồ côi",
-      "planning": "Đang lên kế hoạch",
-      "review": "Đang xét duyệt"
-    },
-    "count": "{{count}} Plan",
-    "empty": "Chưa có Plan nào.",
-    "emptyPlan": "Tệp Plan này trống.",
-    "filter": {
-      "allAgents": "Tất cả Agent",
-      "state": {
-        "all": "Tất cả trạng thái",
-        "archived": "Đã lưu trữ (đã thoát)",
-        "completed": "Hoàn tất",
-        "executing": "Đang thực thi",
-        "planning": "Đang lên kế hoạch",
-        "review": "Đang xét duyệt"
-      }
-    },
-    "openInSession": "Mở trong phiên",
-    "refresh": "Làm mới",
-    "selectHint": "Chọn một Plan ở bên trái để xem nội dung.",
-    "sessionDeleted": "Phiên sở hữu đã bị xoá",
-    "title": "Lịch sử Plan",
-    "untitled": "Plan chưa đặt tên"
   }
 }

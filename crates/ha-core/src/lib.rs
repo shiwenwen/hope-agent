@@ -44,6 +44,7 @@ pub mod failover;
 pub mod file_extract;
 pub mod filesystem;
 pub mod guardian;
+pub mod lifecycle;
 pub mod local_embedding;
 pub mod local_llm;
 pub mod local_model_jobs;
@@ -88,8 +89,9 @@ pub mod weather_location_macos;
 
 // ── Re-exports ────────────────────────────────────────────────────
 pub use app_init::{
-    app_version, build_app_state, init_app_state, init_runtime, set_app_version,
-    start_background_tasks, start_minimal_background_tasks,
+    app_version, build_app_state, init_app_state, init_runtime, server_launch_args,
+    set_app_version, set_server_launch_args, start_background_tasks,
+    start_minimal_background_tasks,
 };
 #[allow(deprecated)]
 pub use globals::{

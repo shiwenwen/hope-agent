@@ -379,6 +379,10 @@ fn run_server(args: &[String]) {
     // race with `ensure_default_agent` pre-creating an empty `agents/ha-main/`
     // template and orphan the user's customised legacy data.
     ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    // Capture the argv slice before init_runtime so the lifecycle module can
+    // re-spawn a foreground server with the same bind / api-key when the
+    // model asks to restart and there's no system service to delegate to.
+    ha_core::set_server_launch_args(args.to_vec());
     ha_core::init_runtime("server");
 
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {

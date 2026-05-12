@@ -12,6 +12,13 @@
     "feedback": "Comentarios y problemas",
     "github": "GitHub",
     "releases": "Lanzamientos",
+    "restartApp": "Reiniciar app",
+    "restartCancel": "Cancelar",
+    "restartConfirmAction": "Reiniciar ahora",
+    "restartConfirmDesc": "El proceso actual se cerrará y se iniciará una nueva instancia automáticamente. Cualquier turno de chat o herramienta en curso se interrumpirá.",
+    "restartConfirmTitle": "¿Reiniciar Hope Agent?",
+    "restartFailed": "Error al reiniciar: {{error}}",
+    "restarting": "Reiniciando...",
     "tagline": "Un asistente de IA de escritorio que pasa contigo entre dispositivos y apps de chat, y te conoce mejor cuanto más lo usas.",
     "techStack": "Stack Tecnológico",
     "title": "Acerca de",
@@ -20,14 +27,14 @@
     "updateCheckFailed": "No se pudo buscar actualizaciones ahora mismo.",
     "updateChecking": "Buscando actualizaciones...",
     "updateDownloadProgress": "Progreso de descarga: {{percent}}%",
-    "updateInstall": "Instalar v{{version}}",
-    "updateInstallFailed": "La descarga o instalación de la actualización falló.",
     "updateErrorDetails": "Detalles del error",
     "updateErrorLogHint": "El registro completo se guardó en ~/.hope-agent/logs.db (category: updater). Usa /ha-logs para revisarlo o adjunta ese archivo al reportar el problema.",
+    "updateInstall": "Instalar v{{version}}",
     "updateInstalled": "Actualización instalada. Reiniciando Hope Agent...",
+    "updateInstallFailed": "La descarga o instalación de la actualización falló.",
     "updateInstalling": "Instalando v{{version}}...",
-    "updateRestartManually": "La actualización se instaló pero el reinicio automático falló. Por favor cierra Hope Agent manualmente y vuelve a abrirlo.",
     "updateReady": "Puedes revisar GitHub Releases para una versión nueva de escritorio o dejar que Hope Agent la instale por ti.",
+    "updateRestartManually": "La actualización se instaló pero el reinicio automático falló. Por favor cierra Hope Agent manualmente y vuelve a abrirlo.",
     "updateUpToDate": "Ya tienes la versión más reciente: v{{version}}.",
     "version": "Versión"
   },
@@ -840,18 +847,33 @@
       "systemUptime": "Uptime del sistema",
       "virtualMem": "Memoria virtual"
     },
+    "plans": {
+      "active": "En curso",
+      "avgExecution": "Tiempo medio de ejecución",
+      "byAgent": "Por Agent",
+      "byAgentCompleted": "Completado",
+      "byProject": "Por proyecto",
+      "completionRate": "Tasa de finalización",
+      "created": "Creado",
+      "creationTrend": "Tendencia de creación (30 días)",
+      "empty": "Sin datos de Plan en la ventana seleccionada.",
+      "noProject": "Sin proyecto",
+      "sampleSize": "{{count}} ejecuciones completadas muestreadas",
+      "stateDistribution": "Distribución de estados",
+      "total": "Total de planes"
+    },
     "tabs": {
       "dreaming": "Sueños",
       "errors": "Errores",
       "insights": "Insights",
       "learning": "Aprendizaje",
+      "plans": "Planes",
       "recap": "Recap",
       "sessions": "Sesiones",
       "system": "Sistema",
       "tasks": "Tareas",
       "tokens": "Uso de tokens",
-      "tools": "Uso de herramientas",
-      "plans": "Planes"
+      "tools": "Uso de herramientas"
     },
     "task": {
       "activeJobs": "Activas",
@@ -899,21 +921,6 @@
       "frequency": "Frecuencia de llamadas",
       "name": "Nombre",
       "totalMs": "Total (ms)"
-    },
-    "plans": {
-      "active": "En curso",
-      "avgExecution": "Tiempo medio de ejecución",
-      "byAgent": "Por Agent",
-      "byAgentCompleted": "Completado",
-      "byProject": "Por proyecto",
-      "completionRate": "Tasa de finalización",
-      "created": "Creado",
-      "creationTrend": "Tendencia de creación (30 días)",
-      "empty": "Sin datos de Plan en la ventana seleccionada.",
-      "noProject": "Sin proyecto",
-      "sampleSize": "{{count}} ejecuciones completadas muestreadas",
-      "stateDistribution": "Distribución de estados",
-      "total": "Total de planes"
     }
   },
   "diffPanel": {
@@ -1609,6 +1616,37 @@
       "subtitle": "Un asistente de IA que te conoce mejor cuanto más lo usas: en el escritorio, en la nube y en la mensajería, siempre disponible.\nSigue una guía rápida: todos los pasos son opcionales salvo elegir un modelo.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Agregar referencia del Plan al chat actual",
+    "badge": {
+      "archived": "Archivado",
+      "completed": "Completado",
+      "executing": "Ejecutando",
+      "orphan": "Huérfano",
+      "planning": "Planificando",
+      "review": "En revisión"
+    },
+    "count": "{{count}} planes",
+    "empty": "Aún no hay planes.",
+    "emptyPlan": "Este archivo de Plan está vacío.",
+    "filter": {
+      "allAgents": "Todos los Agents",
+      "state": {
+        "all": "Todos los estados",
+        "archived": "Archivado (salida)",
+        "completed": "Completado",
+        "executing": "Ejecutando",
+        "planning": "Planificando",
+        "review": "En revisión"
+      }
+    },
+    "openInSession": "Abrir en la sesión",
+    "refresh": "Actualizar",
+    "selectHint": "Selecciona un Plan a la izquierda para ver el contenido.",
+    "sessionDeleted": "Sesión propietaria eliminada",
+    "title": "Planes",
+    "untitled": "Plan sin título"
   },
   "planMode": {
     "approveAndExecute": "Iniciar ejecución",
@@ -3969,36 +4007,5 @@
     "openaiChatDesc": "Servicios compatibles con /v1/chat/completions",
     "openaiResponsesDesc": "Servicios compatibles con /v1/responses",
     "selectApiType": "Seleccione Tipo de API"
-  },
-  "plans": {
-    "addToChat": "Agregar referencia del Plan al chat actual",
-    "badge": {
-      "archived": "Archivado",
-      "completed": "Completado",
-      "executing": "Ejecutando",
-      "orphan": "Huérfano",
-      "planning": "Planificando",
-      "review": "En revisión"
-    },
-    "count": "{{count}} planes",
-    "empty": "Aún no hay planes.",
-    "emptyPlan": "Este archivo de Plan está vacío.",
-    "filter": {
-      "allAgents": "Todos los Agents",
-      "state": {
-        "all": "Todos los estados",
-        "archived": "Archivado (salida)",
-        "completed": "Completado",
-        "executing": "Ejecutando",
-        "planning": "Planificando",
-        "review": "En revisión"
-      }
-    },
-    "openInSession": "Abrir en la sesión",
-    "refresh": "Actualizar",
-    "selectHint": "Selecciona un Plan a la izquierda para ver el contenido.",
-    "sessionDeleted": "Sesión propietaria eliminada",
-    "title": "Planes",
-    "untitled": "Plan sin título"
   }
 }
