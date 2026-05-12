@@ -55,41 +55,52 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "dmg_name=Hope.Agent_${version}_aarch64.dmg" >> "$GITHUB_OUTPUT"
+          echo "dmg_arm=Hope.Agent_${version}_aarch64.dmg" >> "$GITHUB_OUTPUT"
+          echo "dmg_intel=Hope.Agent_${version}_x64.dmg" >> "$GITHUB_OUTPUT"
 
-      - name: Download DMG from release
+      - name: Download both DMGs from release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           gh release download "$TAG" \
             --repo "${{ github.repository }}" \
-            --pattern "${{ steps.ver.outputs.dmg_name }}" \
+            --pattern "${{ steps.ver.outputs.dmg_arm }}" \
+            --pattern "${{ steps.ver.outputs.dmg_intel }}" \
             --dir .
-          ls -la "${{ steps.ver.outputs.dmg_name }}"
+          ls -la "${{ steps.ver.outputs.dmg_arm }}" "${{ steps.ver.outputs.dmg_intel }}"
 
-      - name: Compute SHA256
+      - name: Compute SHA256 for both DMGs
         id: sha
         run: |
           set -euo pipefail
-          sum=$(sha256sum "${{ steps.ver.outputs.dmg_name }}" | awk '{print $1}')
-          if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
-            echo "::error::sha256sum returned unexpected output: $sum"
-            exit 1
-          fi
-          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+          for kind in arm intel; do
+            if [[ "$kind" == "arm" ]]; then
+              file="${{ steps.ver.outputs.dmg_arm }}"
+            else
+              file="${{ steps.ver.outputs.dmg_intel }}"
+            fi
+            sum=$(sha256sum "$file" | awk '{print $1}')
+            if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
+              echo "::error::sha256sum returned unexpected output for $file: $sum"
+              exit 1
+            fi
+            echo "sha256_$kind=$sum" >> "$GITHUB_OUTPUT"
+            echo "$file sha256: $sum"
+          done
 
       - name: Render cask from template
         run: |
           set -euo pipefail
           mkdir -p rendered/Casks
           sed -e "s/__VERSION__/${{ steps.ver.outputs.version }}/g" \
-              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              -e "s/__SHA256_ARM__/${{ steps.sha.outputs.sha256_arm }}/g" \
+              -e "s/__SHA256_INTEL__/${{ steps.sha.outputs.sha256_intel }}/g" \
               homebrew/hope-agent.rb.tmpl > rendered/Casks/hope-agent.rb
 
           # Refuse to push if any placeholder leaked through — protects the
           # tap from a broken cask if the template ever drops the markers.
-          if grep -qE '__VERSION__|__SHA256__' rendered/Casks/hope-agent.rb; then
+          if grep -qE '__VERSION__|__SHA256_ARM__|__SHA256_INTEL__' rendered/Casks/hope-agent.rb; then
             echo "::error::rendered cask still contains template placeholders"
             cat rendered/Casks/hope-agent.rb
             exit 1
@@ -129,7 +140,8 @@ jobs:
 
           git commit -m "hope-agent ${{ steps.ver.outputs.version }}
 
-          DMG sha256: ${{ steps.sha.outputs.sha256 }}
+          arm64 DMG sha256: ${{ steps.sha.outputs.sha256_arm }}
+          x64   DMG sha256: ${{ steps.sha.outputs.sha256_intel }}
           Source: ${{ github.repository }}@$TAG
           "
           git push origin HEAD

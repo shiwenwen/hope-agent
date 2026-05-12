@@ -1,8 +1,11 @@
 cask "hope-agent" do
-  version "__VERSION__"
-  sha256 "__SHA256__"
+  arch arm: "aarch64", intel: "x64"
 
-  url "https://github.com/shiwenwen/hope-agent/releases/download/v#{version}/Hope.Agent_#{version}_aarch64.dmg"
+  version "__VERSION__"
+  sha256 arm:   "__SHA256_ARM__",
+         intel: "__SHA256_INTEL__"
+
+  url "https://github.com/shiwenwen/hope-agent/releases/download/v#{version}/Hope.Agent_#{version}_#{arch}.dmg"
   name "Hope Agent"
   desc "Local-first AI assistant with cross-device sessions and IM channel routing"
   homepage "https://github.com/shiwenwen/hope-agent"
@@ -20,10 +23,6 @@ cask "hope-agent" do
   binary "#{appdir}/Hope Agent.app/Contents/MacOS/hope-agent"
 
   caveats <<~EOS
-    Hope Agent is currently distributed as an Apple Silicon (arm64) build.
-    On Intel Macs it runs through Rosetta 2; macOS will prompt to install
-    Rosetta the first time you launch the app if it is not already present.
-
     The bundle is not yet code-signed or notarized. The installer clears
     the macOS quarantine attribute so first launch should work without
     extra steps, but you may still see a Gatekeeper warning. If macOS
