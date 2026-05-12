@@ -114,7 +114,7 @@ Download `Hope.Agent_*.dmg` from [Releases](https://github.com/shiwenwen/hope-ag
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-Apple Silicon only; Intel Macs run under Rosetta 2.
+Native builds for both Apple Silicon (arm64) and Intel (x64); Homebrew and manual download both pick the correct DMG for your hardware automatically.
 
 ##### Launch modes
 

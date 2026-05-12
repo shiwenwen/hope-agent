@@ -26,14 +26,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS arm64 — Apple silicon DMG. Universal / x64 builds are
-          # intentionally skipped for now (Rosetta 2 handles x64 execution
-          # of the arm64 bundle on Intel Macs acceptably for an agent
-          # process, and a second macOS lane roughly doubles release
-          # wall time).
+          # macOS arm64 — Apple silicon DMG, native build on M-series runner.
           - platform: macos-arm64
             os: macos-14
+            rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
+          # macOS x64 — Intel DMG, native build on the last Intel-hosted
+          # GitHub runner (macos-13). Without this lane Intel Macs would
+          # have to run the arm64 bundle through Rosetta 2 — it works,
+          # but startup is slower and memory / battery worse. macos-13
+          # is the only GitHub-hosted Intel macOS image as of 2026; when
+          # it is eventually deprecated we will need a self-hosted runner
+          # or a paid alternative.
+          - platform: macos-x64
+            os: macos-13
+            rust_target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
           # Linux x64 — AppImage + deb.
           # ubuntu-24.04 is required because xcap (screen capture) pulls
           # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The
@@ -41,6 +49,7 @@ jobs:
           # fails to compile (struct spa_video_info_raw missing `flags`).
           - platform: linux-x64
             os: ubuntu-24.04
+            rust_target: ""
             args: ""
           # Windows x64 — MSI (wix) + NSIS. Code signing certificate is
           # not wired up yet; bundles are unsigned. See
@@ -48,6 +57,7 @@ jobs:
           # for where to plug it in.
           - platform: windows-x64
             os: windows-latest
+            rust_target: ""
             args: ""
 
     runs-on: ${{ matrix.os }}
@@ -64,7 +74,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-arm64' && 'aarch64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_target }}
 
       - uses: Swatinem/rust-cache@v2
         with:

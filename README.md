@@ -114,7 +114,7 @@ brew install --cask hope-agent
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
+Apple Silicon 与 Intel Mac 均提供原生构建（arm64 / x64 DMG），Homebrew 与手动下载都会按你的硬件自动选对版本。
 
 ##### 启动方式
 
