@@ -7,6 +7,7 @@ pub mod discord;
 pub mod feishu;
 pub mod googlechat;
 pub mod imessage;
+pub mod inbound_media_common;
 pub mod irc;
 pub mod line;
 pub mod media_helpers;

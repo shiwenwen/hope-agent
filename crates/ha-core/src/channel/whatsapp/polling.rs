@@ -118,7 +118,14 @@ pub(crate) async fn run_whatsapp_polling(
 /// Convert a bridge message to a normalized MsgContext.
 fn convert_bridge_message(account_id: &str, msg: BridgeMessage) -> Option<MsgContext> {
     // Capture raw JSON before moving fields out of msg
-    let raw = serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null);
+    let mut raw = serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null);
+
+    // Parse inbound attachments to deferred refs (download happens in
+    // WhatsAppPlugin::materialize_pending_media after gating). Older
+    // bridges that don't emit `attachments` produce an empty vec, so
+    // this is a safe no-op for backward compat.
+    let pending = super::inbound_media::parse_attachments(&msg.attachments);
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending);
 
     let BridgeMessage {
         id,

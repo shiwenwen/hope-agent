@@ -244,7 +244,8 @@ export function handleStreamEvent(
   if (
     event.type === "thinking_auto_disabled" ||
     event.type === "profile_rotation" ||
-    event.type === "context_compacted"
+    event.type === "context_compacted" ||
+    event.type === "round_limit_reached"
   ) {
     // Mirror the backend persister + IM formatter: skip Tier 0/1 noise and
     // the Tier 3 "summarizing" start marker so live and post-reload views

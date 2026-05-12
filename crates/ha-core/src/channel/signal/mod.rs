@@ -10,6 +10,7 @@
 pub mod client;
 pub mod daemon;
 pub mod format;
+pub mod inbound_media;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -181,6 +182,29 @@ impl ChannelPlugin for SignalPlugin {
             client.run_sse_loop(account_id, inbound_tx, cancel).await;
         });
 
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let results = futures_util::future::join_all(
+            pending
+                .iter()
+                .map(|p| inbound_media::materialize_inbound(p, &account.id)),
+        )
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
         Ok(())
     }
 

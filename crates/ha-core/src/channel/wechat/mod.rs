@@ -10,6 +10,7 @@
 //! - **Last reviewed**: 2026-05-05
 
 pub mod api;
+pub mod inbound_media;
 pub mod login;
 pub(crate) mod media;
 pub mod polling;
@@ -411,6 +412,38 @@ impl ChannelPlugin for WeChatPlugin {
 
     async fn stop_account(&self, account_id: &str) -> Result<()> {
         self.shared.accounts.lock().await.remove(account_id);
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let api = self.get_api(&account.id).await?;
+        let client = api.client().clone();
+        // WeChat materialization is CPU-bound at decrypt time (AES-128-ECB
+        // over the whole ciphertext). join_all keeps the network fetches
+        // overlapped while serializing the decrypts — fine for the
+        // common case of a single attachment per message.
+        let results = futures_util::future::join_all(pending.iter().map(|p| {
+            inbound_media::materialize_inbound(
+                &client,
+                p,
+                api::DEFAULT_WECHAT_CDN_BASE_URL,
+                account.id.as_str(),
+            )
+        }))
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
         Ok(())
     }
 

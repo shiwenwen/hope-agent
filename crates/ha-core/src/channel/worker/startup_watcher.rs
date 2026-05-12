@@ -102,7 +102,12 @@ pub(crate) fn pick_targets(
         let Some(account) = accounts.find_account(&conv.account_id) else {
             continue;
         };
-        if !account.notify_startup {
+        // Disabled accounts aren't auto-started, so readiness will never
+        // flip to running — sending against them just burns the 30s
+        // ACCOUNT_READY_WAIT_SECS and (worse) consumes a global_max slot
+        // that an enabled account behind us in the candidate list would
+        // have used. Treat them like notify_startup=false.
+        if !account.enabled || !account.notify_startup {
             out.skipped_silenced += 1;
             continue;
         }
@@ -295,10 +300,19 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
                 continue;
             };
             match result {
-                Ok(_) => {
+                Ok(delivery) if delivery.success => {
                     state.mark_notified(key, now);
                     sent += 1;
                 }
+                Ok(delivery) => app_warn!(
+                    "channel",
+                    "startup_notifier",
+                    "send_message returned failure for {}/{}/{}: {}",
+                    channel_id_str,
+                    account_id,
+                    chat_id,
+                    delivery.error.as_deref().unwrap_or("(no error message)")
+                ),
                 Err(e) => app_warn!(
                     "channel",
                     "startup_notifier",
@@ -342,11 +356,15 @@ mod pick_targets_tests {
     use chrono::Duration as ChronoDuration;
 
     fn account(id: &str, notify_startup: bool) -> ChannelAccountConfig {
+        account_with_enabled(id, notify_startup, true)
+    }
+
+    fn account_with_enabled(id: &str, notify_startup: bool, enabled: bool) -> ChannelAccountConfig {
         ChannelAccountConfig {
             id: id.to_string(),
             channel_id: ChannelId::Telegram,
             label: id.to_string(),
-            enabled: true,
+            enabled,
             agent_id: None,
             credentials: serde_json::Value::Null,
             settings: serde_json::Value::Null,
@@ -453,6 +471,34 @@ mod pick_targets_tests {
         assert_eq!(out.targets.len(), 2);
         assert_eq!(out.skipped_cooldown, 0);
         assert_eq!(out.skipped_silenced, 0);
+    }
+
+    #[test]
+    fn disabled_account_does_not_consume_global_max_budget() {
+        // Disabled account won't be auto-started — its chats would burn
+        // the 30s ACCOUNT_READY_WAIT_SECS and then fail, but worse: they
+        // would consume budget that enabled chats behind them need.
+        let accounts = store(vec![
+            account_with_enabled("off", true, false),
+            account("on", true),
+        ]);
+        let candidates = vec![
+            conv("off", "o-1"),
+            conv("off", "o-2"),
+            conv("on", "n-1"),
+            conv("on", "n-2"),
+        ];
+        let out = pick_targets(
+            candidates,
+            &accounts,
+            &StartupState::default(),
+            1800,
+            2,
+            Utc::now(),
+        );
+        let picked: Vec<_> = out.targets.iter().map(|c| c.chat_id.as_str()).collect();
+        assert_eq!(picked, vec!["n-1", "n-2"]);
+        assert_eq!(out.skipped_silenced, 2);
     }
 
     #[test]

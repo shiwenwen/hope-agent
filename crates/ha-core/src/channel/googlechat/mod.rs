@@ -10,6 +10,7 @@
 pub mod api;
 pub mod auth;
 pub mod format;
+pub mod inbound_media;
 pub mod jwt;
 pub mod webhook;
 
@@ -202,6 +203,30 @@ impl ChannelPlugin for GoogleChatPlugin {
             accounts.insert(account.id.clone(), RunningAccount { api, cancel });
         }
 
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let api = self.get_api(&account.id).await?;
+        let results = futures_util::future::join_all(
+            pending
+                .iter()
+                .map(|p| inbound_media::materialize_inbound(&api, p, &account.id)),
+        )
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
         Ok(())
     }
 

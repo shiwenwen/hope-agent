@@ -28,6 +28,7 @@ import { PersonalityStep } from "./steps/PersonalityStep"
 import { ProfileStep } from "./steps/ProfileStep"
 import { ProviderStep } from "./steps/ProviderStep"
 import { SafetyStep } from "./steps/SafetyStep"
+import { SearchProviderStep } from "./steps/SearchProviderStep"
 import { ServerStep } from "./steps/ServerStep"
 import { SkillsStep } from "./steps/SkillsStep"
 import { SummaryStep } from "./steps/SummaryStep"
@@ -106,6 +107,9 @@ export function OnboardingWizard({
           return true
         case "provider":
           // Provider persistence happens inside <ProviderSetup /> on save.
+          return true
+        case "search-provider":
+          // Web search config persists inside <WebSearchPanel /> on save.
           return true
         case "profile":
           await t.call("apply_onboarding_profile", {
@@ -257,6 +261,14 @@ export function OnboardingWizard({
             onCodexAuth={onCodexAuth}
           />
         )
+      case "search-provider":
+        return (
+          <SearchProviderStep
+            onSaved={() => {
+              goNext()
+            }}
+          />
+        )
       case "profile":
         return <ProfileStep draft={draft.profile} onChange={patchProfile} />
       case "personality":
@@ -314,6 +326,7 @@ export function OnboardingWizard({
 
   const isFinal = stepKey === "summary"
   const isProvider = stepKey === "provider"
+  const isSearchProvider = stepKey === "search-provider"
   const isMode = stepKey === "mode"
   const isImport = stepKey === "import-openclaw"
   const canGoBack = step > 0 && !isFinal
@@ -358,7 +371,7 @@ export function OnboardingWizard({
         <div className="min-h-full flex items-center justify-center py-6">
           <div
             className={`w-full ${
-              isProvider || isImport ? "max-w-3xl" : "max-w-2xl"
+              isProvider || isSearchProvider || isImport ? "max-w-3xl" : "max-w-2xl"
             }`}
           >
             {renderStep()}
@@ -373,7 +386,7 @@ export function OnboardingWizard({
         isFinal={isFinal}
         busy={saving || busy}
         nextDisabled={modeNextDisabled}
-        hideNext={isProvider || isImport}
+        hideNext={isProvider || isSearchProvider || isImport}
         onBack={goBack}
         onSkip={() => void skipCurrent()}
         onNext={() => void handleNext()}

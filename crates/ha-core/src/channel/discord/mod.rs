@@ -10,6 +10,7 @@
 pub mod api;
 pub mod format;
 pub mod gateway;
+pub mod inbound_media;
 pub mod media;
 
 use anyhow::Result;
@@ -269,6 +270,30 @@ impl ChannelPlugin for DiscordPlugin {
     async fn stop_account(&self, account_id: &str) -> Result<()> {
         let mut accounts = self.accounts.lock().await;
         accounts.remove(account_id);
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let api = self.get_api(&account.id).await?;
+        let results = futures_util::future::join_all(
+            pending
+                .iter()
+                .map(|p| inbound_media::materialize_inbound(&api, p, &account.id)),
+        )
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
         Ok(())
     }
 

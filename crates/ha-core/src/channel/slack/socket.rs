@@ -522,8 +522,13 @@ fn convert_slack_event(
     // Parse timestamp from Slack ts format ("1234567890.123456")
     let timestamp = parse_slack_ts(ts).unwrap_or_else(chrono::Utc::now);
 
-    // Parse media from files array if present
-    let media = parse_slack_files(event);
+    // Parse media to deferred refs (no I/O — actual download happens in
+    // SlackPlugin::materialize_pending_media after dispatcher gating).
+    // Embed refs into `raw` so they survive the trip to the dispatcher;
+    // msg.media stays empty until materialization.
+    let pending_media = super::inbound_media::parse_message_media(event);
+    let mut raw = event.clone();
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
 
     Some(MsgContext {
         channel_id: ChannelId::Slack,
@@ -537,11 +542,11 @@ fn convert_slack_event(
         thread_id,
         message_id: ts.to_string(),
         text: text.map(|s| s.to_string()),
-        media,
+        media: Vec::new(),
         reply_to_message_id: None,
         timestamp,
         was_mentioned,
-        raw: event.clone(),
+        raw,
     })
 }
 
@@ -551,55 +556,6 @@ fn parse_slack_ts(ts: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let secs_str = ts.split('.').next()?;
     let secs: i64 = secs_str.parse().ok()?;
     chrono::DateTime::from_timestamp(secs, 0)
-}
-
-/// Parse Slack `files` array from an event into InboundMedia.
-fn parse_slack_files(event: &serde_json::Value) -> Vec<InboundMedia> {
-    let files = match event.get("files").and_then(|v| v.as_array()) {
-        Some(arr) => arr,
-        None => return Vec::new(),
-    };
-
-    files
-        .iter()
-        .filter_map(|file| {
-            let file_id = file.get("id").and_then(|v| v.as_str())?.to_string();
-            let mime_type = file
-                .get("mimetype")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let file_size = file.get("size").and_then(|v| v.as_u64());
-            let file_url = file
-                .get("url_private_download")
-                .or_else(|| file.get("url_private"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-
-            // Determine media type from mimetype
-            let media_type = if let Some(ref mime) = mime_type {
-                if mime.starts_with("image/") {
-                    MediaType::Photo
-                } else if mime.starts_with("video/") {
-                    MediaType::Video
-                } else if mime.starts_with("audio/") {
-                    MediaType::Audio
-                } else {
-                    MediaType::Document
-                }
-            } else {
-                MediaType::Document
-            };
-
-            Some(InboundMedia {
-                media_type,
-                file_id,
-                file_url,
-                mime_type,
-                file_size,
-                caption: None,
-            })
-        })
-        .collect()
 }
 
 /// 按 Slack channel id 前缀猜测 ChatType。

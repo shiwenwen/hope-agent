@@ -3,6 +3,7 @@ export type OnboardingStepKey =
   | "import-openclaw"
   | "mode"
   | "provider"
+  | "search-provider"
   | "profile"
   | "personality"
   | "safety"
@@ -17,6 +18,7 @@ export const ONBOARDING_STEPS: OnboardingStepKey[] = [
   "import-openclaw",
   "mode",
   "provider",
+  "search-provider",
   "profile",
   "personality",
   "safety",

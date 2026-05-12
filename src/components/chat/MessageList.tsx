@@ -60,6 +60,7 @@ interface MessageListProps {
       | import("@/types/chat").FileChangeMetadata
       | import("@/types/chat").FileChangesMetadata,
   ) => void
+  onResume?: (message: string) => void
 }
 
 const AT_BOTTOM_THRESHOLD_PX = 48
@@ -109,6 +110,7 @@ export default function MessageList({
   onViewSystemPrompt,
   onSwitchSession,
   onOpenDiff,
+  onResume,
 }: MessageListProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -723,6 +725,7 @@ export default function MessageList({
                 onSwitchModel={onSwitchModel}
                 onViewSystemPrompt={onViewSystemPrompt}
                 onOpenDiff={onOpenDiff}
+                onResume={onResume}
               />
             </div>
           )

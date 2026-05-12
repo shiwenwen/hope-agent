@@ -468,7 +468,9 @@ impl ChannelPlugin for FeishuPlugin {
         account: &ChannelAccountConfig,
         msg: &mut MsgContext,
     ) -> Result<()> {
-        let pending = inbound_media::take_pending_refs(msg);
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
         if pending.is_empty() {
             return Ok(());
         }

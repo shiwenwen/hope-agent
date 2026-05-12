@@ -386,6 +386,11 @@
     "renameSession": "重命名",
     "renameSessionPlaceholder": "輸入新標題...",
     "revealInFolder": "打開所在文件夾",
+    "roundLimitReachedBody": "本輪已用滿 {{count}} 輪工具調用，任務可能尚未完成。點擊下方按鈕發送「繼續」，我會接著當前進度繼續推進；也可以在 設定 → Agent → 能力 中調高 `max_tool_rounds`。",
+    "roundLimitReachedBodyNoCount": "本輪工具調用輪次已用滿。點擊下方按鈕發送「繼續」，我會接著當前進度繼續推進。",
+    "roundLimitReachedTitle": "已達工具調用上限",
+    "roundLimitResumeButton": "繼續",
+    "roundLimitResumeMessage": "繼續",
     "scrollToBottom": "回到底部",
     "searchPlaceholder": "搜索會話...",
     "searchTruncatedHint": "已顯示前 {{count}} 條匹配，請細化關鍵詞查看更多。",
@@ -845,7 +850,8 @@
       "system": "系統監控",
       "tasks": "任務統計",
       "tokens": "Token 用量",
-      "tools": "工具使用"
+      "tools": "工具使用",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "活躍任務",
@@ -893,6 +899,21 @@
       "frequency": "調用頻次",
       "name": "工具名稱",
       "totalMs": "總耗時(ms)"
+    },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均執行時間",
+      "byAgent": "依 Agent 分組",
+      "byAgentCompleted": "已完成",
+      "byProject": "依專案分組",
+      "completionRate": "完成率",
+      "created": "新建",
+      "creationTrend": "30 天建立趨勢",
+      "empty": "所選時間範圍內無 Plan 資料。",
+      "noProject": "未歸屬專案",
+      "sampleSize": "已取樣 {{count}} 個完成的 Plan",
+      "stateDistribution": "狀態分佈",
+      "total": "Plan 總數"
     }
   },
   "diffPanel": {
@@ -1506,6 +1527,11 @@
       "subtitle": "接入已有 API Key(OpenAI / Anthropic / DeepSeek 等)或运行本地模型。之后可以在设置中修改或添加。",
       "title": "选择模型服务商"
     },
+    "searchProvider": {
+      "saveAndContinue": "儲存並繼續",
+      "subtitle": "選擇 Hope Agent 需要取得最新資訊時使用的網頁搜尋後端。DuckDuckGo 無需密鑰；API Provider 可以現在配置，也可以稍後再加。",
+      "title": "配置網頁搜尋"
+    },
     "rerun": {
       "button": "重新运行引导向导",
       "confirm": "重新运行",
@@ -1562,6 +1588,7 @@
         "profile": "个人资料",
         "provider": "模型服务商",
         "safety": "工具审批",
+        "searchProvider": "搜尋 Provider",
         "server": "访问模式",
         "skills": "技能"
       },
@@ -3616,6 +3643,7 @@
     "webSearchNeedsConfig": "需要配置",
     "webSearchNeedsKey": "需要密鑰",
     "webSearchProviderBrave": "Brave Search",
+    "webSearchProviderBocha": "博查 AI Search",
     "webSearchProviderDDG": "DuckDuckGo",
     "webSearchProviderGoogle": "Google Custom Search",
     "webSearchProviderGrok": "Grok (X.AI)",
@@ -3941,5 +3969,36 @@
     "openaiChatDesc": "兼容 /v1/chat/completions 的服務",
     "openaiResponsesDesc": "兼容 /v1/responses 的服務",
     "selectApiType": "選擇 API 類型"
+  },
+  "plans": {
+    "addToChat": "將該 Plan 加入目前對話",
+    "badge": {
+      "archived": "已封存",
+      "completed": "已完成",
+      "executing": "執行中",
+      "orphan": "孤立檔案",
+      "planning": "規劃中",
+      "review": "審核中"
+    },
+    "count": "共 {{count}} 個 Plan",
+    "empty": "尚無 Plan。",
+    "emptyPlan": "此 Plan 檔案為空。",
+    "filter": {
+      "allAgents": "全部 Agent",
+      "state": {
+        "all": "全部狀態",
+        "archived": "已封存 (已離開)",
+        "completed": "已完成",
+        "executing": "執行中",
+        "planning": "規劃中",
+        "review": "審核中"
+      }
+    },
+    "openInSession": "前往所屬會話",
+    "refresh": "重新整理",
+    "selectHint": "請在左側選擇一個 Plan 以檢視內容。",
+    "sessionDeleted": "所屬會話已刪除",
+    "title": "Plan 歷史",
+    "untitled": "未命名 Plan"
   }
 }

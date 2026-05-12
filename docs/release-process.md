@@ -128,6 +128,87 @@ GitHub Releases 页找到 `Hope Agent v0.1.2` draft，确认：
 
 详见 [§3 backport 策略](#3-backport-策略)。
 
+### 1.6 Homebrew tap 自动同步
+
+Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/workflows/update-homebrew-tap.yml) 由 `release.published` 事件自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<version>_aarch64.dmg`
+2. `sha256sum` 算 DMG 摘要
+3. `sed` 把 [`homebrew/hope-agent.rb.tmpl`](../homebrew/hope-agent.rb.tmpl) 的 `__VERSION__` / `__SHA256__` 占位符替换，渲染为 `Casks/hope-agent.rb`
+4. 用 `HOMEBREW_TAP_TOKEN`（fine-grained PAT，仅授 `shiwenwen/homebrew-hope-agent` 的 `Contents: Read and write`）push 到 tap repo
+
+正常路径**不需要任何人工操作**。下列情况需要手动 `gh workflow run update-homebrew-tap.yml -f tag=vX.Y.Z`：
+
+- cask 模板本身改了（如新增 caveats / zap 路径），想立即对已发布版本生效，不等下个 release
+- workflow 因为 token 过期 / tap repo 不存在等原因失败过，修复后重跑
+
+**tap repo 初始化（一次性）**：详见 [`homebrew/README.md`](../homebrew/README.md)。仓库名必须是 `homebrew-hope-agent`（Homebrew 约定 `homebrew-<tapname>`），否则 `brew tap shiwenwen/hope-agent` 找不到。
+
+**cask 模板单一真相源在主仓 [`homebrew/hope-agent.rb.tmpl`](../homebrew/hope-agent.rb.tmpl)**。不要在 tap repo 里直接改 `Casks/hope-agent.rb`——下次发版会被 CI 覆盖。
+
+### 1.7 AUR 自动同步
+
+与 §1.6 Homebrew tap 同模式，Release publish 后 [`.github/workflows/update-aur.yml`](../.github/workflows/update-aur.yml) 由 `release.published` 自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<version>_amd64.deb`
+2. `sha256sum` 算 deb 摘要
+3. `sed` 渲染 [`aur/hope-agent-bin/PKGBUILD.tmpl`](../aur/hope-agent-bin/PKGBUILD.tmpl) + [`.SRCINFO.tmpl`](../aur/hope-agent-bin/.SRCINFO.tmpl)
+4. 用 `AUR_SSH_PRIVATE_KEY`（专用 ed25519 deploy key，公钥已绑到 maintainer 的 AUR 账号）SSH push 到 `ssh://aur@aur.archlinux.org/hope-agent-bin.git`
+
+正常路径**不需要任何人工操作**。下列情况需要手动 `gh workflow run update-aur.yml -f tag=vX.Y.Z`：
+
+- PKGBUILD / .SRCINFO 模板本身改了（如改 deps / 改 pkgdesc），想立即对已发布版本生效
+- workflow 因为 SSH key / AUR 账号变化等原因失败过，修复后重跑
+
+**AUR 账号 + SSH key 初始化（一次性）**：详见 [`aur/README.md`](../aur/README.md)。
+
+**模板单一真相源在主仓 [`aur/hope-agent-bin/`](../aur/hope-agent-bin/)**。不要直接 push AUR 仓库——下次发版会被 CI 覆盖。**改 PKGBUILD 字段时必须同步改 .SRCINFO** 字段（两个文件结构是平行的），否则 AUR Web UI 元数据会与 PKGBUILD 不一致。
+
+### 1.8 Scoop bucket 自动同步
+
+与 §1.6 / §1.7 同模式，Release publish 后 [`.github/workflows/update-scoop-bucket.yml`](../.github/workflows/update-scoop-bucket.yml) 由 `release.published` 自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<version>_x64-setup.exe`
+2. `sha256sum` 算 setup.exe 摘要
+3. `sed` 渲染 [`scoop/hope-agent.json.tmpl`](../scoop/hope-agent.json.tmpl) → `bucket/hope-agent.json`
+4. JSON 语法校验
+5. 用 `SCOOP_BUCKET_TOKEN`（fine-grained PAT，仅授 `shiwenwen/scoop-hope-agent` 的 `Contents: Read and write`）push 到 bucket repo
+
+手动重跑：`gh workflow run update-scoop-bucket.yml -f tag=vX.Y.Z`。
+
+**首次配置**：详见 [`scoop/README.md`](../scoop/README.md)。
+
+**Manifest 单一真相源在主仓 [`scoop/hope-agent.json.tmpl`](../scoop/hope-agent.json.tmpl)**。不要在 bucket repo 直接改 `bucket/hope-agent.json`——下次发版会被 CI 覆盖。
+
+> Scoop 默认对 `.exe` URL 用 7zip 解压（不跑 NSIS installer），所以 manifest 不需要 `installer.script`——`hope-agent.exe` 解压出来就是直接可用的单文件 binary。
+
+### 1.9 Linux apt + dnf/yum 软件源自动同步
+
+托管在 GitHub Pages（[shiwenwen.github.io/hope-agent-linux-repo](https://shiwenwen.github.io/hope-agent-linux-repo/)），用户安装命令见根仓 [`README.md`](../README.md) 「普通用户 → Linux → Debian/Ubuntu」/「Fedora/RHEL/CentOS」段（dnf 与 yum 同 URL 通用，curl 下载 `.repo` 文件方式兼容 dnf4 / dnf5 / yum / zypper）。
+
+Release publish 后 [`.github/workflows/update-linux-repo.yml`](../.github/workflows/update-linux-repo.yml) 由 `release.published` 自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<v>_amd64.deb` + `Hope.Agent-<v>-1.x86_64.rpm`
+2. `gpg --batch --import` 把 `GPG_SIGNING_KEY` secret 导入临时 `GNUPGHOME`，从 imported key 解出 long fingerprint
+3. CI 在 bucket repo 动态渲染 `apt/conf/distributions`，`SignWith:` 填入当前 fingerprint（密钥轮换无需改模板）
+4. `reprepro -b apt includedeb stable …` 重建 apt index 并签 `InRelease` / `Release.gpg`（reprepro 自动用 SignWith 字段指向的 key 签）
+5. `createrepo_c --update rpm/stable/x86_64/` 增量更新 yum index
+6. `gpg --detach-sign --armor` 签 `repomd.xml`（产 `repomd.xml.asc`），让 dnf `repo_gpgcheck=1` 能验签
+7. 同步 [`linux-repo/rpm/hope-agent.repo`](../linux-repo/rpm/hope-agent.repo) 模板到 bucket repo 根 `rpm/hope-agent.repo`
+8. 用 `LINUX_REPO_TOKEN`（fine-grained PAT，仅授 `shiwenwen/hope-agent-linux-repo` 的 `Contents: Read and write`）push 到 bucket repo
+9. GitHub Pages ~1 min 后重新发布
+
+手动重跑：`gh workflow run update-linux-repo.yml -f tag=vX.Y.Z`（同 tag 重跑是幂等的——reprepro 先 `remove`，createrepo_c `--update` 覆盖）。
+
+**首次配置 + 密钥轮换流程**：详见 [`linux-repo/README.md`](../linux-repo/README.md)。两个必备 secret：
+
+- `GPG_SIGNING_KEY` — ed25519 私钥（专用密钥，与 maintainer 个人身份独立）
+- `LINUX_REPO_TOKEN` — fine-grained PAT，仅 `Contents: Read and write` on `shiwenwen/hope-agent-linux-repo`
+
+**模板单一真相源在主仓 [`linux-repo/`](../linux-repo/)**。不要直接 push bucket repo 的 `apt/` / `rpm/`——下次发版会被 CI 覆盖。**`pubkey.gpg` 和 bucket repo 的 `README.md` 不由 CI 维护**，密钥轮换时手动 PUT。
+
+> reprepro 的 `apt/db/` 是 incremental state（包含 packages 的 sha256 索引），**必须 commit 到 bucket repo**，否则下次跑会丢失历史版本记录、重新生成所有 index。`apt/conf/distributions` 同样 commit（每次 CI 跑会覆盖渲染）。
+
 ---
 
 ## 2. 新 minor 发版差异

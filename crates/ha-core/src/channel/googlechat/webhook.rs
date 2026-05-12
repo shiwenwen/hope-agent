@@ -292,6 +292,12 @@ async fn handle_message_event(
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(chrono::Utc::now);
 
+    // Parse attachments to deferred refs (server-side download by
+    // GoogleChatPlugin::materialize_pending_media after gating).
+    let pending_media = super::inbound_media::parse_message_attachments(message);
+    let mut raw = body.clone();
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
+
     let msg = MsgContext {
         channel_id: ChannelId::GoogleChat,
         account_id: account_id.to_string(),
@@ -308,7 +314,7 @@ async fn handle_message_event(
         reply_to_message_id: None,
         timestamp,
         was_mentioned,
-        raw: body.clone(),
+        raw,
     };
 
     if let Err(e) = inbound_tx.send(InboundEvent::Message(msg)).await {

@@ -4,7 +4,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use ha_core::ask_user::{self as ask_user_mod, AskUserQuestionAnswer};
-use ha_core::plan::{self, PlanModeState, PlanVersionInfo, TransitionOutcome};
+use ha_core::plan::{
+    self, PlanIndexEntry, PlanIndexFilter, PlanMentionResolution, PlanModeState, PlanVersionInfo,
+    TransitionOutcome,
+};
 
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
@@ -180,4 +183,36 @@ pub async fn cancel_plan_subagent(Path(session_id): Path<String>) -> Result<Json
         cancels.cancel(&run_id);
     }
     Ok(Json(json!({ "cancelled": true })))
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ListPlansBody {
+    #[serde(default)]
+    pub filter: Option<PlanIndexFilter>,
+}
+
+/// `POST /api/plan/list` — cross-session read-only enumeration.
+pub async fn list_plans(
+    Json(body): Json<ListPlansBody>,
+) -> Result<Json<Vec<PlanIndexEntry>>, AppError> {
+    let filter = body.filter.unwrap_or_default();
+    Ok(Json(plan::list_all_plans(&filter)?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveMentionBody {
+    pub short_id: String,
+    #[serde(default)]
+    pub version: Option<u32>,
+}
+
+/// `POST /api/plan/resolve-mention` — resolve `@plan:<short_id>:v<n>` to a file.
+pub async fn resolve_plan_mention(
+    Json(body): Json<ResolveMentionBody>,
+) -> Result<Json<PlanMentionResolution>, AppError> {
+    Ok(Json(plan::resolve_plan_mention(
+        &body.short_id,
+        body.version.unwrap_or(0),
+    )?))
 }

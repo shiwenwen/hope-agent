@@ -723,7 +723,7 @@ async fn handle_message_event(
         .unwrap_or(false);
 
     let mut raw = event_data;
-    inbound_media::embed_pending_refs(&mut raw, pending_media);
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
 
     let msg = MsgContext {
         channel_id: ChannelId::Feishu,

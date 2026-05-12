@@ -36,6 +36,10 @@ impl WeChatApi {
         }
     }
 
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     pub async fn fetch_login_qr(bot_type: &str) -> Result<QrCodeResponse> {
         let raw = Self::get_text(
             DEFAULT_WECHAT_BASE_URL,

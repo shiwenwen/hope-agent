@@ -38,6 +38,8 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": "all",
+    "shortDescription": "Local-first AI assistant with cross-device sessions and IM channel routing",
+    "longDescription": "Hope Agent is a local-first AI assistant desktop app. Sessions hand off seamlessly across your devices and chats; memory accumulates over time and recurring work crystallizes into reusable skills. The single binary runs in three modes: desktop GUI, HTTP/WS daemon for headless deployment, and ACP stdio for IDE integrations. Built-in templates for mainstream LLM providers (Anthropic, OpenAI, Codex, plus local LLM via Ollama) cover the typical setup with a paste-the-API-key flow; IM channel integration covers Slack, Discord, Telegram, Feishu, WhatsApp, LINE, and more.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -56,6 +58,12 @@
       "nsis": {
         "installMode": "perMachine",
         "languages": ["English"]
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "utils",
+        "priority": "optional"
       }
     }
   },

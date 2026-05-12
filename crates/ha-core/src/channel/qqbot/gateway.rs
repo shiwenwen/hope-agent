@@ -800,7 +800,14 @@ fn convert_c2c_message(d: &serde_json::Value, account_id: &str) -> Option<MsgCon
         reply_to_message_id: None,
         timestamp,
         was_mentioned: false,
-        raw: d.clone(),
+        raw: {
+            let mut r = d.clone();
+            crate::channel::inbound_media_common::embed_pending_refs(
+                &mut r,
+                super::inbound_media::parse_message_attachments(d),
+            );
+            r
+        },
     })
 }
 
@@ -845,7 +852,14 @@ fn convert_group_message(d: &serde_json::Value, account_id: &str) -> Option<MsgC
         reply_to_message_id: None,
         timestamp,
         was_mentioned: true, // GROUP_AT means bot was @mentioned
-        raw: d.clone(),
+        raw: {
+            let mut r = d.clone();
+            crate::channel::inbound_media_common::embed_pending_refs(
+                &mut r,
+                super::inbound_media::parse_message_attachments(d),
+            );
+            r
+        },
     })
 }
 
@@ -896,7 +910,14 @@ fn convert_channel_message(d: &serde_json::Value, account_id: &str) -> Option<Ms
         reply_to_message_id: None,
         timestamp,
         was_mentioned: true, // AT_MESSAGE means bot was @mentioned
-        raw: d.clone(),
+        raw: {
+            let mut r = d.clone();
+            crate::channel::inbound_media_common::embed_pending_refs(
+                &mut r,
+                super::inbound_media::parse_message_attachments(d),
+            );
+            r
+        },
     })
 }
 
@@ -947,7 +968,14 @@ fn convert_dms_message(d: &serde_json::Value, account_id: &str) -> Option<MsgCon
         reply_to_message_id: None,
         timestamp,
         was_mentioned: false,
-        raw: d.clone(),
+        raw: {
+            let mut r = d.clone();
+            crate::channel::inbound_media_common::embed_pending_refs(
+                &mut r,
+                super::inbound_media::parse_message_attachments(d),
+            );
+            r
+        },
     })
 }
 

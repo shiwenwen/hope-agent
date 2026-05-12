@@ -386,6 +386,11 @@
     "renameSession": "이름 변경",
     "renameSessionPlaceholder": "새 제목 입력...",
     "revealInFolder": "폴더에서 표시",
+    "roundLimitReachedBody": "이번 턴에서 도구 호출 {{count}}회를 모두 사용했지만 작업이 끝나지 않았을 수 있습니다. 아래 버튼으로 \"계속\"을 보내면 현재 진행 상황에서 이어서 진행합니다. 설정 → 에이전트 → 기능에서 `max_tool_rounds`를 늘릴 수도 있습니다.",
+    "roundLimitReachedBodyNoCount": "이번 턴의 도구 호출 한도가 모두 소진되었습니다. 아래 버튼으로 \"계속\"을 보내면 현재 진행 상황에서 이어서 진행합니다.",
+    "roundLimitReachedTitle": "도구 호출 한도 도달",
+    "roundLimitResumeButton": "계속",
+    "roundLimitResumeMessage": "계속",
     "scrollToBottom": "맨 아래로 스크롤",
     "searchPlaceholder": "대화 검색...",
     "searchTruncatedHint": "상위 {{count}}개 결과만 표시 중 — 더 보려면 검색어를 좁혀주세요.",
@@ -845,7 +850,8 @@
       "system": "시스템",
       "tasks": "작업",
       "tokens": "토큰 사용량",
-      "tools": "도구 사용"
+      "tools": "도구 사용",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "활성",
@@ -893,6 +899,21 @@
       "frequency": "호출 빈도",
       "name": "도구 이름",
       "totalMs": "합계 (ms)"
+    },
+    "plans": {
+      "active": "진행 중",
+      "avgExecution": "평균 실행 시간",
+      "byAgent": "Agent별",
+      "byAgentCompleted": "완료",
+      "byProject": "프로젝트별",
+      "completionRate": "완료율",
+      "created": "생성",
+      "creationTrend": "생성 추이 (30일)",
+      "empty": "선택한 기간 내 Plan 데이터가 없습니다.",
+      "noProject": "프로젝트 없음",
+      "sampleSize": "{{count}}개 완료 표본",
+      "stateDistribution": "상태 분포",
+      "total": "총 Plan 수"
     }
   },
   "diffPanel": {
@@ -1506,6 +1527,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "저장하고 계속",
+      "subtitle": "Hope Agent가 최신 정보가 필요할 때 사용할 웹 검색 백엔드를 선택합니다. DuckDuckGo는 키가 필요 없고, API Provider는 지금 또는 나중에 추가할 수 있습니다.",
+      "title": "웹 검색 설정"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1562,6 +1588,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "검색 Provider",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3616,6 +3643,7 @@
     "webSearchNeedsConfig": "구성 필요",
     "webSearchNeedsKey": "키 필요",
     "webSearchProviderBrave": "Brave Search",
+    "webSearchProviderBocha": "Bocha AI Search",
     "webSearchProviderDDG": "DuckDuckGo",
     "webSearchProviderGoogle": "Google Custom Search",
     "webSearchProviderGrok": "Grok (X.AI)",
@@ -3941,5 +3969,36 @@
     "openaiChatDesc": "/v1/chat/completions 호환 서비스",
     "openaiResponsesDesc": "/v1/responses 호환 서비스",
     "selectApiType": "API 유형 선택"
+  },
+  "plans": {
+    "addToChat": "현재 채팅에 Plan 참조 추가",
+    "badge": {
+      "archived": "보관됨",
+      "completed": "완료",
+      "executing": "실행 중",
+      "orphan": "고아",
+      "planning": "계획 중",
+      "review": "검토 중"
+    },
+    "count": "Plan {{count}}개",
+    "empty": "아직 Plan이 없습니다.",
+    "emptyPlan": "이 Plan 파일은 비어 있습니다.",
+    "filter": {
+      "allAgents": "모든 Agent",
+      "state": {
+        "all": "모든 상태",
+        "archived": "보관됨 (종료)",
+        "completed": "완료",
+        "executing": "실행 중",
+        "planning": "계획 중",
+        "review": "검토 중"
+      }
+    },
+    "openInSession": "해당 세션 열기",
+    "refresh": "새로 고침",
+    "selectHint": "왼쪽에서 Plan을 선택하세요.",
+    "sessionDeleted": "소유 세션이 삭제됨",
+    "title": "Plan 기록",
+    "untitled": "이름 없는 Plan"
   }
 }

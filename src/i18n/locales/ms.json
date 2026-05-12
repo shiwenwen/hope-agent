@@ -386,6 +386,11 @@
     "renameSession": "Namakan semula",
     "renameSessionPlaceholder": "Masukkan tajuk baharu...",
     "revealInFolder": "Tunjuk dalam folder",
+    "roundLimitReachedBody": "Pusingan ini menggunakan kesemua {{count}} pusingan panggilan alat tetapi tugas mungkin belum selesai. Tekan butang di bawah untuk hantar \"Teruskan\" dan saya akan sambung dari kemajuan semasa; anda juga boleh naikkan `max_tool_rounds` di Tetapan → Agen → Keupayaan.",
+    "roundLimitReachedBodyNoCount": "Pusingan panggilan alat untuk giliran ini telah habis. Tekan butang di bawah untuk hantar \"Teruskan\" dan saya akan sambung dari kemajuan semasa.",
+    "roundLimitReachedTitle": "Had panggilan alat dicapai",
+    "roundLimitResumeButton": "Teruskan",
+    "roundLimitResumeMessage": "Teruskan",
     "scrollToBottom": "Skrol ke bawah",
     "searchPlaceholder": "Cari perbualan...",
     "searchTruncatedHint": "Menunjukkan {{count}} padanan pertama — perhalusi pertanyaan untuk melihat lebih banyak.",
@@ -845,7 +850,8 @@
       "system": "Sistem",
       "tasks": "Tugasan",
       "tokens": "Penggunaan Token",
-      "tools": "Penggunaan Alat"
+      "tools": "Penggunaan Alat",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -893,6 +899,21 @@
       "frequency": "Kekerapan panggilan",
       "name": "Nama",
       "totalMs": "Jumlah (ms)"
+    },
+    "plans": {
+      "active": "Sedang berlangsung",
+      "avgExecution": "Tempoh perlaksanaan purata",
+      "byAgent": "Mengikut Agent",
+      "byAgentCompleted": "Selesai",
+      "byProject": "Mengikut projek",
+      "completionRate": "Kadar penyelesaian",
+      "created": "Dicipta",
+      "creationTrend": "Trend penciptaan (30 hari)",
+      "empty": "Tiada data Plan dalam tempoh dipilih.",
+      "noProject": "Tanpa projek",
+      "sampleSize": "Disampel {{count}} larian selesai",
+      "stateDistribution": "Taburan keadaan",
+      "total": "Jumlah Plan"
     }
   },
   "diffPanel": {
@@ -1506,6 +1527,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Simpan dan teruskan",
+      "subtitle": "Pilih backend carian web yang Hope Agent gunakan apabila memerlukan maklumat terkini. DuckDuckGo berfungsi tanpa kunci; API Provider boleh ditambah sekarang atau kemudian.",
+      "title": "Konfigurasikan carian web"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1562,6 +1588,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Provider carian",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3616,6 +3643,7 @@
     "webSearchNeedsConfig": "Perlukan konfigurasi",
     "webSearchNeedsKey": "Perlukan kunci",
     "webSearchProviderBrave": "Brave Search",
+    "webSearchProviderBocha": "Bocha AI Search",
     "webSearchProviderDDG": "DuckDuckGo",
     "webSearchProviderGoogle": "Google Custom Search",
     "webSearchProviderGrok": "Grok (X.AI)",
@@ -3941,5 +3969,36 @@
     "openaiChatDesc": "Perkhidmatan serasi dengan /v1/chat/completions",
     "openaiResponsesDesc": "Perkhidmatan serasi dengan /v1/responses",
     "selectApiType": "Pilih Jenis API"
+  },
+  "plans": {
+    "addToChat": "Tambah rujukan Plan ke perbualan semasa",
+    "badge": {
+      "archived": "Diarkibkan",
+      "completed": "Selesai",
+      "executing": "Sedang dijalankan",
+      "orphan": "Yatim",
+      "planning": "Sedang merancang",
+      "review": "Dalam semakan"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Tiada Plan lagi.",
+    "emptyPlan": "Fail Plan ini kosong.",
+    "filter": {
+      "allAgents": "Semua Agent",
+      "state": {
+        "all": "Semua keadaan",
+        "archived": "Diarkibkan (keluar)",
+        "completed": "Selesai",
+        "executing": "Sedang dijalankan",
+        "planning": "Sedang merancang",
+        "review": "Dalam semakan"
+      }
+    },
+    "openInSession": "Buka dalam sesi",
+    "refresh": "Muat semula",
+    "selectHint": "Pilih satu Plan di sebelah kiri untuk melihat kandungannya.",
+    "sessionDeleted": "Sesi pemilik telah dipadam",
+    "title": "Plan",
+    "untitled": "Plan tanpa tajuk"
   }
 }

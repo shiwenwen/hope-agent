@@ -1841,18 +1841,24 @@ impl SessionDB {
     }
 
     /// Update the plan mode state for a session.
+    ///
+    /// Also bumps `updated_at` so Dashboard's plan-stats execution-duration
+    /// query can use `session.updated_at` as a proxy for "when did this plan
+    /// reach `completed`?" — the plan markdown file mtime stops moving once
+    /// the model approves the plan, so it's an unreliable signal.
     pub fn update_session_plan_mode(
         &self,
         session_id: &str,
         plan_mode: crate::plan::PlanModeState,
     ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET plan_mode = ?1 WHERE id = ?2",
-            params![plan_mode.as_str(), session_id],
+            "UPDATE sessions SET plan_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            params![plan_mode.as_str(), now, session_id],
         )?;
         Ok(())
     }

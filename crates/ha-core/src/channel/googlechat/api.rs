@@ -177,4 +177,30 @@ impl GoogleChatApi {
 
         Ok(())
     }
+
+    /// Download an UPLOADED_CONTENT attachment to disk using the bot's
+    /// OAuth access token. `resource_name` is the value from
+    /// `attachment.attachmentDataRef.resourceName` (looks like
+    /// `spaces/AAAxxx/messages/zzz.zzz/attachments/yyy`). Drive-file
+    /// attachments (`source: DRIVE_FILE`) are not supported here —
+    /// callers should detect that case and skip materialization.
+    pub async fn download_attachment_to_disk(
+        &self,
+        resource_name: &str,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
+        if resource_name.is_empty() {
+            return Err(anyhow!("Empty Google Chat attachment resourceName"));
+        }
+        let auth = self.auth_header().await?;
+        // Endpoint per https://developers.google.com/chat/api/reference/rest/v1/media/download
+        let url = format!(
+            "https://chat.googleapis.com/v1/media/{}?alt=media",
+            urlencoding::encode(resource_name)
+        );
+
+        let builder = self.client.get(&url).header("Authorization", &auth);
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+    }
 }

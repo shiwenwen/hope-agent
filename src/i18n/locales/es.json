@@ -386,6 +386,11 @@
     "renameSession": "Renombrar",
     "renameSessionPlaceholder": "Introducir nuevo título...",
     "revealInFolder": "Mostrar en la carpeta",
+    "roundLimitReachedBody": "Este turno usó las {{count}} rondas de llamadas a herramientas sin terminar. Envía «Continuar» para retomar desde el progreso actual, o aumenta `max_tool_rounds` en Ajustes → Agente → Capacidades.",
+    "roundLimitReachedBodyNoCount": "Se agotaron las rondas de llamadas a herramientas en este turno. Envía «Continuar» para retomar desde el progreso actual.",
+    "roundLimitReachedTitle": "Límite de llamadas a herramientas alcanzado",
+    "roundLimitResumeButton": "Continuar",
+    "roundLimitResumeMessage": "Continuar",
     "scrollToBottom": "Desplazarse abajo",
     "searchPlaceholder": "Buscar conversaciones...",
     "searchTruncatedHint": "Mostrando las primeras {{count}} coincidencias — refina la consulta para ver más.",
@@ -845,7 +850,8 @@
       "system": "Sistema",
       "tasks": "Tareas",
       "tokens": "Uso de tokens",
-      "tools": "Uso de herramientas"
+      "tools": "Uso de herramientas",
+      "plans": "Planes"
     },
     "task": {
       "activeJobs": "Activas",
@@ -893,6 +899,21 @@
       "frequency": "Frecuencia de llamadas",
       "name": "Nombre",
       "totalMs": "Total (ms)"
+    },
+    "plans": {
+      "active": "En curso",
+      "avgExecution": "Tiempo medio de ejecución",
+      "byAgent": "Por Agent",
+      "byAgentCompleted": "Completado",
+      "byProject": "Por proyecto",
+      "completionRate": "Tasa de finalización",
+      "created": "Creado",
+      "creationTrend": "Tendencia de creación (30 días)",
+      "empty": "Sin datos de Plan en la ventana seleccionada.",
+      "noProject": "Sin proyecto",
+      "sampleSize": "{{count}} ejecuciones completadas muestreadas",
+      "stateDistribution": "Distribución de estados",
+      "total": "Total de planes"
     }
   },
   "diffPanel": {
@@ -1506,6 +1527,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Guardar y continuar",
+      "subtitle": "Elige el backend de búsqueda web que Hope Agent usará cuando necesite información actual. DuckDuckGo funciona sin clave; los Providers de API se pueden añadir ahora o después.",
+      "title": "Configurar búsqueda web"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1562,6 +1588,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Provider de búsqueda",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3616,6 +3643,7 @@
     "webSearchNeedsConfig": "Requiere configuración",
     "webSearchNeedsKey": "Requiere clave",
     "webSearchProviderBrave": "Brave Search",
+    "webSearchProviderBocha": "Bocha AI Search",
     "webSearchProviderDDG": "DuckDuckGo",
     "webSearchProviderGoogle": "Google Custom Search",
     "webSearchProviderGrok": "Grok (X.AI)",
@@ -3941,5 +3969,36 @@
     "openaiChatDesc": "Servicios compatibles con /v1/chat/completions",
     "openaiResponsesDesc": "Servicios compatibles con /v1/responses",
     "selectApiType": "Seleccione Tipo de API"
+  },
+  "plans": {
+    "addToChat": "Agregar referencia del Plan al chat actual",
+    "badge": {
+      "archived": "Archivado",
+      "completed": "Completado",
+      "executing": "Ejecutando",
+      "orphan": "Huérfano",
+      "planning": "Planificando",
+      "review": "En revisión"
+    },
+    "count": "{{count}} planes",
+    "empty": "Aún no hay planes.",
+    "emptyPlan": "Este archivo de Plan está vacío.",
+    "filter": {
+      "allAgents": "Todos los Agents",
+      "state": {
+        "all": "Todos los estados",
+        "archived": "Archivado (salida)",
+        "completed": "Completado",
+        "executing": "Ejecutando",
+        "planning": "Planificando",
+        "review": "En revisión"
+      }
+    },
+    "openInSession": "Abrir en la sesión",
+    "refresh": "Actualizar",
+    "selectHint": "Selecciona un Plan a la izquierda para ver el contenido.",
+    "sessionDeleted": "Sesión propietaria eliminada",
+    "title": "Planes",
+    "untitled": "Plan sin título"
   }
 }

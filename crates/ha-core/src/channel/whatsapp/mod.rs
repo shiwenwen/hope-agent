@@ -11,6 +11,7 @@
 
 pub mod api;
 pub mod format;
+pub mod inbound_media;
 pub mod polling;
 
 use std::collections::HashMap;
@@ -162,6 +163,38 @@ impl ChannelPlugin for WhatsAppPlugin {
 
     async fn stop_account(&self, account_id: &str) -> Result<()> {
         self.accounts.lock().await.remove(account_id);
+        Ok(())
+    }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = crate::channel::inbound_media_common::take_pending_refs::<
+            inbound_media::ParsedMediaRef,
+        >(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let api = {
+            let accounts = self.accounts.lock().await;
+            accounts
+                .get(&account.id)
+                .map(|a| a.api.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("WhatsApp account '{}' is not running", account.id)
+                })?
+        };
+        let results = futures_util::future::join_all(
+            pending
+                .iter()
+                .map(|p| inbound_media::materialize_inbound(&api, p, &account.id)),
+        )
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
+        }
         Ok(())
     }
 

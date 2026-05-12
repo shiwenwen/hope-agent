@@ -64,11 +64,11 @@
 ### 🛠 工作流 & 工具
 
 <table>
-<tr><td width="220"><b>📋 Plan Mode 计划执行</b></td><td>面对复杂任务先出一份可修改 / 可承接的计划书，5 态状态机管理执行进度，计划文件按 agent / session 物理隔离不会跨会话串戏。计划可跨会话存档，下次继续只要一句"继续上次的计划"。执行期间严格按白名单工具操作，避免模型跑飞。</td></tr>
+<tr><td width="220"><b>📋 Plan Mode 计划执行</b></td><td>面对复杂任务先出一份可修改 / 可承接的计划书，5 态状态机管理执行进度，计划文件按 agent / session 物理隔离不会跨会话串戏。计划可跨会话存档，下次继续只要一句"继续上次的计划"。侧栏 <b>Plans 历史查看器</b>支持跨会话只读浏览所有 Plan（含已 <code>/plan exit</code> 归档），按 Agent / 状态筛选、版本切换、一键跳转所属会话；详情面板可一键以 <code>@plan:&lt;short_id&gt;:v&lt;version&gt;</code> 形式注入到当前对话。执行期间严格按白名单工具操作，避免模型跑飞。</td></tr>
 <tr><td><b>📁 Project 项目容器</b></td><td>把相关会话归到同一项目下，继承项目级记忆 / 项目指令 / 共享文件。上传的文件自动文本抽取并三层注入（目录清单 / 小文件自动内联 / 大文件按需读取），不用手动 @ 文件也不怕吃爆上下文。</td></tr>
 <tr><td><b>👥 Agent Team 多 Agent 协作</b></td><td>在设置里预置团队模板（成员角色、绑定 Agent、默认任务模板），模型按需一句话就能组建专家团。成员间可互发消息、协同推进，完成后自动把 transcript 汇总回主对话。</td></tr>
 <tr><td><b>🗓 自然语言定时任务</b></td><td>"每天早 8 点给我写日报"、"每周一整理上周待办"、"工作日每小时扫一次邮箱"——到点自动跑，结果可选投递到任一 IM 渠道。Cron 在守护进程 / 桌面 GUI 下都能稳定运行。</td></tr>
-<tr><td><b>📊 Dashboard + Recap 复盘</b></td><td>内置数据大盘：成本 / Token / 活跃度热力图 / 健康度四维可视化。<code>/recap</code> 深度复盘一键跑过去 N 天会话，生成 11 个 AI 章节报告（含 Agent 工具优化建议、记忆与技能推荐、成本优化等），可导出独立 HTML 分享。</td></tr>
+<tr><td><b>📊 Dashboard + Recap 复盘</b></td><td>内置数据大盘：成本 / Token / 活跃度热力图 / 健康度四维可视化，新增 <b>Plan 子板</b>（状态分布、完成率、按 Agent / Project 分组、30 天创建趋势、平均执行时长）。<code>/recap</code> 深度复盘一键跑过去 N 天会话，生成 11 个 AI 章节报告（含 Agent 工具优化建议、记忆与技能推荐、成本优化等），可导出独立 HTML 分享。</td></tr>
 <tr><td><b>🔌 MCP 客户端（OAuth 2.1）</b></td><td>内置 Model Context Protocol 客户端，四种 transport 全支持：stdio / Streamable HTTP / SSE / WebSocket。完整 OAuth 2.1 + PKCE 流程（自动 discovery、RFC 7591 动态注册、loopback 回调），凭据 0600 原子写落盘，Notion / Linear 等标准 OAuth server 可一键授权；所有出站 URL 硬过 SSRF 策略。GUI 里一键从 <code>claude_desktop_config.json</code> 导入，工具自动以 <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> 接入主对话；另配 <code>mcp_resource</code> / <code>mcp_prompt</code> 工具访问被动数据，长跑工具自动后台化。</td></tr>
 <tr><td><b>🔧 工具箱</b></td><td>可控浏览器（CDP）、Canvas 画布、AI 画图（7 个 Provider）、Web 搜索（8 个 Provider failover）、bash 执行（可选 Docker 沙箱隔离）、文件读写 / grep / find、URL 预览、崩溃日志、自诊断。</td></tr>
 <tr><td><b>📑 飞书工作空间深度集成</b></td><td>40 个 <code>feishu_*</code> tool 覆盖 docx 云文档（建/读/改）、bitable 多维表格（CRUD + view + dashboard）、drive 云盘（上下传 ≤20MB，本地路径走 protected-path 审批）、wiki 知识库链接解析、approval 审批（创建/查询/撤销）、calendar 日历（建会/邀人/改/删）、contact 联系人（查用户/部门）、hire 招聘（岗位/人才库/投递）。复用已配的飞书 IM channel 凭据，配套 <code>skills/feishu</code> 技能教模型 OKR 周报 / 排会议 / 撤审批等典型工作流。</td></tr>
@@ -90,23 +90,120 @@
 
 ### 普通用户
 
-> 📦 安装包：[Releases](https://github.com/shiwenwen/hope-agent/releases)
+> 📦 各平台完整安装包列表：[Releases](https://github.com/shiwenwen/hope-agent/releases)
 
-1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包
-   - macOS：`Hope-Agent_*.dmg`
-   - Linux：`hope-agent_*.AppImage`
-   - Windows：`Hope-Agent_*.exe` / `Hope-Agent_*.msi`（尚未完成充分测试）
-2. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
-3. 桌面安装包内置 GitHub Releases 自动更新；应用内可在 **设置 → 关于** 里检查更新并一键安装
+#### macOS
 
-> 若 macOS 启动时提示"已损坏"或"无法验证开发者"，请在终端执行以下命令：
+##### Homebrew（推荐）
+
+```bash
+brew tap shiwenwen/hope-agent
+brew install --cask hope-agent
+```
+
+> 已经手动装过 `Hope Agent.app`？在 `brew install` 后面加 `--adopt`（接管同版本现有应用，不重新下载）或 `--force`（强制重下覆盖）。
+
+##### 手动安装（DMG）
+
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*.dmg`，拖到「应用程序」即可。
+
+> 若启动时提示"已损坏"或"无法验证开发者"，请在终端执行：
 >
 > ```bash
 > sudo xattr -cr /Applications/Hope\ Agent.app
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-> 若 Windows 启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll` 的报错，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
+当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
+
+##### 启动方式
+
+- **桌面 GUI**：Launchpad / 应用程序文件夹（点 Hope Agent 图标），或终端 `open -a "Hope Agent"` / `hope-agent`
+- **后台服务（HTTP/WS daemon）**：`hope-agent server start`
+- **ACP（IDE 集成）**：`hope-agent acp`
+
+#### Windows
+
+##### Scoop（推荐）
+
+```powershell
+scoop bucket add hope-agent https://github.com/shiwenwen/scoop-hope-agent
+scoop install hope-agent
+```
+
+##### 手动安装（installer）
+
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*-setup.exe` 双击安装。**Windows 端尚未完成充分测试**，欢迎反馈问题。
+
+> 若启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll`，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
+
+当前仅 x64。
+
+##### 启动方式
+
+- **桌面 GUI**：Start 菜单点「Hope Agent」启动，或 PowerShell `hope-agent`
+- **后台服务（HTTP/WS daemon）**：`hope-agent server start`（PowerShell / cmd）
+- **ACP（IDE 集成）**：`hope-agent acp`
+
+#### Linux
+
+##### Arch Linux / Manjaro（AUR）
+
+```bash
+yay -S hope-agent-bin   # 或 paru / 任意 AUR helper
+```
+
+预编译二进制版（沿用 GitHub Release 的 `.deb`），不从源码编译。
+
+##### Debian / Ubuntu（apt）
+
+```bash
+curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
+echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/hope-agent.list
+sudo apt update
+sudo apt install hope-agent
+```
+
+##### Fedora / RHEL / CentOS（dnf / yum）
+
+```bash
+sudo curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo \
+  -o /etc/yum.repos.d/hope-agent.repo
+sudo dnf install hope-agent     # 或 sudo yum install hope-agent
+```
+
+> 历史命令 `sudo dnf config-manager --add-repo …` 在 dnf5（Fedora 41+）已经废弃，用上面的 `curl` 写法对 dnf4 / dnf5 / yum / zypper 都兼容。
+
+openSUSE 用户：
+
+```bash
+sudo zypper addrepo https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo zypper install hope-agent
+```
+
+##### 手动安装（AppImage / deb / rpm）
+
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载：
+
+- AppImage：`Hope.Agent_*.AppImage` —— `chmod +x` 后直接运行
+- Debian / Ubuntu：`Hope.Agent_*.deb` —— `sudo dpkg -i Hope.Agent_*.deb`
+- Fedora / RHEL：`Hope.Agent_*.rpm` —— `sudo rpm -i Hope.Agent_*.rpm`
+
+当前仅 x86_64。
+
+##### 启动方式
+
+- **桌面 GUI**：应用菜单点「Hope Agent」启动，或终端 `hope-agent`
+- **后台服务（HTTP/WS daemon）**：`hope-agent server start`
+- **ACP（IDE 集成）**：`hope-agent acp`
+
+#### 首次启动 & 自动更新
+
+1. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
+2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装
+3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
 
 ### 开发者
 

@@ -25,6 +25,7 @@ import {
 import { useApprovals } from "./useApprovals"
 import { generateClientId } from "@/components/chat/chatScrollKeys"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
+import { expandPlanMentionsToAttachments } from "@/components/chat/plan-mention/expandPlanMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 
@@ -450,6 +451,13 @@ export function useChatStream({
     const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
     for (const m of mentionAttachments) {
       attachments.push(m)
+    }
+    // `@plan:<short>:v<n>` tokens resolve through the backend so we can
+    // address plan files outside the working dir without weakening the
+    // file-mention rules.
+    const planAttachments = await expandPlanMentionsToAttachments(text)
+    for (const p of planAttachments) {
+      attachments.push(p)
     }
 
     for (const file of filesToSend) {

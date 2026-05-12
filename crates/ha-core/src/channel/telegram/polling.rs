@@ -133,19 +133,17 @@ async fn convert_update(
     use teloxide::types::UpdateKind;
 
     match &update.kind {
-        UpdateKind::Message(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
-        }
+        UpdateKind::Message(msg) => convert_message(msg, account_id, bot_id, bot_username).await,
         UpdateKind::EditedMessage(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
+            convert_message(msg, account_id, bot_id, bot_username).await
         }
         // Telegram broadcast channel (ChatType::Channel) post —— polling
         // allowed_updates 中已声明，必须在 convert 端配套，否则更新被静默丢弃
         UpdateKind::ChannelPost(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
+            convert_message(msg, account_id, bot_id, bot_username).await
         }
         UpdateKind::EditedChannelPost(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
+            convert_message(msg, account_id, bot_id, bot_username).await
         }
         UpdateKind::CallbackQuery(cb) => {
             // Handle approval / ask_user / slash callbacks directly (don't create MsgContext)
@@ -169,9 +167,7 @@ async fn convert_update(
     }
 }
 
-/// Convert a teloxide Message into our MsgContext.
 async fn convert_message(
-    api: &TelegramBotApi,
     msg: &teloxide::types::Message,
     account_id: &str,
     bot_id: i64,
@@ -217,42 +213,11 @@ async fn convert_message(
     // Extract text
     let text = msg.text().map(|t| t.to_string());
 
-    // Extract media
-    let mut media = Vec::new();
-    if let Some(photos) = msg.photo() {
-        if let Some(best) = photos.iter().max_by_key(|p| p.width * p.height) {
-            let file_id = best.file.id.to_string();
-            let file_path = download_inbound_media_to_temp(api, &file_id, "photo", "jpg").await;
-            media.push(InboundMedia {
-                media_type: MediaType::Photo,
-                file_id,
-                file_url: file_path,
-                mime_type: Some("image/jpeg".to_string()),
-                file_size: Some(best.file.size as u64),
-                caption: msg.caption().map(|c| c.to_string()),
-            });
-        }
-    }
-    if let Some(doc) = msg.document() {
-        let file_id = doc.file.id.to_string();
-        let ext = doc
-            .file_name
-            .as_deref()
-            .and_then(|n| std::path::Path::new(n).extension().and_then(|e| e.to_str()))
-            .unwrap_or("bin");
-        let file_path = download_inbound_media_to_temp(api, &file_id, "document", ext).await;
-        media.push(InboundMedia {
-            media_type: MediaType::Document,
-            file_id,
-            file_url: file_path,
-            mime_type: doc.mime_type.as_ref().map(|m| m.to_string()),
-            file_size: Some(doc.file.size as u64),
-            caption: msg.caption().map(|c| c.to_string()),
-        });
-    }
+    let pending_media = super::inbound_media::parse_message_media(msg);
+    let had_media = !pending_media.is_empty();
 
     // Skip if no text and no media
-    if text.is_none() && media.is_empty() {
+    if text.is_none() && !had_media {
         return None;
     }
 
@@ -281,6 +246,9 @@ async fn convert_message(
         ),
     };
 
+    let mut raw = serde_json::json!({ "update_id": 0 }); // minimal raw payload
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
+
     Some(MsgContext {
         channel_id: ChannelId::Telegram,
         account_id: account_id.to_string(),
@@ -293,52 +261,12 @@ async fn convert_message(
         thread_id,
         message_id: msg.id.0.to_string(),
         text,
-        media,
+        media: Vec::new(),
         reply_to_message_id: reply_to,
         timestamp: msg.date,
         was_mentioned,
-        raw: serde_json::json!({ "update_id": 0 }), // minimal raw payload
+        raw,
     })
-}
-
-async fn download_inbound_media_to_temp(
-    api: &TelegramBotApi,
-    file_id: &str,
-    prefix: &str,
-    ext: &str,
-) -> Option<String> {
-    let dir = match crate::paths::channel_dir("telegram") {
-        Ok(d) => d.join("inbound-temp"),
-        Err(err) => {
-            app_warn!(
-                "channel",
-                "telegram::polling",
-                "Failed to resolve telegram inbound temp dir: {}",
-                err
-            );
-            return None;
-        }
-    };
-    let safe_id = file_id.replace(['/', '\\', ':'], "_");
-    let safe_ext = ext.trim_start_matches('.');
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let path = dir.join(format!("{}-{}-{}.{}", ts, safe_id, prefix, safe_ext));
-    match api.download_file_to_path(file_id, &path).await {
-        Ok(_) => Some(path.to_string_lossy().to_string()),
-        Err(err) => {
-            app_warn!(
-                "channel",
-                "telegram::polling",
-                "Failed to download inbound media '{}': {}",
-                file_id,
-                err
-            );
-            None
-        }
-    }
 }
 
 /// Handle an approval callback query: submit the approval response, answer the

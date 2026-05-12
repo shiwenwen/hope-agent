@@ -64,11 +64,11 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 ### 🛠 Workflow & tools
 
 <table>
-<tr><td width="220"><b>📋 Plan Mode</b></td><td>For complex tasks, Hope Agent first drafts an editable, resumable plan managed by a five-state machine, with plan files physically isolated per agent / session so cross-session bleed can't happen. Plans persist across sessions — "continue the previous plan" is enough to pick up. During execution, it strictly respects a tool allowlist so the model can't wander.</td></tr>
+<tr><td width="220"><b>📋 Plan Mode</b></td><td>For complex tasks, Hope Agent first drafts an editable, resumable plan managed by a five-state machine, with plan files physically isolated per agent / session so cross-session bleed can't happen. Plans persist across sessions — "continue the previous plan" is enough to pick up. The sidebar <b>Plans history viewer</b> offers cross-session, read-only browsing of every plan (including <code>/plan exit</code> archives), with Agent / state filtering, version switching, and one-click jumps to the owning session; the detail pane injects an <code>@plan:&lt;short_id&gt;:v&lt;version&gt;</code> reference straight into the current chat. During execution it strictly respects a tool allowlist so the model can't wander.</td></tr>
 <tr><td><b>📁 Project containers</b></td><td>Group related sessions under a single project that inherits project-level memory / instructions / shared files. Uploaded files get automatic text extraction and three-layer injection (dir listing / small-file auto-inline / large-file on-demand read) — no manual @ file, no context blowup.</td></tr>
 <tr><td><b>👥 Agent teams</b></td><td>Pre-configure team templates in settings (member roles, bound agents, default task templates). One sentence tells the model to spin up a specialist team. Members message each other and coordinate; when done, the transcript is summarized back to the main thread.</td></tr>
 <tr><td><b>🗓 Natural-language cron</b></td><td>"Write me a daily summary every 8 AM." "Review last week's todos every Monday." "Scan my inbox hourly on workdays." Scheduled in plain language, delivered to any IM channel. Runs reliably under both desktop GUI and the daemon.</td></tr>
-<tr><td><b>📊 Dashboard + Recap</b></td><td>Built-in analytics: cost, token usage, activity heatmap, and a four-dimensional health score. <code>/recap</code> runs a deep retrospective over the last N days and produces an 11-section AI report (Agent tool optimization, memory &amp; skill recommendations, cost optimization, etc.) that exports as standalone HTML.</td></tr>
+<tr><td><b>📊 Dashboard + Recap</b></td><td>Built-in analytics: cost, token usage, activity heatmap, and a four-dimensional health score, plus a new <b>Plans tab</b> (state distribution, completion rate, breakdowns by Agent / Project, 30-day creation trend, average execution time). <code>/recap</code> runs a deep retrospective over the last N days and produces an 11-section AI report (Agent tool optimization, memory &amp; skill recommendations, cost optimization, etc.) that exports as standalone HTML.</td></tr>
 <tr><td><b>🔌 MCP client (OAuth 2.1)</b></td><td>Built-in Model Context Protocol client with all four transports: stdio / Streamable HTTP / SSE / WebSocket. Full OAuth 2.1 + PKCE flow (automatic discovery, RFC 7591 dynamic client registration, loopback callback) persists credentials at 0600 on disk; standards-compliant OAuth servers like Notion / Linear work with a single click. All outbound URLs pass through the SSRF policy. One-click import from <code>claude_desktop_config.json</code> in Settings; tools surface as <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> in the main conversation, with extra <code>mcp_resource</code> / <code>mcp_prompt</code> tools for passive data. Long-running tools auto-background.</td></tr>
 <tr><td><b>🔧 Toolbox</b></td><td>Controllable browser (CDP), Canvas, AI image generation (7 providers), web search (8 providers with failover), bash (optional Docker sandbox), file read/grep/find, URL preview, crash journal, self-diagnosis.</td></tr>
 <tr><td><b>📑 Deep Feishu / Lark workspace integration</b></td><td>40 <code>feishu_*</code> tools spanning docx (create / read / edit), bitable (CRUD + views + dashboards), drive (upload / download ≤20MB, local paths gated by protected-path approval), wiki (link resolution), approval (create / query / cancel), calendar (create event / invite / update / delete), contact (user / department lookup), and hire (jobs / talents / applications). Reuses the existing Feishu IM channel credentials; ships with the <code>skills/feishu</code> skill that teaches typical workflows like OKR weekly reports, meeting scheduling, approval withdrawal.</td></tr>
@@ -90,23 +90,120 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 
 ### For users
 
-> 📦 Installers: [Releases](https://github.com/shiwenwen/hope-agent/releases)
+> 📦 Full installer list across platforms: [Releases](https://github.com/shiwenwen/hope-agent/releases)
 
-1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
-   - macOS: `Hope-Agent_*.dmg`
-   - Linux: `hope-agent_*.AppImage`
-   - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
-2. First launch: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
-3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
+#### macOS
 
-> If macOS reports "damaged" or "cannot verify the developer" on first launch, execute the following commands in Terminal:
+##### Homebrew (recommended)
+
+```bash
+brew tap shiwenwen/hope-agent
+brew install --cask hope-agent
+```
+
+> Already have `Hope Agent.app` installed manually? Append `--adopt` to let the cask take over your existing same-version app without re-downloading, or `--force` to overwrite.
+
+##### Manual install (DMG)
+
+Download `Hope.Agent_*.dmg` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and drag into Applications.
+
+> If macOS reports "damaged" or "cannot verify the developer" on first launch, run in Terminal:
 >
 > ```bash
 > sudo xattr -cr /Applications/Hope\ Agent.app
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-> If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch the application.
+Apple Silicon only; Intel Macs run under Rosetta 2.
+
+##### Launch modes
+
+- **Desktop GUI**: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` / `hope-agent` from a terminal
+- **Headless server (HTTP/WS daemon)**: `hope-agent server start`
+- **ACP (IDE integration)**: `hope-agent acp`
+
+#### Windows
+
+##### Scoop (recommended)
+
+```powershell
+scoop bucket add hope-agent https://github.com/shiwenwen/scoop-hope-agent
+scoop install hope-agent
+```
+
+##### Manual install (installer)
+
+Download `Hope.Agent_*-setup.exe` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and double-click. **Windows is not yet fully tested** — please file issues if anything breaks.
+
+> If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch.
+
+x64 only.
+
+##### Launch modes
+
+- **Desktop GUI**: click "Hope Agent" in the Start menu, or `hope-agent` from PowerShell
+- **Headless server (HTTP/WS daemon)**: `hope-agent server start` (PowerShell / cmd)
+- **ACP (IDE integration)**: `hope-agent acp`
+
+#### Linux
+
+##### Arch Linux / Manjaro (AUR)
+
+```bash
+yay -S hope-agent-bin   # or paru / any AUR helper
+```
+
+Pre-built binary package (repackaged from the GitHub Release `.deb`) — no source compilation.
+
+##### Debian / Ubuntu (apt)
+
+```bash
+curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
+echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/hope-agent.list
+sudo apt update
+sudo apt install hope-agent
+```
+
+##### Fedora / RHEL / CentOS (dnf / yum)
+
+```bash
+sudo curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo \
+  -o /etc/yum.repos.d/hope-agent.repo
+sudo dnf install hope-agent     # or `sudo yum install hope-agent`
+```
+
+> The older `sudo dnf config-manager --add-repo …` form has been removed in dnf5 (Fedora 41+); the `curl` variant above works on dnf4 / dnf5 / yum / zypper alike.
+
+openSUSE users:
+
+```bash
+sudo zypper addrepo https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo zypper install hope-agent
+```
+
+##### Manual install (AppImage / deb / rpm)
+
+From [Releases](https://github.com/shiwenwen/hope-agent/releases):
+
+- AppImage: `Hope.Agent_*.AppImage` — `chmod +x` and run
+- Debian / Ubuntu: `Hope.Agent_*.deb` — `sudo dpkg -i Hope.Agent_*.deb`
+- Fedora / RHEL: `Hope.Agent_*.rpm` — `sudo rpm -i Hope.Agent_*.rpm`
+
+x86_64 only.
+
+##### Launch modes
+
+- **Desktop GUI**: click "Hope Agent" in your app menu, or `hope-agent` from a terminal
+- **Headless server (HTTP/WS daemon)**: `hope-agent server start`
+- **ACP (IDE integration)**: `hope-agent acp`
+
+#### First launch & auto-update
+
+1. First launch wizard: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
+2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates.
+3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
 
 ### For developers
 

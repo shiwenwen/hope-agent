@@ -84,6 +84,44 @@ impl WhatsAppApi {
         serde_json::from_str(&raw).context("Failed to decode WhatsApp media response")
     }
 
+    /// Download a bridge-provided inbound attachment to `dest`. The URL
+    /// can be either a bridge-side signed link (no auth) or a WhatsApp
+    /// Cloud API `media_url` that needs the app access token, which the
+    /// bridge surfaces via `BridgeAttachment.authBearer`. We don't pin
+    /// the host because user-deployed bridges legitimately publish on
+    /// arbitrary hostnames; SSRF policy still rejects metadata / private
+    /// / loopback addresses by default.
+    pub async fn download_attachment_to_disk(
+        &self,
+        url: &str,
+        auth_bearer: Option<&str>,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
+        crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
+            .await
+            .with_context(|| format!("WhatsApp attachment URL blocked: {}", url))?;
+
+        let mut builder = self.client.get(url);
+        if let Some(token) = auth_bearer {
+            let trimmed = token.trim();
+            if !trimmed.is_empty() {
+                // Accept either a raw token or one already prefixed with
+                // "Bearer " — bridges sometimes pass through verbatim.
+                let header_value =
+                    if trimmed.starts_with("Bearer ") || trimmed.starts_with("bearer ") {
+                        trimmed.to_string()
+                    } else {
+                        format!("Bearer {}", trimmed)
+                    };
+                builder = builder.header("Authorization", header_value);
+            }
+        }
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes)
+            .await
+            .context("WhatsApp attachment download")
+    }
+
     // ── Internal HTTP helpers ────────────────────────────────────
 
     async fn get(&self, endpoint: &str, timeout_ms: u64) -> Result<String> {
@@ -230,6 +268,44 @@ pub struct BridgeMessage {
     /// Whether this is from the bot itself (echo).
     #[serde(default)]
     pub from_me: bool,
+    /// Inbound attachments — empty if the bridge doesn't support media
+    /// or the message has no media. Each entry must have a fetchable
+    /// `url`; bridges that talk to WhatsApp Cloud API should resolve
+    /// `media_id → media_url` on their side and pass the bearer in
+    /// `authBearer` so this plugin only sees a download-ready record.
+    /// Older bridges that don't emit this field still deserialize fine
+    /// thanks to `#[serde(default)]`.
+    #[serde(default)]
+    pub attachments: Vec<BridgeAttachment>,
+}
+
+/// Inbound attachment transported through the bridge protocol. Optional
+/// in the wire format — older bridges that omit the field deserialize
+/// into an empty `attachments` vec.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeAttachment {
+    /// Fetchable URL — required. Either a public link or a bridge-side
+    /// signed URL that resolves without auth.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Coarse media kind (`image` / `video` / `audio` / `voice` /
+    /// `document`). Used to bucket into [`MediaType`] when the MIME is
+    /// missing or unhelpful.
+    #[serde(default)]
+    pub media_type: Option<String>,
+    /// MIME type (preferred classifier).
+    #[serde(default)]
+    pub content_type: Option<String>,
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub size: Option<u64>,
+    /// Optional Bearer token for the URL — populated when the bridge
+    /// surfaces a WhatsApp Cloud API `media_url` that still needs the
+    /// app's access token to download.
+    #[serde(default)]
+    pub auth_bearer: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

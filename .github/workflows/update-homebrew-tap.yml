@@ -1,0 +1,135 @@
+name: Update Homebrew Tap
+
+# Sync the cask template in `homebrew/hope-agent.rb.tmpl` into the public
+# tap repo (shiwenwen/homebrew-hope-agent → Casks/hope-agent.rb) whenever
+# a release is published.
+#
+# Triggers:
+#   - release.published — auto-fires after a draft Release is manually
+#     published (see docs/release-process.md §1.4).
+#   - workflow_dispatch — manual re-run against an existing tag, for when
+#     the cask template itself changes and you want to backfill an
+#     already-published release without cutting a new version.
+#
+# Required repo secrets:
+#   HOMEBREW_TAP_TOKEN — fine-grained PAT with `Contents: Read and write`
+#                       on shiwenwen/homebrew-hope-agent only.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sync (for example v0.1.2)
+        required: true
+        type: string
+
+concurrency:
+  group: update-homebrew-tap
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    env:
+      TAP_REPO: shiwenwen/homebrew-hope-agent
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v6
+
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          tag="${TAG}"
+          # Strip leading "v"; reject anything that is not a valid SemVer-ish
+          # release tag so we never push a broken cask to the tap.
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::tag '$tag' does not look like a release tag (expected vX.Y.Z[-pre])"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=Hope.Agent_${version}_aarch64.dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMG from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "${{ steps.ver.outputs.dmg_name }}" \
+            --dir .
+          ls -la "${{ steps.ver.outputs.dmg_name }}"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          set -euo pipefail
+          sum=$(sha256sum "${{ steps.ver.outputs.dmg_name }}" | awk '{print $1}')
+          if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
+            echo "::error::sha256sum returned unexpected output: $sum"
+            exit 1
+          fi
+          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+
+      - name: Render cask from template
+        run: |
+          set -euo pipefail
+          mkdir -p rendered/Casks
+          sed -e "s/__VERSION__/${{ steps.ver.outputs.version }}/g" \
+              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              homebrew/hope-agent.rb.tmpl > rendered/Casks/hope-agent.rb
+
+          # Refuse to push if any placeholder leaked through — protects the
+          # tap from a broken cask if the template ever drops the markers.
+          if grep -qE '__VERSION__|__SHA256__' rendered/Casks/hope-agent.rb; then
+            echo "::error::rendered cask still contains template placeholders"
+            cat rendered/Casks/hope-agent.rb
+            exit 1
+          fi
+
+          echo "--- rendered Casks/hope-agent.rb ---"
+          cat rendered/Casks/hope-agent.rb
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Copy rendered cask into tap repo
+        run: |
+          set -euo pipefail
+          mkdir -p tap/Casks
+          cp rendered/Casks/hope-agent.rb tap/Casks/hope-agent.rb
+
+      - name: Commit and push if changed
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          git config user.name  "hope-agent-bot"
+          git config user.email "hope-agent-bot@users.noreply.github.com"
+
+          # Stage first so the diff check sees both new and modified files.
+          # `git diff` alone ignores untracked paths, which made the first
+          # sync (when Casks/hope-agent.rb did not exist yet) silently skip.
+          git add Casks/hope-agent.rb
+          if git diff --cached --quiet; then
+            echo "No cask changes for $TAG; skipping push."
+            exit 0
+          fi
+
+          git commit -m "hope-agent ${{ steps.ver.outputs.version }}
+
+          DMG sha256: ${{ steps.sha.outputs.sha256 }}
+          Source: ${{ github.repository }}@$TAG
+          "
+          git push origin HEAD

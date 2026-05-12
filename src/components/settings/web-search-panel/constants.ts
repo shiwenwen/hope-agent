@@ -38,6 +38,21 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
       },
     ],
   },
+  bocha: {
+    id: "bocha",
+    labelKey: "settings.webSearchProviderBocha",
+    free: false,
+    needsApiKey: true,
+    url: "https://open.bochaai.com/",
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "sk-...",
+        secret: true,
+      },
+    ],
+  },
   perplexity: {
     id: "perplexity",
     labelKey: "settings.webSearchProviderPerplexity",

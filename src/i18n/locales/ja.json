@@ -386,6 +386,11 @@
     "renameSession": "名前を変更",
     "renameSessionPlaceholder": "新しいタイトルを入力...",
     "revealInFolder": "フォルダーで表示",
+    "roundLimitReachedBody": "このターンでツール呼び出し {{count}} 回をすべて使い切りましたが、タスクが完了していない可能性があります。下のボタンで「続行」を送信すると現在の進捗から再開します。設定 → エージェント → 機能 で `max_tool_rounds` を引き上げることもできます。",
+    "roundLimitReachedBodyNoCount": "このターンのツール呼び出し回数が上限に達しました。下のボタンで「続行」を送信すると現在の進捗から再開します。",
+    "roundLimitReachedTitle": "ツール呼び出し上限に到達",
+    "roundLimitResumeButton": "続行",
+    "roundLimitResumeMessage": "続行",
     "scrollToBottom": "一番下へスクロール",
     "searchPlaceholder": "会話を検索...",
     "searchTruncatedHint": "上位 {{count}} 件のみ表示中 — もっと見るにはキーワードを絞り込んでください。",
@@ -845,7 +850,8 @@
       "system": "システム監視",
       "tasks": "タスク統計",
       "tokens": "トークン使用量",
-      "tools": "ツール使用"
+      "tools": "ツール使用",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "アクティブ",
@@ -893,6 +899,21 @@
       "frequency": "呼び出し頻度",
       "name": "ツール名",
       "totalMs": "合計 (ms)"
+    },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均実行時間",
+      "byAgent": "Agent 別",
+      "byAgentCompleted": "完了",
+      "byProject": "プロジェクト別",
+      "completionRate": "完了率",
+      "created": "作成",
+      "creationTrend": "作成トレンド (30 日)",
+      "empty": "選択した期間に Plan がありません。",
+      "noProject": "プロジェクトなし",
+      "sampleSize": "完了 {{count}} 件をサンプリング",
+      "stateDistribution": "状態分布",
+      "total": "Plan 総数"
     }
   },
   "diffPanel": {
@@ -1506,6 +1527,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "保存して続行",
+      "subtitle": "Hope Agent が最新情報を必要とするときに使う Web 検索バックエンドを選びます。DuckDuckGo はキー不要です。API Provider は今でも後からでも追加できます。",
+      "title": "Web 検索を設定"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1562,6 +1588,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "検索 Provider",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3616,6 +3643,7 @@
     "webSearchNeedsConfig": "設定必須",
     "webSearchNeedsKey": "キー必須",
     "webSearchProviderBrave": "Brave Search",
+    "webSearchProviderBocha": "Bocha AI Search",
     "webSearchProviderDDG": "DuckDuckGo",
     "webSearchProviderGoogle": "Google Custom Search",
     "webSearchProviderGrok": "Grok (X.AI)",
@@ -3941,5 +3969,36 @@
     "openaiChatDesc": "/v1/chat/completions 互換サービス",
     "openaiResponsesDesc": "/v1/responses 互換サービス",
     "selectApiType": "API タイプを選択"
+  },
+  "plans": {
+    "addToChat": "現在のチャットに Plan 参照を追加",
+    "badge": {
+      "archived": "アーカイブ済み",
+      "completed": "完了",
+      "executing": "実行中",
+      "orphan": "孤立",
+      "planning": "計画中",
+      "review": "レビュー中"
+    },
+    "count": "Plan: {{count}} 件",
+    "empty": "Plan はありません。",
+    "emptyPlan": "この Plan ファイルは空です。",
+    "filter": {
+      "allAgents": "すべての Agent",
+      "state": {
+        "all": "すべての状態",
+        "archived": "アーカイブ (終了済み)",
+        "completed": "完了",
+        "executing": "実行中",
+        "planning": "計画中",
+        "review": "レビュー中"
+      }
+    },
+    "openInSession": "所属セッションへ移動",
+    "refresh": "更新",
+    "selectHint": "左側で Plan を選択してください。",
+    "sessionDeleted": "所属セッションは削除されました",
+    "title": "Plan 履歴",
+    "untitled": "無題の Plan"
   }
 }

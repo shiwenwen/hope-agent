@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use openssl::hash::{hash, MessageDigest};
-use openssl::symm::{decrypt, encrypt, Cipher};
+use openssl::symm::{encrypt, Cipher};
 use reqwest::header::{HeaderValue, CONTENT_TYPE};
 use serde_json::json;
 use tokio::fs;
@@ -10,12 +10,11 @@ use uuid::Uuid;
 
 use base64::Engine as _;
 
-use crate::channel::types::{InboundMedia, MediaData, MediaType, OutboundMedia};
+use crate::channel::types::{MediaData, MediaType, OutboundMedia};
 
 use super::api::{
-    CdnMedia, FileItem, ImageItem, MessageItem, VideoItem, WeChatApi, DEFAULT_WECHAT_CDN_BASE_URL,
+    CdnMedia, FileItem, ImageItem, VideoItem, WeChatApi, DEFAULT_WECHAT_CDN_BASE_URL,
     MESSAGE_ITEM_TYPE_FILE, MESSAGE_ITEM_TYPE_IMAGE, MESSAGE_ITEM_TYPE_VIDEO,
-    MESSAGE_ITEM_TYPE_VOICE,
 };
 
 const MAX_MEDIA_BYTES: u64 = 100 * 1024 * 1024;
@@ -60,130 +59,6 @@ pub async fn send_outbound_media(
     }
     api.send_message_items(to_user_id, vec![item], context_token)
         .await
-}
-
-pub async fn download_inbound_media(
-    message_id: &str,
-    item: &MessageItem,
-    cdn_base_url: &str,
-) -> Result<Option<InboundMedia>> {
-    match item.item_type {
-        MESSAGE_ITEM_TYPE_IMAGE => {
-            let image = match item.image_item.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let media = match image.media.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let aes_key = image
-                .aeskey
-                .as_deref()
-                .map(|hex| base64::engine::general_purpose::STANDARD.encode(hex.as_bytes()))
-                .or_else(|| media.aes_key.clone());
-            let bytes = if let Some(aes_key_base64) = aes_key.as_deref() {
-                download_and_decrypt_media(media, aes_key_base64, cdn_base_url).await?
-            } else {
-                download_plain_media(media, cdn_base_url).await?
-            };
-            let path = save_inbound_bytes(
-                message_id,
-                "image",
-                infer_extension(Some("image/jpeg"), media.full_url.as_deref()),
-                &bytes,
-            )
-            .await?;
-            return Ok(Some(InboundMedia {
-                media_type: MediaType::Photo,
-                file_id: file_identifier(&path),
-                file_url: Some(path.to_string_lossy().to_string()),
-                mime_type: Some("image/jpeg".to_string()),
-                file_size: Some(bytes.len() as u64),
-                caption: None,
-            }));
-        }
-        MESSAGE_ITEM_TYPE_FILE => {
-            let file = match item.file_item.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let media = match file.media.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let aes_key_base64 = match media.aes_key.as_deref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let bytes = download_and_decrypt_media(media, aes_key_base64, cdn_base_url).await?;
-            let filename = file
-                .file_name
-                .clone()
-                .unwrap_or_else(|| format!("{}.bin", message_id));
-            let mime = mime_from_filename(&filename);
-            let path = save_inbound_named_file(message_id, &filename, &bytes).await?;
-            return Ok(Some(InboundMedia {
-                media_type: MediaType::Document,
-                file_id: file_identifier(&path),
-                file_url: Some(path.to_string_lossy().to_string()),
-                mime_type: Some(mime),
-                file_size: Some(bytes.len() as u64),
-                caption: None,
-            }));
-        }
-        MESSAGE_ITEM_TYPE_VIDEO => {
-            let video = match item.video_item.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let media = match video.media.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let aes_key_base64 = match media.aes_key.as_deref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let bytes = download_and_decrypt_media(media, aes_key_base64, cdn_base_url).await?;
-            let path = save_inbound_bytes(message_id, "video", ".mp4", &bytes).await?;
-            return Ok(Some(InboundMedia {
-                media_type: MediaType::Video,
-                file_id: file_identifier(&path),
-                file_url: Some(path.to_string_lossy().to_string()),
-                mime_type: Some("video/mp4".to_string()),
-                file_size: Some(bytes.len() as u64),
-                caption: None,
-            }));
-        }
-        MESSAGE_ITEM_TYPE_VOICE => {
-            let voice = match item.voice_item.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let media = match voice.media.as_ref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let aes_key_base64 = match media.aes_key.as_deref() {
-                Some(value) => value,
-                None => return Ok(None),
-            };
-            let bytes = download_and_decrypt_media(media, aes_key_base64, cdn_base_url).await?;
-            let path = save_inbound_bytes(message_id, "voice", ".silk", &bytes).await?;
-            return Ok(Some(InboundMedia {
-                media_type: MediaType::Voice,
-                file_id: file_identifier(&path),
-                file_url: Some(path.to_string_lossy().to_string()),
-                mime_type: Some("audio/silk".to_string()),
-                file_size: Some(bytes.len() as u64),
-                caption: None,
-            }));
-        }
-        _ => {}
-    }
-
-    Ok(None)
 }
 
 fn build_outbound_item(
@@ -406,49 +281,7 @@ async fn download_remote_media(url: &str, media_type: &MediaType) -> Result<Path
     save_outbound_bytes(ext, &bytes).await
 }
 
-async fn download_and_decrypt_media(
-    media: &CdnMedia,
-    aes_key_base64: &str,
-    cdn_base_url: &str,
-) -> Result<Vec<u8>> {
-    let encrypted = download_plain_media(media, cdn_base_url).await?;
-    let raw_key = parse_aes_key(aes_key_base64)?;
-    let decrypted = decrypt(Cipher::aes_128_ecb(), &raw_key, None, &encrypted)
-        .context("Failed to AES-decrypt WeChat inbound media")?;
-    Ok(decrypted)
-}
-
-async fn download_plain_media(media: &CdnMedia, cdn_base_url: &str) -> Result<Vec<u8>> {
-    let download_url = media
-        .full_url
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            media
-                .encrypt_query_param
-                .as_ref()
-                .map(|param| build_cdn_download_url(cdn_base_url, param))
-        })
-        .ok_or_else(|| anyhow::anyhow!("Missing WeChat CDN download URL"))?;
-
-    let response = reqwest::get(download_url.clone())
-        .await
-        .with_context(|| format!("Failed to download WeChat media '{}'", download_url))?;
-    let status = response.status();
-    let bytes = response
-        .bytes()
-        .await
-        .context("Failed to read WeChat CDN body")?;
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(
-            "WeChat CDN download failed with {}",
-            status
-        ));
-    }
-    Ok(bytes.to_vec())
-}
-
-fn parse_aes_key(aes_key_base64: &str) -> Result<Vec<u8>> {
+pub(super) fn parse_aes_key(aes_key_base64: &str) -> Result<Vec<u8>> {
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(aes_key_base64)
         .context("Invalid WeChat aes_key base64")?;
@@ -477,47 +310,8 @@ async fn save_outbound_bytes(ext: &str, bytes: &[u8]) -> Result<PathBuf> {
     Ok(path)
 }
 
-async fn save_inbound_bytes(
-    message_id: &str,
-    prefix: &str,
-    ext: &str,
-    bytes: &[u8],
-) -> Result<PathBuf> {
-    let dir = inbound_temp_dir()?;
-    fs::create_dir_all(&dir).await?;
-    let path = dir.join(format!(
-        "{}-{}{}",
-        sanitize_name(message_id),
-        prefix,
-        normalize_extension(ext)
-    ));
-    fs::write(&path, bytes).await?;
-    Ok(path)
-}
-
-async fn save_inbound_named_file(
-    message_id: &str,
-    original_name: &str,
-    bytes: &[u8],
-) -> Result<PathBuf> {
-    let dir = inbound_temp_dir()?;
-    fs::create_dir_all(&dir).await?;
-    let filename = format!(
-        "{}-{}",
-        sanitize_name(message_id),
-        sanitize_name(original_name)
-    );
-    let path = dir.join(filename);
-    fs::write(&path, bytes).await?;
-    Ok(path)
-}
-
 fn outbound_temp_dir() -> Result<PathBuf> {
     Ok(crate::paths::channel_dir("wechat")?.join("outbound-temp"))
-}
-
-fn inbound_temp_dir() -> Result<PathBuf> {
-    Ok(crate::paths::channel_dir("wechat")?.join("inbound-temp"))
 }
 
 fn build_cdn_upload_url(cdn_base_url: &str, upload_param: &str, filekey: &str) -> String {
@@ -529,7 +323,7 @@ fn build_cdn_upload_url(cdn_base_url: &str, upload_param: &str, filekey: &str) -
     )
 }
 
-fn build_cdn_download_url(cdn_base_url: &str, encrypted_query_param: &str) -> String {
+pub(super) fn build_cdn_download_url(cdn_base_url: &str, encrypted_query_param: &str) -> String {
     format!(
         "{}/download?encrypted_query_param={}",
         cdn_base_url.trim_end_matches('/'),
@@ -600,7 +394,7 @@ fn infer_extension(content_type: Option<&str>, url: Option<&str>) -> &'static st
     }
 }
 
-fn mime_from_filename(filename: &str) -> String {
+pub(super) fn mime_from_filename(filename: &str) -> String {
     match Path::new(filename)
         .extension()
         .and_then(|value| value.to_str())
@@ -628,23 +422,6 @@ fn aes_ecb_padded_size(plaintext_size: usize) -> usize {
     ((plaintext_size + 16) / 16) * 16
 }
 
-fn normalize_extension(ext: &str) -> String {
-    if ext.starts_with('.') {
-        ext.to_string()
-    } else {
-        format!(".{}", ext)
-    }
-}
-
-fn sanitize_name(name: &str) -> String {
-    name.chars()
-        .map(|ch| match ch {
-            '/' | '\\' | ':' | '?' | '&' | '=' | '*' | '"' | '<' | '>' | '|' => '_',
-            _ => ch,
-        })
-        .collect()
-}
-
 fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{:02x}", byte)).collect()
 }
@@ -663,13 +440,6 @@ fn hex_to_bytes(hex: &str) -> Result<Vec<u8>> {
         output.push(byte);
     }
     Ok(output)
-}
-
-fn file_identifier(path: &Path) -> String {
-    path.file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("file")
-        .to_string()
 }
 
 fn combine_text(primary: Option<&str>, secondary: Option<&str>) -> Option<String> {

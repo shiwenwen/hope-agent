@@ -130,7 +130,7 @@ reqwest `redirect::Policy::custom` 的 callback 是同步上下文，没法 `.aw
 
 | 调用方 | 上限 | 文件 |
 |---|---|---|
-| `web_search/*`（Brave / Google / Grok / SearXNG / 通用 helper） | `JSON_RESPONSE_BYTE_CAP = 1_000_000`（1 MB） | [`tools/web_search/helpers.rs`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
+| `web_search/*`（Bocha / Brave / Google / Grok / SearXNG / 通用 helper） | `JSON_RESPONSE_BYTE_CAP = 1_000_000`（1 MB） | [`tools/web_search/helpers.rs`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
 | `image_generate` URL 下载 | `MAX_IMAGE_DOWNLOAD_BYTES = 10_485_760`（10 MB） | [`tools/image_generate/helpers.rs`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
 
 新增"会从外部下载内容"的工具时，**默认走 `read_*_capped`**，不要用 `resp.text()` / `resp.bytes()`。封顶值按业务合理上限选——JSON API 1 MB 已远超合理 payload，图片 10 MB 覆盖 4K 大图。
@@ -202,7 +202,7 @@ pub fn status() -> DangerousModeStatus;
 | `browser` (navigation / new-page) | `ssrf_cfg.browser()` | [`tools/browser/navigation.rs:12,131`](../../crates/ha-core/src/tools/browser/navigation.rs) |
 | `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`tools/image_generate/helpers.rs:98,128`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
 | `url_preview` | `ssrf_cfg.url_preview()` | [`url_preview.rs:252`](../../crates/ha-core/src/url_preview.rs) |
-| `web_search` (Brave / Google / Grok / SearXNG) | `ssrf_cfg.default_policy`（无 per-tool override） | [`tools/web_search/helpers.rs:16`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
+| `web_search` (Bocha / Brave / Google / Grok / SearXNG) | `ssrf_cfg.default_policy`（无 per-tool override） | [`tools/web_search/helpers.rs:16`](../../crates/ha-core/src/tools/web_search/helpers.rs) |
 | MCP transport (Streamable HTTP / SSE / WebSocket) | 调用方传入的 policy（默认 `Default`）；ws/wss 先 rewrite 成 http/https 再分类 | [`mcp/transport.rs:164,307,604`](../../crates/ha-core/src/mcp/transport.rs) |
 | MCP OAuth (discovery / DCR / token / refresh) | 固定 `SsrfPolicy::Default`，走 `provider::apply_proxy` | [`mcp/oauth.rs`](../../crates/ha-core/src/mcp/oauth.rs) |
 

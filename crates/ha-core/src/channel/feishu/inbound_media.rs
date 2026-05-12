@@ -13,8 +13,9 @@
 //!
 //! Reference: <https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/events/receive>
 //!
-//! Parsing is sync (no I/O); materialization streams bytes chunk-by-chunk
-//! through `FeishuApi::download_resource_to_file` straight onto disk under
+//! Parsing is sync (no I/O); materialization streams bytes through
+//! [`crate::channel::inbound_media_common::stream_to_disk`] (which feeds
+//! [`FeishuApi::download_resource_to_file`]) onto disk under
 //! `~/.hope-agent/channels/feishu/inbound-temp/` (no in-memory buffer), and
 //! produces an [`InboundMedia`] whose `file_url` is the local path.
 //! Failures are logged and yield `None` — the surrounding text + raw event
@@ -22,23 +23,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::channel::types::{InboundMedia, MediaType, MsgContext};
+use crate::channel::inbound_media_common::{ext_for, INBOUND_DOWNLOAD_MAX_BYTES};
+use crate::channel::types::{InboundMedia, MediaType};
 
 use super::api::FeishuApi;
-
-/// Sanity tripwire on `download_resource_to_file` — generous enough to
-/// cover Feishu's documented platform limits with headroom (image ≤ 30 MB,
-/// file ≤ 100 MB, video ≤ 200 MB) so legitimate user uploads always fit,
-/// strict enough to catch a misconfigured-proxy or attack scenario where
-/// the gateway returns a multi-GB body. RAM is not a factor: downloads
-/// stream chunk-by-chunk straight to disk, so the cap is really about
-/// disk-fill / latency containment for anomalous responses, not memory.
-pub const INBOUND_DOWNLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
-
-/// JSON key used to smuggle deferred-download media refs through
-/// `MsgContext.raw` from the WS event handler to the dispatcher. Picked to
-/// be obviously app-internal so a future Feishu schema change can't collide.
-pub const PENDING_MEDIA_KEY: &str = "_hopePendingMedia";
 
 /// Result of parsing a message's content JSON for media references — pre-download form.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,7 +171,7 @@ pub fn parse_message_media(msg_type: &str, content: &str, account_id: &str) -> V
                 media_type: MediaType::Sticker,
                 key,
                 resource_type: ResourceType::File,
-                mime_type: Some("image/png".to_string()),
+                mime_type: None,
                 file_name: None,
                 file_size: None,
             }],
@@ -209,48 +197,11 @@ fn warn_parse_failed(account_id: &str, msg_type: &str, err: &serde_json::Error, 
     );
 }
 
-/// Embed deferred-download refs into an event payload that becomes
-/// `MsgContext.raw`. The dispatcher pulls them back out via
-/// [`take_pending_refs`] only after access + mention gating passes,
-/// keeping the WS handler's per-event hot path I/O-free so the gateway
-/// ack lands within its expected window.
-pub fn embed_pending_refs(raw: &mut serde_json::Value, refs: Vec<ParsedMediaRef>) {
-    if refs.is_empty() {
-        return;
-    }
-    if !raw.is_object() {
-        *raw = serde_json::json!({});
-    }
-    if let serde_json::Value::Object(map) = raw {
-        if let Ok(value) = serde_json::to_value(refs) {
-            map.insert(PENDING_MEDIA_KEY.to_string(), value);
-        }
-    }
-}
-
-/// Take and remove deferred-download refs from `msg.raw`. Returns an empty
-/// vec when no refs were embedded or the payload is malformed (we
-/// silently drop bad payloads rather than fail the message — the
-/// surrounding text still reaches the agent).
-pub fn take_pending_refs(msg: &mut MsgContext) -> Vec<ParsedMediaRef> {
-    let serde_json::Value::Object(ref mut map) = msg.raw else {
-        return Vec::new();
-    };
-    let Some(value) = map.remove(PENDING_MEDIA_KEY) else {
-        return Vec::new();
-    };
-    serde_json::from_value(value).unwrap_or_default()
-}
-
 /// Download a parsed media ref straight to local disk (no in-memory buffer)
 /// and return an [`InboundMedia`] pointing at the on-disk path. Returns
 /// `None` (with warn log) on download or persistence failure — the caller
 /// should keep the surrounding message reaching the dispatcher even if
-/// media materialization fails. Aligns with the GUI attachment model:
-/// non-image files only ever flow as `file_path` on the LLM side
-/// ([`channel/worker/media.rs::convert_inbound_media_to_attachments`])
-/// so streaming chunk-by-chunk to disk avoids ever holding the full body
-/// in memory — a 1 GB inbound video occupies ~16 KB of buffer at a time.
+/// media materialization fails.
 pub async fn materialize_inbound(
     api: &FeishuApi,
     message_id: &str,
@@ -272,38 +223,24 @@ pub async fn materialize_inbound(
         }
     }
 
-    let dir = match crate::paths::channel_dir("feishu") {
-        Ok(d) => d.join("inbound-temp"),
-        Err(e) => {
-            app_warn!(
-                "channel",
-                "feishu:inbound",
-                "[{}] Failed to resolve feishu inbound dir: {}",
-                account_id,
-                e
-            );
-            return None;
-        }
-    };
-    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
-        app_warn!(
-            "channel",
-            "feishu:inbound",
-            "[{}] Failed to create inbound dir {:?}: {}",
-            account_id,
-            dir,
-            e
-        );
-        return None;
-    }
-
-    let safe_key = parsed.key.replace(['/', '\\', ':'], "_");
-    let ext = ext_for(parsed);
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let path = dir.join(format!("{}-{}.{}", ts, safe_key, ext));
+    let ext = ext_for(parsed.file_name.as_deref(), &parsed.media_type);
+    let path =
+        match crate::channel::inbound_media_common::inbound_temp_path("feishu", &parsed.key, &ext)
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "feishu:inbound",
+                    "[{}] Failed to resolve feishu inbound path for key='{}': {}",
+                    account_id,
+                    parsed.key,
+                    e
+                );
+                return None;
+            }
+        };
 
     let on_disk_size = match api
         .download_resource_to_file(
@@ -336,30 +273,6 @@ pub async fn materialize_inbound(
         file_size: Some(parsed.file_size.unwrap_or(on_disk_size)),
         caption: None,
     })
-}
-
-/// Pick a file extension for the on-disk filename. Trusts the original
-/// `file_name` extension only if it is short and alphanumeric — otherwise
-/// falls back to a media-type-specific default to keep paths well-formed.
-fn ext_for(parsed: &ParsedMediaRef) -> String {
-    if let Some(name) = parsed.file_name.as_deref() {
-        if let Some(ext) = std::path::Path::new(name)
-            .extension()
-            .and_then(|e| e.to_str())
-        {
-            if !ext.is_empty() && ext.len() <= 8 && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
-                return ext.to_ascii_lowercase();
-            }
-        }
-    }
-    match parsed.media_type {
-        MediaType::Photo | MediaType::Sticker => "jpg",
-        MediaType::Video => "mp4",
-        MediaType::Audio | MediaType::Voice => "opus",
-        MediaType::Animation => "gif",
-        MediaType::Document => "bin",
-    }
-    .to_string()
 }
 
 #[cfg(test)]
@@ -454,114 +367,5 @@ mod tests {
         let refs = parse_message_media("file", r#"{"file_key":"f","file_name":"x.txt"}"#, "test");
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].file_size, None);
-    }
-
-    #[test]
-    fn ext_for_uses_filename_extension_when_safe() {
-        let parsed = ParsedMediaRef {
-            media_type: MediaType::Document,
-            key: "k".into(),
-            resource_type: ResourceType::File,
-            mime_type: None,
-            file_name: Some("report.PDF".into()),
-            file_size: None,
-        };
-        assert_eq!(ext_for(&parsed), "pdf");
-    }
-
-    #[test]
-    fn ext_for_falls_back_when_filename_extension_unsafe() {
-        let parsed = ParsedMediaRef {
-            media_type: MediaType::Photo,
-            key: "k".into(),
-            resource_type: ResourceType::Image,
-            mime_type: None,
-            file_name: Some("evil.../etc/passwd".into()),
-            file_size: None,
-        };
-        assert_eq!(ext_for(&parsed), "jpg");
-    }
-
-    #[test]
-    fn ext_for_falls_back_when_no_filename() {
-        let parsed = ParsedMediaRef {
-            media_type: MediaType::Voice,
-            key: "k".into(),
-            resource_type: ResourceType::File,
-            mime_type: None,
-            file_name: None,
-            file_size: None,
-        };
-        assert_eq!(ext_for(&parsed), "opus");
-    }
-
-    fn sample_msg() -> MsgContext {
-        MsgContext {
-            channel_id: crate::channel::types::ChannelId::Feishu,
-            account_id: "acc".into(),
-            sender_id: "u1".into(),
-            sender_name: None,
-            sender_username: None,
-            chat_id: "c1".into(),
-            chat_type: crate::channel::types::ChatType::Dm,
-            chat_title: None,
-            thread_id: None,
-            message_id: "m1".into(),
-            text: None,
-            media: Vec::new(),
-            reply_to_message_id: None,
-            timestamp: chrono::Utc::now(),
-            was_mentioned: true,
-            raw: serde_json::json!({"existing": 1}),
-        }
-    }
-
-    #[test]
-    fn embed_pending_refs_round_trips_through_msgcontext() {
-        let parsed = vec![ParsedMediaRef {
-            media_type: MediaType::Photo,
-            key: "img_v2_abc".into(),
-            resource_type: ResourceType::Image,
-            mime_type: Some("image/jpeg".into()),
-            file_name: None,
-            file_size: None,
-        }];
-        let mut msg = sample_msg();
-        embed_pending_refs(&mut msg.raw, parsed.clone());
-        assert!(msg.raw.get(PENDING_MEDIA_KEY).is_some());
-
-        let took = take_pending_refs(&mut msg);
-        assert_eq!(took, parsed);
-        // After take, the key is gone — second call yields empty.
-        assert!(msg.raw.get(PENDING_MEDIA_KEY).is_none());
-        assert!(take_pending_refs(&mut msg).is_empty());
-        // Surrounding fields preserved.
-        assert_eq!(msg.raw.get("existing"), Some(&serde_json::json!(1)));
-    }
-
-    #[test]
-    fn embed_pending_refs_skips_when_empty() {
-        let mut msg = sample_msg();
-        embed_pending_refs(&mut msg.raw, Vec::new());
-        assert!(msg.raw.get(PENDING_MEDIA_KEY).is_none());
-    }
-
-    #[test]
-    fn take_pending_refs_yields_empty_for_non_object_raw() {
-        let mut msg = sample_msg();
-        msg.raw = serde_json::Value::Null;
-        assert!(take_pending_refs(&mut msg).is_empty());
-    }
-
-    #[test]
-    fn take_pending_refs_yields_empty_when_payload_malformed() {
-        let mut msg = sample_msg();
-        if let serde_json::Value::Object(ref mut map) = msg.raw {
-            map.insert(PENDING_MEDIA_KEY.into(), serde_json::json!("not-an-array"));
-        }
-        assert!(take_pending_refs(&mut msg).is_empty());
-        // Even on parse failure we strip the key so the dispatcher doesn't
-        // re-attempt on a follow-up call.
-        assert!(msg.raw.get(PENDING_MEDIA_KEY).is_none());
     }
 }

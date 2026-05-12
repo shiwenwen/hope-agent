@@ -919,6 +919,7 @@ fn build_router_with_cors(
             "/dashboard/learning/recall-stats",
             post(routes::dashboard::recall_stats),
         )
+        .route("/dashboard/plan-stats", post(routes::dashboard::plan_stats))
         // Recap
         .route("/recap/generate", post(routes::recap::generate))
         .route("/recap/reports", post(routes::recap::list_reports))
@@ -962,6 +963,11 @@ fn build_router_with_cors(
         .route(
             "/plan/{sid}/cancel",
             post(routes::plan::cancel_plan_subagent),
+        )
+        .route("/plan/list", post(routes::plan::list_plans))
+        .route(
+            "/plan/resolve-mention",
+            post(routes::plan::resolve_plan_mention),
         )
         // Logging
         .route("/logs/query", post(routes::logging::query_logs))
