@@ -202,7 +202,7 @@ Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering de
 #### First launch & auto-update
 
 1. First launch wizard: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
-2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates.
+2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat.
 3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
 
 ### For developers

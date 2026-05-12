@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "上下文已压缩",
     "conversations": "会话",
+    "collapseSidebar": "收起会话栏",
     "copied": "已复制",
     "copy": "复制",
     "cronTaskStarted": "定时器触发了一个任务",
@@ -283,6 +284,7 @@
       "searchHeader": "搜索结果",
       "truncated": "结果已截断"
     },
+    "expandSidebar": "展开会话栏",
     "filterAll": "全部",
     "filterChannel": "渠道",
     "filterCron": "定时任务",

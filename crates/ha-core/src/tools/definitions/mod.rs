@@ -5,6 +5,7 @@ mod registry;
 mod special_tools;
 mod task_tools;
 mod types;
+mod update_tools;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 

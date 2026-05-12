@@ -14,6 +14,8 @@ import { IconTip } from "@/components/ui/tooltip"
 import {
   Bot,
   MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -50,6 +52,10 @@ export default function ChatSidebar({
   searchFocusSignal,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false
+    return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
+  })
   const [agentsExpanded, setAgentsExpanded] = useState(true)
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
@@ -92,6 +98,11 @@ export default function ChatSidebar({
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
   const searchTruncated = (searchResults?.length ?? 0) >= SEARCH_LIMIT
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     const q = searchQuery.trim()
@@ -239,22 +250,53 @@ export default function ChatSidebar({
     setDeleteConfirmSessionId(null)
   }
 
+  if (sidebarCollapsed) {
+    return (
+      <div className="w-11 shrink-0 border-r border-border bg-background flex flex-col items-center">
+        <div
+          className="h-10 w-full flex items-end justify-center pb-1.5"
+          data-tauri-drag-region
+        >
+          <IconTip label={t("chat.expandSidebar")} side="right">
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+              aria-label={t("chat.expandSidebar")}
+              onClick={() => setSidebarCollapsed(false)}
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          </IconTip>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       <div
-          style={{ width: panelWidth }}
-          className="shrink-0 border-r border-border bg-background flex flex-col"
-        >
-          {/* Title bar */}
-          <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
-            <h2 className="text-sm font-semibold text-foreground pb-1.5">
-              {t("chat.conversations")}
-            </h2>
+        style={{ width: panelWidth }}
+        className="shrink-0 border-r border-border bg-background flex flex-col"
+      >
+        {/* Title bar */}
+        <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
+          <h2 className="text-sm font-semibold text-foreground pb-1.5">
+            {t("chat.conversations")}
+          </h2>
+          <div className="ml-auto flex items-center gap-1 pb-1.5">
+            <IconTip label={t("chat.collapseSidebar")}>
+              <button
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                aria-label={t("chat.collapseSidebar")}
+                onClick={() => setSidebarCollapsed(true)}
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </IconTip>
             {/* New Chat button */}
-            <div className="ml-auto relative" ref={newChatMenuRef}>
+            <div className="relative" ref={newChatMenuRef}>
               <IconTip label={t("chat.newChat")}>
                 <button
-                  className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
                   onClick={() => {
                     if (agents.length === 1) {
                       onNewChat(agents[0].id)
@@ -298,6 +340,7 @@ export default function ChatSidebar({
               )}
             </div>
           </div>
+        </div>
 
           <div
             className="flex-1 overflow-y-auto overflow-x-hidden"

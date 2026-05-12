@@ -278,6 +278,17 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **Provider 写入 contract（强制）**：所有 Provider 列表与 `active_model` 写入必须走 [`provider/crud.rs`](crates/ha-core/src/provider/crud.rs) helper（`add_provider` / `update_provider` / `delete_provider` / `reorder_providers` / `set_active_model` / `add_and_activate_provider` / `add_many_providers` / `ensure_codex_provider_persisted`）；本地 LLM 安装走 `upsert_known_local_provider_model`。**禁止直接 `providers.push` / `retain` / 手写 `active_model`**
 - **Known local backend catalog** 在 [`provider/local.rs`](crates/ha-core/src/provider/local.rs)（ollama / litellm / vllm / lm-studio / sglang）；前端"是否已配本地后端"必须消费 catalog，**禁止硬编码 regex**
 
+### 自升级
+
+详见 [`self-update.md`](docs/architecture/self-update.md)。
+
+- **三档路径**：`Tauri` (desktop bundle 走 tauri-plugin-updater) / `PackageManager` (brew / scoop / aur / apt / dnf) / `SelfContained` (下载 bare binary → minisign 校验 → atomic swap → restart)；不可识别走 `ManualPrompt` 让用户在 `ask_user_question` 里选
+- **Minisign pubkey 单一真相源**：[`ha-core/updater/keys.rs::MINISIGN_PUBKEY_BASE64`](crates/ha-core/src/updater/keys.rs) 与 `src-tauri/tauri.conf.json#plugins.updater.pubkey` 必须字符串相等。三重防线：启动期 `keys::assert_pubkey_matches_tauri_conf` panic / CI `lint.yml` 跑 `scripts/verify-updater-pubkey.mjs` / 本地 `.husky/pre-push` 同脚本拦截
+- **`app_update` 工具**（`tools::app_update`，tier=`Core{Meta}`，`internal=false`，`async_capable=true`）：4 个 action `check | install | status | rollback`；`install` / `rollback` 在工具内部用 [`tools::ask_user_question::execute`](crates/ha-core/src/tools/ask_user_question.rs) 弹结构化 Yes/No 确认（不挪用 `AskReason::DangerousCommand`——语义不对，且需要承载升级 plan / 路径选择字段）
+- **UpdaterBridge trait** ([`updater::UpdaterBridge`](crates/ha-core/src/updater/mod.rs)) 由 src-tauri 在 `setup.rs` 注册 (`crate::commands::update_bridge::register`)；ha-core 通过 `OnceLock` 反向调用，**严禁** ha-core 直接依赖 tauri-plugin-updater
+- **Bare-binary release artifact**：`.github/workflows/release.yml` 每平台 build 后跑 `Bundle + sign bare binary` step，用同一 Minisign 私钥签 `tar.gz` (Unix) / `zip` (Windows)；`patch-manifest` job (`needs: build`) 合并 `bare_binary.platforms.<key>` 写回 `latest.json`
+- **Binary swap 必须走 [`platform::atomic_replace_binary`](crates/ha-core/src/platform/mod.rs)**——Unix `rename(2)` 不影响在跑进程，Windows `MoveFileExW` 把 in-use binary rename-aside；**禁止 `fs::write` 直接覆盖运行中 binary**
+
 ## 编码规范
 
 ### 通用

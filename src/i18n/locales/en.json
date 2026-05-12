@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Context compacted",
     "conversations": "Chats",
+    "collapseSidebar": "Collapse sidebar",
     "copied": "Copied",
     "copy": "Copy",
     "cronTaskStarted": "A scheduled task was triggered",
@@ -283,6 +284,7 @@
       "searchHeader": "Search results",
       "truncated": "Results truncated"
     },
+    "expandSidebar": "Expand sidebar",
     "filterAll": "All",
     "filterChannel": "Channel",
     "filterCron": "Cron",

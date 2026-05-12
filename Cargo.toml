@@ -141,3 +141,8 @@ rmcp = { version = "1.5", default-features = false, features = [
     "reqwest-native-tls",
     "auth",
 ] }
+# Minisign signature verification (Ed25519). Used by the self-update path in
+# `ha-core/updater` to verify the same `.sig` files tauri-plugin-updater
+# already consumes, so a headless `hope-agent server` can self-update without
+# pulling the Tauri runtime.
+minisign-verify = "0.2"

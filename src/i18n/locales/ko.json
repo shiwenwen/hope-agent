@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "컨텍스트 압축됨",
     "conversations": "대화",
+    "collapseSidebar": "사이드바 접기",
     "copied": "복사됨",
     "copy": "복사",
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
@@ -283,6 +284,7 @@
       "searchHeader": "검색 결과",
       "truncated": "결과가 잘렸습니다"
     },
+    "expandSidebar": "사이드바 펼치기",
     "filterAll": "전체",
     "filterChannel": "채널",
     "filterCron": "예약 작업",

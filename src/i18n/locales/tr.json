@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Bağlam sıkıştırıldı",
     "conversations": "Sohbetler",
+    "collapseSidebar": "Kenar çubuğunu daralt",
     "copied": "Kopyalandı",
     "copy": "Kopyala",
     "cronTaskStarted": "Zamanlanmış bir görev tetiklendi",
@@ -283,6 +284,7 @@
       "searchHeader": "Arama sonuçları",
       "truncated": "Sonuçlar kırpıldı"
     },
+    "expandSidebar": "Kenar çubuğunu genişlet",
     "filterAll": "Tümü",
     "filterChannel": "Kanal",
     "filterCron": "Cron",

@@ -124,6 +124,12 @@ jobs:
       - name: Verify tag matches app version
         run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
 
+      # Refuse to ship if the desktop bundle (`tauri-plugin-updater`) and
+      # the headless self-update (`ha_core::updater`) point at different
+      # Minisign pubkeys — one of the two would silently break.
+      - name: Verify updater pubkey sync (tauri.conf.json ↔ ha-core)
+        run: node scripts/verify-updater-pubkey.mjs
+
       # Extract per-version release notes for both the GitHub Release body
       # and the Tauri updater `latest.json#notes` field (tauri-action copies
       # `releaseBody` into the updater manifest). Falls back to a generic
@@ -180,3 +186,100 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+      # ── Bare-binary artifact for headless self-update ─────────
+      # The desktop installers above cover GUI users; `hope-agent server`
+      # / CLI deployments that can't run `tauri-plugin-updater` need a
+      # signed tar.gz / zip with just the executable inside. Same
+      # Minisign keypair as the desktop installer — `ha_core::updater`
+      # verifies against the pubkey in `ha-core/updater/keys.rs` (which
+      # `verify-updater-pubkey.mjs` already proved matches
+      # tauri.conf.json above).
+      - name: Bundle + sign bare binary
+        id: bare_binary
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            macos-arm64) target_dir=src-tauri/target/aarch64-apple-darwin/release; plat=darwin-aarch64; ext="";;
+            macos-x64)   target_dir=src-tauri/target/x86_64-apple-darwin/release; plat=darwin-x86_64; ext="";;
+            linux-x64)   target_dir=src-tauri/target/release; plat=linux-x86_64;  ext="";;
+            linux-arm64) target_dir=src-tauri/target/release; plat=linux-aarch64; ext="";;
+            windows-x64) target_dir=src-tauri/target/release; plat=windows-x86_64; ext=".exe";;
+            *) echo "unknown matrix platform ${{ matrix.platform }}"; exit 1;;
+          esac
+          bin_path="$target_dir/hope-agent$ext"
+          if [ ! -f "$bin_path" ]; then
+            echo "Bare binary not found at $bin_path"; ls "$target_dir" || true; exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          out_dir="bare-binary-bundle"
+          mkdir -p "$out_dir"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            archive="$out_dir/hope-agent-${version}-${plat}.zip"
+            powershell -Command "Compress-Archive -Path '$bin_path' -DestinationPath '$archive' -Force"
+          else
+            archive="$out_dir/hope-agent-${version}-${plat}.tar.gz"
+            tar -C "$target_dir" -czf "$archive" "hope-agent$ext"
+          fi
+          # `tauri signer sign` writes <archive>.sig next to the archive.
+          # Both env vars above are mandatory for non-interactive signing —
+          # the private key + password are passed through args, no
+          # interactive prompt fires.
+          pnpm tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$archive"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "sig=$archive.sig" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bare binary to release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ env.RELEASE_TAG }}" "${{ steps.bare_binary.outputs.archive }}" "${{ steps.bare_binary.outputs.sig }}" --clobber
+
+      - name: Upload bare binary as workflow artifact (for manifest patch)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bare-binary-${{ matrix.platform }}
+          path: |
+            ${{ steps.bare_binary.outputs.archive }}
+            ${{ steps.bare_binary.outputs.sig }}
+
+  # Patch `latest.json` with bare_binary entries once every platform has
+  # uploaded its archive + sig. tauri-action wrote `latest.json` with only
+  # the desktop `platforms` map — `ha_core::updater::self_contained`
+  # additionally reads `bare_binary.platforms.<key>` so headless installs
+  # can self-update.
+  patch-manifest:
+    name: patch latest.json
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: bare-binary-*
+      - name: Download current latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p manifest
+          gh release download "${RELEASE_TAG}" --pattern "latest.json" --dir manifest
+      - name: Patch latest.json with bare_binary entries
+        run: node scripts/patch-latest-json.mjs manifest/latest.json artifacts "${RELEASE_TAG}"
+      - name: Re-upload patched latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${RELEASE_TAG}" manifest/latest.json --clobber

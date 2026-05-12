@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "コンテキスト圧縮",
     "conversations": "チャット",
+    "collapseSidebar": "サイドバーを折りたたむ",
     "copied": "コピーしました",
     "copy": "コピー",
     "cronTaskStarted": "定期タスクが起動されました",
@@ -283,6 +284,7 @@
       "searchHeader": "検索結果",
       "truncated": "結果は省略されています"
     },
+    "expandSidebar": "サイドバーを展開",
     "filterAll": "すべて",
     "filterChannel": "チャネル",
     "filterCron": "定期タスク",

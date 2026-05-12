@@ -76,6 +76,9 @@ jsonwebtoken = "9"
 axum = "0.8"
 prost = "0.14"
 lru = "0.12"
+minisign-verify = { workspace = true }
+tar = "0.4"
+flate2 = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }

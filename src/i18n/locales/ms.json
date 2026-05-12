@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Konteks dipadatkan",
     "conversations": "Perbualan",
+    "collapseSidebar": "Runtuhkan bar sisi",
     "copied": "Disalin",
     "copy": "Salin",
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
@@ -283,6 +284,7 @@
       "searchHeader": "Hasil carian",
       "truncated": "Hasil dipotong"
     },
+    "expandSidebar": "Kembangkan bar sisi",
     "filterAll": "Semua",
     "filterChannel": "Saluran",
     "filterCron": "Cron",

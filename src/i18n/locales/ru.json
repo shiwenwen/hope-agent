@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Контекст сжат",
     "conversations": "Чаты",
+    "collapseSidebar": "Свернуть боковую панель",
     "copied": "Скопировано",
     "copy": "Копировать",
     "cronTaskStarted": "Запущена запланированная задача",
@@ -283,6 +284,7 @@
       "searchHeader": "Результаты поиска",
       "truncated": "Результаты усечены"
     },
+    "expandSidebar": "Развернуть боковую панель",
     "filterAll": "Все",
     "filterChannel": "Канал",
     "filterCron": "Задачи Cron",

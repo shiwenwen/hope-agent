@@ -93,6 +93,7 @@ pub fn run() {
     // would block the rename and orphan the user's customised legacy data.
     // `init_runtime` is idempotent, so the later `init_tauri_app_state`
     // call is a no-op for these side effects.
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("desktop");
 
     // Ensure default agent exists
