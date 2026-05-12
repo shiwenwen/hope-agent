@@ -51,6 +51,15 @@ jobs:
             os: ubuntu-24.04
             rust_target: ""
             args: ""
+          # Linux arm64 — AppImage + deb + rpm.
+          # Native GitHub-hosted ARM runner (free for public repos); same
+          # apt deps as linux-x64, just installed in the arm64 chroot the
+          # runner natively provides. Targets Raspberry Pi 4/5, Apple
+          # Silicon running Asahi Linux, Graviton / Ampere cloud VMs.
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            rust_target: ""
+            args: ""
           # Windows x64 — MSI (wix) + NSIS. Code signing certificate is
           # not wired up yet; bundles are unsigned. See
           # src-tauri/tauri.conf.json `bundle.windows.certificateThumbprint`

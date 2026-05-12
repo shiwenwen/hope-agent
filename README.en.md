@@ -185,13 +185,13 @@ sudo zypper install hope-agent
 
 ##### Manual install (AppImage / deb / rpm)
 
-From [Releases](https://github.com/shiwenwen/hope-agent/releases):
+From [Releases](https://github.com/shiwenwen/hope-agent/releases) (filenames include the arch suffix — pick `_amd64` / `_arm64` for deb/AppImage or `.x86_64` / `.aarch64` for rpm):
 
 - AppImage: `Hope.Agent_*.AppImage` — `chmod +x` and run
 - Debian / Ubuntu: `Hope.Agent_*.deb` — `sudo dpkg -i Hope.Agent_*.deb`
 - Fedora / RHEL: `Hope.Agent_*.rpm` — `sudo rpm -i Hope.Agent_*.rpm`
 
-x86_64 only.
+Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering desktops, Raspberry Pi 4/5, Apple Silicon Macs running Asahi Linux, and Graviton / Ampere cloud VMs. apt and dnf automatically pick the right arch via `dpkg --print-architecture` / `$basearch`.
 
 ##### Launch modes
 

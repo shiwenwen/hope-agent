@@ -54,44 +54,56 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "deb_name=Hope.Agent_${version}_amd64.deb" >> "$GITHUB_OUTPUT"
+          echo "deb_amd64=Hope.Agent_${version}_amd64.deb" >> "$GITHUB_OUTPUT"
+          echo "deb_arm64=Hope.Agent_${version}_arm64.deb" >> "$GITHUB_OUTPUT"
 
-      - name: Download .deb from release
+      - name: Download both .deb from release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           gh release download "$TAG" \
             --repo "${{ github.repository }}" \
-            --pattern "${{ steps.ver.outputs.deb_name }}" \
+            --pattern "${{ steps.ver.outputs.deb_amd64 }}" \
+            --pattern "${{ steps.ver.outputs.deb_arm64 }}" \
             --dir .
-          ls -la "${{ steps.ver.outputs.deb_name }}"
+          ls -la "${{ steps.ver.outputs.deb_amd64 }}" "${{ steps.ver.outputs.deb_arm64 }}"
 
-      - name: Compute SHA256
+      - name: Compute SHA256 for both arches
         id: sha
         run: |
           set -euo pipefail
-          sum=$(sha256sum "${{ steps.ver.outputs.deb_name }}" | awk '{print $1}')
-          if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
-            echo "::error::sha256sum returned unexpected output: $sum"
-            exit 1
-          fi
-          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+          for kind in x86_64 aarch64; do
+            if [[ "$kind" == "x86_64" ]]; then
+              file="${{ steps.ver.outputs.deb_amd64 }}"
+            else
+              file="${{ steps.ver.outputs.deb_arm64 }}"
+            fi
+            sum=$(sha256sum "$file" | awk '{print $1}')
+            if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
+              echo "::error::sha256sum returned unexpected output for $file: $sum"
+              exit 1
+            fi
+            echo "sha256_$kind=$sum" >> "$GITHUB_OUTPUT"
+            echo "$file sha256: $sum"
+          done
 
       - name: Render PKGBUILD + .SRCINFO from templates
         run: |
           set -euo pipefail
           mkdir -p rendered
           sed -e "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" \
-              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              -e "s/__SHA256_X86_64__/${{ steps.sha.outputs.sha256_x86_64 }}/g" \
+              -e "s/__SHA256_AARCH64__/${{ steps.sha.outputs.sha256_aarch64 }}/g" \
               aur/hope-agent-bin/PKGBUILD.tmpl > rendered/PKGBUILD
           sed -e "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" \
-              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              -e "s/__SHA256_X86_64__/${{ steps.sha.outputs.sha256_x86_64 }}/g" \
+              -e "s/__SHA256_AARCH64__/${{ steps.sha.outputs.sha256_aarch64 }}/g" \
               aur/hope-agent-bin/.SRCINFO.tmpl > rendered/.SRCINFO
 
           # Refuse to push if any placeholder leaked through.
           for f in rendered/PKGBUILD rendered/.SRCINFO; do
-            if grep -qE '__PKGVER__|__SHA256__' "$f"; then
+            if grep -qE '__PKGVER__|__SHA256_X86_64__|__SHA256_AARCH64__' "$f"; then
               echo "::error::$f still contains template placeholders"
               cat "$f"
               exit 1
@@ -167,7 +179,8 @@ jobs:
 
           git commit -m "hope-agent-bin ${{ steps.ver.outputs.version }}
 
-          deb sha256: ${{ steps.sha.outputs.sha256 }}
+          x86_64 deb sha256: ${{ steps.sha.outputs.sha256_x86_64 }}
+          aarch64 deb sha256: ${{ steps.sha.outputs.sha256_aarch64 }}
           Source: ${{ github.repository }}@$TAG
           "
           git push origin HEAD:master
