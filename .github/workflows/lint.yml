@@ -32,6 +32,13 @@ jobs:
       - name: Vitest
         run: pnpm test
 
+      # Refuse the PR if the Minisign pubkey in `tauri.conf.json` drifts
+      # from the literal embedded in `ha-core/updater/keys.rs` — either
+      # one can be edited independently and the resulting self-update path
+      # mismatch only surfaces at install time.
+      - name: Updater pubkey sync check
+        run: node scripts/verify-updater-pubkey.mjs
+
       # Informational only for now: the repo carries ~3.3k historical missing
       # keys across the 10 non-baseline locales (en/zh are the source of truth).
       # Once that backlog is paid down, drop `continue-on-error` to make this

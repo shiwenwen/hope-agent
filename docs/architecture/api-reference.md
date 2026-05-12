@@ -102,6 +102,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dreaming:cycle_complete` | dreaming 固化周期 |
 | `cron:run_completed` | cron/executor.rs |
 | `async_tool_job:completed` / `async_tool_job:updated` / `async_tool_job:mark_injected_failed` | 异步 tool 执行器（与 [`transport-modes.md`](transport-modes.md) 保持一致；`updated` 覆盖运行中状态变化，`mark_injected_failed` 覆盖结果注入主对话失败） |
+| `app_update:progress` / `app_update:completed` | 自升级 (`app_update` 工具) 进度上报。`progress` payload `{ job_id, label, phase, percent?, written?, total? }`（每 5% / 1s 节流）；`completed` payload `{ job_id, status: "done"|"failed", outcome?, error? }`，详见 [`self-update.md`](self-update.md) |
 
 ### 项目（Project CRUD）
 

@@ -27,6 +27,9 @@ pnpm typecheck
 echo "[pre-push] eslint"
 pnpm lint
 
+echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-core)"
+node scripts/verify-updater-pubkey.mjs
+
 echo "[pre-push] vitest run"
 pnpm test
 

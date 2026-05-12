@@ -35,4 +35,5 @@ pub mod skills;
 pub mod subagent;
 pub mod tasks;
 pub mod team;
+pub mod update_bridge;
 pub mod url_preview;

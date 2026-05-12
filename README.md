@@ -202,7 +202,7 @@ sudo zypper install hope-agent
 #### 首次启动 & 自动更新
 
 1. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
-2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装
+2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」
 3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
 
 ### 开发者

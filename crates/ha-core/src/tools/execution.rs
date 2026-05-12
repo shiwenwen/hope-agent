@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
 
+use super::app_update;
 use super::project_read_file;
 use super::send_attachment;
 use super::skill;
@@ -633,6 +634,7 @@ pub async fn execute_tool_with_context(
             TOOL_TASK_CREATE => Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_UPDATE => Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),
+            super::TOOL_APP_UPDATE => app_update::tool_app_update(args, ctx).await,
             TOOL_JOB_STATUS => job_status::tool_job_status(args).await,
             TOOL_RUNTIME_CANCEL => runtime_cancel::tool_runtime_cancel(args).await,
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,

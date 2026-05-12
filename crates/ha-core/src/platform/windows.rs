@@ -238,3 +238,112 @@ pub(super) fn is_cross_device_rename_raw(err: &std::io::Error) -> bool {
     // ERROR_NOT_SAME_DEVICE
     err.raw_os_error() == Some(17)
 }
+
+/// Atomically swap the file at `target` with `source`.
+///
+/// Windows holds an exclusive handle on a currently-executing image so you
+/// cannot `DeleteFile` or overwrite it in place — but since Vista you _can_
+/// rename it. We use that to do the swap without taking the service down
+/// first: move the in-use image aside (`target` → `target.old`), move the
+/// new image into the live path, and schedule the old image for deletion
+/// at the next reboot. The caller then restarts the service so future
+/// process launches pick up the new image; the still-running old process
+/// keeps reading from its handle on `target.old`.
+///
+/// `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`
+/// gives us a single-syscall atomic publish for the new image (the rename
+/// is observable to other processes either as "old" or "new", never as
+/// "missing"), and `WRITE_THROUGH` forces the directory entry to disk
+/// before returning so a crash mid-swap doesn't leave a phantom.
+pub(super) fn atomic_replace_binary(target: &Path, source: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    fn to_wide(p: &Path) -> Vec<u16> {
+        p.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    const MOVEFILE_DELAY_UNTIL_REBOOT: u32 = 0x4;
+
+    extern "system" {
+        fn MoveFileExW(
+            lpExistingFileName: *const u16,
+            lpNewFileName: *const u16,
+            dwFlags: u32,
+        ) -> i32;
+    }
+
+    let target_w = to_wide(target);
+    let source_w = to_wide(source);
+
+    // Fast path: target isn't in use → straight overwrite.
+    let direct = unsafe {
+        MoveFileExW(
+            source_w.as_ptr(),
+            target_w.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if direct != 0 {
+        return Ok(());
+    }
+    let direct_err = io::Error::last_os_error();
+    // ERROR_SHARING_VIOLATION (32) / ERROR_ACCESS_DENIED (5) — likely
+    // self-update with the binary still running. Fall through to the
+    // rename-aside path.
+    let raw = direct_err.raw_os_error().unwrap_or(0);
+    if raw != 5 && raw != 32 {
+        return Err(direct_err);
+    }
+
+    let aside = target.with_extension("old");
+    let aside_w = to_wide(&aside);
+    let renamed = unsafe {
+        MoveFileExW(
+            target_w.as_ptr(),
+            aside_w.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING,
+        )
+    };
+    if renamed == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let published = unsafe {
+        MoveFileExW(
+            source_w.as_ptr(),
+            target_w.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if published == 0 {
+        let publish_err = io::Error::last_os_error();
+        // Roll the aside back so we don't leave the user with a dangling
+        // `.old` and no live binary at all.
+        let _ = unsafe {
+            MoveFileExW(
+                aside_w.as_ptr(),
+                target_w.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING,
+            )
+        };
+        return Err(publish_err);
+    }
+
+    // Best-effort: tell the OS to delete the aside on next boot so the
+    // disk doesn't fill with stale `.old` copies across many upgrades.
+    // A NULL `lpNewFileName` is the documented "delete on reboot" signal.
+    unsafe {
+        MoveFileExW(
+            aside_w.as_ptr(),
+            std::ptr::null(),
+            MOVEFILE_DELAY_UNTIL_REBOOT,
+        )
+    };
+
+    Ok(())
+}

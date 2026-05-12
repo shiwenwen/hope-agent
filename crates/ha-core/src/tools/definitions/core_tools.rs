@@ -1292,6 +1292,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     tools.push(super::task_tools::get_task_update_tool());
     tools.push(super::task_tools::get_task_list_tool());
 
+    // ── Self-Update (Meta tier — always eager so model can suggest upgrades) ──
+    tools.push(super::update_tools::get_app_update_tool());
+
     // ── Agent Team (deferred — discovered via tool_search) ──
     tools.push(super::special_tools::get_team_tool());
 

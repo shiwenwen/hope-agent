@@ -191,3 +191,22 @@ pub fn is_cross_device_rename(err: &std::io::Error) -> bool {
     }
     imp::is_cross_device_rename_raw(err)
 }
+
+/// Atomically replace the executable at `target` with the one at `source`.
+///
+/// Used by [`crate::updater`] to swap in a freshly-downloaded `hope-agent`
+/// binary without taking a stop-the-world window. The Unix path relies on
+/// `rename(2)` mutating the directory entry (the running process keeps its
+/// open inode); the Windows path renames the in-use binary aside then
+/// moves the new one into place.
+///
+/// On success the caller is responsible for restarting the service so a
+/// new process picks up the swapped-in binary. On failure `target` is
+/// guaranteed to still point at a valid executable (either the original
+/// or, on Windows, restored from the aside).
+pub fn atomic_replace_binary(
+    target: &std::path::Path,
+    source: &std::path::Path,
+) -> std::io::Result<()> {
+    imp::atomic_replace_binary(target, source)
+}

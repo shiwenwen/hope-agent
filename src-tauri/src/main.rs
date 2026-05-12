@@ -207,6 +207,7 @@ fn run_acp_server(args: &[String]) {
     // registers channel plugins, and brings up the ACP control plane.
     // ACP needs this because its tool loop hits memory / cron / subagent
     // / cached-agent / logger paths that all depend on these singletons.
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("acp");
 
     let session_db = ha_core::require_session_db()
@@ -377,6 +378,7 @@ fn run_server(args: &[String]) {
     // `"ha-main"` agent-id rename inside `init_runtime` would otherwise
     // race with `ensure_default_agent` pre-creating an empty `agents/ha-main/`
     // template and orphan the user's customised legacy data.
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
     ha_core::init_runtime("server");
 
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
