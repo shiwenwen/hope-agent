@@ -168,3 +168,51 @@ pub(super) fn is_cross_device_rename_raw(err: &std::io::Error) -> bool {
     const EXDEV: i32 = 18;
     err.raw_os_error() == Some(EXDEV)
 }
+
+/// Atomically swap the file at `target` with `source`.
+///
+/// Unix is forgiving: `rename(2)` mutates the directory entry, not the
+/// underlying inode, so a process holding `target` open keeps executing the
+/// old image until it exits — the new image becomes visible to future
+/// `exec(2)` calls (which is what `systemctl --user restart` / `launchctl
+/// kickstart -k` will do moments later).
+///
+/// Sets mode `0755` on the new file before the rename so the swapped-in
+/// binary is immediately executable even when callers extracted it without
+/// preserving permissions (`zip` on Windows, `flate2::GzDecoder` on a
+/// shared filesystem mount, etc.).
+///
+/// Cross-device fallback: when `source` and `target` live on different
+/// filesystems `rename` returns `EXDEV`. We copy to a sibling tempfile in
+/// the target's directory, `fsync`, then rename — same atomicity guarantee
+/// for the swap itself.
+pub(super) fn atomic_replace_binary(target: &Path, source: &Path) -> io::Result<()> {
+    fs::set_permissions(source, fs::Permissions::from_mode(0o755))?;
+    match fs::rename(source, target) {
+        Ok(()) => Ok(()),
+        Err(e) if super::is_cross_device_rename(&e) => {
+            let parent = target.parent().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "target binary path has no parent directory",
+                )
+            })?;
+            let tmp = parent.join(format!(".hope-agent.swap.{}", std::process::id()));
+            let _ = fs::remove_file(&tmp);
+            fs::copy(source, &tmp)?;
+            // fsync the new contents so the rename is durable across power
+            // loss — without this we could rename a half-written file in.
+            let f = fs::OpenOptions::new().read(true).open(&tmp)?;
+            f.sync_all()?;
+            drop(f);
+            fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+            if let Err(e) = fs::rename(&tmp, target) {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
+            let _ = fs::remove_file(source);
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}

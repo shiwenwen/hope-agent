@@ -21,9 +21,41 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // of truth. An explicit `.pubkey()` here previously diverged from the
     // config (different key_id) and silently failed signature verification
     // on every install, surfacing only as a generic "install failed" toast.
+    //
+    // For the same reason, before registering the bridge that lets
+    // `app_update` route through this plugin, assert the embedded
+    // `ha_core::updater::keys::MINISIGN_PUBKEY_BASE64` still matches the
+    // value the plugin will consume — otherwise headless self-update and
+    // desktop self-update would verify against different keys and one of
+    // the two would silently break.
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    app.handle()
-        .plugin(tauri_plugin_updater::Builder::new().build())?;
+    {
+        app.handle()
+            .plugin(tauri_plugin_updater::Builder::new().build())?;
+        const TAURI_CONF: &str = include_str!("../tauri.conf.json");
+        let conf_pubkey = serde_json::from_str::<serde_json::Value>(TAURI_CONF)
+            .ok()
+            .and_then(|v| {
+                v.get("plugins")
+                    .and_then(|p| p.get("updater"))
+                    .and_then(|u| u.get("pubkey"))
+                    .and_then(|k| k.as_str())
+                    .map(|s| s.to_string())
+            });
+        if let Some(pk) = conf_pubkey {
+            if let Err(e) = ha_core::updater::keys::assert_pubkey_matches_tauri_conf(&pk) {
+                app_error!("self_update", "boot", "{e}");
+                return Err(format!("{e}").into());
+            }
+        } else {
+            app_warn!(
+                "self_update",
+                "boot",
+                "tauri.conf.json#plugins.updater.pubkey missing — skipping ha-core / Tauri pubkey drift check"
+            );
+        }
+        crate::commands::update_bridge::register(app.handle().clone());
+    }
 
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]

@@ -246,6 +246,28 @@ pub fn crash_journal_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("crash_journal.json"))
 }
 
+// ── Self-Update ─────────────────────────────────────────────────────
+
+/// Self-update working directory: ~/.hope-agent/updater/
+pub fn updater_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("updater"))
+}
+
+/// Per-version download staging directory: ~/.hope-agent/updater/staging/{version}/
+pub fn updater_staging_dir(version: &str) -> Result<PathBuf> {
+    Ok(updater_dir()?
+        .join("staging")
+        .join(sanitize_path_segment(version)))
+}
+
+/// Per-version backup directory: ~/.hope-agent/updater/backup/{version}/
+/// Holds the prior binary so `app_update rollback` can restore it.
+pub fn updater_backup_dir(version: &str) -> Result<PathBuf> {
+    Ok(updater_dir()?
+        .join("backup")
+        .join(sanitize_path_segment(version)))
+}
+
 // ── Backups ────────────────────────────────────────────────────────
 
 /// Backups directory: ~/.hope-agent/backups/

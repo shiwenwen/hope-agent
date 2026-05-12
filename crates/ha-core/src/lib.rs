@@ -79,6 +79,7 @@ pub mod system_prompt;
 pub mod team;
 pub mod tools;
 pub mod ttl_cache;
+pub mod updater;
 pub mod url_preview;
 pub mod user_config;
 pub mod weather;
@@ -87,8 +88,8 @@ pub mod weather_location_macos;
 
 // ── Re-exports ────────────────────────────────────────────────────
 pub use app_init::{
-    build_app_state, init_app_state, init_runtime, start_background_tasks,
-    start_minimal_background_tasks,
+    app_version, build_app_state, init_app_state, init_runtime, set_app_version,
+    start_background_tasks, start_minimal_background_tasks,
 };
 #[allow(deprecated)]
 pub use globals::{

@@ -29,6 +29,31 @@ static INIT_DONE: OnceLock<()> = OnceLock::new();
 /// `init_runtime("test")` runs, `is_desktop()` stays `false` for every test.
 static RUNTIME_ROLE: OnceLock<&'static str> = OnceLock::new();
 
+/// User-facing app version, set by each binary entrypoint via
+/// [`set_app_version`]. Distinct from `env!("CARGO_PKG_VERSION")` in
+/// ha-core — `pnpm sync:version` syncs `package.json` → `src-tauri/Cargo.toml`
+/// + `tauri.conf.json`, but does NOT touch this library crate. So
+/// `ha-core`'s own crate version drifts behind the app version and must
+/// not be used for "current version" comparisons in the updater path.
+static APP_VERSION: OnceLock<&'static str> = OnceLock::new();
+
+/// Register the calling binary's `CARGO_PKG_VERSION` so [`app_version`]
+/// returns the user-facing app version. Idempotent; first call wins.
+pub fn set_app_version(version: &'static str) {
+    let _ = APP_VERSION.set(version);
+}
+
+/// Returns the version registered by the binary entrypoint via
+/// [`set_app_version`]. Falls back to `ha-core`'s own crate version when
+/// no entrypoint registered (test harnesses, library consumers). Self-update
+/// callers MUST use this — never `env!("CARGO_PKG_VERSION")` directly.
+pub fn app_version() -> &'static str {
+    APP_VERSION
+        .get()
+        .copied()
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
 /// Returns the role string from the first `init_runtime()` call, or `None`
 /// if `init_runtime` hasn't run yet. Most callers want [`is_desktop`] for
 /// readable mode checks instead of comparing the string directly.
