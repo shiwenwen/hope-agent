@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "تم ضغط السياق",
     "conversations": "المحادثات",
+    "collapseSidebar": "طي الشريط الجانبي",
     "copied": "تم النسخ",
     "copy": "نسخ",
     "cronTaskStarted": "تم تشغيل مهمة مجدولة",
@@ -283,6 +284,7 @@
       "searchHeader": "نتائج البحث",
       "truncated": "تم اقتطاع النتائج"
     },
+    "expandSidebar": "توسيع الشريط الجانبي",
     "filterAll": "الكل",
     "filterChannel": "القناة",
     "filterCron": "المهام المجدولة",

@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Contexto compactado",
     "conversations": "Conversaciones",
+    "collapseSidebar": "Contraer barra lateral",
     "copied": "Copiado",
     "copy": "Copiar",
     "cronTaskStarted": "Se ha activado una tarea programada",
@@ -283,6 +284,7 @@
       "searchHeader": "Resultados de búsqueda",
       "truncated": "Resultados truncados"
     },
+    "expandSidebar": "Expandir barra lateral",
     "filterAll": "Todo",
     "filterChannel": "Canal",
     "filterCron": "Cron",

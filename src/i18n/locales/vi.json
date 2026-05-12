@@ -261,6 +261,7 @@
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Đã nén context",
     "conversations": "Hội thoại",
+    "collapseSidebar": "Thu gọn thanh bên",
     "copied": "Đã sao chép",
     "copy": "Sao chép",
     "cronTaskStarted": "Một tác vụ định kỳ đã được kích hoạt",
@@ -283,6 +284,7 @@
       "searchHeader": "Kết quả tìm kiếm",
       "truncated": "Kết quả bị cắt"
     },
+    "expandSidebar": "Mở rộng thanh bên",
     "filterAll": "Tất cả",
     "filterChannel": "Kênh",
     "filterCron": "Cron",
