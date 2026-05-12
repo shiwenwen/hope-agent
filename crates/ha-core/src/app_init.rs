@@ -129,26 +129,7 @@ pub fn init_runtime(role: &'static str) {
     // Store logger globally for access from non-State contexts
     let _ = APP_LOGGER.set(logger.clone());
 
-    // Sweep stale `streaming` placeholder rows left over from a crashed run
-    // into `orphaned`, so the next `restore_agent_context` can detect and
-    // surface them. Must happen after both SESSION_DB and APP_LOGGER are set
-    // so the result is logged. Best-effort — a failure here doesn't block
-    // startup.
-    match session_db.mark_orphaned_streaming_rows() {
-        Ok(0) => {}
-        Ok(n) => app_info!(
-            "session",
-            "stream_persist",
-            "promoted {} leftover streaming row(s) to orphaned on startup",
-            n
-        ),
-        Err(e) => app_warn!(
-            "session",
-            "stream_persist",
-            "startup orphan sweep failed: {}",
-            e
-        ),
-    }
+    recover_startup_session_state(&session_db, tier);
 
     // Initialize the MemoryDB
     let memory_db_path = fatal(
@@ -920,5 +901,145 @@ fn init_mcp_subsystem() -> bool {
             "MCP subsystem disabled via mcpGlobal.enabled=false"
         );
         false
+    }
+}
+
+fn recover_startup_session_state(session_db: &SessionDB, tier: crate::runtime_lock::Tier) {
+    if tier != crate::runtime_lock::Tier::Primary {
+        return;
+    }
+
+    // Sweep stale `streaming` placeholder rows left over from a crashed run
+    // into `orphaned`, so the next `restore_agent_context` can detect and
+    // surface them. Must happen after both SESSION_DB and APP_LOGGER are set
+    // so the result is logged. Best-effort — a failure here doesn't block
+    // startup.
+    match session_db.mark_orphaned_streaming_rows() {
+        Ok(0) => {}
+        Ok(n) => app_info!(
+            "session",
+            "stream_persist",
+            "promoted {} leftover streaming row(s) to orphaned on startup",
+            n
+        ),
+        Err(e) => app_warn!(
+            "session",
+            "stream_persist",
+            "startup orphan sweep failed: {}",
+            e
+        ),
+    }
+    match session_db.recover_stale_chat_turns() {
+        Ok(n) => {
+            let cleared = crate::chat_engine::active_turn::clear_all();
+            if n > 0 || cleared > 0 {
+                app_info!(
+                    "session",
+                    "turn",
+                    "marked {} stale chat turn(s) interrupted on startup; cleared {} active turn(s)",
+                    n,
+                    cleared
+                );
+            }
+        }
+        Err(e) => {
+            let cleared = crate::chat_engine::active_turn::clear_all();
+            app_warn!(
+                "session",
+                "turn",
+                "startup chat turn recovery failed: {}; cleared {} active turn(s)",
+                e,
+                cleared
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{ChatTurnInterruptReason, ChatTurnStatus, NewMessage};
+
+    fn temp_db() -> SessionDB {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        // Leak tempdir for test lifetime so SQLite can keep the file open.
+        std::mem::forget(dir);
+        SessionDB::open(&path).expect("open session db")
+    }
+
+    #[test]
+    fn secondary_startup_recovery_does_not_mutate_shared_session_state() {
+        let db = temp_db();
+        let session = db
+            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, None)
+            .expect("create session");
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
+            .expect("create turn");
+        let mut streaming = NewMessage::text_block("partial");
+        streaming.stream_status = Some("streaming".to_string());
+        db.append_message(&session.id, &streaming)
+            .expect("append streaming message");
+
+        recover_startup_session_state(&db, crate::runtime_lock::Tier::Secondary);
+
+        let persisted_turn = db
+            .get_chat_turn(&turn.id)
+            .expect("load turn")
+            .expect("turn exists");
+        assert_eq!(persisted_turn.status, ChatTurnStatus::Running);
+        assert!(persisted_turn.interrupt_reason.is_none());
+
+        let messages = db
+            .load_session_messages(&session.id)
+            .expect("load messages");
+        assert_eq!(messages[0].stream_status.as_deref(), Some("streaming"));
+    }
+
+    #[test]
+    fn primary_startup_recovery_marks_stale_state_and_clears_active_turns() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let db = temp_db();
+        let session = db
+            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, None)
+            .expect("create session");
+        let turn = db
+            .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
+            .expect("create turn");
+        let mut streaming = NewMessage::text_block("partial");
+        streaming.stream_status = Some("streaming".to_string());
+        db.append_message(&session.id, &streaming)
+            .expect("append streaming message");
+
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            crate::chat_engine::stream_seq::ChatSource::Desktop,
+            turn.id.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("acquire active turn");
+
+        recover_startup_session_state(&db, crate::runtime_lock::Tier::Primary);
+
+        let persisted_turn = db
+            .get_chat_turn(&turn.id)
+            .expect("load turn")
+            .expect("turn exists");
+        assert_eq!(persisted_turn.status, ChatTurnStatus::Interrupted);
+        assert_eq!(
+            persisted_turn.interrupt_reason,
+            Some(ChatTurnInterruptReason::CrashRecovery)
+        );
+
+        let messages = db
+            .load_session_messages(&session.id)
+            .expect("load messages");
+        assert_eq!(messages[0].stream_status.as_deref(), Some("orphaned"));
+        assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
+
+        // Ensure the dropped guard cannot resurrect a cleared entry.
+        drop(_guard);
+        assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
     }
 }

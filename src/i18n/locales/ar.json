@@ -465,6 +465,10 @@
       "titleBarSession": "دليل العمل",
       "truncated": "يتم عرض أول مجموعة من العناصر فقط — هذا الدليل أكبر من أن يعرضه المتصفح كاملاً."
     },
+    "taskProgressRunning": "قيد التنفيذ {{completed}}/{{total}}",
+    "taskProgressCancelling": "جارٍ الإيقاف {{completed}}/{{total}}",
+    "taskProgressWaiting": "بانتظار المتابعة {{completed}}/{{total}}",
+    "taskProgressFailed": "فشل {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "تصدير المحادثة",
       "dialogTitle": "تصدير المحادثة",

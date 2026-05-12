@@ -282,6 +282,8 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
         }
 
+        Self::ensure_chat_turns_table(&conn)?;
+
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
         // to avoid "database disk image is malformed" errors during CASCADE delete.
         // The old trigger fired for ALL messages but only user/assistant were indexed.

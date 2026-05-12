@@ -465,6 +465,10 @@
       "titleBarSession": "Рабочий каталог",
       "truncated": "Показаны только первые записи — каталог слишком велик для отображения целиком."
     },
+    "taskProgressRunning": "Выполняется {{completed}}/{{total}}",
+    "taskProgressCancelling": "Остановка {{completed}}/{{total}}",
+    "taskProgressWaiting": "Ожидает продолжения {{completed}}/{{total}}",
+    "taskProgressFailed": "Ошибка {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "Экспортировать беседу",
       "dialogTitle": "Экспорт беседы",

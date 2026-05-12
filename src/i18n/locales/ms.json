@@ -465,6 +465,10 @@
       "titleBarSession": "Direktori kerja",
       "truncated": "Hanya entri pertama dipaparkan — direktori ini terlalu besar untuk pelayar memaparkan keseluruhannya."
     },
+    "taskProgressRunning": "Sedang berjalan {{completed}}/{{total}}",
+    "taskProgressCancelling": "Sedang berhenti {{completed}}/{{total}}",
+    "taskProgressWaiting": "Menunggu sambung {{completed}}/{{total}}",
+    "taskProgressFailed": "Gagal {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "Eksport perbualan",
       "dialogTitle": "Eksport perbualan",

@@ -9,7 +9,7 @@ use crate::truncate_utf8;
 use crate::AppState;
 use anyhow::Context;
 use ha_core::{app_error, app_info, app_warn};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 
@@ -22,6 +22,77 @@ impl EventSink for ChannelSink {
     fn send(&self, event: &str) {
         let _ = self.channel.send(event.to_string());
     }
+}
+
+fn broadcast_turn_end(
+    session_id: &str,
+    turn_id: &str,
+    status: session::ChatTurnStatus,
+    interrupt_reason: Option<session::ChatTurnInterruptReason>,
+    error: Option<&str>,
+) {
+    ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
+        session_id,
+        None,
+        Some(turn_id),
+        Some(status),
+        interrupt_reason,
+        error,
+    );
+}
+
+fn finish_turn_once_and_broadcast(
+    db: &SessionDB,
+    session_id: &str,
+    turn_id: &str,
+    status: session::ChatTurnStatus,
+    interrupt_reason: Option<session::ChatTurnInterruptReason>,
+    error: Option<&str>,
+    assistant_message_id: Option<i64>,
+) {
+    let _ = db.finish_chat_turn_once(
+        turn_id,
+        status,
+        interrupt_reason,
+        error,
+        assistant_message_id,
+    );
+    broadcast_turn_end(session_id, turn_id, status, interrupt_reason, error);
+}
+
+fn finish_turn_after_execution_and_broadcast(
+    db: &SessionDB,
+    session_id: &str,
+    turn_id: &str,
+    cancel_requested: bool,
+    error: Option<&str>,
+    assistant_message_id: Option<i64>,
+) -> Option<session::ChatTurn> {
+    let turn = db
+        .finish_chat_turn_after_execution(turn_id, cancel_requested, error, assistant_message_id)
+        .ok()
+        .flatten();
+    let status = turn.as_ref().map(|turn| turn.status).unwrap_or_else(|| {
+        if cancel_requested {
+            session::ChatTurnStatus::Interrupted
+        } else if error.is_some() {
+            session::ChatTurnStatus::Failed
+        } else {
+            session::ChatTurnStatus::Completed
+        }
+    });
+    let interrupt_reason = turn.as_ref().and_then(|turn| turn.interrupt_reason);
+    let terminal_error = (status == session::ChatTurnStatus::Failed)
+        .then_some(error)
+        .flatten();
+    broadcast_turn_end(
+        session_id,
+        turn_id,
+        status,
+        interrupt_reason,
+        terminal_error,
+    );
+    turn
 }
 
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
@@ -74,7 +145,7 @@ pub async fn chat(
     let permission_mode_pending = permission_mode;
 
     let db = state.session_db.clone();
-    let cancel = state.chat_cancel.clone();
+    let cancel = Arc::new(AtomicBool::new(false));
     let logger = state.logger.clone();
     // NOTE: _chat_session_guard is set later after session_id is resolved
 
@@ -139,11 +210,13 @@ pub async fn chat(
         }
     }
 
+    let turn_id = uuid::Uuid::new_v4().to_string();
     let _active_turn_guard = crate::chat_engine::active_turn::try_acquire(
         &sid,
         crate::chat_engine::stream_seq::ChatSource::Desktop,
+        turn_id.clone(),
+        cancel.clone(),
     )?;
-    cancel.store(false, Ordering::SeqCst); // Reset only for the turn we accepted.
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);
@@ -249,7 +322,14 @@ pub async fn chat(
         plan_comment.as_ref(),
         attachments_meta,
     );
-    let _ = db.append_message(&sid, &user_msg);
+    let user_message_id = db.append_message(&sid, &user_msg).ok();
+    let _turn = db.create_chat_turn_with_id(
+        &turn_id,
+        &sid,
+        ha_core::chat_engine::ChatSource::Desktop.as_str(),
+        None,
+        user_message_id,
+    )?;
 
     // Log chat start
     let msg_preview = if message.len() > 100 {
@@ -280,6 +360,14 @@ pub async fn chat(
         if let Ok(json_str) = serde_json::to_string(&event) {
             let _ = on_event.send(json_str);
         }
+    }
+    let turn_event = serde_json::json!({
+        "type": "turn_started",
+        "session_id": &sid,
+        "turn_id": &turn_id,
+    });
+    if let Ok(json_str) = serde_json::to_string(&turn_event) {
+        let _ = on_event.send(json_str);
     }
 
     // Resolve model chain from current agent config. The legacy
@@ -346,6 +434,15 @@ pub async fn chat(
                     })
                     .to_string(),
                 );
+                finish_turn_once_and_broadcast(
+                    &db,
+                    &sid,
+                    &turn_id,
+                    session::ChatTurnStatus::Completed,
+                    None,
+                    None,
+                    None,
+                );
                 return Ok("Message forwarded to planning agent.".to_string());
             }
 
@@ -372,6 +469,15 @@ pub async fn chat(
                             "text": "🗂️ Plan creation started..."
                         })
                         .to_string(),
+                    );
+                    finish_turn_once_and_broadcast(
+                        &db,
+                        &sid,
+                        &turn_id,
+                        session::ChatTurnStatus::Completed,
+                        None,
+                        None,
+                        None,
                     );
                     return Ok(format!("Plan sub-agent spawned: {}", run_id));
                 }
@@ -479,12 +585,28 @@ pub async fn chat(
                     Ok((text, thinking)) => (text, thinking),
                     Err(e) => {
                         let err = e.to_string();
-                        crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
-                        let _ = db.append_message(
+                        let turn = finish_turn_after_execution_and_broadcast(
+                            &db,
                             &sid,
-                            &session::NewMessage::event(&err)
-                                .with_source(ha_core::chat_engine::ChatSource::Desktop),
+                            &turn_id,
+                            cancel.load(Ordering::SeqCst),
+                            Some(err.as_str()),
+                            None,
                         );
+                        if turn
+                            .as_ref()
+                            .map(|turn| turn.status != session::ChatTurnStatus::Interrupted)
+                            .unwrap_or(true)
+                        {
+                            crate::chat_engine::persist_failed_turn_context(
+                                &db, &sid, &message, &err,
+                            );
+                            let _ = db.append_message(
+                                &sid,
+                                &session::NewMessage::event(&err)
+                                    .with_source(ha_core::chat_engine::ChatSource::Desktop),
+                            );
+                        }
                         return Err(CmdError::msg(err));
                     }
                 };
@@ -510,12 +632,29 @@ pub async fn chat(
                         .last_cache_read_input_tokens
                         .or(usage.cache_read_input_tokens);
                 }
-                let _ = db.append_message(&sid, &assistant_msg);
+                let assistant_id = db.append_message(&sid, &assistant_msg).ok();
+                let _ = finish_turn_after_execution_and_broadcast(
+                    &db,
+                    &sid,
+                    &turn_id,
+                    cancel.load(Ordering::SeqCst),
+                    None,
+                    assistant_id,
+                );
                 crate::chat_engine::save_agent_context(&db, &sid, agent);
                 Ok(result)
             }
             None => {
                 let err = "Agent not initialized. Please sign in first.".to_string();
+                finish_turn_once_and_broadcast(
+                    &db,
+                    &sid,
+                    &turn_id,
+                    session::ChatTurnStatus::Failed,
+                    None,
+                    Some(&err),
+                    None,
+                );
                 crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
                 let _ = db.append_message(
                     &sid,
@@ -538,6 +677,7 @@ pub async fn chat(
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: sid.clone(),
         agent_id: current_agent_id.clone(),
+        turn_id: Some(turn_id.clone()),
         message: message.clone(),
         display_text: display_text.clone(),
         attachments,
@@ -587,15 +727,60 @@ pub async fn chat(
 #[tauri::command]
 pub async fn stop_chat(
     session_id: Option<String>,
+    turn_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    state.chat_cancel.store(true, Ordering::SeqCst);
-    match ha_core::runtime_tasks::cancel_runtime_tasks_for_session(session_id.as_deref()).await {
+    let mut stopped = false;
+    if let Some(sid) = session_id.as_deref() {
+        if let Some(active) = crate::chat_engine::active_turn::current(sid) {
+            let matches_turn = turn_id
+                .as_deref()
+                .map(|id| id == active.turn_id)
+                .unwrap_or(true);
+            if matches_turn {
+                active.cancel.store(true, Ordering::SeqCst);
+                let _ = state.session_db.mark_chat_turn_cancelling(
+                    &active.turn_id,
+                    session::ChatTurnInterruptReason::UserStop,
+                );
+                stopped = true;
+            } else {
+                app_info!(
+                    "chat",
+                    "stop_chat",
+                    "Ignoring stale stop for session {} turn {:?}; active turn is {}",
+                    sid,
+                    turn_id,
+                    active.turn_id
+                );
+            }
+        }
+    } else {
+        // Legacy fallback for callers that cannot target a session. Keep the
+        // old global flag, but all new UI paths pass a session id.
+        state.chat_cancel.store(true, Ordering::SeqCst);
+        for active in crate::chat_engine::active_turn::all_current() {
+            active.cancel.store(true, Ordering::SeqCst);
+            let _ = state.session_db.mark_chat_turn_cancelling(
+                &active.turn_id,
+                session::ChatTurnInterruptReason::UserStop,
+            );
+        }
+        stopped = true;
+    }
+    let runtime_scope = stopped.then_some(session_id.as_deref()).flatten();
+    let runtime_cancellations = if stopped || session_id.is_none() {
+        ha_core::runtime_tasks::cancel_runtime_tasks_for_session(runtime_scope).await
+    } else {
+        Ok(Vec::new())
+    };
+    match runtime_cancellations {
         Ok(results) => {
             app_info!(
                 "chat",
                 "stop_chat",
-                "Stop chat requested; runtime cancellations attempted: {}",
+                "Stop chat requested; stopped={} runtime cancellations attempted: {}",
+                stopped,
                 results.len()
             );
         }

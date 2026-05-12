@@ -12,6 +12,10 @@ vi.mock("react-i18next", () => ({
     t: (key: string, options?: { completed?: number; total?: number; defaultValue?: string }) => {
       if (key === "chat.tasks") return "Tasks"
       if (key === "chat.taskProgress") return `${options?.completed}/${options?.total} completed`
+      if (key === "chat.taskProgressRunning") return `Running ${options?.completed}/${options?.total}`
+      if (key === "chat.taskProgressCancelling") return `Stopping ${options?.completed}/${options?.total}`
+      if (key === "chat.taskProgressFailed") return `Failed ${options?.completed}/${options?.total}`
+      if (key === "chat.taskProgressWaiting") return `Waiting ${options?.completed}/${options?.total}`
       return options?.defaultValue ?? key
     },
   }),
@@ -64,7 +68,7 @@ describe("TaskProgressPanel", () => {
     const toggle = screen.getByRole("button", { name: /Tasks/ })
     expect(toggle.getAttribute("aria-expanded")).toBe("false")
     expect(screen.getByText("Tasks")).toBeTruthy()
-    expect(screen.getByText("1/2 completed")).toBeTruthy()
+    expect(screen.getByText("Waiting 1/2")).toBeTruthy()
     expect(screen.queryByText("Running tests")).toBeNull()
 
     fireEvent.click(toggle)
@@ -85,5 +89,58 @@ describe("TaskProgressPanel", () => {
     expect(screen.getByText("1.")).toBeTruthy()
     expect(screen.getByText("2.")).toBeTruthy()
     expect(screen.queryByText("#42")).toBeNull()
+  })
+
+  test("does not spin an in-progress task when execution is no longer running", () => {
+    const snapshot = createTaskProgressSnapshot([
+      task({
+        id: 2,
+        content: "Run tests",
+        activeForm: "Running tests",
+        status: "in_progress",
+      }),
+    ])
+
+    const { container } = render(<TaskProgressPanel snapshot={snapshot} executionState="idle" />)
+
+    expect(screen.getByText("Waiting 0/1")).toBeTruthy()
+    expect(container.querySelector(".animate-spin")).toBeNull()
+  })
+
+  test("renders stopping state without a spinner", () => {
+    const snapshot = createTaskProgressSnapshot([
+      task({
+        id: 2,
+        content: "Run tests",
+        activeForm: "Running tests",
+        status: "in_progress",
+      }),
+    ])
+
+    const { container } = render(
+      <TaskProgressPanel snapshot={snapshot} executionState="cancelling" />,
+    )
+
+    expect(screen.getByText("Stopping 0/1")).toBeTruthy()
+    expect(container.querySelector(".animate-spin")).toBeNull()
+  })
+
+  test("renders failed execution with alert icon and no spinner", () => {
+    const snapshot = createTaskProgressSnapshot([
+      task({
+        id: 2,
+        content: "Run tests",
+        activeForm: "Running tests",
+        status: "in_progress",
+      }),
+    ])
+
+    const { container } = render(<TaskProgressPanel snapshot={snapshot} executionState="failed" />)
+
+    expect(screen.getByText("Failed 0/1")).toBeTruthy()
+    expect(container.querySelector(".animate-spin")).toBeNull()
+    expect(container.querySelector(".text-destructive")).toBeTruthy()
+    expect(container.querySelector(".lucide-circle-alert")).toBeTruthy()
+    expect(container.querySelector(".lucide-circle-pause")).toBeNull()
   })
 })

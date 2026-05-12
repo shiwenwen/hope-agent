@@ -282,6 +282,7 @@ pub async fn build_and_run_agent_with_context(
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
+        turn_id: None,
         message: message.to_string(),
         display_text: None,
         attachments: Vec::new(),

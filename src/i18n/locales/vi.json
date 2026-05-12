@@ -465,6 +465,10 @@
       "titleBarSession": "Thư mục làm việc",
       "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết."
     },
+    "taskProgressRunning": "Đang thực hiện {{completed}}/{{total}}",
+    "taskProgressCancelling": "Đang dừng {{completed}}/{{total}}",
+    "taskProgressWaiting": "Đang chờ tiếp tục {{completed}}/{{total}}",
+    "taskProgressFailed": "Thất bại {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "Xuất cuộc trò chuyện",
       "dialogTitle": "Xuất cuộc trò chuyện",

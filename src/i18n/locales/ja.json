@@ -465,6 +465,10 @@
       "titleBarSession": "作業ディレクトリ",
       "truncated": "先頭のエントリのみ表示しています — このディレクトリは大きすぎて全件を表示できません。"
     },
+    "taskProgressRunning": "実行中 {{completed}}/{{total}}",
+    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
+    "taskProgressWaiting": "再開待ち {{completed}}/{{total}}",
+    "taskProgressFailed": "失敗 {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "会話をエクスポート",
       "dialogTitle": "会話のエクスポート",

@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **任务手动停止后的 turn 生命周期恢复更稳**：启动期 `running/cancelling` turn 与 leftover streaming row 只由 Primary 进程恢复，避免 Secondary server / acp 启动时把桌面端仍在执行的 turn 误标为 interrupted；HTTP 模式不再在 `/api/chat` 响应后合成 late `turn_started`，避免 terminal state 被改回 running、任务面板留下 stale active turn。(#145)
 - 工具被用户拒绝或取消时，模型更稳地停下等用户而不是改方案再调一次——所有审批拒绝 / 审批超时 / turn 取消路径的 tool_result 文案统一带"未生效 + 请停下等用户"指令。
 - 用户设了 `max_tool_rounds` 之后，最后一轮自然完成（模型不再调用工具直接给出最终答复）时不再误报「已达工具调用上限」提示。(#152)
 - **飞书入站媒体下载放在 ACK 与 mention/access gating 之后**（review P1）：之前 [`channel/feishu/ws_event.rs`](crates/ha-core/src/channel/feishu/ws_event.rs) `handle_message_event` 在发 `InboundEvent::Message` 之前同步 download + 落盘，群里没 @bot 的图片/文件也会下载，且把 WS data-frame 的 ack 推迟到下载完成后——容易触发飞书重投与连接抖动。改为：WS handler 只解析轻量 `ParsedMediaRef`，挂在 `MsgContext.raw["_hopePendingMedia"]` 上立刻入队 → 立刻 ack；新增 [`ChannelPlugin::materialize_pending_media`](crates/ha-core/src/channel/traits.rs) 默认 no-op，[`FeishuPlugin`](crates/ha-core/src/channel/feishu/mod.rs) 覆盖；`worker/dispatcher.rs::handle_inbound_message` 在 access + mention 双重 gating 通过后才调用，下载失败仅 warn 不阻断消息。

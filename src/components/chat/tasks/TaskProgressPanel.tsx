@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronRight, ListChecks, Trash2 } from "lucide-react"
+import { AlertCircle, ChevronRight, CirclePause, ListChecks, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
@@ -16,6 +16,7 @@ interface TaskProgressPanelProps {
   className?: string
   defaultExpanded?: boolean
   variant?: "card" | "embedded"
+  executionState?: "idle" | "running" | "cancelling" | "interrupted" | "failed"
 }
 
 // Cycle: pending → in_progress → completed → pending. Mirrors how a user
@@ -31,6 +32,7 @@ export default function TaskProgressPanel({
   className,
   defaultExpanded = true,
   variant = "card",
+  executionState = "idle",
 }: TaskProgressPanelProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultExpanded)
@@ -70,8 +72,18 @@ export default function TaskProgressPanel({
 
   const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
   const taskLabel = String(t("chat.tasks"))
+  const progressKey =
+    snapshot.inProgress && executionState === "running"
+      ? "chat.taskProgressRunning"
+      : snapshot.inProgress && executionState === "cancelling"
+        ? "chat.taskProgressCancelling"
+        : snapshot.inProgress && executionState === "failed"
+          ? "chat.taskProgressFailed"
+          : snapshot.inProgress
+            ? "chat.taskProgressWaiting"
+            : "chat.taskProgress"
   const progressLabel = String(
-    t("chat.taskProgress", {
+    t(progressKey, {
       completed: snapshot.completed,
       total: snapshot.total,
     }),
@@ -112,7 +124,20 @@ export default function TaskProgressPanel({
         <div className="border-t border-border/60 px-3 py-2">
           <ol className="max-h-[30vh] space-y-1 overflow-y-auto pr-1">
             {snapshot.tasks.map((task, index) => {
-              const { Icon, cls } = TASK_STATUS_ICON[task.status] ?? TASK_STATUS_ICON.pending
+              const baseIcon = TASK_STATUS_ICON[task.status] ?? TASK_STATUS_ICON.pending
+              const isPausedInProgress = task.status === "in_progress" && executionState !== "running"
+              const Icon =
+                task.status === "in_progress" && executionState === "failed"
+                  ? AlertCircle
+                  : isPausedInProgress
+                    ? CirclePause
+                    : baseIcon.Icon
+              const cls =
+                task.status === "in_progress" && executionState === "failed"
+                  ? "text-destructive"
+                  : isPausedInProgress
+                    ? "text-muted-foreground"
+                    : baseIcon.cls
               const label = getTaskDisplayLabel(task, fallbackTaskLabel)
               const cycleTip = String(
                 t(`chat.taskActions.cycleTo.${NEXT_STATUS[task.status]}`),

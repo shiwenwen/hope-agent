@@ -3,7 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "../useChatSession"
-import type { Message } from "@/types/chat"
+import type { ChatTurnInterruptReason, ChatTurnStatus, Message } from "@/types/chat"
 import {
   createStreamDeltaBuffers,
   discardAllPendingStreamDeltas,
@@ -16,6 +16,7 @@ import {
 // Backend constants: see `crates/ha-core/src/chat_engine/stream_broadcast.rs`.
 const EVENT_CHAT_STREAM_DELTA = "chat:stream_delta"
 const EVENT_CHAT_STREAM_END = "chat:stream_end"
+const EVENT_CHAT_TURN_STARTED = "chat:turn_started"
 
 export interface UseChatStreamReattachDeps {
   currentSessionId: string | null
@@ -32,12 +33,22 @@ export interface UseChatStreamReattachDeps {
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
   reloadSessions: () => Promise<void>
+  onTurnStarted?: (sessionId: string, turnId: string) => void
+  onTurnEnded?: (
+    sessionId: string,
+    status?: ChatTurnStatus | null,
+    interruptReason?: ChatTurnInterruptReason | null,
+  ) => void
 }
 
 export interface SessionStreamState {
   active: boolean
   lastSeq: number
   streamId?: string | null
+  turnId?: string | null
+  status?: ChatTurnStatus | null
+  lastTerminalStatus?: ChatTurnStatus | null
+  interruptReason?: ChatTurnInterruptReason | null
 }
 
 interface StreamDeltaPayload {
@@ -50,6 +61,9 @@ interface StreamDeltaPayload {
 interface StreamEndPayload {
   sessionId: string
   streamId?: string
+  turnId?: string | null
+  status?: ChatTurnStatus | null
+  interruptReason?: ChatTurnInterruptReason | null
 }
 
 /**
@@ -79,6 +93,8 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     setLoadingSessionIds,
     sessionCacheRef,
     reloadSessions,
+    onTurnStarted,
+    onTurnEnded,
   } = deps
 
   // Buffers are per-hook, not shared with useChatStream's primary path;
@@ -86,6 +102,15 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   // hook they are keyed by session so overlapping background streams cannot
   // mix pending text before the rAF flush runs.
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
+
+  useEffect(() => {
+    const unlisten = getTransport().listen(EVENT_CHAT_TURN_STARTED, (raw) => {
+      const payload = raw as { sessionId?: string; turnId?: string } | null
+      if (!payload?.sessionId || !payload.turnId) return
+      onTurnStarted?.(payload.sessionId, payload.turnId)
+    })
+    return unlisten
+  }, [onTurnStarted])
 
   useEffect(() => {
     const unlisten = getTransport().listen(EVENT_CHAT_STREAM_DELTA, (raw) => {
@@ -131,7 +156,17 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       .call<SessionStreamState>("get_session_stream_state", { sessionId: sid })
       .then((state) => {
         if (cancelled) return
-        if (!state?.active) return
+        if (!state) return
+        if (state.turnId && state.active) {
+          onTurnStarted?.(sid, state.turnId)
+        } else {
+          onTurnEnded?.(
+            sid,
+            state.status ?? state.lastTerminalStatus ?? null,
+            state.interruptReason ?? null,
+          )
+        }
+        if (!state.active) return
         const streamId = state.streamId || undefined
         if (streamId) endedStreamIdsRef.current.delete(sid)
         const cursorKey = streamCursorKey(sid, streamId)
@@ -160,6 +195,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       const sid = payload.sessionId
       const streamId = payload.streamId || streamIdFromPayload(raw)
       if (streamId) endedStreamIdsRef.current.set(sid, streamId)
+      onTurnEnded?.(sid, payload.status, payload.interruptReason)
 
       discardPendingStreamDeltas(sid, deltaBuffersRef)
       loadingSessionsRef.current.delete(sid)

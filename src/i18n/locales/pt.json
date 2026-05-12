@@ -465,6 +465,10 @@
       "titleBarSession": "Diretório de trabalho",
       "truncated": "Apenas as primeiras entradas são exibidas — este diretório é grande demais para o navegador."
     },
+    "taskProgressRunning": "Em execução {{completed}}/{{total}}",
+    "taskProgressCancelling": "Parando {{completed}}/{{total}}",
+    "taskProgressWaiting": "Aguardando continuar {{completed}}/{{total}}",
+    "taskProgressFailed": "Falhou {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "Exportar conversa",
       "dialogTitle": "Exportar conversa",

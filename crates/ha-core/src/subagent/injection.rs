@@ -330,6 +330,7 @@ pub(crate) async fn inject_and_run_parent(
         match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: parent_session_id.clone(),
             agent_id: parent_agent_id.clone(),
+            turn_id: None,
             message: push_message.clone(),
             display_text: None,
             attachments: Vec::new(),

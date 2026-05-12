@@ -1,28 +1,74 @@
 import { useMemo, useState } from "react"
-import { ChevronRight, ListChecks } from "lucide-react"
+import { AlertCircle, ChevronRight, CirclePause, ListChecks } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import type { ToolCall } from "@/types/chat"
+import type { ChatTurnStatus, ToolCall } from "@/types/chat"
 import {
   createCurrentTaskProgressSnapshot,
   getTaskDisplayLabel,
   getTaskProgressSummaryText,
+  type TaskProgressSnapshot,
   parseTaskToolResult,
 } from "@/components/chat/tasks/taskProgress"
 import { TASK_STATUS_ICON } from "@/components/chat/tasks/taskStatusIcon"
 
+type TaskExecutionState = "idle" | "running" | "cancelling" | "interrupted" | "failed"
+
 interface TaskBlockProps {
   tool: ToolCall
+  executionState?: ChatTurnStatus | TaskExecutionState | null
 }
 
-export default function TaskBlock({ tool }: TaskBlockProps) {
+function normalizeExecutionState(
+  state: ChatTurnStatus | TaskExecutionState | null | undefined,
+): TaskExecutionState {
+  switch (state) {
+    case "running":
+    case "cancelling":
+    case "interrupted":
+    case "failed":
+      return state
+    default:
+      return "idle"
+  }
+}
+
+function getTaskBlockSummaryText(
+  snapshot: TaskProgressSnapshot,
+  t: Parameters<typeof getTaskProgressSummaryText>[1],
+  executionState: TaskExecutionState,
+): string {
+  if (snapshot.inProgress) {
+    const key =
+      executionState === "running"
+        ? "chat.taskProgressRunning"
+        : executionState === "cancelling"
+          ? "chat.taskProgressCancelling"
+          : executionState === "failed"
+            ? "chat.taskProgressFailed"
+            : "chat.taskProgressWaiting"
+    return String(t(key, {
+      completed: snapshot.completed,
+      total: snapshot.total,
+      remaining: snapshot.remaining,
+    }))
+  }
+
+  return getTaskProgressSummaryText(snapshot, t)
+}
+
+export default function TaskBlock({ tool, executionState }: TaskBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
 
   const rawTasks = useMemo(() => parseTaskToolResult(tool.result), [tool.result])
   const snapshot = useMemo(() => createCurrentTaskProgressSnapshot(rawTasks), [rawTasks])
   const tasks = snapshot.tasks
-  const summaryText = useMemo(() => getTaskProgressSummaryText(snapshot, t), [snapshot, t])
+  const taskExecutionState = normalizeExecutionState(executionState)
+  const summaryText = useMemo(
+    () => getTaskBlockSummaryText(snapshot, t, taskExecutionState),
+    [snapshot, t, taskExecutionState],
+  )
 
   if (tasks.length === 0) {
     return (
@@ -54,7 +100,20 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
       {expanded && (
         <ul className="space-y-0.5 px-2 pb-2">
           {tasks.map((tk) => {
-            const { Icon, cls } = TASK_STATUS_ICON[tk.status] ?? TASK_STATUS_ICON.pending
+            const baseIcon = TASK_STATUS_ICON[tk.status] ?? TASK_STATUS_ICON.pending
+            const isPausedInProgress = tk.status === "in_progress" && taskExecutionState !== "running"
+            const Icon =
+              tk.status === "in_progress" && taskExecutionState === "failed"
+                ? AlertCircle
+                : isPausedInProgress
+                  ? CirclePause
+                  : baseIcon.Icon
+            const cls =
+              tk.status === "in_progress" && taskExecutionState === "failed"
+                ? "text-destructive"
+                : isPausedInProgress
+                  ? "text-muted-foreground"
+                  : baseIcon.cls
             const label = getTaskDisplayLabel(tk, fallbackTaskLabel)
             return (
               <li

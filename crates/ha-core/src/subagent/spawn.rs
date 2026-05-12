@@ -487,6 +487,7 @@ fn execute_subagent(
         let result = crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: child_session_id,
             agent_id: agent_id.clone(),
+            turn_id: None,
             message: task,
             display_text: None,
             attachments,

@@ -465,6 +465,10 @@
       "titleBarSession": "Working directory",
       "truncated": "Only the first entries are shown — this directory is larger than the browser can display."
     },
+    "taskProgressRunning": "Running {{completed}}/{{total}}",
+    "taskProgressCancelling": "Stopping {{completed}}/{{total}}",
+    "taskProgressWaiting": "Waiting to continue {{completed}}/{{total}}",
+    "taskProgressFailed": "Failed {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "Export conversation",
       "dialogTitle": "Export conversation",

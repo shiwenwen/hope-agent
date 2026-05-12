@@ -476,6 +476,13 @@ pub struct ChatEngineParams {
     // Basic
     pub session_id: String,
     pub agent_id: String,
+    /// Persisted chat turn id for user-facing desktop / HTTP turns.
+    ///
+    /// `None` is intentional for non-interactive sources such as cron,
+    /// subagent, parent injection, and IM channel worker turns: those entry
+    /// points already own their cancellation and delivery lifecycles, so they
+    /// must not be tied to the GUI/HTTP active-turn registry.
+    pub turn_id: Option<String>,
     pub message: String,
     /// Friendly user-facing rendering of the prompt (e.g. `Using skill **X**...`
     /// for slash-invoked skills). When set, the IM-mirror user-quote prefix

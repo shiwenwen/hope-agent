@@ -465,6 +465,10 @@
       "titleBarSession": "当前工作目录",
       "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。"
     },
+    "taskProgressRunning": "正在执行 {{completed}}/{{total}}",
+    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
+    "taskProgressWaiting": "等待继续 {{completed}}/{{total}}",
+    "taskProgressFailed": "执行失败 {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "导出对话",
       "dialogTitle": "导出对话",

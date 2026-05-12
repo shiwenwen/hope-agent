@@ -15,6 +15,7 @@
 - [流式事件协议](#流式事件协议)
 - [流式回调处理](#流式回调处理)
 - [Stream Broadcast & Reload Recovery](#stream-broadcast--reload-recovery)
+- [Turn Lifecycle & Stop Recovery](#turn-lifecycle--stop-recovery)
 - [Failover 集成](#failover-集成)
 - [Post-turn Effects](#post-turn-effects)
 - [记忆提取门控](#记忆提取门控)
@@ -299,6 +300,32 @@ sequenceDiagram
 `ChatSource` 枚举区分 UI / Channel / Cron / Subagent 等入口，决定是否注册到 reload-recovery 索引、是否落 `activeChatCounts`，以及是否触发 `chat:stream_end` 收尾广播；IM 渠道走的 `channel:stream_delta` 与主 chat 流分别走独立事件名互不混淆。
 
 > 历史遗留的 per-session chat WebSocket 路由已于 commit `8860eb23` 移除，所有 stream 现统一走 `/ws/events` 单通道。
+
+## Turn Lifecycle & Stop Recovery
+
+用户可见的 Desktop / HTTP chat turn 在进入 Chat Engine 前会创建持久化
+`chat_turns` 记录，并把 `turn_id` 传入 `ChatEngineParams`。turn 生命周期独立于
+Plan task、stream seq 与消息持久化：
+
+- `running`：turn 已创建并进入执行路径。
+- `cancelling`：用户请求停止，后端只标记对应 session + turn 的 cancel flag。
+- `completed`：正常完成。
+- `interrupted`：用户停止、运行时取消、崩溃恢复等非错误中断。
+- `failed`：模型链失败、配置错误或其它真实错误。
+
+终态写入是幂等的，`finish_chat_turn_once` / `finish_chat_turn_after_execution`
+不会让 late success 覆盖已中断 turn。Chat Engine 在可见 stream 结束时广播
+`chat:stream_end`，payload 带 `sessionId / streamId / turnId / status /
+interruptReason / error`，前端据此清理 loading 并恢复停止后的展示状态。
+
+启动恢复会把 DB 中残留的 `running` / `cancelling` turn 标记为
+`interrupted(crash_recovery)`，同时清理内存 `active_turn` registry，避免热重启
+后 DB 已中断但内存仍报告 active。
+
+`turn_id = None` 是非交互入口的显式设计：Cron、subagent、parent injection 与 IM
+channel worker 有各自的取消、投递和后台恢复机制，不参与 GUI/HTTP 的 turn 级
+stop 与 active-turn registry。后续如果要把这些入口纳入 turn 生命周期，必须先设计
+独立的取消隔离和前端呈现契约。
 
 ## Failover 集成
 

@@ -465,6 +465,10 @@
       "titleBarSession": "작업 디렉터리",
       "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다."
     },
+    "taskProgressRunning": "실행 중 {{completed}}/{{total}}",
+    "taskProgressCancelling": "중지 중 {{completed}}/{{total}}",
+    "taskProgressWaiting": "계속 대기 {{completed}}/{{total}}",
+    "taskProgressFailed": "실패 {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "대화 내보내기",
       "dialogTitle": "대화 내보내기",

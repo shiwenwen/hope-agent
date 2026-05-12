@@ -891,11 +891,12 @@ export class HttpTransport implements Transport {
     args: ChatStartArgs,
     onEvent: (event: string) => void,
   ): Promise<string> {
-    // Stream deltas arrive via /ws/events → useChatStreamReattach. We only
-    // bridge `session_created` so the in-hook __pending__ cache key gets
-    // renamed in place — POST /api/chat returns the real sessionId in its
-    // body, so synthesizing the event after the response is sufficient.
-    const resp = await this.call<{ sessionId: string; response: string }>(
+    // Stream deltas and turn lifecycle events arrive via /ws/events →
+    // useChatStreamReattach. We only bridge `session_created` so the in-hook
+    // __pending__ cache key gets renamed in place. Do not synthesize
+    // `turn_started` here: POST /api/chat resolves after the engine finishes,
+    // so a late local start event can incorrectly overwrite a terminal state.
+    const resp = await this.call<{ sessionId: string; response: string; turnId?: string }>(
       "chat",
       args,
     );

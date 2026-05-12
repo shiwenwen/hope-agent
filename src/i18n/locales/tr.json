@@ -465,6 +465,10 @@
       "titleBarSession": "Çalışma dizini",
       "truncated": "Yalnızca ilk girdiler gösteriliyor — bu dizin tarayıcının tamamını göstermesi için çok büyük."
     },
+    "taskProgressRunning": "Çalışıyor {{completed}}/{{total}}",
+    "taskProgressCancelling": "Durduruluyor {{completed}}/{{total}}",
+    "taskProgressWaiting": "Devam etmeyi bekliyor {{completed}}/{{total}}",
+    "taskProgressFailed": "Başarısız {{completed}}/{{total}}",
     "exportSession": {
       "menuItem": "Sohbeti dışa aktar",
       "dialogTitle": "Sohbeti dışa aktar",
