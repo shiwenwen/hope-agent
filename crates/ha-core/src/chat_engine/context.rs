@@ -113,6 +113,16 @@ pub fn persist_failed_turn_context(
     user_message: &str,
     error: &str,
 ) {
+    persist_failed_turn_context_with_partial(db, session_id, user_message, error, None);
+}
+
+pub fn persist_failed_turn_context_with_partial(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    user_message: &str,
+    error: &str,
+    assistant_message_id: Option<i64>,
+) {
     let mut history = db
         .load_context(session_id)
         .ok()
@@ -122,22 +132,118 @@ pub fn persist_failed_turn_context(
 
     push_user_for_failed_turn(&mut history, user_message);
 
+    let partial_context =
+        assistant_message_id.and_then(|id| failed_partial_context(db, session_id, id));
+    let had_partial_output = partial_context
+        .as_ref()
+        .map(|ctx| ctx.had_partial_output)
+        .unwrap_or(false);
+
     let error = crate::util::truncate_utf8(error.trim(), 2_000);
     let marker = if error.is_empty() {
-        "[System event] Previous assistant turn failed before producing a response.".to_string()
+        if partial_context
+            .as_ref()
+            .and_then(|ctx| ctx.text.as_ref())
+            .is_some()
+        {
+            "[System event] Previous assistant turn failed after producing the partial response above."
+                .to_string()
+        } else if had_partial_output {
+            "[System event] Previous assistant turn failed after producing partial output that is not included here."
+                .to_string()
+        } else {
+            "[System event] Previous assistant turn failed before producing a response.".to_string()
+        }
+    } else if partial_context
+        .as_ref()
+        .and_then(|ctx| ctx.text.as_ref())
+        .is_some()
+    {
+        format!(
+            "[System event] Previous assistant turn failed after producing the partial response above. Error: {}",
+            error
+        )
+    } else if had_partial_output {
+        format!(
+            "[System event] Previous assistant turn failed after producing partial output that is not included here. Error: {}",
+            error
+        )
     } else {
         format!(
             "[System event] Previous assistant turn failed before producing a response. Error: {}",
             error
         )
     };
-    if !last_assistant_message_is(&history, &marker) {
-        history.push(json!({ "role": "assistant", "content": marker }));
+    let context_message = partial_context
+        .and_then(|ctx| ctx.text)
+        .map(|partial| format!("{}\n\n{}", partial, marker))
+        .unwrap_or(marker);
+    if !last_assistant_message_is(&history, &context_message) {
+        history.push(json!({ "role": "assistant", "content": context_message }));
     }
 
     if let Ok(json_str) = serde_json::to_string(&history) {
         let _ = db.save_context(session_id, &json_str);
     }
+}
+
+struct FailedPartialContext {
+    text: Option<String>,
+    had_partial_output: bool,
+}
+
+fn failed_partial_context(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    assistant_message_id: i64,
+) -> Option<FailedPartialContext> {
+    let messages = db.load_session_messages(session_id).ok()?;
+    let assistant_idx = messages.iter().position(|msg| {
+        msg.id == assistant_message_id && matches!(msg.role, session::MessageRole::Assistant)
+    })?;
+    let user_idx = messages[..assistant_idx]
+        .iter()
+        .rposition(|msg| matches!(msg.role, session::MessageRole::User))?;
+
+    let mut parts = Vec::new();
+    let mut had_partial_output = false;
+    for msg in &messages[user_idx + 1..=assistant_idx] {
+        match msg.role {
+            session::MessageRole::TextBlock => {
+                let content = msg.content.trim();
+                if !content.is_empty() {
+                    had_partial_output = true;
+                    parts.push(content.to_string());
+                }
+            }
+            session::MessageRole::ThinkingBlock => {
+                if !msg.content.trim().is_empty() {
+                    had_partial_output = true;
+                }
+            }
+            session::MessageRole::Tool => {
+                had_partial_output = true;
+                if let Some(name) = msg.tool_name.as_deref() {
+                    parts.push(format!("[Tool call: {}]", name));
+                }
+            }
+            session::MessageRole::Assistant => {
+                let content = msg.content.trim();
+                if !content.is_empty() {
+                    had_partial_output = true;
+                    parts.push(content.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let joined = parts.join("\n\n");
+    let text = crate::util::truncate_utf8(joined.trim(), 4_000);
+    Some(FailedPartialContext {
+        text: (!text.is_empty()).then(|| text.to_string()),
+        had_partial_output,
+    })
 }
 
 fn push_user_for_failed_turn(history: &mut Vec<Value>, user_message: &str) {

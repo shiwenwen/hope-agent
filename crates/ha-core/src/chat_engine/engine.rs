@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::agent::AssistantAgent;
 use crate::failover::{
@@ -27,6 +27,14 @@ struct ChatRoundOk {
     persister: Arc<StreamPersister>,
     history_len_before: usize,
     chat_start: std::time::Instant,
+}
+
+/// Stores the last failed attempt that produced user-visible partial output.
+/// Empty retry failures intentionally do not replace the slot, so a later
+/// all-failed result can still preserve the most recent partial the user saw.
+struct FailedAttemptPartial {
+    persister: Arc<StreamPersister>,
+    duration_ms: u64,
 }
 
 /// Drop-guarded scope for a session's visible stream lifecycle. Ensures
@@ -106,6 +114,38 @@ impl StreamLifecycle {
 impl Drop for StreamLifecycle {
     fn drop(&mut self) {
         self.finish();
+    }
+}
+
+fn take_failed_attempt_partial(
+    slot: &Arc<Mutex<Option<FailedAttemptPartial>>>,
+) -> Option<FailedAttemptPartial> {
+    match slot.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(poisoned) => poisoned.into_inner().take(),
+    }
+}
+
+fn store_failed_attempt_partial(
+    slot: &Arc<Mutex<Option<FailedAttemptPartial>>>,
+    partial: FailedAttemptPartial,
+) {
+    if let Some(previous) = take_failed_attempt_partial(slot) {
+        previous.persister.discard_attempt_rows();
+    }
+    match slot.lock() {
+        Ok(mut guard) => {
+            *guard = Some(partial);
+        }
+        Err(poisoned) => {
+            *poisoned.into_inner() = Some(partial);
+        }
+    }
+}
+
+fn discard_failed_attempt_partial(slot: &Arc<Mutex<Option<FailedAttemptPartial>>>) {
+    if let Some(partial) = take_failed_attempt_partial(slot) {
+        partial.persister.discard_attempt_rows();
     }
 }
 
@@ -271,6 +311,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     // multiple providers, and the user-facing hint depends on which one
     // actually erred.
     let mut last_is_codex_auth = false;
+    let failed_attempt_partial: Arc<Mutex<Option<FailedAttemptPartial>>> =
+        Arc::new(Mutex::new(None));
 
     // Build primary model display name for fallback events
     let primary_display = {
@@ -419,6 +461,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let db_ref = &db;
             let model_ref_for_op = model_ref;
             let codex_token_ref = &codex_token;
+            let failed_attempt_partial_ref = failed_attempt_partial.clone();
 
             let exec_result = execute_with_failover(
                 prov,
@@ -454,6 +497,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let provider_id_for_err = model_ref_for_op.provider_id.clone();
                     let model_id_for_err = model_ref_for_op.model_id.clone();
                     let codex_token_owned = codex_token_ref.clone();
+                    let failed_attempt_partial_owned = failed_attempt_partial_ref.clone();
 
                     async move {
                         let mut agent = build_agent_from_snapshot(
@@ -522,9 +566,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             && cancel_for_check.load(std::sync::atomic::Ordering::SeqCst)
                         {
                             // Discard any partial placeholder this attempt left
-                            // behind so a cancelled run doesn't show up as an
-                            // orphan in the next turn's restore summary.
-                            persister.discard_active_placeholder();
+                            // behind so a cancelled run doesn't show up after
+                            // reload. This must clear completed text/tool rows
+                            // too, not just the currently active placeholder.
+                            persister.discard_attempt_rows();
                             return Err(anyhow::anyhow!("chat cancelled by caller"));
                         }
 
@@ -544,7 +589,17 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 // would group both text_block rows under the
                                 // same assistant) or into the next turn's
                                 // orphan-summary injection.
-                                persister.discard_active_placeholder();
+                                if persister.has_visible_partial_output() {
+                                    store_failed_attempt_partial(
+                                        &failed_attempt_partial_owned,
+                                        FailedAttemptPartial {
+                                            persister,
+                                            duration_ms: chat_start.elapsed().as_millis() as u64,
+                                        },
+                                    );
+                                } else {
+                                    persister.discard_attempt_rows();
+                                }
                                 Err(e)
                             }
                         }
@@ -555,6 +610,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
             match exec_result {
                 Ok(ok) => {
+                    discard_failed_attempt_partial(&failed_attempt_partial);
+
                     let ChatRoundOk {
                         response,
                         thinking,
@@ -731,6 +788,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 }
 
                 Err(ExecutorError::NeedsCompaction { last_profile }) => {
+                    discard_failed_attempt_partial(&failed_attempt_partial);
+
                     if compaction_attempts >= MAX_COMPACTION_RETRIES {
                         app_warn!(
                             "context",
@@ -948,6 +1007,16 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         final_error
     );
     let is_interrupted = cancel.load(std::sync::atomic::Ordering::SeqCst);
+    let failed_assistant_id = if is_interrupted {
+        discard_failed_attempt_partial(&failed_attempt_partial);
+        None
+    } else {
+        take_failed_attempt_partial(&failed_attempt_partial).and_then(|partial| {
+            partial
+                .persister
+                .persist_failed_partial_assistant(None, partial.duration_ms)
+        })
+    };
     if let Some(ref turn_id) = turn_id {
         let status = if is_interrupted {
             session::ChatTurnStatus::Interrupted
@@ -959,7 +1028,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             turn_id,
             is_interrupted,
             Some(final_error.as_str()),
-            None,
+            failed_assistant_id,
         ) {
             stream_lifecycle.set_terminal(
                 turn.status,
@@ -976,7 +1045,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
     }
     if persist_final_error_event {
-        persist_failed_turn_context(&db, &session_id, &message, &final_error);
+        persist_failed_turn_context_with_partial(
+            &db,
+            &session_id,
+            &message,
+            &final_error,
+            failed_assistant_id,
+        );
         let _ = db.append_message(
             &session_id,
             &session::NewMessage::error_event(&final_error).with_source(source),
@@ -1044,7 +1119,15 @@ fn configure_agent(
 
 #[cfg(test)]
 mod stream_lifecycle_tests {
+    use std::sync::atomic::AtomicBool;
+
     use super::*;
+    use crate::context_compact::CompactConfig;
+    use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
+    use crate::session::{MessageRole, NewMessage, SessionDB};
+    use tempfile::TempDir;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn finish_marks_stream_inactive_before_scope_drop() {
@@ -1061,5 +1144,595 @@ mod stream_lifecycle_tests {
         }
 
         assert!(!stream_seq::is_active(sid));
+    }
+
+    fn temp_db() -> (TempDir, Arc<SessionDB>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open(&path).unwrap());
+        (dir, db)
+    }
+
+    fn model_config(id: &str) -> ModelConfig {
+        ModelConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        }
+    }
+
+    fn openai_provider(base_url: String, model_id: &str) -> ProviderConfig {
+        let mut provider = ProviderConfig::new(
+            format!("test-provider-{model_id}"),
+            ApiType::OpenaiResponses,
+            base_url,
+            "test-key".to_string(),
+        );
+        provider.models.push(model_config(model_id));
+        provider
+    }
+
+    fn sse_text_then_done(text: &str) -> String {
+        format!(
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.completed\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n\n",
+            text
+        )
+    }
+
+    fn sse_partial_then_failed(text: &str) -> String {
+        format!(
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.failed\",\"response\":{{\"error\":{{\"message\":\"upstream failed\",\"code\":\"bad_response_status_code\",\"type\":\"server_error\"}}}}}}\n\n",
+            text
+        )
+    }
+
+    fn sse_thinking_then_failed(text: &str) -> String {
+        format!(
+            "data: {{\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.failed\",\"response\":{{\"error\":{{\"message\":\"upstream failed\",\"code\":\"bad_response_status_code\",\"type\":\"server_error\"}}}}}}\n\n",
+            text
+        )
+    }
+
+    fn sse_partial_then_timeout_failed(text: &str) -> String {
+        format!(
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.failed\",\"response\":{{\"error\":{{\"message\":\"request timeout\",\"code\":\"timeout\",\"type\":\"timeout\"}}}}}}\n\n",
+            text
+        )
+    }
+
+    fn sse_failed_without_output() -> String {
+        "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"upstream failed\",\"code\":\"bad_response_status_code\",\"type\":\"server_error\"}}}\n\n".to_string()
+    }
+
+    fn sse_tool_call_then_done(text: &str, path: &str) -> String {
+        let args = serde_json::to_string(&serde_json::json!({ "path": path, "limit": 1 }))
+            .expect("serialize tool args");
+        let args_json = serde_json::to_string(&args).expect("serialize args as json string");
+        format!(
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.output_item.added\",\"item\":{{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"read\",\"arguments\":{}}}}}\n\n\
+             data: {{\"type\":\"response.output_item.done\",\"item\":{{\"type\":\"function_call\",\"call_id\":\"call-1\",\"name\":\"read\",\"arguments\":{}}}}}\n\n\
+             data: {{\"type\":\"response.completed\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n\n",
+            text, args_json, args_json
+        )
+    }
+
+    fn params(
+        db: Arc<SessionDB>,
+        session_id: String,
+        model_chain: Vec<ActiveModel>,
+        providers: Vec<ProviderConfig>,
+    ) -> ChatEngineParams {
+        ChatEngineParams {
+            session_id,
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
+            turn_id: None,
+            message: "hello".to_string(),
+            display_text: None,
+            attachments: Vec::new(),
+            session_db: db,
+            model_chain,
+            providers,
+            codex_token: None,
+            resolved_temperature: None,
+            compact_config: CompactConfig::default(),
+            extra_system_context: None,
+            reasoning_effort: Some("none".to_string()),
+            cancel: Arc::new(AtomicBool::new(false)),
+            plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
+            skill_allowed_tools: Vec::new(),
+            denied_tools: Vec::new(),
+            subagent_depth: 0,
+            steer_run_id: None,
+            auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
+            post_turn_effects: false,
+            abort_on_cancel: false,
+            persist_final_error_event: true,
+            source: stream_seq::ChatSource::Desktop,
+            event_sink: Arc::new(NoopEventSink),
+        }
+    }
+
+    struct CancelOnTextDelta {
+        cancel: Arc<AtomicBool>,
+    }
+
+    impl EventSink for CancelOnTextDelta {
+        fn send(&self, event: &str) {
+            if event.contains("\"type\":\"text_delta\"") {
+                self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    struct CancelOnToolCall {
+        cancel: Arc<AtomicBool>,
+    }
+
+    impl EventSink for CancelOnToolCall {
+        fn send(&self, event: &str) {
+            if event.contains("\"type\":\"tool_call\"") {
+                self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn final_failure_preserves_partial_assistant_before_error_event() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_partial_then_failed("partial answer")),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+
+        let result = run_chat_engine(params(
+            db.clone(),
+            session.id.clone(),
+            vec![model],
+            vec![provider],
+        ))
+        .await;
+        assert!(result.is_err());
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        let assistant_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::Assistant)
+            .expect("partial assistant should be persisted");
+        let error_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::Event && msg.is_error == Some(true))
+            .expect("error event should be persisted");
+        assert!(assistant_idx < error_idx);
+        assert_eq!(messages[assistant_idx].content, "partial answer");
+        assert!(!messages
+            .iter()
+            .any(|msg| msg.role == MessageRole::TextBlock));
+
+        let context_json = db
+            .load_context(&session.id)
+            .unwrap()
+            .expect("failed turn should persist model context");
+        assert!(
+            context_json.contains("partial answer"),
+            "failed partial assistant should be visible to the next turn context: {context_json}"
+        );
+        assert!(
+            !context_json.contains("failed before producing a response"),
+            "context must not say no response was produced when partial assistant text exists: {context_json}"
+        );
+        let context: Vec<serde_json::Value> = serde_json::from_str(&context_json).unwrap();
+        let assistant_contexts: Vec<_> = context
+            .iter()
+            .filter(|item| item.get("role").and_then(|role| role.as_str()) == Some("assistant"))
+            .collect();
+        assert_eq!(
+            assistant_contexts.len(),
+            1,
+            "partial and error marker must be merged into one assistant message for Anthropic-compatible history: {context_json}"
+        );
+        let assistant_content = assistant_contexts[0]
+            .get("content")
+            .and_then(|content| content.as_str())
+            .expect("assistant context content");
+        assert!(assistant_content.contains("partial answer"));
+        assert!(assistant_content.contains("[System event]"));
+    }
+
+    #[tokio::test]
+    async fn final_failure_preserves_thinking_only_without_text_bubble() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_thinking_then_failed("thinking only")),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+
+        let result = run_chat_engine(params(
+            db.clone(),
+            session.id.clone(),
+            vec![model],
+            vec![provider],
+        ))
+        .await;
+        assert!(result.is_err());
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        let thinking_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::ThinkingBlock)
+            .expect("thinking block should be persisted");
+        let assistant_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::Assistant)
+            .expect("assistant row should claim thinking-only block");
+        let error_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::Event && msg.is_error == Some(true))
+            .expect("error event should be persisted");
+        assert!(thinking_idx < assistant_idx);
+        assert!(assistant_idx < error_idx);
+        assert_eq!(messages[assistant_idx].content, "");
+        assert_eq!(messages[thinking_idx].content, "thinking only");
+
+        let context_json = db
+            .load_context(&session.id)
+            .unwrap()
+            .expect("failed turn should persist model context");
+        assert!(
+            !context_json.contains("thinking only"),
+            "thinking block must stay out of model-facing failed partial context: {context_json}"
+        );
+        assert!(
+            context_json.contains("failed after producing partial output"),
+            "thinking-only failure should still mark that partial output existed: {context_json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn abort_on_cancel_discards_failed_partial_candidate() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_partial_then_failed("partial before cancel")),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut params = params(db.clone(), session.id.clone(), vec![model], vec![provider]);
+        params.cancel = cancel.clone();
+        params.abort_on_cancel = true;
+        params.event_sink = Arc::new(CancelOnTextDelta {
+            cancel: cancel.clone(),
+        });
+
+        let result = run_chat_engine(params).await;
+        assert!(result.is_err());
+        assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        assert!(!messages.iter().any(|msg| {
+            msg.role == MessageRole::Assistant || msg.content == "partial before cancel"
+        }));
+    }
+
+    #[tokio::test]
+    async fn abort_on_cancel_after_tool_call_discards_completed_attempt_rows() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+        let readable = std::env::current_dir()
+            .unwrap()
+            .join("Cargo.toml")
+            .to_string_lossy()
+            .to_string();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_tool_call_then_done("partial before tool", &readable)),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut params = params(db.clone(), session.id.clone(), vec![model], vec![provider]);
+        params.cancel = cancel.clone();
+        params.abort_on_cancel = true;
+        params.event_sink = Arc::new(CancelOnToolCall {
+            cancel: cancel.clone(),
+        });
+
+        let result = run_chat_engine(params).await;
+        assert!(result.is_err());
+        assert!(cancel.load(std::sync::atomic::Ordering::SeqCst));
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        assert!(!messages.iter().any(|msg| {
+            msg.role == MessageRole::Assistant
+                || msg.role == MessageRole::TextBlock
+                || msg.role == MessageRole::Tool
+                || msg.content == "partial before tool"
+        }));
+    }
+
+    #[tokio::test]
+    async fn fallback_success_discards_failed_model_partial() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+
+        let first = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_partial_then_failed("failed partial")),
+            )
+            .mount(&first)
+            .await;
+
+        let second = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_text_then_done("final answer")),
+            )
+            .mount(&second)
+            .await;
+
+        let provider1 = openai_provider(first.uri(), "m1");
+        let provider2 = openai_provider(second.uri(), "m2");
+        let model1 = ActiveModel {
+            provider_id: provider1.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let model2 = ActiveModel {
+            provider_id: provider2.id.clone(),
+            model_id: "m2".to_string(),
+        };
+
+        let result = run_chat_engine(params(
+            db.clone(),
+            session.id.clone(),
+            vec![model1, model2],
+            vec![provider1, provider2],
+        ))
+        .await
+        .expect("fallback model should succeed");
+        assert_eq!(result.response, "final answer");
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        let assistants: Vec<_> = messages
+            .iter()
+            .filter(|msg| msg.role == MessageRole::Assistant)
+            .collect();
+        assert_eq!(assistants.len(), 1);
+        assert_eq!(assistants[0].content, "final answer");
+        assert!(!messages.iter().any(|msg| msg.content == "failed partial"));
+    }
+
+    #[tokio::test]
+    async fn fallback_success_discards_failed_model_tool_round() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+        let readable = std::env::current_dir()
+            .unwrap()
+            .join("Cargo.toml")
+            .to_string_lossy()
+            .to_string();
+
+        let first = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_tool_call_then_done("failed completed round", &readable)),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&first)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_partial_then_failed("failed trailing")),
+            )
+            .with_priority(2)
+            .mount(&first)
+            .await;
+
+        let second = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_text_then_done("final answer")),
+            )
+            .mount(&second)
+            .await;
+
+        let provider1 = openai_provider(first.uri(), "m1");
+        let provider2 = openai_provider(second.uri(), "m2");
+        let model1 = ActiveModel {
+            provider_id: provider1.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let model2 = ActiveModel {
+            provider_id: provider2.id.clone(),
+            model_id: "m2".to_string(),
+        };
+
+        let result = run_chat_engine(params(
+            db.clone(),
+            session.id.clone(),
+            vec![model1, model2],
+            vec![provider1, provider2],
+        ))
+        .await
+        .expect("fallback model should succeed");
+        assert_eq!(result.response, "final answer");
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        let assistants: Vec<_> = messages
+            .iter()
+            .filter(|msg| msg.role == MessageRole::Assistant)
+            .collect();
+        assert_eq!(assistants.len(), 1);
+        assert_eq!(assistants[0].content, "final answer");
+        assert!(!messages.iter().any(|msg| {
+            msg.content == "failed completed round" || msg.content == "failed trailing"
+        }));
+        assert!(!messages
+            .iter()
+            .any(|msg| msg.role == MessageRole::Tool
+                && msg.tool_call_id.as_deref() == Some("call-1")));
+    }
+
+    #[tokio::test]
+    async fn final_failure_preserves_previous_partial_when_last_attempt_is_empty() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_partial_then_timeout_failed("visible before retry")),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_failed_without_output()),
+            )
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+
+        let result = run_chat_engine(params(
+            db.clone(),
+            session.id.clone(),
+            vec![model],
+            vec![provider],
+        ))
+        .await;
+        assert!(result.is_err());
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        let assistant_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::Assistant)
+            .expect("previous visible partial should be persisted");
+        let error_idx = messages
+            .iter()
+            .position(|msg| msg.role == MessageRole::Event && msg.is_error == Some(true))
+            .expect("error event should be persisted");
+        assert!(assistant_idx < error_idx);
+        assert_eq!(messages[assistant_idx].content, "visible before retry");
     }
 }
