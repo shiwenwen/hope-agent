@@ -47,20 +47,10 @@ pub async fn clear_crash_history() -> Result<(), CmdError> {
 }
 
 #[tauri::command]
-pub async fn request_app_restart(app: tauri::AppHandle) -> Result<(), CmdError> {
-    // Route through ha_core::lifecycle so the GUI button shares its
-    // implementation with the `app_restart` tool and the HTTP endpoint.
-    // On desktop this funnels into the registered AppLifecycleBridge
-    // which calls `app.exit(42)`; the explicit AppHandle fallback below
-    // covers the unlikely "bridge not registered yet" race during the
-    // first second after startup.
-    match ha_core::lifecycle::restart() {
-        Ok(_) => Ok(()),
-        Err(_) => {
-            app.exit(42);
-            Ok(())
-        }
-    }
+pub async fn request_app_restart(_app: tauri::AppHandle) -> Result<(), CmdError> {
+    ha_core::lifecycle::restart()
+        .map(|_| ())
+        .map_err(|e| CmdError::msg(e.to_string()))
 }
 
 #[tauri::command]

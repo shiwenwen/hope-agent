@@ -362,3 +362,62 @@ fn format_answers_for_llm(
     }
     serde_json::Value::Object(root).to_string()
 }
+
+/// Parse a [`format_answers_for_llm`] output string and return `true` iff any
+/// selected label matches one of `targets` (case-insensitive, ASCII-trimmed).
+/// Used by tools that gate a destructive action on a Yes/No confirmation
+/// (e.g. `app_update`, `app_restart`) — the affirmative labels are exact
+/// matches against the schema's `options[*].label`, so any drift in either
+/// the schema or the caller's match table fails closed (treated as cancel).
+pub(crate) fn answer_matches_any(raw_answer: &str, targets: &[&str]) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw_answer) else {
+        return false;
+    };
+    let Some(answers) = v.get("answers").and_then(|a| a.as_array()) else {
+        return false;
+    };
+    for a in answers {
+        if let Some(selected) = a.get("selected").and_then(|s| s.as_array()) {
+            for sel in selected {
+                if let Some(s) = sel.as_str() {
+                    let lower = s.trim().to_ascii_lowercase();
+                    if targets.iter().any(|t| t.eq_ignore_ascii_case(&lower)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn answer_matches_any_finds_label() {
+        let raw = r#"{"answers":[{"question":"x","selected":["Restart now"],"customInput":null}]}"#;
+        assert!(answer_matches_any(raw, &["restart now"]));
+        assert!(answer_matches_any(raw, &["foo", "restart now"]));
+        assert!(!answer_matches_any(raw, &["cancel"]));
+    }
+
+    #[test]
+    fn answer_matches_any_rejects_invalid_json() {
+        assert!(!answer_matches_any("nope", &["x"]));
+        assert!(!answer_matches_any(
+            "The user cancelled the questions without answering.",
+            &["restart now"]
+        ));
+    }
+
+    #[test]
+    fn answer_matches_any_handles_multiple_questions() {
+        let raw = r#"{"answers":[
+            {"question":"q1","selected":["Cancel"],"customInput":null},
+            {"question":"q2","selected":["Upgrade now"],"customInput":null}
+        ]}"#;
+        assert!(answer_matches_any(raw, &["upgrade now"]));
+    }
+}

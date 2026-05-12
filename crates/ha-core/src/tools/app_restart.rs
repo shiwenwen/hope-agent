@@ -142,7 +142,10 @@ async fn ask_inflight_ack(session_id: &str, inflight: &InflightSummary) -> Resul
         }]
     });
     let raw = super::ask_user_question::execute(&ask_args, Some(session_id)).await;
-    Ok(matches_label(&raw, "continue anyway"))
+    Ok(super::ask_user_question::answer_matches_any(
+        &raw,
+        &["continue anyway"],
+    ))
 }
 
 async fn ask_restart_confirmation(
@@ -179,57 +182,8 @@ async fn ask_restart_confirmation(
         }]
     });
     let raw = super::ask_user_question::execute(&ask_args, Some(session_id)).await;
-    Ok(matches_label(&raw, "restart now"))
-}
-
-/// Exact-match parser for ask_user_question answers — mirrors the rigid
-/// matching `app_update` does. Substring matching silently broke when
-/// labels drifted, so any label change here MUST update this constant too.
-fn matches_label(raw_answer: &str, target_label_lower: &str) -> bool {
-    let v: Value = match serde_json::from_str(raw_answer) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let answers = match v.get("answers").and_then(|a| a.as_array()) {
-        Some(a) => a,
-        None => return false,
-    };
-    for a in answers {
-        if let Some(selected) = a.get("selected").and_then(|s| s.as_array()) {
-            for sel in selected {
-                if let Some(s) = sel.as_str() {
-                    if s.trim().eq_ignore_ascii_case(target_label_lower) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn matches_label_picks_up_restart_now() {
-        let raw = r#"{"answers":[{"question_id":"confirm_restart","selected":["Restart now"]}]}"#;
-        assert!(matches_label(raw, "restart now"));
-    }
-
-    #[test]
-    fn matches_label_rejects_cancel() {
-        let raw = r#"{"answers":[{"question_id":"confirm_restart","selected":["Cancel"]}]}"#;
-        assert!(!matches_label(raw, "restart now"));
-    }
-
-    #[test]
-    fn matches_label_rejects_invalid_json() {
-        assert!(!matches_label("nope", "restart now"));
-        assert!(!matches_label(
-            "The user cancelled the questions without answering.",
-            "restart now"
-        ));
-    }
+    Ok(super::ask_user_question::answer_matches_any(
+        &raw,
+        &["restart now"],
+    ))
 }

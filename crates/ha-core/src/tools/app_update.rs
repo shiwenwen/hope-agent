@@ -525,33 +525,11 @@ fn prune_completed_locked(map: &mut HashMap<String, InstallJobState>, now: i64) 
 /// Exact match against the two affirmative labels declared in the
 /// `confirm_install` / `confirm_rollback` schemas in this file. Both ends
 /// of the contract are controlled here, so this is intentionally rigid:
-/// any future label edit must also touch this list. Substring matching
-/// (the prior implementation) silently degraded to "cancel" when labels
-/// drifted, which is worse than failing loudly.
+/// any future label edit must also touch this list.
 const AFFIRMATIVE_LABELS: &[&str] = &["upgrade now", "roll back now"];
 
 fn is_confirm(raw_answer: &str) -> bool {
-    let v: Value = match serde_json::from_str(raw_answer) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let answers = match v.get("answers").and_then(|a| a.as_array()) {
-        Some(a) => a,
-        None => return false,
-    };
-    for a in answers {
-        if let Some(selected) = a.get("selected").and_then(|s| s.as_array()) {
-            for sel in selected {
-                if let Some(s) = sel.as_str() {
-                    let lower = s.trim().to_ascii_lowercase();
-                    if AFFIRMATIVE_LABELS.contains(&lower.as_str()) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
+    super::ask_user_question::answer_matches_any(raw_answer, AFFIRMATIVE_LABELS)
 }
 
 fn now_secs() -> i64 {

@@ -175,18 +175,18 @@ export default function AboutPanel() {
     logger.info("lifecycle", "AboutPanel::handleConfirmRestart", "user-initiated restart")
     try {
       await getTransport().call("request_app_restart", {})
-      // request_app_restart routes through ha_core::lifecycle::restart which
-      // hands off to the OS supervisor / guardian; the process should die
-      // within a few hundred ms. If we're still here after 3s assume the
-      // handoff failed silently and surface the dialog state.
-      await new Promise((resolve) => setTimeout(resolve, 3000))
+      // Process is on its way out — desktop window will close (webview
+      // tears down with it), HTTP clients will see their connection drop
+      // and reconnect on the new instance. Keep the spinner on so the
+      // user doesn't see a flash of "ready" state before the OS-level
+      // handoff completes.
+      setRestartDialogOpen(false)
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       logger.error("lifecycle", "AboutPanel::handleConfirmRestart", "restart failed", {
         error: detail,
       })
       setRestartError(detail)
-    } finally {
       setRestarting(false)
     }
   }

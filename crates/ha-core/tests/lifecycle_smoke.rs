@@ -23,17 +23,13 @@ fn inflight_summary_empty_when_no_globals() {
     // length rather than `is_empty()`.
     let summary = collect_inflight();
     let _ = summary.len();
-    // Each item carries a non-empty kind + label, regardless of how it
-    // got there.
+    // Each item carries a non-empty label and a recognized kind.
     for item in &summary.items {
-        assert!(
-            !item.kind.is_empty(),
-            "InflightItem.kind should be non-empty"
-        );
         assert!(
             !item.label.is_empty(),
             "InflightItem.label should be non-empty"
         );
+        let _ = item.kind.as_str();
     }
 }
 

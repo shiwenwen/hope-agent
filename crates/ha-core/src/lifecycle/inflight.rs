@@ -9,12 +9,34 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InflightKind {
+    ChatTurn,
+    AsyncJob,
+    Cron,
+}
+
+impl InflightKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            InflightKind::ChatTurn => "chat_turn",
+            InflightKind::AsyncJob => "async_job",
+            InflightKind::Cron => "cron",
+        }
+    }
+}
+
+impl std::fmt::Display for InflightKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// A single in-flight item the user should know about before confirming.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InflightItem {
-    /// `chat_turn` / `async_job` / `cron`. Stable strings rather than an
-    /// enum so future categories don't break old log readers.
-    pub kind: String,
+    pub kind: InflightKind,
     /// Short user-facing label. e.g. `"chat turn in session abc12 (streaming)"`.
     pub label: String,
 }
@@ -41,23 +63,17 @@ impl InflightSummary {
 pub fn collect_inflight() -> InflightSummary {
     let mut items: Vec<InflightItem> = Vec::new();
 
-    // Active chat turns — running / streaming / cancelling turns whose
-    // current_exe() is us. `chat_engine::active_turn::all_current` returns
-    // a flat snapshot of the in-memory registry.
     for snap in crate::chat_engine::active_turn::all_current() {
-        let label = format!(
-            "chat turn in session {} ({:?})",
-            short_id(&snap.session_id),
-            snap.source
-        );
         items.push(InflightItem {
-            kind: "chat_turn".into(),
-            label,
+            kind: InflightKind::ChatTurn,
+            label: format!(
+                "chat turn in session {} ({:?})",
+                short_id(&snap.session_id),
+                snap.source
+            ),
         });
     }
 
-    // Async tool jobs (exec / web_search / image_generate / …) — DB lookup
-    // is cheap, no in-memory mirror to consult.
     if let Some(db) = crate::async_jobs::get_async_jobs_db() {
         match db.list_running() {
             Ok(jobs) => {
@@ -68,7 +84,7 @@ pub fn collect_inflight() -> InflightSummary {
                         .map(short_id)
                         .unwrap_or_else(|| "—".to_string());
                     items.push(InflightItem {
-                        kind: "async_job".into(),
+                        kind: InflightKind::AsyncJob,
                         label: format!(
                             "async tool job {} ({}, session {})",
                             short_id(&j.job_id),
@@ -78,41 +94,34 @@ pub fn collect_inflight() -> InflightSummary {
                     });
                 }
             }
-            Err(e) => {
-                // Pre-flight is best-effort; surface to the log for agent
-                // self-diagnosis but don't fail the whole scan.
-                app_warn!(
-                    "lifecycle",
-                    "inflight",
-                    "async_jobs list_running failed during pre-flight: {}",
-                    e
-                );
-            }
+            Err(e) => app_warn!(
+                "lifecycle",
+                "inflight",
+                "async_jobs list_running failed during pre-flight: {}",
+                e
+            ),
         }
     }
 
-    // Cron jobs with non-null `running_at`. Cron scheduler is Primary-only,
-    // so Secondary processes report zero here even when the Primary's cron
-    // is mid-tick — that's correct: only the Primary tier should ever be
-    // restarted on its own behalf.
+    // Cron scheduler is Primary-only, so Secondary processes report zero
+    // here even when the Primary's cron is mid-tick — correct: only the
+    // Primary tier should ever be restarted on its own behalf.
     if let Some(db) = crate::get_cron_db() {
         match db.list_running_jobs() {
             Ok(jobs) => {
                 for j in jobs {
                     items.push(InflightItem {
-                        kind: "cron".into(),
+                        kind: InflightKind::Cron,
                         label: format!("cron job '{}' running ({})", j.name, short_id(&j.id)),
                     });
                 }
             }
-            Err(e) => {
-                app_warn!(
-                    "lifecycle",
-                    "inflight",
-                    "cron list_running_jobs failed during pre-flight: {}",
-                    e
-                );
-            }
+            Err(e) => app_warn!(
+                "lifecycle",
+                "inflight",
+                "cron list_running_jobs failed during pre-flight: {}",
+                e
+            ),
         }
     }
 

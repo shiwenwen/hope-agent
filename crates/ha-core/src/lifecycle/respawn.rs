@@ -15,7 +15,7 @@
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
 /// How long to wait between handing off to the spawned child and calling
 /// `std::process::exit(0)`. Long enough that the EventBus emit + tool
@@ -24,15 +24,21 @@ use anyhow::{bail, Context, Result};
 /// fine.
 const SELF_EXIT_GRACE: Duration = Duration::from_millis(200);
 
-/// Fork off a fully-detached `hope-agent server …` child reusing the captured
+/// Fork off a fully-detached `hope-exe server …` child reusing the captured
 /// launch argv. Returns the new child PID on success.
 pub fn respawn_detached_server() -> Result<u32> {
+    if crate::app_init::runtime_role() != Some("server") {
+        anyhow::bail!(
+            "respawn_detached_server requires runtime_role == 'server' (current: {:?})",
+            crate::app_init::runtime_role()
+        );
+    }
     let exe = std::env::current_exe().context("current_exe() failed")?;
     let argv = crate::app_init::server_launch_args();
-    if argv.is_empty() && crate::app_init::runtime_role() == Some("server") {
-        // Defensive: a server process should always have set its argv at
-        // startup. Empty argv would still launch with defaults, but log
-        // a hint so the foreground operator notices.
+    if argv.is_empty() {
+        // A server process should always have set its argv at startup.
+        // Empty argv still launches with defaults, but log a hint so the
+        // foreground operator notices.
         app_warn!(
             "lifecycle",
             "respawn",
@@ -79,30 +85,10 @@ pub fn respawn_detached_server() -> Result<u32> {
         .spawn()
         .with_context(|| format!("failed to spawn detached server child at {}", exe.display()))?;
     let pid = child.id();
-    // Don't `wait()` — we want the child fully detached. On Unix the
-    // double-fork-zombie concern is theoretical here because we are
-    // about to call `exit(0)` ourselves; init (or whichever the parent
-    // process has) will reap our orphans.
+    // Drop the Child handle (not wait()) so the parent doesn't keep a
+    // reaper relationship — by the time we exit, init reaps the orphan.
     drop(child);
-
-    // Spot-check we're not about to bind the same port from two processes
-    // at once. Best-effort — by the time we exit, the kernel will have
-    // freed the socket. The 200ms grace below covers the race window.
-    if argv.is_empty() {
-        bail_if_no_server_role()?;
-    }
-
     Ok(pid)
-}
-
-fn bail_if_no_server_role() -> Result<()> {
-    if crate::app_init::runtime_role() != Some("server") {
-        bail!(
-            "respawn_detached_server requires runtime_role == 'server' (current: {:?})",
-            crate::app_init::runtime_role()
-        );
-    }
-    Ok(())
 }
 
 /// Schedule `std::process::exit(0)` after [`SELF_EXIT_GRACE`]. Spawned on a

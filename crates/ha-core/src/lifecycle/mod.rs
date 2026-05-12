@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 mod inflight;
 mod respawn;
 
-pub use inflight::{collect_inflight, InflightItem, InflightSummary};
+pub use inflight::{collect_inflight, InflightItem, InflightKind, InflightSummary};
 
 /// Pluggable hook for the desktop runtime. `src-tauri` registers an impl
 /// that delegates to `tauri::AppHandle::exit(42)`; the guardian process
