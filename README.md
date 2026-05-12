@@ -114,7 +114,7 @@ brew install --cask hope-agent
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
-当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
+Apple Silicon 与 Intel Mac 均提供原生构建（arm64 / x64 DMG），Homebrew 与手动下载都会按你的硬件自动选对版本。
 
 ##### 启动方式
 
@@ -185,13 +185,13 @@ sudo zypper install hope-agent
 
 ##### 手动安装（AppImage / deb / rpm）
 
-到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载：
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载（包名含架构后缀，按你的机器选 `_amd64` / `_arm64` 或 `.x86_64` / `.aarch64`）：
 
 - AppImage：`Hope.Agent_*.AppImage` —— `chmod +x` 后直接运行
 - Debian / Ubuntu：`Hope.Agent_*.deb` —— `sudo dpkg -i Hope.Agent_*.deb`
 - Fedora / RHEL：`Hope.Agent_*.rpm` —— `sudo rpm -i Hope.Agent_*.rpm`
 
-当前仅 x86_64。
+提供 amd64 (x86_64) 与 arm64 (aarch64) 两种原生构建，覆盖普通 PC、树莓派 4/5、Apple Silicon 跑 Asahi Linux、Graviton / Ampere 云主机。apt 与 dnf 都会按 `dpkg --print-architecture` / `$basearch` 自动选对版本。
 
 ##### 启动方式
 

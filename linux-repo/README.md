@@ -12,10 +12,10 @@ Single source of truth for the [shiwenwen/hope-agent-linux-repo](https://github.
 
 See [`../docs/release-process.md`](../docs/release-process.md) §1.9 for the full flow. Summary:
 
-1. `gh release download` pulls `Hope.Agent_<v>_amd64.deb` + `Hope.Agent-<v>-1.x86_64.rpm`
+1. `gh release download` pulls every deb + rpm whose filename matches the release version — both amd64 / x86_64 and arm64 / aarch64 when present. Releases with only amd64 (e.g. v0.1.0 ~ v0.1.2) just produce two files instead of four; the workflow tolerates the gap and only requires the amd64 deb + x86_64 rpm as the minimum baseline.
 2. Import `GPG_SIGNING_KEY` secret into a fresh `GNUPGHOME`
-3. `reprepro -b apt includedeb stable …` builds the apt index + signs `InRelease` / `Release.gpg`
-4. `createrepo_c rpm/stable/x86_64` + `gpg --detach-sign --armor` on `repomd.xml` builds the rpm index + signs the metadata
+3. `reprepro -b apt includedeb stable …` loops over each deb arch and lets reprepro file it into the right `binary-<arch>` index. `Architectures: amd64 arm64` is declared in `apt/conf/distributions` even on amd64-only releases (reprepro just emits an empty `binary-arm64/Packages` in that case). reprepro signs `InRelease` / `Release.gpg` automatically using `SignWith:`.
+4. `createrepo_c --update rpm/stable/<arch>/` + `gpg --detach-sign --armor` on each `repodata/repomd.xml` builds the rpm index + signs the metadata. Per-arch subdirs (`x86_64` + `aarch64`) — dnf picks via `$basearch` in `hope-agent.repo`.
 5. `rpm --addsign` is **not** used — package-level signatures are skipped because reprepro/createrepo only require *repo metadata* signatures, and the rpm Tauri produces is already trusted via repo-level `repo_gpgcheck=1`
 6. `git commit + push` to `shiwenwen/hope-agent-linux-repo` via `LINUX_REPO_TOKEN`
 7. GitHub Pages re-publishes within ~1 minute
