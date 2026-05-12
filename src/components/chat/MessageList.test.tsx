@@ -148,6 +148,31 @@ describe("MessageList", () => {
     expect(screen.queryByText("hidden meta")).toBeNull()
   })
 
+  test("centers sub-agent result messages even when persisted as user role", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({
+            role: "user",
+            content: "sub-agent result",
+            dbId: 1,
+            isSubagentResult: true,
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const row = document.querySelector<HTMLElement>('[data-message-id="1"]')
+    expect(row?.className).toContain("justify-items-center")
+    expect(row?.className).not.toContain("justify-items-end")
+  })
+
   test("passes execution state only to the current assistant bubble", () => {
     render(
       <MessageList

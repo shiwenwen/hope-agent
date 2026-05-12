@@ -1369,6 +1369,97 @@ mod stream_lifecycle_tests {
     }
 
     #[tokio::test]
+    async fn final_failure_context_includes_completed_tool_args_and_result() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(&session.id, &NewMessage::user("hello"))
+            .unwrap();
+
+        let readable = std::env::current_dir()
+            .unwrap()
+            .join("Cargo.toml")
+            .to_string_lossy()
+            .to_string();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_tool_call_then_done("partial before tool", &readable)),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_partial_then_failed("failed after tool")),
+            )
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+
+        let result = run_chat_engine(params(
+            db.clone(),
+            session.id.clone(),
+            vec![model],
+            vec![provider],
+        ))
+        .await;
+        assert!(result.is_err());
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        assert!(
+            messages.iter().any(|msg| {
+                msg.role == MessageRole::Tool
+                    && msg.tool_name.as_deref() == Some("read")
+                    && msg
+                        .tool_result
+                        .as_deref()
+                        .is_some_and(|result| result.contains("[Read 1 lines"))
+            }),
+            "completed tool row should remain in DB history"
+        );
+
+        let context_json = db
+            .load_context(&session.id)
+            .unwrap()
+            .expect("failed turn should persist model context");
+        assert!(
+            context_json.contains("failed after tool"),
+            "partial text should be preserved in context: {context_json}"
+        );
+        assert!(
+            context_json.contains("[Tool call: read]"),
+            "tool name should be preserved in context: {context_json}"
+        );
+        assert!(
+            context_json.contains("Cargo.toml"),
+            "tool args should be preserved in context: {context_json}"
+        );
+        assert!(
+            context_json.contains("[Read 1 lines"),
+            "tool result should be preserved in context: {context_json}"
+        );
+        assert!(
+            context_json.contains("Do not re-run"),
+            "context should discourage repeated side-effectful work: {context_json}"
+        );
+    }
+
+    #[tokio::test]
     async fn final_failure_preserves_thinking_only_without_text_bubble() {
         let (_dir, db) = temp_db();
         let session = db

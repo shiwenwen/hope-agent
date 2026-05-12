@@ -207,6 +207,7 @@ fn failed_partial_context(
 
     let mut parts = Vec::new();
     let mut had_partial_output = false;
+    let mut included_tool_summary = false;
     for msg in &messages[user_idx + 1..=assistant_idx] {
         match msg.role {
             session::MessageRole::TextBlock => {
@@ -221,8 +222,9 @@ fn failed_partial_context(
             }
             session::MessageRole::Tool => {
                 had_partial_output = true;
-                if let Some(name) = msg.tool_name.as_deref() {
-                    parts.push(format!("[Tool call: {}]", name));
+                if let Some(summary) = failed_partial_tool_summary(msg) {
+                    included_tool_summary = true;
+                    parts.push(summary);
                 }
             }
             session::MessageRole::Assistant => {
@@ -237,11 +239,55 @@ fn failed_partial_context(
     }
 
     let joined = parts.join("\n\n");
+    let joined = if included_tool_summary {
+        format!(
+            "[System event] Do not re-run tool calls listed below unless necessary; use their preserved arguments and results to continue.\n\n{}",
+            joined.trim()
+        )
+    } else {
+        joined
+    };
     let text = crate::util::truncate_utf8(joined.trim(), 4_000);
     Some(FailedPartialContext {
         text: (!text.is_empty()).then(|| text.to_string()),
         had_partial_output,
     })
+}
+
+fn failed_partial_tool_summary(msg: &session::SessionMessage) -> Option<String> {
+    let name = non_empty_trimmed(msg.tool_name.as_deref())
+        .or_else(|| non_empty_trimmed(msg.tool_call_id.as_deref()))
+        .unwrap_or("unknown");
+
+    let mut lines = vec![format!("[Tool call: {}]", name)];
+    match non_empty_trimmed(msg.tool_arguments.as_deref()) {
+        Some(args) => lines.push(format!(
+            "Arguments: {}",
+            crate::util::truncate_utf8(args, 800)
+        )),
+        None => lines.push("Arguments: unavailable".to_string()),
+    }
+
+    let result_label = if msg.is_error.unwrap_or(false) {
+        "Error result"
+    } else {
+        "Result"
+    };
+    match non_empty_trimmed(msg.tool_result.as_deref()) {
+        Some(result) => lines.push(format!(
+            "{}: {}",
+            result_label,
+            crate::util::truncate_utf8(result, 2_000)
+        )),
+        None => lines.push(format!("{}: unavailable", result_label)),
+    }
+
+    Some(lines.join("\n"))
+}
+
+fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    (!value.is_empty()).then_some(value)
 }
 
 fn push_user_for_failed_turn(history: &mut Vec<Value>, user_message: &str) {
@@ -805,5 +851,30 @@ mod is_interrupted_row_tests {
         let mut m = fixture(MessageRole::Tool);
         m.stream_status = Some("streaming".into());
         assert!(!is_interrupted_row(&m));
+    }
+
+    #[test]
+    fn failed_partial_tool_summary_falls_back_to_call_id_and_marks_error_result() {
+        let mut m = fixture(MessageRole::Tool);
+        m.tool_call_id = Some("call-42".into());
+        m.tool_arguments = Some("{\"path\":\"/tmp/file\"}".into());
+        m.tool_result = Some("permission denied".into());
+        m.is_error = Some(true);
+
+        let summary = failed_partial_tool_summary(&m).expect("summary");
+        assert!(summary.contains("[Tool call: call-42]"));
+        assert!(summary.contains("Arguments: {\"path\":\"/tmp/file\"}"));
+        assert!(summary.contains("Error result: permission denied"));
+    }
+
+    #[test]
+    fn failed_partial_tool_summary_marks_missing_result_unavailable() {
+        let mut m = fixture(MessageRole::Tool);
+        m.tool_name = Some("read".into());
+        m.tool_arguments = Some("{}".into());
+
+        let summary = failed_partial_tool_summary(&m).expect("summary");
+        assert!(summary.contains("[Tool call: read]"));
+        assert!(summary.contains("Result: unavailable"));
     }
 }

@@ -36,7 +36,6 @@ function parseMediaItemsHeader(result: string): MediaItem[] | undefined {
  *  sub-agent result, cron trigger, plan-mode approve/resume) rather than as
  *  a user/assistant bubble. */
 export function isCenteredSystemMessage(msg: Message): boolean {
-  if (isUserAlignedMessage(msg)) return false
   return (
     msg.role === "event" ||
     !!msg.isSubagentResult ||
