@@ -9,7 +9,9 @@ export interface ChatSidebarProps {
   currentSessionId: string | null
   loadingSessionIds: Set<string>
   panelWidth: number
+  sidebarCollapsed: boolean
   onPanelWidthChange: (width: number) => void
+  onSidebarCollapsedChange: (collapsed: boolean) => void
   onSwitchSession: (
     sessionId: string,
     opts?: { targetMessageId?: number; highlightTerms?: string[] },

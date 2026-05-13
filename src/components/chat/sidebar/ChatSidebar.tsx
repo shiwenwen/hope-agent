@@ -11,12 +11,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
-import {
-  Bot,
-  MessageSquarePlus,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Bot, MessageSquarePlus, PanelLeftClose } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -34,7 +30,9 @@ export default function ChatSidebar({
   currentSessionId,
   loadingSessionIds,
   panelWidth,
+  sidebarCollapsed,
   onPanelWidthChange,
+  onSidebarCollapsedChange,
   onSwitchSession,
   onNewChat,
   onDeleteSession,
@@ -52,10 +50,6 @@ export default function ChatSidebar({
   searchFocusSignal,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false
-    return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
-  })
   const [agentsExpanded, setAgentsExpanded] = useState(true)
   const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
@@ -100,9 +94,9 @@ export default function ChatSidebar({
   const searchTruncated = (searchResults?.length ?? 0) >= SEARCH_LIMIT
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
-  }, [sidebarCollapsed])
+    if (searchFocusSignal === undefined || searchFocusSignal === 0) return
+    onSidebarCollapsedChange(false)
+  }, [searchFocusSignal, onSidebarCollapsedChange])
 
   useEffect(() => {
     const q = searchQuery.trim()
@@ -114,10 +108,11 @@ export default function ChatSidebar({
     setSearching(true)
     const timer = setTimeout(async () => {
       try {
-        const results = await getTransport().call<SessionSearchResult[]>(
-          "search_sessions_cmd",
-          { query: q, agentId: selectedAgentId ?? undefined, limit: SEARCH_LIMIT },
-        )
+        const results = await getTransport().call<SessionSearchResult[]>("search_sessions_cmd", {
+          query: q,
+          agentId: selectedAgentId ?? undefined,
+          limit: SEARCH_LIMIT,
+        })
         setSearchResults(sortSessionSearchResults(results ?? []))
       } catch (err) {
         logger.error("chat", "ChatSidebar::search", "search failed", err)
@@ -250,127 +245,159 @@ export default function ChatSidebar({
     setDeleteConfirmSessionId(null)
   }
 
-  if (sidebarCollapsed) {
-    return (
-      <div className="w-11 shrink-0 border-r border-border bg-background flex flex-col items-center">
-        <div
-          className="h-10 w-full flex items-end justify-center pb-1.5"
-          data-tauri-drag-region
-        >
-          <IconTip label={t("chat.expandSidebar")} side="right">
-            <button
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
-              aria-label={t("chat.expandSidebar")}
-              onClick={() => setSidebarCollapsed(false)}
-            >
-              <PanelLeftOpen className="h-4 w-4" />
-            </button>
-          </IconTip>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <>
       <div
-        style={{ width: panelWidth }}
-        className="shrink-0 border-r border-border bg-background flex flex-col"
+        style={{ width: sidebarCollapsed ? 0 : panelWidth }}
+        className="relative h-full shrink-0 transition-[width] duration-200 ease-out"
       >
-        {/* Title bar */}
-        <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
-          <h2 className="text-sm font-semibold text-foreground pb-1.5">
-            {t("chat.conversations")}
-          </h2>
-          <div className="ml-auto flex items-center gap-1 pb-1.5">
-            <IconTip label={t("chat.collapseSidebar")}>
-              <button
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
-                aria-label={t("chat.collapseSidebar")}
-                onClick={() => setSidebarCollapsed(true)}
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            </IconTip>
-            {/* New Chat button */}
-            <div className="relative" ref={newChatMenuRef}>
-              <IconTip label={t("chat.newChat")}>
-                <button
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
-                  onClick={() => {
-                    if (agents.length === 1) {
-                      onNewChat(agents[0].id)
-                    } else {
-                      setShowNewChatMenu(!showNewChatMenu)
-                    }
-                  }}
-                >
-                  <MessageSquarePlus className="h-4 w-4" />
-                </button>
-              </IconTip>
-              {/* Agent selector popup */}
-              {showNewChatMenu && (
-                <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5 animate-in fade-in-0 zoom-in-95 duration-150">
-                  {agents.map((agent) => (
+        <div className="h-full overflow-hidden">
+          <div
+            style={{ width: panelWidth }}
+            aria-hidden={sidebarCollapsed}
+            inert={sidebarCollapsed ? true : undefined}
+            className={cn(
+              "h-full border-r border-border bg-background flex flex-col transition-[opacity,transform] duration-200 ease-out",
+              sidebarCollapsed
+                ? "pointer-events-none -translate-x-3 opacity-0"
+                : "translate-x-0 opacity-100",
+            )}
+          >
+            {/* Title bar */}
+            <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
+              <h2 className="text-sm font-semibold text-foreground pb-1.5">
+                {t("chat.conversations")}
+              </h2>
+              <div className="ml-auto flex items-center gap-1 pb-1.5">
+                <IconTip label={t("chat.collapseSidebar")}>
+                  <button
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                    aria-label={t("chat.collapseSidebar")}
+                    onClick={(e) => {
+                      e.currentTarget.blur()
+                      onSidebarCollapsedChange(true)
+                    }}
+                  >
+                    <PanelLeftClose className="h-4 w-4" />
+                  </button>
+                </IconTip>
+                {/* New Chat button */}
+                <div className="relative" ref={newChatMenuRef}>
+                  <IconTip label={t("chat.newChat")}>
                     <button
-                      key={agent.id}
-                      className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md text-foreground/80 hover:bg-secondary/60 hover:text-foreground transition-colors"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
                       onClick={() => {
-                        onNewChat(agent.id)
-                        setShowNewChatMenu(false)
+                        if (agents.length === 1) {
+                          onNewChat(agents[0].id)
+                        } else {
+                          setShowNewChatMenu(!showNewChatMenu)
+                        }
                       }}
                     >
-                      <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
-                        {agent.avatar ? (
-                          <img
-                            src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                            className="w-full h-full object-cover"
-                            alt=""
-                          />
-                        ) : agent.emoji ? (
-                          <span>{agent.emoji}</span>
-                        ) : (
-                          <Bot className="h-3 w-3" />
-                        )}
-                      </div>
-                      <span className="truncate">{agent.name}</span>
+                      <MessageSquarePlus className="h-4 w-4" />
                     </button>
-                  ))}
+                  </IconTip>
+                  {/* Agent selector popup */}
+                  {showNewChatMenu && (
+                    <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5 animate-in fade-in-0 zoom-in-95 duration-150">
+                      {agents.map((agent) => (
+                        <button
+                          key={agent.id}
+                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md text-foreground/80 hover:bg-secondary/60 hover:text-foreground transition-colors"
+                          onClick={() => {
+                            onNewChat(agent.id)
+                            setShowNewChatMenu(false)
+                          }}
+                        >
+                          <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
+                            {agent.avatar ? (
+                              <img
+                                src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
+                                className="w-full h-full object-cover"
+                                alt=""
+                              />
+                            ) : agent.emoji ? (
+                              <span>{agent.emoji}</span>
+                            ) : (
+                              <Bot className="h-3 w-3" />
+                            )}
+                          </div>
+                          <span className="truncate">{agent.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        </div>
 
-          <div
-            className="flex-1 overflow-y-auto overflow-x-hidden"
-            onScroll={(e) => {
-              if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
-              const el = e.currentTarget
-              // Trigger when scrolled within 100px of the bottom
-              if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
-                onLoadMoreSessions()
-              }
-            }}
-          >
-            {/* Projects section — shown above agents so users reach their
-                active workspace first. Falls back silently when no handler
-                is wired (backwards-compat). */}
-            {(projects.length > 0 || onAddProject) && (
-              <ProjectSection
-                projects={projects}
-                sessions={sessions}
+            <div
+              className="flex-1 overflow-y-auto overflow-x-hidden"
+              onScroll={(e) => {
+                if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
+                const el = e.currentTarget
+                // Trigger when scrolled within 100px of the bottom
+                if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
+                  onLoadMoreSessions()
+                }
+              }}
+            >
+              {/* Projects section — shown above agents so users reach their
+                  active workspace first. Falls back silently when no handler
+                  is wired (backwards-compat). */}
+              {(projects.length > 0 || onAddProject) && (
+                <ProjectSection
+                  projects={projects}
+                  sessions={sessions}
+                  agents={agents}
+                  currentSessionId={currentSessionId}
+                  loadingSessionIds={loadingSessionIds}
+                  expanded={projectsExpanded}
+                  setExpanded={setProjectsExpanded}
+                  onAddProject={() => onAddProject?.()}
+                  onOpenProjectSettings={(p) => onOpenProjectSettings?.(p)}
+                  onNewChatInProject={(pid, opts) => onNewChatInProject?.(pid, opts)}
+                  onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
+                  onSwitchSession={onSwitchSession}
+                  onDeleteSession={handleDeleteClick}
+                  onMarkAllRead={onMarkAllRead}
+                  renamingSessionId={renamingSessionId}
+                  renameValue={renameValue}
+                  renameInputRef={renameInputRef}
+                  onStartRename={startRename}
+                  onRenameValueChange={setRenameValue}
+                  onCommitRename={commitRename}
+                  onCancelRename={cancelRename}
+                  onMoveSessionToProject={onMoveSessionToProject}
+                  getAgentInfo={getAgentInfo}
+                  formatRelativeTime={formatRelativeTime}
+                />
+              )}
+
+              {/* Collapsible Agents section */}
+              <AgentSection
                 agents={agents}
+                agentsExpanded={agentsExpanded}
+                setAgentsExpanded={setAgentsExpanded}
+                selectedAgentId={selectedAgentId}
+                toggleAgentFilter={toggleAgentFilter}
+                onNewChat={onNewChat}
+                onEditAgent={onEditAgent}
+                panelWidth={panelWidth}
+              />
+
+              {/* Session filter tabs + session list */}
+              <SessionList
+                sessions={sessions}
+                filteredSessions={filteredSessions}
+                sessionFilter={sessionFilter}
+                setSessionFilter={setSessionFilter}
+                selectedAgentId={selectedAgentId}
                 currentSessionId={currentSessionId}
                 loadingSessionIds={loadingSessionIds}
-                expanded={projectsExpanded}
-                setExpanded={setProjectsExpanded}
-                onAddProject={() => onAddProject?.()}
-                onOpenProjectSettings={(p) => onOpenProjectSettings?.(p)}
-                onNewChatInProject={(pid, opts) => onNewChatInProject?.(pid, opts)}
-                onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
+                loadingMoreSessions={loadingMoreSessions}
                 onSwitchSession={onSwitchSession}
-                onDeleteSession={handleDeleteClick}
+                onDeleteClick={handleDeleteClick}
                 onMarkAllRead={onMarkAllRead}
                 renamingSessionId={renamingSessionId}
                 renameValue={renameValue}
@@ -379,83 +406,50 @@ export default function ChatSidebar({
                 onRenameValueChange={setRenameValue}
                 onCommitRename={commitRename}
                 onCancelRename={cancelRename}
-                onMoveSessionToProject={onMoveSessionToProject}
                 getAgentInfo={getAgentInfo}
                 formatRelativeTime={formatRelativeTime}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                searchResults={searchResults}
+                searchTruncated={searchTruncated}
+                searching={searching}
+                agents={agents}
+                projects={projects}
+                onMoveToProject={onMoveSessionToProject}
+                searchFocusSignal={sidebarCollapsed ? 0 : searchFocusSignal}
               />
-            )}
-
-            {/* Collapsible Agents section */}
-            <AgentSection
-              agents={agents}
-              agentsExpanded={agentsExpanded}
-              setAgentsExpanded={setAgentsExpanded}
-              selectedAgentId={selectedAgentId}
-              toggleAgentFilter={toggleAgentFilter}
-              onNewChat={onNewChat}
-              onEditAgent={onEditAgent}
-              panelWidth={panelWidth}
-            />
-
-            {/* Session filter tabs + session list */}
-            <SessionList
-              sessions={sessions}
-              filteredSessions={filteredSessions}
-              sessionFilter={sessionFilter}
-              setSessionFilter={setSessionFilter}
-              selectedAgentId={selectedAgentId}
-              currentSessionId={currentSessionId}
-              loadingSessionIds={loadingSessionIds}
-              loadingMoreSessions={loadingMoreSessions}
-              onSwitchSession={onSwitchSession}
-              onDeleteClick={handleDeleteClick}
-              onMarkAllRead={onMarkAllRead}
-              renamingSessionId={renamingSessionId}
-              renameValue={renameValue}
-              renameInputRef={renameInputRef}
-              onStartRename={startRename}
-              onRenameValueChange={setRenameValue}
-              onCommitRename={commitRename}
-              onCancelRename={cancelRename}
-              getAgentInfo={getAgentInfo}
-              formatRelativeTime={formatRelativeTime}
-              searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
-              searchResults={searchResults}
-              searchTruncated={searchTruncated}
-              searching={searching}
-              agents={agents}
-              projects={projects}
-              onMoveToProject={onMoveSessionToProject}
-              searchFocusSignal={searchFocusSignal}
-            />
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Delete session confirmation dialog */}
-        <AlertDialog
-          open={!!deleteConfirmSessionId}
-          onOpenChange={(open) => !open && setDeleteConfirmSessionId(null)}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t("chat.deleteSessionTitle")}</AlertDialogTitle>
-              <AlertDialogDescription>{t("chat.deleteSessionWarning")}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={confirmDelete}
-              >
-                {t("common.delete")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+      {/* Delete session confirmation dialog */}
+      <AlertDialog
+        open={!!deleteConfirmSessionId}
+        onOpenChange={(open) => !open && setDeleteConfirmSessionId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("chat.deleteSessionTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("chat.deleteSessionWarning")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDelete}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* Drag Handle */}
       <div
-        className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+        className={cn(
+          "shrink-0 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50",
+          sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+        )}
         onMouseDown={handleDragStart}
       />
     </>

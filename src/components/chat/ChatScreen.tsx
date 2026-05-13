@@ -90,6 +90,15 @@ export default function ChatScreen({
 
   // Sidebar panel width
   const [panelWidth, setPanelWidth] = useState(288)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false
+    return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
+  })
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(520)
@@ -1233,7 +1242,9 @@ export default function ChatScreen({
         currentSessionId={session.currentSessionId}
         loadingSessionIds={session.loadingSessionIds}
         panelWidth={panelWidth}
+        sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
+        onSidebarCollapsedChange={setSidebarCollapsed}
         onSwitchSession={session.handleSwitchSession}
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
@@ -1385,6 +1396,8 @@ export default function ChatScreen({
           onOpenHandover={(sid) => setHandoverSessionId(sid)}
           agents={session.agents}
           onChangeAgent={handleChangeAgent}
+          sidebarCollapsed={sidebarCollapsed}
+          onExpandSidebar={() => setSidebarCollapsed(false)}
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">

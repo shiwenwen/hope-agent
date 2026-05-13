@@ -20,6 +20,7 @@ import {
   Send,
   Ghost,
   Download,
+  PanelLeftOpen,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -86,6 +87,10 @@ interface ChatTitleBarProps {
    * exist, the dropdown is hidden.
    */
   onChangeAgent?: (agentId: string) => void
+  /** Whether the session sidebar is currently collapsed. */
+  sidebarCollapsed?: boolean
+  /** Expands the session sidebar from the title bar. */
+  onExpandSidebar?: () => void
 }
 
 export default function ChatTitleBar({
@@ -114,6 +119,8 @@ export default function ChatTitleBar({
   onOpenHandover,
   agents = [],
   onChangeAgent,
+  sidebarCollapsed,
+  onExpandSidebar,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -223,6 +230,17 @@ export default function ChatTitleBar({
       data-tauri-drag-region
     >
       <div className="flex items-end gap-2 min-w-0 pb-1.5">
+        {sidebarCollapsed && onExpandSidebar && (
+          <IconTip label={t("chat.expandSidebar")}>
+            <button
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+              aria-label={t("chat.expandSidebar")}
+              onClick={onExpandSidebar}
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
         {project && (
           <>
             <div className="inline-flex items-center gap-1 shrink-0 min-w-0">
