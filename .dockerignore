@@ -1,0 +1,58 @@
+# Keep the Docker build context small. Anything not on this list still
+# ships to the daemon over the wire, so be conservative when adding new
+# top-level artifacts (e.g. tarballs from CI runs).
+
+# Rust build outputs (multi-GB)
+target/
+**/target/
+
+# Node modules and frontend build cache
+node_modules/
+**/node_modules/
+dist/
+.vite/
+**/.vite/
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Worktrees and Claude scratch state
+.claude/
+
+# Husky hooks — not needed inside the container
+.husky/
+
+# CI and editor metadata
+.github/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test snapshots / coverage that bloat context
+coverage/
+**/__snapshots__/
+
+# Local user state
+.env
+.env.*
+!.env.example
+
+# Generated bundles from previous local builds
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.tar.gz
+*.zip
+
+# Tauri build artifacts living outside target/
+src-tauri/gen/
+src-tauri/icons/icon.icns
+src-tauri/icons/icon.ico
+
+# Lockfile is kept (needed for reproducible builds)
+# package.json is kept (needed for dep resolution)

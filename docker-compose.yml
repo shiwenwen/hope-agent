@@ -1,0 +1,60 @@
+# Hope Agent — official docker-compose example.
+#
+# Quick start:
+#   1. (optional) export HA_API_KEY=$(openssl rand -hex 24)
+#   2. docker compose up -d
+#   3. Open http://127.0.0.1:8420 in a browser to run the onboarding wizard
+#      (configure Provider API keys, MCP servers, IM channels).
+#
+# Enable Ollama sidecar for local LLMs:
+#   docker compose --profile with-ollama up -d
+#
+# Expose to the LAN instead of loopback:
+#   Set HA_API_KEY first, then change the port mapping to "8420:8420".
+
+services:
+  hope-agent:
+    image: ghcr.io/shiwenwen/hope-agent:latest
+    container_name: hope-agent
+    restart: unless-stopped
+    ports:
+      # Default: loopback only. Hope Agent does not enforce auth when
+      # HA_API_KEY is unset, so exposing 0.0.0.0 before completing the
+      # onboarding wizard would publish every provider credential to the
+      # LAN. Set HA_API_KEY and change to "8420:8420" once configured.
+      - "127.0.0.1:8420:8420"
+    environment:
+      # Provide a Bearer token for HTTP/WS auth. Leave empty to disable
+      # auth (only safe behind a reverse proxy that adds its own).
+      HA_API_KEY: ${HA_API_KEY:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - hope-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hope-agent-ollama
+    restart: unless-stopped
+    profiles: [with-ollama]
+    volumes:
+      - ollama-models:/root/.ollama
+    # Ollama is only reachable from the compose network — Hope Agent talks
+    # to it via `http://ollama:11434/v1` (configure that URL inside the
+    # browser onboarding wizard as a custom Provider). Uncomment the
+    # `ports` block below to also expose Ollama on the host.
+    #ports:
+    #  - "127.0.0.1:11434:11434"
+    #
+    # NVIDIA GPU passthrough requires nvidia-container-toolkit on the host.
+    # Uncomment the block below after installing it.
+    #deploy:
+    #  resources:
+    #    reservations:
+    #      devices:
+    #        - driver: nvidia
+    #          count: all
+    #          capabilities: [gpu]
+
+volumes:
+  hope-data:
+  ollama-models:

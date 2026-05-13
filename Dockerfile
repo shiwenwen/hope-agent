@@ -1,0 +1,173 @@
+# syntax=docker/dockerfile:1.7
+#
+# Hope Agent — multi-arch container image for `hope-agent server`.
+#
+# Stage 1 (web)     — node:20-bookworm-slim builds the Vite frontend to `/work/dist/`.
+#                     Pinned to $BUILDPLATFORM so we run pnpm exactly once even
+#                     for multi-arch builds (frontend output is arch-agnostic).
+#                     Node stage doesn't have the glibc constraint below.
+# Stage 2 (rust)    — rust:1.95.0-trixie builds the `hope-agent` binary.
+#                     The web `dist/` is copied in BEFORE `cargo build` so
+#                     `crates/ha-server/build.rs` sees the real assets and
+#                     `rust-embed` bakes them into the binary.
+# Stage 3 (runtime) — debian:trixie-slim — ca-certs + tzdata + wget + a few
+#                     desktop-tool shared libs (see runtime stage comment).
+#                     Runs as non-root user `hope` (uid 1000) with /data
+#                     persisted as the configurable HA_DATA_DIR.
+#
+# Glibc note: trixie (Debian 13, glibc 2.41) on both build and runtime is
+# required because `ort-sys` (pulled in by fastembed for embeddings) ships
+# prebuilt ONNX Runtime binaries that reference `__isoc23_strtol` from
+# glibc 2.38+. bookworm (glibc 2.36) fails to link. release.yml already
+# targets ubuntu-24.04 (glibc 2.39), so this is consistent with the bare-
+# binary baseline. Keep both stages on the same distro — mixing trixie
+# build / bookworm runtime would dynamically fail to load at startup.
+
+# -------------------------------------------------------------------
+# Stage 1: build the Vite frontend (arch-independent)
+# -------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM node:20-bookworm-slim AS web
+
+# Pin pnpm to the version declared in package.json#packageManager so
+# lockfile resolution is reproducible. `corepack prepare --activate`
+# downloads the pinned tarball; `pnpm-lock.yaml` was generated with the
+# same version.
+ENV COREPACK_DEFAULT_TO_LATEST=0 \
+    HUSKY=0
+RUN corepack enable && corepack prepare pnpm@10.33.1 --activate
+
+WORKDIR /work
+
+# Install dependencies in a separate layer keyed on lockfile changes so
+# editing source files doesn't trigger a full `pnpm install`.
+COPY package.json pnpm-lock.yaml .npmrc ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy the frontend sources and build.
+COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json eslint.config.js ./
+COPY src ./src
+COPY public ./public
+COPY scripts ./scripts
+
+RUN pnpm build && \
+    # Sanity check — the rust stage assumes /work/dist/index.html exists
+    # and is the REAL build output, not `crates/ha-server/build.rs`'s
+    # placeholder page.
+    test -s dist/index.html
+
+# -------------------------------------------------------------------
+# Stage 2: build the Rust `hope-agent` binary
+# -------------------------------------------------------------------
+FROM rust:1.95.0-trixie AS rust
+
+# protobuf-compiler is required by `prost-build` at compile time.
+# pkg-config is needed by several -sys crates even though OpenSSL is
+# vendored.
+#
+# wayland / pipewire / gbm / egl / gtk-3 are pulled in transitively by
+# `xcap` and `arboard`, which ha-core uses for the screen-capture and
+# clipboard tools (see crates/ha-core/src/tools/image.rs). These tools
+# can't actually run in a container — there is no display — but they
+# are compiled in unconditionally today, so the headers have to be
+# present at build time. Follow-up: gate xcap/arboard behind a
+# `desktop-tools` Cargo feature so server builds stop linking them.
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 install -y --no-install-recommends \
+        pkg-config \
+        protobuf-compiler \
+        libclang-dev \
+        libwayland-dev \
+        libpipewire-0.3-dev \
+        libgbm-dev \
+        libegl-dev \
+        libgtk-3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# Copy the workspace metadata first so dependency compilation is cached
+# independently of source-only edits.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ha-core/Cargo.toml crates/ha-core/Cargo.toml
+COPY crates/ha-server/Cargo.toml crates/ha-server/Cargo.toml
+COPY src-tauri/Cargo.toml src-tauri/Cargo.toml
+
+# Now copy the actual source.
+COPY crates ./crates
+COPY src-tauri ./src-tauri
+# crates/ha-core/src/agent_loader.rs include_bytes!s the frontend logo at
+# compile time. This is the only file outside `crates/` that the Rust
+# build reaches into — every other include_str!/include_bytes! stays
+# inside the crate.
+COPY src/assets ./src/assets
+
+# Critical: the frontend dist MUST be present before `cargo build` runs,
+# otherwise `crates/ha-server/build.rs` (called by cargo) writes its
+# placeholder index.html and rust-embed bakes that into the binary
+# permanently.
+COPY --from=web /work/dist ./dist
+
+# Build only the headless `hope-agent` binary shipped from the
+# `ha-server` crate. The Tauri-built homonymous binary lives in
+# `src-tauri` and is intentionally skipped — building it would pull in
+# WebKit / Cocoa / WinRT.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/work/target \
+    cargo build --release --locked -p ha-server --bin hope-agent && \
+    # Copy the binary out of the cache mount so it survives into the
+    # final runtime stage.
+    cp /work/target/release/hope-agent /usr/local/bin/hope-agent
+
+# -------------------------------------------------------------------
+# Stage 3: minimal runtime
+# -------------------------------------------------------------------
+FROM debian:trixie-slim AS runtime
+
+# ca-certificates: required for outbound HTTPS to provider APIs.
+# tzdata: required for cron schedules / `TZ` env var to take effect.
+# wget: used by HEALTHCHECK below.
+# tini: PID 1 with proper signal forwarding so `docker stop` shuts the
+#       hope-agent server down cleanly.
+# libwayland-client0 / libpipewire-0.3-0 / libgbm1 / libegl1 / libgtk-3-0:
+#       runtime shared libraries for xcap / arboard (screen-capture and
+#       clipboard tools). Required for the binary to LOAD even when those
+#       tools are never invoked. See the note in the rust stage above
+#       for the planned feature-flag follow-up.
+RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        wget \
+        tini \
+        libwayland-client0 \
+        libpipewire-0.3-0 \
+        libgbm1 \
+        libegl1 \
+        libgtk-3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user. /data is the persisted HA_DATA_DIR (mount this as a volume).
+RUN groupadd --system --gid 1000 hope && \
+    useradd  --system --uid 1000 --gid hope --shell /bin/sh --home-dir /data --create-home hope
+
+COPY --from=rust /usr/local/bin/hope-agent /usr/local/bin/hope-agent
+COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENV HA_DATA_DIR=/data \
+    HA_DEPLOYMENT=docker \
+    HA_BIND=0.0.0.0:8420 \
+    TZ=UTC
+
+USER hope
+WORKDIR /data
+EXPOSE 8420
+
+# `/api/health` is unauthenticated (see ha-server/middleware.rs) so it
+# can be hit from inside the container regardless of the API key state.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8420/api/health >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+CMD ["server", "start"]

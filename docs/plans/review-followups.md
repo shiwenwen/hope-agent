@@ -59,6 +59,20 @@
 
 ---
 
+### F-087 ha-core `xcap` / `arboard` 放到 `desktop-tools` Cargo feature 后，让 Docker 镜像砍掉一组 system libs
+
+- **来源**：2026-05-13 Docker 部署支持 PR 手动审查
+- **现象**：[`crates/ha-core/src/tools/image.rs:233`](../../crates/ha-core/src/tools/image.rs#L233) / [`:265`](../../crates/ha-core/src/tools/image.rs#L265) 的截屏 / 剪贴板工具用 `xcap` + `arboard`，被 `ha-core` 无条件依赖。`ha-server` 也跟着拉这两个 crate 的 Linux system libs（`libwayland` / `libpipewire-0.3` / `libgbm` / `libegl` / `libgtk-3`），[`Dockerfile`](../../Dockerfile) 必须同时装 build-time `-dev` 包和 runtime `.so` 包。镜像 size 因此被推大 ~30-40MB 并多几条 apt 依赖；容器内根本没有显示，这两个工具永远跑不起来
+- **为什么留**：Docker 部署 PR 主线是"打包发镜像 + 自升级正确路由"，加 Cargo feature 涉及把 `tools/image.rs`、`tool_registry`、`tool_search` 三处的注册都 gate 起来，扩散面够独立成一个 PR。先把镜像跑起来（user-facing 价值最大），慢工再细修
+- **改的话要做什么**：
+  - `crates/ha-core/Cargo.toml` 新增 `desktop-tools` feature，把 `xcap` / `arboard` 移到 `[features]` 段下而非顶层 dep
+  - `crates/ha-core/src/tools/image.rs` 整文件加 `#[cfg(feature = "desktop-tools")]`，对应 mod.rs 引出也加 gate；`tools::definitions` 注册截屏 / 剪贴板工具时同样 cfg-gate
+  - `crates/ha-server/Cargo.toml` 默认不开 `desktop-tools`；`src-tauri/Cargo.toml` 开
+  - 删 `Dockerfile` 里 `libwayland-dev` / `libpipewire-0.3-dev` / `libgbm-dev` / `libegl-dev` / `libgtk-3-dev` 五行 build-stage apt 包；runtime stage 同步删 `libwayland-client0` / `libpipewire-0.3-0` / `libgbm1` / `libegl1` / `libgtk-3-0`
+  - 给 server 用户看到的"工具不可用"行为补 hint 文案（可选）
+- **影响面**：Docker 镜像减肥；server 模式 binary size 也会缩；纯重构 + 配置改动，desktop 行为零变化
+- **触发时机建议**：下次有人动 `tools/image.rs` 或独立"server 体积优化"sweep 时
+
 ### F-083 抽 `materialize_pending_media` / `materialize_inbound` 共用骨架（消 ~500 LOC 9 渠道样板）
 
 - **来源**：2026-05-11 F-082 `/simplify` review（reuse pass H1+H2）

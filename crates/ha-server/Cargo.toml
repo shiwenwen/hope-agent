@@ -8,6 +8,15 @@ repository.workspace = true
 edition.workspace = true
 build = "build.rs"
 
+# Headless `hope-agent` binary. Ships in the official Docker image so the
+# container never has to pull Tauri / WebKit / GTK at build or runtime.
+# The desktop binary with the same name lives in `src-tauri` and stays
+# the canonical entry point for GUI / ACP / auth subcommands; this bin
+# is intentionally scoped to `server start` only.
+[[bin]]
+name = "hope-agent"
+path = "src/bin/hope-agent.rs"
+
 [build-dependencies]
 # build.rs only touches std::fs — no deps needed.
 
