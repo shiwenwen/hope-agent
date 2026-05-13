@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react"
 import { Brain, Download, ExternalLink, Globe, Loader2, Monitor, RefreshCw } from "lucide-react"
 import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import {
   checkForDesktopUpdate,
@@ -272,7 +273,7 @@ export default function AboutPanel() {
 
             {pendingUpdate && (
               <div className="mt-5 overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/8 via-emerald-500/5 to-transparent">
-                <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+                <div className="flex flex-wrap items-start gap-3 px-5 py-4">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12">
                     <Download className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
                   </div>
@@ -281,14 +282,14 @@ export default function AboutPanel() {
                       {updateStatus}
                     </p>
                     {pendingUpdate.body && (
-                      <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                        {pendingUpdate.body}
-                      </p>
+                      <div className="mt-1 max-h-48 overflow-auto text-xs leading-relaxed text-muted-foreground">
+                        <MarkdownRenderer content={pendingUpdate.body} />
+                      </div>
                     )}
                   </div>
                   <Button
                     size="sm"
-                    className="shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                    className="mt-1 shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
                     onClick={handleInstallUpdate}
                     disabled={installingUpdate || checkingUpdate}
                   >
