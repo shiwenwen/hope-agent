@@ -87,7 +87,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: ". -> target"
 
       # Windows MSVC + vendored OpenSSL needs NASM. Use Chocolatey
       # instead of ilammy/setup-nasm (upstream still on Node 20, see
