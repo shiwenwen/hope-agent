@@ -23,6 +23,7 @@ import { toast } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import type { SettingsSection } from "@/components/settings/types"
@@ -660,13 +661,16 @@ export default function App() {
                               ? `发现新版本 v${globalPendingUpdate.version}`
                               : `Update v${globalPendingUpdate.version}`}
                           </p>
-                          <div className="mt-2.5 max-h-[180px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
-                            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                              {globalPendingUpdate.body ||
-                                t("about.updateAvailable", {
+                          <div className="mt-2.5 max-h-[180px] overflow-y-auto pr-2 text-xs leading-relaxed text-muted-foreground scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
+                            {globalPendingUpdate.body ? (
+                              <MarkdownRenderer content={globalPendingUpdate.body} />
+                            ) : (
+                              <p>
+                                {t("about.updateAvailable", {
                                   version: globalPendingUpdate.version,
                                 })}
-                            </p>
+                              </p>
+                            )}
                           </div>
                           <div className="mt-4 flex justify-end">
                             <button
