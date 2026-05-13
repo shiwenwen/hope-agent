@@ -36,13 +36,22 @@ jobs:
             os: macos-14
             rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          # macOS x64 lane temporarily disabled: GitHub-hosted macos-13
-          # Intel runner pool is heavily congested as of 2026-05; v0.2.0
-          # release blocked >1h with this job stuck in queue while every
-          # other platform finished. Intel Mac users continue to run the
-          # arm64 bundle through Rosetta 2 (same as v0.1.x). Re-enable
-          # in v0.2.1 once we have either a fallback to cross-compile on
-          # macos-14 or a self-hosted runner.
+          # macOS x64 — Intel DMG, native build on macos-13. Re-enabled
+          # in v0.2.1 after the temporary v0.2.0 removal, this time wired
+          # as a "best-effort" lane: GitHub-hosted macos-13 runners are
+          # capacity-constrained and intermittently see >1h queue times
+          # (the v0.2.0 incident). `continue_on_error: true` lets the
+          # lane fail/timeout without blocking the rest of the release;
+          # the patch-manifest job below uses `!cancelled()` so
+          # latest.json + downstream package-manager workflows still run
+          # off the platforms that did succeed. Cross-compile on macos-14
+          # or a self-hosted Intel runner remains a longer-term option
+          # (F-088 follow-up).
+          - platform: macos-x64
+            os: macos-13
+            rust_target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+            continue_on_error: true
           # Linux x64 — AppImage + deb.
           # ubuntu-24.04 is required because xcap (screen capture) pulls
           # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The
@@ -71,6 +80,9 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.os }}
+    # `continue_on_error` is set per-platform in the matrix (currently
+    # only macos-x64). Default false for every other lane.
+    continue-on-error: ${{ matrix.continue_on_error == true }}
     steps:
       - uses: actions/checkout@v6
 
@@ -280,10 +292,14 @@ jobs:
   patch-manifest:
     name: patch latest.json
     needs: build
-    # Skip in dry-run — no draft Release exists to patch, and latest.json
-    # rewriting is exactly what we want to validate without polluting the
-    # real release stream.
-    if: github.event.inputs.dry_run != 'true'
+    # `!cancelled()` lets the manifest patch run even when a best-effort
+    # build job (e.g. macos-x64) fails or times out — the latest.json
+    # rewrite is keyed off whichever bare-binary artifacts uploaded
+    # successfully, and `patch-latest-json.mjs` already warns-and-skips
+    # missing platforms. Without this guard, a single macos-x64 timeout
+    # would block the entire release from publishing.
+    # Also skip in dry-run — no draft Release exists to patch.
+    if: ${{ !cancelled() && github.event.inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}

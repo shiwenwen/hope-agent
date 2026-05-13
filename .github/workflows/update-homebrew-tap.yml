@@ -58,7 +58,13 @@ jobs:
           echo "dmg_arm=Hope.Agent_${version}_aarch64.dmg" >> "$GITHUB_OUTPUT"
           echo "dmg_intel=Hope.Agent_${version}_x64.dmg" >> "$GITHUB_OUTPUT"
 
-      - name: Download both DMGs from release
+      # Download arm64 DMG (required) and Intel DMG (best-effort). The
+      # Intel lane in release.yml is best-effort (continue_on_error) and
+      # can fail when macos-13 runners are congested — in that case the
+      # release ships arm64-only and we render the single-arch cask
+      # template below.
+      - name: Download DMGs from release
+        id: download
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -66,47 +72,78 @@ jobs:
           gh release download "$TAG" \
             --repo "${{ github.repository }}" \
             --pattern "${{ steps.ver.outputs.dmg_arm }}" \
-            --pattern "${{ steps.ver.outputs.dmg_intel }}" \
             --dir .
-          ls -la "${{ steps.ver.outputs.dmg_arm }}" "${{ steps.ver.outputs.dmg_intel }}"
+          if [[ ! -f "${{ steps.ver.outputs.dmg_arm }}" ]]; then
+            echo "::error::arm64 DMG is mandatory but was not found in release $TAG"
+            exit 1
+          fi
+          ls -la "${{ steps.ver.outputs.dmg_arm }}"
 
-      - name: Compute SHA256 for both DMGs
+          # Intel DMG: try to fetch, tolerate absence.
+          if gh release download "$TAG" \
+              --repo "${{ github.repository }}" \
+              --pattern "${{ steps.ver.outputs.dmg_intel }}" \
+              --dir . 2>/dev/null && [[ -f "${{ steps.ver.outputs.dmg_intel }}" ]]; then
+            echo "has_intel=true" >> "$GITHUB_OUTPUT"
+            echo "Intel DMG found — will render dual-arch cask."
+            ls -la "${{ steps.ver.outputs.dmg_intel }}"
+          else
+            echo "has_intel=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Intel DMG not present in release $TAG — falling back to arm64-only cask."
+          fi
+
+      - name: Compute SHA256 for available DMGs
         id: sha
         run: |
           set -euo pipefail
-          for kind in arm intel; do
-            if [[ "$kind" == "arm" ]]; then
-              file="${{ steps.ver.outputs.dmg_arm }}"
-            else
-              file="${{ steps.ver.outputs.dmg_intel }}"
-            fi
-            sum=$(sha256sum "$file" | awk '{print $1}')
-            if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
-              echo "::error::sha256sum returned unexpected output for $file: $sum"
+          arm_file="${{ steps.ver.outputs.dmg_arm }}"
+          arm_sum=$(sha256sum "$arm_file" | awk '{print $1}')
+          if [[ -z "$arm_sum" || ${#arm_sum} -ne 64 ]]; then
+            echo "::error::sha256sum returned unexpected output for $arm_file: $arm_sum"
+            exit 1
+          fi
+          echo "sha256_arm=$arm_sum" >> "$GITHUB_OUTPUT"
+          echo "$arm_file sha256: $arm_sum"
+
+          if [[ "${{ steps.download.outputs.has_intel }}" == "true" ]]; then
+            intel_file="${{ steps.ver.outputs.dmg_intel }}"
+            intel_sum=$(sha256sum "$intel_file" | awk '{print $1}')
+            if [[ -z "$intel_sum" || ${#intel_sum} -ne 64 ]]; then
+              echo "::error::sha256sum returned unexpected output for $intel_file: $intel_sum"
               exit 1
             fi
-            echo "sha256_$kind=$sum" >> "$GITHUB_OUTPUT"
-            echo "$file sha256: $sum"
-          done
+            echo "sha256_intel=$intel_sum" >> "$GITHUB_OUTPUT"
+            echo "$intel_file sha256: $intel_sum"
+          fi
 
       - name: Render cask from template
         run: |
           set -euo pipefail
           mkdir -p rendered/Casks
-          sed -e "s/__VERSION__/${{ steps.ver.outputs.version }}/g" \
-              -e "s/__SHA256_ARM__/${{ steps.sha.outputs.sha256_arm }}/g" \
-              -e "s/__SHA256_INTEL__/${{ steps.sha.outputs.sha256_intel }}/g" \
-              homebrew/hope-agent.rb.tmpl > rendered/Casks/hope-agent.rb
+          if [[ "${{ steps.download.outputs.has_intel }}" == "true" ]]; then
+            template=homebrew/hope-agent.rb.tmpl
+            sed -e "s/__VERSION__/${{ steps.ver.outputs.version }}/g" \
+                -e "s/__SHA256_ARM__/${{ steps.sha.outputs.sha256_arm }}/g" \
+                -e "s/__SHA256_INTEL__/${{ steps.sha.outputs.sha256_intel }}/g" \
+                "$template" > rendered/Casks/hope-agent.rb
+            placeholders='__VERSION__|__SHA256_ARM__|__SHA256_INTEL__'
+          else
+            template=homebrew/hope-agent-arm-only.rb.tmpl
+            sed -e "s/__VERSION__/${{ steps.ver.outputs.version }}/g" \
+                -e "s/__SHA256_ARM__/${{ steps.sha.outputs.sha256_arm }}/g" \
+                "$template" > rendered/Casks/hope-agent.rb
+            placeholders='__VERSION__|__SHA256_ARM__'
+          fi
 
           # Refuse to push if any placeholder leaked through — protects the
           # tap from a broken cask if the template ever drops the markers.
-          if grep -qE '__VERSION__|__SHA256_ARM__|__SHA256_INTEL__' rendered/Casks/hope-agent.rb; then
-            echo "::error::rendered cask still contains template placeholders"
+          if grep -qE "$placeholders" rendered/Casks/hope-agent.rb; then
+            echo "::error::rendered cask still contains template placeholders (from $template)"
             cat rendered/Casks/hope-agent.rb
             exit 1
           fi
 
-          echo "--- rendered Casks/hope-agent.rb ---"
+          echo "--- rendered Casks/hope-agent.rb (from $template) ---"
           cat rendered/Casks/hope-agent.rb
 
       - name: Checkout tap repo
@@ -138,10 +175,21 @@ jobs:
             exit 0
           fi
 
+          # Commit message reflects whether the Intel DMG was included
+          # in this sync — when arm64-only, downstream readers (and
+          # future maintainers) can grep the history to see when Intel
+          # support gapped out and came back.
+          if [[ "${{ steps.download.outputs.has_intel }}" == "true" ]]; then
+            sha_summary="arm64 DMG sha256: ${{ steps.sha.outputs.sha256_arm }}
+          x64   DMG sha256: ${{ steps.sha.outputs.sha256_intel }}"
+          else
+            sha_summary="arm64 DMG sha256: ${{ steps.sha.outputs.sha256_arm }}
+          (x64 DMG absent from this release — cask is arm64-only)"
+          fi
+
           git commit -m "hope-agent ${{ steps.ver.outputs.version }}
 
-          arm64 DMG sha256: ${{ steps.sha.outputs.sha256_arm }}
-          x64   DMG sha256: ${{ steps.sha.outputs.sha256_intel }}
+          $sha_summary
           Source: ${{ github.repository }}@$TAG
           "
           git push origin HEAD
