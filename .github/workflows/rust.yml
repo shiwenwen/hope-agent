@@ -41,6 +41,11 @@ jobs:
           rustflags: ""
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Do not restore ~/.cargo/bin after setup-rust-toolchain installs
+          # rustup shims. A stale macOS cache can replace `cargo` with the
+          # rustup installer and make `cargo test` fail before compilation.
+          cache-bin: false
 
       # Vendored OpenSSL needs NASM to build on Windows MSVC. Chocolatey
       # is pre-installed on windows-latest runners; this avoids the
@@ -94,6 +99,11 @@ jobs:
           rustflags: ""
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Do not restore ~/.cargo/bin after setup-rust-toolchain installs
+          # rustup shims. A stale macOS cache can replace `cargo` with the
+          # rustup installer and make `cargo test` fail before compilation.
+          cache-bin: false
 
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
