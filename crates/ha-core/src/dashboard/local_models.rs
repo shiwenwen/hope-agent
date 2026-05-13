@@ -142,18 +142,15 @@ pub fn query_local_model_usage(
          JOIN sessions s ON s.id = m.session_id
          {where_sql}",
     );
-    let (total_calls, total_input_tokens, total_output_tokens, avg_ttft_ms) = conn.query_row(
-        &totals_sql,
-        params_ref(&totals_params).as_slice(),
-        |r| {
+    let (total_calls, total_input_tokens, total_output_tokens, avg_ttft_ms) =
+        conn.query_row(&totals_sql, params_ref(&totals_params).as_slice(), |r| {
             Ok((
                 crate::sql_u64(r, 0)?,
                 crate::sql_u64(r, 1)?,
                 crate::sql_u64(r, 2)?,
                 r.get::<_, Option<f64>>(3)?,
             ))
-        },
-    )?;
+        })?;
 
     Ok(LocalModelUsage {
         local_provider_names: local_provider_names.to_vec(),
@@ -205,7 +202,11 @@ mod tests {
     #[test]
     fn names_helper_picks_only_local_providers() {
         let providers = vec![
-            make_provider("Ollama (local)", "http://127.0.0.1:11434", ApiType::OpenaiChat),
+            make_provider(
+                "Ollama (local)",
+                "http://127.0.0.1:11434",
+                ApiType::OpenaiChat,
+            ),
             make_provider(
                 "Anthropic",
                 "https://api.anthropic.com/v1",
