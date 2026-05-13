@@ -375,6 +375,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_llm_detect_hardware:       { method: "GET",    path: "/api/local-llm/hardware" },
   local_llm_recommend_model:       { method: "GET",    path: "/api/local-llm/recommendation" },
   local_llm_detect_ollama:         { method: "GET",    path: "/api/local-llm/ollama-status" },
+  local_llm_detect_ollama_version: { method: "GET",    path: "/api/local-llm/ollama-version" },
   local_llm_known_backends:        { method: "GET",    path: "/api/local-llm/known-backends" },
   local_llm_chat_catalog:          { method: "GET",    path: "/api/local-llm/chat-catalog" },
   local_llm_start_ollama:          { method: "POST",   path: "/api/local-llm/start" },
@@ -436,6 +437,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_top_skills:            { method: "POST",   path: "/api/dashboard/learning/top-skills" },
   dashboard_recall_stats:          { method: "POST",   path: "/api/dashboard/learning/recall-stats" },
   dashboard_plan_stats:            { method: "POST",   path: "/api/dashboard/plan-stats" },
+  dashboard_local_model_usage:     { method: "POST",   path: "/api/dashboard/local-model-usage" },
 
   // -- Slash commands --
   list_slash_commands:             { method: "GET",    path: "/api/slash-commands" },

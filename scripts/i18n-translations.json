@@ -596,7 +596,8 @@
     "dashboard": {
       "tabs": {
         "learning": "学習",
-        "dreaming": "ドリーム"
+        "dreaming": "ドリーム",
+        "localModels": "ローカルモデル"
       },
       "learning": {
         "title": "学習トラッカー",
@@ -641,6 +642,73 @@
           "idle": "アイドル",
           "cron": "cron",
           "manual": "手動"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Ollama 状態",
+        "ollamaPhases": {
+          "running": "実行中",
+          "installed": "インストール済（停止中）",
+          "not-installed": "未インストール"
+        },
+        "openInSettings": "設定で管理",
+        "hardware": {
+          "totalMemory": "総メモリ",
+          "available": "利用可能",
+          "gpu": "GPU",
+          "integratedGpu": "統合 GPU / ユニファイドメモリ",
+          "vram": "VRAM",
+          "budget": "推奨予算",
+          "budgetSource": {
+            "unified-memory": "ユニファイドメモリ (macOS)",
+            "dedicated-vram": "専用 VRAM",
+            "system-memory": "システムメモリ"
+          }
+        },
+        "running": {
+          "title": "実行中のモデル",
+          "empty": "現在ロードされているモデルはありません",
+          "vramUsed": "VRAM",
+          "context": "コンテキスト",
+          "expiresIn": "{{duration}} 後にアンロード",
+          "unloadingSoon": "まもなくアンロード",
+          "summary": "{{count}} 件実行中"
+        },
+        "installed": {
+          "title": "インストール済モデル",
+          "unknownFamily": "不明なファミリー",
+          "badges": {
+            "active": "アクティブ",
+            "fallback": "フォールバック",
+            "provider": "Provider モデル",
+            "embedding": "埋め込み",
+            "running": "実行中"
+          }
+        },
+        "usage": {
+          "title": "ローカルモデルの使用状況",
+          "totalCalls": "総呼び出し回数",
+          "totalTokens": "総トークン数",
+          "avgTtft": "平均 TTFT",
+          "trend": "日次トークン推移",
+          "byModel": "モデル別トークン",
+          "empty": "選択期間内にローカルモデルの呼び出しはありません",
+          "errorBadge": "{{model}}: エラー率 {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "ローカルバックエンドが未設定です",
+          "goToSettings": "設定を開いて追加"
+        },
+        "jobs": {
+          "title": "バックグラウンドタスク",
+          "kind": {
+            "chat_model": "チャットモデルのインストール",
+            "embedding_model": "埋め込みモデルのインストール",
+            "ollama_install": "Ollama のインストール",
+            "ollama_pull": "Ollama プル",
+            "ollama_preload": "プリロード",
+            "memory_reembed": "メモリ再埋め込み"
+          }
         }
       }
     },
@@ -1367,7 +1435,8 @@
     "dashboard": {
       "tabs": {
         "learning": "학습",
-        "dreaming": "드림"
+        "dreaming": "드림",
+        "localModels": "로컬 모델"
       },
       "learning": {
         "title": "학습 트래커",
@@ -1412,6 +1481,73 @@
           "idle": "유휴",
           "cron": "cron",
           "manual": "수동"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Ollama 상태",
+        "ollamaPhases": {
+          "running": "실행 중",
+          "installed": "설치됨 (유휴)",
+          "not-installed": "설치되지 않음"
+        },
+        "openInSettings": "설정에서 관리",
+        "hardware": {
+          "totalMemory": "총 메모리",
+          "available": "사용 가능",
+          "gpu": "GPU",
+          "integratedGpu": "내장 GPU / 통합 메모리",
+          "vram": "VRAM",
+          "budget": "권장 예산",
+          "budgetSource": {
+            "unified-memory": "통합 메모리 (macOS)",
+            "dedicated-vram": "전용 VRAM",
+            "system-memory": "시스템 메모리"
+          }
+        },
+        "running": {
+          "title": "실행 중인 모델",
+          "empty": "현재 로드된 모델이 없습니다",
+          "vramUsed": "VRAM",
+          "context": "컨텍스트",
+          "expiresIn": "{{duration}} 후 언로드",
+          "unloadingSoon": "곧 언로드",
+          "summary": "{{count}}개 실행 중"
+        },
+        "installed": {
+          "title": "설치된 모델",
+          "unknownFamily": "알 수 없는 패밀리",
+          "badges": {
+            "active": "활성",
+            "fallback": "폴백",
+            "provider": "Provider 모델",
+            "embedding": "임베딩",
+            "running": "실행 중"
+          }
+        },
+        "usage": {
+          "title": "로컬 모델 사용량",
+          "totalCalls": "총 호출 수",
+          "totalTokens": "총 토큰",
+          "avgTtft": "평균 TTFT",
+          "trend": "일별 토큰 추세",
+          "byModel": "모델별 토큰",
+          "empty": "선택한 범위에 로컬 모델 호출이 없습니다",
+          "errorBadge": "{{model}}: 오류율 {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "로컬 백엔드가 아직 설정되지 않았습니다",
+          "goToSettings": "설정을 열어 추가"
+        },
+        "jobs": {
+          "title": "백그라운드 작업",
+          "kind": {
+            "chat_model": "채팅 모델 설치",
+            "embedding_model": "임베딩 모델 설치",
+            "ollama_install": "Ollama 설치",
+            "ollama_pull": "Ollama 풀",
+            "ollama_preload": "프리로드",
+            "memory_reembed": "메모리 재임베딩"
+          }
         }
       }
     },
@@ -2138,7 +2274,8 @@
     "dashboard": {
       "tabs": {
         "learning": "學習追蹤",
-        "dreaming": "記憶夢境"
+        "dreaming": "記憶夢境",
+        "localModels": "本地模型"
       },
       "learning": {
         "title": "學習追蹤",
@@ -2183,6 +2320,73 @@
           "idle": "閒置觸發",
           "cron": "定時觸發",
           "manual": "手動觸發"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Ollama 狀態",
+        "ollamaPhases": {
+          "running": "執行中",
+          "installed": "已安裝（未啟動）",
+          "not-installed": "未安裝"
+        },
+        "openInSettings": "在設定中管理",
+        "hardware": {
+          "totalMemory": "總記憶體",
+          "available": "可用",
+          "gpu": "顯示卡",
+          "integratedGpu": "內建 GPU / 統一記憶體",
+          "vram": "顯示記憶體",
+          "budget": "建議預算",
+          "budgetSource": {
+            "unified-memory": "統一記憶體（macOS）",
+            "dedicated-vram": "獨立顯示記憶體",
+            "system-memory": "系統記憶體"
+          }
+        },
+        "running": {
+          "title": "執行中的模型",
+          "empty": "目前沒有模型載入",
+          "vramUsed": "顯示記憶體",
+          "context": "上下文",
+          "expiresIn": "{{duration}} 後卸載",
+          "unloadingSoon": "即將卸載",
+          "summary": "{{count}} 個執行中"
+        },
+        "installed": {
+          "title": "已安裝模型",
+          "unknownFamily": "未識別系列",
+          "badges": {
+            "active": "目前對話",
+            "fallback": "降級模型",
+            "provider": "Provider 模型",
+            "embedding": "向量模型",
+            "running": "執行中"
+          }
+        },
+        "usage": {
+          "title": "本地模型使用統計",
+          "totalCalls": "總呼叫次數",
+          "totalTokens": "總 Token",
+          "avgTtft": "平均 TTFT",
+          "trend": "每日 Token 趨勢",
+          "byModel": "依模型分布 Token",
+          "empty": "所選時間範圍內未呼叫本地模型",
+          "errorBadge": "{{model}}：錯誤率 {{rate}}%（{{errors}}/{{calls}}）"
+        },
+        "empty": {
+          "noProvider": "尚未設定任何本地後端",
+          "goToSettings": "前往設定新增"
+        },
+        "jobs": {
+          "title": "背景任務",
+          "kind": {
+            "chat_model": "安裝對話模型",
+            "embedding_model": "安裝向量模型",
+            "ollama_install": "安裝 Ollama",
+            "ollama_pull": "拉取模型",
+            "ollama_preload": "預載入模型",
+            "memory_reembed": "記憶重嵌入"
+          }
         }
       }
     },
@@ -2909,7 +3113,8 @@
     "dashboard": {
       "tabs": {
         "learning": "Öğrenme",
-        "dreaming": "Rüyalar"
+        "dreaming": "Rüyalar",
+        "localModels": "Yerel Modeller"
       },
       "learning": {
         "title": "Öğrenme Takibi",
@@ -2954,6 +3159,73 @@
           "idle": "boşta",
           "cron": "cron",
           "manual": "el ile"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Ollama durumu",
+        "ollamaPhases": {
+          "running": "Çalışıyor",
+          "installed": "Yüklü (boşta)",
+          "not-installed": "Yüklü değil"
+        },
+        "openInSettings": "Ayarlarda yönet",
+        "hardware": {
+          "totalMemory": "Toplam bellek",
+          "available": "Kullanılabilir",
+          "gpu": "GPU",
+          "integratedGpu": "Entegre GPU / birleşik bellek",
+          "vram": "VRAM",
+          "budget": "Önerilen bütçe",
+          "budgetSource": {
+            "unified-memory": "Birleşik bellek (macOS)",
+            "dedicated-vram": "Özel VRAM",
+            "system-memory": "Sistem belleği"
+          }
+        },
+        "running": {
+          "title": "Şu anda çalışan",
+          "empty": "Şu an yüklü model yok",
+          "vramUsed": "VRAM",
+          "context": "Bağlam",
+          "expiresIn": "{{duration}} içinde boşaltılacak",
+          "unloadingSoon": "Yakında boşaltılacak",
+          "summary": "{{count}} çalışıyor"
+        },
+        "installed": {
+          "title": "Yüklü modeller",
+          "unknownFamily": "Bilinmeyen aile",
+          "badges": {
+            "active": "Etkin",
+            "fallback": "Yedek",
+            "provider": "Provider modeli",
+            "embedding": "Embedding",
+            "running": "Çalışıyor"
+          }
+        },
+        "usage": {
+          "title": "Yerel model kullanımı",
+          "totalCalls": "Toplam çağrı",
+          "totalTokens": "Toplam token",
+          "avgTtft": "Ortalama TTFT",
+          "trend": "Günlük token eğilimi",
+          "byModel": "Modele göre token",
+          "empty": "Seçilen aralıkta yerel model çağrısı yok",
+          "errorBadge": "{{model}}: hata oranı {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "Henüz yerel backend yapılandırılmadı",
+          "goToSettings": "Eklemek için Ayarları açın"
+        },
+        "jobs": {
+          "title": "Arka plan görevleri",
+          "kind": {
+            "chat_model": "Sohbet modeli kurulumu",
+            "embedding_model": "Embedding modeli kurulumu",
+            "ollama_install": "Ollama kurulumu",
+            "ollama_pull": "Ollama indirme",
+            "ollama_preload": "Ön yükleme",
+            "memory_reembed": "Bellek yeniden embedding"
+          }
         }
       }
     },
@@ -3680,7 +3952,8 @@
     "dashboard": {
       "tabs": {
         "learning": "Học tập",
-        "dreaming": "Giấc mơ"
+        "dreaming": "Giấc mơ",
+        "localModels": "Mô hình cục bộ"
       },
       "learning": {
         "title": "Theo dõi Học tập",
@@ -3725,6 +3998,73 @@
           "idle": "nhàn rỗi",
           "cron": "cron",
           "manual": "thủ công"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Trạng thái Ollama",
+        "ollamaPhases": {
+          "running": "Đang chạy",
+          "installed": "Đã cài (rảnh)",
+          "not-installed": "Chưa cài"
+        },
+        "openInSettings": "Quản lý trong Cài đặt",
+        "hardware": {
+          "totalMemory": "Tổng bộ nhớ",
+          "available": "Khả dụng",
+          "gpu": "GPU",
+          "integratedGpu": "GPU tích hợp / bộ nhớ thống nhất",
+          "vram": "VRAM",
+          "budget": "Ngân sách đề xuất",
+          "budgetSource": {
+            "unified-memory": "Bộ nhớ thống nhất (macOS)",
+            "dedicated-vram": "VRAM riêng",
+            "system-memory": "Bộ nhớ hệ thống"
+          }
+        },
+        "running": {
+          "title": "Đang chạy",
+          "empty": "Hiện không có mô hình nào được nạp",
+          "vramUsed": "VRAM",
+          "context": "Ngữ cảnh",
+          "expiresIn": "Sẽ gỡ tải trong {{duration}}",
+          "unloadingSoon": "Sắp gỡ tải",
+          "summary": "{{count}} đang chạy"
+        },
+        "installed": {
+          "title": "Mô hình đã cài",
+          "unknownFamily": "Họ không xác định",
+          "badges": {
+            "active": "Đang dùng",
+            "fallback": "Dự phòng",
+            "provider": "Mô hình Provider",
+            "embedding": "Embedding",
+            "running": "Đang chạy"
+          }
+        },
+        "usage": {
+          "title": "Sử dụng mô hình cục bộ",
+          "totalCalls": "Tổng lượt gọi",
+          "totalTokens": "Tổng token",
+          "avgTtft": "TTFT trung bình",
+          "trend": "Xu hướng token theo ngày",
+          "byModel": "Token theo mô hình",
+          "empty": "Không có lượt gọi mô hình cục bộ trong khoảng đã chọn",
+          "errorBadge": "{{model}}: tỉ lệ lỗi {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "Chưa cấu hình backend cục bộ",
+          "goToSettings": "Mở Cài đặt để thêm"
+        },
+        "jobs": {
+          "title": "Tác vụ nền",
+          "kind": {
+            "chat_model": "Cài đặt mô hình chat",
+            "embedding_model": "Cài đặt mô hình embedding",
+            "ollama_install": "Cài đặt Ollama",
+            "ollama_pull": "Tải Ollama",
+            "ollama_preload": "Nạp trước",
+            "memory_reembed": "Re-embedding bộ nhớ"
+          }
         }
       }
     },
@@ -4451,7 +4791,8 @@
     "dashboard": {
       "tabs": {
         "learning": "Aprendizado",
-        "dreaming": "Sonhos"
+        "dreaming": "Sonhos",
+        "localModels": "Modelos locais"
       },
       "learning": {
         "title": "Rastreador de Aprendizado",
@@ -4496,6 +4837,73 @@
           "idle": "ocioso",
           "cron": "cron",
           "manual": "manual"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Status do Ollama",
+        "ollamaPhases": {
+          "running": "Em execução",
+          "installed": "Instalado (parado)",
+          "not-installed": "Não instalado"
+        },
+        "openInSettings": "Gerenciar nas Configurações",
+        "hardware": {
+          "totalMemory": "Memória total",
+          "available": "Disponível",
+          "gpu": "GPU",
+          "integratedGpu": "GPU integrada / memória unificada",
+          "vram": "VRAM",
+          "budget": "Orçamento recomendado",
+          "budgetSource": {
+            "unified-memory": "Memória unificada (macOS)",
+            "dedicated-vram": "VRAM dedicada",
+            "system-memory": "Memória do sistema"
+          }
+        },
+        "running": {
+          "title": "Em execução agora",
+          "empty": "Nenhum modelo carregado no momento",
+          "vramUsed": "VRAM",
+          "context": "Contexto",
+          "expiresIn": "Será descarregado em {{duration}}",
+          "unloadingSoon": "Descarregando em breve",
+          "summary": "{{count}} em execução"
+        },
+        "installed": {
+          "title": "Modelos instalados",
+          "unknownFamily": "Família desconhecida",
+          "badges": {
+            "active": "Ativo",
+            "fallback": "Reserva",
+            "provider": "Modelo do Provider",
+            "embedding": "Embedding",
+            "running": "Em execução"
+          }
+        },
+        "usage": {
+          "title": "Uso de modelos locais",
+          "totalCalls": "Total de chamadas",
+          "totalTokens": "Total de tokens",
+          "avgTtft": "TTFT médio",
+          "trend": "Tendência diária de tokens",
+          "byModel": "Tokens por modelo",
+          "empty": "Sem chamadas a modelos locais no período selecionado",
+          "errorBadge": "{{model}}: taxa de erro {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "Nenhum backend local configurado ainda",
+          "goToSettings": "Abra Configurações para adicionar"
+        },
+        "jobs": {
+          "title": "Tarefas em segundo plano",
+          "kind": {
+            "chat_model": "Instalação de modelo de chat",
+            "embedding_model": "Instalação de modelo de embedding",
+            "ollama_install": "Instalação do Ollama",
+            "ollama_pull": "Download do Ollama",
+            "ollama_preload": "Pré-carregamento",
+            "memory_reembed": "Re-embedding de memória"
+          }
         }
       }
     },
@@ -5222,7 +5630,8 @@
     "dashboard": {
       "tabs": {
         "learning": "Обучение",
-        "dreaming": "Сновидения"
+        "dreaming": "Сновидения",
+        "localModels": "Локальные модели"
       },
       "learning": {
         "title": "Трекер обучения",
@@ -5267,6 +5676,73 @@
           "idle": "простой",
           "cron": "cron",
           "manual": "вручную"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Статус Ollama",
+        "ollamaPhases": {
+          "running": "Запущена",
+          "installed": "Установлена (простаивает)",
+          "not-installed": "Не установлена"
+        },
+        "openInSettings": "Управление в настройках",
+        "hardware": {
+          "totalMemory": "Всего памяти",
+          "available": "Доступно",
+          "gpu": "GPU",
+          "integratedGpu": "Встроенный GPU / единая память",
+          "vram": "VRAM",
+          "budget": "Рекомендуемый бюджет",
+          "budgetSource": {
+            "unified-memory": "Единая память (macOS)",
+            "dedicated-vram": "Выделенный VRAM",
+            "system-memory": "Системная память"
+          }
+        },
+        "running": {
+          "title": "Сейчас запущены",
+          "empty": "Ни одна модель не загружена",
+          "vramUsed": "VRAM",
+          "context": "Контекст",
+          "expiresIn": "Выгрузка через {{duration}}",
+          "unloadingSoon": "Скоро выгрузится",
+          "summary": "{{count}} запущено"
+        },
+        "installed": {
+          "title": "Установленные модели",
+          "unknownFamily": "Неизвестное семейство",
+          "badges": {
+            "active": "Активна",
+            "fallback": "Резерв",
+            "provider": "Модель Provider",
+            "embedding": "Embedding",
+            "running": "Запущена"
+          }
+        },
+        "usage": {
+          "title": "Использование локальных моделей",
+          "totalCalls": "Всего вызовов",
+          "totalTokens": "Всего токенов",
+          "avgTtft": "Среднее TTFT",
+          "trend": "Дневная динамика токенов",
+          "byModel": "Токены по моделям",
+          "empty": "В выбранном диапазоне нет вызовов локальных моделей",
+          "errorBadge": "{{model}}: уровень ошибок {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "Локальный backend ещё не настроен",
+          "goToSettings": "Открыть настройки для добавления"
+        },
+        "jobs": {
+          "title": "Фоновые задачи",
+          "kind": {
+            "chat_model": "Установка модели чата",
+            "embedding_model": "Установка модели embedding",
+            "ollama_install": "Установка Ollama",
+            "ollama_pull": "Загрузка Ollama",
+            "ollama_preload": "Предзагрузка",
+            "memory_reembed": "Переиндексация памяти"
+          }
         }
       }
     },
@@ -5993,7 +6469,8 @@
     "dashboard": {
       "tabs": {
         "learning": "التعلّم",
-        "dreaming": "الأحلام"
+        "dreaming": "الأحلام",
+        "localModels": "النماذج المحلية"
       },
       "learning": {
         "title": "متتبع التعلّم",
@@ -6038,6 +6515,73 @@
           "idle": "خامل",
           "cron": "cron",
           "manual": "يدوي"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "حالة Ollama",
+        "ollamaPhases": {
+          "running": "قيد التشغيل",
+          "installed": "مثبت (خامل)",
+          "not-installed": "غير مثبت"
+        },
+        "openInSettings": "الإدارة من الإعدادات",
+        "hardware": {
+          "totalMemory": "إجمالي الذاكرة",
+          "available": "متاح",
+          "gpu": "GPU",
+          "integratedGpu": "GPU مدمج / ذاكرة موحدة",
+          "vram": "VRAM",
+          "budget": "الميزانية الموصى بها",
+          "budgetSource": {
+            "unified-memory": "ذاكرة موحدة (macOS)",
+            "dedicated-vram": "VRAM مخصص",
+            "system-memory": "ذاكرة النظام"
+          }
+        },
+        "running": {
+          "title": "النماذج النشطة حالياً",
+          "empty": "لا يوجد نموذج محمل حالياً",
+          "vramUsed": "VRAM",
+          "context": "السياق",
+          "expiresIn": "سيُلغى التحميل خلال {{duration}}",
+          "unloadingSoon": "سيُلغى التحميل قريباً",
+          "summary": "{{count}} قيد التشغيل"
+        },
+        "installed": {
+          "title": "النماذج المثبتة",
+          "unknownFamily": "عائلة غير معروفة",
+          "badges": {
+            "active": "النشط الآن",
+            "fallback": "احتياطي",
+            "provider": "نموذج Provider",
+            "embedding": "تضمين",
+            "running": "قيد التشغيل"
+          }
+        },
+        "usage": {
+          "title": "استخدام النماذج المحلية",
+          "totalCalls": "إجمالي الاستدعاءات",
+          "totalTokens": "إجمالي الـ Tokens",
+          "avgTtft": "متوسط TTFT",
+          "trend": "اتجاه الـ Tokens اليومي",
+          "byModel": "الـ Tokens حسب النموذج",
+          "empty": "لا توجد استدعاءات للنماذج المحلية في النطاق المحدد",
+          "errorBadge": "{{model}}: معدل خطأ {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "لم يتم إعداد أي backend محلي بعد",
+          "goToSettings": "افتح الإعدادات لإضافة واحد"
+        },
+        "jobs": {
+          "title": "المهام الخلفية",
+          "kind": {
+            "chat_model": "تثبيت نموذج الدردشة",
+            "embedding_model": "تثبيت نموذج التضمين",
+            "ollama_install": "تثبيت Ollama",
+            "ollama_pull": "سحب من Ollama",
+            "ollama_preload": "تحميل مسبق",
+            "memory_reembed": "إعادة تضمين الذاكرة"
+          }
         }
       }
     },
@@ -6764,7 +7308,8 @@
     "dashboard": {
       "tabs": {
         "learning": "Aprendizaje",
-        "dreaming": "Sueños"
+        "dreaming": "Sueños",
+        "localModels": "Modelos locales"
       },
       "learning": {
         "title": "Tracker de aprendizaje",
@@ -6809,6 +7354,73 @@
           "idle": "inactivo",
           "cron": "cron",
           "manual": "manual"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Estado de Ollama",
+        "ollamaPhases": {
+          "running": "En ejecución",
+          "installed": "Instalado (inactivo)",
+          "not-installed": "No instalado"
+        },
+        "openInSettings": "Gestionar en Ajustes",
+        "hardware": {
+          "totalMemory": "Memoria total",
+          "available": "Disponible",
+          "gpu": "GPU",
+          "integratedGpu": "GPU integrada / memoria unificada",
+          "vram": "VRAM",
+          "budget": "Presupuesto recomendado",
+          "budgetSource": {
+            "unified-memory": "Memoria unificada (macOS)",
+            "dedicated-vram": "VRAM dedicada",
+            "system-memory": "Memoria del sistema"
+          }
+        },
+        "running": {
+          "title": "En ejecución ahora",
+          "empty": "Ningún modelo cargado actualmente",
+          "vramUsed": "VRAM",
+          "context": "Contexto",
+          "expiresIn": "Se descargará en {{duration}}",
+          "unloadingSoon": "Descargándose pronto",
+          "summary": "{{count}} en ejecución"
+        },
+        "installed": {
+          "title": "Modelos instalados",
+          "unknownFamily": "Familia desconocida",
+          "badges": {
+            "active": "Activo",
+            "fallback": "Respaldo",
+            "provider": "Modelo de Provider",
+            "embedding": "Embedding",
+            "running": "En ejecución"
+          }
+        },
+        "usage": {
+          "title": "Uso de modelos locales",
+          "totalCalls": "Llamadas totales",
+          "totalTokens": "Tokens totales",
+          "avgTtft": "TTFT medio",
+          "trend": "Tendencia diaria de tokens",
+          "byModel": "Tokens por modelo",
+          "empty": "No hay llamadas a modelos locales en el rango seleccionado",
+          "errorBadge": "{{model}}: tasa de error {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "Aún no hay backend local configurado",
+          "goToSettings": "Abre Ajustes para añadir uno"
+        },
+        "jobs": {
+          "title": "Tareas en segundo plano",
+          "kind": {
+            "chat_model": "Instalación de modelo de chat",
+            "embedding_model": "Instalación de modelo de embedding",
+            "ollama_install": "Instalación de Ollama",
+            "ollama_pull": "Descarga de Ollama",
+            "ollama_preload": "Precarga",
+            "memory_reembed": "Re-embedding de memoria"
+          }
         }
       }
     },
@@ -7535,7 +8147,8 @@
     "dashboard": {
       "tabs": {
         "learning": "Pembelajaran",
-        "dreaming": "Mimpi"
+        "dreaming": "Mimpi",
+        "localModels": "Model Tempatan"
       },
       "learning": {
         "title": "Pengesan Pembelajaran",
@@ -7580,6 +8193,73 @@
           "idle": "terbiar",
           "cron": "cron",
           "manual": "manual"
+        }
+      },
+      "localModels": {
+        "ollamaStatus": "Status Ollama",
+        "ollamaPhases": {
+          "running": "Berjalan",
+          "installed": "Dipasang (melahu)",
+          "not-installed": "Belum dipasang"
+        },
+        "openInSettings": "Urus dalam Tetapan",
+        "hardware": {
+          "totalMemory": "Jumlah memori",
+          "available": "Tersedia",
+          "gpu": "GPU",
+          "integratedGpu": "GPU bersepadu / memori bersatu",
+          "vram": "VRAM",
+          "budget": "Bajet disyorkan",
+          "budgetSource": {
+            "unified-memory": "Memori bersatu (macOS)",
+            "dedicated-vram": "VRAM khusus",
+            "system-memory": "Memori sistem"
+          }
+        },
+        "running": {
+          "title": "Sedang berjalan",
+          "empty": "Tiada model dimuatkan",
+          "vramUsed": "VRAM",
+          "context": "Konteks",
+          "expiresIn": "Dinyahmuat dalam {{duration}}",
+          "unloadingSoon": "Akan dinyahmuat",
+          "summary": "{{count}} berjalan"
+        },
+        "installed": {
+          "title": "Model dipasang",
+          "unknownFamily": "Keluarga tidak diketahui",
+          "badges": {
+            "active": "Aktif",
+            "fallback": "Sandaran",
+            "provider": "Model Provider",
+            "embedding": "Embedding",
+            "running": "Berjalan"
+          }
+        },
+        "usage": {
+          "title": "Penggunaan model tempatan",
+          "totalCalls": "Jumlah panggilan",
+          "totalTokens": "Jumlah token",
+          "avgTtft": "Purata TTFT",
+          "trend": "Trend token harian",
+          "byModel": "Token mengikut model",
+          "empty": "Tiada panggilan model tempatan dalam julat yang dipilih",
+          "errorBadge": "{{model}}: kadar ralat {{rate}}% ({{errors}}/{{calls}})"
+        },
+        "empty": {
+          "noProvider": "Belum ada backend tempatan dikonfigurasikan",
+          "goToSettings": "Buka Tetapan untuk menambah"
+        },
+        "jobs": {
+          "title": "Tugas latar belakang",
+          "kind": {
+            "chat_model": "Pemasangan model sembang",
+            "embedding_model": "Pemasangan model embedding",
+            "ollama_install": "Pemasangan Ollama",
+            "ollama_pull": "Muat turun Ollama",
+            "ollama_preload": "Pra-muat",
+            "memory_reembed": "Embed semula memori"
+          }
         }
       }
     },

@@ -501,6 +501,28 @@ export type RecapProgress =
   | { phase: "done"; reportId: string }
   | { phase: "failed"; reportId: string; message: string }
 
+// ── Local Models Tab ────────────────────────────────────────────
+
+export interface DashboardLocalModelUsageRow {
+  modelId: string
+  providerName: string
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  avgTtftMs: number | null
+  errorCount: number
+}
+
+export interface DashboardLocalModelUsage {
+  localProviderNames: string[]
+  totalCalls: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  avgTtftMs: number | null
+  trend: TokenUsageTrend[]
+  byModel: DashboardLocalModelUsageRow[]
+}
+
 // ── Plan Stats ──────────────────────────────────────────────────
 
 export interface PlanStateDistribution {

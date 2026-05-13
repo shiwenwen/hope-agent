@@ -23,6 +23,7 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `cost.rs` | 模型定价表与成本计算引擎 |
 | `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `learning.rs` | Learning Tracker 4 个查询 + 12 个事件常量（埋点写入 `session.db.learning_events`） |
+| `local_models.rs` | 本地模型 Tab 专属聚合：按 `provider::local::known_local_backends` 反查"本地"provider name 列表后对 sessions / messages 表做 token / 调用次数 / TTFT / 错误率统计；前端 `LocalModelsSection` 消费 |
 
 ## 数据源架构
 

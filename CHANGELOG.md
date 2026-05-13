@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dashboard 新增「本地模型」面板**：一眼看清 Ollama 运行态、当前加载的模型与 VRAM 占用、硬件预算余量、本地模型在所选时间窗内的调用次数 / Token / 平均 TTFT / 错误率，以及在跑的安装 / 拉取 / 预热后台任务；面板只读，模型管理仍走「设置 → 本地 LLM 助手」单一入口。
+
 ## [0.2.0] - 2026-05-13
 
 ### Changed

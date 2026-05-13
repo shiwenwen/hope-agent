@@ -842,18 +842,34 @@
       "systemUptime": "Sistem çalışma süresi",
       "virtualMem": "Sanal bellek"
     },
+    "plans": {
+      "active": "Devam ediyor",
+      "avgExecution": "Ortalama yürütme süresi",
+      "byAgent": "Agent bazında",
+      "byAgentCompleted": "Tamamlanan",
+      "byProject": "Proje bazında",
+      "completionRate": "Tamamlanma oranı",
+      "created": "Oluşturulan",
+      "creationTrend": "Oluşturma trendi (30 gün)",
+      "empty": "Seçili pencerede Plan verisi yok.",
+      "noProject": "Proje yok",
+      "sampleSize": "{{count}} tamamlanmış örnek",
+      "stateDistribution": "Durum dağılımı",
+      "total": "Toplam Plan"
+    },
     "tabs": {
       "dreaming": "Rüyalar",
       "errors": "Hatalar",
       "insights": "İçgörüler",
       "learning": "Öğrenme",
+      "plans": "Planlar",
       "recap": "Özet",
       "sessions": "Oturumlar",
       "system": "Sistem",
       "tasks": "Görevler",
       "tokens": "Token kullanımı",
       "tools": "Araç kullanımı",
-      "plans": "Planlar"
+      "localModels": "Yerel Modeller"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -902,20 +918,72 @@
       "name": "Ad",
       "totalMs": "Toplam (ms)"
     },
-    "plans": {
-      "active": "Devam ediyor",
-      "avgExecution": "Ortalama yürütme süresi",
-      "byAgent": "Agent bazında",
-      "byAgentCompleted": "Tamamlanan",
-      "byProject": "Proje bazında",
-      "completionRate": "Tamamlanma oranı",
-      "created": "Oluşturulan",
-      "creationTrend": "Oluşturma trendi (30 gün)",
-      "empty": "Seçili pencerede Plan verisi yok.",
-      "noProject": "Proje yok",
-      "sampleSize": "{{count}} tamamlanmış örnek",
-      "stateDistribution": "Durum dağılımı",
-      "total": "Toplam Plan"
+    "localModels": {
+      "ollamaStatus": "Ollama durumu",
+      "ollamaPhases": {
+        "running": "Çalışıyor",
+        "installed": "Yüklü (boşta)",
+        "not-installed": "Yüklü değil"
+      },
+      "openInSettings": "Ayarlarda yönet",
+      "hardware": {
+        "totalMemory": "Toplam bellek",
+        "available": "Kullanılabilir",
+        "gpu": "GPU",
+        "integratedGpu": "Entegre GPU / birleşik bellek",
+        "vram": "VRAM",
+        "budget": "Önerilen bütçe",
+        "budgetSource": {
+          "unified-memory": "Birleşik bellek (macOS)",
+          "dedicated-vram": "Özel VRAM",
+          "system-memory": "Sistem belleği"
+        }
+      },
+      "running": {
+        "title": "Şu anda çalışan",
+        "empty": "Şu an yüklü model yok",
+        "vramUsed": "VRAM",
+        "context": "Bağlam",
+        "expiresIn": "{{duration}} içinde boşaltılacak",
+        "unloadingSoon": "Yakında boşaltılacak",
+        "summary": "{{count}} çalışıyor"
+      },
+      "installed": {
+        "title": "Yüklü modeller",
+        "unknownFamily": "Bilinmeyen aile",
+        "badges": {
+          "active": "Etkin",
+          "fallback": "Yedek",
+          "provider": "Provider modeli",
+          "embedding": "Embedding",
+          "running": "Çalışıyor"
+        }
+      },
+      "usage": {
+        "title": "Yerel model kullanımı",
+        "totalCalls": "Toplam çağrı",
+        "totalTokens": "Toplam token",
+        "avgTtft": "Ortalama TTFT",
+        "trend": "Günlük token eğilimi",
+        "byModel": "Modele göre token",
+        "empty": "Seçilen aralıkta yerel model çağrısı yok",
+        "errorBadge": "{{model}}: hata oranı {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "Henüz yerel backend yapılandırılmadı",
+        "goToSettings": "Eklemek için Ayarları açın"
+      },
+      "jobs": {
+        "title": "Arka plan görevleri",
+        "kind": {
+          "chat_model": "Sohbet modeli kurulumu",
+          "embedding_model": "Embedding modeli kurulumu",
+          "ollama_install": "Ollama kurulumu",
+          "ollama_pull": "Ollama indirme",
+          "ollama_preload": "Ön yükleme",
+          "memory_reembed": "Bellek yeniden embedding"
+        }
+      }
     }
   },
   "diffPanel": {
@@ -1611,6 +1679,37 @@
       "subtitle": "Kullandıkça seni daha iyi tanıyan bir AI asistanı — masaüstü, bulut ve IM; her an hazır.\nAşağıda kısa bir kurulum var — model seçimi dışındaki tüm adımlar atlanabilir.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Plan referansını mevcut sohbete ekle",
+    "badge": {
+      "archived": "Arşivlenmiş",
+      "completed": "Tamamlandı",
+      "executing": "Yürütülüyor",
+      "orphan": "Sahipsiz",
+      "planning": "Planlanıyor",
+      "review": "İnceleme"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Henüz Plan yok.",
+    "emptyPlan": "Bu Plan dosyası boş.",
+    "filter": {
+      "allAgents": "Tüm Agent'lar",
+      "state": {
+        "all": "Tüm durumlar",
+        "archived": "Arşivlenmiş (çıkış)",
+        "completed": "Tamamlandı",
+        "executing": "Yürütülüyor",
+        "planning": "Planlanıyor",
+        "review": "İnceleme"
+      }
+    },
+    "openInSession": "Oturumda aç",
+    "refresh": "Yenile",
+    "selectHint": "Sol taraftan bir Plan seçin.",
+    "sessionDeleted": "Sahip oturum silinmiş",
+    "title": "Planlar",
+    "untitled": "İsimsiz plan"
   },
   "planMode": {
     "approveAndExecute": "Yürütmeyi başlat",
@@ -3971,36 +4070,5 @@
     "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
     "openaiResponsesDesc": "/v1/responses uyumlu servisler",
     "selectApiType": "API Türü Seçin"
-  },
-  "plans": {
-    "addToChat": "Plan referansını mevcut sohbete ekle",
-    "badge": {
-      "archived": "Arşivlenmiş",
-      "completed": "Tamamlandı",
-      "executing": "Yürütülüyor",
-      "orphan": "Sahipsiz",
-      "planning": "Planlanıyor",
-      "review": "İnceleme"
-    },
-    "count": "{{count}} Plan",
-    "empty": "Henüz Plan yok.",
-    "emptyPlan": "Bu Plan dosyası boş.",
-    "filter": {
-      "allAgents": "Tüm Agent'lar",
-      "state": {
-        "all": "Tüm durumlar",
-        "archived": "Arşivlenmiş (çıkış)",
-        "completed": "Tamamlandı",
-        "executing": "Yürütülüyor",
-        "planning": "Planlanıyor",
-        "review": "İnceleme"
-      }
-    },
-    "openInSession": "Oturumda aç",
-    "refresh": "Yenile",
-    "selectHint": "Sol taraftan bir Plan seçin.",
-    "sessionDeleted": "Sahip oturum silinmiş",
-    "title": "Planlar",
-    "untitled": "İsimsiz plan"
   }
 }

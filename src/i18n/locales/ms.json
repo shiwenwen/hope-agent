@@ -842,18 +842,34 @@
       "systemUptime": "Masa berjalan sistem",
       "virtualMem": "Memori maya"
     },
+    "plans": {
+      "active": "Sedang berlangsung",
+      "avgExecution": "Tempoh perlaksanaan purata",
+      "byAgent": "Mengikut Agent",
+      "byAgentCompleted": "Selesai",
+      "byProject": "Mengikut projek",
+      "completionRate": "Kadar penyelesaian",
+      "created": "Dicipta",
+      "creationTrend": "Trend penciptaan (30 hari)",
+      "empty": "Tiada data Plan dalam tempoh dipilih.",
+      "noProject": "Tanpa projek",
+      "sampleSize": "Disampel {{count}} larian selesai",
+      "stateDistribution": "Taburan keadaan",
+      "total": "Jumlah Plan"
+    },
     "tabs": {
       "dreaming": "Mimpi",
       "errors": "Ralat",
       "insights": "Cerapan",
       "learning": "Pembelajaran",
+      "plans": "Plan",
       "recap": "Tinjauan",
       "sessions": "Sesi",
       "system": "Sistem",
       "tasks": "Tugasan",
       "tokens": "Penggunaan Token",
       "tools": "Penggunaan Alat",
-      "plans": "Plan"
+      "localModels": "Model Tempatan"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -902,20 +918,72 @@
       "name": "Nama",
       "totalMs": "Jumlah (ms)"
     },
-    "plans": {
-      "active": "Sedang berlangsung",
-      "avgExecution": "Tempoh perlaksanaan purata",
-      "byAgent": "Mengikut Agent",
-      "byAgentCompleted": "Selesai",
-      "byProject": "Mengikut projek",
-      "completionRate": "Kadar penyelesaian",
-      "created": "Dicipta",
-      "creationTrend": "Trend penciptaan (30 hari)",
-      "empty": "Tiada data Plan dalam tempoh dipilih.",
-      "noProject": "Tanpa projek",
-      "sampleSize": "Disampel {{count}} larian selesai",
-      "stateDistribution": "Taburan keadaan",
-      "total": "Jumlah Plan"
+    "localModels": {
+      "ollamaStatus": "Status Ollama",
+      "ollamaPhases": {
+        "running": "Berjalan",
+        "installed": "Dipasang (melahu)",
+        "not-installed": "Belum dipasang"
+      },
+      "openInSettings": "Urus dalam Tetapan",
+      "hardware": {
+        "totalMemory": "Jumlah memori",
+        "available": "Tersedia",
+        "gpu": "GPU",
+        "integratedGpu": "GPU bersepadu / memori bersatu",
+        "vram": "VRAM",
+        "budget": "Bajet disyorkan",
+        "budgetSource": {
+          "unified-memory": "Memori bersatu (macOS)",
+          "dedicated-vram": "VRAM khusus",
+          "system-memory": "Memori sistem"
+        }
+      },
+      "running": {
+        "title": "Sedang berjalan",
+        "empty": "Tiada model dimuatkan",
+        "vramUsed": "VRAM",
+        "context": "Konteks",
+        "expiresIn": "Dinyahmuat dalam {{duration}}",
+        "unloadingSoon": "Akan dinyahmuat",
+        "summary": "{{count}} berjalan"
+      },
+      "installed": {
+        "title": "Model dipasang",
+        "unknownFamily": "Keluarga tidak diketahui",
+        "badges": {
+          "active": "Aktif",
+          "fallback": "Sandaran",
+          "provider": "Model Provider",
+          "embedding": "Embedding",
+          "running": "Berjalan"
+        }
+      },
+      "usage": {
+        "title": "Penggunaan model tempatan",
+        "totalCalls": "Jumlah panggilan",
+        "totalTokens": "Jumlah token",
+        "avgTtft": "Purata TTFT",
+        "trend": "Trend token harian",
+        "byModel": "Token mengikut model",
+        "empty": "Tiada panggilan model tempatan dalam julat yang dipilih",
+        "errorBadge": "{{model}}: kadar ralat {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "Belum ada backend tempatan dikonfigurasikan",
+        "goToSettings": "Buka Tetapan untuk menambah"
+      },
+      "jobs": {
+        "title": "Tugas latar belakang",
+        "kind": {
+          "chat_model": "Pemasangan model sembang",
+          "embedding_model": "Pemasangan model embedding",
+          "ollama_install": "Pemasangan Ollama",
+          "ollama_pull": "Muat turun Ollama",
+          "ollama_preload": "Pra-muat",
+          "memory_reembed": "Embed semula memori"
+        }
+      }
     }
   },
   "diffPanel": {
@@ -1611,6 +1679,37 @@
       "subtitle": "Pembantu AI yang semakin mengenali anda setiap kali digunakan — di desktop, di awan dan di IM, sentiasa bersedia.\nDi bawah ialah panduan ringkas — semua langkah boleh dilangkau kecuali memilih model.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Tambah rujukan Plan ke perbualan semasa",
+    "badge": {
+      "archived": "Diarkibkan",
+      "completed": "Selesai",
+      "executing": "Sedang dijalankan",
+      "orphan": "Yatim",
+      "planning": "Sedang merancang",
+      "review": "Dalam semakan"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Tiada Plan lagi.",
+    "emptyPlan": "Fail Plan ini kosong.",
+    "filter": {
+      "allAgents": "Semua Agent",
+      "state": {
+        "all": "Semua keadaan",
+        "archived": "Diarkibkan (keluar)",
+        "completed": "Selesai",
+        "executing": "Sedang dijalankan",
+        "planning": "Sedang merancang",
+        "review": "Dalam semakan"
+      }
+    },
+    "openInSession": "Buka dalam sesi",
+    "refresh": "Muat semula",
+    "selectHint": "Pilih satu Plan di sebelah kiri untuk melihat kandungannya.",
+    "sessionDeleted": "Sesi pemilik telah dipadam",
+    "title": "Plan",
+    "untitled": "Plan tanpa tajuk"
   },
   "planMode": {
     "approveAndExecute": "Mula pelaksanaan",
@@ -3971,36 +4070,5 @@
     "openaiChatDesc": "Perkhidmatan serasi dengan /v1/chat/completions",
     "openaiResponsesDesc": "Perkhidmatan serasi dengan /v1/responses",
     "selectApiType": "Pilih Jenis API"
-  },
-  "plans": {
-    "addToChat": "Tambah rujukan Plan ke perbualan semasa",
-    "badge": {
-      "archived": "Diarkibkan",
-      "completed": "Selesai",
-      "executing": "Sedang dijalankan",
-      "orphan": "Yatim",
-      "planning": "Sedang merancang",
-      "review": "Dalam semakan"
-    },
-    "count": "{{count}} Plan",
-    "empty": "Tiada Plan lagi.",
-    "emptyPlan": "Fail Plan ini kosong.",
-    "filter": {
-      "allAgents": "Semua Agent",
-      "state": {
-        "all": "Semua keadaan",
-        "archived": "Diarkibkan (keluar)",
-        "completed": "Selesai",
-        "executing": "Sedang dijalankan",
-        "planning": "Sedang merancang",
-        "review": "Dalam semakan"
-      }
-    },
-    "openInSession": "Buka dalam sesi",
-    "refresh": "Muat semula",
-    "selectHint": "Pilih satu Plan di sebelah kiri untuk melihat kandungannya.",
-    "sessionDeleted": "Sesi pemilik telah dipadam",
-    "title": "Plan",
-    "untitled": "Plan tanpa tajuk"
   }
 }

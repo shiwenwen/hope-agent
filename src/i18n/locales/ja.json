@@ -842,18 +842,34 @@
       "systemUptime": "システム稼働時間",
       "virtualMem": "仮想メモリ"
     },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均実行時間",
+      "byAgent": "Agent 別",
+      "byAgentCompleted": "完了",
+      "byProject": "プロジェクト別",
+      "completionRate": "完了率",
+      "created": "作成",
+      "creationTrend": "作成トレンド (30 日)",
+      "empty": "選択した期間に Plan がありません。",
+      "noProject": "プロジェクトなし",
+      "sampleSize": "完了 {{count}} 件をサンプリング",
+      "stateDistribution": "状態分布",
+      "total": "Plan 総数"
+    },
     "tabs": {
       "dreaming": "ドリーム",
       "errors": "エラー監視",
       "insights": "インサイト",
       "learning": "学習",
+      "plans": "Plan",
       "recap": "レビュー",
       "sessions": "セッション分析",
       "system": "システム監視",
       "tasks": "タスク統計",
       "tokens": "トークン使用量",
       "tools": "ツール使用",
-      "plans": "Plan"
+      "localModels": "ローカルモデル"
     },
     "task": {
       "activeJobs": "アクティブ",
@@ -902,20 +918,72 @@
       "name": "ツール名",
       "totalMs": "合計 (ms)"
     },
-    "plans": {
-      "active": "進行中",
-      "avgExecution": "平均実行時間",
-      "byAgent": "Agent 別",
-      "byAgentCompleted": "完了",
-      "byProject": "プロジェクト別",
-      "completionRate": "完了率",
-      "created": "作成",
-      "creationTrend": "作成トレンド (30 日)",
-      "empty": "選択した期間に Plan がありません。",
-      "noProject": "プロジェクトなし",
-      "sampleSize": "完了 {{count}} 件をサンプリング",
-      "stateDistribution": "状態分布",
-      "total": "Plan 総数"
+    "localModels": {
+      "ollamaStatus": "Ollama 状態",
+      "ollamaPhases": {
+        "running": "実行中",
+        "installed": "インストール済（停止中）",
+        "not-installed": "未インストール"
+      },
+      "openInSettings": "設定で管理",
+      "hardware": {
+        "totalMemory": "総メモリ",
+        "available": "利用可能",
+        "gpu": "GPU",
+        "integratedGpu": "統合 GPU / ユニファイドメモリ",
+        "vram": "VRAM",
+        "budget": "推奨予算",
+        "budgetSource": {
+          "unified-memory": "ユニファイドメモリ (macOS)",
+          "dedicated-vram": "専用 VRAM",
+          "system-memory": "システムメモリ"
+        }
+      },
+      "running": {
+        "title": "実行中のモデル",
+        "empty": "現在ロードされているモデルはありません",
+        "vramUsed": "VRAM",
+        "context": "コンテキスト",
+        "expiresIn": "{{duration}} 後にアンロード",
+        "unloadingSoon": "まもなくアンロード",
+        "summary": "{{count}} 件実行中"
+      },
+      "installed": {
+        "title": "インストール済モデル",
+        "unknownFamily": "不明なファミリー",
+        "badges": {
+          "active": "アクティブ",
+          "fallback": "フォールバック",
+          "provider": "Provider モデル",
+          "embedding": "埋め込み",
+          "running": "実行中"
+        }
+      },
+      "usage": {
+        "title": "ローカルモデルの使用状況",
+        "totalCalls": "総呼び出し回数",
+        "totalTokens": "総トークン数",
+        "avgTtft": "平均 TTFT",
+        "trend": "日次トークン推移",
+        "byModel": "モデル別トークン",
+        "empty": "選択期間内にローカルモデルの呼び出しはありません",
+        "errorBadge": "{{model}}: エラー率 {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "ローカルバックエンドが未設定です",
+        "goToSettings": "設定を開いて追加"
+      },
+      "jobs": {
+        "title": "バックグラウンドタスク",
+        "kind": {
+          "chat_model": "チャットモデルのインストール",
+          "embedding_model": "埋め込みモデルのインストール",
+          "ollama_install": "Ollama のインストール",
+          "ollama_pull": "Ollama プル",
+          "ollama_preload": "プリロード",
+          "memory_reembed": "メモリ再埋め込み"
+        }
+      }
     }
   },
   "diffPanel": {
@@ -1611,6 +1679,37 @@
       "subtitle": "使うほどあなたを理解していく AI アシスタント——デスクトップ、クラウド、IM でいつでも呼び出せます。\n以下は簡単なセットアップです——モデル選択以外はすべてスキップできます。",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "現在のチャットに Plan 参照を追加",
+    "badge": {
+      "archived": "アーカイブ済み",
+      "completed": "完了",
+      "executing": "実行中",
+      "orphan": "孤立",
+      "planning": "計画中",
+      "review": "レビュー中"
+    },
+    "count": "Plan: {{count}} 件",
+    "empty": "Plan はありません。",
+    "emptyPlan": "この Plan ファイルは空です。",
+    "filter": {
+      "allAgents": "すべての Agent",
+      "state": {
+        "all": "すべての状態",
+        "archived": "アーカイブ (終了済み)",
+        "completed": "完了",
+        "executing": "実行中",
+        "planning": "計画中",
+        "review": "レビュー中"
+      }
+    },
+    "openInSession": "所属セッションへ移動",
+    "refresh": "更新",
+    "selectHint": "左側で Plan を選択してください。",
+    "sessionDeleted": "所属セッションは削除されました",
+    "title": "Plan 履歴",
+    "untitled": "無題の Plan"
   },
   "planMode": {
     "approveAndExecute": "実行開始",
@@ -3971,36 +4070,5 @@
     "openaiChatDesc": "/v1/chat/completions 互換サービス",
     "openaiResponsesDesc": "/v1/responses 互換サービス",
     "selectApiType": "API タイプを選択"
-  },
-  "plans": {
-    "addToChat": "現在のチャットに Plan 参照を追加",
-    "badge": {
-      "archived": "アーカイブ済み",
-      "completed": "完了",
-      "executing": "実行中",
-      "orphan": "孤立",
-      "planning": "計画中",
-      "review": "レビュー中"
-    },
-    "count": "Plan: {{count}} 件",
-    "empty": "Plan はありません。",
-    "emptyPlan": "この Plan ファイルは空です。",
-    "filter": {
-      "allAgents": "すべての Agent",
-      "state": {
-        "all": "すべての状態",
-        "archived": "アーカイブ (終了済み)",
-        "completed": "完了",
-        "executing": "実行中",
-        "planning": "計画中",
-        "review": "レビュー中"
-      }
-    },
-    "openInSession": "所属セッションへ移動",
-    "refresh": "更新",
-    "selectHint": "左側で Plan を選択してください。",
-    "sessionDeleted": "所属セッションは削除されました",
-    "title": "Plan 履歴",
-    "untitled": "無題の Plan"
   }
 }

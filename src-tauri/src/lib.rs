@@ -299,6 +299,7 @@ pub fn run() {
             commands::local_llm::local_llm_recommend_model,
             commands::local_llm::local_llm_chat_catalog,
             commands::local_llm::local_llm_detect_ollama,
+            commands::local_llm::local_llm_detect_ollama_version,
             commands::local_llm::local_llm_known_backends,
             commands::local_llm::local_llm_start_ollama,
             commands::local_llm::local_llm_list_models,
@@ -574,6 +575,7 @@ pub fn run() {
             commands::dashboard::dashboard_top_skills,
             commands::dashboard::dashboard_recall_stats,
             commands::dashboard::dashboard_plan_stats,
+            commands::dashboard::dashboard_local_model_usage,
             // Recap (deep analysis reports)
             commands::recap::recap_generate,
             commands::recap::recap_list_reports,

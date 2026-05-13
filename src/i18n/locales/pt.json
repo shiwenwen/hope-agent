@@ -842,18 +842,34 @@
       "systemUptime": "Uptime do sistema",
       "virtualMem": "Memória virtual"
     },
+    "plans": {
+      "active": "Em andamento",
+      "avgExecution": "Tempo médio de execução",
+      "byAgent": "Por Agent",
+      "byAgentCompleted": "Concluídos",
+      "byProject": "Por projeto",
+      "completionRate": "Taxa de conclusão",
+      "created": "Criados",
+      "creationTrend": "Tendência de criação (30 dias)",
+      "empty": "Sem dados de Plan na janela selecionada.",
+      "noProject": "Sem projeto",
+      "sampleSize": "{{count}} execuções concluídas amostradas",
+      "stateDistribution": "Distribuição de estados",
+      "total": "Total de planos"
+    },
     "tabs": {
       "dreaming": "Sonhos",
       "errors": "Erros",
       "insights": "Insights",
       "learning": "Aprendizado",
+      "plans": "Planos",
       "recap": "Recap",
       "sessions": "Sessões",
       "system": "Sistema",
       "tasks": "Tarefas",
       "tokens": "Uso de tokens",
       "tools": "Uso de ferramentas",
-      "plans": "Planos"
+      "localModels": "Modelos locais"
     },
     "task": {
       "activeJobs": "Ativas",
@@ -902,20 +918,72 @@
       "name": "Nome",
       "totalMs": "Total (ms)"
     },
-    "plans": {
-      "active": "Em andamento",
-      "avgExecution": "Tempo médio de execução",
-      "byAgent": "Por Agent",
-      "byAgentCompleted": "Concluídos",
-      "byProject": "Por projeto",
-      "completionRate": "Taxa de conclusão",
-      "created": "Criados",
-      "creationTrend": "Tendência de criação (30 dias)",
-      "empty": "Sem dados de Plan na janela selecionada.",
-      "noProject": "Sem projeto",
-      "sampleSize": "{{count}} execuções concluídas amostradas",
-      "stateDistribution": "Distribuição de estados",
-      "total": "Total de planos"
+    "localModels": {
+      "ollamaStatus": "Status do Ollama",
+      "ollamaPhases": {
+        "running": "Em execução",
+        "installed": "Instalado (parado)",
+        "not-installed": "Não instalado"
+      },
+      "openInSettings": "Gerenciar nas Configurações",
+      "hardware": {
+        "totalMemory": "Memória total",
+        "available": "Disponível",
+        "gpu": "GPU",
+        "integratedGpu": "GPU integrada / memória unificada",
+        "vram": "VRAM",
+        "budget": "Orçamento recomendado",
+        "budgetSource": {
+          "unified-memory": "Memória unificada (macOS)",
+          "dedicated-vram": "VRAM dedicada",
+          "system-memory": "Memória do sistema"
+        }
+      },
+      "running": {
+        "title": "Em execução agora",
+        "empty": "Nenhum modelo carregado no momento",
+        "vramUsed": "VRAM",
+        "context": "Contexto",
+        "expiresIn": "Será descarregado em {{duration}}",
+        "unloadingSoon": "Descarregando em breve",
+        "summary": "{{count}} em execução"
+      },
+      "installed": {
+        "title": "Modelos instalados",
+        "unknownFamily": "Família desconhecida",
+        "badges": {
+          "active": "Ativo",
+          "fallback": "Reserva",
+          "provider": "Modelo do Provider",
+          "embedding": "Embedding",
+          "running": "Em execução"
+        }
+      },
+      "usage": {
+        "title": "Uso de modelos locais",
+        "totalCalls": "Total de chamadas",
+        "totalTokens": "Total de tokens",
+        "avgTtft": "TTFT médio",
+        "trend": "Tendência diária de tokens",
+        "byModel": "Tokens por modelo",
+        "empty": "Sem chamadas a modelos locais no período selecionado",
+        "errorBadge": "{{model}}: taxa de erro {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "Nenhum backend local configurado ainda",
+        "goToSettings": "Abra Configurações para adicionar"
+      },
+      "jobs": {
+        "title": "Tarefas em segundo plano",
+        "kind": {
+          "chat_model": "Instalação de modelo de chat",
+          "embedding_model": "Instalação de modelo de embedding",
+          "ollama_install": "Instalação do Ollama",
+          "ollama_pull": "Download do Ollama",
+          "ollama_preload": "Pré-carregamento",
+          "memory_reembed": "Re-embedding de memória"
+        }
+      }
     }
   },
   "diffPanel": {
@@ -1611,6 +1679,37 @@
       "subtitle": "Um assistente de IA que te conhece melhor a cada uso — no desktop, na nuvem e na mensageria, sempre pronto.\nSegue um guia rápido — todas as etapas são opcionais, exceto escolher um modelo.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Adicionar referência do Plan ao chat atual",
+    "badge": {
+      "archived": "Arquivado",
+      "completed": "Concluído",
+      "executing": "Executando",
+      "orphan": "Órfão",
+      "planning": "Planejando",
+      "review": "Em revisão"
+    },
+    "count": "{{count}} planos",
+    "empty": "Sem planos ainda.",
+    "emptyPlan": "Este arquivo de Plan está vazio.",
+    "filter": {
+      "allAgents": "Todos os Agents",
+      "state": {
+        "all": "Todos os estados",
+        "archived": "Arquivado (saída)",
+        "completed": "Concluído",
+        "executing": "Executando",
+        "planning": "Planejando",
+        "review": "Em revisão"
+      }
+    },
+    "openInSession": "Abrir na sessão",
+    "refresh": "Atualizar",
+    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
+    "sessionDeleted": "Sessão proprietária excluída",
+    "title": "Planos",
+    "untitled": "Plan sem título"
   },
   "planMode": {
     "approveAndExecute": "Iniciar execução",
@@ -3971,36 +4070,5 @@
     "openaiChatDesc": "Serviços compatíveis com /v1/chat/completions",
     "openaiResponsesDesc": "Serviços compatíveis com /v1/responses",
     "selectApiType": "Selecione o Tipo de API"
-  },
-  "plans": {
-    "addToChat": "Adicionar referência do Plan ao chat atual",
-    "badge": {
-      "archived": "Arquivado",
-      "completed": "Concluído",
-      "executing": "Executando",
-      "orphan": "Órfão",
-      "planning": "Planejando",
-      "review": "Em revisão"
-    },
-    "count": "{{count}} planos",
-    "empty": "Sem planos ainda.",
-    "emptyPlan": "Este arquivo de Plan está vazio.",
-    "filter": {
-      "allAgents": "Todos os Agents",
-      "state": {
-        "all": "Todos os estados",
-        "archived": "Arquivado (saída)",
-        "completed": "Concluído",
-        "executing": "Executando",
-        "planning": "Planejando",
-        "review": "Em revisão"
-      }
-    },
-    "openInSession": "Abrir na sessão",
-    "refresh": "Atualizar",
-    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
-    "sessionDeleted": "Sessão proprietária excluída",
-    "title": "Planos",
-    "untitled": "Plan sem título"
   }
 }
