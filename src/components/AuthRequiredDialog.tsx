@@ -33,7 +33,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { isTauriMode } from "@/lib/transport"
-import { AUTH_REQUIRED_EVENT, setStoredApiKey } from "@/lib/api-key-storage"
+import {
+  AUTH_REQUIRED_EVENT,
+  consumeAuthRequiredSticky,
+  setStoredApiKey,
+} from "@/lib/api-key-storage"
 
 export function AuthRequiredDialog() {
   const { t } = useTranslation()
@@ -50,6 +54,16 @@ export function AuthRequiredDialog() {
       setOpen(true)
     }
     window.addEventListener(AUTH_REQUIRED_EVENT, handler)
+    // First-boot races: the very first protected API call often fails
+    // with 401 before this component has mounted (the boot effect runs
+    // while the loading splash is showing). `dispatchAuthRequired`
+    // raises a sticky flag for exactly that case — replay the event
+    // so the listener we just attached picks it up via the same path
+    // as a fresh 401 (keeps state-update flow out of the effect body
+    // and react-hooks/set-state-in-effect happy).
+    if (consumeAuthRequiredSticky()) {
+      window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT))
+    }
     return () => window.removeEventListener(AUTH_REQUIRED_EVENT, handler)
   }, [])
 

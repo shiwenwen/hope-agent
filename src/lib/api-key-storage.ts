@@ -29,6 +29,9 @@ export function setStoredApiKey(token: string | null): void {
   try {
     if (token) {
       localStorage.setItem(STORAGE_KEY, token);
+      // User supplied a fresh token — assume it's valid; let the next
+      // 401 (if any) re-arm the sticky flag.
+      authRequiredSticky = false;
     } else {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -71,8 +74,20 @@ export function captureTokenFromUrl(): void {
  */
 export const AUTH_REQUIRED_EVENT = "ha:auth-required";
 
+/**
+ * Sticky flag: stays true after `dispatchAuthRequired()` until the user
+ * actually provides a token via `setStoredApiKey`. The 401 that
+ * triggers the dialog frequently fires during the very first boot
+ * `useEffect`, while `AuthRequiredDialog` has not yet mounted — without
+ * a sticky flag the event arrives at an empty listener list and the
+ * dialog never opens. The dialog reads (and clears) this flag on mount
+ * to recover the event after the fact.
+ */
+let authRequiredSticky = false;
+
 /** Notify listeners that the stored token (if any) was rejected. */
 export function dispatchAuthRequired(): void {
+  authRequiredSticky = true;
   if (typeof window === "undefined") return;
   try {
     window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT));
@@ -80,4 +95,15 @@ export function dispatchAuthRequired(): void {
     // Older browsers without CustomEvent — drop. The page just won't
     // surface the dialog.
   }
+}
+
+/**
+ * Read and clear the sticky auth-required flag. `AuthRequiredDialog`
+ * calls this when it mounts so it can catch up to a 401 that fired
+ * before its listener was attached.
+ */
+export function consumeAuthRequiredSticky(): boolean {
+  const v = authRequiredSticky;
+  authRequiredSticky = false;
+  return v;
 }

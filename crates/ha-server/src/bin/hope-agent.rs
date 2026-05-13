@@ -143,6 +143,29 @@ fn run_server(args: &[String]) {
         eprintln!("[server] Warning: failed to ensure default agent: {e}");
     }
 
+    // Resolve the effective API key. Precedence (highest first):
+    //   1. `--api-key` CLI flag (translated from `HA_API_KEY` env by the
+    //      Docker entrypoint).
+    //   2. `config.server.api_key` written by the browser onboarding
+    //      wizard or the Settings → Server panel.
+    //   3. `None` — server accepts unauthenticated requests.
+    //
+    // Without #2 a user who enables auth in the browser, restarts the
+    // container without re-exporting `HA_API_KEY`, gets a server that
+    // silently downgrades to no-auth while the UI suggests otherwise.
+    let api_key = api_key.or_else(|| {
+        ha_core::config::cached_config()
+            .server
+            .api_key
+            .clone()
+            .filter(|k| !k.is_empty())
+            .inspect(|_| {
+                eprintln!(
+                    "[server] Using API key from saved config (server.api_key); CLI / HA_API_KEY would override."
+                );
+            })
+    });
+
     let session_db = ha_core::require_session_db()
         .expect("init_runtime contract")
         .clone();

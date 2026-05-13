@@ -57,12 +57,18 @@ fn load_image_config() -> ImageToolConfig {
 /// `arboard` and surfaces a clear error if the user tries to use those
 /// sources.
 enum ImageSource {
-    File { path: String },
-    Url { url: String },
+    File {
+        path: String,
+    },
+    Url {
+        url: String,
+    },
     #[cfg(feature = "desktop-tools")]
     Clipboard,
     #[cfg(feature = "desktop-tools")]
-    Screenshot { monitor: Option<usize> },
+    Screenshot {
+        monitor: Option<usize>,
+    },
 }
 
 /// Parse tool arguments into a list of image sources.

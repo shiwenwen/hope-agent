@@ -355,12 +355,20 @@ export default function App() {
     setView("chat")
   }
 
+  // `AuthRequiredDialog` is mounted in every view branch — the first
+  // protected API call from the boot effect commonly 401s while the
+  // splash / onboarding / setup screens are visible, so the listener
+  // has to be live before then. (The sticky flag in api-key-storage
+  // backs this up if React commits the dialog after the 401 fires.)
   if (view === "loading") {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <StarrySky />
-        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-      </div>
+      <TooltipProvider>
+        <div className="flex items-center justify-center h-screen">
+          <StarrySky />
+          <AuthRequiredDialog />
+          <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+        </div>
+      </TooltipProvider>
     )
   }
 
@@ -371,6 +379,7 @@ export default function App() {
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
+          <AuthRequiredDialog />
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             <OnboardingWizard
               onComplete={() => setView("chat")}
@@ -391,6 +400,7 @@ export default function App() {
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
+          <AuthRequiredDialog />
           <div className="flex-1 min-h-0 overflow-hidden">
             <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
           </div>
