@@ -204,11 +204,11 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.platform }}" in
-            macos-arm64) target_dir=src-tauri/target/aarch64-apple-darwin/release; plat=darwin-aarch64; ext="";;
-            macos-x64)   target_dir=src-tauri/target/x86_64-apple-darwin/release; plat=darwin-x86_64; ext="";;
-            linux-x64)   target_dir=src-tauri/target/release; plat=linux-x86_64;  ext="";;
-            linux-arm64) target_dir=src-tauri/target/release; plat=linux-aarch64; ext="";;
-            windows-x64) target_dir=src-tauri/target/release; plat=windows-x86_64; ext=".exe";;
+            macos-arm64) target_dir=target/aarch64-apple-darwin/release; plat=darwin-aarch64; ext="";;
+            macos-x64)   target_dir=target/x86_64-apple-darwin/release; plat=darwin-x86_64; ext="";;
+            linux-x64)   target_dir=target/release; plat=linux-x86_64;  ext="";;
+            linux-arm64) target_dir=target/release; plat=linux-aarch64; ext="";;
+            windows-x64) target_dir=target/release; plat=windows-x86_64; ext=".exe";;
             *) echo "unknown matrix platform ${{ matrix.platform }}"; exit 1;;
           esac
           bin_path="$target_dir/hope-agent$ext"
