@@ -324,6 +324,46 @@ git cherry-pick -x <sha>     # 加 (cherry picked from commit <sha>)
 | 误用 `git merge release/X.Y → main` | 把维护分支历史污染进 main，AGENTS.md 红线违反 | 只 cherry-pick |
 | 新 minor 发版前忘了切 `release/X.Y` 分支 | patch 修复无处落，紧急修复需要回退 main 历史 | §2.3 minor 发布后立即切维护分支 |
 | 改 workflow job 名后没同步 ruleset | PR 卡在 status check 等待已不存在的 job | 见 AGENTS.md "## 分支与发布" 末尾 |
+| 改 [`release.yml`](../.github/workflows/release.yml) 但没在 PR 阶段验证 | tag push 后跑真实 release 才 fail，删 tag 重打+又一轮 CI 等待。v0.2.0 三次因此返工 | PR CI 会跑 [`scripts/check-release-paths.mjs`](../scripts/check-release-paths.mjs) 静态校验（路径/双架构/必备 platform）；进一步可手动跑 dry-run（见 §4.1） |
+
+### 4.1 修改 release.yml 时的验证流程
+
+任何动 [`release.yml`](../.github/workflows/release.yml) 或 `update-*.yml` 的 PR，按下面两层防护：
+
+**Layer 1 — 自动静态校验**（PR CI 必跑，秒级）
+
+[`.github/workflows/lint.yml`](../.github/workflows/lint.yml) 跑 `node scripts/check-release-paths.mjs`，验证：
+
+- 每个 platform matrix 的 `target_dir=...` 不带 `src-tauri/` 前缀（Hope Agent 是 Cargo workspace，binary 在仓库根 `./target/`）
+- Swatinem/rust-cache `workspaces:` 不指向 src-tauri 子目录
+- `update-homebrew-tap.yml` / `update-aur.yml` / `update-scoop-bucket.yml` / `update-linux-repo.yml` 引用的 release artifact 文件名模式与 [release.yml](../.github/workflows/release.yml) 实际产出对得上（缺哪个 platform 就 fail / warn）
+- matrix 包含 4 个必备 platform（`macos-arm64` / `linux-x64` / `linux-arm64` / `windows-x64`）
+
+本地手动跑：`pnpm check:release-paths`。任何输出 `errors:` 段都会让 PR CI fail。
+
+**Layer 2 — 手动 dry-run**（建议但不强制，~30~40 min）
+
+不确定改动会不会 break 真实 build 时，触发一次 dry-run：
+
+1. 打开 [Actions → Release workflow](https://github.com/shiwenwen/hope-agent/actions/workflows/release.yml)
+2. 点 "Run workflow" → branch 选 PR 分支
+3. **`tag`** 填一个 sentinel 如 `v0.0.0-dryrun`（不真存在的 tag，verify 步骤自动跳过）
+4. **`dry_run`** 勾选为 `true`
+5. 跑 → 全 5 平台的 build 矩阵会跑（含 bare-binary path check + signer sign 验证），但跳过：
+   - tauri-action 的 draft Release 创建
+   - bare-binary upload to release
+   - patch-manifest job
+6. 产物可在 workflow run 的 `Artifacts` 段下载（`bare-binary-<platform>` artifact）
+
+dry-run **不**改任何 GitHub 状态：不打 tag、不创建 Release、不污染 latest.json。失败重跑无副作用。
+
+**何时必跑 dry-run**：
+
+- 改了 [release.yml](../.github/workflows/release.yml) `Bundle + sign bare binary` step 的 path/case 分支
+- 改了 matrix 配置（platform / runner / target / args）
+- 改了 [`tauri.conf.json`](../src-tauri/tauri.conf.json) 的 `beforeBuildCommand` / `frontendDist` 或 bundle config
+- 引入新的 platform-specific build deps（apt deps / NASM / 等）
+- 单纯改 release notes / version bump：不用跑
 
 ---
 
@@ -336,6 +376,7 @@ git cherry-pick -x <sha>     # 加 (cherry picked from commit <sha>)
 | `pnpm version X.Y.Z --no-git-tag-version` | 同步版本号到三处文件，不创建 commit/tag | [package.json](../package.json) `scripts.version` → [scripts/sync-version.mjs](../scripts/sync-version.mjs) |
 | `pnpm sync:version` | 手动重新同步（一般不用，version 命令自动调） | 同上 |
 | `pnpm release:verify -- --tag vX.Y.Z` | 校验三处版本号一致 + 与 tag 名匹配 | [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) |
+| `pnpm check:release-paths` | 静态校验 release.yml / update-*.yml 路径与 platform 一致性 | [scripts/check-release-paths.mjs](../scripts/check-release-paths.mjs) |
 
 ### 5.2 关键文件
 
