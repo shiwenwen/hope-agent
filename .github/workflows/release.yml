@@ -31,17 +31,13 @@ jobs:
             os: macos-14
             rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          # macOS x64 — Intel DMG, native build on the last Intel-hosted
-          # GitHub runner (macos-13). Without this lane Intel Macs would
-          # have to run the arm64 bundle through Rosetta 2 — it works,
-          # but startup is slower and memory / battery worse. macos-13
-          # is the only GitHub-hosted Intel macOS image as of 2026; when
-          # it is eventually deprecated we will need a self-hosted runner
-          # or a paid alternative.
-          - platform: macos-x64
-            os: macos-13
-            rust_target: x86_64-apple-darwin
-            args: "--target x86_64-apple-darwin"
+          # macOS x64 lane temporarily disabled: GitHub-hosted macos-13
+          # Intel runner pool is heavily congested as of 2026-05; v0.2.0
+          # release blocked >1h with this job stuck in queue while every
+          # other platform finished. Intel Mac users continue to run the
+          # arm64 bundle through Rosetta 2 (same as v0.1.x). Re-enable
+          # in v0.2.1 once we have either a fallback to cross-compile on
+          # macos-14 or a self-hosted runner.
           # Linux x64 — AppImage + deb.
           # ubuntu-24.04 is required because xcap (screen capture) pulls
           # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The
