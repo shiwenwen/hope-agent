@@ -29,7 +29,7 @@ if (!cargoVersionMatch) {
 }
 
 const cargoLock = readFileSync(cargoLockPath, "utf8")
-const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\nversion = "(.*)"/)
+const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
 
 if (!cargoLockHopeAgentMatch) {
   console.error("[release:verify] could not find hope-agent version in Cargo.lock")
