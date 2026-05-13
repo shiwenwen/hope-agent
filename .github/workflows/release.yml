@@ -36,22 +36,15 @@ jobs:
             os: macos-14
             rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          # macOS x64 — Intel DMG, native build on macos-13. Re-enabled
-          # in v0.2.1 after the temporary v0.2.0 removal, this time wired
-          # as a "best-effort" lane: GitHub-hosted macos-13 runners are
-          # capacity-constrained and intermittently see >1h queue times
-          # (the v0.2.0 incident). `continue_on_error: true` lets the
-          # lane fail/timeout without blocking the rest of the release;
-          # the patch-manifest job below uses `!cancelled()` so
-          # latest.json + downstream package-manager workflows still run
-          # off the platforms that did succeed. Cross-compile on macos-14
-          # or a self-hosted Intel runner remains a longer-term option
-          # (F-088 follow-up).
-          - platform: macos-x64
-            os: macos-13
-            rust_target: x86_64-apple-darwin
-            args: "--target x86_64-apple-darwin"
-            continue_on_error: true
+          # macOS x64 lane remains disabled (since v0.2.0). GitHub-hosted
+          # macos-13 Intel runners are capacity-constrained and frequently
+          # queue >1h. An earlier v0.2.1 attempt to re-add this lane with
+          # `continue-on-error: true` did not help — Actions `needs:` waits
+          # for queued/running jobs regardless of `continue-on-error`, so
+          # patch-manifest still blocked on macos-x64. Long-term recovery
+          # (cross-compile on macos-14 or a self-hosted Intel runner)
+          # tracked as F-088. Intel Mac users continue to run the arm64
+          # bundle through Rosetta 2 (same as v0.1.x).
           # Linux x64 — AppImage + deb.
           # ubuntu-24.04 is required because xcap (screen capture) pulls
           # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The
@@ -80,9 +73,6 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.os }}
-    # `continue_on_error` is set per-platform in the matrix (currently
-    # only macos-x64). Default false for every other lane.
-    continue-on-error: ${{ matrix.continue_on_error == true }}
     steps:
       - uses: actions/checkout@v6
 
@@ -292,14 +282,13 @@ jobs:
   patch-manifest:
     name: patch latest.json
     needs: build
-    # `!cancelled()` lets the manifest patch run even when a best-effort
-    # build job (e.g. macos-x64) fails or times out — the latest.json
-    # rewrite is keyed off whichever bare-binary artifacts uploaded
-    # successfully, and `patch-latest-json.mjs` already warns-and-skips
-    # missing platforms. Without this guard, a single macos-x64 timeout
-    # would block the entire release from publishing.
-    # Also skip in dry-run — no draft Release exists to patch.
-    if: ${{ !cancelled() && github.event.inputs.dry_run != 'true' }}
+    # Default `needs:` gating already requires every build matrix entry
+    # to succeed — that's exactly what we want. If any platform fails
+    # we *do not* want to write out a half-populated latest.json (then
+    # the operator can `Re-run failed jobs` and the original
+    # patch-manifest job stays unchanged). Only carve-out: skip in
+    # dry-run since no draft Release exists to patch.
+    if: ${{ github.event.inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}

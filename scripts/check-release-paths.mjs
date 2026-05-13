@@ -148,7 +148,7 @@ for (const dep of downstreamArtifactDeps) {
   if (matrixPlatforms.has(dep.requires)) continue
   const message = `${dep.workflow} references artifact pattern "${dep.fragment}" but release.yml matrix has no platform "${dep.requires}" — downstream workflow will fail on release publish.`
   if (dep.severity === "error") errors.push(message)
-  else warnings.push(message + " (warn-only: this dependency is known-broken and tracked as a follow-up.)")
+  else warnings.push(message + " (warn-only: downstream workflow is expected to handle the missing artifact gracefully.)")
 }
 
 // ─── Check 4 ─────────────────────────────────────────────────────────

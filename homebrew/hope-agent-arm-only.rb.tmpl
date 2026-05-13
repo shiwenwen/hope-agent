@@ -15,9 +15,9 @@ cask "hope-agent" do
   auto_updates true
   # Apple Silicon only — this release skipped the macOS Intel build lane
   # (macos-13 runner capacity constraints in upstream release.yml).
-  # Intel Mac users should stay on the prior dual-arch release until the
-  # next version that ships an x64 DMG, or run this build through
-  # Rosetta 2 (same behavior as v0.1.x).
+  # Intel Mac users have no installable arm64 path (Rosetta 2 translates
+  # Intel → Apple Silicon, not the reverse) and should stay on the prior
+  # dual-arch release until the next version that ships an x64 DMG.
   depends_on macos: ">= :big_sur", arch: :arm64
 
   app "Hope Agent.app"
@@ -26,10 +26,11 @@ cask "hope-agent" do
 
   caveats <<~EOS
     This release ships only the Apple Silicon (arm64) DMG. Intel Macs
-    can still run it via Rosetta 2, but Homebrew will only let you
-    install this cask on Apple Silicon. To unblock Intel install,
-    download the arm64 DMG manually from
-    https://github.com/shiwenwen/hope-agent/releases.
+    cannot install it — Rosetta 2 translates Intel binaries to run on
+    Apple Silicon, not the reverse. Intel Mac users should remain on
+    the prior dual-arch release (download from
+    https://github.com/shiwenwen/hope-agent/releases) until a future
+    version ships an x64 DMG again.
 
     The bundle is not yet code-signed or notarized. The installer clears
     the macOS quarantine attribute so first launch should work without
