@@ -35,9 +35,6 @@ Once the container is up, open <http://127.0.0.1:8420> in a browser and follow t
 A reference [`docker-compose.yml`](../../docker-compose.yml) lives at the repo root:
 
 ```bash
-# Optional: generate a random Bearer token so the server enforces auth
-export HA_API_KEY=$(openssl rand -hex 24)
-
 docker compose up -d
 docker compose logs -f hope-agent
 ```
@@ -49,18 +46,23 @@ docker compose logs -f hope-agent
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HA_BIND` | `0.0.0.0:8420` | Server listen address. Must be `0.0.0.0` inside a container — loopback rejects external connections. Translated to `--bind` by the entrypoint |
-| `HA_API_KEY` | _unset_ | HTTP/WS Bearer token. When unset, the server **does not enforce auth** — binding `0.0.0.0` without a key exposes every credential on the LAN. Translated to `--api-key` by the entrypoint |
+| `HA_API_KEY` | _unset_ | HTTP/WS Bearer token. **The Web GUI has no in-browser token entry today**, so setting this and then opening the page directly will 401 the onboarding wizard. Only set when a reverse proxy in front injects `Authorization: Bearer …` on the upstream (see below). Translated to `--api-key` by the entrypoint |
 | `HA_DATA_DIR` | `/data` | Data root. All persistent state (`config.json` / `sessions.db` / `memory.db` / credentials / projects / attachments) lives here |
 | `HA_DEPLOYMENT` | `docker` | Hint to the self-updater. **Do not change** — without it `app_update install` would attempt an in-container binary swap |
 | `TZ` | `UTC` | Timezone. Affects cron scheduling and timestamp formatting |
 
 ### Ports and networking
 
-The image `EXPOSE`s `8420`. `docker-compose.yml` binds host `127.0.0.1:8420` to container `8420` by default — **loopback only**. To make Hope Agent reachable on your LAN or the internet:
+The image `EXPOSE`s `8420`. `docker-compose.yml` binds host `127.0.0.1:8420` to container `8420` by default — **loopback only**, which is also the currently recommended deployment shape.
 
-1. Set `HA_API_KEY` in onboarding first (otherwise every credential is publicly readable)
-2. Change the port mapping to `8420:8420` (drop the `127.0.0.1:` prefix)
-3. Put a reverse proxy in front for TLS termination — examples below
+#### LAN / public exposure
+
+The browser-side Web GUI cannot enter a Bearer token today, so do **not** combine `HA_API_KEY=xxx` with `0.0.0.0:8420` — the browser can't attach the token and the onboarding wizard 401s on the first request. Pick one:
+
+1. **Reverse proxy injects Authorization (recommended)**: Caddy / Nginx / Traefik terminates TLS, adds `Authorization: Bearer ${HA_API_KEY}` to upstream requests, and lets hope-agent enforce `HA_API_KEY`. Do user-facing access control at the proxy layer (mTLS / OIDC / basic auth).
+2. **VPN / tailnet only**: Tailscale / WireGuard / Zerotier brings the container onto a private network, no `HA_API_KEY` needed — network-layer isolation does the work.
+
+In-browser token entry UX is a known follow-up ([review-followups F-088](../plans/review-followups.md)); the limitation goes away once it lands.
 
 ### Persistent data
 

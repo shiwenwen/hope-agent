@@ -41,7 +41,30 @@ jobs:
             platform: linux/arm64
     runs-on: ${{ matrix.runner }}
     steps:
+      # Checkout the exact tag from RELEASE_TAG. For `push` events the
+      # default checkout already lands on the tag commit, but
+      # `workflow_dispatch` with an `inputs.tag` input would otherwise
+      # build whichever branch was selected in the Actions UI — pinning
+      # the ref keeps a manual re-run of `v0.2.1` faithful to that tag
+      # instead of silently shipping main as `:v0.2.1`.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      # Refuse to ship if the checked-out source's version doesn't match
+      # the tag we're about to publish. Catches an admin firing
+      # workflow_dispatch with a tag that points at code where someone
+      # forgot to bump versions.
+      - name: Verify versions match RELEASE_TAG
+        run: |
+          set -eu
+          EXPECTED="${RELEASE_TAG#v}"
+          PKG=$(grep -m1 '"version"' package.json | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')
+          HA_SERVER=$(grep -m1 '^version' crates/ha-server/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          if [ "$PKG" != "$EXPECTED" ] || [ "$HA_SERVER" != "$EXPECTED" ]; then
+              echo "::error::tag ${RELEASE_TAG} expects version ${EXPECTED}, but found package.json=${PKG}, ha-server=${HA_SERVER}" >&2
+              exit 1
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

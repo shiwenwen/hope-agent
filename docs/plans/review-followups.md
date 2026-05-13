@@ -59,6 +59,20 @@
 
 ---
 
+### F-088 Web GUI 加浏览器侧 Bearer token 输入 UX
+
+- **来源**：2026-05-13 Docker 部署支持 PR `/codex:review`（P1）
+- **现象**：[`crates/ha-server/src/middleware.rs:77`](../../crates/ha-server/src/middleware.rs#L77) `require_api_key` 在 `HA_API_KEY` 已设时拦截全部 `/api/*` + WebSocket（需要 `Authorization: Bearer …` header 或 `?token=` query），但 [`src/lib/transport-provider.ts`](../../src/lib/transport-provider.ts) 的 `HttpTransport` 在 standalone web 模式只构造 base URL 不带 token —— 浏览器直接打开 `http://host:8420/` 后 onboarding 第一个受保护请求立刻 401，没有任何 UI 能把 token 喂进去
+- **为什么留**：Docker 部署 PR 主线是"镜像 + 自升级 + multi-arch"，加浏览器 token entry 涉及 onboarding / settings / transport 三层（URL `?token=` 捕获 + localStorage 存 + transport 注入 + 401 拦截 → 重新输入），独立成 PR 更清晰。当前 PR 文档已经强制说明「直接 `HA_API_KEY` 暴露不可用，请走反代注入 Authorization 或 VPN 内网」
+- **改的话要做什么**：
+  - 入口：URL `?token=XXX` 在 `src/main.tsx` 启动期捕获 → `localStorage.setItem("ha.apiKey", token)` → URL 立刻 replace 掉避免泄露 → `getTransport()` 读 localStorage 注入 `HttpTransport(baseUrl, apiKey)`
+  - 用户输入：第一次拿到 401 时弹一个 modal「Server requires a Bearer token. Paste it here.」 → 存 localStorage 重试请求
+  - 登出 / 切换：settings → server section 加「Clear stored token」按钮
+  - 反向限制：当 401 反复出现（5 次内）冷却 30 秒避免无限循环
+  - 文档：`docs/deployment/docker.md` LAN exposure 章节回写「现在可以直接 `HA_API_KEY` + 端口暴露 + 用户首次访问输入 token」
+- **影响面**：解锁 Docker / 远端部署的「无反代裸暴露」模式，是 Web GUI 与 desktop / Tauri 模式 transport 抽象的最后一个明显差异
+- **触发时机建议**：下次动 onboarding / settings → server 面板，或独立"Web GUI 远端鉴权 UX"PR
+
 ### F-087 ha-core `xcap` / `arboard` 放到 `desktop-tools` Cargo feature 后，让 Docker 镜像砍掉一组 system libs
 
 - **来源**：2026-05-13 Docker 部署支持 PR 手动审查

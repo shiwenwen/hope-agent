@@ -35,9 +35,6 @@ docker run -d \
 仓库根目录已提供 [`docker-compose.yml`](../../docker-compose.yml)，复制到部署机器后：
 
 ```bash
-# 可选：生成一个随机 API Key 让 server 强制鉴权
-export HA_API_KEY=$(openssl rand -hex 24)
-
 docker compose up -d
 docker compose logs -f hope-agent
 ```
@@ -49,18 +46,23 @@ docker compose logs -f hope-agent
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `HA_BIND` | `0.0.0.0:8420` | server 监听地址。容器内必须是 `0.0.0.0`（loopback 会拒绝外部连接）。entrypoint 自动翻译为 `--bind` |
-| `HA_API_KEY` | _未设置_ | HTTP/WS Bearer Token。未设置时 server **不强制鉴权**，0.0.0.0 暴露 = 数据完全公开。entrypoint 自动翻译为 `--api-key` |
+| `HA_API_KEY` | _未设置_ | HTTP/WS Bearer Token。**注意：当前 Web GUI 没有浏览器侧 token 输入界面**，直接 `set` 后从浏览器打开会让 onboarding 401。仅在前置反代会注入 `Authorization: Bearer …` 时设置（见下节）。entrypoint 自动翻译为 `--api-key` |
 | `HA_DATA_DIR` | `/data` | 数据根目录，所有持久化文件（`config.json` / `sessions.db` / `memory.db` / 凭据 / 项目 / 附件等）都在此目录下 |
 | `HA_DEPLOYMENT` | `docker` | 给 updater 的部署形态提示。**不要改**，否则 `app_update install` 会尝试在容器内做 binary swap |
 | `TZ` | `UTC` | 时区。影响 cron 调度与时间戳格式 |
 
 ### 端口与网络
 
-镜像 `EXPOSE 8420`。`docker-compose.yml` 默认把宿主机的 `127.0.0.1:8420` 映射到容器 `8420`，**只允许本机访问**。要让 LAN / 公网访问，需要同时：
+镜像 `EXPOSE 8420`。`docker-compose.yml` 默认把宿主机的 `127.0.0.1:8420` 映射到容器 `8420`，**只允许本机访问** —— 这也是当前推荐的默认部署形态。
 
-1. 先在 Onboarding 配好 `HA_API_KEY`（否则等于把所有凭据公开）
-2. 把端口映射改为 `8420:8420`（去掉 `127.0.0.1:` 前缀）
-3. 推荐前置一个反向代理（Nginx / Caddy）做 TLS 终止
+#### LAN / 公网暴露
+
+由于 Web GUI 目前不支持在浏览器里粘 token，**不要**直接 `HA_API_KEY=xxx` + `0.0.0.0:8420` 暴露 —— 浏览器无法把 token 加进请求，onboarding 第一步就会 401。推荐做法二选一：
+
+1. **反向代理注入 Authorization**（推荐）：Caddy / Nginx / Traefik 前置 TLS 终止 + 在 upstream 加 `Authorization: Bearer ${HA_API_KEY}` 头，hope-agent 配 `HA_API_KEY` 强制鉴权。反代层做网络级访问控制（client cert / OIDC / basic auth）。
+2. **VPN / tailnet 内网**：tailscale / WireGuard / Zerotier 把容器拉进私网，不开 `HA_API_KEY`，靠网络层隔离。
+
+浏览器侧 token 输入 UX 是已知 followup（[review-followups F-088](../plans/review-followups.md)），完成后该限制会取消。
 
 ### 数据持久化
 

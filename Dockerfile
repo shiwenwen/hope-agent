@@ -155,9 +155,19 @@ COPY --from=rust /usr/local/bin/hope-agent /usr/local/bin/hope-agent
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Bundled skills. `skills::discovery::resolve_bundled_skills_dir`
+# (crates/ha-core/src/skills/discovery.rs) looks at `HOPE_AGENT_BUNDLED_SKILLS_DIR`
+# first, then exe-relative `./skills` / `../Resources/skills`. In release
+# builds the workspace fallback doesn't kick in, so without copying the
+# repo's `skills/` tree somewhere on disk and pointing the env var at
+# it, the container would ship with zero bundled skills (no /skill
+# catalog, no built-in skill blocks in the system prompt).
+COPY skills /usr/local/share/hope-agent/skills
+
 ENV HA_DATA_DIR=/data \
     HA_DEPLOYMENT=docker \
     HA_BIND=0.0.0.0:8420 \
+    HOPE_AGENT_BUNDLED_SKILLS_DIR=/usr/local/share/hope-agent/skills \
     TZ=UTC
 
 USER hope
