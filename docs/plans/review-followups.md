@@ -30,6 +30,54 @@
 
 ## Open
 
+### F-087 AboutPanel「发现新版」弹窗 release notes 用 markdown 渲染
+
+- **来源**：2026-05-13 v0.2.0 发版手动验证（用户报告：「现在好像是纯文本」）
+- **现象**：[`AboutPanel.tsx:283-287`](../../src/components/settings/AboutPanel.tsx#L283) 把 `pendingUpdate.body`（来自 `latest.json#notes`，内容是 v0.2.0 release notes 全文 markdown）直接塞进 `<p>` 标签，且 `line-clamp-2` 只显示两行。v0.1.x release notes 短没人注意，v0.2.0 长 release notes 暴露问题：markdown 标题 / 列表 / 链接 / 代码块全部渲染成裸文本，且只能看见前 2 行
+- **为什么留**：v0.2.0 已 tag + 4 平台产物 ready,临时改这个会触发又一轮 ~30 min CI 重跑;且修复对 v0.2.0 用户不生效(他们用 v0.1.x binary 看新版提示,渲染逻辑在他们的 binary 里),修复只让 v0.2.1+ 用户能看到正确 markdown
+- **改的话要做什么**：
+  - 把 `<p>{pendingUpdate.body}</p>` 换成 `<MarkdownRenderer content={pendingUpdate.body} />`(项目已有 [`src/components/common/MarkdownRenderer.tsx`](../../src/components/common/MarkdownRenderer.tsx),Streamdown 包装)
+  - 去掉 `line-clamp-2`,加 `max-h-48 overflow-auto` 让长 notes 内部滚动而不溢出弹窗
+  - 评估是否要给 dialog 整体加滚动 + 弹窗高度上限,避免长 notes 把"安装"按钮挤出可视区
+- **影响面**：用户可见 UX bug。从 v0.2.1 开始的用户看到的「发现新版」提示能正确渲染 markdown
+- **触发时机建议**:v0.2.1 patch(用户已点名)
+
+### F-088 release.yml 恢复 macOS Intel(macos-x64)构建 lane
+
+- **来源**:2026-05-13 v0.2.0 发版,GitHub macos-13 Intel runner 池排队拥堵导致连续两次 release 卡 >70 分钟,临时移除 lane 完成发版([PR #172](https://github.com/shiwenwen/hope-agent/pull/172))
+- **现象**:v0.2.0 仅产出 macOS arm64 DMG,Intel Mac 用户继续走 Rosetta 2(与 v0.1.x 体验一致)。[`release.yml:34-40`](../../.github/workflows/release.yml#L34) 注释里说明了临时移除的原因
+- **为什么留**:本期是紧急救火,根因是 GitHub-hosted macos-13 runner 池资源紧张,不在我们控制范围;长期方案需评估
+- **改的话要做什么**:三种 fallback 评估:
+  - **A**(成本最低):lane 加回来 + 加大 build job timeout + 加 `continue-on-error` 让其它平台先发,Intel macOS 异步追加。坏处:仍可能卡住,且 latest.json 完整性难保证
+  - **B**(更稳):在 macos-14(arm64) runner 上 cross-compile `--target x86_64-apple-darwin`,免去 macos-13 队列依赖。Tauri bundle 在 cross-compile 下能否产出可用 DMG 需验证(代码签名 / dylib bundling 可能踩坑)
+  - **C**(最贵):上 self-hosted Intel mac runner(M-mini / Mac Studio Intel + GitHub runner agent)。预算 + 维护成本
+  - 推荐 A 先试,失败转 B
+- **影响面**:Intel Mac 用户体验。Hope Agent 主要受众里 Intel Mac 占比不大(2020+ 都是 Apple Silicon),但仍是用户群
+- **触发时机建议**:v0.2.1 patch,与 F-089 / F-090 一起做(release 流水线主题集中)
+
+### F-089 update-homebrew-tap.yml 双架构容错
+
+- **来源**:2026-05-13 v0.2.0 发版,临时移除 macos-x64 lane 后该 workflow 必 fail
+- **现象**:[`update-homebrew-tap.yml:68-71`](../../.github/workflows/update-homebrew-tap.yml#L68) 同时 `gh release download --pattern x64.dmg --pattern aarch64.dmg`,缺任一架构都会 fail。当前 v0.2.0 publish 后该 workflow 会 fail,tap repo 本版不更新,brew 用户继续看到 v0.1.2 cask 直到下次 release
+- **为什么留**:F-088 把 Intel lane 加回来后这个问题自动消失;但留个独立容错让 release 流程更 robust(单架构暂时缺失不应拖累整个发布)
+- **改的话要做什么**:
+  - workflow 探测哪些架构 DMG 实际存在,缺失的架构 sha256 留 placeholder 或彻底不渲染该条
+  - cask 模板 [`homebrew/hope-agent.rb.tmpl`](../../homebrew/hope-agent.rb.tmpl) 需要支持单架构形态(去掉 `arch arm: ..., intel: ...` block 改为 `version + sha256`)。考虑保留两份模板还是按需渲染
+- **影响面**:发版 robust 性。当前 fail 不污染 tap(commit/push 在 download 之后),但 brew 用户看不到新版 cask 直到下次正常发版
+- **触发时机建议**:v0.2.1 patch,与 F-088 一起做
+
+### F-090 release.yml 加 PR 阶段 dry-run 验证
+
+- **来源**:2026-05-13 v0.2.0 发版,bare-binary path / rust-cache path / macos-x64 lane 三个问题全在 tag push 跑真实 release 后才暴露,均没在 PR review 时被发现
+- **现象**:[`release.yml`](../../.github/workflows/release.yml) 只 `on: tags ["v*"]` 和 `workflow_dispatch`,PR CI 不跑 release.yml。修改 release 步骤是「裸提交」,没有自动验证。Review 也很难 catch path / matrix 错误(全靠肉眼)
+- **为什么留**:本期是紧急救火,加 dry-run 是过程改进,不阻塞发版
+- **改的话要做什么**:
+  - workflow_dispatch 入口已有 `tag` input,扩展加 `dry_run: boolean`,跳过 tauri-action 的 `tagName` / draft Release creation,只跑 build + bare-binary step 验证产物路径
+  - 或者 PR CI 加一个 lightweight job:解析 release.yml 的 matrix,跑 `cargo build --target <triple> --release` + `ls target/<triple>/release/hope-agent`(模拟 bare-binary path check),不跑 tauri build
+  - 文档里加约定:任何 release.yml 改动 PR 必须先在 fork / 备用 tag 上跑一次 dry-run,review 时 reviewer 必须看 dry-run 结果
+- **影响面**:发版流程 robust 性 + 减少未来 release 救火工作。这次三次 release 失败累计浪费 ~3 小时 wall time
+- **触发时机建议**:v0.2.1 同期实施(把这次发版痛点系统性解决)
+
 ### F-084 抽 `usePlanVersions(sessionId)` hook 让 PlanPanel + PlansView 共用版本拉取逻辑
 
 - **来源**：2026-05-11 历史 Plan 查看器 `/simplify` review（quality agent）
