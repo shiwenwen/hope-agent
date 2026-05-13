@@ -9,6 +9,11 @@ on:
         description: Release tag to build (for example v0.1.1)
         required: true
         type: string
+      dry_run:
+        description: "Validate release.yml changes — build the matrix and skip every publish step (no draft Release, no asset upload, no latest.json patch). Use when modifying this workflow."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -118,6 +123,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify tag matches app version
+        # Dry-runs may use a fake tag input (e.g. v9.9.9) that intentionally
+        # does not match the source-tree version — skip this gate so an
+        # in-progress version bump can still run the validation matrix.
+        if: github.event.inputs.dry_run != 'true'
         run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
 
       # Refuse to ship if the desktop bundle (`tauri-plugin-updater`) and
@@ -169,6 +178,7 @@ jobs:
           Write-Host "vc_redist.x64.exe Authenticode signature OK ($subject)"
 
       - name: Build & draft release
+        if: github.event.inputs.dry_run != 'true'
         uses: tauri-apps/tauri-action@v0.5.14
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -182,6 +192,22 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+      # Dry-run replacement for tauri-action above: build the desktop
+      # bundle locally without creating a draft Release or uploading
+      # assets. Produces the same target/<triple>/release/hope-agent[.exe]
+      # path so the bare-binary step below can validate it. Same
+      # secrets passed through so signer-sign mismatches surface here
+      # too. (`pnpm tauri build` is what tauri-action invokes internally.)
+      - name: Dry-run build (skip publish)
+        if: github.event.inputs.dry_run == 'true'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          pnpm tauri build ${{ matrix.args }}
 
       # ── Bare-binary artifact for headless self-update ─────────
       # The desktop installers above cover GUI users; `hope-agent server`
@@ -230,6 +256,7 @@ jobs:
           echo "sig=$archive.sig" >> "$GITHUB_OUTPUT"
 
       - name: Upload bare binary to release
+        if: github.event.inputs.dry_run != 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -253,6 +280,10 @@ jobs:
   patch-manifest:
     name: patch latest.json
     needs: build
+    # Skip in dry-run — no draft Release exists to patch, and latest.json
+    # rewriting is exactly what we want to validate without polluting the
+    # real release stream.
+    if: github.event.inputs.dry_run != 'true'
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
