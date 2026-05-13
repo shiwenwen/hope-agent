@@ -1701,6 +1701,93 @@ impl SessionDB {
         Ok(out)
     }
 
+    /// Rows belonging to the in-flight (not-yet-finalized) turn — i.e.
+    /// everything after the **latest** user row in the session.
+    ///
+    /// Mirror of [`load_previous_turn_tail`] but pointing forward
+    /// instead of backward. Used by the finalize path to reverse-rebuild
+    /// the partial assistant round (text_block / thinking_block / tool
+    /// rows that were still streaming or got orphaned) into
+    /// provider-native `context_json` blocks.
+    ///
+    /// **Bounds.** Returns rows with `id > <latest user.id>`. Order is
+    /// ASC by id so caller sees the original interleaving.
+    ///
+    /// **No-user case.** Returns `[]` — there is no current turn yet.
+    pub fn load_current_turn_tail(&self, session_id: &str) -> Result<Vec<SessionMessage>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1
+               AND id > COALESCE(
+                   (SELECT MAX(id) FROM messages
+                    WHERE session_id = ?1 AND role = 'user'),
+                   0
+               )
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| Self::row_to_session_message(row))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Most-recent user row for a session. `None` if the session has no
+    /// user message yet (history-only session).
+    pub fn last_user_message(&self, session_id: &str) -> Result<Option<SessionMessage>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1 AND role = 'user'
+             ORDER BY id DESC
+             LIMIT 1",
+        )?;
+        let row = stmt
+            .query_row(params![session_id], |row| Self::row_to_session_message(row))
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Session ids that still have at least one `messages` row in the
+    /// `orphaned` stream_status. Used by the startup sweep to finalize
+    /// IM / Cron / subagent sessions whose orphaned partials don't
+    /// have a matching `chat_turns` row (those entry points run with
+    /// `turn_id = None`).
+    pub fn sessions_with_orphaned_rows(&self) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT session_id FROM messages
+             WHERE stream_status = 'orphaned'",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     /// Sweep leftover `streaming` rows from a previous (crashed) run into
     /// `orphaned`. Called once on app startup, before any session is loaded.
     /// Returns the number of rows promoted, for logging.

@@ -127,6 +127,41 @@ enum ExecWaitError {
     Timeout { timeout_secs: u64 },
 }
 
+/// RAII guard that SIGKILLs the entire process group on drop unless
+/// `disarm()` was called. Replaces tokio's `kill_on_drop(true)` for
+/// the exec path: `kill_on_drop` only signals the immediate child,
+/// which leaks grandchildren spawned by shells like
+/// `sh -c 'long_task & long_task & wait'`. We instead signal the
+/// whole process group with `kill(-pid, SIGKILL)` so all descendants
+/// die together.
+///
+/// Triggered by:
+/// - tokio task panic (the spawned waiter future)
+/// - tokio runtime shutdown dropping live tasks
+/// - early-return after `cmd.spawn()` failed paths
+/// `disarm()` is called once the waiter has explicitly `wait_with_output`
+/// or `terminate_process_tree`d the child — at that point the process
+/// group is already gone and signaling it again is a no-op anyway.
+struct ProcessGroupGuard(Option<u32>);
+
+impl ProcessGroupGuard {
+    fn new(pid: Option<u32>) -> Self {
+        Self(pid)
+    }
+
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0.take() {
+            crate::platform::terminate_process_tree(pid);
+        }
+    }
+}
+
 async fn spawn_exec_waiter(
     session_id: String,
     mut cmd: tokio::process::Command,
@@ -136,7 +171,9 @@ async fn spawn_exec_waiter(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     cmd.process_group(0);
-    cmd.kill_on_drop(true);
+    // Note: we don't use `cmd.kill_on_drop(true)` here — that only
+    // SIGKILLs the immediate child. `ProcessGroupGuard` below handles
+    // the full process tree.
     let child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -146,6 +183,11 @@ async fn spawn_exec_waiter(
         }
     };
     let pid = child.id();
+    // Arm the process-group guard *immediately* after `spawn()` so the
+    // registry-lock `await` below can't leave a stray process group
+    // behind if this future gets cancelled before we hand the child
+    // off to the waiter task.
+    let guard = ProcessGroupGuard::new(pid);
     let cancelled_before_pid_registered = {
         let mut registry = get_registry().lock().await;
         let already_exited = registry
@@ -159,9 +201,19 @@ async fn spawn_exec_waiter(
         if let Some(pid) = pid {
             crate::platform::terminate_process_tree(pid);
         }
+        // The waiter never runs — the explicit terminate above already
+        // tore down the process group; disarm so Drop doesn't signal a
+        // dead group.
+        guard.disarm();
+        return Err(anyhow::anyhow!(
+            "Exec session cancelled before pid registration"
+        ));
     }
 
     Ok(tokio::spawn(async move {
+        // Guard moved in; it will SIGKILL the process group if the
+        // waiter task is dropped (panic / runtime shutdown).
+        let guard = guard;
         let result = match tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             child.wait_with_output(),
@@ -177,6 +229,10 @@ async fn spawn_exec_waiter(
                 Err(ExecWaitError::Timeout { timeout_secs })
             }
         };
+        // Reaching here means we either got an exit (process tree gone)
+        // or already SIGKILLed it via the timeout branch above. Either
+        // way, dropping the guard would be a no-op or redundant — disarm.
+        guard.disarm();
         finish_exec_sync(&session_id, result, max_output).await
     }))
 }

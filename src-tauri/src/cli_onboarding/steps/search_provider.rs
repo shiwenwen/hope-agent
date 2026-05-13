@@ -102,7 +102,7 @@ fn first_enabled_template_idx(
     let first = config.providers.iter().find(|entry| entry.enabled)?;
     templates
         .iter()
-        .position(|template| &template.provider == &first.id)
+        .position(|template| template.provider == first.id)
 }
 
 fn take_provider(

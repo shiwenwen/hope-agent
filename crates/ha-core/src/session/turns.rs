@@ -49,6 +49,15 @@ pub enum ChatTurnInterruptReason {
     CrashRecovery,
     ToolCancel,
     RuntimeCancel,
+    /// Configuration error — no usable auth profile (all disabled, in
+    /// cooldown, or unconfigured). Zero LLM API calls were attempted.
+    NoProfile,
+    /// All `model_chain` attempts failed at the provider layer.
+    /// `chat_turns.error` carries the raw last-attempt message.
+    ProviderFailed,
+    /// Emergency context compaction ran but the history still exceeds
+    /// the hard threshold; the turn cannot continue.
+    CompactionFailed,
     Unknown,
 }
 
@@ -60,6 +69,9 @@ impl ChatTurnInterruptReason {
             Self::CrashRecovery => "crash_recovery",
             Self::ToolCancel => "tool_cancel",
             Self::RuntimeCancel => "runtime_cancel",
+            Self::NoProfile => "no_profile",
+            Self::ProviderFailed => "provider_failed",
+            Self::CompactionFailed => "compaction_failed",
             Self::Unknown => "unknown",
         }
     }
@@ -71,6 +83,9 @@ impl ChatTurnInterruptReason {
             "crash_recovery" => Some(Self::CrashRecovery),
             "tool_cancel" => Some(Self::ToolCancel),
             "runtime_cancel" => Some(Self::RuntimeCancel),
+            "no_profile" => Some(Self::NoProfile),
+            "provider_failed" => Some(Self::ProviderFailed),
+            "compaction_failed" => Some(Self::CompactionFailed),
             "unknown" => Some(Self::Unknown),
             _ => None,
         }
@@ -372,6 +387,33 @@ impl SessionDB {
             params![now],
         )?;
         Ok(n)
+    }
+
+    /// Read-only counterpart of [`recover_stale_chat_turns`] for the
+    /// finalize sweep path. Returns every turn left in `running` or
+    /// `cancelling` state without mutating the row — the unified
+    /// finalize entry point will write the final status and the right
+    /// `interrupt_reason` based on whether the previous exit was
+    /// clean (Shutdown) or not (Crash).
+    pub fn find_stale_chat_turns_for_finalize(&self) -> Result<Vec<ChatTurn>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, source, status, interrupt_reason, stream_id,
+                    user_message_id, assistant_message_id, error,
+                    started_at, ended_at, updated_at
+             FROM chat_turns
+             WHERE status IN ('running', 'cancelling')
+             ORDER BY started_at ASC",
+        )?;
+        let rows = stmt.query_map([], Self::row_to_chat_turn)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     fn row_to_chat_turn(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatTurn> {

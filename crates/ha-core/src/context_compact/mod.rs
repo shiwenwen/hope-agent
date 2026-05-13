@@ -104,7 +104,10 @@ pub use recovery::build_recovery_message;
 /// recovery inserts the file-contents message immediately after the summary, so
 /// callers use `POST_SUMMARY_INSERT_INDEX` (= 1) rather than a bare literal.
 pub const POST_SUMMARY_INSERT_INDEX: usize = 1;
-pub use round_grouping::{prepare_messages_for_api, push_and_stamp};
+pub use round_grouping::{
+    is_recovered_round, prepare_messages_for_api, push_and_stamp, recovered_round_id, stamp_round,
+    RECOVERED_ROUND_PREFIX,
+};
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
 pub use summarization::{apply_summary, build_summarization_prompt, split_for_summarization};
 pub use truncation::truncate_tool_results;

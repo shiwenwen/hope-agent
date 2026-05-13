@@ -9,8 +9,8 @@ use crate::provider::{ApiType, AuthProfile};
 use crate::session;
 
 use super::context::*;
-use super::im_error_message::ImErrorContext;
-use super::im_mirror::{abort_im_live_mirror, attach_im_live_mirror, finalize_im_live_mirror};
+use super::finalize::{self, PartialMeta, TerminationReason};
+use super::im_mirror::{attach_im_live_mirror, finalize_im_live_mirror};
 use super::persister::StreamPersister;
 use super::sink_registry;
 use super::stream_broadcast;
@@ -32,9 +32,18 @@ struct ChatRoundOk {
 /// Stores the last failed attempt that produced user-visible partial output.
 /// Empty retry failures intentionally do not replace the slot, so a later
 /// all-failed result can still preserve the most recent partial the user saw.
+///
+/// `api_type` is the provider shape that *wrote* this partial — captured
+/// at store time so finalize can rebuild the assistant-side blocks in
+/// the matching native format. Without it, model_chain rotation followed
+/// by a no-partial failure on the second attempt would make finalize
+/// rebuild the *first* attempt's partial using the *second* attempt's
+/// provider shape, and the next request would 4xx or silently drop tool
+/// calls depending on which provider it crossed into.
 struct FailedAttemptPartial {
     persister: Arc<StreamPersister>,
     duration_ms: u64,
+    api_type: crate::provider::ApiType,
 }
 
 /// Drop-guarded scope for a session's visible stream lifecycle. Ensures
@@ -311,6 +320,25 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     // multiple providers, and the user-facing hint depends on which one
     // actually erred.
     let mut last_is_codex_auth = false;
+    // Provider shape of the most recently attempted model; drives the
+    // finalize path's partial-block reconstruction. Updated each
+    // model_chain iteration so the value reflects whichever model
+    // produced the partial currently stored in `failed_attempt_partial`.
+    let mut last_provider_api_kind: Option<crate::provider::ApiType> = None;
+    // Set when emergency compaction was attempted but still failed to
+    // bring history below the model's context window — promoted into
+    // `TerminationReason::CompactionFailed` by `derive_termination_reason`
+    // so the marker classifies the failure correctly instead of folding
+    // it into a generic provider error.
+    let mut compaction_failed: Option<String> = None;
+    // True when the most recent model attempt bailed with
+    // `ExecutorError::NoProfileAvailable`. We still fill `last_reason`
+    // / `last_error` in that branch so logs include the model id, but
+    // the unified finalize taxonomy needs to surface this as the
+    // explicit `NoProfileAvailable` reason (not generic `ProviderFailed`)
+    // so the user-facing copy can say "configure provider" instead of
+    // "all models failed".
+    let mut last_was_no_profile = false;
     let failed_attempt_partial: Arc<Mutex<Option<FailedAttemptPartial>>> =
         Arc::new(Mutex::new(None));
 
@@ -343,6 +371,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 continue;
             }
         };
+        last_provider_api_kind = Some(prov.api_type.clone());
 
         // Update session with current model info
         {
@@ -498,6 +527,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let model_id_for_err = model_ref_for_op.model_id.clone();
                     let codex_token_owned = codex_token_ref.clone();
                     let failed_attempt_partial_owned = failed_attempt_partial_ref.clone();
+                    // Stamp partial with the provider shape that wrote
+                    // it; see `FailedAttemptPartial::api_type` rationale.
+                    let api_type_for_partial = prov.api_type.clone();
 
                     async move {
                         let mut agent = build_agent_from_snapshot(
@@ -595,6 +627,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                         FailedAttemptPartial {
                                             persister,
                                             duration_ms: chat_start.elapsed().as_millis() as u64,
+                                            api_type: api_type_for_partial.clone(),
                                         },
                                     );
                                 } else {
@@ -645,6 +678,57 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
+
+                    // User-stop on a non-abort path. `abort_on_cancel=false`
+                    // (Desktop / HTTP / IM / Cron) means `agent.chat` returned
+                    // Ok with whatever partial accumulated rather than Err on
+                    // cancel. Without this branch the partial would be filed
+                    // as a normal `Completed` assistant turn and the model
+                    // would never know the user pressed stop on its next
+                    // reply. Route through `finalize(UserStop)` so a `[系统
+                    // 事件]` marker is appended to `context_json`, a user-
+                    // visible event row lands, and the chat_turn closes with
+                    // `Interrupted/UserStop` instead of `Completed`.
+                    if !abort_on_cancel
+                        && cancel.load(std::sync::atomic::Ordering::SeqCst)
+                        && persist_final_error_event
+                    {
+                        // No partial-block rebuild: `save_agent_context` above
+                        // already pushed the in-progress history (including
+                        // the just-written assistant row) into context_json.
+                        // finalize only needs to append the marker, write the
+                        // event row, and close the turn.
+                        let partial = PartialMeta {
+                            user_message: Some(message.clone()),
+                            provider_kind: Some(prov.api_type.clone().into()),
+                            text: None,
+                            thinking: None,
+                            tool_calls: Vec::new(),
+                            executed_tools: Vec::new(),
+                            round_id: None,
+                            turn_id: turn_id.clone(),
+                            assistant_message_id: assistant_id,
+                        };
+                        let outcome = finalize::finalize_turn_context(
+                            &db,
+                            &session_id,
+                            TerminationReason::UserStop,
+                            partial,
+                            source,
+                            im_mirror.take(),
+                        )
+                        .await;
+                        let terminal = outcome
+                            .turn_status
+                            .unwrap_or(session::ChatTurnStatus::Interrupted);
+                        stream_lifecycle.set_terminal(terminal, outcome.interrupt_reason, None);
+                        stream_lifecycle.finish();
+                        return Ok(ChatEngineResult {
+                            response,
+                            model_used: Some(model_ref.clone()),
+                            agent: Some(agent),
+                        });
+                    }
 
                     // GUI / HTTP turns mirror into the attached IM chat via
                     // the live stream sink. Kick the final IM flush before
@@ -803,7 +887,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             model_ref.provider_id, model_ref.model_id
                         );
                         last_reason = Some(failover::classify_error(&msg));
-                        last_error = Some(msg);
+                        last_error = Some(msg.clone());
+                        compaction_failed.get_or_insert(msg);
                         break;
                     }
                     compaction_attempts += 1;
@@ -943,6 +1028,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     last_is_codex_auth = is_codex_auth;
                     last_reason = Some(r);
                     last_error = Some(err_str);
+                    last_was_no_profile = false;
                     break;
                 }
 
@@ -960,6 +1046,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     );
                     last_reason = Some(failover::classify_error(&msg));
                     last_error = Some(msg);
+                    last_was_no_profile = true;
                     break;
                 }
             }
@@ -967,37 +1054,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     }
 
     // All non-success paths (cancel, exhausted, no-profile, compaction
-    // give-up) converge here. If the IM mirror is still attached, kick its
-    // abort path so a pre-emitted user-quote message in the IM chat gets
-    // a follow-up notice instead of dangling alone. Spawn so a slow IM API
-    // doesn't hold the engine return open.
-    //
-    // Cancel vs error: `abort_on_cancel && cancel.load()` is the only
-    // disambiguator — failures like `NoProfileAvailable` populate
-    // `last_error` but don't touch the cancel atomic. `cancel.load()`
-    // alone (without `abort_on_cancel`) would also fire on IM channel
-    // turns where cancel is registered for `/cancel` but doesn't gate the
-    // engine return.
-    if let Some(state) = im_mirror.take() {
-        let is_user_cancel = abort_on_cancel && cancel.load(std::sync::atomic::Ordering::SeqCst);
-        let failure = if is_user_cancel {
-            None
-        } else {
-            last_error.clone().zip(last_reason.clone())
-        };
-        let is_codex_auth = last_is_codex_auth;
-        tokio::spawn(async move {
-            let ctx = failure.as_ref().map(|(raw, reason)| ImErrorContext {
-                reason: reason.clone(),
-                raw: raw.as_str(),
-                is_codex_auth,
-            });
-            abort_im_live_mirror(state, ctx).await;
-        });
-    }
-
-    let final_error =
-        last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
+    // give-up) converge here.
+    let final_error = last_error
+        .clone()
+        .unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
     app_error!(
         "provider",
         "failover",
@@ -1006,58 +1066,170 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         session_id,
         final_error
     );
-    let is_interrupted = cancel.load(std::sync::atomic::Ordering::SeqCst);
-    let failed_assistant_id = if is_interrupted {
-        discard_failed_attempt_partial(&failed_attempt_partial);
-        None
-    } else {
-        take_failed_attempt_partial(&failed_attempt_partial).and_then(|partial| {
-            partial
-                .persister
-                .persist_failed_partial_assistant(None, partial.duration_ms)
-        })
-    };
-    if let Some(ref turn_id) = turn_id {
-        let status = if is_interrupted {
-            session::ChatTurnStatus::Interrupted
+
+    let reason = derive_termination_reason(
+        abort_on_cancel,
+        &cancel,
+        last_reason,
+        last_error.as_deref(),
+        last_is_codex_auth,
+        compaction_failed.as_deref(),
+        last_was_no_profile,
+    );
+
+    // Discard or preserve the visible partial depending on the
+    // disambiguated termination reason. Subagent `abort_on_cancel=true`
+    // is the only path that throws partials away.
+    let (failed_assistant_id, partial_api_type) =
+        if matches!(reason, TerminationReason::UserStop) && abort_on_cancel {
+            discard_failed_attempt_partial(&failed_attempt_partial);
+            (None, None)
         } else {
-            session::ChatTurnStatus::Failed
+            match take_failed_attempt_partial(&failed_attempt_partial) {
+                Some(partial) => {
+                    let assistant_id = partial
+                        .persister
+                        .persist_failed_partial_assistant(None, partial.duration_ms);
+                    (assistant_id, Some(partial.api_type))
+                }
+                None => (None, None),
+            }
         };
-        let reason = is_interrupted.then_some(session::ChatTurnInterruptReason::RuntimeCancel);
-        if let Ok(Some(turn)) = db.finish_chat_turn_after_execution(
-            turn_id,
-            is_interrupted,
-            Some(final_error.as_str()),
-            failed_assistant_id,
-        ) {
-            stream_lifecycle.set_terminal(
-                turn.status,
-                turn.interrupt_reason,
-                (turn.status == session::ChatTurnStatus::Failed)
-                    .then(|| turn.error.unwrap_or_else(|| final_error.clone())),
-            );
-        } else {
-            stream_lifecycle.set_terminal(
-                status,
-                reason,
-                (!is_interrupted).then_some(final_error.clone()),
-            );
-        }
-    }
+
+    // Prefer the API type that *wrote* the surviving partial; fall
+    // back to the last attempted provider when no partial exists
+    // (which only matters for `provider_kind` selection — the message
+    // table will be empty of that turn's blocks).
+    let api_type_for_rebuild = partial_api_type.or_else(|| last_provider_api_kind.clone());
+    let partial = collect_partial_meta_from_runtime(
+        &db,
+        &session_id,
+        &message,
+        api_type_for_rebuild,
+        failed_assistant_id,
+        turn_id.as_deref(),
+    );
+
     if persist_final_error_event {
-        persist_failed_turn_context_with_partial(
+        let outcome = finalize::finalize_turn_context(
             &db,
             &session_id,
-            &message,
-            &final_error,
-            failed_assistant_id,
-        );
-        let _ = db.append_message(
-            &session_id,
-            &session::NewMessage::error_event(&final_error).with_source(source),
+            reason.clone(),
+            partial,
+            source,
+            im_mirror.take(),
+        )
+        .await;
+        let terminal_status = outcome
+            .turn_status
+            .unwrap_or(session::ChatTurnStatus::Failed);
+        let terminal_error =
+            (terminal_status == session::ChatTurnStatus::Failed).then(|| final_error.clone());
+        stream_lifecycle.set_terminal(terminal_status, outcome.interrupt_reason, terminal_error);
+    } else {
+        // Subagent / Cron / IM-inbound entry points self-manage their
+        // user-facing error surfaces (the channel worker has its own IM
+        // notice, subagents drop partials, cron writes its delivery
+        // event). The unified path still writes `chat_turns` if there's
+        // a turn id, but skips context_json / event row / IM dispatch.
+        if let Some(ref tid) = turn_id {
+            let _ = db.finish_chat_turn_once(
+                tid,
+                reason.to_chat_turn_status(),
+                Some(reason.to_chat_turn_interrupt_reason()),
+                reason.to_error_text().as_deref(),
+                failed_assistant_id,
+            );
+        }
+        stream_lifecycle.set_terminal(
+            reason.to_chat_turn_status(),
+            Some(reason.to_chat_turn_interrupt_reason()),
+            (reason.to_chat_turn_status() == session::ChatTurnStatus::Failed)
+                .then(|| final_error.clone()),
         );
     }
+
     Err(final_error)
+}
+
+// ── Termination reason derivation ────────────────────────────────────
+
+/// Map runtime convergence state to a [`TerminationReason`].
+///
+/// `cancel + abort_on_cancel` is the only positive signal for
+/// `UserStop` — `cancel.load()` alone fires on IM channel turns where
+/// `/cancel` flips the flag but the engine still wants to surface the
+/// partial as a normal failure. `last_reason == None` after a non-cancel
+/// path means we never even reached an executor call → `NoProfileAvailable`.
+/// Everything else is `ProviderFailed` carrying the classified reason.
+fn derive_termination_reason(
+    abort_on_cancel: bool,
+    cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    last_reason: Option<failover::FailoverReason>,
+    last_error: Option<&str>,
+    last_is_codex_auth: bool,
+    compaction_failed: Option<&str>,
+    last_was_no_profile: bool,
+) -> TerminationReason {
+    let user_cancel = abort_on_cancel && cancel.load(std::sync::atomic::Ordering::SeqCst);
+    if user_cancel {
+        return TerminationReason::UserStop;
+    }
+    if let Some(detail) = compaction_failed {
+        return TerminationReason::CompactionFailed {
+            detail: detail.to_string(),
+        };
+    }
+    // Profile-availability failure is configuration-class, not API-class.
+    // The `Err(NoProfileAvailable)` branch fills `last_reason`/`last_error`
+    // for logging, but the unified taxonomy surfaces this distinctly.
+    if last_was_no_profile {
+        return TerminationReason::NoProfileAvailable;
+    }
+    match (last_reason, last_error) {
+        (Some(kind), Some(msg)) => TerminationReason::ProviderFailed {
+            last_kind: kind,
+            last_message: msg.to_string(),
+            is_codex_auth: last_is_codex_auth,
+        },
+        (Some(kind), None) => TerminationReason::ProviderFailed {
+            last_kind: kind,
+            last_message: String::new(),
+            is_codex_auth: last_is_codex_auth,
+        },
+        (None, Some(msg)) => TerminationReason::Other {
+            message: msg.to_string(),
+        },
+        (None, None) => TerminationReason::NoProfileAvailable,
+    }
+}
+
+/// Build [`PartialMeta`] from runtime convergence state.
+///
+/// The text / thinking / tool_use rebuild is reverse-engineered from
+/// the `messages` table by [`finalize::rebuild::collect_partial_from_messages`]
+/// — `persist_failed_partial_assistant` has already written the
+/// assistant row that links text/thinking blocks, and the tool rows
+/// persist independently. Runtime only needs to overlay metadata that
+/// the table doesn't carry (user_message text for the early-persist
+/// gap, provider shape from the last attempt, turn id, persisted
+/// assistant id).
+fn collect_partial_meta_from_runtime(
+    db: &std::sync::Arc<session::SessionDB>,
+    session_id: &str,
+    user_message: &str,
+    api_type: Option<crate::provider::ApiType>,
+    assistant_message_id: Option<i64>,
+    turn_id: Option<&str>,
+) -> PartialMeta {
+    let provider_kind = api_type.map(finalize::ProviderApiKind::from);
+    let mut meta = finalize::rebuild::collect_partial_from_messages(db, session_id, provider_kind);
+    meta.user_message = Some(user_message.to_string());
+    meta.turn_id = turn_id.map(str::to_owned);
+    if assistant_message_id.is_some() {
+        meta.assistant_message_id = assistant_message_id;
+    }
+    meta
 }
 
 /// Apply common agent configuration. Extracted to avoid duplication between
@@ -1346,10 +1518,12 @@ mod stream_lifecycle_tests {
             context_json.contains("partial answer"),
             "failed partial assistant should be visible to the next turn context: {context_json}"
         );
-        assert!(
-            !context_json.contains("failed before producing a response"),
-            "context must not say no response was produced when partial assistant text exists: {context_json}"
-        );
+        // The unified finalize path keeps the partial as a structured
+        // native block (`output_text` for Responses) and writes the
+        // model marker as a separate assistant message, instead of the
+        // old behavior of flattening both into one. The marker phrasing
+        // is Chinese now since `copy::model_marker` is the source of
+        // truth.
         let context: Vec<serde_json::Value> = serde_json::from_str(&context_json).unwrap();
         let assistant_contexts: Vec<_> = context
             .iter()
@@ -1357,15 +1531,19 @@ mod stream_lifecycle_tests {
             .collect();
         assert_eq!(
             assistant_contexts.len(),
-            1,
-            "partial and error marker must be merged into one assistant message for Anthropic-compatible history: {context_json}"
+            2,
+            "expected one partial assistant block + one [系统事件] marker assistant: {context_json}"
         );
-        let assistant_content = assistant_contexts[0]
+        // Last assistant message is the model marker (Chinese, says
+        // "all configured models failed").
+        let marker = assistant_contexts
+            .last()
+            .unwrap()
             .get("content")
-            .and_then(|content| content.as_str())
-            .expect("assistant context content");
-        assert!(assistant_content.contains("partial answer"));
-        assert!(assistant_content.contains("[System event]"));
+            .and_then(|c| c.as_str())
+            .expect("marker is plain text assistant");
+        assert!(marker.contains("[系统事件]"), "marker: {marker}");
+        assert!(marker.contains("所有已配置模型都失败"), "marker: {marker}");
     }
 
     #[tokio::test]
@@ -1441,9 +1619,14 @@ mod stream_lifecycle_tests {
             context_json.contains("failed after tool"),
             "partial text should be preserved in context: {context_json}"
         );
+        // Unified finalize keeps tool calls as Responses-native
+        // function_call / function_call_output items rather than the
+        // old flattened `[Tool call: read]\nArguments: ...` markdown.
+        // The name, args path, and result text all still appear in the
+        // raw JSON.
         assert!(
-            context_json.contains("[Tool call: read]"),
-            "tool name should be preserved in context: {context_json}"
+            context_json.contains("\"name\":\"read\""),
+            "tool name should be preserved as native function_call: {context_json}"
         );
         assert!(
             context_json.contains("Cargo.toml"),
@@ -1452,10 +1635,6 @@ mod stream_lifecycle_tests {
         assert!(
             context_json.contains("[Read 1 lines"),
             "tool result should be preserved in context: {context_json}"
-        );
-        assert!(
-            context_json.contains("Do not re-run"),
-            "context should discourage repeated side-effectful work: {context_json}"
         );
     }
 
@@ -1516,13 +1695,21 @@ mod stream_lifecycle_tests {
             .load_context(&session.id)
             .unwrap()
             .expect("failed turn should persist model context");
+        // The unified finalize path intentionally preserves thinking
+        // content in the model-facing history — the design principle
+        // is "let the model perceive as much of what happened as
+        // possible". For Responses-shaped partials, thinking and text
+        // are merged into a single `output_text` since reasoning
+        // items require an `encrypted_content` we don't have for
+        // runtime partials.
         assert!(
-            !context_json.contains("thinking only"),
-            "thinking block must stay out of model-facing failed partial context: {context_json}"
+            context_json.contains("thinking only"),
+            "thinking should be preserved in model-facing context for thinking-only failures: {context_json}"
         );
+        // Chinese marker mentions "all configured models failed".
         assert!(
-            context_json.contains("failed after producing partial output"),
-            "thinking-only failure should still mark that partial output existed: {context_json}"
+            context_json.contains("所有已配置模型都失败"),
+            "marker should classify provider failure: {context_json}"
         );
     }
 

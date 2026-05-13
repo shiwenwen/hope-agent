@@ -280,12 +280,22 @@ pub async fn chat(
 
     if model_chain.is_empty() {
         let err = "No model configured. Please add a provider and set an active model.";
-        let _ = db.finish_chat_turn_once(
-            &turn_id,
-            session::ChatTurnStatus::Failed,
-            None,
-            Some(err),
-            None,
+        // No LLM call was attempted → NoProfileAvailable. finalize
+        // writes the marker into context_json, the role=event row, and
+        // closes chat_turn — replacing the old hand-rolled
+        // finish_chat_turn_once + persist_failed_turn_context +
+        // error_event triad.
+        let partial = ha_core::chat_engine::finalize::PartialMeta {
+            user_message: Some(body.message.clone()),
+            turn_id: Some(turn_id.clone()),
+            ..Default::default()
+        };
+        let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+            &db,
+            &sid,
+            ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
+            partial,
+            ha_core::chat_engine::ChatSource::Http,
         );
         ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
             &sid,
@@ -294,12 +304,6 @@ pub async fn chat(
             Some(session::ChatTurnStatus::Failed),
             None,
             Some(err),
-        );
-        ha_core::chat_engine::persist_failed_turn_context(&db, &sid, &body.message, err);
-        let _ = db.append_message(
-            &sid,
-            &session::NewMessage::error_event(err)
-                .with_source(ha_core::chat_engine::ChatSource::Http),
         );
         return Err(AppError::bad_request(err));
     }

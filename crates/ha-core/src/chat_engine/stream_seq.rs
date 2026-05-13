@@ -77,6 +77,21 @@ impl ChatSource {
             Self::ParentInjection => "parent_injection",
         }
     }
+
+    /// Inverse of [`as_str`] / [`Display`]. Returns `Desktop` for both
+    /// the canonical "desktop" string and any unrecognized value — the
+    /// chat_turns table predates this enum's wire layer and the only
+    /// historical writer was the desktop entry, so unknown rows are
+    /// safest to treat as `Desktop`.
+    pub fn from_db_string(s: &str) -> Self {
+        match s {
+            "http" => Self::Http,
+            "channel" => Self::Channel,
+            "subagent" => Self::Subagent,
+            "parent_injection" => Self::ParentInjection,
+            _ => Self::Desktop,
+        }
+    }
 }
 
 impl fmt::Display for ChatSource {

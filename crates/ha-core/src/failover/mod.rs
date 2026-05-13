@@ -23,7 +23,7 @@ use std::time::Instant;
 use crate::provider::{AuthProfile, ProviderConfig};
 
 /// Why a model request failed — drives retry / fallback decisions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailoverReason {
     /// 429 Too Many Requests — retryable on same model

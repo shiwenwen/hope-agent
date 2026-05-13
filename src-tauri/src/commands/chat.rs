@@ -598,13 +598,25 @@ pub async fn chat(
                             .map(|turn| turn.status != session::ChatTurnStatus::Interrupted)
                             .unwrap_or(true)
                         {
-                            crate::chat_engine::persist_failed_turn_context(
-                                &db, &sid, &message, &err,
-                            );
-                            let _ = db.append_message(
+                            // Side-query / agent path (not the main
+                            // `run_chat_engine` loop) — route the
+                            // failure through the unified finalize
+                            // entry so context_json gets a marker and
+                            // the GUI sees a role=event row instead of
+                            // the old hand-rolled append_message hack.
+                            let partial = ha_core::chat_engine::finalize::PartialMeta {
+                                user_message: Some(message.clone()),
+                                turn_id: Some(turn_id.clone()),
+                                ..Default::default()
+                            };
+                            let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                                &db,
                                 &sid,
-                                &session::NewMessage::event(&err)
-                                    .with_source(ha_core::chat_engine::ChatSource::Desktop),
+                                ha_core::chat_engine::finalize::TerminationReason::Other {
+                                    message: err.clone(),
+                                },
+                                partial,
+                                ha_core::chat_engine::ChatSource::Desktop,
                             );
                         }
                         return Err(CmdError::msg(err));
@@ -646,6 +658,26 @@ pub async fn chat(
             }
             None => {
                 let err = "Agent not initialized. Please sign in first.".to_string();
+                // "Agent not initialized" is a configuration-level
+                // failure equivalent to NoProfileAvailable from the
+                // unified taxonomy's perspective: no LLM call was
+                // attempted, the user needs to fix Provider setup.
+                let partial = ha_core::chat_engine::finalize::PartialMeta {
+                    user_message: Some(message.clone()),
+                    turn_id: Some(turn_id.clone()),
+                    ..Default::default()
+                };
+                let _ = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                    &db,
+                    &sid,
+                    ha_core::chat_engine::finalize::TerminationReason::NoProfileAvailable,
+                    partial,
+                    ha_core::chat_engine::ChatSource::Desktop,
+                );
+                // `finalize_turn_context_blocking` wrote the chat_turn
+                // row + event row + context marker. Still broadcast the
+                // stream-end event so the frontend's stream listener
+                // sees the closure (finalize only touches DB).
                 finish_turn_once_and_broadcast(
                     &db,
                     &sid,
@@ -654,12 +686,6 @@ pub async fn chat(
                     None,
                     Some(&err),
                     None,
-                );
-                crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
-                let _ = db.append_message(
-                    &sid,
-                    &session::NewMessage::event(&err)
-                        .with_source(ha_core::chat_engine::ChatSource::Desktop),
                 );
                 Err(CmdError::msg(err))
             }

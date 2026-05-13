@@ -751,6 +751,13 @@ pub async fn start_background_tasks() {
         // any terminal-but-not-injected results back into their parent sessions.
         // Primary-only: a Secondary process running this would flip the
         // Primary's still-running tools to Interrupted.
+        //
+        // **Ordering invariant**: `recover_startup_session_state` ran
+        // synchronously during `init_runtime` (before this background-task
+        // bring-up), so by the time `replay_pending_jobs` starts, every
+        // stale chat_turn has already been finalized (sentinel-aware
+        // Shutdown / Crash) and any `ParentInjection` turn that the
+        // replay schedules will see a coherent `context_json`.
         tokio::spawn(async move {
             crate::async_jobs::replay_pending_jobs();
         });
@@ -929,16 +936,24 @@ fn init_mcp_subsystem() -> bool {
     }
 }
 
-fn recover_startup_session_state(session_db: &SessionDB, tier: crate::runtime_lock::Tier) {
+fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runtime_lock::Tier) {
     if tier != crate::runtime_lock::Tier::Primary {
         return;
     }
 
-    // Sweep stale `streaming` placeholder rows left over from a crashed run
-    // into `orphaned`, so the next `restore_agent_context` can detect and
-    // surface them. Must happen after both SESSION_DB and APP_LOGGER are set
-    // so the result is logged. Best-effort — a failure here doesn't block
-    // startup.
+    // Read the shutdown sentinel: present → previous process exited
+    // cleanly (signal handler ran), absent → crash/SIGKILL/power loss.
+    // Drives which `TerminationReason` we attach to each stale turn.
+    let cause = crate::chat_engine::finalize::sentinel::read_and_clear();
+    app_info!(
+        "session",
+        "startup_recovery",
+        "Startup cause from sentinel: {}",
+        cause.as_str(),
+    );
+
+    // 1. Sweep stale `streaming` placeholder rows into `orphaned` so the
+    //    finalize reverse-rebuild can recognize them as interrupted.
     match session_db.mark_orphaned_streaming_rows() {
         Ok(0) => {}
         Ok(n) => app_info!(
@@ -954,29 +969,123 @@ fn recover_startup_session_state(session_db: &SessionDB, tier: crate::runtime_lo
             e
         ),
     }
-    match session_db.recover_stale_chat_turns() {
-        Ok(n) => {
-            let cleared = crate::chat_engine::active_turn::clear_all();
-            if n > 0 || cleared > 0 {
-                app_info!(
-                    "session",
-                    "turn",
-                    "marked {} stale chat turn(s) interrupted on startup; cleared {} active turn(s)",
-                    n,
-                    cleared
-                );
-            }
-        }
+
+    // 2. Collect every chat_turn left in `running` / `cancelling` state.
+    //    finalize will set the terminal status itself; we don't UPDATE
+    //    here to avoid the historical "crash_recovery for everything"
+    //    behavior the new sentinel-aware path replaces.
+    let stale = match session_db.find_stale_chat_turns_for_finalize() {
+        Ok(rows) => rows,
         Err(e) => {
-            let cleared = crate::chat_engine::active_turn::clear_all();
             app_warn!(
                 "session",
                 "turn",
-                "startup chat turn recovery failed: {}; cleared {} active turn(s)",
-                e,
-                cleared
+                "startup find_stale_chat_turns_for_finalize failed: {}",
+                e
             );
+            Vec::new()
         }
+    };
+
+    let db_arc = session_db.clone();
+    let mut finalized = 0usize;
+    let mut covered_sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for turn in &stale {
+        let provider_kind =
+            crate::chat_engine::finalize::rebuild::resolve_provider_kind_for_session(
+                &db_arc,
+                &turn.session_id,
+            );
+        let partial = crate::chat_engine::finalize::rebuild::collect_partial_from_messages(
+            &db_arc,
+            &turn.session_id,
+            provider_kind,
+        );
+        let reason = cause.to_termination_reason();
+        let source = crate::chat_engine::ChatSource::from_db_string(&turn.source);
+        let partial = crate::chat_engine::finalize::PartialMeta {
+            turn_id: Some(turn.id.clone()),
+            ..partial
+        };
+        let outcome = crate::chat_engine::finalize::finalize_turn_context_blocking(
+            &db_arc,
+            &turn.session_id,
+            reason,
+            partial,
+            source,
+        );
+        if !outcome.was_already_finalized {
+            finalized += 1;
+        }
+        covered_sessions.insert(turn.session_id.clone());
+    }
+
+    // IM / Cron / Subagent entry points run with `turn_id = None`, so
+    // they leave no `chat_turns` row for the sweep above to act on.
+    // Their partial output still ends up in `messages` with
+    // `stream_status='orphaned'` after the previous step's promotion,
+    // and without finalize the next restore for those sessions would
+    // load a `context_json` that never received the markers / synthetic
+    // tool_results for those orphans, and the GUI would render the
+    // tool rows as forever-running. Sweep them here with `turn_id=None`
+    // so finalize writes the marker + closes the tool rows + appends
+    // an event banner.
+    let orphan_session_ids = db_arc.sessions_with_orphaned_rows().unwrap_or_else(|e| {
+        app_warn!(
+            "session",
+            "startup_recovery",
+            "sessions_with_orphaned_rows failed: {}",
+            e
+        );
+        Vec::new()
+    });
+    for session_id in orphan_session_ids {
+        if covered_sessions.contains(&session_id) {
+            continue;
+        }
+        let provider_kind =
+            crate::chat_engine::finalize::rebuild::resolve_provider_kind_for_session(
+                &db_arc,
+                &session_id,
+            );
+        let partial = crate::chat_engine::finalize::rebuild::collect_partial_from_messages(
+            &db_arc,
+            &session_id,
+            provider_kind,
+        );
+        if partial.text.is_none() && partial.thinking.is_none() && partial.tool_calls.is_empty() {
+            // Nothing to rebuild — the orphaned rows didn't carry
+            // visible content. Skip to avoid emitting a marker on
+            // empty sessions.
+            continue;
+        }
+        let reason = cause.to_termination_reason();
+        let outcome = crate::chat_engine::finalize::finalize_turn_context_blocking(
+            &db_arc,
+            &session_id,
+            reason,
+            partial,
+            // No source signal for these sessions — pick the safest
+            // default for the event row's `source` column. Same value
+            // the from_db_string fallback returns.
+            crate::chat_engine::ChatSource::Desktop,
+        );
+        if !outcome.was_already_finalized {
+            finalized += 1;
+        }
+    }
+
+    let cleared = crate::chat_engine::active_turn::clear_all();
+    if finalized > 0 || cleared > 0 {
+        app_info!(
+            "session",
+            "startup_recovery",
+            "finalized {} stale chat turn(s) ({:?}); cleared {} active turn registry entr{}",
+            finalized,
+            cause,
+            cleared,
+            if cleared == 1 { "y" } else { "ies" },
+        );
     }
 }
 
@@ -985,12 +1094,12 @@ mod tests {
     use super::*;
     use crate::session::{ChatTurnInterruptReason, ChatTurnStatus, NewMessage};
 
-    fn temp_db() -> SessionDB {
+    fn temp_db() -> Arc<SessionDB> {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
         // Leak tempdir for test lifetime so SQLite can keep the file open.
         std::mem::forget(dir);
-        SessionDB::open(&path).expect("open session db")
+        Arc::new(SessionDB::open(&path).expect("open session db"))
     }
 
     #[test]

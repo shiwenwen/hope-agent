@@ -21,7 +21,9 @@ use crate::channel::worker::pipeline::{
     await_stream_pipeline, deliver_rounds, spawn_stream_pipeline, DeliveryTarget, StreamPipeline,
 };
 use crate::channel::worker::send_text_chunks;
-use crate::chat_engine::im_error_message::{format_im_engine_error, ImErrorContext, CANCEL_NOTICE};
+// Notice rendering (CANCEL_NOTICE / format_im_engine_error) now lives
+// behind `finalize::copy::im_notice` — kept only for type imports that
+// other modules may still reference.
 use crate::chat_engine::quote::{build_user_quote_prefix, LastUserView};
 use crate::chat_engine::sink_registry::{sink_registry, SinkHandle};
 use crate::chat_engine::stream_seq::ChatSource;
@@ -176,10 +178,19 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
 ///
 /// Like `finalize`, drops the sink handle first so the stream task
 /// observes channel-close cleanly, then awaits the pipeline.
-pub(crate) async fn abort_im_live_mirror(
-    state: ImLiveMirrorState,
-    error: Option<ImErrorContext<'_>>,
-) {
+/// Owned-string variant for the unified finalize path. The unified
+/// path renders the IM-side notice via `finalize::copy::im_notice`
+/// (which itself dispatches to `format_im_engine_error` / `CANCEL_NOTICE`
+/// for provider-failure / user-cancel reasons) and passes the result
+/// here as `body`. Passing `None` skips the follow-up message —
+/// equivalent to the no-op-on-no-quote case the old per-reason
+/// dispatcher had.
+///
+/// Pre-finalize callers (subagent / channel inbound paths that don't
+/// build an `ImLiveMirrorState` from a `ChatSource::Desktop`/`Http`
+/// turn) never instantiate this state at all, so this is the sole
+/// entry point.
+pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, body: Option<String>) {
     let ImLiveMirrorState {
         sink_handle,
         pipeline,
@@ -191,14 +202,10 @@ pub(crate) async fn abort_im_live_mirror(
     drop(sink_handle);
     let _outcome = await_stream_pipeline(pipeline).await;
 
+    let Some(body) = body else { return };
     if !quote_sent {
         return;
     }
-
-    let body = match error {
-        None => CANCEL_NOTICE.to_string(),
-        Some(ctx) => format_im_engine_error(ctx),
-    };
     let target = DeliveryTarget {
         account_id: &attach.account_id,
         chat_id: &attach.chat_id,

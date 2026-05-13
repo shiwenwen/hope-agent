@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **统一 turn 终止系统**：用户主动停止、模型链全部失败、上下文压缩失败、应用关闭 / 崩溃 / 配置缺失等所有「非自然完成」路径现在走同一条 `finalize` 管线，把发生了什么以中文「系统事件」一句话写进 `context_json`，让模型下一轮明确感知；UI 同步在会话里渲染一条系统通知条；IM 渠道也会发对应的提醒。partial 内容（已产生的文本 / 思考 / 工具调用）按各 Provider 原生格式结构化保留，不再扁平化成纯文本；被中断未返回结果的 `tool_use` 自动补合成 `tool_result` 防止下次请求被 API 拒。原「用户停止假装成功」导致模型续错话题、Crash 时 user 消息丢失这两个老问题修掉。
+- **崩溃 vs 优雅退出可区分**：信号处理器（SIGTERM / SIGINT / Ctrl+C / Ctrl+Break）退出前写 `~/.hope-agent/.shutdown-clean` sentinel，下次启动据此把残留 turn 标记为「Shutdown（应用已关闭）」或「Crash（进程异常退出）」，文案 / 行为针对性区分。
+- **exec 子进程孙进程泄漏修复**：tokio 任务 panic / runtime shutdown 时 `ProcessGroupGuard` 自动 `kill(-pid, SIGKILL)` 一锅端整个进程组，不再只杀直接子进程；`exec` 跑 `sh -c 'cmd1 & cmd2 & wait'` 这种孙进程也会被一并清掉。panic hook 进一步 SIGKILL 所有注册的 exec process group 防止 panic 路径残留。
+
 ### Added
 
 - **模型对话直接升级 Hope Agent**：新增 `app_update` 内置工具 + `ha-self-update` skill，模型可通过对话完成检查 / 下载 / 校验 / 替换 / 重启全流程，覆盖桌面 GUI（走 `tauri-plugin-updater`）、Homebrew / Scoop / AUR / apt / dnf 包管理器装法、以及手动 binary 部署三档路径；每次升级强制 `ask_user_question` Yes/No 确认。release.yml 同时签发裸 binary tar.gz / zip 供 headless 自升级使用，Minisign pubkey 与桌面 updater 共享单一真相源（CI / pre-push 自动校验同步）。详见 [`self-update.md`](docs/architecture/self-update.md)。

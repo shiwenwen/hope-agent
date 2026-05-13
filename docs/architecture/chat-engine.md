@@ -318,14 +318,98 @@ Plan task、stream seq 与消息持久化：
 `chat:stream_end`，payload 带 `sessionId / streamId / turnId / status /
 interruptReason / error`，前端据此清理 loading 并恢复停止后的展示状态。
 
-启动恢复会把 DB 中残留的 `running` / `cancelling` turn 标记为
-`interrupted(crash_recovery)`，同时清理内存 `active_turn` registry，避免热重启
-后 DB 已中断但内存仍报告 active。
+启动恢复会把 DB 中残留的 `running` / `cancelling` turn 走统一 finalize（见下节）
+拿到正确的 `Shutdown` / `Crash` reason 落 chat_turn 终态，同时清理内存
+`active_turn` registry，避免热重启后 DB 已中断但内存仍报告 active。
 
 `turn_id = None` 是非交互入口的显式设计：Cron、subagent、parent injection 与 IM
 channel worker 有各自的取消、投递和后台恢复机制，不参与 GUI/HTTP 的 turn 级
 stop 与 active-turn registry。后续如果要把这些入口纳入 turn 生命周期，必须先设计
 独立的取消隔离和前端呈现契约。
+
+## 统一 Turn Finalize（`chat_engine::finalize`）
+
+所有「非自然完成」的 turn 路径（用户停止 / 模型链失败 / 压缩失败 / 应用关闭 /
+崩溃 / 配置缺失 / 其它内部异常）走同一个 [`finalize_turn_context`](../../crates/ha-core/src/chat_engine/finalize/mod.rs)
+收敛点，把发生了什么以三种形态同步出去：
+
+1. **`context_json`**：按 reason 在 history 末尾拼一条 `[系统事件] ...` 中文
+   marker 让模型下一轮明确感知；partial 内容（已产生的 text / thinking /
+   tool_use）按当前 Provider 的 native 格式重建为结构化 blocks，被中断的
+   `tool_use` 自动合成 `tool_result = "Tool execution was interrupted"` 防止
+   Anthropic 等强校验 API 在下一轮返 400。
+2. **`messages` 表 `role=event` 行**：用户版陈述性文案（已停止 / 应用已关闭 /
+   认证失败 / ...），`is_error` 视 reason 设置；GUI 走现有事件居中渲染管线。
+3. **IM 渠道通知（如 attach）**：复用 [`im_error_message`](../../crates/ha-core/src/chat_engine/im_error_message.rs)
+   的 `CANCEL_NOTICE` / `format_im_engine_error` 模板，背景 task spawn 不阻塞
+   engine 返回。
+
+### TerminationReason 7 种
+
+| reason | chat_turn status | interrupt_reason | 触发点 |
+|---|---|---|---|
+| `UserStop` | Interrupted | UserStop | engine 失败收敛 + 成功路径 cancel 检测（`abort_on_cancel=false` 的 Desktop/HTTP/IM/Cron），subagent `abort_on_cancel=true` 仍走 discard |
+| `NoProfileAvailable` | Failed | NoProfile | engine 收敛时 `last_reason=None && last_error=None` + 配置缺失入口（Tauri / HTTP routes） |
+| `ProviderFailed { last_kind, last_message, is_codex_auth }` | Failed | ProviderFailed | engine 收敛时 `ExecutorError::Exhausted` |
+| `CompactionFailed { detail }` | Failed | CompactionFailed | engine emergency_compact 跑过仍 over-threshold，下一轮再返 ContextOverflow |
+| `Shutdown` | Interrupted | Shutdown | 启动 sweep 看到 sentinel 文件（`~/.hope-agent/.shutdown-clean`） |
+| `Crash` | Interrupted | CrashRecovery | 启动 sweep 看到 sentinel 缺失（panic / SIGKILL / 断电） |
+| `Other { message }` | Failed | Unknown | 内部异常 / 边角失败兜底 |
+
+### 启动 sweep（`app_init::recover_startup_session_state`）
+
+执行顺序（同步）：
+1. `sentinel::read_and_clear()` → `StartupCause::Clean` / `Crash`
+2. `mark_orphaned_streaming_rows()` 把残留 `streaming` 翻 `orphaned`
+3. `find_stale_chat_turns_for_finalize()` 列所有 `running` / `cancelling` 的 turn（不 UPDATE）
+4. 每个 turn 调 `finalize_turn_context_blocking(cause.to_termination_reason(), …)`，
+   reverse-rebuild 从 messages 表反查 partial 文本 / thinking / tool 行重建结构化
+   blocks 写回 context_json，并写 event 行 + chat_turn 终态
+5. `active_turn::clear_all()` 清内存 registry
+6. 后续 `start_background_tasks` 才 spawn `async_jobs::replay_pending_jobs`，
+   保证 dispatch_injection 看到的 history 已 finalize（避免 sweep 与 replay 竞态）
+
+### 信号处理器（`crash_flush::install_signal_handlers`）
+
+SIGTERM / SIGINT / Ctrl+C / Ctrl+Break 触发：
+1. `sentinel::write_clean_marker()` 写 sentinel 标记下次启动认作 Shutdown
+2. 对每个 `active_turn::all_current()` 调 `finalize_turn_context_blocking(Shutdown, …)`
+3. `active_persisters::flush_all_blocking()` 把残余 streaming placeholder 翻 completed
+4. `std::process::exit(0)`
+
+### panic hook（`crash_flush::install_panic_hook`）
+
+设置全局 `set_hook`，进 hook 时 try_lock `process_registry::get_registry()`，
+对所有 running PID 调 `platform::terminate_process_tree(pid)`（= `kill(-pid, SIGKILL)`）
+杀整个进程组防孙进程泄漏，**不写 sentinel** —— panic 等同 crash，下次启动 sweep
+按 Crash reason 处理。`StreamPersister::Drop` 仍按现有路径 finalize 单 row
+placeholder 不变。
+
+### exec 孙进程清理（`tools::exec::ProcessGroupGuard`）
+
+`spawn_exec_waiter` 内 RAII guard：spawn child 后 attach guard，正常完成调
+`disarm()`；timeout / 任务 panic / runtime shutdown 时 Drop 自动调
+`terminate_process_tree(pid)` 杀整个进程组。替换原 `kill_on_drop(true)` 的单
+进程 SIGKILL —— 修复 `exec` 跑 `sh -c 'cmd1 & cmd2 & wait'` 时孙进程被遗留
+为孤儿的老问题。
+
+### 重入保护
+
+`active_turn::mark_finalized(turn_id) -> bool` test-and-insert：同一 turn 多次
+进 finalize 第二次返回 `FinalizeOutcome::was_already_finalized = true`，调用方
+据此 short-circuit 防止 marker / event 行重复落盘。
+
+### Provider-native partial 重建
+
+[`rebuild::rebuild_partial_assistant_blocks`](../../crates/ha-core/src/chat_engine/finalize/rebuild.rs)
+按 `provider_kind` 分四个形态：
+
+- **Anthropic**：`{role:assistant, content:[thinking, text, tool_use…]}`，thinking 不需要 signature；tool_use 必须有匹配 tool_result（synthesize_tool_results 自动补一条 `{role:user, content:[tool_result blocks]}`）。
+- **OpenAI Chat**：`{role:assistant, content, reasoning_content, tool_calls}`，缺失字段直接省略；tool_result 用独立 `{role:tool, tool_call_id, content}` 消息。
+- **OpenAI Responses / Codex**：`{type:message, role:assistant, content:[output_text]}` + 顶层 `{type:function_call …}` items。reasoning items 因为缺 `encrypted_content`（runtime partial 拿不到），thinking 被折叠进 `output_text` 文本。tool_result 用 `{type:function_call_output, call_id, output}` 顶层 item。
+
+Partial blocks 在 `[系统事件]` marker 之前 push，所以模型读 history 时先看到结构化
+partial，再看到「上面那段被中断了」的 system event 解释。
 
 ## Failover 集成
 

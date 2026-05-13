@@ -4,7 +4,7 @@
 //! persist the user message, so reloads or duplicate "continue" clicks cannot
 //! create a second main turn for the same session.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -167,6 +167,84 @@ pub fn clear_all() -> usize {
     n
 }
 
+// ── Finalize re-entry guard ───────────────────────────────────────────
+//
+// `finalize_turn_context` can plausibly be invoked twice for the same
+// turn — engine.rs failure convergence races with a SIGTERM signal
+// handler walking `all_current()`; startup sweep races with a
+// crash-flush left over from the previous run. The second call must
+// be a no-op (already wrote `[系统事件]` marker, already wrote event
+// row, already finished chat_turn). Re-entry guard is keyed by turn
+// id so cross-session pairs don't interfere.
+
+/// Bounded FIFO so a long-running process doesn't accumulate every
+/// finalized turn id forever. 4096 × ~50 bytes ≈ 200 KiB worst case,
+/// well above realistic re-entry windows (the same turn id is only
+/// reused at process restart, and we want re-entry detection during
+/// the **same** process lifetime).
+const FINALIZED_RING_MAX: usize = 4096;
+
+struct FinalizedRing {
+    set: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl FinalizedRing {
+    fn new() -> Self {
+        Self {
+            set: HashSet::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    /// Returns `true` if `id` was newly inserted.
+    fn insert(&mut self, id: String) -> bool {
+        if !self.set.insert(id.clone()) {
+            return false;
+        }
+        self.order.push_back(id);
+        while self.order.len() > FINALIZED_RING_MAX {
+            if let Some(evicted) = self.order.pop_front() {
+                self.set.remove(&evicted);
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
+    fn clear(&mut self) {
+        self.set.clear();
+        self.order.clear();
+    }
+}
+
+static FINALIZED_TURNS: OnceLock<Mutex<FinalizedRing>> = OnceLock::new();
+
+fn finalized_ring() -> &'static Mutex<FinalizedRing> {
+    FINALIZED_TURNS.get_or_init(|| Mutex::new(FinalizedRing::new()))
+}
+
+/// Test-and-insert: returns `true` if this is the *first* finalize
+/// call for `turn_id`; subsequent calls return `false` and the caller
+/// must short-circuit. Passing `None` (sweep paths with no `turn_id`)
+/// always returns `true` — those callers handle idempotency by other
+/// means (DB UPDATE conditions, mostly).
+pub fn mark_finalized(turn_id: Option<&str>) -> bool {
+    let Some(id) = turn_id else { return true };
+    let mut ring = finalized_ring()
+        .lock()
+        .expect("finalized turn registry poisoned");
+    ring.insert(id.to_string())
+}
+
+/// Reset the re-entry guard. Test-only.
+#[cfg(test)]
+pub(crate) fn reset_finalized_for_test() {
+    if let Ok(mut ring) = finalized_ring().lock() {
+        ring.clear();
+    }
+}
+
 pub fn set_stream_id(session_id: &str, turn_id: &str, stream_id: &str) -> bool {
     let mut map = registry()
         .lock()
@@ -264,6 +342,19 @@ mod tests {
             .unwrap();
         assert_eq!(snapshot.turn_id, "turn-all-current");
         assert!(Arc::ptr_eq(&snapshot.cancel, &cancel));
+    }
+
+    #[test]
+    fn mark_finalized_is_one_shot_per_turn_id() {
+        let _lock = test_lock();
+        reset_finalized_for_test();
+        assert!(mark_finalized(Some("t-first")));
+        assert!(!mark_finalized(Some("t-first")));
+        assert!(mark_finalized(Some("t-second")));
+        // None means "no turn id" — always proceed (callers handle
+        // idempotency another way).
+        assert!(mark_finalized(None));
+        assert!(mark_finalized(None));
     }
 
     #[test]

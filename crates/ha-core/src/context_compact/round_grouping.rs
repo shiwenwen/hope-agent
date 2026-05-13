@@ -28,6 +28,28 @@ pub fn push_and_stamp(messages: &mut Vec<Value>, mut msg: Value, round: u32) {
     messages.push(msg);
 }
 
+/// Prefix used for round IDs that were reconstructed by the finalize
+/// path (startup sweep or runtime convergence) rather than emitted by
+/// the live tool loop. Compaction tier-3/4 should treat them as
+/// already-summarized boundaries — they're not real tool-call pairings
+/// the model produced.
+pub const RECOVERED_ROUND_PREFIX: &str = "recovered-";
+
+/// Mint a fresh recovered round ID (`recovered-<timestamp_ns>`). Used
+/// by `finalize_turn_context` when stamping rebuilt partial items so
+/// they can be told apart from live rounds during compaction.
+pub fn recovered_round_id() -> String {
+    let ns = chrono::Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_else(|| chrono::Utc::now().timestamp_micros() * 1000);
+    format!("{}{}", RECOVERED_ROUND_PREFIX, ns)
+}
+
+/// True when `round_id` was minted by [`recovered_round_id`].
+pub fn is_recovered_round(round_id: &str) -> bool {
+    round_id.starts_with(RECOVERED_ROUND_PREFIX)
+}
+
 /// Strip round metadata from a single message (in-place, idempotent).
 pub fn strip_round(msg: &mut Value) {
     if let Some(obj) = msg.as_object_mut() {

@@ -106,7 +106,7 @@ fn headline(reason: FailoverReason, is_codex_auth: bool) -> &'static str {
 ///   [`format_im_engine_error`]); `TOKEN_RE` is defense-in-depth for
 ///   non-Auth classes that could still leak a key (Billing/RateLimit
 ///   echoes referencing the key).
-fn sanitize_raw(s: &str) -> String {
+pub(crate) fn sanitize_raw(s: &str) -> String {
     static QUERY_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\?[^\s)\"']*"#).unwrap());
     static BEARER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"(?i)bearer\s+\S+"#).unwrap());
     // Known LLM provider token shapes:

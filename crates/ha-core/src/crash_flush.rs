@@ -23,12 +23,58 @@ use crate::chat_engine::active_persisters;
 static PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
 static SIGNAL_HANDLERS_INSTALLED: OnceLock<()> = OnceLock::new();
 
-/// Idempotent no-op kept for API stability; per-task panic cleanup runs
-/// through `StreamPersister::Drop` instead of a global flush. Removing
-/// it from caller code would force every entrypoint to inline the same
-/// reasoning, so we keep the export but make the body trivial.
+/// Idempotent no-op kept for API stability. A process-wide panic hook
+/// that SIGKILLs registered exec subprocesses was considered but
+/// rejected: tokio task panics are commonly recovered via `JoinHandle`
+/// boundaries without the process exiting, and a global kill on any
+/// thread's panic would tear down unrelated long-running user commands.
+/// Per-task cleanup runs through `tools::exec::ProcessGroupGuard::Drop`
+/// (kills the offending exec's own process group) and
+/// `StreamPersister::Drop` (finalizes that one placeholder row).
 pub fn install_panic_hook() {
     let _ = PANIC_HOOK_INSTALLED.set(());
+}
+
+/// Finalize every active GUI/HTTP turn with `TerminationReason::Shutdown`
+/// before the process exits. Called from the signal handler after the
+/// shutdown sentinel is written. Synchronous so we don't depend on a
+/// runtime that may already be tearing down.
+fn finalize_active_turns_for_shutdown() {
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+    let active = crate::chat_engine::active_turn::all_current();
+    if active.is_empty() {
+        return;
+    }
+    for snapshot in active {
+        // Mirror app_init's startup-sweep behavior: resolve the
+        // session's actual provider shape so a Shutdown finalize on an
+        // OpenAI Chat / Responses / Codex session doesn't get rebuilt
+        // as Anthropic `tool_use` / `tool_result` (which the original
+        // provider would 4xx or silently drop on resume).
+        let provider_kind =
+            crate::chat_engine::finalize::rebuild::resolve_provider_kind_for_session(
+                &db,
+                &snapshot.session_id,
+            );
+        let partial = crate::chat_engine::finalize::rebuild::collect_partial_from_messages(
+            &db,
+            &snapshot.session_id,
+            provider_kind,
+        );
+        let partial = crate::chat_engine::finalize::PartialMeta {
+            turn_id: Some(snapshot.turn_id.clone()),
+            ..partial
+        };
+        let _ = crate::chat_engine::finalize::finalize_turn_context_blocking(
+            &db,
+            &snapshot.session_id,
+            crate::chat_engine::finalize::TerminationReason::Shutdown,
+            partial,
+            snapshot.source,
+        );
+    }
 }
 
 /// Install signal handlers (SIGINT/SIGTERM on Unix, ctrl_c/ctrl_break on
@@ -69,14 +115,13 @@ pub fn install_signal_handlers() {
             };
             tokio::select! {
                 _ = sigint.recv() => {
-                    app_info!("session", "stream_persist", "received SIGINT, crash flush");
+                    app_info!("session", "stream_persist", "received SIGINT, clean shutdown");
                 }
                 _ = sigterm.recv() => {
-                    app_info!("session", "stream_persist", "received SIGTERM, crash flush");
+                    app_info!("session", "stream_persist", "received SIGTERM, clean shutdown");
                 }
             }
-            active_persisters::flush_all_blocking();
-            std::process::exit(0);
+            run_clean_shutdown();
         });
     }
 
@@ -109,14 +154,31 @@ pub fn install_signal_handlers() {
             };
             tokio::select! {
                 _ = ctrl_c.recv() => {
-                    app_info!("session", "stream_persist", "received Ctrl+C, crash flush");
+                    app_info!("session", "stream_persist", "received Ctrl+C, clean shutdown");
                 }
                 _ = ctrl_break.recv() => {
-                    app_info!("session", "stream_persist", "received Ctrl+Break, crash flush");
+                    app_info!("session", "stream_persist", "received Ctrl+Break, clean shutdown");
                 }
             }
-            active_persisters::flush_all_blocking();
-            std::process::exit(0);
+            run_clean_shutdown();
         });
     }
+}
+
+/// Shared cleanup sequence for SIGINT/SIGTERM/Ctrl+C/Ctrl+Break:
+/// sentinel → flush placeholders → finalize active turns → exit.
+///
+/// **Order matters**: `flush_all_blocking` must run *before* finalize
+/// so any in-memory `StreamPersister` buffer that hasn't reached its
+/// 500ms / 1KB throttle is persisted as a placeholder row first. The
+/// finalize pass then reverse-rebuilds from `messages` and writes the
+/// `Shutdown` marker / event row / chat_turn closure including those
+/// last-moment bytes. Reversing this order writes finalize from the
+/// pre-flush DB state and then dangles the flushed rows as orphans
+/// the next launch's restore would miss.
+fn run_clean_shutdown() -> ! {
+    crate::chat_engine::finalize::sentinel::write_clean_marker();
+    active_persisters::flush_all_blocking();
+    finalize_active_turns_for_shutdown();
+    std::process::exit(0);
 }

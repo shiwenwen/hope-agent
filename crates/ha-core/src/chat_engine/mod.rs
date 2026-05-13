@@ -2,6 +2,7 @@ pub mod active_persisters;
 pub mod active_turn;
 pub mod context;
 mod engine;
+pub mod finalize;
 pub(crate) mod im_error_message;
 pub(crate) mod im_mirror;
 pub(crate) mod im_system_message;
