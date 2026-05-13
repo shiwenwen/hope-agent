@@ -3221,7 +3221,7 @@ checksum = "ec9d92d097f4749b64e8cc33d924d9f40a2d4eb91402b458014b781f5733d60f"
 
 [[package]]
 name = "hope-agent"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",

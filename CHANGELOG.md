@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-13
+
 ### Changed
 
 - **统一 turn 终止系统**：用户主动停止、模型链全部失败、上下文压缩失败、应用关闭 / 崩溃 / 配置缺失等所有「非自然完成」路径现在走同一条 `finalize` 管线，把发生了什么以中文「系统事件」一句话写进 `context_json`，让模型下一轮明确感知；UI 同步在会话里渲染一条系统通知条；IM 渠道也会发对应的提醒。partial 内容（已产生的文本 / 思考 / 工具调用）按各 Provider 原生格式结构化保留，不再扁平化成纯文本；被中断未返回结果的 `tool_use` 自动补合成 `tool_result` 防止下次请求被 API 拒。原「用户停止假装成功」导致模型续错话题、Crash 时 user 消息丢失这两个老问题修掉。
