@@ -17,9 +17,24 @@ import { isTauriMode } from "@/lib/transport";
 import type { Transport } from "@/lib/transport";
 import { TauriTransport } from "@/lib/transport-tauri";
 import { HttpTransport } from "@/lib/transport-http";
+import { getStoredApiKey } from "@/lib/api-key-storage";
 
-/** Default server URL for standalone web mode. */
-const DEFAULT_HTTP_BASE = "http://localhost:8420";
+/**
+ * Default server URL for standalone web mode.
+ *
+ * Prefers `window.location.origin` when the page itself is served by the
+ * Hope Agent server (the common Docker / reverse-proxy case) — that way
+ * the browser hits the same hostname / port / scheme it loaded from
+ * instead of `localhost`, which would resolve to the visitor's own
+ * machine. The hard-coded `http://localhost:8420` only kicks in for
+ * non-browser callers (SSR, tests, build-time tooling).
+ */
+function defaultHttpBase(): string {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "http://localhost:8420";
+}
 
 let instance: Transport | null = null;
 
@@ -36,9 +51,12 @@ export function getTransport(): Transport {
     instance = new TauriTransport();
   } else {
     // In standalone web mode, read the server URL from a Vite env variable
-    // or fall back to the default.
-    const baseUrl = import.meta.env?.VITE_SERVER_URL || DEFAULT_HTTP_BASE;
-    instance = new HttpTransport(baseUrl);
+    // or fall back to the page's origin. The Bearer token (when the
+    // server enforces auth) is read from localStorage — populated either
+    // by a one-shot `?token=` URL capture or by the 401 retry modal.
+    const baseUrl = import.meta.env?.VITE_SERVER_URL || defaultHttpBase();
+    const apiKey = getStoredApiKey();
+    instance = new HttpTransport(baseUrl, apiKey);
   }
 
   return instance;
@@ -67,6 +85,10 @@ export function switchToEmbedded(): void {
   if (isTauriMode()) {
     instance = new TauriTransport();
   } else {
-    instance = new HttpTransport(DEFAULT_HTTP_BASE);
+    // Keep the stored Bearer token alive on the embedded fallback —
+    // without it, a user who had switched to a remote auth-enabled
+    // server and switches back would 401 on every subsequent request
+    // (and ping-pong the AuthRequiredDialog until reload).
+    instance = new HttpTransport(defaultHttpBase(), getStoredApiKey());
   }
 }

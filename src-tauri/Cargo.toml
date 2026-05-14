@@ -17,7 +17,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
-ha-core = { path = "../crates/ha-core" }
+# Desktop builds opt into `desktop-tools` so the screenshot / clipboard
+# image sources stay available. The headless ha-server bin (Docker image)
+# consumes the same crate without this feature and ships without the
+# associated system-lib dependencies.
+ha-core = { path = "../crates/ha-core", features = ["desktop-tools"] }
 ha-server = { path = "../crates/ha-server" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -40,8 +44,9 @@ libc = "0.2"
 portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
-arboard = { version = "3", features = ["image-data"] }
-xcap = "0.9"
+# arboard / xcap come in transitively via ha-core's `desktop-tools` feature
+# (enabled in this crate's ha-core dep). src-tauri itself never imports
+# them directly.
 regex = "1.12.3"
 ignore = "0.4.25"
 glob = "0.3.3"

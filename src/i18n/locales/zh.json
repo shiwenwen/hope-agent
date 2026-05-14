@@ -76,6 +76,13 @@
     "title": "命令执行确认",
     "workingDir": "工作目录"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "粘贴你的 Token",
+    "tokenRequiredBody": "当前 Hope Agent 服务器开启了 Bearer Token 鉴权。请粘贴管理员发给你的 Token 继续。",
+    "tokenRequiredTitle": "需要服务器鉴权",
+    "tokenSave": "保存并重新加载"
+  },
   "authProfiles": {
     "add": "添加 Profile",
     "baseUrlPlaceholder": "Base URL 覆盖（可选）",

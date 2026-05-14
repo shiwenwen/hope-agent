@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer 토큰",
+    "tokenPlaceholder": "토큰 붙여넣기",
+    "tokenRequiredBody": "이 Hope Agent 서버는 Bearer 토큰으로 보호되어 있습니다. 관리자가 제공한 토큰을 붙여넣어 계속하세요.",
+    "tokenRequiredTitle": "서버 인증이 필요합니다",
+    "tokenSave": "저장 후 새로고침"
+  },
   "authProfiles": {
     "add": "Profile 추가",
     "baseUrlPlaceholder": "Base URL 재정의 (선택)",

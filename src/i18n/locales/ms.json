@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "Tampal token anda",
+    "tokenRequiredBody": "Pelayan Hope Agent ini dilindungi dengan Bearer Token. Tampal token yang diberikan oleh pentadbir untuk meneruskan.",
+    "tokenRequiredTitle": "Pengesahan pelayan diperlukan",
+    "tokenSave": "Simpan dan muat semula"
+  },
   "authProfiles": {
     "add": "Tambah Profile",
     "baseUrlPlaceholder": "Tulis ganti Base URL (pilihan)",

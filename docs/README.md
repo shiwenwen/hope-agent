@@ -90,6 +90,17 @@
 
 ---
 
+## 部署（Deployment）
+
+面向 ops 与自托管用户的部署指南。
+
+| 文档 | 中文 | 英文 |
+| --- | --- | --- |
+| Docker | [docker.md](deployment/docker.md) | [docker.en.md](deployment/docker.en.md) |
+
+
+---
+
 ## 计划与设计（Plans）
 
 设计提案与开放任务跟踪，与代码同 commit 演进。
