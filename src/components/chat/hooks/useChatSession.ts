@@ -547,13 +547,13 @@ export function useChatSession({
         setLoading(loadingSessionsRef.current.has(sessionId))
         setCurrentSessionId(sessionId)
         touchSessionCacheLru(sessionId)
-        // Background reload — pushes the merged result into the view only
-        // if we're still on this session AND it isn't streaming (streaming
-        // owns the array during a turn; a stale DB batch would clobber
-        // dbId-upgraded placeholders). Cache write inside the helper is
-        // unconditional and safe. The in-flight guard collapses redundant
-        // DB reads when the user rapidly cycles back to the same session.
-        if (!inFlightReloadsRef.current.has(sessionId)) {
+        // Skip background reload while streaming — the helper's unconditional
+        // cache write would drop the in-flight assistant placeholder (no DB
+        // row yet), making the bubble vanish mid-stream.
+        if (
+          !inFlightReloadsRef.current.has(sessionId) &&
+          !loadingSessionsRef.current.has(sessionId)
+        ) {
           inFlightReloadsRef.current.add(sessionId)
           void reloadAndMergeSessionMessages({
             sessionId,
