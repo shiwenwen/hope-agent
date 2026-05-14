@@ -168,20 +168,44 @@ jobs:
           gh release upload "${RELEASE_TAG}" "${{ steps.bare_binary.outputs.archive }}" "${{ steps.bare_binary.outputs.sig }}" --clobber
 
       # Backfill the darwin-x86_64 entry into latest.json so headless
-      # Intel Mac installs can self-update. Reuses
-      # scripts/patch-latest-json.mjs which is in merge mode — it
-      # preserves existing platform entries from the original
-      # release.yml run and only adds/overrides darwin-x86_64.
+      # Intel Mac installs can self-update.
+      #
+      # The patch logic is *inlined* below rather than reusing
+      # scripts/patch-latest-json.mjs from the workspace checkout above.
+      # Reason: that checkout pins to the release tag's commit, where
+      # patch-latest-json.mjs may still be in its original "reset and
+      # rebuild" form (any tag cut before the merge-mode change shipped).
+      # Calling it would wipe the 4 existing bare_binary platform entries
+      # and leave only darwin-x86_64, breaking self-update on every other
+      # OS for that release. Tags are immutable, so we can't fix that
+      # script retroactively — inline merge logic here keeps the
+      # backfill safe regardless of what the tag's script looks like.
       - name: Patch latest.json with darwin-x86_64 bare_binary entry
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SIG_PATH: ${{ steps.bare_binary.outputs.sig }}
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          mkdir -p artifacts/bare-binary-macos-x64
-          cp "${{ steps.bare_binary.outputs.archive }}" "${{ steps.bare_binary.outputs.sig }}" artifacts/bare-binary-macos-x64/
           gh release download "${RELEASE_TAG}" --pattern latest.json --dir .
-          node scripts/patch-latest-json.mjs latest.json artifacts "$version"
+
+          export ARCHIVE_URL="https://github.com/shiwenwen/hope-agent/releases/download/${RELEASE_TAG}/hope-agent-${version}-darwin-x86_64.tar.gz"
+
+          node -e '
+            const fs = require("fs");
+            const m = JSON.parse(fs.readFileSync("latest.json", "utf8"));
+            m.bare_binary = m.bare_binary || { platforms: {} };
+            m.bare_binary.platforms = m.bare_binary.platforms || {};
+            m.bare_binary.platforms["darwin-x86_64"] = {
+              url: process.env.ARCHIVE_URL,
+              signature: fs.readFileSync(process.env.SIG_PATH, "utf8").trim(),
+              archive: "tar_gz",
+              binary_path: "hope-agent",
+            };
+            fs.writeFileSync("latest.json", JSON.stringify(m, null, 2) + "\n");
+            console.log("latest.json: bare_binary.platforms now has " + Object.keys(m.bare_binary.platforms).length + " entries");
+          '
+
           gh release upload "${RELEASE_TAG}" latest.json --clobber
 
       # Re-trigger the Homebrew tap update so the cask flips from the
