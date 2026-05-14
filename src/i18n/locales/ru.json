@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Токен Bearer",
+    "tokenPlaceholder": "Вставьте ваш токен",
+    "tokenRequiredBody": "Этот сервер Hope Agent защищён токеном Bearer. Вставьте токен, выданный администратором, чтобы продолжить.",
+    "tokenRequiredTitle": "Требуется аутентификация сервера",
+    "tokenSave": "Сохранить и перезагрузить"
+  },
   "authProfiles": {
     "add": "Добавить Profile",
     "baseUrlPlaceholder": "Переопределение Base URL (необязательно)",

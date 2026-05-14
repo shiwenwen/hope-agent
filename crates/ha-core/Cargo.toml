@@ -60,8 +60,13 @@ libc = "0.2"
 portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
-arboard = { version = "3", features = ["image-data"] }
-xcap = "0.9"
+# Desktop-only crates. Gated behind the `desktop-tools` feature so headless
+# server builds (e.g. the Docker image shipped from `ha-server`) don't pull
+# their Linux system libs (wayland / pipewire / gbm / egl / gtk-3).
+# `tools::image.rs` reflects the same gate so the screenshot / clipboard
+# image sources are simply unavailable when this feature is off.
+arboard = { version = "3", features = ["image-data"], optional = true }
+xcap = { version = "0.9", optional = true }
 ignore = "0.4.25"
 glob = "0.3.3"
 similar = "2"
@@ -79,6 +84,14 @@ lru = "0.12"
 minisign-verify = { workspace = true }
 tar = "0.4"
 flate2 = "1"
+
+[features]
+default = []
+# Enables the desktop-only image sources (`clipboard`, `screenshot`) of
+# `tools::image`. The desktop binary (src-tauri) opts in; ha-server's
+# Docker bin leaves the feature off so the runtime doesn't need wayland /
+# pipewire / gtk-3 shared libs.
+desktop-tools = ["dep:arboard", "dep:xcap"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }

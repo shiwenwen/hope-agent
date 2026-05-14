@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "貼上你的 Token",
+    "tokenRequiredBody": "目前 Hope Agent 伺服器已啟用 Bearer Token 驗證。請貼上管理員提供的 Token 繼續。",
+    "tokenRequiredTitle": "需要伺服器驗證",
+    "tokenSave": "儲存並重新載入"
+  },
   "authProfiles": {
     "add": "新增 Profile",
     "baseUrlPlaceholder": "Base URL 覆寫（可選）",

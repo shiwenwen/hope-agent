@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "Tokeninizi yapıştırın",
+    "tokenRequiredBody": "Bu Hope Agent sunucusu Bearer Token ile korunuyor. Yöneticinizden aldığınız tokeni yapıştırarak devam edin.",
+    "tokenRequiredTitle": "Sunucu kimlik doğrulaması gerekli",
+    "tokenSave": "Kaydet ve yeniden yükle"
+  },
   "authProfiles": {
     "add": "Profile ekle",
     "baseUrlPlaceholder": "Base URL geçersiz kılma (isteğe bağlı)",

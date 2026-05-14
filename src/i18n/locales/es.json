@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Token Bearer",
+    "tokenPlaceholder": "Pega tu token",
+    "tokenRequiredBody": "Este servidor Hope Agent está protegido con un token Bearer. Pega el token que te dio el administrador para continuar.",
+    "tokenRequiredTitle": "Se requiere autenticación del servidor",
+    "tokenSave": "Guardar y recargar"
+  },
   "authProfiles": {
     "add": "Añadir perfil",
     "baseUrlPlaceholder": "Sobreescribir Base URL (opcional)",

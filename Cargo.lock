@@ -3086,7 +3086,7 @@ dependencies = [
 
 [[package]]
 name = "ha-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3224,7 +3224,6 @@ name = "hope-agent"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "arboard",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -3289,7 +3288,6 @@ dependencies = [
  "urlencoding",
  "uuid",
  "which 7.0.3",
- "xcap",
  "zerocopy",
  "zip 2.4.2",
 ]

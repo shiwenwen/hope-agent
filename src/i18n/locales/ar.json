@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "رمز Bearer",
+    "tokenPlaceholder": "الصق رمزك هنا",
+    "tokenRequiredBody": "خادم Hope Agent هذا محمي برمز Bearer. الصق الرمز الذي زودك به المسؤول للمتابعة.",
+    "tokenRequiredTitle": "مطلوب مصادقة الخادم",
+    "tokenSave": "حفظ وإعادة التحميل"
+  },
   "authProfiles": {
     "add": "إضافة Profile",
     "baseUrlPlaceholder": "تجاوز Base URL (اختياري)",

@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "Dán token của bạn",
+    "tokenRequiredBody": "Máy chủ Hope Agent này được bảo vệ bằng Bearer Token. Dán Token mà quản trị viên đã cấp để tiếp tục.",
+    "tokenRequiredTitle": "Cần xác thực máy chủ",
+    "tokenSave": "Lưu và tải lại"
+  },
   "authProfiles": {
     "add": "Thêm Profile",
     "baseUrlPlaceholder": "Ghi đè Base URL (tùy chọn)",

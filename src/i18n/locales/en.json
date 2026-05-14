@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer token",
+    "tokenPlaceholder": "Paste your token",
+    "tokenRequiredBody": "This Hope Agent server is gated by a Bearer token. Paste the token your administrator provided to continue.",
+    "tokenRequiredTitle": "Server authentication required",
+    "tokenSave": "Save and reload"
+  },
   "authProfiles": {
     "add": "Add Profile",
     "baseUrlPlaceholder": "Base URL override (optional)",

@@ -86,7 +86,7 @@ fn build_command(source: &InstallSource) -> Option<Command> {
         InstallSource::Dnf => Some(crate::platform::default_shell_command(
             "sudo dnf upgrade -y hope-agent",
         )),
-        InstallSource::TauriBundle | InstallSource::Manual => None,
+        InstallSource::TauriBundle | InstallSource::Docker | InstallSource::Manual => None,
     }
 }
 

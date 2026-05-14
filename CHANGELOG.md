@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **官方 Docker 镜像 + docker-compose 部署**：新增多架构容器镜像 `ghcr.io/shiwenwen/hope-agent`（覆盖 `linux/amd64` / `linux/arm64`），随每次 Release Tag 自动构建发布；浏览器访问容器暴露端口即得完整 Web GUI 与桌面端等价。默认 loopback + 浏览器 token 输入对话框 + `?token=` URL 一次性 bootstrap；`app_update` 工具在容器内检测后引导 `docker pull` 升级而非 binary swap。 (#171)
+
 ## [0.2.0] - 2026-05-13
 
 ### Changed

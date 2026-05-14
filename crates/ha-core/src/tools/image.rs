@@ -51,11 +51,24 @@ fn load_image_config() -> ImageToolConfig {
 // ── Image Source Types ───────────────────────────────────────────────
 
 /// Normalized image source parsed from tool arguments.
+///
+/// `Clipboard` and `Screenshot` only exist when the `desktop-tools` feature
+/// is on — the headless ha-server build (Docker image) drops `xcap` and
+/// `arboard` and surfaces a clear error if the user tries to use those
+/// sources.
 enum ImageSource {
-    File { path: String },
-    Url { url: String },
+    File {
+        path: String,
+    },
+    Url {
+        url: String,
+    },
+    #[cfg(feature = "desktop-tools")]
     Clipboard,
-    Screenshot { monitor: Option<usize> },
+    #[cfg(feature = "desktop-tools")]
+    Screenshot {
+        monitor: Option<usize>,
+    },
 }
 
 /// Parse tool arguments into a list of image sources.
@@ -87,14 +100,26 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
                     });
                 }
                 "clipboard" => {
+                    #[cfg(feature = "desktop-tools")]
                     sources.push(ImageSource::Clipboard);
+                    #[cfg(not(feature = "desktop-tools"))]
+                    return Err(anyhow!(
+                        "image source 'clipboard' is not available in this build (desktop-tools feature disabled — likely a headless / container deployment)"
+                    ));
                 }
                 "screenshot" => {
-                    let monitor = item
-                        .get("monitor")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n as usize);
-                    sources.push(ImageSource::Screenshot { monitor });
+                    #[cfg(feature = "desktop-tools")]
+                    {
+                        let monitor = item
+                            .get("monitor")
+                            .and_then(|v| v.as_u64())
+                            .map(|n| n as usize);
+                        sources.push(ImageSource::Screenshot { monitor });
+                    }
+                    #[cfg(not(feature = "desktop-tools"))]
+                    return Err(anyhow!(
+                        "image source 'screenshot' is not available in this build (desktop-tools feature disabled — likely a headless / container deployment)"
+                    ));
                 }
                 other => {
                     return Err(anyhow!("Unknown image source type: '{}'", other));
@@ -229,6 +254,7 @@ fn decode_data_uri(uri: &str) -> Result<(Vec<u8>, String)> {
 }
 
 /// Read image from system clipboard.
+#[cfg(feature = "desktop-tools")]
 fn resolve_clipboard() -> Result<(Vec<u8>, String)> {
     use arboard::Clipboard;
     use image::RgbaImage;
@@ -260,6 +286,7 @@ fn resolve_clipboard() -> Result<(Vec<u8>, String)> {
 }
 
 /// Capture a screenshot of the desktop.
+#[cfg(feature = "desktop-tools")]
 fn resolve_screenshot(monitor_index: Option<usize>) -> Result<(Vec<u8>, String)> {
     use std::io::Cursor;
     use xcap::Monitor;
@@ -325,7 +352,9 @@ pub(crate) async fn tool_image(args: &Value) -> Result<String> {
         let resolve_result = match source {
             ImageSource::File { path } => resolve_file(path),
             ImageSource::Url { url } => resolve_url(url).await,
+            #[cfg(feature = "desktop-tools")]
             ImageSource::Clipboard => resolve_clipboard(),
+            #[cfg(feature = "desktop-tools")]
             ImageSource::Screenshot { monitor } => resolve_screenshot(*monitor),
         };
 

@@ -1,0 +1,73 @@
+# Hope Agent — official docker-compose example.
+#
+# Quick start:
+#   1. docker compose up -d
+#   2. Open http://127.0.0.1:8420 in a browser, run the onboarding wizard
+#      (configure Provider API keys, MCP servers, IM channels).
+#   3. Done — chat at http://127.0.0.1:8420.
+#
+# Enable Ollama sidecar for local LLMs:
+#   docker compose --profile with-ollama up -d
+#
+# Expose to the LAN / public internet:
+#   1. Set HA_API_KEY (random string, e.g. `openssl rand -hex 24`).
+#   2. Change the port mapping to "8420:8420" (drop the 127.0.0.1: prefix).
+#   3. First visit will pop a "Server authentication required" dialog —
+#      paste the token. Or share `http://host:8420/?token=XXX` and the
+#      frontend will capture it into localStorage and rewrite the URL.
+#   For production prefer a TLS-terminating reverse proxy (Caddy / Nginx
+#   / Traefik) that injects `Authorization: Bearer ${HA_API_KEY}` on the
+#   upstream — the browser never sees the token then. See
+#   docs/deployment/docker.md for full examples.
+
+services:
+  hope-agent:
+    image: ghcr.io/shiwenwen/hope-agent:latest
+    container_name: hope-agent
+    restart: unless-stopped
+    ports:
+      # Default: loopback only. Hope Agent does not enforce auth when
+      # HA_API_KEY is unset, so exposing 0.0.0.0 directly would publish
+      # every provider credential to the LAN. Use a reverse proxy with
+      # network-level auth instead — see docs/deployment/docker.md.
+      - "127.0.0.1:8420:8420"
+    environment:
+      # HA_API_KEY: gate every /api/* and WS upgrade behind a Bearer
+      # token. Leave unset for the default loopback deployment. When set,
+      # browsers visiting the page get a "Server authentication required"
+      # dialog asking them to paste the token; you can also share a
+      # `?token=XXX` URL for one-shot bootstrap. For production prefer a
+      # reverse proxy that adds `Authorization: Bearer ${HA_API_KEY}` on
+      # the upstream so the token never reaches the browser.
+      HA_API_KEY: ${HA_API_KEY:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - hope-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hope-agent-ollama
+    restart: unless-stopped
+    profiles: [with-ollama]
+    volumes:
+      - ollama-models:/root/.ollama
+    # Ollama is only reachable from the compose network — Hope Agent talks
+    # to it via `http://ollama:11434/v1` (configure that URL inside the
+    # browser onboarding wizard as a custom Provider). Uncomment the
+    # `ports` block below to also expose Ollama on the host.
+    #ports:
+    #  - "127.0.0.1:11434:11434"
+    #
+    # NVIDIA GPU passthrough requires nvidia-container-toolkit on the host.
+    # Uncomment the block below after installing it.
+    #deploy:
+    #  resources:
+    #    reservations:
+    #      devices:
+    #        - driver: nvidia
+    #          count: all
+    #          capabilities: [gpu]
+
+volumes:
+  hope-data:
+  ollama-models:

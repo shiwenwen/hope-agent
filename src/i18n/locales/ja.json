@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer トークン",
+    "tokenPlaceholder": "トークンを貼り付け",
+    "tokenRequiredBody": "この Hope Agent サーバーは Bearer トークンで保護されています。管理者から提供されたトークンを貼り付けて続行してください。",
+    "tokenRequiredTitle": "サーバー認証が必要です",
+    "tokenSave": "保存して再読み込み"
+  },
   "authProfiles": {
     "add": "Profile を追加",
     "baseUrlPlaceholder": "Base URL 上書き（任意）",

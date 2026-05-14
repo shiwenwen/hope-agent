@@ -35,6 +35,11 @@ pub enum InstallSource {
     /// path handles them via the bundled updater rather than the
     /// self-contained binary swap.
     TauriBundle,
+    /// Container deployment (`HA_DEPLOYMENT=docker` baked into the image
+    /// ENV). Binary swap inside the container would be wiped on the next
+    /// `docker pull`, so the upgrade flow routes to a manual prompt that
+    /// tells the user to pull a new image instead.
+    Docker,
     /// Anything else — single-file drop into `/usr/local/bin`, dev build
     /// via `cargo run`, custom deploy. Route to the self-contained
     /// updater unless the user picks otherwise.
@@ -50,6 +55,7 @@ impl InstallSource {
             Self::Apt => "apt",
             Self::Dnf => "dnf",
             Self::TauriBundle => "tauri_bundle",
+            Self::Docker => "docker",
             Self::Manual => "manual",
         }
     }
@@ -57,16 +63,33 @@ impl InstallSource {
 
 /// Probe the current process binary and classify it.
 pub fn detect_install_source() -> InstallSource {
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return InstallSource::Manual,
-    };
-    classify_exe_path(&exe)
+    let env_deployment = std::env::var("HA_DEPLOYMENT").ok();
+    let exe = std::env::current_exe().ok();
+    detect_install_source_with(env_deployment.as_deref(), exe.as_deref())
 }
 
-/// Pure version of [`detect_install_source`] for unit tests — every host
-/// look-up (current_exe, env, fs) is funneled through arguments so the same
-/// matrix can be exercised across platforms in CI.
+/// Pure version of [`detect_install_source`] for unit tests — host
+/// look-ups (env var, current_exe) are funneled through arguments so the
+/// same matrix can be exercised across platforms in CI. The
+/// `HA_DEPLOYMENT` env var short-circuits path-based heuristics so
+/// container deployments are classified correctly on any host OS.
+pub fn detect_install_source_with(
+    env_deployment: Option<&str>,
+    exe: Option<&Path>,
+) -> InstallSource {
+    if env_deployment == Some("docker") {
+        return InstallSource::Docker;
+    }
+    match exe {
+        Some(p) => classify_exe_path(p),
+        None => InstallSource::Manual,
+    }
+}
+
+/// Classify an exe path against the per-OS install-layout heuristics.
+/// Path-only classifier — `detect_install_source_with` handles the env-var
+/// short-circuit before falling through here, and unit tests can exercise
+/// the same matrix across platforms in CI by feeding paths directly.
 pub fn classify_exe_path(exe: &Path) -> InstallSource {
     let s = exe.to_string_lossy();
 
@@ -236,5 +259,30 @@ mod tests {
     fn classifies_program_files_as_tauri() {
         let p = Path::new(r"C:\Program Files\Hope Agent\hope-agent.exe");
         assert_eq!(classify_exe_path(p), InstallSource::TauriBundle);
+    }
+
+    #[test]
+    fn ha_deployment_docker_short_circuits_path_heuristics() {
+        // Even when the exe path would otherwise classify as TauriBundle /
+        // Brew / etc., the env var wins so container deployments are never
+        // mis-routed to a binary-swap path.
+        #[cfg(target_os = "macos")]
+        let exe = Path::new("/Applications/Hope Agent.app/Contents/MacOS/hope-agent");
+        #[cfg(target_os = "linux")]
+        let exe = Path::new("/usr/local/bin/hope-agent");
+        #[cfg(target_os = "windows")]
+        let exe = Path::new(r"C:\Program Files\Hope Agent\hope-agent.exe");
+        assert_eq!(
+            detect_install_source_with(Some("docker"), Some(exe)),
+            InstallSource::Docker
+        );
+    }
+
+    #[test]
+    fn no_env_falls_through_to_path_classification() {
+        let p = Path::new("/home/me/projects/hope-agent/target/release/hope-agent");
+        let got = detect_install_source_with(None, Some(p));
+        // Not Docker — falls through to classify_exe_path.
+        assert_ne!(got, InstallSource::Docker);
     }
 }
