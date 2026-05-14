@@ -162,6 +162,10 @@ export function usePlanMode(
     const sessionChanged = previousSessionId !== currentSessionId
     lastSessionIdRef.current = currentSessionId
 
+    // Drop previous session's ask UI on any sessionId change — incl. new-chat (null).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingQuestionGroup(null)
+
     if (!currentSessionId) {
       // No session — reset plan state unless user just entered plan mode
       // in this no-session context (pre-session plan mode)
@@ -193,11 +197,7 @@ export function usePlanMode(
 
     let cancelled = false
 
-    // Clear stale question UI, then restore any still-pending group for the
-    // target session from the backend (handles "switch away before answering"
-    // and "reopen a session that had unanswered questions").
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPendingQuestionGroup(null)
+    // Restore any still-pending group for the target session (resume unanswered).
     getTransport()
       .call<AskUserQuestionGroup | null>("get_pending_ask_user_group", {
         sessionId: currentSessionId,
