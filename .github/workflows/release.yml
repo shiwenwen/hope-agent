@@ -96,6 +96,18 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
+      # Belt-and-suspenders target install. The `targets:` input above on
+      # `dtolnay/rust-toolchain` does not always trigger `rustup target add`
+      # when the GitHub-hosted runner image already ships a Rust toolchain
+      # (the action skips its install branch and the target add path with
+      # it). Without this fallback, cross-compile lanes (e.g. macos-x64 on
+      # the macos-14 arm64 runner) fail with "Target … is not installed"
+      # at tauri-build time.
+      - name: Ensure cross-compile target installed
+        if: matrix.rust_target != ''
+        shell: bash
+        run: rustup target add ${{ matrix.rust_target }}
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
@@ -209,8 +221,15 @@ jobs:
       # path so the bare-binary step below can validate it. Same
       # secrets passed through so signer-sign mismatches surface here
       # too. (`pnpm tauri build` is what tauri-action invokes internally.)
-      - name: Dry-run build (skip publish)
-        if: github.event.inputs.dry_run == 'true'
+      #
+      # Split into per-OS steps so each side runs on its native default
+      # shell. Earlier single-step `shell: bash` on Windows pulled in MSYS
+      # perl from git-bash PATH, which lacks the modules openssl-sys
+      # vendored-build needs (Locale::Maketext::Simple). Native pwsh on
+      # Windows finds Strawberry Perl (preinstalled on windows-latest),
+      # matching tauri-action's behavior in real releases.
+      - name: Dry-run build (Unix, skip publish)
+        if: github.event.inputs.dry_run == 'true' && runner.os != 'Windows'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -218,6 +237,14 @@ jobs:
         run: |
           set -euo pipefail
           pnpm tauri build ${{ matrix.args }}
+
+      - name: Dry-run build (Windows, skip publish)
+        if: github.event.inputs.dry_run == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build ${{ matrix.args }}
 
       # ── Bare-binary artifact for headless self-update ─────────
       # The desktop installers above cover GUI users; `hope-agent server`
