@@ -696,6 +696,50 @@ mod tests {
         );
     }
 
+    // Invariant: a failed turn must leave the user message persisted in
+    // `context_json`. Without this, the next `restore_agent_context` call
+    // hands the model an empty history and the LLM has no clue what the
+    // user just asked — the classic "retry lost my prompt" symptom.
+    #[test]
+    fn provider_failed_keeps_user_message_in_context() {
+        let _lock = test_lock();
+        let db = temp_db();
+        let (sid, turn_id) = fresh_session(&db);
+
+        let partial = PartialMeta {
+            user_message: Some("read kefu source and compare with visitor-next".into()),
+            provider_kind: Some(ProviderApiKind::OpenAIResponses),
+            turn_id: Some(turn_id),
+            ..Default::default()
+        };
+        let outcome = finalize_turn_context_blocking(
+            &db,
+            &sid,
+            TerminationReason::ProviderFailed {
+                last_kind: crate::failover::FailoverReason::Unknown,
+                last_message: "rs_xxx not found".into(),
+                is_codex_auth: false,
+            },
+            partial,
+            ChatSource::Desktop,
+        );
+        assert!(outcome.context_assistant_appended);
+
+        let ctx_json = db.load_context(&sid).unwrap().unwrap();
+        let history: Vec<Value> = serde_json::from_str(&ctx_json).unwrap();
+        let user_text_present = history.iter().any(|m| {
+            m.get("role").and_then(|r| r.as_str()) == Some("user")
+                && m.get("content")
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.contains("read kefu"))
+                    .unwrap_or(false)
+        });
+        assert!(
+            user_text_present,
+            "context_json must keep the user message after a failed turn; got: {ctx_json}"
+        );
+    }
+
     #[test]
     fn reentry_is_noop() {
         let _lock = test_lock();

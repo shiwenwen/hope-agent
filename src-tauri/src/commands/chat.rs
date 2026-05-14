@@ -762,13 +762,7 @@ pub async fn chat(
 
             Ok(result.response)
         }
-        Err(e) => {
-            // Persist any in-memory compaction before returning error
-            if let Some(ref agent) = *state.agent.lock().await {
-                crate::chat_engine::save_agent_context(&db, &sid, agent);
-            }
-            Err(CmdError::msg(e))
-        }
+        Err(e) => Err(CmdError::msg(e)),
     }
 }
 

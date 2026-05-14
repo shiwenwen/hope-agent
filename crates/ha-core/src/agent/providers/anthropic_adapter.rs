@@ -294,7 +294,6 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             usage,
             ttft_ms,
             stop_reason,
-            reasoning_items: Vec::new(), // Anthropic puts thinking inline, no raw items
         })
     }
 

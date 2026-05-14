@@ -454,8 +454,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             tool_calls,
             usage,
             ttft_ms,
-            stop_reason: None,           // OpenAI Chat exits via empty tool_calls
-            reasoning_items: Vec::new(), // reasoning_content goes inline, no raw items
+            stop_reason: None, // OpenAI Chat exits via empty tool_calls
         })
     }
 
