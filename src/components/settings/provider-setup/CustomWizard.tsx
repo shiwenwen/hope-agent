@@ -368,7 +368,7 @@ export function CustomWizard({
                 {t("common.add")}
               </Button>
             </div>
-            <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
+            <div className="space-y-2.5">
               <DndContext
                 sensors={modelSensors}
                 collisionDetection={closestCenter}
