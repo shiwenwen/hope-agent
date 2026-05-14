@@ -85,7 +85,16 @@ export function useModelState(): UseModelStateReturn {
       if (newModel) {
         const normalized = normalizeEffortForModel(newModel, reasoningEffort, t)
         if (normalized !== reasoningEffort) {
-          handleEffortChange(normalized, sessionId)
+          if (sessionId) {
+            handleEffortChange(normalized, sessionId)
+          } else {
+            // 草稿模式（会话还没创建）：只更新本地 reasoningEffort，
+            // 不调 handleEffortChange——后者会把 effort 写到后端的全局 in-memory
+            // state，导致一次草稿切模型把 Think 默认泄漏到其它会话。
+            // 首次发消息时 chat_engine 会把 modelOverride + reasoningEffort 一起带
+            // 上去，落到新创建的 sessions 行。
+            setReasoningEffort(normalized)
+          }
         }
       }
     },
