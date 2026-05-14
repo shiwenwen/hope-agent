@@ -255,11 +255,31 @@ pub async fn chat(
         .map(|def| def.config.model.clone())
         .unwrap_or_default();
 
+    // Session-scoped model pin trumps agent.primary and config.active_model
+    // when no explicit per-turn override was provided. Mirrors the desktop
+    // commands::chat path so the two transports stay in sync.
+    let session_pinned_model: Option<String> = if body.model_override.is_none() {
+        db.get_session(&sid).ok().flatten().and_then(|meta| {
+            match (meta.provider_id, meta.model_id) {
+                (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
+                    Some(format!("{}::{}", p, m))
+                }
+                _ => None,
+            }
+        })
+    } else {
+        None
+    };
+
     let (primary, fallbacks) = if let Some(ref override_str) = body.model_override {
         let mut cfg = agent_model_config.clone();
         if provider::parse_model_ref(override_str).is_some() {
             cfg.primary = Some(override_str.clone());
         }
+        provider::resolve_model_chain(&cfg, &store)
+    } else if let Some(ref pinned) = session_pinned_model {
+        let mut cfg = agent_model_config.clone();
+        cfg.primary = Some(pinned.clone());
         provider::resolve_model_chain(&cfg, &store)
     } else {
         provider::resolve_model_chain(&agent_model_config, &store)

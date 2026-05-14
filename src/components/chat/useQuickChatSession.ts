@@ -333,7 +333,11 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     [currentAgentId, agents, loadSessionMessages, resetPagination],
   )
 
-  // Model change
+  // Pin model to the current Quick Chat session — same semantics as the main
+  // ChatScreen path: write sessions.provider_id/model_id, do not touch the
+  // app-global default. If the session hasn't been materialized yet, only the
+  // UI state changes; first chat send carries it via modelOverride and the
+  // engine's post-turn update_session_model commits it.
   const handleModelChange = useCallback(
     async (key: string) => {
       const [providerId, modelId] = key.split("::")
@@ -346,10 +350,17 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       if (newModel) {
         setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, (k) => k))
       }
-      try {
-        await getTransport().call("set_active_model", { providerId, modelId })
-      } catch (e) {
-        logger.error("ui", "QuickChat::modelChange", "Failed to set model", e)
+      const sessionId = currentSessionIdRef.current
+      if (sessionId) {
+        try {
+          await getTransport().call("set_session_model", {
+            sessionId,
+            providerId,
+            modelId,
+          })
+        } catch (e) {
+          logger.error("ui", "QuickChat::modelChange", "Failed to pin session model", e)
+        }
       }
     },
     [availableModels],

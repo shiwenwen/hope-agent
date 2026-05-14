@@ -180,17 +180,18 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── Model switch — persist + notify frontend ──
+        // ── Model switch — pin to current session, notify GUI ──
         Some(CommandAction::SwitchModel {
             provider_id,
             model_id,
         }) => {
-            if let Err(e) = set_active_model_core(&provider_id, &model_id).await {
+            if let Err(e) = set_session_model_core(session_id, &provider_id, &model_id).await {
                 app_warn!("channel", "worker", "Failed to switch model: {}", e);
             } else if let Some(bus) = crate::get_event_bus() {
                 bus.emit(
-                    "slash:model_switched",
+                    "session:model_updated",
                     serde_json::json!({
+                        "sessionId": session_id,
                         "providerId": provider_id,
                         "modelId": model_id,
                     }),
@@ -573,53 +574,40 @@ pub(super) async fn dispatch_slash_for_channel(
 
 // ── Core helpers (migrated from src-tauri/src/commands/) ──────────
 
-/// Switch the active model. Equivalent to the old `commands::provider::set_active_model_core`.
-async fn set_active_model_core(provider_id: &str, model_id: &str) -> Result<(), String> {
-    use crate::agent::AssistantAgent;
-    use crate::provider::ApiType;
-
-    // Clone the provider before awaiting on agent/codex_token locks —
-    // the Arc from `cached_config()` must be dropped first to avoid deadlock.
+/// Pin a provider/model to the IM-bound session. Validates that the provider /
+/// model still exist + are enabled, then writes `sessions.provider_id /
+/// provider_name / model_id`. The next chat turn picks it up via the
+/// `session_pinned_model` branch in commands::chat / routes::chat. **Does not**
+/// touch `config.active_model` — per-session selection no longer leaks into
+/// the application-wide default.
+async fn set_session_model_core(
+    session_id: &str,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<(), String> {
     let provider = {
         let store = crate::config::cached_config();
         let found = store
             .providers
             .iter()
-            .find(|p| p.id == provider_id)
+            .find(|p| p.id == provider_id && p.enabled)
             .cloned()
-            .ok_or_else(|| format!("Provider not found: {}", provider_id))?;
+            .ok_or_else(|| format!("Provider not found or disabled: {}", provider_id))?;
         if !found.models.iter().any(|m| m.id == model_id) {
             return Err(format!("Model not found: {}", model_id));
         }
         found
     };
 
-    let cached_agent = crate::require_cached_agent().map_err(|e| e.to_string())?;
-
-    if provider.api_type == ApiType::Codex {
-        let token_info = match crate::get_codex_token_cache() {
-            Some(cell) => cell.lock().await.clone(),
-            None => None,
-        };
-        if let Some((access_token, account_id)) = token_info {
-            let agent = AssistantAgent::new_openai(&access_token, &account_id, model_id);
-            *cached_agent.lock().await = Some(agent);
-        }
-    } else {
-        let agent = AssistantAgent::try_new_from_provider(&provider, model_id)
-            .await
-            .map_err(|e| e.to_string())?
-            .with_failover_context(&provider);
-        *cached_agent.lock().await = Some(agent);
-    }
-
-    crate::provider::set_active_model(
-        provider_id.to_string(),
-        model_id.to_string(),
-        "slash-channel",
-    )
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    let session_db = crate::require_session_db().map_err(|e| e.to_string())?;
+    session_db
+        .update_session_model(
+            session_id,
+            Some(provider_id),
+            Some(provider.name.as_str()),
+            Some(model_id),
+        )
+        .map_err(|e| e.to_string())
 }
 
 /// Set reasoning effort. Equivalent to the old `commands::auth::set_reasoning_effort_core`.

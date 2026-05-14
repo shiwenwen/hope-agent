@@ -65,6 +65,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },
   set_session_working_dir:         { method: "PATCH",  path: "/api/sessions/{sessionId}/working-dir" },
   update_session_agent_cmd:        { method: "PATCH",  path: "/api/sessions/{sessionId}/agent" },
+  set_session_model:               { method: "PATCH",  path: "/api/sessions/{sessionId}/model" },
   purge_session_if_incognito:      { method: "POST",   path: "/api/sessions/{sessionId}/purge-if-incognito" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
