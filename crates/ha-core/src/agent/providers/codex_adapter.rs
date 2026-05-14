@@ -115,11 +115,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
             instructions: req.system_prompt.to_string(),
             input: api_input.clone(),
             reasoning: self.reasoning.clone(),
-            include: if self.reasoning.is_some() {
-                Some(vec!["reasoning.encrypted_content".to_string()])
-            } else {
-                None
-            },
+            // `reasoning.encrypted_content` is not requested: with
+            // `store: false` we don't replay reasoning items into the next
+            // round, so the encrypted payload would just inflate the SSE
+            // response with no consumer.
+            include: None,
             tools: if req.is_final_round {
                 None
             } else {
