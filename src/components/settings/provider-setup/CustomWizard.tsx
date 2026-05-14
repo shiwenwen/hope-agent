@@ -200,7 +200,7 @@ export function CustomWizard({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 max-w-lg mx-auto w-full">
+      <div className="flex-1 overflow-y-auto px-6 py-6 max-w-4xl mx-auto w-full">
         {customStep === 0 && (
           <div className="space-y-3">
             <h3 className="text-base font-semibold text-foreground">{t("wizard.selectApiType")}</h3>
@@ -335,7 +335,7 @@ export function CustomWizard({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold text-foreground">{t("model.addModels")}</h3>
+                <h3 className="text-base font-semibold text-foreground">{t("model.addModel")}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t("model.configModels")}
                   {models.length > 1 && (
