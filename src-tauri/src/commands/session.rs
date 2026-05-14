@@ -155,6 +155,42 @@ pub async fn update_session_agent_cmd(
         .map_err(Into::into)
 }
 
+/// Pin the provider/model used by a chat session. The next chat turn will
+/// resolve provider/model from this row before falling back to the agent's
+/// `model.primary` and finally `config.active_model`. Replaces the legacy
+/// "切模型 = 写全局" path so per-session selection no longer leaks into the
+/// application-wide default.
+#[tauri::command]
+pub async fn set_session_model(
+    session_id: String,
+    provider_id: String,
+    model_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    let provider_name = ha_core::config::cached_config()
+        .providers
+        .iter()
+        .find(|p| p.id == provider_id && p.enabled)
+        .map(|p| p.name.clone());
+    state.session_db.update_session_model(
+        &session_id,
+        Some(&provider_id),
+        provider_name.as_deref(),
+        Some(&model_id),
+    )?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "session:model_updated",
+            serde_json::json!({
+                "sessionId": session_id,
+                "providerId": provider_id,
+                "modelId": model_id,
+            }),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn delete_session_cmd(
     session_id: String,

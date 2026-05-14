@@ -148,7 +148,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 
 | 事件名 | 触发点 | Payload |
 |---|---|---|
-| `slash:model_switched` / `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | `crates/ha-core/src/channel/worker/slash.rs` 经 `bus.emit(...)` | model 名 / effort 字段 / sessionId 等（具体见各调用点） |
+| `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | `crates/ha-core/src/channel/worker/slash.rs` 经 `bus.emit(...)` | effort 字段 / sessionId 等（具体见各调用点） |
+| `session:model_updated` | `crates/ha-core/src/channel/worker/slash.rs` (IM `/model`)、`src-tauri/src/commands/session.rs::set_session_model`、`crates/ha-server/src/routes/sessions.rs::set_session_model` | `{ sessionId, providerId, modelId }` — 桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker UI |
 
 > 这些事件经 EventBus 广播，HTTP / Tauri 两条桥都会转发。
 
@@ -221,6 +222,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |
 | `set_session_working_dir` | `PATCH /api/sessions/{sessionId}/working-dir` | ✅ |
 | `update_session_agent_cmd` | `PATCH /api/sessions/{sessionId}/agent` | ✅ |
+| `set_session_model` | `PATCH /api/sessions/{sessionId}/model` | ✅ |
 | `purge_session_if_incognito` | `POST /api/sessions/{sessionId}/purge-if-incognito` | ✅ |
 | `search_sessions_cmd` | `GET /api/sessions/search` | ✅ |
 | `search_session_messages_cmd` | `GET /api/sessions/{sessionId}/messages/search` | ✅ |
@@ -243,6 +245,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 `create_session_cmd` 与 `chat` 在自动创建新会话时都支持可选 `incognito: boolean`，返回的 `SessionMeta` 也会包含 `incognito` 字段；主聊天 UI 将 incognito 视为“新会话预设”，只在尚未 materialize session 的草稿态提供入口，已有会话不再暴露切换按钮。`set_session_incognito` 保留给兼容调用和非主 UI 适配，但不应作为常规会话内开关使用。当请求同时带了 `project_id` 时 `incognito` 被强制为 `false`（互斥）。`list_sessions_cmd` / `search_sessions_cmd` / `list_project_sessions_cmd` 接受可选 `active_session_id` 参数：默认会过滤掉所有 incognito 会话，`active_session_id` 让正在打开的那个无痕会话仍出现在 sidebar / 搜索结果里。`purge_session_if_incognito` 在前端 `handleSwitchSession / handleNewChat / handleNewChatInProject` 切走当前 session 之前调用，仅当目标 session 当前为 incognito 时硬删，否则 no-op。
 
 `update_session_agent_cmd` 接受 `{ agentId: string }`，后端在 SQL 层校验 `messages` 表中该 session 没有 `role IN ('user','assistant')` 的记录，否则返回 400。前端 `ChatTitleBar` 的 `AgentSwitcher` dropdown 在 `messages.length > 0` 时会把触发器降级为只读 `<span>`，作为 UX 防御层。
+
+`set_session_model` 接受 `{ providerId, modelId }`，把模型固定到当前会话（写 `sessions.provider_id` / `provider_name` / `model_id`），不写 `AppConfig.active_model`——v0.2.1 起这是「会话内切模型」的唯一合法入口。`get_active_model` / `POST /api/models/active` 仍然存在，但**只该被 Settings 「模型」面板 / onboarding wizard / 本地 LLM 安装路径**调用，用来修改应用全局默认；任何 chat 内或 IM 内的"切模型"语义都必须落到 session 级。chat_engine 解析优先级 `plan_model > 本轮 model_override > sessions.provider_id > agent.model.primary > AppConfig.active_model`（详见 [`provider-system.md` § 7.2](provider-system.md#72-模型链解析)）。写入后 emit `session:model_updated`，桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker。
 
 `export_session_cmd` / `GET /api/sessions/{sessionId}/export` 是两端**形态不对称**的特例：Tauri 端走 IPC，由前端先弹原生 save dialog 拿到 `output_path` 再传进来，后端写盘后返回最终路径字符串；HTTP 端走 GET 直接返回二进制流（`Content-Type` + `Content-Disposition: attachment; filename*=UTF-8''<percent>`），浏览器用 `URL.createObjectURL` + `<a download>` 触发下载。两端共用 [`ha_core::session::export::export_session`](../../crates/ha-core/src/session/export.rs) 序列化器，Query 参数 `format ∈ {md,json,html}` / `includeThinking` / `includeTools` 与 Tauri 命令的字段一一对应。前端 Transport 抽象 [`exportSession`](../../src/lib/transport.ts) 是这一对端点的统一入口，调用方不需要分支。
 
