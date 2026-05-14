@@ -881,7 +881,8 @@
       "system": "Sistema",
       "tasks": "Tarefas",
       "tokens": "Uso de tokens",
-      "tools": "Uso de ferramentas"
+      "tools": "Uso de ferramentas",
+      "localModels": "Modelos locais"
     },
     "task": {
       "activeJobs": "Ativas",
@@ -929,6 +930,73 @@
       "frequency": "Frequência de chamadas",
       "name": "Nome",
       "totalMs": "Total (ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "Status do Ollama",
+      "ollamaPhases": {
+        "running": "Em execução",
+        "installed": "Instalado (parado)",
+        "not-installed": "Não instalado"
+      },
+      "openInSettings": "Gerenciar nas Configurações",
+      "hardware": {
+        "totalMemory": "Memória total",
+        "available": "Disponível",
+        "gpu": "GPU",
+        "integratedGpu": "GPU integrada / memória unificada",
+        "vram": "VRAM",
+        "budget": "Orçamento recomendado",
+        "budgetSource": {
+          "unified-memory": "Memória unificada (macOS)",
+          "dedicated-vram": "VRAM dedicada",
+          "system-memory": "Memória do sistema"
+        }
+      },
+      "running": {
+        "title": "Em execução agora",
+        "empty": "Nenhum modelo carregado no momento",
+        "vramUsed": "VRAM",
+        "context": "Contexto",
+        "expiresIn": "Será descarregado em {{duration}}",
+        "unloadingSoon": "Descarregando em breve",
+        "summary": "{{count}} em execução"
+      },
+      "installed": {
+        "title": "Modelos instalados",
+        "unknownFamily": "Família desconhecida",
+        "badges": {
+          "active": "Ativo",
+          "fallback": "Reserva",
+          "provider": "Modelo do Provider",
+          "embedding": "Embedding",
+          "running": "Em execução"
+        }
+      },
+      "usage": {
+        "title": "Uso de modelos locais",
+        "totalCalls": "Total de chamadas",
+        "totalTokens": "Total de tokens",
+        "avgTtft": "TTFT médio",
+        "trend": "Tendência diária de tokens",
+        "byModel": "Tokens por modelo",
+        "empty": "Sem chamadas a modelos locais no período selecionado",
+        "errorBadge": "{{model}}: taxa de erro {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "Nenhum backend local configurado ainda",
+        "goToSettings": "Abra Configurações para adicionar"
+      },
+      "jobs": {
+        "title": "Tarefas em segundo plano",
+        "kind": {
+          "chat_model": "Instalação de modelo de chat",
+          "embedding_model": "Instalação de modelo de embedding",
+          "ollama_install": "Instalação do Ollama",
+          "ollama_pull": "Download do Ollama",
+          "ollama_preload": "Pré-carregamento",
+          "memory_reembed": "Re-embedding de memória"
+        }
+      }
     }
   },
   "diffPanel": {

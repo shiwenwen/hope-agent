@@ -25,6 +25,7 @@ import SessionSection from "./SessionSection"
 import ErrorSection from "./ErrorSection"
 import TaskSection from "./TaskSection"
 import SystemMetricsSection from "./SystemMetricsSection"
+import LocalModelsSection from "./LocalModelsSection"
 import RecapTab from "./recap/RecapTab"
 import DreamingTab from "./dreaming/DreamingTab"
 import LearningTab from "./learning/LearningTab"
@@ -43,8 +44,16 @@ import type {
   DetailListType,
   AutoRefreshInterval,
   PlanStats,
+  DashboardLocalModelUsage,
 } from "./types"
 import { autoRefreshMs } from "./types"
+import type {
+  HardwareInfo,
+  LocalOllamaModel,
+  OllamaStatus,
+} from "@/types/local-llm"
+import type { LocalModelJobSnapshot } from "@/types/local-model-jobs"
+import type { SettingsSection } from "@/components/settings/types"
 
 function defaultFilter(): DashboardFilterState {
   const now = new Date()
@@ -97,7 +106,21 @@ function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   URL.revokeObjectURL(url)
 }
 
-export default function DashboardView({ onBack }: { onBack: () => void }) {
+interface LocalModelsTabData {
+  ollama: OllamaStatus | null
+  ollamaVersion: string | null
+  hardware: HardwareInfo | null
+  models: LocalOllamaModel[] | null
+  usage: DashboardLocalModelUsage | null
+  jobs: LocalModelJobSnapshot[] | null
+}
+
+interface DashboardViewProps {
+  onBack: () => void
+  onOpenSettings?: (section?: SettingsSection) => void
+}
+
+export default function DashboardView({ onBack, onOpenSettings }: DashboardViewProps) {
   const { t } = useTranslation()
   const [filter, setFilter] = useState<DashboardFilterState>(defaultFilter)
   const [activeTab, setActiveTab] = useState("insights")
@@ -113,6 +136,14 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
   const [systemHistory, setSystemHistory] = useState<SystemHistoryPoint[]>([])
   const [planStats, setPlanStats] = useState<PlanStats | null>(null)
+  const [localModelsData, setLocalModelsData] = useState<LocalModelsTabData>({
+    ollama: null,
+    ollamaVersion: null,
+    hardware: null,
+    models: null,
+    usage: null,
+    jobs: null,
+  })
   const [granularity, setGranularity] = useState<Granularity>("day")
   const [autoRefresh, setAutoRefresh] = useState<AutoRefreshInterval>("off")
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
@@ -205,6 +236,42 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
                 next.splice(0, next.length - SYSTEM_HISTORY_LIMIT)
               }
               return next
+            })
+            break
+          }
+          case "local-models": {
+            // Tolerate per-probe failures (e.g. Ollama unreachable) without
+            // breaking the whole tab — each settled result becomes null if
+            // the call rejects.
+            const settled = await Promise.allSettled([
+              getTransport().call<OllamaStatus>("local_llm_detect_ollama"),
+              getTransport().call<HardwareInfo>("local_llm_detect_hardware"),
+              getTransport().call<{ version: string | null } | string | null>(
+                "local_llm_detect_ollama_version",
+              ),
+              getTransport().call<LocalOllamaModel[]>("local_llm_list_models"),
+              getTransport().call<DashboardLocalModelUsage>(
+                "dashboard_local_model_usage",
+                { filter },
+              ),
+              getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list"),
+            ])
+            const pick = <T,>(r: PromiseSettledResult<T>): T | null =>
+              r.status === "fulfilled" ? r.value : null
+            const versionResp = pick(settled[2])
+            const version =
+              typeof versionResp === "string"
+                ? versionResp
+                : versionResp && typeof versionResp === "object"
+                  ? (versionResp.version ?? null)
+                  : null
+            setLocalModelsData({
+              ollama: pick(settled[0]),
+              hardware: pick(settled[1]),
+              ollamaVersion: version,
+              models: pick(settled[3]),
+              usage: pick(settled[4]),
+              jobs: pick(settled[5]),
             })
             break
           }
@@ -455,6 +522,9 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               <TabsTrigger value="tasks">{t("dashboard.tabs.tasks")}</TabsTrigger>
               <TabsTrigger value="plans">{t("dashboard.tabs.plans")}</TabsTrigger>
               <TabsTrigger value="system">{t("dashboard.tabs.system")}</TabsTrigger>
+              <TabsTrigger value="local-models">
+                {t("dashboard.tabs.localModels")}
+              </TabsTrigger>
               <TabsTrigger value="recap">{t("dashboard.tabs.recap")}</TabsTrigger>
               <TabsTrigger value="learning">{t("dashboard.tabs.learning")}</TabsTrigger>
               <TabsTrigger value="dreaming">{t("dashboard.tabs.dreaming")}</TabsTrigger>
@@ -517,6 +587,18 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           </TabsContent>
           <TabsContent value="system">
             <SystemMetricsSection data={systemMetrics} history={systemHistory} loading={loading} />
+          </TabsContent>
+          <TabsContent value="local-models">
+            <LocalModelsSection
+              loading={loading}
+              ollama={localModelsData.ollama}
+              ollamaVersion={localModelsData.ollamaVersion}
+              hardware={localModelsData.hardware}
+              models={localModelsData.models}
+              usage={localModelsData.usage}
+              jobs={localModelsData.jobs}
+              onOpenSettings={onOpenSettings}
+            />
           </TabsContent>
           <TabsContent value="recap">
             <RecapTab />

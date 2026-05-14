@@ -920,6 +920,10 @@ fn build_router_with_cors(
             post(routes::dashboard::recall_stats),
         )
         .route("/dashboard/plan-stats", post(routes::dashboard::plan_stats))
+        .route(
+            "/dashboard/local-model-usage",
+            post(routes::dashboard::local_model_usage),
+        )
         // Recap
         .route("/recap/generate", post(routes::recap::generate))
         .route("/recap/reports", post(routes::recap::list_reports))
@@ -1331,6 +1335,10 @@ fn build_router_with_cors(
         .route(
             "/local-llm/ollama-status",
             get(routes::local_llm::get_ollama_status),
+        )
+        .route(
+            "/local-llm/ollama-version",
+            get(routes::local_llm::get_ollama_version),
         )
         .route(
             "/local-llm/known-backends",

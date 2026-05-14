@@ -467,6 +467,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dashboard_tool_call_list` | `POST /api/dashboard/tool-call-list` | ✅ |
 | `dashboard_error_list` | `POST /api/dashboard/error-list` | ✅ |
 | `dashboard_agent_list` | `POST /api/dashboard/agent-list` | ✅ |
+| `dashboard_local_model_usage` | `POST /api/dashboard/local-model-usage` | ✅ |
 
 #### Dashboard Learning
 
@@ -582,6 +583,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `local_llm_recommend_model` | `GET /api/local-llm/recommendation` | ✅ |
 | `local_llm_chat_catalog` | `GET /api/local-llm/chat-catalog` | ✅ |
 | `local_llm_detect_ollama` | `GET /api/local-llm/ollama-status` | ✅ |
+| `local_llm_detect_ollama_version` | `GET /api/local-llm/ollama-version` | ✅ |
 | `local_llm_known_backends` | `GET /api/local-llm/known-backends` | ✅ |
 | `local_llm_start_ollama` | `POST /api/local-llm/start` | ✅ |
 | `local_llm_list_models` | `GET /api/local-llm/models` | ✅ |

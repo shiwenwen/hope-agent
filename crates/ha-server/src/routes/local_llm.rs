@@ -11,9 +11,9 @@ use serde_json::{json, Value};
 
 use ha_core::local_llm::{
     add_ollama_model_as_embedding_config, delete_ollama_model, detect_hardware, detect_ollama,
-    get_ollama_library_model, list_local_ollama_models, model_catalog, preload_ollama_model,
-    recommend_model, register_ollama_model_as_provider, search_ollama_library, start_ollama,
-    stop_ollama_model,
+    detect_ollama_version, get_ollama_library_model, list_local_ollama_models, model_catalog,
+    preload_ollama_model, recommend_model, register_ollama_model_as_provider,
+    search_ollama_library, start_ollama, stop_ollama_model,
 };
 use ha_core::provider::known_local_backends;
 
@@ -39,6 +39,11 @@ pub async fn get_chat_catalog() -> Json<Value> {
 /// `GET /api/local-llm/ollama-status` — installed / running probe.
 pub async fn get_ollama_status() -> Json<Value> {
     Json(json!(detect_ollama().await))
+}
+
+/// `GET /api/local-llm/ollama-version` — daemon version when reachable.
+pub async fn get_ollama_version() -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "version": detect_ollama_version().await? })))
 }
 
 /// `GET /api/local-llm/known-backends` — static local backend catalog.

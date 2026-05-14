@@ -2,11 +2,11 @@ use crate::commands::CmdError;
 use crate::AppState;
 use ha_core::local_llm::{
     add_ollama_model_as_embedding_config, delete_ollama_model, detect_hardware, detect_ollama,
-    get_ollama_library_model, list_local_ollama_models, model_catalog, preload_ollama_model,
-    recommend_model, register_ollama_model_as_provider, search_ollama_library, start_ollama,
-    stop_ollama_model, HardwareInfo, LocalModelDeleteResult, LocalOllamaModel, ModelCandidate,
-    ModelRecommendation, OllamaLibraryModelDetail, OllamaLibrarySearchResponse,
-    OllamaModelActionResult, OllamaModelRegistration, OllamaStatus,
+    detect_ollama_version, get_ollama_library_model, list_local_ollama_models, model_catalog,
+    preload_ollama_model, recommend_model, register_ollama_model_as_provider,
+    search_ollama_library, start_ollama, stop_ollama_model, HardwareInfo, LocalModelDeleteResult,
+    LocalOllamaModel, ModelCandidate, ModelRecommendation, OllamaLibraryModelDetail,
+    OllamaLibrarySearchResponse, OllamaModelActionResult, OllamaModelRegistration, OllamaStatus,
 };
 use ha_core::memory::EmbeddingModelConfig;
 use ha_core::provider::{known_local_backends, KnownLocalBackend};
@@ -36,6 +36,11 @@ pub async fn local_llm_chat_catalog() -> Result<Vec<ModelCandidate>, CmdError> {
 #[tauri::command]
 pub async fn local_llm_detect_ollama() -> Result<OllamaStatus, CmdError> {
     Ok(detect_ollama().await)
+}
+
+#[tauri::command]
+pub async fn local_llm_detect_ollama_version() -> Result<Option<String>, CmdError> {
+    detect_ollama_version().await.map_err(Into::into)
 }
 
 #[tauri::command]

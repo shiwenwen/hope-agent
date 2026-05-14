@@ -9,6 +9,7 @@ mod detail_queries;
 mod filters;
 mod insights;
 pub mod learning;
+mod local_models;
 mod plan_stats;
 mod queries;
 mod types;
@@ -21,6 +22,7 @@ pub use learning::{
     EVT_RECALL_SUMMARY_USED, EVT_SKILL_ACTIVATED, EVT_SKILL_CREATED, EVT_SKILL_DISCARDED,
     EVT_SKILL_PATCHED, EVT_SKILL_USED,
 };
+pub use local_models::{local_provider_names, local_provider_names_from, query_local_model_usage};
 pub use plan_stats::query_plan_stats;
 pub use queries::*;
 pub use types::*;

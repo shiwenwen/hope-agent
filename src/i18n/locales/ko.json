@@ -881,7 +881,8 @@
       "system": "시스템",
       "tasks": "작업",
       "tokens": "토큰 사용량",
-      "tools": "도구 사용"
+      "tools": "도구 사용",
+      "localModels": "로컬 모델"
     },
     "task": {
       "activeJobs": "활성",
@@ -929,6 +930,73 @@
       "frequency": "호출 빈도",
       "name": "도구 이름",
       "totalMs": "합계 (ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "Ollama 상태",
+      "ollamaPhases": {
+        "running": "실행 중",
+        "installed": "설치됨 (유휴)",
+        "not-installed": "설치되지 않음"
+      },
+      "openInSettings": "설정에서 관리",
+      "hardware": {
+        "totalMemory": "총 메모리",
+        "available": "사용 가능",
+        "gpu": "GPU",
+        "integratedGpu": "내장 GPU / 통합 메모리",
+        "vram": "VRAM",
+        "budget": "권장 예산",
+        "budgetSource": {
+          "unified-memory": "통합 메모리 (macOS)",
+          "dedicated-vram": "전용 VRAM",
+          "system-memory": "시스템 메모리"
+        }
+      },
+      "running": {
+        "title": "실행 중인 모델",
+        "empty": "현재 로드된 모델이 없습니다",
+        "vramUsed": "VRAM",
+        "context": "컨텍스트",
+        "expiresIn": "{{duration}} 후 언로드",
+        "unloadingSoon": "곧 언로드",
+        "summary": "{{count}}개 실행 중"
+      },
+      "installed": {
+        "title": "설치된 모델",
+        "unknownFamily": "알 수 없는 패밀리",
+        "badges": {
+          "active": "활성",
+          "fallback": "폴백",
+          "provider": "Provider 모델",
+          "embedding": "임베딩",
+          "running": "실행 중"
+        }
+      },
+      "usage": {
+        "title": "로컬 모델 사용량",
+        "totalCalls": "총 호출 수",
+        "totalTokens": "총 토큰",
+        "avgTtft": "평균 TTFT",
+        "trend": "일별 토큰 추세",
+        "byModel": "모델별 토큰",
+        "empty": "선택한 범위에 로컬 모델 호출이 없습니다",
+        "errorBadge": "{{model}}: 오류율 {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "로컬 백엔드가 아직 설정되지 않았습니다",
+        "goToSettings": "설정을 열어 추가"
+      },
+      "jobs": {
+        "title": "백그라운드 작업",
+        "kind": {
+          "chat_model": "채팅 모델 설치",
+          "embedding_model": "임베딩 모델 설치",
+          "ollama_install": "Ollama 설치",
+          "ollama_pull": "Ollama 풀",
+          "ollama_preload": "프리로드",
+          "memory_reembed": "메모리 재임베딩"
+        }
+      }
     }
   },
   "diffPanel": {

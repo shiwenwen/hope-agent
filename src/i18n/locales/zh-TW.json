@@ -881,7 +881,8 @@
       "system": "系統監控",
       "tasks": "任務統計",
       "tokens": "Token 用量",
-      "tools": "工具使用"
+      "tools": "工具使用",
+      "localModels": "本地模型"
     },
     "task": {
       "activeJobs": "活躍任務",
@@ -929,6 +930,73 @@
       "frequency": "調用頻次",
       "name": "工具名稱",
       "totalMs": "總耗時(ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "Ollama 狀態",
+      "ollamaPhases": {
+        "running": "執行中",
+        "installed": "已安裝（未啟動）",
+        "not-installed": "未安裝"
+      },
+      "openInSettings": "在設定中管理",
+      "hardware": {
+        "totalMemory": "總記憶體",
+        "available": "可用",
+        "gpu": "顯示卡",
+        "integratedGpu": "內建 GPU / 統一記憶體",
+        "vram": "顯示記憶體",
+        "budget": "建議預算",
+        "budgetSource": {
+          "unified-memory": "統一記憶體（macOS）",
+          "dedicated-vram": "獨立顯示記憶體",
+          "system-memory": "系統記憶體"
+        }
+      },
+      "running": {
+        "title": "執行中的模型",
+        "empty": "目前沒有模型載入",
+        "vramUsed": "顯示記憶體",
+        "context": "上下文",
+        "expiresIn": "{{duration}} 後卸載",
+        "unloadingSoon": "即將卸載",
+        "summary": "{{count}} 個執行中"
+      },
+      "installed": {
+        "title": "已安裝模型",
+        "unknownFamily": "未識別系列",
+        "badges": {
+          "active": "目前對話",
+          "fallback": "降級模型",
+          "provider": "Provider 模型",
+          "embedding": "向量模型",
+          "running": "執行中"
+        }
+      },
+      "usage": {
+        "title": "本地模型使用統計",
+        "totalCalls": "總呼叫次數",
+        "totalTokens": "總 Token",
+        "avgTtft": "平均 TTFT",
+        "trend": "每日 Token 趨勢",
+        "byModel": "依模型分布 Token",
+        "empty": "所選時間範圍內未呼叫本地模型",
+        "errorBadge": "{{model}}：錯誤率 {{rate}}%（{{errors}}/{{calls}}）"
+      },
+      "empty": {
+        "noProvider": "尚未設定任何本地後端",
+        "goToSettings": "前往設定新增"
+      },
+      "jobs": {
+        "title": "背景任務",
+        "kind": {
+          "chat_model": "安裝對話模型",
+          "embedding_model": "安裝向量模型",
+          "ollama_install": "安裝 Ollama",
+          "ollama_pull": "拉取模型",
+          "ollama_preload": "預載入模型",
+          "memory_reembed": "記憶重嵌入"
+        }
+      }
     }
   },
   "diffPanel": {

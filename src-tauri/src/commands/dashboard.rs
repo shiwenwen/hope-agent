@@ -159,3 +159,12 @@ pub async fn dashboard_plan_stats(
 ) -> Result<dashboard::PlanStats, CmdError> {
     dashboard::query_plan_stats(&filter).map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn dashboard_local_model_usage(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<dashboard::LocalModelUsage, CmdError> {
+    let names = dashboard::local_provider_names();
+    dashboard::query_local_model_usage(&state.session_db, &filter, &names).map_err(Into::into)
+}

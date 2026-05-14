@@ -881,7 +881,8 @@
       "system": "Hệ thống",
       "tasks": "Tác vụ",
       "tokens": "Sử dụng token",
-      "tools": "Sử dụng công cụ"
+      "tools": "Sử dụng công cụ",
+      "localModels": "Mô hình cục bộ"
     },
     "task": {
       "activeJobs": "Hoạt động",
@@ -929,6 +930,73 @@
       "frequency": "Tần suất gọi",
       "name": "Tên",
       "totalMs": "Tổng (ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "Trạng thái Ollama",
+      "ollamaPhases": {
+        "running": "Đang chạy",
+        "installed": "Đã cài (rảnh)",
+        "not-installed": "Chưa cài"
+      },
+      "openInSettings": "Quản lý trong Cài đặt",
+      "hardware": {
+        "totalMemory": "Tổng bộ nhớ",
+        "available": "Khả dụng",
+        "gpu": "GPU",
+        "integratedGpu": "GPU tích hợp / bộ nhớ thống nhất",
+        "vram": "VRAM",
+        "budget": "Ngân sách đề xuất",
+        "budgetSource": {
+          "unified-memory": "Bộ nhớ thống nhất (macOS)",
+          "dedicated-vram": "VRAM riêng",
+          "system-memory": "Bộ nhớ hệ thống"
+        }
+      },
+      "running": {
+        "title": "Đang chạy",
+        "empty": "Hiện không có mô hình nào được nạp",
+        "vramUsed": "VRAM",
+        "context": "Ngữ cảnh",
+        "expiresIn": "Sẽ gỡ tải trong {{duration}}",
+        "unloadingSoon": "Sắp gỡ tải",
+        "summary": "{{count}} đang chạy"
+      },
+      "installed": {
+        "title": "Mô hình đã cài",
+        "unknownFamily": "Họ không xác định",
+        "badges": {
+          "active": "Đang dùng",
+          "fallback": "Dự phòng",
+          "provider": "Mô hình Provider",
+          "embedding": "Embedding",
+          "running": "Đang chạy"
+        }
+      },
+      "usage": {
+        "title": "Sử dụng mô hình cục bộ",
+        "totalCalls": "Tổng lượt gọi",
+        "totalTokens": "Tổng token",
+        "avgTtft": "TTFT trung bình",
+        "trend": "Xu hướng token theo ngày",
+        "byModel": "Token theo mô hình",
+        "empty": "Không có lượt gọi mô hình cục bộ trong khoảng đã chọn",
+        "errorBadge": "{{model}}: tỉ lệ lỗi {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "Chưa cấu hình backend cục bộ",
+        "goToSettings": "Mở Cài đặt để thêm"
+      },
+      "jobs": {
+        "title": "Tác vụ nền",
+        "kind": {
+          "chat_model": "Cài đặt mô hình chat",
+          "embedding_model": "Cài đặt mô hình embedding",
+          "ollama_install": "Cài đặt Ollama",
+          "ollama_pull": "Tải Ollama",
+          "ollama_preload": "Nạp trước",
+          "memory_reembed": "Re-embedding bộ nhớ"
+        }
+      }
     }
   },
   "diffPanel": {

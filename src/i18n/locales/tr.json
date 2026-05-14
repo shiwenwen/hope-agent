@@ -881,7 +881,8 @@
       "system": "Sistem",
       "tasks": "Görevler",
       "tokens": "Token kullanımı",
-      "tools": "Araç kullanımı"
+      "tools": "Araç kullanımı",
+      "localModels": "Yerel Modeller"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -929,6 +930,73 @@
       "frequency": "Çağrı sıklığı",
       "name": "Ad",
       "totalMs": "Toplam (ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "Ollama durumu",
+      "ollamaPhases": {
+        "running": "Çalışıyor",
+        "installed": "Yüklü (boşta)",
+        "not-installed": "Yüklü değil"
+      },
+      "openInSettings": "Ayarlarda yönet",
+      "hardware": {
+        "totalMemory": "Toplam bellek",
+        "available": "Kullanılabilir",
+        "gpu": "GPU",
+        "integratedGpu": "Entegre GPU / birleşik bellek",
+        "vram": "VRAM",
+        "budget": "Önerilen bütçe",
+        "budgetSource": {
+          "unified-memory": "Birleşik bellek (macOS)",
+          "dedicated-vram": "Özel VRAM",
+          "system-memory": "Sistem belleği"
+        }
+      },
+      "running": {
+        "title": "Şu anda çalışan",
+        "empty": "Şu an yüklü model yok",
+        "vramUsed": "VRAM",
+        "context": "Bağlam",
+        "expiresIn": "{{duration}} içinde boşaltılacak",
+        "unloadingSoon": "Yakında boşaltılacak",
+        "summary": "{{count}} çalışıyor"
+      },
+      "installed": {
+        "title": "Yüklü modeller",
+        "unknownFamily": "Bilinmeyen aile",
+        "badges": {
+          "active": "Etkin",
+          "fallback": "Yedek",
+          "provider": "Provider modeli",
+          "embedding": "Embedding",
+          "running": "Çalışıyor"
+        }
+      },
+      "usage": {
+        "title": "Yerel model kullanımı",
+        "totalCalls": "Toplam çağrı",
+        "totalTokens": "Toplam token",
+        "avgTtft": "Ortalama TTFT",
+        "trend": "Günlük token eğilimi",
+        "byModel": "Modele göre token",
+        "empty": "Seçilen aralıkta yerel model çağrısı yok",
+        "errorBadge": "{{model}}: hata oranı {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "Henüz yerel backend yapılandırılmadı",
+        "goToSettings": "Eklemek için Ayarları açın"
+      },
+      "jobs": {
+        "title": "Arka plan görevleri",
+        "kind": {
+          "chat_model": "Sohbet modeli kurulumu",
+          "embedding_model": "Embedding modeli kurulumu",
+          "ollama_install": "Ollama kurulumu",
+          "ollama_pull": "Ollama indirme",
+          "ollama_preload": "Ön yükleme",
+          "memory_reembed": "Bellek yeniden embedding"
+        }
+      }
     }
   },
   "diffPanel": {

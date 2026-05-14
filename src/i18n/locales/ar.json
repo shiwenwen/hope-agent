@@ -881,7 +881,8 @@
       "system": "النظام",
       "tasks": "المهام",
       "tokens": "استخدام الرموز",
-      "tools": "استخدام الأدوات"
+      "tools": "استخدام الأدوات",
+      "localModels": "النماذج المحلية"
     },
     "task": {
       "activeJobs": "النشطة",
@@ -929,6 +930,73 @@
       "frequency": "تكرار الاستدعاءات",
       "name": "الاسم",
       "totalMs": "الإجمالي (ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "حالة Ollama",
+      "ollamaPhases": {
+        "running": "قيد التشغيل",
+        "installed": "مثبت (خامل)",
+        "not-installed": "غير مثبت"
+      },
+      "openInSettings": "الإدارة من الإعدادات",
+      "hardware": {
+        "totalMemory": "إجمالي الذاكرة",
+        "available": "متاح",
+        "gpu": "GPU",
+        "integratedGpu": "GPU مدمج / ذاكرة موحدة",
+        "vram": "VRAM",
+        "budget": "الميزانية الموصى بها",
+        "budgetSource": {
+          "unified-memory": "ذاكرة موحدة (macOS)",
+          "dedicated-vram": "VRAM مخصص",
+          "system-memory": "ذاكرة النظام"
+        }
+      },
+      "running": {
+        "title": "النماذج النشطة حالياً",
+        "empty": "لا يوجد نموذج محمل حالياً",
+        "vramUsed": "VRAM",
+        "context": "السياق",
+        "expiresIn": "سيُلغى التحميل خلال {{duration}}",
+        "unloadingSoon": "سيُلغى التحميل قريباً",
+        "summary": "{{count}} قيد التشغيل"
+      },
+      "installed": {
+        "title": "النماذج المثبتة",
+        "unknownFamily": "عائلة غير معروفة",
+        "badges": {
+          "active": "النشط الآن",
+          "fallback": "احتياطي",
+          "provider": "نموذج Provider",
+          "embedding": "تضمين",
+          "running": "قيد التشغيل"
+        }
+      },
+      "usage": {
+        "title": "استخدام النماذج المحلية",
+        "totalCalls": "إجمالي الاستدعاءات",
+        "totalTokens": "إجمالي الـ Tokens",
+        "avgTtft": "متوسط TTFT",
+        "trend": "اتجاه الـ Tokens اليومي",
+        "byModel": "الـ Tokens حسب النموذج",
+        "empty": "لا توجد استدعاءات للنماذج المحلية في النطاق المحدد",
+        "errorBadge": "{{model}}: معدل خطأ {{rate}}% ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "لم يتم إعداد أي backend محلي بعد",
+        "goToSettings": "افتح الإعدادات لإضافة واحد"
+      },
+      "jobs": {
+        "title": "المهام الخلفية",
+        "kind": {
+          "chat_model": "تثبيت نموذج الدردشة",
+          "embedding_model": "تثبيت نموذج التضمين",
+          "ollama_install": "تثبيت Ollama",
+          "ollama_pull": "سحب من Ollama",
+          "ollama_preload": "تحميل مسبق",
+          "memory_reembed": "إعادة تضمين الذاكرة"
+        }
+      }
     }
   },
   "diffPanel": {

@@ -181,3 +181,14 @@ pub async fn plan_stats(
 ) -> Result<Json<dashboard::PlanStats>, AppError> {
     Ok(Json(dashboard::query_plan_stats(&body.filter)?))
 }
+
+pub async fn local_model_usage(
+    Json(body): Json<FilterBody>,
+) -> Result<Json<dashboard::LocalModelUsage>, AppError> {
+    let names = dashboard::local_provider_names();
+    Ok(Json(dashboard::query_local_model_usage(
+        session_db()?,
+        &body.filter,
+        &names,
+    )?))
+}

@@ -881,7 +881,8 @@
       "system": "System",
       "tasks": "Tasks",
       "tokens": "Token Usage",
-      "tools": "Tool Usage"
+      "tools": "Tool Usage",
+      "localModels": "Local Models"
     },
     "task": {
       "activeJobs": "Active",
@@ -929,6 +930,73 @@
       "frequency": "Call Frequency",
       "name": "Tool Name",
       "totalMs": "Total (ms)"
+    },
+    "localModels": {
+      "ollamaStatus": "Ollama status",
+      "ollamaPhases": {
+        "running": "Running",
+        "installed": "Installed (idle)",
+        "not-installed": "Not installed"
+      },
+      "openInSettings": "Manage in Settings",
+      "hardware": {
+        "totalMemory": "Total memory",
+        "available": "Available",
+        "gpu": "GPU",
+        "integratedGpu": "Integrated GPU / unified memory",
+        "vram": "VRAM",
+        "budget": "Recommendation budget",
+        "budgetSource": {
+          "unified-memory": "Unified memory (macOS)",
+          "dedicated-vram": "Dedicated VRAM",
+          "system-memory": "System memory"
+        }
+      },
+      "running": {
+        "title": "Currently running",
+        "empty": "No model is currently loaded",
+        "vramUsed": "VRAM",
+        "context": "Context",
+        "expiresIn": "Unloads in {{duration}}",
+        "unloadingSoon": "Unloading shortly",
+        "summary": "{{count}} running"
+      },
+      "installed": {
+        "title": "Installed models",
+        "unknownFamily": "Unknown family",
+        "badges": {
+          "active": "Active",
+          "fallback": "Fallback",
+          "provider": "Provider model",
+          "embedding": "Embedding",
+          "running": "Running"
+        }
+      },
+      "usage": {
+        "title": "Local model usage",
+        "totalCalls": "Total calls",
+        "totalTokens": "Total tokens",
+        "avgTtft": "Avg TTFT",
+        "trend": "Daily token trend",
+        "byModel": "Tokens by model",
+        "empty": "No local-model calls in the selected range",
+        "errorBadge": "{{model}}: {{rate}}% error rate ({{errors}}/{{calls}})"
+      },
+      "empty": {
+        "noProvider": "No local backend configured yet",
+        "goToSettings": "Open Settings to add one"
+      },
+      "jobs": {
+        "title": "Background tasks",
+        "kind": {
+          "chat_model": "Chat model install",
+          "embedding_model": "Embedding model install",
+          "ollama_install": "Ollama install",
+          "ollama_pull": "Ollama pull",
+          "ollama_preload": "Preload",
+          "memory_reembed": "Memory re-embedding"
+        }
+      }
     }
   },
   "diffPanel": {

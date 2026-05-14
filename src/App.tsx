@@ -516,7 +516,10 @@ export default function App() {
                     </div>
                   }
                 >
-                  <DashboardView onBack={() => setView("chat")} />
+                  <DashboardView
+                    onBack={() => setView("chat")}
+                    onOpenSettings={handleOpenSettings}
+                  />
                 </Suspense>
               )}
               {view === "plans" && (

@@ -1,3 +1,5 @@
+import { formatBytes as formatBytesRaw } from "@/lib/format"
+
 export interface DashboardFilter {
   startDate: string | null
   endDate: string | null
@@ -380,6 +382,15 @@ export function formatCost(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
+/**
+ * Dashboard convention for byte sizes: 2 fraction digits at GB / TB scale,
+ * default elsewhere. Wraps `@/lib/format::formatBytes` so every section
+ * shows memory / disk numbers identically.
+ */
+export function formatDashboardBytes(bytes: number): string {
+  return formatBytesRaw(bytes, { fractionDigits: { GB: 2, TB: 2 } })
+}
+
 /** Format seconds to human readable uptime */
 export function formatUptime(secs: number): string {
   const days = Math.floor(secs / 86400)
@@ -500,6 +511,28 @@ export type RecapProgress =
   | { phase: "persisting" }
   | { phase: "done"; reportId: string }
   | { phase: "failed"; reportId: string; message: string }
+
+// ── Local Models Tab ────────────────────────────────────────────
+
+export interface DashboardLocalModelUsageRow {
+  modelId: string
+  providerName: string
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  avgTtftMs: number | null
+  errorCount: number
+}
+
+export interface DashboardLocalModelUsage {
+  localProviderNames: string[]
+  totalCalls: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  avgTtftMs: number | null
+  trend: TokenUsageTrend[]
+  byModel: DashboardLocalModelUsageRow[]
+}
 
 // ── Plan Stats ──────────────────────────────────────────────────
 

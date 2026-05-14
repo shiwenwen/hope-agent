@@ -367,6 +367,38 @@ pub struct DashboardInsights {
     pub model_efficiency: Vec<ModelEfficiency>,
 }
 
+// ── Local Models Tab Types ──────────────────────────────────────
+
+/// Per-model usage row for the local-models dashboard tab. Mirrors `TokenByModel`
+/// but adds error count so the UI can flag unhealthy local models.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModelUsageRow {
+    pub model_id: String,
+    pub provider_name: String,
+    pub call_count: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub avg_ttft_ms: Option<f64>,
+    pub error_count: u64,
+}
+
+/// Aggregate usage stats for sessions whose provider is a known local backend
+/// (Ollama / LiteLLM / vLLM / LM Studio / SGLang). Empty `local_provider_names`
+/// signals "user has not configured any local provider yet" — the UI renders
+/// an onboarding hint instead of zeroed charts.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModelUsage {
+    pub local_provider_names: Vec<String>,
+    pub total_calls: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub avg_ttft_ms: Option<f64>,
+    pub trend: Vec<TokenUsageTrend>,
+    pub by_model: Vec<LocalModelUsageRow>,
+}
+
 // ── Plan Statistics Types ───────────────────────────────────────
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

@@ -1,0 +1,200 @@
+name: Build macOS x64 (best-effort backfill)
+
+# Independent best-effort lane for the macOS Intel (x86_64) DMG + bare
+# binary. This workflow is intentionally not part of release.yml: the
+# GitHub-hosted macos-13 Intel runner pool has a small capacity that
+# regularly causes >1h queue stalls, which would block the entire
+# release pipeline (release.yml waits for every matrix entry before
+# patch-manifest can run; `continue-on-error` does not let `needs:`
+# skip queued/running jobs — see PR #175 / #177 history).
+#
+# Splitting it out means the four-platform main release (macos-arm64
+# / linux-x64 / linux-arm64 / windows-x64) publishes immediately. This
+# workflow then runs in parallel, takes however long macos-13 needs,
+# and backfills the Intel DMG + bare binary into the already-published
+# Release, patches latest.json to include the darwin-x86_64
+# bare_binary entry, and re-triggers update-homebrew-tap.yml so the
+# Homebrew cask flips from arm-only to dual-arch.
+#
+# If this workflow fails or never gets a runner (GitHub auto-cancels
+# queues after the default 24h timeout), the release simply ships
+# without an Intel DMG for that version — `update-homebrew-tap.yml`
+# already handles the missing-x64.dmg case by rendering the arm-only
+# cask template (see F-089). Intel Mac users can install when the
+# next release succeeds.
+#
+# Triggers:
+#   - release.published — fires automatically right after the manual
+#     publish in §1.4 of docs/release-process.md.
+#   - workflow_dispatch — manual re-run with a tag input, for when
+#     the macos-13 runner pool was unavailable and you want to retry
+#     a backfill for an already-published release without cutting a
+#     new version.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to backfill (for example v0.2.1)
+        required: true
+        type: string
+
+concurrency:
+  # Per-tag concurrency so two dispatches against the same tag don't
+  # double-build, but different tags can run in parallel.
+  group: build-macos-x64-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # gh release upload
+  actions: write   # gh workflow run (re-trigger update-homebrew-tap.yml)
+
+jobs:
+  build:
+    runs-on: macos-13
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+    steps:
+      # Check out the source at the release tag, not the default
+      # branch. The release was built off this commit; doing the
+      # backfill off any other commit would ship code that does not
+      # match the rest of the release.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      # Belt-and-suspenders target install. The `targets:` input above
+      # does not always trigger `rustup target add` when the runner
+      # image already ships a Rust toolchain (it skips its install
+      # branch and the target add path with it). On native macos-13
+      # the default toolchain already targets x86_64-apple-darwin so
+      # this is usually a no-op, but the explicit add keeps the
+      # workflow robust to runner image changes.
+      - name: Ensure x86_64-apple-darwin target installed
+        run: rustup target add x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Same Minisign pubkey guard as release.yml — refuse to build if
+      # the desktop bundle (`tauri-plugin-updater`) and headless
+      # self-update (`ha_core::updater`) disagree.
+      - name: Verify updater pubkey sync (tauri.conf.json ↔ ha-core)
+        run: node scripts/verify-updater-pubkey.mjs
+
+      # Sanity-check that the tag we're backfilling actually matches
+      # the source-tree version checked out above. If they drift, the
+      # produced binary self-identifies as a different version than
+      # the Release it's being uploaded to — confusing for both users
+      # and self-update.
+      - name: Verify tag matches app version
+        run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
+
+      # Build the macOS Intel DMG. We invoke `pnpm tauri build`
+      # directly rather than tauri-action because the Release already
+      # exists — we just need the binary, not draft-release creation.
+      - name: Build macOS Intel DMG
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --target x86_64-apple-darwin
+
+      - name: Upload Intel DMG to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          dmg="target/x86_64-apple-darwin/release/bundle/dmg/Hope.Agent_${version}_x64.dmg"
+          if [ ! -f "$dmg" ]; then
+            echo "::error::Intel DMG not found at $dmg"
+            ls "target/x86_64-apple-darwin/release/bundle/dmg/" || true
+            exit 1
+          fi
+          gh release upload "${RELEASE_TAG}" "$dmg" --clobber
+          echo "Uploaded $dmg to ${RELEASE_TAG}"
+
+      # Bundle + sign bare binary for headless self-update (Intel Mac
+      # users running `hope-agent server` or `hope-agent acp` on Intel
+      # hardware need this to receive updates). Same Minisign keypair
+      # as release.yml — `ha_core::updater` verifies against the
+      # pubkey in `ha-core/updater/keys.rs`.
+      - name: Bundle + sign bare binary
+        id: bare_binary
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          target_dir=target/x86_64-apple-darwin/release
+          bin_path="$target_dir/hope-agent"
+          if [ ! -f "$bin_path" ]; then
+            echo "::error::Bare binary not found at $bin_path"
+            ls "$target_dir" || true
+            exit 1
+          fi
+          out_dir="bare-binary-bundle"
+          mkdir -p "$out_dir"
+          archive="$out_dir/hope-agent-${version}-darwin-x86_64.tar.gz"
+          tar -C "$target_dir" -czf "$archive" "hope-agent"
+          pnpm tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$archive"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "sig=$archive.sig" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bare binary to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${RELEASE_TAG}" "${{ steps.bare_binary.outputs.archive }}" "${{ steps.bare_binary.outputs.sig }}" --clobber
+
+      # Backfill the darwin-x86_64 entry into latest.json so headless
+      # Intel Mac installs can self-update. Reuses
+      # scripts/patch-latest-json.mjs which is in merge mode — it
+      # preserves existing platform entries from the original
+      # release.yml run and only adds/overrides darwin-x86_64.
+      - name: Patch latest.json with darwin-x86_64 bare_binary entry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          mkdir -p artifacts/bare-binary-macos-x64
+          cp "${{ steps.bare_binary.outputs.archive }}" "${{ steps.bare_binary.outputs.sig }}" artifacts/bare-binary-macos-x64/
+          gh release download "${RELEASE_TAG}" --pattern latest.json --dir .
+          node scripts/patch-latest-json.mjs latest.json artifacts "$version"
+          gh release upload "${RELEASE_TAG}" latest.json --clobber
+
+      # Re-trigger the Homebrew tap update so the cask flips from the
+      # arm-only template (rendered by the release.published-triggered
+      # run that fired before this workflow finished) to the dual-arch
+      # template (now that Hope.Agent_<v>_x64.dmg exists in the
+      # release). update-homebrew-tap.yml already detects which DMGs
+      # are present and picks the right template — F-089.
+      #
+      # --ref main pins this dispatch to whatever update-homebrew-tap
+      # logic is on the default branch at the time of backfill, not
+      # the release tag's version of that workflow file.
+      - name: Re-trigger Homebrew tap update (now dual-arch)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run update-homebrew-tap.yml --ref main -f tag="${RELEASE_TAG}"
