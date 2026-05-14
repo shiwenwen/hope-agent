@@ -36,15 +36,23 @@ jobs:
             os: macos-14
             rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-          # macOS x64 lane remains disabled (since v0.2.0). GitHub-hosted
-          # macos-13 Intel runners are capacity-constrained and frequently
-          # queue >1h. An earlier v0.2.1 attempt to re-add this lane with
-          # `continue-on-error: true` did not help — Actions `needs:` waits
-          # for queued/running jobs regardless of `continue-on-error`, so
-          # patch-manifest still blocked on macos-x64. Long-term recovery
-          # (cross-compile on macos-14 or a self-hosted Intel runner)
-          # tracked as F-088. Intel Mac users continue to run the arm64
-          # bundle through Rosetta 2 (same as v0.1.x).
+          # macOS x64 — Intel DMG, cross-compiled from the same macos-14
+          # (Apple Silicon) runner the arm64 lane uses. Previous attempts
+          # to host this on a native Intel macos-13 runner were blocked
+          # by GitHub-hosted capacity constraints (queue >1h in v0.2.0
+          # and a follow-up retry), and `continue-on-error` does not
+          # actually let `needs:` skip a still-queued job. Cross-compile
+          # path keeps Intel Mac users covered without the queue risk:
+          # `rustup target add x86_64-apple-darwin` plus Xcode's
+          # universal SDK (preinstalled on macos-14) is enough for cargo
+          # to emit a native x86_64 binary; Tauri's hdiutil DMG bundling
+          # and codesign step are universal-arch tools and run fine from
+          # arm64 hosts. Tracked as F-088; validated end-to-end via
+          # F-090 dry-run before re-enabling.
+          - platform: macos-x64
+            os: macos-14
+            rust_target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
           # Linux x64 — AppImage + deb.
           # ubuntu-24.04 is required because xcap (screen capture) pulls
           # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The
