@@ -232,6 +232,19 @@
   "chat": {
     "addWorkingDirectory": "Adicionar diretório de trabalho",
     "askAnything": "Me conte sua ideia, eu cuido do resto...",
+    "browserPanel": {
+      "backendBadgeTooltip": "Backend do navegador: {{backend}}",
+      "captureFailed": "Falha ao capturar quadro, aguardando o próximo",
+      "close": "Fechar painel",
+      "idleHint": "O navegador ainda não está em execução. Configurações → Navegador para iniciar.",
+      "idleTitle": "Espelho do navegador",
+      "openExternal": "Abrir no navegador do sistema",
+      "openExternalShort": "Abrir",
+      "refresh": "Atualizar agora",
+      "resumeMirror": "Retomar espelho",
+      "takeOver": "Assumir",
+      "takeOverHint": "Pausa a atualização de 1Hz enquanto você opera o Chrome"
+    },
     "asyncToolJobFallbackName": "Tarefa em segundo plano",
     "asyncToolJobNames": {
       "browser": "Ação do navegador",
@@ -842,18 +855,33 @@
       "systemUptime": "Uptime do sistema",
       "virtualMem": "Memória virtual"
     },
+    "plans": {
+      "active": "Em andamento",
+      "avgExecution": "Tempo médio de execução",
+      "byAgent": "Por Agent",
+      "byAgentCompleted": "Concluídos",
+      "byProject": "Por projeto",
+      "completionRate": "Taxa de conclusão",
+      "created": "Criados",
+      "creationTrend": "Tendência de criação (30 dias)",
+      "empty": "Sem dados de Plan na janela selecionada.",
+      "noProject": "Sem projeto",
+      "sampleSize": "{{count}} execuções concluídas amostradas",
+      "stateDistribution": "Distribuição de estados",
+      "total": "Total de planos"
+    },
     "tabs": {
       "dreaming": "Sonhos",
       "errors": "Erros",
       "insights": "Insights",
       "learning": "Aprendizado",
+      "plans": "Planos",
       "recap": "Recap",
       "sessions": "Sessões",
       "system": "Sistema",
       "tasks": "Tarefas",
       "tokens": "Uso de tokens",
-      "tools": "Uso de ferramentas",
-      "plans": "Planos"
+      "tools": "Uso de ferramentas"
     },
     "task": {
       "activeJobs": "Ativas",
@@ -901,21 +929,6 @@
       "frequency": "Frequência de chamadas",
       "name": "Nome",
       "totalMs": "Total (ms)"
-    },
-    "plans": {
-      "active": "Em andamento",
-      "avgExecution": "Tempo médio de execução",
-      "byAgent": "Por Agent",
-      "byAgentCompleted": "Concluídos",
-      "byProject": "Por projeto",
-      "completionRate": "Taxa de conclusão",
-      "created": "Criados",
-      "creationTrend": "Tendência de criação (30 dias)",
-      "empty": "Sem dados de Plan na janela selecionada.",
-      "noProject": "Sem projeto",
-      "sampleSize": "{{count}} execuções concluídas amostradas",
-      "stateDistribution": "Distribuição de estados",
-      "total": "Total de planos"
     }
   },
   "diffPanel": {
@@ -1611,6 +1624,37 @@
       "subtitle": "Um assistente de IA que te conhece melhor a cada uso — no desktop, na nuvem e na mensageria, sempre pronto.\nSegue um guia rápido — todas as etapas são opcionais, exceto escolher um modelo.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Adicionar referência do Plan ao chat atual",
+    "badge": {
+      "archived": "Arquivado",
+      "completed": "Concluído",
+      "executing": "Executando",
+      "orphan": "Órfão",
+      "planning": "Planejando",
+      "review": "Em revisão"
+    },
+    "count": "{{count}} planos",
+    "empty": "Sem planos ainda.",
+    "emptyPlan": "Este arquivo de Plan está vazio.",
+    "filter": {
+      "allAgents": "Todos os Agents",
+      "state": {
+        "all": "Todos os estados",
+        "archived": "Arquivado (saída)",
+        "completed": "Concluído",
+        "executing": "Executando",
+        "planning": "Planejando",
+        "review": "Em revisão"
+      }
+    },
+    "openInSession": "Abrir na sessão",
+    "refresh": "Atualizar",
+    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
+    "sessionDeleted": "Sessão proprietária excluída",
+    "title": "Planos",
+    "untitled": "Plan sem título"
   },
   "planMode": {
     "approveAndExecute": "Iniciar execução",
@@ -2318,7 +2362,33 @@
       "statusConnected": "Navegador em execução",
       "statusDisconnected": "Não em execução",
       "title": "Navegador",
-      "untitledTab": "Sem título"
+      "untitledTab": "Sem título",
+      "backendAuto": "Automático",
+      "backendChangeHint": "A escolha do backend será aplicada no próximo Iniciar ou Anexar.",
+      "backendForceCdp": "Forçar CDP",
+      "backendForceMcp": "Forçar MCP",
+      "backendLabel": "Backend",
+      "backendRestartHint": "Automático escolhe chrome-devtools-mcp quando Node.js ≥ v18 estiver no PATH; caso contrário, o backend CDP integrado do hope-agent.",
+      "doctorChromeFound": "Chrome encontrado em {{url}}",
+      "doctorChromeMissing": "Nenhum Chrome detectado na porta de depuração padrão",
+      "doctorChromeMissingHint": "Iniciar um Chrome separado (com seu próprio user-data-dir; seus dados de navegação diários não são tocados).",
+      "doctorConnect": "Anexar",
+      "doctorLaunchUserChrome": "Iniciar Chrome do usuário",
+      "modeLabel": "Modo",
+      "modeStandalone": "Navegador independente",
+      "modeStandaloneHint": "hope-agent mantém uma instância isolada do Chrome. Recomendado para automação.",
+      "modeUserChrome": "Assumir Chrome do usuário",
+      "modeUserChromeHint": "Inicie ou conecte-se a um Chrome que você usa todos os dias. Usa um user-data-dir separado, então seus dados reais de navegação não são tocados.",
+      "nodeDetected": "Node.js {{version}} detectado; chrome-devtools-mcp pode ser usado.",
+      "nodeMissing": "Node.js não detectado. O backend MCP fica indisponível; Automático recai no CDP.",
+      "reconnectNow": "Reconectar agora",
+      "spawnUserChrome": {
+        "confirmBodyIdle": "O hope-agent iniciará um novo Chrome com seu próprio user-data-dir em ~/.hope-agent/browser/user-attach/. Continuar?",
+        "confirmBodyRunning": "O Chrome parece estar em execução. O hope-agent iniciará uma instância separada com seu próprio user-data-dir, sem afetar sua navegação diária. Continuar?",
+        "confirmTitle": "Iniciar um Chrome separado?",
+        "continue": "Continuar",
+        "spawned": "Chrome iniciado na porta {{port}}; anexando…"
+      }
     },
     "bytes": "bytes",
     "canvas": "Canvas",
@@ -3971,36 +4041,5 @@
     "openaiChatDesc": "Serviços compatíveis com /v1/chat/completions",
     "openaiResponsesDesc": "Serviços compatíveis com /v1/responses",
     "selectApiType": "Selecione o Tipo de API"
-  },
-  "plans": {
-    "addToChat": "Adicionar referência do Plan ao chat atual",
-    "badge": {
-      "archived": "Arquivado",
-      "completed": "Concluído",
-      "executing": "Executando",
-      "orphan": "Órfão",
-      "planning": "Planejando",
-      "review": "Em revisão"
-    },
-    "count": "{{count}} planos",
-    "empty": "Sem planos ainda.",
-    "emptyPlan": "Este arquivo de Plan está vazio.",
-    "filter": {
-      "allAgents": "Todos os Agents",
-      "state": {
-        "all": "Todos os estados",
-        "archived": "Arquivado (saída)",
-        "completed": "Concluído",
-        "executing": "Executando",
-        "planning": "Planejando",
-        "review": "Em revisão"
-      }
-    },
-    "openInSession": "Abrir na sessão",
-    "refresh": "Atualizar",
-    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
-    "sessionDeleted": "Sessão proprietária excluída",
-    "title": "Planos",
-    "untitled": "Plan sem título"
   }
 }

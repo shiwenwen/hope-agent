@@ -232,6 +232,19 @@
   "chat": {
     "addWorkingDirectory": "作業ディレクトリを追加",
     "askAnything": "アイデアを教えてください、あとはお任せを...",
+    "browserPanel": {
+      "backendBadgeTooltip": "ブラウザバックエンド：{{backend}}",
+      "captureFailed": "フレーム取得に失敗、次のフレームを待っています",
+      "close": "パネルを閉じる",
+      "idleHint": "ブラウザはまだ起動していません。設定 → ブラウザから開始してください。",
+      "idleTitle": "ブラウザミラー",
+      "openExternal": "システムブラウザで開く",
+      "openExternalShort": "開く",
+      "refresh": "今すぐ更新",
+      "resumeMirror": "ミラーを再開",
+      "takeOver": "操作を引き継ぐ",
+      "takeOverHint": "1Hz の自動更新を停止し、Chrome を直接操作します"
+    },
     "asyncToolJobFallbackName": "バックグラウンドタスク",
     "asyncToolJobNames": {
       "browser": "ブラウザ操作",
@@ -842,18 +855,33 @@
       "systemUptime": "システム稼働時間",
       "virtualMem": "仮想メモリ"
     },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均実行時間",
+      "byAgent": "Agent 別",
+      "byAgentCompleted": "完了",
+      "byProject": "プロジェクト別",
+      "completionRate": "完了率",
+      "created": "作成",
+      "creationTrend": "作成トレンド (30 日)",
+      "empty": "選択した期間に Plan がありません。",
+      "noProject": "プロジェクトなし",
+      "sampleSize": "完了 {{count}} 件をサンプリング",
+      "stateDistribution": "状態分布",
+      "total": "Plan 総数"
+    },
     "tabs": {
       "dreaming": "ドリーム",
       "errors": "エラー監視",
       "insights": "インサイト",
       "learning": "学習",
+      "plans": "Plan",
       "recap": "レビュー",
       "sessions": "セッション分析",
       "system": "システム監視",
       "tasks": "タスク統計",
       "tokens": "トークン使用量",
-      "tools": "ツール使用",
-      "plans": "Plan"
+      "tools": "ツール使用"
     },
     "task": {
       "activeJobs": "アクティブ",
@@ -901,21 +929,6 @@
       "frequency": "呼び出し頻度",
       "name": "ツール名",
       "totalMs": "合計 (ms)"
-    },
-    "plans": {
-      "active": "進行中",
-      "avgExecution": "平均実行時間",
-      "byAgent": "Agent 別",
-      "byAgentCompleted": "完了",
-      "byProject": "プロジェクト別",
-      "completionRate": "完了率",
-      "created": "作成",
-      "creationTrend": "作成トレンド (30 日)",
-      "empty": "選択した期間に Plan がありません。",
-      "noProject": "プロジェクトなし",
-      "sampleSize": "完了 {{count}} 件をサンプリング",
-      "stateDistribution": "状態分布",
-      "total": "Plan 総数"
     }
   },
   "diffPanel": {
@@ -1611,6 +1624,37 @@
       "subtitle": "使うほどあなたを理解していく AI アシスタント——デスクトップ、クラウド、IM でいつでも呼び出せます。\n以下は簡単なセットアップです——モデル選択以外はすべてスキップできます。",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "現在のチャットに Plan 参照を追加",
+    "badge": {
+      "archived": "アーカイブ済み",
+      "completed": "完了",
+      "executing": "実行中",
+      "orphan": "孤立",
+      "planning": "計画中",
+      "review": "レビュー中"
+    },
+    "count": "Plan: {{count}} 件",
+    "empty": "Plan はありません。",
+    "emptyPlan": "この Plan ファイルは空です。",
+    "filter": {
+      "allAgents": "すべての Agent",
+      "state": {
+        "all": "すべての状態",
+        "archived": "アーカイブ (終了済み)",
+        "completed": "完了",
+        "executing": "実行中",
+        "planning": "計画中",
+        "review": "レビュー中"
+      }
+    },
+    "openInSession": "所属セッションへ移動",
+    "refresh": "更新",
+    "selectHint": "左側で Plan を選択してください。",
+    "sessionDeleted": "所属セッションは削除されました",
+    "title": "Plan 履歴",
+    "untitled": "無題の Plan"
   },
   "planMode": {
     "approveAndExecute": "実行開始",
@@ -2318,7 +2362,33 @@
       "statusConnected": "ブラウザ実行中",
       "statusDisconnected": "実行されていません",
       "title": "ブラウザ",
-      "untitledTab": "無題"
+      "untitledTab": "無題",
+      "backendAuto": "自動",
+      "backendChangeHint": "バックエンドの選択は次回の起動またはアタッチで反映されます。",
+      "backendForceCdp": "CDP 強制",
+      "backendForceMcp": "MCP 強制",
+      "backendLabel": "バックエンド",
+      "backendRestartHint": "Auto は Node.js ≥ v18 が PATH 上にあれば chrome-devtools-mcp を選択。それ以外は組み込みの CDP バックエンド。",
+      "doctorChromeFound": "{{url}} に Chrome が見つかりました",
+      "doctorChromeMissing": "標準デバッグポートに Chrome が検出されません",
+      "doctorChromeMissingHint": "別の Chrome を起動します（独立した user-data-dir を使うので、普段の閲覧データには影響しません）。",
+      "doctorConnect": "アタッチ",
+      "doctorLaunchUserChrome": "ユーザー Chrome を起動",
+      "modeLabel": "モード",
+      "modeStandalone": "独立ブラウザ",
+      "modeStandaloneHint": "hope-agent が独立した Chrome インスタンスを管理します。自動化用途に推奨。",
+      "modeUserChrome": "ユーザー Chrome を引き継ぐ",
+      "modeUserChromeHint": "普段使いの Chrome を起動またはアタッチします。専用の user-data-dir を使うため、通常のブラウジングデータには影響しません。",
+      "nodeDetected": "Node.js {{version}} を検出。chrome-devtools-mcp が使用可能です。",
+      "nodeMissing": "Node.js が検出されません。MCP バックエンドは利用不可、Auto は CDP に切り替わります。",
+      "reconnectNow": "今すぐ再接続",
+      "spawnUserChrome": {
+        "confirmBodyIdle": "hope-agent は ~/.hope-agent/browser/user-attach/ に専用 user-data-dir を作り、新しい Chrome を起動します。続行しますか？",
+        "confirmBodyRunning": "Chrome が起動しているようです。hope-agent は別の Chrome インスタンスを専用 user-data-dir で起動します。日常の閲覧には影響しません。続行しますか？",
+        "confirmTitle": "別の Chrome を起動しますか？",
+        "continue": "続行",
+        "spawned": "ポート {{port}} で Chrome を起動しました。アタッチ中…"
+      }
     },
     "bytes": "バイト",
     "canvas": "キャンバス",
@@ -3971,36 +4041,5 @@
     "openaiChatDesc": "/v1/chat/completions 互換サービス",
     "openaiResponsesDesc": "/v1/responses 互換サービス",
     "selectApiType": "API タイプを選択"
-  },
-  "plans": {
-    "addToChat": "現在のチャットに Plan 参照を追加",
-    "badge": {
-      "archived": "アーカイブ済み",
-      "completed": "完了",
-      "executing": "実行中",
-      "orphan": "孤立",
-      "planning": "計画中",
-      "review": "レビュー中"
-    },
-    "count": "Plan: {{count}} 件",
-    "empty": "Plan はありません。",
-    "emptyPlan": "この Plan ファイルは空です。",
-    "filter": {
-      "allAgents": "すべての Agent",
-      "state": {
-        "all": "すべての状態",
-        "archived": "アーカイブ (終了済み)",
-        "completed": "完了",
-        "executing": "実行中",
-        "planning": "計画中",
-        "review": "レビュー中"
-      }
-    },
-    "openInSession": "所属セッションへ移動",
-    "refresh": "更新",
-    "selectHint": "左側で Plan を選択してください。",
-    "sessionDeleted": "所属セッションは削除されました",
-    "title": "Plan 履歴",
-    "untitled": "無題の Plan"
   }
 }

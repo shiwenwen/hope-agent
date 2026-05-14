@@ -623,6 +623,11 @@ pub fn run() {
             commands::browser::browser_launch,
             commands::browser::browser_connect,
             commands::browser::browser_disconnect,
+            commands::browser::browser_capture_frame,
+            commands::browser::browser_spawn_user_chrome,
+            commands::browser::browser_doctor,
+            commands::browser::browser_get_config,
+            commands::browser::browser_set_config,
             // IM Channel management
             commands::channel::channel_list_plugins,
             commands::channel::channel_list_accounts,

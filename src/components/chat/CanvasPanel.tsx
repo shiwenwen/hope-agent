@@ -181,6 +181,14 @@ export default function CanvasPanel({
       }),
     )
 
+    // Window-level shortcut used by sibling panels (e.g. BrowserPanel
+    // auto-open on `browser:frame`) to enforce the right-side panel mutex.
+    // We can't reach into this component from `ChatScreen` directly, so the
+    // close request flows over a CustomEvent.
+    const onForceClose = () => setCanvas(null)
+    window.addEventListener("hope-agent:close-canvas", onForceClose)
+    unlisteners.push(() => window.removeEventListener("hope-agent:close-canvas", onForceClose))
+
     unlisteners.push(
       getTransport().listen("canvas_reload", (raw) => {
         try {

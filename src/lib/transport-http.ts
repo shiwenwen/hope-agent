@@ -501,6 +501,11 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   browser_launch:                  { method: "POST",   path: "/api/browser/launch" },
   browser_connect:                 { method: "POST",   path: "/api/browser/connect" },
   browser_disconnect:              { method: "POST",   path: "/api/browser/disconnect" },
+  browser_capture_frame:           { method: "POST",   path: "/api/browser/capture-frame" },
+  browser_spawn_user_chrome:       { method: "POST",   path: "/api/browser/spawn-user-chrome" },
+  browser_doctor:                  { method: "GET",    path: "/api/browser/doctor" },
+  browser_get_config:              { method: "GET",    path: "/api/browser/config" },
+  browser_set_config:              { method: "POST",   path: "/api/browser/config" },
 
   // -- Theme / Language / UI --
   get_theme:                       { method: "GET",    path: "/api/config/theme" },

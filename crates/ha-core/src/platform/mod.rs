@@ -125,10 +125,22 @@ pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Resul
 /// in front of `chromiumoxide`'s own lookup, which is good but can miss
 /// non-default install locations on Windows.
 ///
-/// Returns `None` on Unix — `chromiumoxide` already covers the macOS
-/// `.app` bundle and common Linux paths via `which`.
+/// Unix: probes the `.app` bundle on macOS plus `which google-chrome` /
+/// `chromium` on Linux. Windows: probes the standard install dirs.
 pub fn find_chrome_executable() -> Option<PathBuf> {
     imp::find_chrome_executable()
+}
+
+/// Best-effort detection of whether the user has a Chrome / Chromium
+/// process already running. Used by the "Take over user Chrome" path
+/// in settings to surface a "we'll start a separate Chrome with its
+/// own user-data-dir" confirmation prompt.
+///
+/// Always returns `false` when the underlying probe (`pgrep` /
+/// `tasklist`) is unavailable or errors — callers treat this as a hint,
+/// not a gate.
+pub async fn chrome_already_running() -> bool {
+    imp::chrome_already_running().await
 }
 
 /// Synchronous, best-effort detection of a discrete GPU. Used by the local

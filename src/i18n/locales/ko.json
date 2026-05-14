@@ -232,6 +232,19 @@
   "chat": {
     "addWorkingDirectory": "작업 디렉터리 추가",
     "askAnything": "아이디어를 말씀해 주세요, 나머지는 제가 할게요...",
+    "browserPanel": {
+      "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
+      "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",
+      "close": "패널 닫기",
+      "idleHint": "브라우저가 아직 실행되지 않았습니다. 설정 → 브라우저에서 시작하세요.",
+      "idleTitle": "브라우저 미러",
+      "openExternal": "시스템 브라우저에서 열기",
+      "openExternalShort": "열기",
+      "refresh": "지금 새로고침",
+      "resumeMirror": "미러 다시 시작",
+      "takeOver": "직접 조작",
+      "takeOverHint": "1Hz 자동 새로고침을 일시 중지하고 Chrome을 직접 조작합니다"
+    },
     "asyncToolJobFallbackName": "백그라운드 작업",
     "asyncToolJobNames": {
       "browser": "브라우저 작업",
@@ -842,18 +855,33 @@
       "systemUptime": "시스템 가동",
       "virtualMem": "가상 메모리"
     },
+    "plans": {
+      "active": "진행 중",
+      "avgExecution": "평균 실행 시간",
+      "byAgent": "Agent별",
+      "byAgentCompleted": "완료",
+      "byProject": "프로젝트별",
+      "completionRate": "완료율",
+      "created": "생성",
+      "creationTrend": "생성 추이 (30일)",
+      "empty": "선택한 기간 내 Plan 데이터가 없습니다.",
+      "noProject": "프로젝트 없음",
+      "sampleSize": "{{count}}개 완료 표본",
+      "stateDistribution": "상태 분포",
+      "total": "총 Plan 수"
+    },
     "tabs": {
       "dreaming": "드림",
       "errors": "오류",
       "insights": "인사이트",
       "learning": "학습",
+      "plans": "Plan",
       "recap": "회고",
       "sessions": "세션",
       "system": "시스템",
       "tasks": "작업",
       "tokens": "토큰 사용량",
-      "tools": "도구 사용",
-      "plans": "Plan"
+      "tools": "도구 사용"
     },
     "task": {
       "activeJobs": "활성",
@@ -901,21 +929,6 @@
       "frequency": "호출 빈도",
       "name": "도구 이름",
       "totalMs": "합계 (ms)"
-    },
-    "plans": {
-      "active": "진행 중",
-      "avgExecution": "평균 실행 시간",
-      "byAgent": "Agent별",
-      "byAgentCompleted": "완료",
-      "byProject": "프로젝트별",
-      "completionRate": "완료율",
-      "created": "생성",
-      "creationTrend": "생성 추이 (30일)",
-      "empty": "선택한 기간 내 Plan 데이터가 없습니다.",
-      "noProject": "프로젝트 없음",
-      "sampleSize": "{{count}}개 완료 표본",
-      "stateDistribution": "상태 분포",
-      "total": "총 Plan 수"
     }
   },
   "diffPanel": {
@@ -1611,6 +1624,37 @@
       "subtitle": "사용할수록 당신을 더 잘 이해하는 AI 어시스턴트 — 데스크톱, 클라우드, IM 어디서든 언제든 호출할 수 있습니다.\n아래는 간단한 안내입니다 — 모델 선택을 제외한 모든 단계는 건너뛸 수 있습니다.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "현재 채팅에 Plan 참조 추가",
+    "badge": {
+      "archived": "보관됨",
+      "completed": "완료",
+      "executing": "실행 중",
+      "orphan": "고아",
+      "planning": "계획 중",
+      "review": "검토 중"
+    },
+    "count": "Plan {{count}}개",
+    "empty": "아직 Plan이 없습니다.",
+    "emptyPlan": "이 Plan 파일은 비어 있습니다.",
+    "filter": {
+      "allAgents": "모든 Agent",
+      "state": {
+        "all": "모든 상태",
+        "archived": "보관됨 (종료)",
+        "completed": "완료",
+        "executing": "실행 중",
+        "planning": "계획 중",
+        "review": "검토 중"
+      }
+    },
+    "openInSession": "해당 세션 열기",
+    "refresh": "새로 고침",
+    "selectHint": "왼쪽에서 Plan을 선택하세요.",
+    "sessionDeleted": "소유 세션이 삭제됨",
+    "title": "Plan 기록",
+    "untitled": "이름 없는 Plan"
   },
   "planMode": {
     "approveAndExecute": "실행 시작",
@@ -2318,7 +2362,33 @@
       "statusConnected": "브라우저 실행 중",
       "statusDisconnected": "실행되지 않음",
       "title": "브라우저",
-      "untitledTab": "제목 없음"
+      "untitledTab": "제목 없음",
+      "backendAuto": "자동",
+      "backendChangeHint": "백엔드 선택은 다음 시작 또는 연결 시 적용됩니다.",
+      "backendForceCdp": "CDP 강제",
+      "backendForceMcp": "MCP 강제",
+      "backendLabel": "백엔드",
+      "backendRestartHint": "Auto는 PATH에 Node.js ≥ v18이 있을 때 chrome-devtools-mcp를 사용합니다. 없으면 내장 CDP 백엔드를 사용합니다.",
+      "doctorChromeFound": "{{url}} 에서 Chrome 발견",
+      "doctorChromeMissing": "표준 디버그 포트에서 Chrome이 감지되지 않습니다",
+      "doctorChromeMissingHint": "별도의 Chrome을 실행합니다(자체 user-data-dir 사용 — 평소 브라우징 데이터에는 영향 없음).",
+      "doctorConnect": "연결",
+      "doctorLaunchUserChrome": "사용자 Chrome 실행",
+      "modeLabel": "모드",
+      "modeStandalone": "독립 브라우저",
+      "modeStandaloneHint": "hope-agent가 격리된 Chrome 인스턴스를 관리합니다. 자동화 용도로 권장합니다.",
+      "modeUserChrome": "사용자 Chrome 인계",
+      "modeUserChromeHint": "일상적으로 사용하는 Chrome을 실행하거나 연결합니다. 별도의 user-data-dir을 사용하므로 실제 브라우징 데이터는 건드리지 않습니다.",
+      "nodeDetected": "Node.js {{version}} 감지. chrome-devtools-mcp 사용 가능.",
+      "nodeMissing": "Node.js가 감지되지 않았습니다. MCP 백엔드는 사용할 수 없으며 Auto는 CDP로 폴백됩니다.",
+      "reconnectNow": "지금 재연결",
+      "spawnUserChrome": {
+        "confirmBodyIdle": "hope-agent가 ~/.hope-agent/browser/user-attach/ 아래에 자체 user-data-dir로 새 Chrome을 실행합니다. 계속하시겠습니까?",
+        "confirmBodyRunning": "Chrome이 실행 중인 것 같습니다. hope-agent는 별도의 user-data-dir로 새 Chrome 인스턴스를 시작하므로 일상 브라우징에는 영향이 없습니다. 계속하시겠습니까?",
+        "confirmTitle": "별도의 Chrome을 실행할까요?",
+        "continue": "계속",
+        "spawned": "포트 {{port}} 에서 Chrome 실행됨. 연결 중…"
+      }
     },
     "bytes": "바이트",
     "canvas": "캔버스",
@@ -3971,36 +4041,5 @@
     "openaiChatDesc": "/v1/chat/completions 호환 서비스",
     "openaiResponsesDesc": "/v1/responses 호환 서비스",
     "selectApiType": "API 유형 선택"
-  },
-  "plans": {
-    "addToChat": "현재 채팅에 Plan 참조 추가",
-    "badge": {
-      "archived": "보관됨",
-      "completed": "완료",
-      "executing": "실행 중",
-      "orphan": "고아",
-      "planning": "계획 중",
-      "review": "검토 중"
-    },
-    "count": "Plan {{count}}개",
-    "empty": "아직 Plan이 없습니다.",
-    "emptyPlan": "이 Plan 파일은 비어 있습니다.",
-    "filter": {
-      "allAgents": "모든 Agent",
-      "state": {
-        "all": "모든 상태",
-        "archived": "보관됨 (종료)",
-        "completed": "완료",
-        "executing": "실행 중",
-        "planning": "계획 중",
-        "review": "검토 중"
-      }
-    },
-    "openInSession": "해당 세션 열기",
-    "refresh": "새로 고침",
-    "selectHint": "왼쪽에서 Plan을 선택하세요.",
-    "sessionDeleted": "소유 세션이 삭제됨",
-    "title": "Plan 기록",
-    "untitled": "이름 없는 Plan"
   }
 }

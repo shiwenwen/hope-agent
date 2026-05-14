@@ -232,6 +232,19 @@
   "chat": {
     "addWorkingDirectory": "Çalışma dizini ekle",
     "askAnything": "Fikrini söyle, gerisini bana bırak...",
+    "browserPanel": {
+      "backendBadgeTooltip": "Tarayıcı arka ucu: {{backend}}",
+      "captureFailed": "Kare yakalanamadı, sonraki kare bekleniyor",
+      "close": "Paneli kapat",
+      "idleHint": "Tarayıcı henüz başlatılmadı. Ayarlar → Tarayıcı'dan başlatın.",
+      "idleTitle": "Tarayıcı aynası",
+      "openExternal": "Sistem tarayıcısında aç",
+      "openExternalShort": "Aç",
+      "refresh": "Şimdi yenile",
+      "resumeMirror": "Aynayı sürdür",
+      "takeOver": "Devral",
+      "takeOverHint": "1Hz otomatik yenilemeyi duraklatın ve Chrome'u kendiniz kontrol edin"
+    },
     "asyncToolJobFallbackName": "Arka plan görevi",
     "asyncToolJobNames": {
       "browser": "Tarayıcı işlemi",
@@ -842,18 +855,33 @@
       "systemUptime": "Sistem çalışma süresi",
       "virtualMem": "Sanal bellek"
     },
+    "plans": {
+      "active": "Devam ediyor",
+      "avgExecution": "Ortalama yürütme süresi",
+      "byAgent": "Agent bazında",
+      "byAgentCompleted": "Tamamlanan",
+      "byProject": "Proje bazında",
+      "completionRate": "Tamamlanma oranı",
+      "created": "Oluşturulan",
+      "creationTrend": "Oluşturma trendi (30 gün)",
+      "empty": "Seçili pencerede Plan verisi yok.",
+      "noProject": "Proje yok",
+      "sampleSize": "{{count}} tamamlanmış örnek",
+      "stateDistribution": "Durum dağılımı",
+      "total": "Toplam Plan"
+    },
     "tabs": {
       "dreaming": "Rüyalar",
       "errors": "Hatalar",
       "insights": "İçgörüler",
       "learning": "Öğrenme",
+      "plans": "Planlar",
       "recap": "Özet",
       "sessions": "Oturumlar",
       "system": "Sistem",
       "tasks": "Görevler",
       "tokens": "Token kullanımı",
-      "tools": "Araç kullanımı",
-      "plans": "Planlar"
+      "tools": "Araç kullanımı"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -901,21 +929,6 @@
       "frequency": "Çağrı sıklığı",
       "name": "Ad",
       "totalMs": "Toplam (ms)"
-    },
-    "plans": {
-      "active": "Devam ediyor",
-      "avgExecution": "Ortalama yürütme süresi",
-      "byAgent": "Agent bazında",
-      "byAgentCompleted": "Tamamlanan",
-      "byProject": "Proje bazında",
-      "completionRate": "Tamamlanma oranı",
-      "created": "Oluşturulan",
-      "creationTrend": "Oluşturma trendi (30 gün)",
-      "empty": "Seçili pencerede Plan verisi yok.",
-      "noProject": "Proje yok",
-      "sampleSize": "{{count}} tamamlanmış örnek",
-      "stateDistribution": "Durum dağılımı",
-      "total": "Toplam Plan"
     }
   },
   "diffPanel": {
@@ -1611,6 +1624,37 @@
       "subtitle": "Kullandıkça seni daha iyi tanıyan bir AI asistanı — masaüstü, bulut ve IM; her an hazır.\nAşağıda kısa bir kurulum var — model seçimi dışındaki tüm adımlar atlanabilir.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Plan referansını mevcut sohbete ekle",
+    "badge": {
+      "archived": "Arşivlenmiş",
+      "completed": "Tamamlandı",
+      "executing": "Yürütülüyor",
+      "orphan": "Sahipsiz",
+      "planning": "Planlanıyor",
+      "review": "İnceleme"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Henüz Plan yok.",
+    "emptyPlan": "Bu Plan dosyası boş.",
+    "filter": {
+      "allAgents": "Tüm Agent'lar",
+      "state": {
+        "all": "Tüm durumlar",
+        "archived": "Arşivlenmiş (çıkış)",
+        "completed": "Tamamlandı",
+        "executing": "Yürütülüyor",
+        "planning": "Planlanıyor",
+        "review": "İnceleme"
+      }
+    },
+    "openInSession": "Oturumda aç",
+    "refresh": "Yenile",
+    "selectHint": "Sol taraftan bir Plan seçin.",
+    "sessionDeleted": "Sahip oturum silinmiş",
+    "title": "Planlar",
+    "untitled": "İsimsiz plan"
   },
   "planMode": {
     "approveAndExecute": "Yürütmeyi başlat",
@@ -2318,7 +2362,33 @@
       "statusConnected": "Tarayıcı çalışıyor",
       "statusDisconnected": "Çalışmıyor",
       "title": "Tarayıcı",
-      "untitledTab": "Başlıksız"
+      "untitledTab": "Başlıksız",
+      "backendAuto": "Otomatik",
+      "backendChangeHint": "Arka uç seçimi sonraki Başlat veya Ekle işleminde uygulanır.",
+      "backendForceCdp": "CDP zorla",
+      "backendForceMcp": "MCP zorla",
+      "backendLabel": "Arka uç",
+      "backendRestartHint": "PATH üzerinde Node.js ≥ v18 varsa Otomatik chrome-devtools-mcp seçer; yoksa hope-agent'in yerleşik CDP arka ucu kullanılır.",
+      "doctorChromeFound": "{{url}} adresinde Chrome bulundu",
+      "doctorChromeMissing": "Standart hata ayıklama portunda Chrome algılanmadı",
+      "doctorChromeMissingHint": "Ayrı bir Chrome başlatın (kendi user-data-dir'i; günlük gezinme verileriniz etkilenmez).",
+      "doctorConnect": "Bağlan",
+      "doctorLaunchUserChrome": "Kullanıcı Chrome'unu başlat",
+      "modeLabel": "Mod",
+      "modeStandalone": "Bağımsız tarayıcı",
+      "modeStandaloneHint": "hope-agent yalıtılmış bir Chrome örneğini yönetir. Otomasyon için önerilir.",
+      "modeUserChrome": "Kullanıcı Chrome'unu devral",
+      "modeUserChromeHint": "Günlük kullandığınız Chrome'u başlatın veya buna bağlanın. Ayrı bir user-data-dir kullandığı için gerçek gezinme verileriniz etkilenmez.",
+      "nodeDetected": "Node.js {{version}} algılandı; chrome-devtools-mcp kullanılabilir.",
+      "nodeMissing": "Node.js algılanmadı. MCP arka ucu kullanılamaz; Otomatik CDP'ye geri döner.",
+      "reconnectNow": "Şimdi yeniden bağlan",
+      "spawnUserChrome": {
+        "confirmBodyIdle": "hope-agent ~/.hope-agent/browser/user-attach/ altında kendi user-data-dir'i ile yeni bir Chrome başlatacak. Devam edilsin mi?",
+        "confirmBodyRunning": "Chrome çalışıyor gibi görünüyor. hope-agent ayrı bir user-data-dir ile yeni bir Chrome örneği başlatacak; günlük gezinmeniz etkilenmez. Devam edilsin mi?",
+        "confirmTitle": "Ayrı bir Chrome başlatılsın mı?",
+        "continue": "Devam",
+        "spawned": "{{port}} portunda Chrome başlatıldı; bağlanılıyor…"
+      }
     },
     "bytes": "bayt",
     "canvas": "Canvas",
@@ -3971,36 +4041,5 @@
     "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
     "openaiResponsesDesc": "/v1/responses uyumlu servisler",
     "selectApiType": "API Türü Seçin"
-  },
-  "plans": {
-    "addToChat": "Plan referansını mevcut sohbete ekle",
-    "badge": {
-      "archived": "Arşivlenmiş",
-      "completed": "Tamamlandı",
-      "executing": "Yürütülüyor",
-      "orphan": "Sahipsiz",
-      "planning": "Planlanıyor",
-      "review": "İnceleme"
-    },
-    "count": "{{count}} Plan",
-    "empty": "Henüz Plan yok.",
-    "emptyPlan": "Bu Plan dosyası boş.",
-    "filter": {
-      "allAgents": "Tüm Agent'lar",
-      "state": {
-        "all": "Tüm durumlar",
-        "archived": "Arşivlenmiş (çıkış)",
-        "completed": "Tamamlandı",
-        "executing": "Yürütülüyor",
-        "planning": "Planlanıyor",
-        "review": "İnceleme"
-      }
-    },
-    "openInSession": "Oturumda aç",
-    "refresh": "Yenile",
-    "selectHint": "Sol taraftan bir Plan seçin.",
-    "sessionDeleted": "Sahip oturum silinmiş",
-    "title": "Planlar",
-    "untitled": "İsimsiz plan"
   }
 }

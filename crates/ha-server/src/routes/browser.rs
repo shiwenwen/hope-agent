@@ -70,3 +70,63 @@ pub async fn connect(
 pub async fn disconnect() -> Result<Json<browser_ui::BrowserStatus>, AppError> {
     Ok(Json(browser_ui::disconnect().await?))
 }
+
+/// `POST /api/browser/capture-frame`
+///
+/// Returns the most recent JPEG frame of the active tab (base64-encoded
+/// inside the JSON envelope) for the chat-side BrowserPanel mirror. `null`
+/// when no backend is active — the panel uses that as its "empty" signal.
+pub async fn capture_frame(
+) -> Result<Json<Option<ha_core::browser::frame::BrowserFramePayload>>, AppError> {
+    Ok(Json(ha_core::browser::frame::capture_frame().await?))
+}
+
+/// `POST /api/browser/spawn-user-chrome`
+pub async fn spawn_user_chrome(
+    Json(args): Json<ha_core::browser::user_attach::SpawnUserChromeArgs>,
+) -> Result<Json<ha_core::browser::user_attach::SpawnUserChromeResult>, AppError> {
+    ha_core::browser::user_attach::spawn_user_chrome(args)
+        .await
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+/// `GET /api/browser/doctor`
+pub async fn doctor() -> Result<Json<ha_core::browser::user_attach::BrowserDoctorReport>, AppError>
+{
+    Ok(Json(ha_core::browser::user_attach::browser_doctor().await))
+}
+
+/// `GET /api/browser/config`
+pub async fn get_config() -> Result<Json<ha_core::browser::BrowserConfig>, AppError> {
+    Ok(Json(
+        ha_core::config::cached_config()
+            .browser
+            .clone()
+            .unwrap_or_default(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetConfigBody {
+    pub config: ha_core::browser::BrowserConfig,
+}
+
+/// `POST /api/browser/config`
+///
+/// Body matches the Tauri command shape: `{ "config": { ... } }`. Without
+/// the wrapper, serde silently coerces unknown top-level fields and writes
+/// an all-default `BrowserConfig` (which would wipe `userAttach`).
+pub async fn set_config(
+    Json(SetConfigBody { config }): Json<SetConfigBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    ha_core::config::mutate_config::<_, ()>(("browser", "settings-ui"), |cfg| {
+        cfg.browser = Some(config);
+        Ok(())
+    })
+    .map_err(|e| AppError::bad_request(e.to_string()))?;
+    // Force the next `acquire_backend()` to honor the new preference;
+    // otherwise `ACTIVE_BACKEND` stays cached at the previous choice.
+    ha_core::browser::reset_backend().await;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}

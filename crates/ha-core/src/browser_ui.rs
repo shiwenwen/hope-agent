@@ -277,16 +277,19 @@ pub async fn launch(opts: LaunchOptions) -> Result<BrowserStatus> {
         std::fs::create_dir_all(&dir)?;
     }
 
-    // If already connected, disconnect first so we don't leak the handle.
+    // Drop any cached backend that points at the previous Chrome handle
+    // before tearing it down — otherwise the tool layer would keep
+    // returning an `Arc<dyn BrowserBackend>` whose chrome-devtools-mcp
+    // subprocess is talking to a closed CDP socket. A concurrent
+    // `acquire_backend` racing during the disconnect/launch window will
+    // block on `BROWSER_STATE.lock()` until the new Chrome is ready, then
+    // observe the correct state — no second reset needed.
+    crate::browser::reset_backend().await;
     {
         let mut st = get_browser_state().lock().await;
         if st.browser.is_some() {
             st.disconnect().await;
         }
-    }
-
-    {
-        let mut st = get_browser_state().lock().await;
         st.launch(
             opts.executable_path.as_deref(),
             opts.headless,
@@ -314,15 +317,12 @@ pub async fn connect(debug_url: &str) -> Result<BrowserStatus> {
         return Err(anyhow!("Debug URL must start with http:// or https://"));
     }
 
+    crate::browser::reset_backend().await;
     {
         let mut st = get_browser_state().lock().await;
         if st.browser.is_some() {
             st.disconnect().await;
         }
-    }
-
-    {
-        let mut st = get_browser_state().lock().await;
         st.connect(url).await?;
     }
 
@@ -331,6 +331,7 @@ pub async fn connect(debug_url: &str) -> Result<BrowserStatus> {
 }
 
 pub async fn disconnect() -> Result<BrowserStatus> {
+    crate::browser::reset_backend().await;
     {
         let mut st = get_browser_state().lock().await;
         if st.browser.is_some() {

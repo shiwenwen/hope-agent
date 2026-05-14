@@ -232,6 +232,19 @@
   "chat": {
     "addWorkingDirectory": "إضافة دليل العمل",
     "askAnything": "أخبرني بفكرتك، وأنا أتولى الباقي...",
+    "browserPanel": {
+      "backendBadgeTooltip": "خلفية المتصفح: {{backend}}",
+      "captureFailed": "فشل التقاط الإطار، بانتظار التالي",
+      "close": "إغلاق اللوحة",
+      "idleHint": "المتصفح لم يبدأ بعد. افتح الإعدادات ← المتصفح للبدء.",
+      "idleTitle": "مرآة المتصفح",
+      "openExternal": "افتح في متصفح النظام",
+      "openExternalShort": "فتح",
+      "refresh": "تحديث الآن",
+      "resumeMirror": "استئناف المرآة",
+      "takeOver": "تولّى التحكم",
+      "takeOverHint": "إيقاف التحديث التلقائي 1 هرتز أثناء تشغيل Chrome بنفسك"
+    },
     "asyncToolJobFallbackName": "مهمة في الخلفية",
     "asyncToolJobNames": {
       "browser": "إجراء المتصفح",
@@ -842,18 +855,33 @@
       "systemUptime": "وقت تشغيل النظام",
       "virtualMem": "الذاكرة الافتراضية"
     },
+    "plans": {
+      "active": "قيد التنفيذ",
+      "avgExecution": "متوسط زمن التنفيذ",
+      "byAgent": "حسب Agent",
+      "byAgentCompleted": "مكتمل",
+      "byProject": "حسب المشروع",
+      "completionRate": "نسبة الإكمال",
+      "created": "تم إنشاؤها",
+      "creationTrend": "اتجاه الإنشاء (30 يومًا)",
+      "empty": "لا توجد بيانات خطط في النافذة المختارة.",
+      "noProject": "بدون مشروع",
+      "sampleSize": "تم أخذ عينة من {{count}} مكتملة",
+      "stateDistribution": "توزيع الحالات",
+      "total": "إجمالي الخطط"
+    },
     "tabs": {
       "dreaming": "الأحلام",
       "errors": "الأخطاء",
       "insights": "رؤى",
       "learning": "التعلّم",
+      "plans": "الخطط",
       "recap": "المراجعة",
       "sessions": "الجلسات",
       "system": "النظام",
       "tasks": "المهام",
       "tokens": "استخدام الرموز",
-      "tools": "استخدام الأدوات",
-      "plans": "الخطط"
+      "tools": "استخدام الأدوات"
     },
     "task": {
       "activeJobs": "النشطة",
@@ -901,21 +929,6 @@
       "frequency": "تكرار الاستدعاءات",
       "name": "الاسم",
       "totalMs": "الإجمالي (ms)"
-    },
-    "plans": {
-      "active": "قيد التنفيذ",
-      "avgExecution": "متوسط زمن التنفيذ",
-      "byAgent": "حسب Agent",
-      "byAgentCompleted": "مكتمل",
-      "byProject": "حسب المشروع",
-      "completionRate": "نسبة الإكمال",
-      "created": "تم إنشاؤها",
-      "creationTrend": "اتجاه الإنشاء (30 يومًا)",
-      "empty": "لا توجد بيانات خطط في النافذة المختارة.",
-      "noProject": "بدون مشروع",
-      "sampleSize": "تم أخذ عينة من {{count}} مكتملة",
-      "stateDistribution": "توزيع الحالات",
-      "total": "إجمالي الخطط"
     }
   },
   "diffPanel": {
@@ -1611,6 +1624,37 @@
       "subtitle": "مساعد ذكاء اصطناعي يفهمك أكثر كلما استخدمته — على سطح المكتب والسحابة والمحادثات، جاهز دائمًا عند الطلب.\nفيما يلي إرشادات سريعة — يمكن تخطي جميع الخطوات باستثناء اختيار النموذج.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "إضافة مرجع الخطة إلى المحادثة الحالية",
+    "badge": {
+      "archived": "مؤرشف",
+      "completed": "مكتمل",
+      "executing": "قيد التنفيذ",
+      "orphan": "يتيم",
+      "planning": "قيد التخطيط",
+      "review": "قيد المراجعة"
+    },
+    "count": "{{count}} خطة",
+    "empty": "لا توجد خطط بعد.",
+    "emptyPlan": "ملف الخطة فارغ.",
+    "filter": {
+      "allAgents": "كل الـ Agent",
+      "state": {
+        "all": "كل الحالات",
+        "archived": "مؤرشف (تم الخروج)",
+        "completed": "مكتمل",
+        "executing": "قيد التنفيذ",
+        "planning": "قيد التخطيط",
+        "review": "قيد المراجعة"
+      }
+    },
+    "openInSession": "الفتح في الجلسة",
+    "refresh": "تحديث",
+    "selectHint": "اختر خطة على اليسار لعرض محتواها.",
+    "sessionDeleted": "تم حذف الجلسة المالكة",
+    "title": "الخطط",
+    "untitled": "خطة بدون عنوان"
   },
   "planMode": {
     "approveAndExecute": "بدء التنفيذ",
@@ -2318,7 +2362,33 @@
       "statusConnected": "المتصفح قيد التشغيل",
       "statusDisconnected": "لا يعمل",
       "title": "المتصفح",
-      "untitledTab": "بدون عنوان"
+      "untitledTab": "بدون عنوان",
+      "backendAuto": "تلقائي",
+      "backendChangeHint": "سيُطبق اختيار الواجهة الخلفية عند الإطلاق أو الإرفاق التالي.",
+      "backendForceCdp": "فرض CDP",
+      "backendForceMcp": "فرض MCP",
+      "backendLabel": "الواجهة الخلفية",
+      "backendRestartHint": "يختار «تلقائي» chrome-devtools-mcp عندما يكون Node.js ≥ v18 في PATH؛ وإلا يستخدم واجهة CDP المدمجة في hope-agent.",
+      "doctorChromeFound": "تم العثور على Chrome على {{url}}",
+      "doctorChromeMissing": "لم يتم اكتشاف Chrome على منفذ التصحيح القياسي",
+      "doctorChromeMissingHint": "تشغيل Chrome منفصل (يستخدم user-data-dir خاص به؛ بياناتك اليومية لا تُمَس).",
+      "doctorConnect": "إرفاق",
+      "doctorLaunchUserChrome": "تشغيل Chrome الخاص بالمستخدم",
+      "modeLabel": "الوضع",
+      "modeStandalone": "متصفح مستقل",
+      "modeStandaloneHint": "يحافظ hope-agent على نسخة Chrome معزولة. مُوصى به للأتمتة.",
+      "modeUserChrome": "تولّي Chrome الخاص بالمستخدم",
+      "modeUserChromeHint": "تشغيل أو إرفاق Chrome الذي تستخدمه يوميًا. يستخدم user-data-dir منفصل، لذا لا تُمَس بياناتك الفعلية.",
+      "nodeDetected": "تم اكتشاف Node.js {{version}}؛ يمكن استخدام chrome-devtools-mcp.",
+      "nodeMissing": "لم يتم اكتشاف Node.js. الواجهة الخلفية MCP غير متاحة؛ يعود التلقائي إلى CDP.",
+      "reconnectNow": "إعادة الاتصال الآن",
+      "spawnUserChrome": {
+        "confirmBodyIdle": "سيقوم hope-agent بتشغيل Chrome جديد بـ user-data-dir خاص تحت ~/.hope-agent/browser/user-attach/. هل تريد المتابعة؟",
+        "confirmBodyRunning": "يبدو أن Chrome يعمل بالفعل. سيقوم hope-agent بتشغيل نسخة Chrome منفصلة بـ user-data-dir خاص، لذا لن يتأثر تصفحك اليومي. هل تريد المتابعة؟",
+        "confirmTitle": "تشغيل Chrome منفصل؟",
+        "continue": "متابعة",
+        "spawned": "تم تشغيل Chrome على المنفذ {{port}}؛ جارٍ الإرفاق…"
+      }
     },
     "bytes": "بايت",
     "canvas": "اللوحة",
@@ -3971,36 +4041,5 @@
     "openaiChatDesc": "خدمات متوافقة مع /v1/chat/completions",
     "openaiResponsesDesc": "خدمات متوافقة مع /v1/responses",
     "selectApiType": "اختر نوع API"
-  },
-  "plans": {
-    "addToChat": "إضافة مرجع الخطة إلى المحادثة الحالية",
-    "badge": {
-      "archived": "مؤرشف",
-      "completed": "مكتمل",
-      "executing": "قيد التنفيذ",
-      "orphan": "يتيم",
-      "planning": "قيد التخطيط",
-      "review": "قيد المراجعة"
-    },
-    "count": "{{count}} خطة",
-    "empty": "لا توجد خطط بعد.",
-    "emptyPlan": "ملف الخطة فارغ.",
-    "filter": {
-      "allAgents": "كل الـ Agent",
-      "state": {
-        "all": "كل الحالات",
-        "archived": "مؤرشف (تم الخروج)",
-        "completed": "مكتمل",
-        "executing": "قيد التنفيذ",
-        "planning": "قيد التخطيط",
-        "review": "قيد المراجعة"
-      }
-    },
-    "openInSession": "الفتح في الجلسة",
-    "refresh": "تحديث",
-    "selectHint": "اختر خطة على اليسار لعرض محتواها.",
-    "sessionDeleted": "تم حذف الجلسة المالكة",
-    "title": "الخطط",
-    "untitled": "خطة بدون عنوان"
   }
 }

@@ -538,6 +538,10 @@ pub struct AppConfig {
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
+    /// Browser automation configuration (backend selection, default mode,
+    /// user-attach profile bookkeeping).
+    #[serde(default)]
+    pub browser: Option<crate::browser::BrowserConfig>,
     /// Image tool configuration (max images per call, etc.)
     #[serde(default)]
     pub image: crate::tools::image::ImageToolConfig,
@@ -748,6 +752,7 @@ impl Default for AppConfig {
             startup_notification: StartupNotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
+            browser: None,
             image: crate::tools::image::ImageToolConfig::default(),
             pdf: crate::tools::pdf::PdfToolConfig::default(),
             tool_timeout: default_tool_timeout(),
