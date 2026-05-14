@@ -397,7 +397,7 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
 
         let cancel = AtomicBool::new(false);
         let noop = |_: &str| {};
-        let (text, _tool_calls, mut usage, _thinking, _ttft, _reasoning) = match parse_openai_sse(
+        let (text, _tool_calls, mut usage, _thinking, _ttft) = match parse_openai_sse(
             resp,
             request_start,
             &cancel,

@@ -74,11 +74,6 @@ pub(crate) struct RoundOutcome {
     /// Anthropic-only: stop_reason ("tool_use" / "end_turn" / "max_tokens" / ...).
     /// Other providers leave this `None` and rely on `tool_calls.is_empty()`.
     pub stop_reason: Option<String>,
-    /// Responses/Codex-only: raw reasoning items (with `encrypted_content` and
-    /// `summary` fields) to write back into next round's input array
-    /// **byte-perfect** for multi-turn reasoning chain continuity. Empty for
-    /// Anthropic / OpenAI Chat (those persist thinking inline in messages).
-    pub reasoning_items: Vec<Value>,
 }
 
 /// One executed tool call, ready to be appended to history by the adapter.
@@ -144,8 +139,9 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     ///  - Anthropic: `{role:assistant, content:[thinking,text,tool_use...]}`
     ///    + `{role:user, content:[tool_result...]}`
     ///  - OpenAI Chat: assistant message with `tool_calls` + role=tool messages
-    ///  - Responses/Codex: `function_call` + `function_call_output` items + raw
-    ///    reasoning items (from `outcome.reasoning_items`)
+    ///  - Responses/Codex: `function_call` + `function_call_output` items
+    ///    (reasoning items are intentionally not replayed; both providers run
+    ///    with `store: false`, where stale `rs_*` ids 404 the next request)
     ///
     /// Implementations must use `crate::context_compact::push_and_stamp` to
     /// stamp the `_oc_round` metadata for compaction round-boundary alignment.
@@ -168,13 +164,6 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
         final_text: &str,
         last_thinking: &str,
     );
-
-    /// Push per-round reasoning items (Responses/Codex only) into history
-    /// before either tool dispatch or the final assistant message. Called by
-    /// the orchestrator on every round so multi-turn reasoning chains stay
-    /// continuous. Default no-op for Anthropic / OpenAI Chat which carry
-    /// thinking inline in messages instead of as standalone history items.
-    fn append_reasoning_items(&self, _history: &mut Vec<Value>, _outcome: &RoundOutcome) {}
 
     /// Decide whether the tool loop should exit after this round's outcome.
     ///  - Anthropic: `stop_reason != Some("tool_use")` (model decided to stop)

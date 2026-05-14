@@ -312,11 +312,10 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 usage: Default::default(),
                 ttft_ms: None,
                 stop_reason: None,
-                reasoning_items: Vec::new(),
             });
         }
 
-        let (text, tool_calls, usage, thinking_text, ttft_ms, reasoning_items) =
+        let (text, tool_calls, usage, thinking_text, ttft_ms) =
             parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
 
         if let Some(logger) = crate::get_logger() {
@@ -353,16 +352,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
             usage,
             ttft_ms,
             stop_reason: None,
-            reasoning_items,
         })
-    }
-
-    fn append_reasoning_items(&self, history: &mut Vec<Value>, outcome: &RoundOutcome) {
-        for ri in &outcome.reasoning_items {
-            if let Some(item) = AssistantAgent::stateless_responses_reasoning_item(ri) {
-                history.push(item);
-            }
-        }
     }
 
     fn append_round_to_history(

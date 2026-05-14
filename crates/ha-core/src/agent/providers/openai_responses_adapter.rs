@@ -245,45 +245,6 @@ fn finalize_pending_tool_calls(
     0
 }
 
-fn push_stateless_reasoning_item(reasoning_items: &mut Vec<Value>, item: &Value) {
-    let Some(replayable) = AssistantAgent::stateless_responses_reasoning_item(item) else {
-        return;
-    };
-
-    let id = replayable.get("id").and_then(|v| v.as_str());
-    let encrypted_content = replayable.get("encrypted_content").and_then(|v| v.as_str());
-    let already_seen = reasoning_items.iter().any(|existing| {
-        let existing_id = existing.get("id").and_then(|v| v.as_str());
-        let existing_encrypted = existing.get("encrypted_content").and_then(|v| v.as_str());
-        (id.is_some() && id == existing_id)
-            || (encrypted_content.is_some() && encrypted_content == existing_encrypted)
-    });
-
-    if !already_seen {
-        reasoning_items.push(replayable);
-    }
-}
-
-fn collect_reasoning_item_from_raw_event(reasoning_items: &mut Vec<Value>, raw_event: &Value) {
-    if let Some(item) = raw_event.get("item") {
-        if item.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
-            push_stateless_reasoning_item(reasoning_items, item);
-        }
-    }
-
-    if let Some(outputs) = raw_event
-        .get("response")
-        .and_then(|r| r.get("output"))
-        .and_then(|o| o.as_array())
-    {
-        for item in outputs {
-            if item.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
-                push_stateless_reasoning_item(reasoning_items, item);
-            }
-        }
-    }
-}
-
 fn handle_openai_sse_event_block(
     request_id: &str,
     event_block: &str,
@@ -295,7 +256,6 @@ fn handle_openai_sse_event_block(
     pending_calls: &mut std::collections::HashMap<String, FunctionCallItem>,
     usage: &mut ChatUsage,
     first_token_time: &mut Option<u64>,
-    reasoning_items: &mut Vec<Value>,
 ) -> Result<()> {
     let data_lines: Vec<&str> = event_block
         .lines()
@@ -311,8 +271,6 @@ fn handle_openai_sse_event_block(
     if data.is_empty() || data == "[DONE]" {
         return Ok(());
     }
-
-    let raw_event = serde_json::from_str::<Value>(&data).ok();
 
     match serde_json::from_str::<SseEvent>(&data) {
         Ok(event) => {
@@ -397,11 +355,12 @@ fn handle_openai_sse_event_block(
                                 tool_calls.push(tc);
                             }
                         }
-                        if item.item_type.as_deref() == Some("reasoning") {
-                            if let Some(raw) = raw_event.as_ref() {
-                                collect_reasoning_item_from_raw_event(reasoning_items, raw);
-                            }
-                        }
+                        // Responses/Codex run with `store: false`, so any
+                        // `rs_*` reasoning item the server emits is throwaway
+                        // — we never replay it back. The streaming `thinking`
+                        // text is captured via `collected_thinking` above and
+                        // surfaces in the UI; the structured item itself is
+                        // deliberately dropped here.
                     }
                 }
                 "error" => {
@@ -427,9 +386,6 @@ fn handle_openai_sse_event_block(
                     return Err(anyhow::anyhow!("{}", msg));
                 }
                 "response.completed" | "response.done" => {
-                    if let Some(raw) = raw_event.as_ref() {
-                        collect_reasoning_item_from_raw_event(reasoning_items, raw);
-                    }
                     if let Some(resp_obj) = &event.response {
                         if let Some(u) = &resp_obj.usage {
                             if let Some(it) = u.input_tokens {
@@ -724,7 +680,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             ));
         }
 
-        let (text, tool_calls, usage, thinking_text, ttft_ms, reasoning_items) =
+        let (text, tool_calls, usage, thinking_text, ttft_ms) =
             parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
 
         if let Some(logger) = crate::get_logger() {
@@ -761,19 +717,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             usage,
             ttft_ms,
             stop_reason: None,
-            reasoning_items, // raw items pushed by orchestrator via append_reasoning_items
         })
-    }
-
-    fn append_reasoning_items(&self, history: &mut Vec<Value>, outcome: &RoundOutcome) {
-        // Push only stateless-replayable reasoning items. With `store: false`,
-        // an item that only has an `rs_*` id will make the backend look for
-        // server-side state that does not exist.
-        for ri in &outcome.reasoning_items {
-            if let Some(item) = AssistantAgent::stateless_responses_reasoning_item(ri) {
-                history.push(item);
-            }
-        }
     }
 
     fn append_round_to_history(
@@ -815,8 +759,9 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         _last_thinking: &str,
     ) {
         // Responses API final assistant is a `message` item with `output_text`
-        // content. Thinking already lives in history as standalone reasoning
-        // items pushed by `append_reasoning_items` each round.
+        // content. With `store: false` we never replay reasoning items, so
+        // thinking is intentionally dropped here — it streams to the UI live
+        // but does not persist into history.
         if !final_text.is_empty() {
             history.push(json!({
                 "type": "message",
@@ -833,20 +778,13 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
 }
 
 /// Parse OpenAI SSE stream (Responses API + Codex share this).
-/// Returns `(collected_text, tool_calls, usage, thinking, ttft_ms, reasoning_items)`.
+/// Returns `(collected_text, tool_calls, usage, thinking, ttft_ms)`.
 pub(in crate::agent) async fn parse_openai_sse(
     resp: reqwest::Response,
     request_start: std::time::Instant,
     cancel: &AtomicBool,
     on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
-) -> Result<(
-    String,
-    Vec<FunctionCallItem>,
-    ChatUsage,
-    String,
-    Option<u64>,
-    Vec<Value>,
-)> {
+) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String, Option<u64>)> {
     use futures_util::StreamExt;
 
     let request_id = sse_request_id(&resp);
@@ -857,7 +795,6 @@ pub(in crate::agent) async fn parse_openai_sse(
         std::collections::HashMap::new();
     let mut usage = ChatUsage::default();
     let mut first_token_time: Option<u64> = None;
-    let mut reasoning_items: Vec<Value> = Vec::new();
 
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
@@ -910,7 +847,6 @@ pub(in crate::agent) async fn parse_openai_sse(
                                     "thinking_length": collected_thinking.len(),
                                     "tool_call_count": tool_calls.len(),
                                     "pending_tool_call_count": pending_calls.len(),
-                                    "reasoning_item_count": reasoning_items.len(),
                                 })
                                 .to_string(),
                             ),
@@ -937,7 +873,6 @@ pub(in crate::agent) async fn parse_openai_sse(
                 &mut pending_calls,
                 &mut usage,
                 &mut first_token_time,
-                &mut reasoning_items,
             )?;
         }
     }
@@ -954,7 +889,6 @@ pub(in crate::agent) async fn parse_openai_sse(
             &mut pending_calls,
             &mut usage,
             &mut first_token_time,
-            &mut reasoning_items,
         )?;
     }
 
@@ -1022,7 +956,6 @@ pub(in crate::agent) async fn parse_openai_sse(
         usage,
         collected_thinking,
         first_token_time,
-        reasoning_items,
     ))
 }
 
@@ -1149,47 +1082,13 @@ mod tests {
         format!("data: {}", payload)
     }
 
+    // Reasoning-item replay was deleted as part of the `store: false`
+    // hardening: Hope Agent never persists `rs_*` ids back into the
+    // conversation history because the server has no record of them.
+    // The invariant "no reasoning items survive into normalized history"
+    // is owned by `normalize_history_for_responses` and its test.
     #[test]
-    fn reasoning_item_without_encrypted_content_is_not_collected() {
-        let event = sse_event_block(serde_json::json!({
-            "type": "response.output_item.done",
-            "item": {
-                "type": "reasoning",
-                "id": "rs_missing",
-                "summary": [],
-                "status": "completed"
-            }
-        }));
-
-        let mut text = String::new();
-        let mut thinking = String::new();
-        let mut tool_calls = Vec::new();
-        let mut pending = HashMap::new();
-        let mut usage = ChatUsage::default();
-        let mut first_token_time = None;
-        let mut reasoning_items = Vec::new();
-        let on_delta = |_s: &str| {};
-
-        handle_openai_sse_event_block(
-            "-",
-            &event,
-            std::time::Instant::now(),
-            &on_delta,
-            &mut text,
-            &mut thinking,
-            &mut tool_calls,
-            &mut pending,
-            &mut usage,
-            &mut first_token_time,
-            &mut reasoning_items,
-        )
-        .expect("handle event");
-
-        assert!(reasoning_items.is_empty());
-    }
-
-    #[test]
-    fn response_completed_collects_encrypted_reasoning_from_raw_output() {
+    fn response_completed_yields_output_text() {
         let event = sse_event_block(serde_json::json!({
             "type": "response.completed",
             "response": {
@@ -1216,7 +1115,6 @@ mod tests {
         let mut pending = HashMap::new();
         let mut usage = ChatUsage::default();
         let mut first_token_time = None;
-        let mut reasoning_items = Vec::new();
         let on_delta = |_s: &str| {};
 
         handle_openai_sse_event_block(
@@ -1230,13 +1128,9 @@ mod tests {
             &mut pending,
             &mut usage,
             &mut first_token_time,
-            &mut reasoning_items,
         )
         .expect("handle event");
 
         assert_eq!(text, "done");
-        assert_eq!(reasoning_items.len(), 1);
-        assert_eq!(reasoning_items[0]["id"], "rs_ok");
-        assert_eq!(reasoning_items[0]["encrypted_content"], "enc");
     }
 }
