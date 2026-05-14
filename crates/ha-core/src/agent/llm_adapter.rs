@@ -397,7 +397,7 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
 
         let cancel = AtomicBool::new(false);
         let noop = |_: &str| {};
-        let (text, _tool_calls, mut usage, _thinking, _ttft, _reasoning) = match parse_openai_sse(
+        let (text, _tool_calls, mut usage, _thinking, _ttft) = match parse_openai_sse(
             resp,
             request_start,
             &cancel,
@@ -865,8 +865,13 @@ mod tests {
         );
     }
 
+    // With `store: false`, *any* reasoning item replayed in a follow-up
+    // request 404s on the server (id is a dangling reference; even
+    // encrypted_content-bearing items get looked up by id first). The
+    // cached body must therefore drop every reasoning item, not just the
+    // ones missing encrypted_content.
     #[test]
-    fn responses_cached_body_filters_non_replayable_reasoning() {
+    fn responses_cached_body_drops_all_reasoning_items() {
         let mut params = cached_responses();
         params.conversation_history.push(json!({
             "type": "reasoning",
@@ -876,7 +881,7 @@ mod tests {
         }));
         params.conversation_history.push(json!({
             "type": "reasoning",
-            "id": "rs_ok",
+            "id": "rs_with_payload",
             "summary": [],
             "encrypted_content": "enc",
             "status": "completed"
@@ -889,13 +894,16 @@ mod tests {
 
         let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
         let input = body.get("input").and_then(|v| v.as_array()).unwrap();
-        let reasoning_ids: Vec<&str> = input
+        let reasoning_items: Vec<&serde_json::Value> = input
             .iter()
             .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("reasoning"))
-            .filter_map(|item| item.get("id").and_then(|id| id.as_str()))
             .collect();
 
-        assert_eq!(reasoning_ids, vec!["rs_ok"]);
+        assert!(
+            reasoning_items.is_empty(),
+            "reasoning item leaked into cached body: {:?}",
+            reasoning_items
+        );
     }
 
     #[test]

@@ -490,6 +490,23 @@ pub async fn chat(
         // else: use_subagent=false, fall through to inline PlanAgent mode below
     }
 
+    // Session-scoped model pin trumps both agent.primary and config.active_model
+    // when no explicit per-turn override was provided. This is how /api PATCH
+    // /sessions/{id}/model and the new set_session_model Tauri command surface
+    // their effect on subsequent turns. Plan Mode plan_model still wins.
+    let session_pinned_model: Option<String> = if model_override.is_none() {
+        db.get_session(&sid).ok().flatten().and_then(|meta| {
+            match (meta.provider_id, meta.model_id) {
+                (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
+                    Some(format!("{}::{}", p, m))
+                }
+                _ => None,
+            }
+        })
+    } else {
+        None
+    };
+
     let (primary, fallbacks) = {
         // Plan Mode model override: use cheaper/faster model during Planning phase
         let plan_model_override = if early_plan_state == crate::plan::PlanModeState::Planning {
@@ -510,6 +527,11 @@ pub async fn chat(
             if override_model.is_some() {
                 model_cfg.primary = Some(override_str.clone());
             }
+            provider::resolve_model_chain(&model_cfg, &cfg)
+        } else if let Some(ref pinned) = session_pinned_model {
+            // Session has its own pinned model (set via set_session_model)
+            let mut model_cfg = agent_model_config.clone();
+            model_cfg.primary = Some(pinned.clone());
             provider::resolve_model_chain(&model_cfg, &cfg)
         } else {
             provider::resolve_model_chain(&agent_model_config, &cfg)
@@ -740,13 +762,7 @@ pub async fn chat(
 
             Ok(result.response)
         }
-        Err(e) => {
-            // Persist any in-memory compaction before returning error
-            if let Some(ref agent) = *state.agent.lock().await {
-                crate::chat_engine::save_agent_context(&db, &sid, agent);
-            }
-            Err(CmdError::msg(e))
-        }
+        Err(e) => Err(CmdError::msg(e)),
     }
 }
 

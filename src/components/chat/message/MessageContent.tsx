@@ -6,6 +6,11 @@ import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import ProcessedBlockGroup from "./ProcessedBlockGroup"
 import InterruptedMark from "./InterruptedMark"
+import {
+  MessageTimeline,
+  MessageTimelineItem,
+  type MessageTimelineTone,
+} from "./MessageTimeline"
 import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
@@ -13,6 +18,7 @@ import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
 import { getFailedToolCount, getToolExecutionState } from "./executionStatus"
 import type {
+  ChatDisplayMode,
   ChatTurnStatus,
   ContentBlock,
   FileChangeMetadata,
@@ -111,6 +117,7 @@ interface MessageContentProps {
   onSwitchSession?: (sessionId: string) => void
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
+  displayMode?: ChatDisplayMode
 }
 
 // Synthesize ContentBlock[] from legacy `msg.thinking` / `msg.toolCalls` /
@@ -181,6 +188,16 @@ function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
   return nodes
 }
 
+function getTimelineTone(unit: RenderUnit): MessageTimelineTone {
+  if (unit.key === "__loading__") return "running"
+  if (unit.key.startsWith("thinking-")) return "thinking"
+  const tools = unit.processTools || []
+  if (tools.some((tool) => getToolExecutionState(tool) === "running")) return "running"
+  if (tools.some((tool) => getToolExecutionState(tool) === "failed")) return "failed"
+  if (tools.length > 0) return "tool"
+  return "assistant"
+}
+
 /** Renders assistant content blocks (thinking, text, tool calls) with grouping logic */
 export function AssistantContentBlocks({
   msg,
@@ -191,6 +208,7 @@ export function AssistantContentBlocks({
   onOpenPlanPanel,
   onSwitchSession,
   onOpenDiff,
+  displayMode = "bubble",
 }: MessageContentProps) {
   const blocks =
     msg.contentBlocks && msg.contentBlocks.length > 0
@@ -207,13 +225,21 @@ export function AssistantContentBlocks({
   // the dots → first-token transition.
   if (blocks.length === 0) {
     if (loading && isLast) {
-      return (
+      const node = (
         <div className="flex items-center gap-1 h-[1.625em] my-1.5">
           <span className="block w-1.5 h-1.5 aspect-square rounded-full bg-foreground/70 animate-bounce-pulse" />
           <span className="block w-1.5 h-1.5 aspect-square rounded-full bg-foreground/70 animate-bounce-pulse [animation-delay:200ms]" />
           <span className="block w-1.5 h-1.5 aspect-square rounded-full bg-foreground/70 animate-bounce-pulse [animation-delay:400ms]" />
         </div>
       )
+      if (displayMode === "timeline") {
+        return (
+          <MessageTimeline>
+            <MessageTimelineItem tone="running">{node}</MessageTimelineItem>
+          </MessageTimeline>
+        )
+      }
+      return node
     }
     return null
   }
@@ -298,6 +324,7 @@ export function AssistantContentBlocks({
         if (i === firstTaskIdx && latestTaskTool) {
           units.push({
             key: latestTaskTool.callId,
+            processTools: [latestTaskTool],
             node: (
               <TaskBlock
                 key={latestTaskTool.callId}
@@ -491,6 +518,23 @@ export function AssistantContentBlocks({
         ),
       })
     }
+  }
+
+  if (displayMode === "timeline") {
+    const activeIndex = isStreamingMessage ? units.length - 1 : -1
+    return (
+      <MessageTimeline>
+        {units.map((unit, index) => (
+          <MessageTimelineItem
+            key={unit.key}
+            active={index === activeIndex}
+            tone={getTimelineTone(unit)}
+          >
+            {unit.node}
+          </MessageTimelineItem>
+        ))}
+      </MessageTimeline>
+    )
   }
 
   return <>{collapseProcessedUnits(units)}</>

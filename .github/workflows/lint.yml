@@ -39,6 +39,14 @@ jobs:
       - name: Updater pubkey sync check
         run: node scripts/verify-updater-pubkey.mjs
 
+      # Catch release.yml / update-*.yml path bugs at PR time instead of
+      # at tag-push time. Covers the workspace target/ vs src-tauri/target/
+      # mismatch that took down v0.2.0 release three times in a row, plus
+      # cross-workflow artifact-name consistency (e.g. update-homebrew-tap
+      # still trying to download a DMG that release.yml stopped producing).
+      - name: Release workflow path consistency
+        run: node scripts/check-release-paths.mjs
+
       # Informational only for now: the repo carries ~3.3k historical missing
       # keys across the 10 non-baseline locales (en/zh are the source of truth).
       # Once that backlog is paid down, drop `continue-on-error` to make this

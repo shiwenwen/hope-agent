@@ -484,23 +484,27 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 }
 ```
 
-**关键特性：`reasoning.encrypted_content` 回传**
+**Reasoning item 不回传（`store: false` 红线）**
 
-1. 请求中加 `include: ["reasoning.encrypted_content"]`
-2. SSE 响应中，`response.output_item.done` 事件携带完整 reasoning item（含加密内容）
-3. 通过 raw JSON 解析捕获完整 reasoning item（保留所有字段）
-4. reasoning items 存入 `conversation_history`，下一轮原样回传
-5. 与 Anthropic `thinkingSignature` 机制等价，保留思考块完整性
+Hope Agent 始终用 `store: false` 调 Responses API。在这一模式下，服务端**不持久化** reasoning item，`rs_*` id 是一次性引用——下一轮请求只要带上历史 reasoning item，无论是否携带 `encrypted_content`，服务端都会按 id 查持久化记录并 404（`Item with id 'rs_xxx' not found. Items are not persisted when store is set to false.`）。
+
+因此契约是：**reasoning item 从不进入 `conversation_history`，从不参与下一轮 replay**。
+
+1. 请求中**不再加** `include: ["reasoning.encrypted_content"]`（即便加了也不写回 history）
+2. SSE 中收到 reasoning 事件时，`response.reasoning_summary_text.delta` 流给前端做"思考可视化"，但其结构化的 reasoning item（id + encrypted_content）**就地丢弃**
+3. `parse_openai_sse` 返回签名不含 `reasoning_items`；`RoundOutcome` 也不再有该字段
+4. `normalize_history_for_responses` 把任何残留的 `type: reasoning` item 一并 `continue`（兜底，防御旧版本写下的 context_json）
+5. 每轮独立 reasoning 与 `store=false` 的 stateless 语义完全对齐——少几秒 reasoning 时间换稳定性
 
 **SSE 事件处理：**
 
 | 事件 | 处理 |
 |------|------|
-| `response.reasoning_summary_text.delta` | → `emit_thinking_delta` + 累积 |
+| `response.reasoning_summary_text.delta` | → `emit_thinking_delta` + 累积（仅 UI 可视化） |
 | `response.reasoning_summary_part.done` | → 追加 `\n\n` 段落分隔 |
 | `response.output_text.delta` | → `emit_text_delta` + 累积 |
 | `response.output_item.added` (function_call) | → 创建 pending tool call |
-| `response.output_item.done` (reasoning) | → 捕获完整 reasoning item JSON |
+| `response.output_item.done` (reasoning) | → 丢弃结构化 item（thinking 已通过 delta 路径累积） |
 | `response.output_item.done` (function_call) | → 完成 tool call |
 | `response.completed` | → 提取 usage + fallback 文本提取 |
 
@@ -508,7 +512,6 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 ```json
 [
   { "role": "user", "content": "问题" },
-  { "type": "reasoning", "id": "rs_xxx", "encrypted_content": "...", "summary": [...] },
   { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "回复" }], "status": "completed" },
   { "type": "function_call", "id": "fc_xxx", "call_id": "fc_xxx", "name": "read", "arguments": "{...}" },
   { "type": "function_call_output", "call_id": "fc_xxx", "output": "文件内容" }
@@ -685,10 +688,22 @@ flowchart TD
   PLAN{"Plan Mode?"} -->|"是"| PLANCHAIN["[plan_model, primary, fallback1, ...]"]
   PLAN -->|"否"| CHAIN
   OVERRIDE{"model_override?"} -->|"是"| OVERCHAIN["[override, fallback1, fallback2, ...]"]
-  OVERRIDE -->|"否"| CHAIN
+  OVERRIDE -->|"否"| SESSPIN{"session.provider_id<br/>+ model_id?"}
+  SESSPIN -->|"是"| PINCHAIN["[session_pin, fallback1, fallback2, ...]"]
+  SESSPIN -->|"否"| CHAIN
 
   CHAIN --> ITERATE["for model in chain:<br/>build → restore → chat → save/fallback"]
 ```
+
+**chat 入口决策优先级（高到低）**（[`src-tauri/src/commands/chat.rs`](../../src-tauri/src/commands/chat.rs) / [`crates/ha-server/src/routes/chat.rs`](../../crates/ha-server/src/routes/chat.rs) 完全对称）：
+
+1. **Plan Mode `plan_model`**（仅 Planning 阶段，临时降级到便宜模型）
+2. **本轮显式 `model_override`**（前端 `useChatStream` 把当前 `activeModel` 作为 modelOverride 透传，IM 也可经由 `body.model_override`）
+3. **`sessions.provider_id` + `sessions.model_id`**（用户对该会话 pin 的模型；由 `set_session_model` Tauri 命令 / `PATCH /api/sessions/{id}/model` HTTP / IM `/model` 命令写入。chat_engine 每轮事后亦会回写当前实际使用的模型）
+4. **`agent.model.primary`**（Agent 配置的首选）
+5. **`AppConfig.active_model`**（应用全局默认，由「设置 → 模型」面板修改）
+
+第 3 项 session pin 是 v0.2.1 引入的——之前会话内切模型走 `set_active_model` 写 `AppConfig.active_model`，等于改全应用默认；现在只写当前会话行，跨会话不再相互影响。`set_session_model` 写入后 emit `session:model_updated` 事件（payload `{ sessionId, providerId, modelId }`），桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 UI，避免 IM 远程切换误更新本地正在看的另一个会话。
 
 ### 7.3 重试策略
 

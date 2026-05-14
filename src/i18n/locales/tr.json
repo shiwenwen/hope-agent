@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "Tokeninizi yapıştırın",
+    "tokenRequiredBody": "Bu Hope Agent sunucusu Bearer Token ile korunuyor. Yöneticinizden aldığınız tokeni yapıştırarak devam edin.",
+    "tokenRequiredTitle": "Sunucu kimlik doğrulaması gerekli",
+    "tokenSave": "Kaydet ve yeniden yükle"
+  },
   "authProfiles": {
     "add": "Profile ekle",
     "baseUrlPlaceholder": "Base URL geçersiz kılma (isteğe bağlı)",
@@ -458,6 +465,8 @@
     "unknownProvider": "Unknown provider",
     "untitledSession": "Başlıksız",
     "viewContext": "Bağlamı görüntüle",
+    "viewModeBubble": "Balon görünümüne geç",
+    "viewModeTimeline": "Görev görünümüne geç",
     "viewSystemPrompt": "System Prompt'u görüntüle",
     "weeksAgo": "{{count}} hafta önce",
     "workingDir": {
@@ -2478,6 +2487,10 @@
     "chatAutoExpandThinkingDesc": "Sohbet baloncuklarındaki düşünme bloklarını otomatik olarak genişlet. Kapalı olduğunda, manuel genişletmek için tıklayın.",
     "chatAutoSend": "Sıradaki mesajları otomatik gönder",
     "chatAutoSendDesc": "Yanıt tamamlandıktan sonra sıradaki mesajları otomatik gönderir. Kapalıysa giriş alanına geri doldurur",
+    "chatDisplayMode": "Varsayılan mesaj görünümü",
+    "chatDisplayModeBubble": "Balon",
+    "chatDisplayModeDesc": "Yeni konuşmalar ve geçersiz kılma olmayan oturumlar için varsayılan düzeni seçin. Başlık çubuğu geçişi yalnızca geçerli oturumu etkiler.",
+    "chatDisplayModeTimeline": "Görev",
     "configBackupsDesc": "Her ayar değişikliği otomatik olarak anlık görüntülenir. Son 50 tutulan sürümlerden herhangi birine geri dönebilirsiniz.",
     "configBackupsEmpty": "Henüz geçmiş yok",
     "configBackupsLoading": "Yükleniyor…",

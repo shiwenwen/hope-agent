@@ -6,7 +6,15 @@ import {
   useMemo,
   type AnchorHTMLAttributes,
 } from "react"
-import { Streamdown, type AnimateOptions, type PluginConfig } from "streamdown"
+import {
+  Streamdown,
+  createAnimatePlugin,
+  defaultRehypePlugins,
+  type AnimateOptions,
+  type PluginConfig,
+} from "streamdown"
+
+type AnimatePlugin = ReturnType<typeof createAnimatePlugin>
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
 import {
@@ -341,9 +349,32 @@ interface MarkdownRendererProps {
 
 export default function MarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
   const plugins = useHeavyPlugins(content)
-  const [displayLen, setDisplayLen] = useState(() => (isStreaming ? 0 : content.length))
 
-  const cursorRef = useRef(isStreaming ? 0 : content.length)
+  // 外部接管 Streamdown 的 animate plugin 生命周期。Streamdown 自带的
+  // `animated={AnimateOptions}` 简便用法把 plugin 实例藏在内部 useMemo，且
+  // Block 组件每帧 render 会调 `setPrevContentLength(getLastRenderCharCount())`
+  // —— 首次 render 时 lastRenderCharCount 还是 0，prevContentLength 被回写 0，
+  // 整段已渲染内容会被当成新内容跑 blurIn。组件 unmount + remount（切会话回到
+  // 流式输出中的会话 / 虚拟滚动剔出再返回视口）会重新走这条 0-baseline 路径，
+  // 视觉上整段重放动画一次。
+  //
+  // 外部托管时：(a) 在首次 render 之前调一次 `setPrevContentLength(content.length)`，
+  // 让 mount 那刻已经存在的内容全部标记 duration=0；(b) 通过 `rehypePlugins`
+  // prop 把 plugin 注入 Streamdown（用 `animated={false}` 关掉内部建实例的路径，
+  // 也就同时关掉 Block 内部那条覆盖 prevContentLength 的逻辑）；(c) 每帧 commit
+  // 后用 effect 把上一帧 rehype 跑出的 `lastRenderCharCount` 续写为下一帧的
+  // baseline（plugin rehype 跑完会自动清 prevContentLength=0，必须每帧重新设）。
+  // useState lazy initializer 一次性创建 plugin 并 set mount baseline；reference
+  // 跨 render 稳定，且不通过 .current 访问，避开 react-hooks/refs 规则。
+  const [animatePlugin] = useState<AnimatePlugin>(() => {
+    const plugin = createAnimatePlugin(streamingAnimation)
+    plugin.setPrevContentLength(content.length)
+    return plugin
+  })
+
+  const [displayLen, setDisplayLen] = useState(() => content.length)
+
+  const cursorRef = useRef(content.length)
   const targetRef = useRef(content.length)
   const streamingRef = useRef(isStreaming)
   const rafRef = useRef<number | null>(null)
@@ -356,6 +387,14 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
   targetRef.current = content.length
   // eslint-disable-next-line react-hooks/refs
   streamingRef.current = isStreaming
+
+  // 每帧 commit 后把上一帧 rehype 跑出的字符数续写为下一帧的 baseline。
+  // animate plugin 的 rehype 跑完会自动把 prevContentLength 清 0，因此必须
+  // 每帧重新设。没有 deps：commit phase 都跑。
+  useEffect(() => {
+    const count = animatePlugin.getLastRenderCharCount()
+    if (count > 0) animatePlugin.setPrevContentLength(count)
+  })
 
   // Non-streaming (history): show full content immediately
   useEffect(() => {
@@ -434,14 +473,22 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
   const displayContent = revealing ? content.slice(0, displayLen) : content
   const isActive = isStreaming || revealing
 
+  // 流式期间把外部 animate plugin 注入 rehype 链尾；静态历史消息直接复用
+  // streamdown 默认 rehype（raw/sanitize/harden 安全基线）。`animated={false}`
+  // 关掉 streamdown 内部建实例的路径，避免与外部 plugin 重复跑。
+  const rehypePlugins = isActive
+    ? [...Object.values(defaultRehypePlugins), animatePlugin.rehypePlugin]
+    : Object.values(defaultRehypePlugins)
+
   return (
     <div ref={containerRef} className={isActive ? "streaming-height markdown-content" : "markdown-content"}>
       <div ref={contentRef}>
         <Streamdown
-          animated={isActive ? streamingAnimation : true}
+          animated={false}
           plugins={plugins}
           isAnimating={isActive}
           parseIncompleteMarkdown={isActive}
+          rehypePlugins={rehypePlugins}
           linkSafety={linkSafetyDisabled}
           components={markdownComponents}
         >

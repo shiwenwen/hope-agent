@@ -25,7 +25,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::updater::{self, RecommendedPath};
+use crate::updater::{self, source_detector::InstallSource, RecommendedPath};
 
 use super::ToolExecContext;
 
@@ -353,32 +353,57 @@ async fn prompt_manual_install(
     to_version: &str,
 ) -> Result<String> {
     // No automated path applies — surface the gap to the user via a
-    // structured prompt so they can pick a recovery option (point us at a
-    // package manager, download manually, abort). The model never tries
-    // to recover this itself — wrong move could break the install.
-    let ask_args = json!({
-        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
-        "questions": [{
-            "question_id": "manual_install_route",
-            "text": format!(
-                "No automated upgrade path is available for Hope Agent {} → {}. Install source detected as: {}. Pick a recovery:",
-                snapshot.current_version, to_version, snapshot.install_source.label()
-            ),
-            "header": "Manual upgrade required",
-            "options": [
-                {"value": "open_releases", "label": "Open release page in browser (manual download)", "recommended": true},
-                {"value": "force_self_contained", "label": "Try the self-contained bare-binary swap anyway"},
-                {"value": "abort", "label": "Abort upgrade"}
-            ],
-            "multi_select": false,
-            "default_values": ["open_releases"]
-        }]
-    });
+    // structured prompt so they can pick a recovery option. The model never
+    // tries to recover this itself — wrong move could break the install.
+    //
+    // Docker has its own branch because the "force self-contained bare
+    // binary swap" option from the generic Manual flow would replace the
+    // binary inside the running container, only to be wiped by the next
+    // `docker pull` — confusing and pointless. The Docker branch tells the
+    // user how to upgrade the image instead.
+    let ask_args = if matches!(snapshot.install_source, InstallSource::Docker) {
+        json!({
+            "context": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+            "questions": [{
+                "question_id": "docker_manual_install",
+                "text": format!(
+                    "Hope Agent is running in a Docker container ({} → {}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+                    snapshot.current_version, to_version, to_version
+                ),
+                "header": "Docker upgrade required",
+                "options": [
+                    {"value": "open_releases", "label": "Open release page in browser", "recommended": true},
+                    {"value": "abort", "label": "Abort upgrade"}
+                ],
+                "multi_select": false,
+                "default_values": ["open_releases"]
+            }]
+        })
+    } else {
+        json!({
+            "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+            "questions": [{
+                "question_id": "manual_install_route",
+                "text": format!(
+                    "No automated upgrade path is available for Hope Agent {} → {}. Install source detected as: {}. Pick a recovery:",
+                    snapshot.current_version, to_version, snapshot.install_source.label()
+                ),
+                "header": "Manual upgrade required",
+                "options": [
+                    {"value": "open_releases", "label": "Open release page in browser (manual download)", "recommended": true},
+                    {"value": "force_self_contained", "label": "Try the self-contained bare-binary swap anyway"},
+                    {"value": "abort", "label": "Abort upgrade"}
+                ],
+                "multi_select": false,
+                "default_values": ["open_releases"]
+            }]
+        })
+    };
     let raw = super::ask_user_question::execute(&ask_args, Some(session_id)).await;
     Ok(json!({
         "status": "manual_prompt_emitted",
         "user_response": raw,
-        "next_step_hint": "If user picked `force_self_contained`, re-invoke with `prefer_path: \"self_contained\"`. If they picked `open_releases`, do nothing — the user will install manually."
+        "next_step_hint": "If user picked `force_self_contained`, re-invoke with `prefer_path: \"self_contained\"`. If they picked `open_releases`, do nothing — the user will install manually. The `docker_manual_install` variant has only `open_releases` / `abort` because binary swap inside a container is wiped by the next image pull."
     })
     .to_string())
 }

@@ -7,6 +7,10 @@ const packageJsonPath = path.join(rootDir, "package.json")
 const cargoTomlPath = path.join(rootDir, "src-tauri", "Cargo.toml")
 const tauriConfigPath = path.join(rootDir, "src-tauri", "tauri.conf.json")
 const cargoLockPath = path.join(rootDir, "Cargo.lock")
+// ha-server ships the Docker image's hope-agent binary; its
+// CARGO_PKG_VERSION must move with the desktop version (see
+// scripts/sync-version.mjs).
+const haServerCargoTomlPath = path.join(rootDir, "crates", "ha-server", "Cargo.toml")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -28,11 +32,23 @@ if (!cargoVersionMatch) {
   process.exit(1)
 }
 
+const haServerCargoToml = readFileSync(haServerCargoTomlPath, "utf8")
+const haServerVersionMatch = haServerCargoToml.match(/^version = "(.*)"$/m)
+if (!haServerVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-server/Cargo.toml version")
+  process.exit(1)
+}
+
 const cargoLock = readFileSync(cargoLockPath, "utf8")
 const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
+const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion = "(.*)"/)
 
 if (!cargoLockHopeAgentMatch) {
   console.error("[release:verify] could not find hope-agent version in Cargo.lock")
+  process.exit(1)
+}
+if (!cargoLockHaServerMatch) {
+  console.error("[release:verify] could not find ha-server version in Cargo.lock")
   process.exit(1)
 }
 
@@ -40,12 +56,16 @@ const packageVersion = packageJson.version
 const tauriVersion = tauriConfig.version
 const cargoVersion = cargoVersionMatch[1]
 const cargoLockVersion = cargoLockHopeAgentMatch[1]
+const haServerVersion = haServerVersionMatch[1]
+const haServerLockVersion = cargoLockHaServerMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
   ["src-tauri/tauri.conf.json", tauriVersion],
   ["src-tauri/Cargo.toml", cargoVersion],
   ["Cargo.lock (hope-agent)", cargoLockVersion],
+  ["crates/ha-server/Cargo.toml", haServerVersion],
+  ["Cargo.lock (ha-server)", haServerLockVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {
@@ -54,6 +74,8 @@ if (mismatches.length > 0) {
   console.error(`  src-tauri/tauri.conf.json: ${tauriVersion}`)
   console.error(`  src-tauri/Cargo.toml: ${cargoVersion}`)
   console.error(`  Cargo.lock (hope-agent): ${cargoLockVersion}`)
+  console.error(`  crates/ha-server/Cargo.toml: ${haServerVersion}`)
+  console.error(`  Cargo.lock (ha-server): ${haServerLockVersion}`)
   process.exit(1)
 }
 

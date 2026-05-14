@@ -563,7 +563,26 @@ async fn handle_inbound_message(
         .map(|d| d.config.model.clone())
         .unwrap_or_default();
 
-    let (primary, fallbacks) = crate::provider::resolve_model_chain(&agent_model_config, &store);
+    // Session-scoped model pin — IM `/model` writes sessions.provider_id/model_id;
+    // we have to read it back here so the next inbound message actually uses the
+    // pinned model. Mirrors the same `session_pinned_model` injection in
+    // src-tauri/src/commands/chat.rs and crates/ha-server/src/routes/chat.rs.
+    let session_pinned_model: Option<String> = session_db
+        .get_session(&session_id)
+        .ok()
+        .flatten()
+        .and_then(|meta| match (meta.provider_id, meta.model_id) {
+            (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => Some(format!("{}::{}", p, m)),
+            _ => None,
+        });
+
+    let (primary, fallbacks) = if let Some(ref pinned) = session_pinned_model {
+        let mut cfg = agent_model_config.clone();
+        cfg.primary = Some(pinned.clone());
+        crate::provider::resolve_model_chain(&cfg, &store)
+    } else {
+        crate::provider::resolve_model_chain(&agent_model_config, &store)
+    };
     let mut model_chain = Vec::new();
     if let Some(p) = primary {
         model_chain.push(p);

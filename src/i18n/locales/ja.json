@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer トークン",
+    "tokenPlaceholder": "トークンを貼り付け",
+    "tokenRequiredBody": "この Hope Agent サーバーは Bearer トークンで保護されています。管理者から提供されたトークンを貼り付けて続行してください。",
+    "tokenRequiredTitle": "サーバー認証が必要です",
+    "tokenSave": "保存して再読み込み"
+  },
   "authProfiles": {
     "add": "Profile を追加",
     "baseUrlPlaceholder": "Base URL 上書き（任意）",
@@ -458,6 +465,8 @@
     "unknownProvider": "Unknown provider",
     "untitledSession": "無題",
     "viewContext": "コンテキストを表示",
+    "viewModeBubble": "吹き出し表示に切り替え",
+    "viewModeTimeline": "タスク表示に切り替え",
     "viewSystemPrompt": "システムプロンプトを表示",
     "weeksAgo": "{{count}}週間前",
     "workingDir": {
@@ -2478,6 +2487,10 @@
     "chatAutoExpandThinkingDesc": "チャットバブル内の思考ブロックを自動展開。オフの場合はクリックで手動展開。",
     "chatAutoSend": "キューメッセージの自動送信",
     "chatAutoSendDesc": "返信完了後にキューのメッセージを自動送信します。オフの場合は入力欄に戻します",
+    "chatDisplayMode": "既定のメッセージ表示",
+    "chatDisplayModeBubble": "吹き出し",
+    "chatDisplayModeDesc": "新しい会話と個別指定のないセッションの既定レイアウトを選びます。タイトルバーの切り替えは現在のセッションだけに適用されます。",
+    "chatDisplayModeTimeline": "タスク",
     "configBackupsDesc": "設定変更のたびに自動でスナップショットを保存し、過去のバージョンへワンクリックで戻せます（直近 50 件）。",
     "configBackupsEmpty": "履歴はまだありません",
     "configBackupsLoading": "読み込み中…",

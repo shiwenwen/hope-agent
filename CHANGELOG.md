@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **设置 → 浏览器 UX 重写**：顶部新增「独立浏览器 / 接管用户态 Chrome」Mode Radio；Connect 段内嵌 doctor banner——探到 9222 显示绿色「Found Chrome at … [Attach]」，未探到显示黄色「No Chrome detected」+「Launch user Chrome」一键按钮（弹模态二次确认后在 `~/.hope-agent/browser/user-attach/` 启动独立 user-data-dir 的 Chrome，不动用户日常浏览数据，自动 polling 端口就绪后连上）。底部新增 Backend Radio（`auto` / `cdp` / `mcp`），切换立即 toast「下次 launch/connect 生效」+「立即重连」action；切偏好同步 `reset_backend()` 让 ACTIVE_BACKEND 失效。Profile CRUD / executablePath / 手动 connect URL 等老入口保留扁平铺开。12 语言齐全。
 - **浏览器 act.upload 路径安全闸门**：上传文件前 `canonicalize` 路径并按 `permission::protected_paths` 检查（默认覆盖 `~/.ssh/`、`~/.aws/`、`*.pem`、`*.key`、`*secret*` 等），拒绝 prompt injection 把本机敏感文件塞进网页 file input 的攻击面；CDP / MCP 两条 backend 都走同一守门。
 - **浏览器 control.evaluate 走 ask_user_question 审批**：任意 JS 执行是浏览器工具最危险的出站口，每次调用前都弹模态确认（脚本预览 280 字），用户取消 = 工具失败；YOLO / `permission.global_yolo` 模式按用户已知风险跳过；非交互上下文（缺 session_id）默认 deny。SSRF 字面量 regex 仍保留为 best-effort 第一道闸门。
+- **官方 Docker 镜像 + docker-compose 部署**：新增多架构容器镜像 `ghcr.io/shiwenwen/hope-agent`（覆盖 `linux/amd64` / `linux/arm64`），随每次 Release Tag 自动构建发布；浏览器访问容器暴露端口即得完整 Web GUI 与桌面端等价。默认 loopback + 浏览器 token 输入对话框 + `?token=` URL 一次性 bootstrap；`app_update` 工具在容器内检测后引导 `docker pull` 升级而非 binary swap。 (#171)
+
+### Fixed
+
+- **切回流式输出中的会话不再从头重放打字机动画**：MarkdownRenderer 在 mount 时把当前 content 长度记为基线，已经看过的内容直接整段显示，仅对 mount 之后新到达的 delta 继续走 typewriter + blurIn 动画。修复切到别的会话再切回时整段内容"咵地从头一字一字 / 模糊变清晰重放一遍"的视觉问题。
+- **会话内切换模型不再污染全局默认 & 不再闪回**：聊天界面 ModelPicker、桌面斜杠 `/model` 卡片、IM `/model` 命令现在都只把模型固定到**当前会话**（写入 `sessions.provider_id/model_id`），不再改 `config.active_model`。下次发消息时 chat_engine 解析顺序变为 **session > agent.primary > config.active_model**。同一会话切模型 UI 由 `manualModelOverrideRef` 兜底，不会再因 `config:changed` 广播被回退成旧值。全局默认模型现在仅由「设置 → 模型」面板修改。
 
 ## [0.2.0] - 2026-05-13
 

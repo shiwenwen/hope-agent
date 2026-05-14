@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer Token",
+    "tokenPlaceholder": "Dán token của bạn",
+    "tokenRequiredBody": "Máy chủ Hope Agent này được bảo vệ bằng Bearer Token. Dán Token mà quản trị viên đã cấp để tiếp tục.",
+    "tokenRequiredTitle": "Cần xác thực máy chủ",
+    "tokenSave": "Lưu và tải lại"
+  },
   "authProfiles": {
     "add": "Thêm Profile",
     "baseUrlPlaceholder": "Ghi đè Base URL (tùy chọn)",
@@ -458,6 +465,8 @@
     "unknownProvider": "Unknown provider",
     "untitledSession": "Không có tiêu đề",
     "viewContext": "Xem ngữ cảnh",
+    "viewModeBubble": "Chuyển sang dạng bong bóng",
+    "viewModeTimeline": "Chuyển sang dạng nhiệm vụ",
     "viewSystemPrompt": "Xem System Prompt",
     "weeksAgo": "{{count}} tuần trước",
     "workingDir": {
@@ -2478,6 +2487,10 @@
     "chatAutoExpandThinkingDesc": "Tự động mở rộng các khối suy nghĩ trong bóng chat. Khi tắt, nhấn để mở rộng thủ công.",
     "chatAutoSend": "Tự động gửi tin nhắn xếp hàng",
     "chatAutoSendDesc": "Tự động gửi tin nhắn xếp hàng sau khi trả lời xong. Tắt thì đưa lại vào ô nhập",
+    "chatDisplayMode": "Chế độ xem tin nhắn mặc định",
+    "chatDisplayModeBubble": "Bong bóng",
+    "chatDisplayModeDesc": "Chọn bố cục mặc định cho cuộc trò chuyện mới và phiên chưa ghi đè. Nút trên thanh tiêu đề chỉ ảnh hưởng phiên hiện tại.",
+    "chatDisplayModeTimeline": "Tác vụ",
     "configBackupsDesc": "Mọi thay đổi cấu hình được chụp snapshot tự động. Có thể khôi phục về bất kỳ phiên bản trước (giữ 50 mục gần nhất).",
     "configBackupsEmpty": "Chưa có lịch sử",
     "configBackupsLoading": "Đang tải…",

@@ -205,6 +205,22 @@ sudo zypper install hope-agent
 2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装；或者直接在对话里说「升级」或「检查更新」
 3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
 
+### 自托管（Docker）
+
+把 Hope Agent 跑在家用 NAS / VPS / homelab 上、用浏览器访问 Web GUI 的场景：
+
+```bash
+docker run -d \
+  --name hope-agent \
+  -p 127.0.0.1:8420:8420 \
+  -v hope-data:/data \
+  ghcr.io/shiwenwen/hope-agent:latest
+```
+
+容器跑起来后浏览器打开 <http://127.0.0.1:8420>，按 Onboarding 向导配 Provider API Key。镜像覆盖 `linux/amd64` + `linux/arm64`（含 Apple Silicon / 树莓派），随每次 Release Tag 自动构建。
+
+要用 docker compose / 配合 Ollama 本地 LLM / 暴露到 LAN / 反向代理与 TLS / 升级流程，见 [`docs/deployment/docker.md`](docs/deployment/docker.md)。
+
 ### 开发者
 
 ```bash

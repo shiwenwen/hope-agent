@@ -56,11 +56,19 @@ pub fn display_host_urls(bind_addr: &str) -> Vec<String> {
 /// Print the "Hope Agent is running" banner. `api_key` is substituted into
 /// a `?token=` query param so the copyable URL logs the user in
 /// automatically when clicked; passing `None` hides the key row.
+///
+/// In headless deployments (`HA_DEPLOYMENT` env var set, or stderr not a
+/// TTY — systemd, launchd, Docker, CI) the API key is masked and the
+/// `?token=` URL suffix is dropped: stderr in those contexts flows into
+/// `docker logs` / journalctl / log collectors and an unmasked Bearer
+/// token there is effectively a credential leak.
 pub fn print_launch_banner(bind_addr: &str, api_key: Option<&str>) {
     let bases = display_host_urls(bind_addr);
-    let token_suffix = api_key
-        .map(|k| format!("/?token={}", k))
-        .unwrap_or_else(|| "/".to_string());
+    let mask = should_mask_secrets();
+    let token_suffix = match (api_key, mask) {
+        (Some(k), false) => format!("/?token={}", k),
+        _ => "/".to_string(),
+    };
 
     eprintln!();
     eprintln!("╔═══════════════════════════════════════════════════════════════╗");
@@ -74,13 +82,50 @@ pub fn print_launch_banner(bind_addr: &str, api_key: Option<&str>) {
         }
     }
     if let Some(key) = api_key {
-        eprintln!("║  🔑 API Key : {}", key);
+        if mask {
+            eprintln!(
+                "║  🔑 API Key : {} (set; hidden — read it from your env / secrets store)",
+                mask_secret(key)
+            );
+        } else {
+            eprintln!("║  🔑 API Key : {}", key);
+        }
     }
     eprintln!("║                                                               ║");
     eprintln!("║  💡 Open the Web GUI link in any browser for the full         ║");
     eprintln!("║     experience. Press Ctrl+C to stop the service.             ║");
     eprintln!("╚═══════════════════════════════════════════════════════════════╝");
     eprintln!();
+}
+
+/// Containers / systemd / launchd / Windows services route stderr to a
+/// log collector, so unmasked Bearer tokens in the banner become a
+/// credential leak. Honor `HA_DEPLOYMENT=docker` (or anything non-empty
+/// — the variable is set by the Docker image's `ENV` and by service
+/// installers) and also fall back to a TTY probe so locally-launched
+/// `hope-agent server start` under a redirected shell mask too.
+fn should_mask_secrets() -> bool {
+    if std::env::var("HA_DEPLOYMENT")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    use std::io::IsTerminal;
+    !std::io::stderr().is_terminal()
+}
+
+/// Render a secret as `xxxx…yyyy` so log scrapers can tell the API key
+/// is configured without learning its value. Short strings collapse to
+/// pure asterisks to avoid leaking high-entropy prefixes.
+fn mask_secret(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= 8 {
+        return "*".repeat(chars.len());
+    }
+    let prefix: String = chars.iter().take(4).collect();
+    let suffix: String = chars.iter().skip(chars.len() - 4).collect();
+    format!("{}…{}", prefix, suffix)
 }
 
 /// Printed when `server start` runs without a completed onboarding on a
@@ -97,4 +142,20 @@ pub fn print_unconfigured_notice(bind_addr: &str) {
     eprintln!("   Non-interactive stdin detected — starting with defaults.");
     eprintln!("   Finish configuration in the Web GUI: {}/", base);
     eprintln!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_secret_keeps_endpoints_for_long_inputs() {
+        assert_eq!(mask_secret("abcdefghijklmnop"), "abcd…mnop");
+    }
+
+    #[test]
+    fn mask_secret_redacts_short_inputs_completely() {
+        assert_eq!(mask_secret("short"), "*****");
+        assert_eq!(mask_secret("12345678"), "********");
+    }
 }

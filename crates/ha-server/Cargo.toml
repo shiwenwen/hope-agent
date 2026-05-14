@@ -1,12 +1,28 @@
 [package]
 name = "ha-server"
-version = "0.1.0"
+version = "0.2.0"
 description = "Hope Agent HTTP/WebSocket server"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 edition.workspace = true
 build = "build.rs"
+
+# Headless `hope-agent-server` binary. Ships in the official Docker
+# image so the container never has to pull Tauri / WebKit / GTK at build
+# or runtime. The desktop binary (`hope-agent`, from src-tauri) stays
+# the canonical entry for GUI / ACP / auth subcommands; this bin is
+# intentionally scoped to `server start` only.
+#
+# Named `hope-agent-server` rather than `hope-agent` to avoid the
+# workspace bin-name collision: both packages writing to
+# `target/release/hope-agent` would let `cargo build --workspace`
+# overwrite one with the other depending on build order. The Docker
+# image renames it back to `/usr/local/bin/hope-agent` on COPY so
+# users still type `hope-agent server start` inside the container.
+[[bin]]
+name = "hope-agent-server"
+path = "src/bin/hope-agent.rs"
 
 [build-dependencies]
 # build.rs only touches std::fs — no deps needed.

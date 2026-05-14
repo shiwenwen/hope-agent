@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Bearer token",
+    "tokenPlaceholder": "Paste your token",
+    "tokenRequiredBody": "This Hope Agent server is gated by a Bearer token. Paste the token your administrator provided to continue.",
+    "tokenRequiredTitle": "Server authentication required",
+    "tokenSave": "Save and reload"
+  },
   "authProfiles": {
     "add": "Add Profile",
     "baseUrlPlaceholder": "Base URL override (optional)",
@@ -458,6 +465,8 @@
     "unknownProvider": "Unknown provider",
     "untitledSession": "Untitled",
     "viewContext": "View context",
+    "viewModeBubble": "Switch to bubble view",
+    "viewModeTimeline": "Switch to task view",
     "viewSystemPrompt": "View System Prompt",
     "weeksAgo": "{{count}}w ago",
     "workingDir": {
@@ -2478,6 +2487,10 @@
     "chatAutoExpandThinkingDesc": "Automatically expand thinking blocks in chat bubbles. When off, click to expand manually.",
     "chatAutoSend": "Auto-send queued messages",
     "chatAutoSendDesc": "Automatically send queued messages after reply finishes. When off, message is filled back to input.",
+    "chatDisplayMode": "Default message view",
+    "chatDisplayModeBubble": "Bubble",
+    "chatDisplayModeDesc": "Choose the default layout for new conversations and sessions without an override. The title bar toggle only affects the current session.",
+    "chatDisplayModeTimeline": "Task",
     "configBackupsDesc": "Every settings change is snapshotted automatically. Roll back to any previous version (last 50 kept).",
     "configBackupsEmpty": "No history yet",
     "configBackupsLoading": "Loading…",

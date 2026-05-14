@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Токен Bearer",
+    "tokenPlaceholder": "Вставьте ваш токен",
+    "tokenRequiredBody": "Этот сервер Hope Agent защищён токеном Bearer. Вставьте токен, выданный администратором, чтобы продолжить.",
+    "tokenRequiredTitle": "Требуется аутентификация сервера",
+    "tokenSave": "Сохранить и перезагрузить"
+  },
   "authProfiles": {
     "add": "Добавить Profile",
     "baseUrlPlaceholder": "Переопределение Base URL (необязательно)",
@@ -458,6 +465,8 @@
     "unknownProvider": "Unknown provider",
     "untitledSession": "Без названия",
     "viewContext": "Просмотреть контекст",
+    "viewModeBubble": "Переключиться на вид пузырей",
+    "viewModeTimeline": "Переключиться на вид задач",
     "viewSystemPrompt": "Просмотреть System Prompt",
     "weeksAgo": "{{count}} нед назад",
     "workingDir": {
@@ -2478,6 +2487,10 @@
     "chatAutoExpandThinkingDesc": "Автоматически разворачивать блоки размышлений в чате. Если выключено, нажмите для ручного разворачивания.",
     "chatAutoSend": "Автоотправка сообщений из очереди",
     "chatAutoSendDesc": "Автоматически отправлять сообщения из очереди после ответа. При выключении — возвращает в поле ввода",
+    "chatDisplayMode": "Вид сообщений по умолчанию",
+    "chatDisplayModeBubble": "Пузыри",
+    "chatDisplayModeDesc": "Выберите макет по умолчанию для новых диалогов и сессий без переопределения. Переключатель в заголовке влияет только на текущую сессию.",
+    "chatDisplayModeTimeline": "Задачи",
     "configBackupsDesc": "Каждое изменение настроек автоматически снимается в снимок. Можно откатиться к любой предыдущей версии (хранится 50 последних).",
     "configBackupsEmpty": "Истории пока нет",
     "configBackupsLoading": "Загрузка…",

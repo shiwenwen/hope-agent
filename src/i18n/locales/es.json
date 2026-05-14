@@ -76,6 +76,13 @@
     "title": "Command Approval Required",
     "workingDir": "Working Directory"
   },
+  "auth": {
+    "tokenLabel": "Token Bearer",
+    "tokenPlaceholder": "Pega tu token",
+    "tokenRequiredBody": "Este servidor Hope Agent está protegido con un token Bearer. Pega el token que te dio el administrador para continuar.",
+    "tokenRequiredTitle": "Se requiere autenticación del servidor",
+    "tokenSave": "Guardar y recargar"
+  },
   "authProfiles": {
     "add": "Añadir perfil",
     "baseUrlPlaceholder": "Sobreescribir Base URL (opcional)",
@@ -458,6 +465,8 @@
     "unknownProvider": "Unknown provider",
     "untitledSession": "Sin título",
     "viewContext": "Ver contexto",
+    "viewModeBubble": "Cambiar a vista de burbujas",
+    "viewModeTimeline": "Cambiar a vista de tareas",
     "viewSystemPrompt": "Ver System Prompt",
     "weeksAgo": "hace {{count}}sem",
     "workingDir": {
@@ -2478,6 +2487,10 @@
     "chatAutoExpandThinkingDesc": "Expandir automáticamente los bloques de pensamiento en las burbujas de chat. Cuando está desactivado, haz clic para expandir manualmente.",
     "chatAutoSend": "Envío automático de mensajes en cola",
     "chatAutoSendDesc": "Enviar automáticamente mensajes en cola tras la respuesta. Si está desactivado, se devuelve al campo de entrada",
+    "chatDisplayMode": "Vista de mensajes predeterminada",
+    "chatDisplayModeBubble": "Burbujas",
+    "chatDisplayModeDesc": "Elige el diseño predeterminado para conversaciones nuevas y sesiones sin anulación. El interruptor de la barra de título solo afecta la sesión actual.",
+    "chatDisplayModeTimeline": "Tareas",
     "configBackupsDesc": "Cada cambio de configuración se captura automáticamente en un snapshot. Puedes revertir a cualquier versión previa (se conservan las últimas 50).",
     "configBackupsEmpty": "Aún no hay historial",
     "configBackupsLoading": "Cargando…",

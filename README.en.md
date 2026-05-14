@@ -205,6 +205,22 @@ Both amd64 (x86_64) and arm64 (aarch64) native builds are published, covering de
 2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates, or just tell the model "upgrade" / "check for updates" in chat.
 3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
 
+### Self-hosting (Docker)
+
+For running Hope Agent on a home NAS / VPS / homelab and accessing the Web GUI from a browser:
+
+```bash
+docker run -d \
+  --name hope-agent \
+  -p 127.0.0.1:8420:8420 \
+  -v hope-data:/data \
+  ghcr.io/shiwenwen/hope-agent:latest
+```
+
+Once the container is running, open <http://127.0.0.1:8420> in a browser and follow the onboarding wizard to configure provider API keys. The image covers `linux/amd64` + `linux/arm64` (including Apple Silicon and Raspberry Pi) and is auto-built on every release tag.
+
+For docker-compose, the optional Ollama sidecar for local LLMs, LAN exposure, reverse proxy + TLS, and upgrade flow, see [`docs/deployment/docker.en.md`](docs/deployment/docker.en.md).
+
 ### For developers
 
 ```bash

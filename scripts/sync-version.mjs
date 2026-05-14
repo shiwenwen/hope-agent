@@ -5,8 +5,13 @@ import process from "node:process"
 
 const rootDir = process.cwd()
 const packageJsonPath = path.join(rootDir, "package.json")
-const cargoTomlPath = path.join(rootDir, "src-tauri", "Cargo.toml")
+const tauriCargoTomlPath = path.join(rootDir, "src-tauri", "Cargo.toml")
 const tauriConfigPath = path.join(rootDir, "src-tauri", "tauri.conf.json")
+// ha-server ships its own `hope-agent` binary in the Docker image — that
+// binary reads `env!("CARGO_PKG_VERSION")` from this crate's manifest, so
+// the version must move in lockstep with the desktop binary or
+// `--version` / `app_update` will report the wrong number in containers.
+const haServerCargoTomlPath = path.join(rootDir, "crates", "ha-server", "Cargo.toml")
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"))
 const version = packageJson.version
@@ -20,26 +25,31 @@ const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, "utf8"))
 tauriConfig.version = version
 writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`)
 
-const cargoToml = readFileSync(cargoTomlPath, "utf8")
-const nextCargoToml = cargoToml.replace(/^version = ".*"$/m, `version = "${version}"`)
-
-if (nextCargoToml === cargoToml) {
-  console.error("[sync-version] failed to update src-tauri/Cargo.toml version")
-  process.exit(1)
+function bumpCargoTomlVersion(filePath, label) {
+  const current = readFileSync(filePath, "utf8")
+  const next = current.replace(/^version = ".*"$/m, `version = "${version}"`)
+  if (next === current) {
+    console.error(`[sync-version] failed to update ${label} version`)
+    process.exit(1)
+  }
+  writeFileSync(filePath, next)
 }
 
-writeFileSync(cargoTomlPath, nextCargoToml)
+bumpCargoTomlVersion(tauriCargoTomlPath, "src-tauri/Cargo.toml")
+bumpCargoTomlVersion(haServerCargoTomlPath, "crates/ha-server/Cargo.toml")
 
-// hope-agent 是 workspace package，cargo update 只 bump Cargo.lock 里的 workspace 版本，
-// --offline 避免查 registry。漏掉这步会让 CI 的 `cargo clippy --locked` 卡住。
+// hope-agent / ha-server are workspace packages; cargo update only bumps
+// the Cargo.lock entries to match the new manifest version. `--offline`
+// keeps the script working with no network. Skipping any of these would
+// make CI's `cargo clippy --locked` reject the version-bump commit.
 try {
-  execSync("cargo update -p hope-agent --offline --quiet", {
+  execSync("cargo update -p hope-agent -p ha-server --offline --quiet", {
     cwd: rootDir,
     stdio: "inherit",
   })
 } catch {
   console.error(
-    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent` manually",
+    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent -p ha-server` manually",
   )
   process.exit(1)
 }
@@ -51,7 +61,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json Cargo.lock",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml Cargo.lock",
       {
         cwd: rootDir,
         stdio: "ignore",
@@ -63,4 +73,6 @@ if (process.env.npm_lifecycle_event === "version") {
 }
 
 console.log(`[sync-version] synced desktop version to ${version}`)
-console.log("[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, Cargo.lock")
+console.log(
+  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, Cargo.lock",
+)

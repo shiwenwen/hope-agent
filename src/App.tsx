@@ -23,6 +23,8 @@ import { toast } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { AuthRequiredDialog } from "@/components/AuthRequiredDialog"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import type { SettingsSection } from "@/components/settings/types"
@@ -353,12 +355,20 @@ export default function App() {
     setView("chat")
   }
 
+  // `AuthRequiredDialog` is mounted in every view branch — the first
+  // protected API call from the boot effect commonly 401s while the
+  // splash / onboarding / setup screens are visible, so the listener
+  // has to be live before then. (The sticky flag in api-key-storage
+  // backs this up if React commits the dialog after the 401 fires.)
   if (view === "loading") {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <StarrySky />
-        <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-      </div>
+      <TooltipProvider>
+        <div className="flex items-center justify-center h-screen">
+          <StarrySky />
+          <AuthRequiredDialog />
+          <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+        </div>
+      </TooltipProvider>
     )
   }
 
@@ -369,6 +379,7 @@ export default function App() {
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
+          <AuthRequiredDialog />
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             <OnboardingWizard
               onComplete={() => setView("chat")}
@@ -389,6 +400,7 @@ export default function App() {
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
+          <AuthRequiredDialog />
           <div className="flex-1 min-h-0 overflow-hidden">
             <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
           </div>
@@ -406,6 +418,7 @@ export default function App() {
             <Toaster />
             <DangerousModeBanner />
             <MissingModelDialog />
+            <AuthRequiredDialog />
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
                 view={view}
@@ -663,13 +676,16 @@ export default function App() {
                               ? `发现新版本 v${globalPendingUpdate.version}`
                               : `Update v${globalPendingUpdate.version}`}
                           </p>
-                          <div className="mt-2.5 max-h-[180px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
-                            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                              {globalPendingUpdate.body ||
-                                t("about.updateAvailable", {
+                          <div className="mt-2.5 max-h-[180px] overflow-y-auto pr-2 text-xs leading-relaxed text-muted-foreground scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
+                            {globalPendingUpdate.body ? (
+                              <MarkdownRenderer content={globalPendingUpdate.body} />
+                            ) : (
+                              <p>
+                                {t("about.updateAvailable", {
                                   version: globalPendingUpdate.version,
                                 })}
-                            </p>
+                              </p>
+                            )}
                           </div>
                           <div className="mt-4 flex justify-end">
                             <button

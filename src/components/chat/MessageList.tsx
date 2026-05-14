@@ -17,7 +17,12 @@ import {
 } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
-import type { ChatTurnStatus, Message, AgentSummaryForSidebar } from "@/types/chat"
+import type {
+  ChatDisplayMode,
+  ChatTurnStatus,
+  Message,
+  AgentSummaryForSidebar,
+} from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
@@ -61,6 +66,7 @@ interface MessageListProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  displayMode?: ChatDisplayMode
 }
 
 const AT_BOTTOM_THRESHOLD_PX = 48
@@ -111,6 +117,7 @@ export default function MessageList({
   onSwitchSession,
   onOpenDiff,
   onResume,
+  displayMode = "bubble",
 }: MessageListProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -120,6 +127,7 @@ export default function MessageList({
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<number | null>(null)
+  const [compactUserAnchorVisible, setCompactUserAnchorVisible] = useState(false)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [contextMenu, setContextMenu] = useState<{
@@ -244,6 +252,48 @@ export default function MessageList({
     return out
   }, [messages, displayedStart])
 
+  const isTimelineMode = displayMode === "timeline"
+  const compactUserAnchor = useMemo(() => {
+    if (!isTimelineMode) return null
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i]
+      if (msg.isMeta || msg.fromAgentId || isCenteredSystemMessage(msg)) continue
+      if (!isUserAlignedMessage(msg)) continue
+      const text = (msg.planComment?.comment || msg.slashEvent?.command || msg.content)
+        .replace(/\s+/g, " ")
+        .trim()
+      if (!text) return null
+      return {
+        dbId: msg.dbId,
+        rowKey: getMessageRowKey(msg, i),
+        text,
+      }
+    }
+    return null
+  }, [isTimelineMode, messages])
+
+  const updateCompactUserAnchor = useCallback(() => {
+    const el = containerRef.current
+    const rowKey = compactUserAnchor?.rowKey
+    if (!el || !rowKey) {
+      setCompactUserAnchorVisible(false)
+      return
+    }
+    const target = findMessageRowByKey(el, rowKey)
+    if (!target) {
+      setCompactUserAnchorVisible(false)
+      return
+    }
+    const containerTop = el.getBoundingClientRect().top
+    const targetTop = target.getBoundingClientRect().top
+    const visible = targetTop < containerTop - 1
+    setCompactUserAnchorVisible((prev) => (prev === visible ? prev : visible))
+  }, [compactUserAnchor?.rowKey])
+
+  useLayoutEffect(() => {
+    updateCompactUserAnchor()
+  }, [items, updateCompactUserAnchor])
+
   // Baseline for entrance animation: only messages appended *after* this
   // session was opened animate in. The initial set renders statically — no
   // distracting cascade when entering an existing conversation. Render-time
@@ -346,11 +396,12 @@ export default function MessageList({
       if (atBottomRef.current && !userScrollLockRef.current) {
         el.scrollTop = el.scrollHeight
       }
+      updateCompactUserAnchor()
     })
     ro.observe(content)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [sessionKey])
+  }, [sessionKey, updateCompactUserAnchor])
 
   // Scroll listener: track atBottom + trigger load-more near top.
   // The user-intent listeners (wheel/touch/keyboard) below set
@@ -407,6 +458,7 @@ export default function MessageList({
         ) {
           void onLoadMoreAfterRef.current()
         }
+        updateCompactUserAnchor()
       })
     }
     const arrowKeys = new Set([
@@ -444,7 +496,7 @@ export default function MessageList({
     // `sessionKey` is part of the deps because the outer `<div key={sessionKey}>`
     // remounts the scroll container on session swap — without re-running this
     // effect, the listeners would stay bound to the old (detached) DOM node.
-  }, [sessionKey, hasMore, loadingMore, onLoadMore])
+  }, [sessionKey, hasMore, loadingMore, onLoadMore, updateCompactUserAnchor])
 
   // forceFollow on lastUserKey change (user sent a new message): scroll the
   // user bubble into view and re-arm follow-bottom so the assistant stream tails.
@@ -614,6 +666,25 @@ export default function MessageList({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
   }, [hasMoreAfter, onResetToLatest])
 
+  const handleCompactUserAnchorClick = useCallback(() => {
+    const el = containerRef.current
+    const rowKey = compactUserAnchor?.rowKey
+    if (!el || !rowKey) return
+    const target = findMessageRowByKey(el, rowKey)
+    if (!target) return
+
+    userScrollLockRef.current = true
+    atBottomRef.current = false
+    setAtBottom(false)
+    target.scrollIntoView({ block: "start", behavior: "smooth" })
+
+    if (compactUserAnchor.dbId != null) {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+      setHighlightMessageId(compactUserAnchor.dbId)
+      highlightTimerRef.current = setTimeout(() => setHighlightMessageId(null), 1600)
+    }
+  }, [compactUserAnchor])
+
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     const msg = messagesRef.current[index]
     if (msg.role !== "assistant" || !msg.content) return
@@ -662,7 +733,10 @@ export default function MessageList({
         // the gesture's end — a bug we observed where the negative gap +
         // async KaTeX/Mermaid/Shiki layout settling created a multi-frame
         // blank viewport even after the messages had committed to the DOM.
-        className="h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]"
+        className={cn(
+          "h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]",
+          isTimelineMode && "px-5 sm:px-6",
+        )}
       >
         <div ref={contentRef}>
         {hasMore && displayedStart === 0 && (
@@ -695,13 +769,24 @@ export default function MessageList({
               data-message-key={rowKey}
               data-message-id={msg.dbId ?? undefined}
               className={cn(
-                "grid w-full min-w-0 grid-cols-1 rounded-lg pb-4 transition-colors",
+                "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
                 msg.dbId === highlightMessageId && "message-hit-pulse",
-                isCenteredSystemMessage(msg)
-                  ? "justify-items-center"
-                  : isUserAlignedMessage(msg) && !msg.fromAgentId
-                    ? "justify-items-end"
-                    : "justify-items-start",
+                isTimelineMode
+                  ? isCenteredSystemMessage(msg)
+                    ? "justify-items-center pb-4"
+                    : isUserAlignedMessage(msg) && !msg.fromAgentId
+                      ? "justify-items-end pb-4"
+                      : msg.role === "assistant"
+                        ? "justify-items-stretch pb-0"
+                        : "justify-items-start pb-4"
+                  : cn(
+                      "pb-4",
+                      isCenteredSystemMessage(msg)
+                        ? "justify-items-center"
+                        : isUserAlignedMessage(msg) && !msg.fromAgentId
+                          ? "justify-items-end"
+                          : "justify-items-start",
+                    ),
                 isLast &&
                   originalIndex >= animationBaseline &&
                   "animate-fade-slide-in",
@@ -726,6 +811,7 @@ export default function MessageList({
                 onViewSystemPrompt={onViewSystemPrompt}
                 onOpenDiff={onOpenDiff}
                 onResume={onResume}
+                displayMode={displayMode}
               />
             </div>
           )
@@ -789,6 +875,20 @@ export default function MessageList({
         )}
         </div>
       </div>
+
+      {compactUserAnchor && compactUserAnchorVisible && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30">
+          <button
+            type="button"
+            onClick={handleCompactUserAnchorClick}
+            className="pointer-events-auto flex h-10 w-full cursor-pointer items-center border-b border-border/70 bg-background/95 px-5 text-right text-sm font-medium text-foreground backdrop-blur transition-colors hover:bg-muted supports-[backdrop-filter]:bg-background/85 sm:px-6"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {compactUserAnchor.text}
+            </span>
+          </button>
+        </div>
+      )}
 
       {showJumpToLatest && (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">

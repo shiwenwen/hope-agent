@@ -164,6 +164,10 @@ pub fn recommend_path(source: &InstallSource, bare_binary_available: bool) -> Re
         | InstallSource::Aur
         | InstallSource::Apt
         | InstallSource::Dnf => RecommendedPath::PackageManager,
+        // Container deployment: binary swap inside the container is wiped
+        // on the next `docker pull`. Always prompt the user to recreate the
+        // container instead.
+        InstallSource::Docker => RecommendedPath::ManualPrompt,
         InstallSource::TauriBundle => {
             // Headless `hope-agent server` running off the desktop bundle
             // (rare but happens when users start the daemon from `/Applications`
@@ -211,6 +215,20 @@ mod tests {
     fn recommend_manual_without_bare_binary_falls_back_to_prompt() {
         assert_eq!(
             recommend_path(&InstallSource::Manual, false),
+            RecommendedPath::ManualPrompt
+        );
+    }
+
+    #[test]
+    fn recommend_docker_always_routes_to_manual_prompt() {
+        // Bare-binary availability is irrelevant — container binary swap
+        // would be wiped by the next `docker pull`, so we always prompt.
+        assert_eq!(
+            recommend_path(&InstallSource::Docker, true),
+            RecommendedPath::ManualPrompt
+        );
+        assert_eq!(
+            recommend_path(&InstallSource::Docker, false),
             RecommendedPath::ManualPrompt
         );
     }

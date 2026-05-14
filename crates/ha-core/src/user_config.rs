@@ -73,6 +73,10 @@ pub struct UserConfig {
     #[serde(default = "crate::default_true")]
     pub auto_expand_thinking: bool,
 
+    /// Preferred chat rendering mode: "bubble" or "timeline".
+    #[serde(default)]
+    pub chat_display_mode: Option<String>,
+
     // ── Weather / Location settings ──
     // ── Server mode settings ──
     /// Server mode: [`SERVER_MODE_EMBEDDED`] (default) or [`SERVER_MODE_REMOTE`].
