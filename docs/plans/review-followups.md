@@ -1170,3 +1170,60 @@
 - **来源**：2026-04-30 F-029 收尾 `/simplify` review（quality agent）
 - **关闭**：2026-04-30 / commit 紧跟 F-028..F-031 收尾
 - **修复方式**：发现 [`plan::PlanModeState`](../../crates/ha-core/src/plan/types.rs) enum 已存在并完整支持 `from_str`/`as_str`/serde rename_all snake_case + `is_valid_transition`，直接复用即可（不需要新建 PlanMode）。给 PlanModeState 加 `Copy` 派生（6 个 unit variant，1 字节）让消费方按值传递。`SessionMeta.plan_mode: String` → `PlanModeState`，DB row→struct 边界用 `from_str` 一次性转 enum；`update_session_plan_mode` 参数改成 `PlanModeState`，6 处 caller（slash_commands/handlers/plan.rs 5 处 + tools/plan_step.rs + tools/submit_plan.rs + ha-server/routes/plan.rs 2 处 + src-tauri/commands/plan.rs 3 处 + commands/chat.rs 2 处）改用 enum variant；`should_create_execution_checkpoint(persisted_plan_mode: Option<&str>)` 改成 `Option<PlanModeState>`；`restore_from_db(plan_mode_str: &str)` 改成 `state: PlanModeState`，删除内部 from_str 重复转换。`meta.plan_mode == "off"` 等 stringly compare 全部改成 enum 匹配。ha-core 771 / ha-server 18 单测全绿。
+
+
+---
+
+### F-033 `SectionSkeleton` 在 dashboard 6 个 section 重复实现
+
+- **来源**：2026-05-14 `feat/dashboard-local-models` `/simplify` review（reuse agent）
+- **现象**：[`LocalModelsSection.tsx`](../../src/components/dashboard/LocalModelsSection.tsx)、[`SystemMetricsSection.tsx`](../../src/components/dashboard/SystemMetricsSection.tsx)、[`TaskSection.tsx`](../../src/components/dashboard/TaskSection.tsx)、[`ErrorSection.tsx`](../../src/components/dashboard/ErrorSection.tsx)、[`InsightsSection.tsx`](../../src/components/dashboard/InsightsSection.tsx)、[`SessionSection.tsx`](../../src/components/dashboard/SessionSection.tsx) 各自定义同一个 8 行的 `SectionSkeleton` 组件（`<div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />`）。
+- **为什么留**：pre-existing debt，本期 PR 只是第 6 个复制点；抽出会动 5 个无关 section 文件，扩散 PR scope。
+- **改的话要做什么**：抽到 `src/components/dashboard/SectionSkeleton.tsx` 单文件，6 个 section import；同 PR 删掉本地定义。
+- **影响面**：纯重复，无 bug。
+- **触发时机建议**：下次有 dashboard section 重构 PR 顺手清。
+
+---
+
+### F-034 dashboard 局部 `Badge` 应迁到 shadcn `src/components/ui/badge.tsx`
+
+- **来源**：2026-05-14 `feat/dashboard-local-models` `/simplify` review（reuse agent）
+- **现象**：[`LocalModelsSection.tsx:76-95`](../../src/components/dashboard/LocalModelsSection.tsx) 内联定义了一个 17 行的 `Badge` span 组件（rounded-md border + 文本徽章），项目 `src/components/ui/` 下没有 shadcn `badge.tsx`。
+- **为什么留**：当期仅 LocalModelsSection 一处用，没有现成的可复用。等下次有第 2 个调用方时再升级到 shadcn 标准 Badge。
+- **改的话要做什么**：用 `pnpm dlx shadcn@latest add badge` 装标准 Badge（或手抄 shadcn Badge 模板）到 `src/components/ui/badge.tsx`；删除 LocalModelsSection 内联定义；把 7 处使用迁过去。
+- **影响面**：纯重复，无 bug。
+- **触发时机建议**：下一个 dashboard / settings PR 想用 badge 时顺手做。
+
+---
+
+### F-035 `local_model_job_list` 无 server-side status filter，前端 fetch 全量 jobs
+
+- **来源**：2026-05-14 `feat/dashboard-local-models` `/simplify` review（efficiency agent）
+- **现象**：[`local_model_jobs.rs`](../../crates/ha-core/src/local_model_jobs.rs) 的 list 命令始终返回 `local_model_jobs.db` 全部记录，前端 `LocalModelsSection` 再用 `isLocalModelJobVisible` 客户端筛选。jobs 表每次 ollama-pull / preload / chat_model / embedding 都落一条，长期会膨胀。
+- **为什么留**：当期表预估 ≤ 几十条，client-side filter 没用户感知延迟。
+- **改的话要做什么**：给 `local_model_job_list` 加可选参数 `status_filter: Vec<LocalModelJobStatus>`，SQL `WHERE status IN (...)`。Tauri 命令 + HTTP route 同步加 query param；dashboard 调用时传 `["running","cancelling","paused","interrupted","failed"]`。
+- **影响面**：性能，当 jobs 表 > 1000 行后可能感知到 list 慢。
+- **触发时机建议**：下次发现 jobs 表膨胀 / dashboard 加载变慢时。
+
+---
+
+### F-036 `query_local_model_usage` 第 3 个 totals SQL 可折叠到 by_model
+
+- **来源**：2026-05-14 `feat/dashboard-local-models` `/simplify` review（efficiency agent）
+- **现象**：[`crates/ha-core/src/dashboard/local_models.rs:131-159`](../../crates/ha-core/src/dashboard/local_models.rs) 串行跑 3 个 SQL（trend / by_model / totals），totals 完全可从 by_model 求和；avg_ttft_ms 需在 `LocalModelUsageRow` 加 `ttft_sample_count` 字段才能精确加权折叠（`AVG(CASE...)` 分母是非 NULL 行数，不是 call_count）。
+- **为什么留**：暴露 `ttft_sample_count` 内部字段到前端 wire type 不优雅；本地 SQLite 多一个 query <1ms，无感知。
+- **改的话要做什么**：扩 LocalModelUsageRow 加 `ttft_sample_count: u64`；删 totals SQL；Rust 端 fold `Σ(sum_ttft)/Σ(sample_count)`。或保持现状用 CTE 合并 trend + totals。
+- **影响面**：messages 表 > 10 万行后能省 ~33% 查询时间，普通用户无感。
+- **触发时机建议**：用户反馈 dashboard 慢 / messages 表膨胀到百万级时。
+
+---
+
+### F-037 LocalModelsSection 运行中模型倒计时仅在 refresh 时更新
+
+- **来源**：2026-05-14 `feat/dashboard-local-models` `/simplify` review（efficiency agent）
+- **现象**：[`LocalModelsSection.tsx`](../../src/components/dashboard/LocalModelsSection.tsx) `formatExpiresIn(m.expiresAt)` 在 render 时算 "X 分钟后卸载"，render 之间不变。autoRefresh=60s 时倒计时只在每次 refresh 跳变；autoRefresh=off 时数值不动直到用户手动刷新。
+- **为什么留**：autoRefresh 已经覆盖大部分场景，倒计时漂移 ≤ 60s 用户感知低；加 setInterval 强制 re-render 会和 React.memo 优化打架。
+- **改的话要做什么**：抽 `<RelativeTimeCountdown expiresAt=... />` 小组件，内部 `useState + useEffect` 30s setInterval 强制 re-render，limited blast radius。
+- **影响面**：UX 微瑕，无 bug。
+- **触发时机建议**：用户反馈倒计时不准时再做。
+

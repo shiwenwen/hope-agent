@@ -1,3 +1,5 @@
+import { formatBytes as formatBytesRaw } from "@/lib/format"
+
 export interface DashboardFilter {
   startDate: string | null
   endDate: string | null
@@ -378,6 +380,15 @@ export function chartName(value: unknown): string {
 /** Format USD currency */
 export function formatCost(n: number): string {
   return `$${n.toFixed(2)}`
+}
+
+/**
+ * Dashboard convention for byte sizes: 2 fraction digits at GB / TB scale,
+ * default elsewhere. Wraps `@/lib/format::formatBytes` so every section
+ * shows memory / disk numbers identically.
+ */
+export function formatDashboardBytes(bytes: number): string {
+  return formatBytesRaw(bytes, { fractionDigits: { GB: 2, TB: 2 } })
 }
 
 /** Format seconds to human readable uptime */

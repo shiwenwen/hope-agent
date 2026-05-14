@@ -30,7 +30,6 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import MetricCard from "@/components/common/MetricCard"
-import { formatBytes as formatRawBytes } from "@/lib/format"
 import type { SettingsSection } from "@/components/settings/types"
 import type {
   HardwareInfo,
@@ -44,7 +43,7 @@ import {
   localModelJobPercent,
 } from "@/types/local-model-jobs"
 import type { DashboardLocalModelUsage } from "./types"
-import { chartName, chartNumber, formatNumber } from "./types"
+import { chartName, chartNumber, formatDashboardBytes, formatNumber } from "./types"
 
 interface LocalModelsSectionProps {
   loading: boolean
@@ -55,10 +54,6 @@ interface LocalModelsSectionProps {
   usage: DashboardLocalModelUsage | null
   jobs: LocalModelJobSnapshot[] | null
   onOpenSettings?: (section?: SettingsSection) => void
-}
-
-function formatBytes(bytes: number): string {
-  return formatRawBytes(bytes, { fractionDigits: { GB: 2, TB: 2 } })
 }
 
 function mbToBytes(mb: number): number {
@@ -144,7 +139,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
     () => (models ?? []).filter((m) => m.running),
     [models],
   )
-  const installedModels = useMemo(() => models ?? [], [models])
+  const installedModels = models ?? []
   const visibleJobs = useMemo(
     () => (jobs ?? []).filter(isLocalModelJobVisible),
     [jobs],
@@ -246,8 +241,8 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
           <MetricCard
             icon={MemoryStick}
             label={t("dashboard.localModels.hardware.totalMemory")}
-            value={formatBytes(mbToBytes(hardware.totalMemoryMb))}
-            subValue={`${t("dashboard.localModels.hardware.available")}: ${formatBytes(
+            value={formatDashboardBytes(mbToBytes(hardware.totalMemoryMb))}
+            subValue={`${t("dashboard.localModels.hardware.available")}: ${formatDashboardBytes(
               mbToBytes(hardware.availableMemoryMb),
             )}`}
             colorClass="text-purple-500"
@@ -259,7 +254,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
             value={hardware.gpu?.name ?? t("dashboard.localModels.hardware.integratedGpu")}
             subValue={
               hardware.gpu?.vramMb != null
-                ? `${t("dashboard.localModels.hardware.vram")}: ${formatBytes(mbToBytes(hardware.gpu.vramMb))}`
+                ? `${t("dashboard.localModels.hardware.vram")}: ${formatDashboardBytes(mbToBytes(hardware.gpu.vramMb))}`
                 : undefined
             }
             colorClass="text-blue-500"
@@ -268,7 +263,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
           <MetricCard
             icon={Gauge}
             label={t("dashboard.localModels.hardware.budget")}
-            value={formatBytes(mbToBytes(hardware.budgetMb))}
+            value={formatDashboardBytes(mbToBytes(hardware.budgetMb))}
             subValue={t(
               `dashboard.localModels.hardware.budgetSource.${hardware.budgetSource}`,
             )}
@@ -301,8 +296,8 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
           </h3>
           {runningModels.length > 0 && budgetBytes > 0 && (
             <span className="text-xs text-muted-foreground tabular-nums">
-              {formatBytes(totalVramBytes)} /{" "}
-              {formatBytes(budgetBytes)}
+              {formatDashboardBytes(totalVramBytes)} /{" "}
+              {formatDashboardBytes(budgetBytes)}
             </span>
           )}
         </div>
@@ -331,7 +326,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
                         {m.sizeVramBytes != null && (
                           <span className="tabular-nums">
                             {t("dashboard.localModels.running.vramUsed")}:{" "}
-                            {formatBytes(m.sizeVramBytes)}
+                            {formatDashboardBytes(m.sizeVramBytes)}
                           </span>
                         )}
                         {m.contextWindow != null && (
@@ -376,7 +371,7 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
                       {m.details?.family ??
                         t("dashboard.localModels.installed.unknownFamily")}
                       {m.sizeBytes != null
-                        ? ` · ${formatBytes(m.sizeBytes)}`
+                        ? ` · ${formatDashboardBytes(m.sizeBytes)}`
                         : ""}
                       {m.contextWindow != null
                         ? ` · ctx ${formatNumber(m.contextWindow)}`
@@ -435,25 +430,33 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
           </h3>
         </div>
 
-        {usage == null ? null : usage.localProviderNames.length === 0 ? (
-          <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground text-sm">
-            <AlertCircle className="h-7 w-7 opacity-30" />
-            <span>{t("dashboard.localModels.empty.noProvider")}</span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onOpenSettings?.("modelConfig")}
-            >
-              {t("dashboard.localModels.empty.goToSettings")}
-            </Button>
-          </div>
-        ) : usage.totalCalls === 0 ? (
-          <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground text-sm">
-            <Zap className="h-7 w-7 opacity-30" />
-            <span>{t("dashboard.localModels.usage.empty")}</span>
-          </div>
-        ) : (
-          <>
+        {(() => {
+          if (usage == null) return null
+          if (usage.localProviderNames.length === 0) {
+            return (
+              <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground text-sm">
+                <AlertCircle className="h-7 w-7 opacity-30" />
+                <span>{t("dashboard.localModels.empty.noProvider")}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onOpenSettings?.("modelConfig")}
+                >
+                  {t("dashboard.localModels.empty.goToSettings")}
+                </Button>
+              </div>
+            )
+          }
+          if (usage.totalCalls === 0) {
+            return (
+              <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground text-sm">
+                <Zap className="h-7 w-7 opacity-30" />
+                <span>{t("dashboard.localModels.usage.empty")}</span>
+              </div>
+            )
+          }
+          return (
+            <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <MetricCard
                 icon={Zap}
@@ -616,8 +619,9 @@ const LocalModelsSection = React.memo(function LocalModelsSection({
                 </div>
               </div>
             )}
-          </>
-        )}
+            </>
+          )
+        })()}
       </div>
 
       {/* Block F — Background jobs */}

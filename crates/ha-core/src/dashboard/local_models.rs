@@ -68,12 +68,11 @@ pub fn query_local_model_usage(
 
     let in_placeholders = vec!["?"; local_provider_names.len()].join(", ");
     let in_clause = format!("s.provider_name IN ({in_placeholders})");
+    let (where_sql, params) = local_where_clause(filter, &in_clause, local_provider_names);
+    let params_slice = params_ref(&params);
 
     // ── Daily trend ──
-    let (trend_sql, trend_params) = build_query(
-        filter,
-        &in_clause,
-        local_provider_names,
+    let trend_sql = format!(
         "SELECT DATE(m.timestamp) as d,
                 COALESCE(SUM(m.tokens_in), 0),
                 COALESCE(SUM(m.tokens_out), 0),
@@ -82,10 +81,10 @@ pub fn query_local_model_usage(
          JOIN sessions s ON s.id = m.session_id
          {where_sql}
          GROUP BY d
-         ORDER BY d ASC",
+         ORDER BY d ASC"
     );
     let mut stmt = conn.prepare(&trend_sql)?;
-    let rows = stmt.query_map(params_ref(&trend_params).as_slice(), |r| {
+    let rows = stmt.query_map(params_slice.as_slice(), |r| {
         Ok(TokenUsageTrend {
             date: r.get(0)?,
             input_tokens: crate::sql_u64(r, 1)?,
@@ -97,10 +96,7 @@ pub fn query_local_model_usage(
     drop(stmt);
 
     // ── By model ──
-    let (by_model_sql, by_model_params) = build_query(
-        filter,
-        &in_clause,
-        local_provider_names,
+    let by_model_sql = format!(
         "SELECT COALESCE(s.model_id, 'unknown'),
                 COALESCE(s.provider_name, 'unknown'),
                 COUNT(DISTINCT CASE WHEN m.role = 'assistant' THEN m.id END),
@@ -112,10 +108,10 @@ pub fn query_local_model_usage(
          JOIN sessions s ON s.id = m.session_id
          {where_sql}
          GROUP BY s.model_id, s.provider_name
-         ORDER BY SUM(m.tokens_in) + SUM(m.tokens_out) DESC",
+         ORDER BY SUM(m.tokens_in) + SUM(m.tokens_out) DESC"
     );
     let mut stmt = conn.prepare(&by_model_sql)?;
-    let rows = stmt.query_map(params_ref(&by_model_params).as_slice(), |r| {
+    let rows = stmt.query_map(params_slice.as_slice(), |r| {
         Ok(LocalModelUsageRow {
             model_id: r.get(0)?,
             provider_name: r.get(1)?,
@@ -130,20 +126,17 @@ pub fn query_local_model_usage(
     drop(stmt);
 
     // ── Totals (single row) ──
-    let (totals_sql, totals_params) = build_query(
-        filter,
-        &in_clause,
-        local_provider_names,
+    let totals_sql = format!(
         "SELECT COUNT(DISTINCT CASE WHEN m.role = 'assistant' THEN m.id END),
                 COALESCE(SUM(m.tokens_in), 0),
                 COALESCE(SUM(m.tokens_out), 0),
                 AVG(CASE WHEN m.ttft_ms IS NOT NULL AND m.role = 'assistant' THEN m.ttft_ms END)
          FROM messages m
          JOIN sessions s ON s.id = m.session_id
-         {where_sql}",
+         {where_sql}"
     );
     let (total_calls, total_input_tokens, total_output_tokens, avg_ttft_ms) =
-        conn.query_row(&totals_sql, params_ref(&totals_params).as_slice(), |r| {
+        conn.query_row(&totals_sql, params_slice.as_slice(), |r| {
             Ok((
                 crate::sql_u64(r, 0)?,
                 crate::sql_u64(r, 1)?,
@@ -163,14 +156,13 @@ pub fn query_local_model_usage(
     })
 }
 
-/// Build the (sql, params) pair for a local-model query by appending the
-/// IN-clause to whatever `build_session_filter` produces. The template is
-/// expected to contain the literal `{where_sql}` placeholder.
-fn build_query(
+/// Compose `build_session_filter`'s WHERE clause with the provider IN-clause,
+/// returning the combined SQL fragment plus its bound params (base filter
+/// params followed by one bind per provider name).
+fn local_where_clause(
     filter: &DashboardFilter,
     in_clause: &str,
     local_provider_names: &[String],
-    template: &str,
 ) -> (String, Vec<Box<dyn ToSql>>) {
     let FilterClause {
         where_sql: base_where,
@@ -184,7 +176,7 @@ fn build_query(
     for name in local_provider_names {
         params.push(Box::new(name.clone()) as Box<dyn ToSql>);
     }
-    (template.replace("{where_sql}", &where_sql), params)
+    (where_sql, params)
 }
 
 #[cfg(test)]

@@ -26,18 +26,13 @@ import {
   ArrowUpFromLine,
 } from "lucide-react"
 import MetricCard from "@/components/common/MetricCard"
-import { formatBytes as formatRawBytes } from "@/lib/format"
 import type { SystemMetrics } from "./types"
-import { chartName, chartNumber, formatUptime } from "./types"
+import { chartName, chartNumber, formatDashboardBytes as formatBytes, formatUptime } from "./types"
 
 export interface SystemHistoryPoint {
   t: number
   cpu: number
   mem: number
-}
-
-function formatBytes(bytes: number): string {
-  return formatRawBytes(bytes, { fractionDigits: { GB: 2, TB: 2 } })
 }
 
 interface SystemMetricsSectionProps {
