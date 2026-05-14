@@ -73,8 +73,14 @@ for (const [platformDir, meta] of Object.entries(PLATFORM_MAP)) {
   console.log(`[patch-latest-json] added bare_binary entry for ${meta.key}`);
 }
 
-manifest.bare_binary = { platforms: bareBinaryPlatforms };
+// Merge mode: keep entries that already exist on the manifest (e.g.
+// from a previous release.yml patch run), and add/override only the
+// platforms we found artifacts for in this run. This lets independent
+// best-effort workflows (e.g. build-macos-x64.yml) backfill a single
+// platform's entry without wiping the other four.
+const existing = manifest.bare_binary?.platforms || {};
+manifest.bare_binary = { platforms: { ...existing, ...bareBinaryPlatforms } };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 console.log(
-  `[patch-latest-json] wrote ${Object.keys(bareBinaryPlatforms).length} bare_binary entries to ${manifestPath}`,
+  `[patch-latest-json] merged ${Object.keys(bareBinaryPlatforms).length} new bare_binary entries into ${manifestPath} (manifest now has ${Object.keys(manifest.bare_binary.platforms).length} platforms total)`,
 );

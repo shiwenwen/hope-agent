@@ -160,7 +160,7 @@ export function TemplateConfig({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 max-w-lg mx-auto w-full space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-6 max-w-4xl mx-auto w-full space-y-4">
         {/* Provider info */}
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="space-y-1.5">
