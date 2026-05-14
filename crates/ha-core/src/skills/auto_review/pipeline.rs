@@ -1,6 +1,18 @@
-//! `run_review_cycle` — analyze recent messages, invoke the review side_query,
-//! parse the JSON decision, and route to `skills::author` for CRUD.
+//! `run_review_cycle` — analyze recent messages, invoke the review
+//! side_query, parse the JSON decision, then run the deterministic gates
+//! (2, 4, 5) before any skill hits disk.
+//!
+//! Layout follows the five-gate waterfall:
+//!   gate 2 (pre_gate)   — runs BEFORE the LLM call
+//!   gate 3 (LLM)        — side_query against the configured review model
+//!   gate 4 (self-score) — model-reported `reuse_probability` floor +
+//!                         `class_level_name` + scenario quality
+//!   gate 5 (post_lint)  — deterministic body lint
+//!
+//! Any skip writes a `skill_review_skipped` learning event with the
+//! `reason` field so the UI can show "why this didn't produce a draft".
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -9,15 +21,23 @@ use serde_json::Value;
 
 use crate::agent::AssistantAgent;
 use crate::config::cached_config;
+use crate::dashboard::{emit_learning_event, EVT_SKILL_DISCARDED};
 use crate::skills::author::{
     create_skill, patch_skill_fuzzy, security_scan, CreateOpts, FuzzyOpts, PatchResult,
 };
-use crate::skills::{load_all_skills_with_extra, SkillStatus};
+use crate::skills::{
+    discovery::get_skill_content, load_all_skills_with_extra, SkillEntry, SkillStatus,
+};
 use crate::truncate_utf8;
 
 use super::config::{AutoReviewPromotion, SkillsAutoReviewConfig};
+use super::heuristics::{jaccard, post_lint, pre_gate, tokenize, PostLintOutcome, PreGateOutcome};
 use super::prompts::{render_review_user_prompt, REVIEW_SYSTEM};
 use super::triggers::AutoReviewGate;
+
+/// Learning-event kind written whenever a review cycle ends without
+/// producing a create/patch (regardless of which gate fired).
+pub const EVT_SKILL_REVIEW_SKIPPED: &str = "skill_review_skipped";
 
 /// Which path fired the review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,9 +51,8 @@ pub enum ReviewTrigger {
 
 /// Parsed shape of the review agent's JSON response.
 ///
-/// Prompt uses snake_case keys (`skill_id`, `old_approx`, `new_text`). Aliased
-/// camelCase is accepted as a forgiveness path for models that cargo-cult the
-/// common JS convention.
+/// snake_case canonical; camelCase aliases for models that cargo-cult JS
+/// conventions.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReviewDecision {
     pub decision: String, // "create" | "patch" | "skip"
@@ -51,6 +70,16 @@ pub struct ReviewDecision {
     pub new_text: Option<String>,
     #[serde(default)]
     pub rationale: Option<String>,
+    /// 3 concrete future scenarios the model expects this skill to cover.
+    #[serde(default, alias = "reuseScenarios")]
+    pub reuse_scenarios: Vec<String>,
+    /// Model-reported self-estimate that the skill gets used in the next
+    /// 30 days. 0.0..=1.0.
+    #[serde(default, alias = "reuseProbability")]
+    pub reuse_probability: Option<f32>,
+    /// Model self-assessment: is `skill_id` class-level (not session-specific).
+    #[serde(default, alias = "classLevelName")]
+    pub class_level_name: Option<bool>,
 }
 
 /// Summary emitted to the EventBus + used for logging/tests.
@@ -59,20 +88,27 @@ pub struct ReviewDecision {
 pub struct ReviewReport {
     pub trigger: ReviewTrigger,
     pub session_id: String,
-    pub outcome: String, // "created" | "patched" | "skipped" | "error"
+    /// `created` | `patched` | `skipped` | `error`.
+    pub outcome: String,
     pub skill_id: Option<String>,
     pub similarity: Option<f32>,
     pub rationale: Option<String>,
+    /// Stable identifier for *why* a `skipped` outcome happened
+    /// (`pre_gate_too_few_messages`, `gate4_low_reuse_probability`, …) —
+    /// the UI maps this to a localized one-liner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reject_reason: Option<String>,
+    /// What in gate 1 fired this run (`tool_use` | `bulk` | `correction`
+    /// | `manual`). Useful for diagnostics in the rejects panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fire_reason: Option<String>,
     pub duration_ms: u64,
     pub error: Option<String>,
 }
 
 /// Entry point: run the review pipeline for `session_id`. The caller is
 /// expected to hand in an `AutoReviewGate` acquired from
-/// `triggers::touch_and_maybe_trigger` (PostTurn) or `triggers::acquire_manual`
-/// (Manual). Keeping gate acquisition outside this function lets the
-/// chat_engine skip spawning the background task entirely when thresholds
-/// aren't met, which is the common case on short turns.
+/// `triggers::touch_and_maybe_trigger` or `triggers::acquire_manual`.
 pub async fn run_review_cycle(
     session_id: &str,
     trigger: ReviewTrigger,
@@ -80,6 +116,7 @@ pub async fn run_review_cycle(
     main_agent: Option<&AssistantAgent>,
 ) -> Result<ReviewReport> {
     let started = Instant::now();
+    let fire_reason = gate.fire_reason().to_string();
     let _gate = gate; // hold for the duration of the cycle
     let cfg = cached_config().skills.auto_review.clone().sanitize();
 
@@ -92,6 +129,8 @@ pub async fn run_review_cycle(
             skill_id: None,
             similarity: None,
             rationale: None,
+            reject_reason: None,
+            fire_reason: Some(fire_reason.clone()),
             duration_ms: started.elapsed().as_millis() as u64,
             error: Some(err.to_string()),
         },
@@ -100,8 +139,26 @@ pub async fn run_review_cycle(
     let with_trigger = ReviewReport {
         trigger,
         duration_ms: started.elapsed().as_millis() as u64,
+        fire_reason: Some(fire_reason),
         ..outcome
     };
+
+    // Surface every "skipped" decision into the learning event stream so
+    // the UI can show "recent reject reasons" without scraping logs.
+    if with_trigger.outcome == "skipped" {
+        let meta = serde_json::json!({
+            "reject_reason": with_trigger.reject_reason,
+            "rationale": with_trigger.rationale,
+            "fire_reason": with_trigger.fire_reason,
+            "session_id": with_trigger.session_id,
+        });
+        emit_learning_event(
+            EVT_SKILL_REVIEW_SKIPPED,
+            Some(&with_trigger.session_id),
+            with_trigger.skill_id.as_deref(),
+            Some(&meta),
+        );
+    }
 
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
@@ -113,67 +170,106 @@ pub async fn run_review_cycle(
     Ok(with_trigger)
 }
 
+fn skip_report(session_id: &str, reason: &str, rationale: Option<String>) -> ReviewReport {
+    ReviewReport {
+        trigger: ReviewTrigger::PostTurn,
+        session_id: session_id.to_string(),
+        outcome: "skipped".to_string(),
+        skill_id: None,
+        similarity: None,
+        rationale,
+        reject_reason: Some(reason.to_string()),
+        fire_reason: None,
+        duration_ms: 0,
+        error: None,
+    }
+}
+
 async fn run_inner(
     session_id: &str,
     cfg: &SkillsAutoReviewConfig,
     main_agent: Option<&AssistantAgent>,
 ) -> Result<ReviewReport> {
-    // 1. Collect recent conversation.
-    let conversation = collect_recent_messages(session_id, cfg.candidate_limit)
+    // ── Collect transcript ─────────────────────────────────────────────
+    let (conversation, message_count) = collect_recent_messages(session_id, cfg.candidate_limit)
         .context("collect recent messages")?;
     if conversation.trim().is_empty() {
-        return Ok(ReviewReport {
-            trigger: ReviewTrigger::PostTurn,
-            session_id: session_id.to_string(),
-            outcome: "skipped".to_string(),
-            skill_id: None,
-            similarity: None,
-            rationale: Some("no recent messages".to_string()),
-            duration_ms: 0,
-            error: None,
-        });
+        return Ok(skip_report(
+            session_id,
+            "no_recent_messages",
+            Some("no recent messages".to_string()),
+        ));
     }
 
-    // 2. Existing skills (non-bundled only; bundled skills should never be
-    // patched by the model, and we deliberately let bundled names *shadow*
-    // an accidental create_skill collision via author::validate_skill_id).
+    // ── Gate 2: pre-LLM heuristics ─────────────────────────────────────
+    let recent_discards = load_recent_discards(cfg);
+    let discard_topics: Vec<(String, String)> = recent_discards
+        .iter()
+        .map(|e| (e.id.clone(), e.topic_text.clone()))
+        .collect();
+    if let PreGateOutcome {
+        allow: false,
+        reason,
+        hit,
+    } = pre_gate(cfg, message_count, &conversation, &discard_topics)
+    {
+        let rationale = hit
+            .as_ref()
+            .map(|h| format!("blocked by discard topic: {}", h));
+        return Ok(skip_report(
+            session_id,
+            reason.as_deref().unwrap_or("pre_gate"),
+            rationale,
+        ));
+    }
+
+    // ── Build top-K dedup candidates with full body ────────────────────
     let config = cached_config();
-    let existing_skills = load_all_skills_with_extra(&config.extra_skills_dirs)
+    let entries: Vec<SkillEntry> = load_all_skills_with_extra(&config.extra_skills_dirs)
         .into_iter()
         .filter(|s| s.source != "bundled")
-        .map(|s| {
-            format!(
-                "- {} — {}",
-                s.name,
-                truncate_utf8(s.description.as_str(), 80)
-            )
+        .collect();
+    let dedup_block = build_dedup_block(&entries, &config.extra_skills_dirs, &conversation, cfg);
+    let blacklist_block = recent_discards
+        .iter()
+        .map(|e| {
+            if e.topic_text != e.id {
+                format!("- {} — {}", e.id, truncate_utf8(&e.topic_text, 120))
+            } else {
+                format!("- {}", e.id)
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");
 
-    // 3. Build prompt; route to cached side_query if we have the main agent.
-    let user_prompt = render_review_user_prompt(&existing_skills, &conversation);
-    let instruction = format!("{}\n\n{}", REVIEW_SYSTEM, user_prompt);
+    // ── Build prompt; route to cached side_query if main_agent is here ─
+    let system_prompt = cfg
+        .review_system_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(REVIEW_SYSTEM);
+    let user_prompt = render_review_user_prompt(
+        &dedup_block,
+        &blacklist_block,
+        &cfg.extra_reject_categories,
+        &conversation,
+    );
+    let instruction = format!("{}\n\n{}", system_prompt, user_prompt);
 
+    // ── Gate 3: LLM review ─────────────────────────────────────────────
     let response_text = query_review_agent(&instruction, cfg, main_agent).await?;
-
-    // 4. Parse.
     let decision = parse_review_response(&response_text).context("parse review decision JSON")?;
 
-    // 5. Route.
+    // ── Route ──────────────────────────────────────────────────────────
     match decision.decision.as_str() {
         "create" => apply_create(session_id, cfg, decision),
         "patch" => apply_patch(session_id, decision),
-        _ => Ok(ReviewReport {
-            trigger: ReviewTrigger::PostTurn,
-            session_id: session_id.to_string(),
-            outcome: "skipped".to_string(),
-            skill_id: decision.skill_id,
-            similarity: None,
-            rationale: decision.rationale,
-            duration_ms: 0,
-            error: None,
-        }),
+        _ => Ok(skip_report(
+            session_id,
+            "model_decided_skip",
+            decision.rationale,
+        )),
     }
 }
 
@@ -184,10 +280,10 @@ async fn query_review_agent(
 ) -> Result<String> {
     let timeout = Duration::from_secs(cfg.timeout_secs);
 
-    // Precedence: explicit `review_model` override > main agent's cached prefix
-    // > recap's analysis agent fallback. The override path intentionally
-    // skips main_agent so users pinning a cheap model for review aren't
-    // double-charged via the main chat's cache.
+    // Precedence: explicit `review_model` override > main agent's cached
+    // prefix > recap's analysis agent fallback. The override path
+    // intentionally skips main_agent so users pinning a cheap model for
+    // review aren't double-charged via the main chat's cache.
     if let Some(model_ref) = cfg
         .review_model
         .as_deref()
@@ -242,8 +338,8 @@ async fn query_review_agent(
 }
 
 /// Parse a `providerId:modelId` override (e.g. `"anthropic:claude-haiku-4-5"`)
-/// and build a fresh `AssistantAgent` for it. Returns `None` when the provider
-/// / model isn't configured; callers fall back to the usual chain.
+/// and build a fresh `AssistantAgent` for it. Returns `None` when the
+/// provider / model isn't configured; callers fall back to the usual chain.
 async fn build_review_agent_from_model_ref(model_ref: &str) -> Result<Option<AssistantAgent>> {
     let Some((provider_id, model_id)) = model_ref.split_once(':') else {
         return Ok(None);
@@ -293,6 +389,52 @@ fn apply_create(
     }
     security_scan(&body)?;
 
+    // ── Gate 4: model self-score floor ─────────────────────────────────
+    if let Some(p) = d.reuse_probability {
+        if p < cfg.min_reuse_probability {
+            return Ok(skip_report(
+                session_id,
+                "gate4_low_reuse_probability",
+                Some(format!(
+                    "model reported reuse_probability={:.2}; floor={:.2}",
+                    p, cfg.min_reuse_probability
+                )),
+            ));
+        }
+    } else {
+        return Ok(skip_report(
+            session_id,
+            "gate4_missing_reuse_probability",
+            Some("model omitted required `reuse_probability` field".to_string()),
+        ));
+    }
+    let class_level = d.class_level_name.unwrap_or(false);
+    if !class_level {
+        return Ok(skip_report(
+            session_id,
+            "gate4_not_class_level",
+            Some("model self-flagged skill_id as session-specific".to_string()),
+        ));
+    }
+    if let Some(reason) = validate_reuse_scenarios(&d.reuse_scenarios) {
+        return Ok(skip_report(session_id, reason, None));
+    }
+
+    // ── Gate 5: deterministic body lint ────────────────────────────────
+    let lint = post_lint(cfg, &skill_id, &body, class_level);
+    if let PostLintOutcome {
+        allow: false,
+        reason,
+        detail,
+    } = lint
+    {
+        return Ok(skip_report(
+            session_id,
+            reason.as_deref().unwrap_or("post_lint"),
+            detail,
+        ));
+    }
+
     let status = match cfg.promotion {
         AutoReviewPromotion::Draft => SkillStatus::Draft,
         AutoReviewPromotion::Auto => SkillStatus::Active,
@@ -312,6 +454,8 @@ fn apply_create(
         skill_id: Some(skill_id),
         similarity: None,
         rationale: d.rationale,
+        reject_reason: None,
+        fire_reason: None,
         duration_ms: 0,
         error: None,
     })
@@ -346,6 +490,8 @@ fn apply_patch(session_id: &str, d: ReviewDecision) -> Result<ReviewReport> {
             skill_id: Some(skill_id),
             similarity: Some(1.0),
             rationale: d.rationale,
+            reject_reason: None,
+            fire_reason: None,
             duration_ms: 0,
             error: None,
         }),
@@ -356,6 +502,8 @@ fn apply_patch(session_id: &str, d: ReviewDecision) -> Result<ReviewReport> {
             skill_id: Some(skill_id),
             similarity: Some(similarity),
             rationale: d.rationale,
+            reject_reason: None,
+            fire_reason: None,
             duration_ms: 0,
             error: None,
         }),
@@ -369,14 +517,40 @@ fn apply_patch(session_id: &str, d: ReviewDecision) -> Result<ReviewReport> {
                 "patch target not found (best similarity {:.2})",
                 best_similarity
             )),
+            reject_reason: Some("patch_target_not_found".to_string()),
+            fire_reason: None,
             duration_ms: 0,
             error: None,
         }),
     }
 }
 
-/// Turn a potentially free-form body into one that always has a top-level `#
-/// {name}` header. The author layer will inject YAML frontmatter for us.
+/// Validate that `reuse_scenarios` is a list of 3 distinct, non-trivial
+/// future scenarios. Returns a `Some(reason)` to short-circuit gate 4.
+fn validate_reuse_scenarios(scenarios: &[String]) -> Option<&'static str> {
+    if scenarios.len() < 3 {
+        return Some("gate4_scenarios_missing");
+    }
+    for s in scenarios {
+        if s.chars().count() < 20 {
+            return Some("gate4_scenarios_too_short");
+        }
+    }
+    // Pairwise Jaccard: if any pair >= 0.8 the model is paraphrasing
+    // itself.
+    let toks: Vec<HashSet<String>> = scenarios.iter().map(|s| tokenize(s)).collect();
+    for i in 0..toks.len() {
+        for j in (i + 1)..toks.len() {
+            if jaccard(&toks[i], &toks[j]) >= 0.8 {
+                return Some("gate4_scenarios_paraphrase");
+            }
+        }
+    }
+    None
+}
+
+/// Turn a potentially free-form body into one that always has a top-level
+/// `# {name}` header. The author layer will inject YAML frontmatter for us.
 fn rebody(body: &str, name: &str) -> String {
     let trimmed = body.trim_start();
     if trimmed.starts_with('#') {
@@ -400,15 +574,107 @@ fn sanitize_id(raw: &str) -> String {
     out.trim_matches(|c: char| c == '-' || c == '_').to_string()
 }
 
-/// Grab the most recent N messages from `session.db` and format them as a
-/// plain-text transcript for the prompt. Role-preserving but tool-call heavy
-/// turns are compacted to short stubs to keep the prompt bounded.
-fn collect_recent_messages(session_id: &str, limit: usize) -> Result<String> {
+/// One entry of the discard blacklist used by gate 2 and the LLM prompt.
+/// `topic_text` is the most language-rich representation we have for that
+/// skill: `description` if it was captured at delete-time, else `id`.
+#[derive(Debug, Clone)]
+struct DiscardEntry {
+    id: String,
+    topic_text: String,
+}
+
+/// Read recent `skill_discarded` events from `session.db`. Empty when the
+/// blacklist is disabled (`discard_blacklist_days == 0`).
+fn load_recent_discards(cfg: &SkillsAutoReviewConfig) -> Vec<DiscardEntry> {
+    if cfg.discard_blacklist_days == 0 {
+        return Vec::new();
+    }
+    let Some(db) = crate::get_session_db() else {
+        return Vec::new();
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let since = now.saturating_sub((cfg.discard_blacklist_days * 86_400) as i64);
+    let rows = db
+        .recent_learning_event_rows(EVT_SKILL_DISCARDED, since, 100)
+        .unwrap_or_default();
+    rows.into_iter()
+        .map(|(id, meta)| {
+            let description = meta
+                .as_deref()
+                .and_then(|m| serde_json::from_str::<Value>(m).ok())
+                .and_then(|v| {
+                    v.get("description")
+                        .and_then(|d| d.as_str())
+                        .map(String::from)
+                })
+                .filter(|s| !s.trim().is_empty());
+            let topic_text = description.unwrap_or_else(|| id.clone());
+            DiscardEntry { id, topic_text }
+        })
+        .collect()
+}
+
+/// Pre-format the top-K dedup candidates. Each entry: header line +
+/// truncated frontmatter+body so the model can judge "is this the same
+/// territory" without us shipping the entire library.
+fn build_dedup_block(
+    entries: &[SkillEntry],
+    extra_dirs: &[String],
+    conversation: &str,
+    cfg: &SkillsAutoReviewConfig,
+) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
+    let conv_keys = tokenize(conversation);
+    // Score each entry by Jaccard against the transcript.
+    let mut scored: Vec<(f32, &SkillEntry)> = entries
+        .iter()
+        .map(|e| {
+            let mut hay = String::new();
+            hay.push_str(&e.name);
+            hay.push(' ');
+            hay.push_str(&e.description);
+            (jaccard(&conv_keys, &tokenize(&hay)), e)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut out = String::new();
+    let mut taken = 0usize;
+    for (score, entry) in scored.iter() {
+        if taken >= cfg.top_k_for_dedup {
+            break;
+        }
+        let detail = match get_skill_content(&entry.name, extra_dirs, &[]) {
+            Some(d) => d,
+            None => continue,
+        };
+        let body = truncate_utf8(detail.content.as_str(), 1200);
+        out.push_str(&format!(
+            "─── {} (score {:.2}) — {}\n{}\n\n",
+            entry.name,
+            score,
+            truncate_utf8(&entry.description, 120),
+            body
+        ));
+        taken += 1;
+    }
+    out
+}
+
+/// Grab the most recent N messages from `session.db` and format them as
+/// a plain-text transcript for the prompt. Returns the trimmed transcript
+/// and the count of role-bearing entries (used by gate 2).
+fn collect_recent_messages(session_id: &str, limit: usize) -> Result<(String, usize)> {
     let db =
         crate::get_session_db().ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
     let raw = match db.load_context(session_id)? {
         Some(s) => s,
-        None => return Ok(String::new()),
+        None => return Ok((String::new(), 0)),
     };
     let messages: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();
@@ -429,7 +695,8 @@ fn collect_recent_messages(session_id: &str, limit: usize) -> Result<String> {
         let one_line = truncate_utf8(trimmed, 800);
         lines.push(format!("[{}]: {}", role, one_line));
     }
-    Ok(lines.join("\n\n"))
+    let count = lines.len();
+    Ok((lines.join("\n\n"), count))
 }
 
 fn extract_text(msg: &Value) -> String {
@@ -462,11 +729,24 @@ mod tests {
     fn parse_decision_basic() {
         let text = r##"Here's my call:
 ```json
-{"decision":"create","skill_id":"foo-bar","name":"Foo Bar","description":"desc","body":"# Body\n","rationale":"reusable"}
+{
+  "decision":"create",
+  "skill_id":"foo-bar",
+  "name":"Foo Bar",
+  "description":"desc",
+  "body":"# Body\n",
+  "rationale":"reusable",
+  "reuse_scenarios":["a","b","c"],
+  "reuse_probability":0.8,
+  "class_level_name":true
+}
 ```"##;
         let d = parse_review_response(text).unwrap();
         assert_eq!(d.decision, "create");
         assert_eq!(d.skill_id.as_deref(), Some("foo-bar"));
+        assert_eq!(d.reuse_probability, Some(0.8));
+        assert_eq!(d.class_level_name, Some(true));
+        assert_eq!(d.reuse_scenarios.len(), 3);
     }
 
     #[test]
@@ -487,5 +767,119 @@ mod tests {
     fn rebody_adds_header() {
         assert_eq!(rebody("content", "name"), "# name\n\ncontent");
         assert_eq!(rebody("# already\n\nbody", "name"), "# already\n\nbody");
+    }
+
+    fn cfg_strict() -> SkillsAutoReviewConfig {
+        SkillsAutoReviewConfig::default()
+    }
+
+    #[test]
+    fn gate4_rejects_low_reuse_probability() {
+        let cfg = cfg_strict();
+        let body = "## Steps\n1. run `cargo check`\n2. read `Cargo.toml`\n3. fix";
+        let d = ReviewDecision {
+            decision: "create".into(),
+            skill_id: Some("audit-rust-clippy-warnings".into()),
+            name: Some("audit".into()),
+            description: Some("x".into()),
+            body: Some(body.into()),
+            old_approx: None,
+            new_text: None,
+            rationale: None,
+            reuse_scenarios: vec![
+                "scenario one ............ enough length".into(),
+                "scenario two ............ enough length".into(),
+                "scenario three .......... enough length".into(),
+            ],
+            reuse_probability: Some(0.4),
+            class_level_name: Some(true),
+        };
+        let r = apply_create("sid", &cfg, d).unwrap();
+        assert_eq!(r.outcome, "skipped");
+        assert_eq!(
+            r.reject_reason.as_deref(),
+            Some("gate4_low_reuse_probability")
+        );
+    }
+
+    #[test]
+    fn gate4_rejects_not_class_level() {
+        let cfg = cfg_strict();
+        let body = "## Steps\n1. run `cargo check`\n2. read `Cargo.toml`\n3. fix";
+        let d = ReviewDecision {
+            decision: "create".into(),
+            skill_id: Some("ok-name".into()),
+            name: Some("name".into()),
+            description: Some("x".into()),
+            body: Some(body.into()),
+            old_approx: None,
+            new_text: None,
+            rationale: None,
+            reuse_scenarios: vec![
+                "scenario one ............ enough length".into(),
+                "scenario two ............ enough length".into(),
+                "scenario three .......... enough length".into(),
+            ],
+            reuse_probability: Some(0.9),
+            class_level_name: Some(false),
+        };
+        let r = apply_create("sid", &cfg, d).unwrap();
+        assert_eq!(r.outcome, "skipped");
+        assert_eq!(r.reject_reason.as_deref(), Some("gate4_not_class_level"));
+    }
+
+    #[test]
+    fn gate4_rejects_paraphrased_scenarios() {
+        let cfg = cfg_strict();
+        let body = "## Steps\n1. run `cargo check`\n2. read `Cargo.toml`\n3. fix";
+        let same = "run cargo clippy on the workspace before pushing";
+        let d = ReviewDecision {
+            decision: "create".into(),
+            skill_id: Some("ok-name".into()),
+            name: Some("name".into()),
+            description: Some("x".into()),
+            body: Some(body.into()),
+            old_approx: None,
+            new_text: None,
+            rationale: None,
+            reuse_scenarios: vec![same.into(), same.into(), same.into()],
+            reuse_probability: Some(0.9),
+            class_level_name: Some(true),
+        };
+        let r = apply_create("sid", &cfg, d).unwrap();
+        assert_eq!(r.outcome, "skipped");
+        assert_eq!(
+            r.reject_reason.as_deref(),
+            Some("gate4_scenarios_paraphrase")
+        );
+    }
+
+    #[test]
+    fn gate5_rejects_session_artifact_name() {
+        let cfg = cfg_strict();
+        let body = "## Steps\n1. run `cargo check`\n2. read `Cargo.toml`\n3. fix";
+        let d = ReviewDecision {
+            decision: "create".into(),
+            skill_id: Some("fix-issue-123".into()),
+            name: Some("name".into()),
+            description: Some("x".into()),
+            body: Some(body.into()),
+            old_approx: None,
+            new_text: None,
+            rationale: None,
+            reuse_scenarios: vec![
+                "scenario one ............ enough length".into(),
+                "scenario two ............ enough length".into(),
+                "scenario three .......... enough length".into(),
+            ],
+            reuse_probability: Some(0.9),
+            class_level_name: Some(true),
+        };
+        let r = apply_create("sid", &cfg, d).unwrap();
+        assert_eq!(r.outcome, "skipped");
+        assert_eq!(
+            r.reject_reason.as_deref(),
+            Some(crate::skills::auto_review::heuristics::REASON_SESSION_ARTIFACT_NAME)
+        );
     }
 }

@@ -126,6 +126,18 @@ impl Drop for StreamLifecycle {
     }
 }
 
+/// Count `tool_use` content blocks inside a single conversation-history
+/// entry. Used by the skill auto-review trigger to suppress reviews on
+/// pure-chat turns (zero tool use).
+fn count_tool_use_blocks(msg: &serde_json::Value) -> usize {
+    let Some(arr) = msg.get("content").and_then(|v| v.as_array()) else {
+        return 0;
+    };
+    arr.iter()
+        .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
+        .count()
+}
+
 fn take_failed_attempt_partial(
     slot: &Arc<Mutex<Option<FailedAttemptPartial>>>,
 ) -> Option<FailedAttemptPartial> {
@@ -795,7 +807,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &agent,
                         );
 
-                        // Phase B'1: skill auto-review — same as pre-Phase-3.
+                        // Skill auto-review trigger (gate 1 of the five-gate
+                        // waterfall). Feed tool_use_count from this round's
+                        // conversation slice — pure-chat turns yield 0 and
+                        // are filtered by `require_tool_use` in the config.
                         {
                             let round_tokens = {
                                 let u = persister.usage();
@@ -803,19 +818,25 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 let output = u.output_tokens.unwrap_or(0);
                                 (input + output) as usize
                             };
-                            let round_messages = agent
-                                .get_conversation_history()
-                                .len()
-                                .saturating_sub(history_len_before);
+                            let history = agent.get_conversation_history();
+                            let new_slice = history.get(history_len_before..).unwrap_or(&[]);
+                            let round_messages = new_slice.len();
+                            let tool_use_count =
+                                new_slice.iter().map(count_tool_use_blocks).sum::<usize>();
                             let cfg = crate::config::cached_config()
                                 .skills
                                 .auto_review
                                 .clone()
                                 .sanitize();
+                            let signals = crate::skills::auto_review::TriggerSignals {
+                                turn_tokens: round_tokens,
+                                new_messages: round_messages,
+                                tool_use_count,
+                                user_correction: false,
+                            };
                             if let Some(gate) = crate::skills::auto_review::touch_and_maybe_trigger(
                                 &session_id,
-                                round_tokens,
-                                round_messages,
+                                signals,
                                 &cfg,
                             ) {
                                 let session_id_for_review = session_id.clone();

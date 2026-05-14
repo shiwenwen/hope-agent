@@ -181,14 +181,25 @@ pub fn delete_skill(skill_id: &str) -> Result<()> {
             dir.display()
         );
     }
+    // Capture the description before removing the directory so the
+    // auto-review discard blacklist (gate 2) can match on language-rich
+    // text instead of bare kebab ids. Best-effort: a missing or
+    // unparseable SKILL.md still allows the delete to proceed.
+    let description =
+        std::fs::read_to_string(managed_skill_file(skill_id).unwrap_or(dir.join("SKILL.md")))
+            .ok()
+            .and_then(|content| crate::skills::types::parse_frontmatter_for_discard(&content));
     std::fs::remove_dir_all(&dir).with_context(|| format!("remove {}", dir.display()))?;
 
     super::types::bump_skill_version();
+    let meta = description
+        .as_ref()
+        .map(|desc| serde_json::json!({ "description": desc }));
     crate::dashboard::emit_learning_event(
         crate::dashboard::EVT_SKILL_DISCARDED,
         None,
         Some(skill_id),
-        None,
+        meta.as_ref(),
     );
     Ok(())
 }

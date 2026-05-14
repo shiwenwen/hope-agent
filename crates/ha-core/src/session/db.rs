@@ -625,6 +625,45 @@ impl SessionDB {
         }
     }
 
+    /// Most recent `learning_events` matching `kind` with `ts >= since_ts`,
+    /// deduplicated by `ref_id`. Returns `(ref_id, meta_json)` pairs, most
+    /// recent first. Rows with empty `ref_id` are filtered out; `meta_json`
+    /// may be `None` if the event was emitted without metadata.
+    pub fn recent_learning_event_rows(
+        &self,
+        kind: &str,
+        since_ts: i64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<(String, Option<String>)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Pick the latest meta_json per ref_id (highest ts wins).
+        let mut stmt = conn.prepare(
+            "SELECT le.ref_id, le.meta_json
+             FROM learning_events le
+             JOIN (
+                 SELECT ref_id, MAX(ts) AS ts_max
+                 FROM learning_events
+                 WHERE kind = ?1 AND ts >= ?2 AND ref_id IS NOT NULL AND ref_id != ''
+                 GROUP BY ref_id
+             ) latest
+             ON le.ref_id = latest.ref_id AND le.ts = latest.ts_max
+             WHERE le.kind = ?1
+             ORDER BY le.ts DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![kind, since_ts, limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for t in rows.flatten() {
+            out.push(t);
+        }
+        Ok(out)
+    }
+
     /// Delete learning_events older than `ts_cutoff`. Returns the number of
     /// rows removed. Called by the retention sweeper.
     pub fn prune_learning_events(&self, ts_cutoff: i64) -> anyhow::Result<usize> {
