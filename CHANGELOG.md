@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **切回流式输出中的会话不再从头重放打字机动画**：MarkdownRenderer 在 mount 时把当前 content 长度记为基线，已经看过的内容直接整段显示，仅对 mount 之后新到达的 delta 继续走 typewriter + blurIn 动画。修复切到别的会话再切回时整段内容"咵地从头一字一字 / 模糊变清晰重放一遍"的视觉问题。
 - **会话内切换模型不再污染全局默认 & 不再闪回**：聊天界面 ModelPicker、桌面斜杠 `/model` 卡片、IM `/model` 命令现在都只把模型固定到**当前会话**（写入 `sessions.provider_id/model_id`），不再改 `config.active_model`。下次发消息时 chat_engine 解析顺序变为 **session > agent.primary > config.active_model**。同一会话切模型 UI 由 `manualModelOverrideRef` 兜底，不会再因 `config:changed` 广播被回退成旧值。全局默认模型现在仅由「设置 → 模型」面板修改。
 
 ## [0.2.0] - 2026-05-13
