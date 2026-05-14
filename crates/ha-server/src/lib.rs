@@ -125,6 +125,10 @@ fn build_router_with_cors(
             patch(routes::sessions::update_session_agent),
         )
         .route(
+            "/sessions/{id}/model",
+            patch(routes::sessions::set_session_model),
+        )
+        .route(
             "/sessions/{id}/purge-if-incognito",
             post(routes::sessions::purge_session_if_incognito),
         )

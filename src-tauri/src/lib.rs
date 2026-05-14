@@ -455,6 +455,7 @@ pub fn run() {
             commands::session::set_session_incognito,
             commands::session::set_session_working_dir,
             commands::session::update_session_agent_cmd,
+            commands::session::set_session_model,
             commands::session::purge_session_if_incognito,
             commands::session::delete_session_cmd,
             commands::session::rename_session_cmd,

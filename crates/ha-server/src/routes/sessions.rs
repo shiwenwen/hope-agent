@@ -108,6 +108,13 @@ pub struct SessionAgentBody {
     pub agent_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionModelBody {
+    pub provider_id: String,
+    pub model_id: String,
+}
+
 // ── Response wrapper for paginated lists ────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -238,6 +245,41 @@ pub async fn update_session_agent(
     ctx.session_db
         .update_session_agent(&id, &body.agent_id)
         .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "updated": true })))
+}
+
+/// `PATCH /api/sessions/:id/model` — pin the model used by this session.
+/// Replaces the legacy "切模型 = 写全局 active_model" path. Future chat turns
+/// on this session resolve provider/model from this row before falling back to
+/// `agent.model.primary` / `config.active_model`.
+pub async fn set_session_model(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionModelBody>,
+) -> Result<Json<Value>, AppError> {
+    let provider_name = ha_core::config::cached_config()
+        .providers
+        .iter()
+        .find(|p| p.id == body.provider_id && p.enabled)
+        .map(|p| p.name.clone());
+    ctx.session_db
+        .update_session_model(
+            &id,
+            Some(&body.provider_id),
+            provider_name.as_deref(),
+            Some(&body.model_id),
+        )
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "session:model_updated",
+            json!({
+                "sessionId": id,
+                "providerId": body.provider_id,
+                "modelId": body.model_id,
+            }),
+        );
+    }
     Ok(Json(json!({ "updated": true })))
 }
 

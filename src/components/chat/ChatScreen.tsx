@@ -374,9 +374,9 @@ export default function ChatScreen({
       const [providerId, modelId] = key.split("::")
       if (!providerId || !modelId) return
       manualModelOverrideRef.current = { providerId, modelId }
-      await handleModelChange(key)
+      await handleModelChange(key, currentSessionId)
     },
-    [handleModelChange],
+    [handleModelChange, currentSessionId],
   )
 
   // Auto-show team panel when a team is created
@@ -621,13 +621,18 @@ export default function ChatScreen({
   useEffect(() => {
     const unlisteners: Array<() => void> = []
 
-    // Model switched from channel (/model)
+    // Session model pinned (from IM /model, set_session_model command, or
+    // PATCH /api/sessions/{id}/model). The IM channel may target a different
+    // session than the one the desktop UI currently has open — gate by
+    // sessionId so we don't apply a remote change to the wrong picker.
     unlisteners.push(
-      getTransport().listen("slash:model_switched", (payload) => {
-        const { providerId, modelId } = payload as {
+      getTransport().listen("session:model_updated", (payload) => {
+        const { sessionId, providerId, modelId } = payload as {
+          sessionId: string
           providerId: string
           modelId: string
         }
+        if (!sessionId || sessionId !== session.currentSessionId) return
         manualModelOverrideRef.current = { providerId, modelId }
         applyModelForDisplay(`${providerId}::${modelId}`)
       }),
@@ -1486,7 +1491,7 @@ export default function ChatScreen({
                   availableModels={availableModels}
                   activeModel={activeModel}
                   reasoningEffort={reasoningEffort}
-                  onModelChange={handleModelChange}
+                  onModelChange={handleManualModelChange}
                   onEffortChange={handleSessionEffortChange}
                   attachedFiles={stream.attachedFiles}
                   onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}

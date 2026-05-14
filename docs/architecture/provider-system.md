@@ -685,10 +685,22 @@ flowchart TD
   PLAN{"Plan Mode?"} -->|"是"| PLANCHAIN["[plan_model, primary, fallback1, ...]"]
   PLAN -->|"否"| CHAIN
   OVERRIDE{"model_override?"} -->|"是"| OVERCHAIN["[override, fallback1, fallback2, ...]"]
-  OVERRIDE -->|"否"| CHAIN
+  OVERRIDE -->|"否"| SESSPIN{"session.provider_id<br/>+ model_id?"}
+  SESSPIN -->|"是"| PINCHAIN["[session_pin, fallback1, fallback2, ...]"]
+  SESSPIN -->|"否"| CHAIN
 
   CHAIN --> ITERATE["for model in chain:<br/>build → restore → chat → save/fallback"]
 ```
+
+**chat 入口决策优先级（高到低）**（[`src-tauri/src/commands/chat.rs`](../../src-tauri/src/commands/chat.rs) / [`crates/ha-server/src/routes/chat.rs`](../../crates/ha-server/src/routes/chat.rs) 完全对称）：
+
+1. **Plan Mode `plan_model`**（仅 Planning 阶段，临时降级到便宜模型）
+2. **本轮显式 `model_override`**（前端 `useChatStream` 把当前 `activeModel` 作为 modelOverride 透传，IM 也可经由 `body.model_override`）
+3. **`sessions.provider_id` + `sessions.model_id`**（用户对该会话 pin 的模型；由 `set_session_model` Tauri 命令 / `PATCH /api/sessions/{id}/model` HTTP / IM `/model` 命令写入。chat_engine 每轮事后亦会回写当前实际使用的模型）
+4. **`agent.model.primary`**（Agent 配置的首选）
+5. **`AppConfig.active_model`**（应用全局默认，由「设置 → 模型」面板修改）
+
+第 3 项 session pin 是 v0.2.1 引入的——之前会话内切模型走 `set_active_model` 写 `AppConfig.active_model`，等于改全应用默认；现在只写当前会话行，跨会话不再相互影响。`set_session_model` 写入后 emit `session:model_updated` 事件（payload `{ sessionId, providerId, modelId }`），桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 UI，避免 IM 远程切换误更新本地正在看的另一个会话。
 
 ### 7.3 重试策略
 
