@@ -23,6 +23,7 @@ import MessageUrlPreviews from "./MessageUrlPreviews"
 import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
 import type {
+  ChatDisplayMode,
   Message,
   AgentSummaryForSidebar,
   ProfileRotationEvent,
@@ -61,6 +62,7 @@ export interface MessageBubbleProps {
     metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  displayMode?: ChatDisplayMode
 }
 
 const TOOL_JOB_AGENT_PREFIX = "tool_job:"
@@ -264,6 +266,7 @@ function MessageBubbleInner({
   onViewSystemPrompt,
   onOpenDiff,
   onResume,
+  displayMode = "bubble",
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
@@ -411,6 +414,99 @@ function MessageBubbleInner({
   // IM channels and historical sessions where the metadata wasn't captured.
   if (msg.planComment) {
     return <PlanCommentBubble selectedText={msg.planComment.selectedText} comment={msg.planComment.comment} />
+  }
+
+  if (displayMode === "timeline" && msg.role === "assistant") {
+    return (
+      <div
+        className={cn("relative w-full max-w-4xl", msg.fromAgentId && "flex items-start gap-2")}
+        onMouseEnter={() => onHover(index)}
+        onMouseLeave={() => {
+          onHover(null)
+          setDetailsIndex((prev) => (prev === index ? null : prev))
+        }}
+        onContextMenu={(e) => onContextMenu(e, index)}
+      >
+        {msg.fromAgentId && (
+          <div className="w-6 h-6 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-500 shrink-0 mt-1 text-[10px] overflow-hidden">
+            {fromAgent?.avatar ? (
+              <img
+                src={getTransport().resolveAssetUrl(fromAgent.avatar) ?? fromAgent.avatar}
+                className="w-full h-full object-cover"
+                alt=""
+              />
+            ) : fromAgent?.emoji ? (
+              <span>{fromAgent.emoji}</span>
+            ) : (
+              <Network className="w-3 h-3" />
+            )}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          {msg.fromAgentId && (
+            <div className="mb-0.5 text-[10px] font-medium text-purple-500">
+              {fromAgent?.name || msg.fromAgentId}
+            </div>
+          )}
+          {msg.channelInbound && (
+            <div className="mb-0.5 flex items-center gap-1 text-[10px] font-medium text-blue-500">
+              <ChannelIcon channelId={msg.channelInbound.channelId} className="w-2.5 h-2.5" />
+              <span>{msg.channelInbound.channelId}</span>
+              {msg.channelInbound.senderName && (
+                <span className="text-blue-400">· {msg.channelInbound.senderName}</span>
+              )}
+            </div>
+          )}
+          {msg.fallbackEvent && (
+            <div className="mb-1">
+              <FallbackBanner event={msg.fallbackEvent} />
+            </div>
+          )}
+          <AssistantContentBlocks
+            msg={msg}
+            loading={loading}
+            isLast={isLast}
+            executionState={executionState}
+            sessionId={sessionId}
+            onOpenPlanPanel={onOpenPlanPanel}
+            onSwitchSession={onSwitchSession}
+            onOpenDiff={onOpenDiff}
+            displayMode="timeline"
+          />
+          {modifiedFiles.length > 0 && (
+            <div className="ml-7">
+              <FileAttachments files={modifiedFiles} />
+            </div>
+          )}
+          {msg.timestamp && (
+            <div className="ml-7 mt-0.5 text-[10px] leading-none text-muted-foreground/60 select-none">
+              {formatMessageTime(msg.timestamp)}
+            </div>
+          )}
+          <div
+            className={cn(
+              "ml-7 mt-0.5 flex h-6 items-center gap-0.5",
+              (!msg.content || !(isHovered || isCopied)) && "invisible",
+            )}
+          >
+            {msg.content && (
+              <IconTip label={t("chat.copy")}>
+                <button
+                  onClick={() => onCopy(msg.content, index)}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                >
+                  {isCopied ? (
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </IconTip>
+            )}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

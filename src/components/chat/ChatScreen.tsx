@@ -5,7 +5,13 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Brain } from "lucide-react"
-import type { ActiveModel, AvailableModel, Message, SessionMode } from "@/types/chat"
+import type {
+  ActiveModel,
+  AvailableModel,
+  ChatDisplayMode,
+  Message,
+  SessionMode,
+} from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
 import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
@@ -45,6 +51,12 @@ import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { useProjects } from "./project/hooks/useProjects"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
+import {
+  CHAT_DISPLAY_MODE_EVENT,
+  normalizeChatDisplayMode,
+  readChatDisplayModePreference,
+  writeChatDisplayModePreference,
+} from "./chatDisplayModePreference"
 import type { Project, ProjectMeta } from "@/types/project"
 
 interface ChatScreenProps {
@@ -99,6 +111,43 @@ export default function ChatScreen({
     if (typeof window === "undefined") return
     window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
   }, [sidebarCollapsed])
+
+  const [defaultDisplayMode, setDefaultDisplayMode] = useState<ChatDisplayMode>(() =>
+    readChatDisplayModePreference(),
+  )
+  const [sessionDisplayModeOverrides, setSessionDisplayModeOverrides] = useState<
+    Record<string, ChatDisplayMode>
+  >({})
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<{ chatDisplayMode?: unknown }>("get_user_config")
+      .then((cfg) => {
+        const mode = normalizeChatDisplayMode(cfg.chatDisplayMode)
+        if (!mode || cancelled) return
+        setDefaultDisplayMode(mode)
+        writeChatDisplayModePreference(mode, { emit: false })
+      })
+      .catch((e: unknown) =>
+        logger.warn(
+          "settings",
+          "ChatScreen::loadDisplayMode",
+          "Failed to load chat display mode",
+          e,
+        ),
+      )
+
+    const handlePreferenceChange = (event: Event) => {
+      const mode = normalizeChatDisplayMode((event as CustomEvent).detail?.mode)
+      if (mode) setDefaultDisplayMode(mode)
+    }
+    window.addEventListener(CHAT_DISPLAY_MODE_EVENT, handlePreferenceChange)
+    return () => {
+      cancelled = true
+      window.removeEventListener(CHAT_DISPLAY_MODE_EVENT, handlePreferenceChange)
+    }
+  }, [])
 
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(520)
@@ -205,9 +254,38 @@ export default function ChatScreen({
   const handleNewChat = session.handleNewChat
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
+  const displayModeSessionKey = currentSessionId ?? "draft"
+  const displayMode =
+    sessionDisplayModeOverrides[displayModeSessionKey] ?? defaultDisplayMode
+  const previousDisplayModeSessionKeyRef = useRef(displayModeSessionKey)
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
   const handleSwitchSession = session.handleSwitchSession
+
+  useEffect(() => {
+    const previousKey = previousDisplayModeSessionKeyRef.current
+    if (previousKey === "draft" && currentSessionId) {
+      setSessionDisplayModeOverrides((prev) => {
+        const draftMode = prev.draft
+        if (!draftMode || prev[currentSessionId]) return prev
+        const next = { ...prev, [currentSessionId]: draftMode }
+        delete next.draft
+        return next
+      })
+    }
+    previousDisplayModeSessionKeyRef.current = displayModeSessionKey
+  }, [currentSessionId, displayModeSessionKey])
+
+  const handleDisplayModeChange = useCallback(
+    (mode: ChatDisplayMode) => {
+      setSessionDisplayModeOverrides((prev) =>
+        prev[displayModeSessionKey] === mode
+          ? prev
+          : { ...prev, [displayModeSessionKey]: mode },
+      )
+    },
+    [displayModeSessionKey],
+  )
 
   const handleSessionEffortChange = useCallback(
     async (effort: string) => {
@@ -1403,6 +1481,8 @@ export default function ChatScreen({
           onChangeAgent={handleChangeAgent}
           sidebarCollapsed={sidebarCollapsed}
           onExpandSidebar={() => setSidebarCollapsed(false)}
+          displayMode={displayMode}
+          onDisplayModeChange={handleDisplayModeChange}
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -1463,6 +1543,7 @@ export default function ChatScreen({
               onResume={(message) => {
                 void stream.handleSend(message)
               }}
+              displayMode={displayMode}
             />
 
             {/* Memory extraction toast — absolute-positioned above ChatInput

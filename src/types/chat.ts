@@ -7,6 +7,8 @@ export interface AgentInfo {
 
 export type ChatTurnStatus = "running" | "cancelling" | "completed" | "interrupted" | "failed"
 
+export type ChatDisplayMode = "bubble" | "timeline"
+
 export type ChatTurnInterruptReason =
   | "user_stop"
   | "shutdown"

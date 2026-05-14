@@ -15,7 +15,9 @@ import {
   X,
   FileText,
   FolderCheck,
+  ListChecks,
   Loader2,
+  MessagesSquare,
   Search,
   Send,
   Ghost,
@@ -36,6 +38,7 @@ import type {
   ActiveModel,
   SessionMeta,
   AgentSummaryForSidebar,
+  ChatDisplayMode,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 
@@ -91,6 +94,10 @@ interface ChatTitleBarProps {
   sidebarCollapsed?: boolean
   /** Expands the session sidebar from the title bar. */
   onExpandSidebar?: () => void
+  /** Message presentation mode in the main conversation. */
+  displayMode?: ChatDisplayMode
+  /** Switches between bubble and task timeline presentation. */
+  onDisplayModeChange?: (mode: ChatDisplayMode) => void
 }
 
 export default function ChatTitleBar({
@@ -121,6 +128,8 @@ export default function ChatTitleBar({
   onChangeAgent,
   sidebarCollapsed,
   onExpandSidebar,
+  displayMode = "bubble",
+  onDisplayModeChange,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -318,6 +327,37 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
+        {onDisplayModeChange && (
+          <IconTip
+            label={
+              displayMode === "timeline"
+                ? t("chat.viewModeBubble")
+                : t("chat.viewModeTimeline")
+            }
+          >
+            <button
+              className={cn(
+                "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
+                displayMode === "timeline" && "text-foreground",
+              )}
+              aria-pressed={displayMode === "timeline"}
+              aria-label={
+                displayMode === "timeline"
+                  ? t("chat.viewModeBubble")
+                  : t("chat.viewModeTimeline")
+              }
+              onClick={() =>
+                onDisplayModeChange(displayMode === "timeline" ? "bubble" : "timeline")
+              }
+            >
+              {displayMode === "timeline" ? (
+                <MessagesSquare className="h-4 w-4" />
+              ) : (
+                <ListChecks className="h-4 w-4" />
+              )}
+            </button>
+          </IconTip>
+        )}
         {/* In-session Search Button */}
         {currentSessionId && onOpenSearch && (
           <IconTip label={t("chat.sessionSearch")}>
