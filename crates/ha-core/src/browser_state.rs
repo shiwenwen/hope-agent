@@ -143,9 +143,15 @@ impl BrowserState {
             }
         });
 
+        // Derive the HTTP debug URL from the chromiumoxide-managed WS
+        // address so the MCP backend can hand it to chrome-devtools-mcp via
+        // `--browserUrl`. Without this, Auto mode's MCP retry path after
+        // managed launch has nothing to point at.
+        //
+        // `websocket_address` format is `ws://127.0.0.1:{port}/devtools/browser/{uuid}`.
+        self.connection_url = http_base_from_ws_url(browser.websocket_address());
         self.browser = Some(browser);
         self.handler_task = Some(handle);
-        self.connection_url = None;
         self.profile = profile.map(|s| s.to_string());
 
         tokio::task::yield_now().await;
@@ -328,6 +334,14 @@ pub async fn ensure_connected() -> anyhow::Result<()> {
     })
 }
 
+/// Read the current Chrome CDP debug URL (e.g. `http://127.0.0.1:9222`) if
+/// the browser is connected. Used by [`crate::browser::mcp_backend`] to
+/// hand the URL to chrome-devtools-mcp via `--browserUrl`.
+pub async fn current_connection_url() -> Option<String> {
+    let state = get_browser_state().lock().await;
+    state.connection_url.clone()
+}
+
 /// Like `ensure_connected`, but falls back to launching a managed Chrome
 /// instance for workflows that can safely open one on demand.
 pub async fn ensure_connected_or_launch_managed() -> anyhow::Result<BrowserReadyMode> {
@@ -367,18 +381,44 @@ pub async fn ensure_connected_or_launch_managed() -> anyhow::Result<BrowserReady
     }
 }
 
+/// Convert a chromiumoxide websocket address (e.g.
+/// `ws://127.0.0.1:54321/devtools/browser/abc123`) into the HTTP debug URL
+/// form (`http://127.0.0.1:54321`) that chrome-devtools-mcp expects via
+/// `--browserUrl`. Returns `None` on unexpected shapes — caller treats
+/// that as "no MCP, fall back to CDP".
+fn http_base_from_ws_url(ws: &str) -> Option<String> {
+    let after_scheme = ws
+        .strip_prefix("ws://")
+        .or_else(|| ws.strip_prefix("wss://"))?;
+    let host = after_scheme.split('/').next()?; // "127.0.0.1:54321"
+    if host.is_empty() {
+        return None;
+    }
+    let scheme = if ws.starts_with("wss://") {
+        "https"
+    } else {
+        "http"
+    };
+    Some(format!("{scheme}://{host}"))
+}
+
 // ── Helper: Discover WebSocket URL ───────────────────────────────
 
-/// Fetch the WebSocket debugger URL from Chrome's /json/version endpoint
-async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
+/// Fetch Chrome's `/json/version` JSON. Uses the hope-agent proxy-aware
+/// reqwest builder so corporate-proxy users see the same probe behaviour
+/// here, in the settings doctor banner, and anywhere else that wants to
+/// know whether a Chrome is reachable. `timeout_secs` lets the doctor
+/// path use a tighter 2s budget vs. the connect path's 5s.
+pub async fn fetch_chrome_json_version(
+    base_url: &str,
+    timeout_secs: u64,
+) -> anyhow::Result<serde_json::Value> {
     let version_url = format!("{}/json/version", base_url.trim_end_matches('/'));
-
     let client = crate::provider::apply_proxy_for_url(
-        reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)),
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)),
         &version_url,
     )
     .build()?;
-
     let resp = client.get(&version_url).send().await.map_err(|e| {
         anyhow::anyhow!(
             "Cannot reach Chrome at {}. Is Chrome running with --remote-debugging-port? Error: {}",
@@ -386,12 +426,14 @@ async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
             e
         )
     })?;
-
-    let body: serde_json::Value = resp
-        .json()
+    resp.json::<serde_json::Value>()
         .await
-        .map_err(|e| anyhow::anyhow!("Invalid response from Chrome: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid response from Chrome: {}", e))
+}
 
+/// Fetch the WebSocket debugger URL from Chrome's /json/version endpoint
+async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
+    let body = fetch_chrome_json_version(base_url, 5).await?;
     body.get("webSocketDebuggerUrl")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
@@ -405,7 +447,21 @@ async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::build_launch_config;
+    use super::{build_launch_config, http_base_from_ws_url};
+
+    #[test]
+    fn http_base_from_ws_url_strips_scheme_and_path() {
+        assert_eq!(
+            http_base_from_ws_url("ws://127.0.0.1:54321/devtools/browser/abc"),
+            Some("http://127.0.0.1:54321".to_string())
+        );
+        assert_eq!(
+            http_base_from_ws_url("wss://chrome.host:443/devtools/browser/xyz"),
+            Some("https://chrome.host:443".to_string())
+        );
+        assert_eq!(http_base_from_ws_url("ws:///bad"), None);
+        assert_eq!(http_base_from_ws_url("http://nope.example/"), None);
+    }
 
     fn test_executable_path() -> String {
         std::env::current_exe()

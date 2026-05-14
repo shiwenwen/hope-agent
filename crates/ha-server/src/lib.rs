@@ -1146,6 +1146,19 @@ fn build_router_with_cors(
         .route("/browser/launch", post(routes::browser::launch))
         .route("/browser/connect", post(routes::browser::connect))
         .route("/browser/disconnect", post(routes::browser::disconnect))
+        .route(
+            "/browser/capture-frame",
+            post(routes::browser::capture_frame),
+        )
+        .route(
+            "/browser/spawn-user-chrome",
+            post(routes::browser::spawn_user_chrome),
+        )
+        .route("/browser/doctor", get(routes::browser::doctor))
+        .route(
+            "/browser/config",
+            get(routes::browser::get_config).post(routes::browser::set_config),
+        )
         // Subagent
         .route("/subagent/runs", get(routes::subagent::list_subagent_runs))
         .route(

@@ -17,6 +17,7 @@ import HandoverDialog from "@/components/chat/HandoverDialog"
 import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
+import BrowserPanel from "@/components/chat/BrowserPanel"
 import { TeamPanel } from "@/components/team/TeamPanel"
 import TeamMiniIndicator from "@/components/team/TeamMiniIndicator"
 import { useActiveTeam } from "@/components/team/useTeam"
@@ -103,9 +104,17 @@ export default function ChatScreen({
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(520)
   const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
+  const [browserPanelWidth] = useState(480)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
+
+  // Browser live-mirror panel. Auto-opens on the **first** `browser:frame`
+  // push of a session. After the user manually closes it, further frames in
+  // the same session never re-pop the panel — `browserPanelDismissedRef`
+  // tracks the dismissal until a session switch resets it.
+  const [showBrowserPanel, setShowBrowserPanel] = useState(false)
+  const browserPanelDismissedRef = useRef(false)
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
@@ -1223,14 +1232,51 @@ export default function ChatScreen({
     [diffPanel],
   )
 
-  // Three right-side panels (PlanPanel / CanvasPanel / DiffPanel) are
-  // mutually exclusive at the visual level — opening one closes the others
-  // but keeps their internal state so re-toggling restores the prior view.
+  // Right-side panels (PlanPanel / CanvasPanel / DiffPanel / BrowserPanel)
+  // are mutually exclusive at the visual level — opening one closes the
+  // others but keeps their internal state so re-toggling restores the prior
+  // view.
   useEffect(() => {
     if (diffPanel.showPanel) {
       planMode.setShowPanel(false)
+      setShowBrowserPanel(false)
     }
   }, [diffPanel.showPanel, planMode])
+
+  useEffect(() => {
+    if (showBrowserPanel) {
+      planMode.setShowPanel(false)
+      diffPanel.closeDiff?.()
+      // CanvasPanel owns its own `canvas` state — fire a window event so it
+      // can clear itself. Keeps the mutex contract this whole effect block
+      // is documenting.
+      window.dispatchEvent(new CustomEvent("hope-agent:close-canvas"))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBrowserPanel])
+
+  // Reset the dismissal flag (and any open panel state) on session switch —
+  // each session gets a fresh chance to auto-open the BrowserPanel.
+  useEffect(() => {
+    browserPanelDismissedRef.current = false
+    setShowBrowserPanel(false)
+  }, [session.currentSessionId])
+
+  // Auto-open the BrowserPanel only on the first `browser:frame` of a session
+  // and only if the user hasn't already dismissed it.
+  useEffect(() => {
+    const unlisten = getTransport().listen("browser:frame", () => {
+      if (browserPanelDismissedRef.current) return
+      setShowBrowserPanel((prev) => (prev ? prev : true))
+    })
+    return () => {
+      try {
+        unlisten?.()
+      } catch {
+        // ignore
+      }
+    }
+  }, [])
 
   return (
     <>
@@ -1594,6 +1640,18 @@ export default function ChatScreen({
             onPanelWidthChange={setCanvasPanelWidth}
             currentSessionId={currentSessionId}
           />
+
+          {/* Browser live-mirror panel — open on first `browser:frame` push,
+              close-only by user. Mutex with Plan / Diff / Canvas above. */}
+          {showBrowserPanel && (
+            <BrowserPanel
+              panelWidth={browserPanelWidth}
+              onClose={() => {
+                browserPanelDismissedRef.current = true
+                setShowBrowserPanel(false)
+              }}
+            />
+          )}
 
           {/* Team Panel */}
           {activeTeamId && showTeamPanel && (

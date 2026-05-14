@@ -232,6 +232,15 @@ pub fn browser_profile_dir(profile_name: &str) -> Result<PathBuf> {
     Ok(browser_profiles_dir()?.join(profile_name))
 }
 
+/// User-attach Chrome profile directory: ~/.hope-agent/browser/user-attach/
+///
+/// Used by the "Take over user Chrome" path in settings: hope-agent spawns
+/// a Chrome instance pointed at this directory so the user's daily browsing
+/// (their real `Default` / per-OS profile) is never touched.
+pub fn browser_user_attach_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser").join("user-attach"))
+}
+
 // ── Generated Images ────────────────────────────────────────────────
 
 /// Generated images directory: ~/.hope-agent/generated-images/

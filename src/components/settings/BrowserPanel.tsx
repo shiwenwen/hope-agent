@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
+import { RadioPills } from "@/components/ui/radio-pills"
 import {
   Select,
   SelectTrigger,
@@ -37,6 +38,9 @@ import {
   CircleDot,
   CircleOff,
   ExternalLink,
+  CheckCircle2,
+  AlertTriangle,
+  Sparkles,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
@@ -71,6 +75,37 @@ interface LaunchOptions {
   headless?: boolean
 }
 
+type BrowserMode = "managed" | "user_attach"
+type BackendPref = "auto" | "cdp" | "mcp"
+
+interface BrowserConfig {
+  backend?: BackendPref
+  defaultMode?: BrowserMode
+  userAttach?: { lastSpawnedPort?: number }
+}
+
+interface ProbeUserChromeReport {
+  found: boolean
+  browserUrl: string
+  version?: string
+}
+
+interface BrowserDoctorReport {
+  nodeAvailable: boolean
+  nodeVersion?: string
+  activeBackend?: string
+  preference: BackendPref
+  probe: ProbeUserChromeReport
+  chromeAlreadyRunning: boolean
+}
+
+interface SpawnUserChromeResult {
+  port: number
+  debugUrl: string
+  userDataDir: string
+  chromeWasAlreadyRunning: boolean
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 
 function formatRelative(
@@ -93,7 +128,9 @@ export default function BrowserPanel() {
   const [status, setStatus] = useState<BrowserStatus | null>(null)
   const [profiles, setProfiles] = useState<BrowserProfileInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<null | "launch" | "connect" | "disconnect">(null)
+  const [busy, setBusy] = useState<
+    null | "launch" | "connect" | "disconnect" | "spawn-user-chrome"
+  >(null)
   const [error, setError] = useState<string | null>(null)
 
   // Launch form
@@ -111,23 +148,56 @@ export default function BrowserPanel() {
   // Delete confirm
   const [pendingDelete, setPendingDelete] = useState<BrowserProfileInfo | null>(null)
 
+  // New: Mode + Backend pref + doctor state
+  const [browserCfg, setBrowserCfg] = useState<BrowserConfig>({
+    backend: "auto",
+    defaultMode: "managed",
+  })
+  const [savingCfg, setSavingCfg] = useState<boolean>(false)
+  const [doctor, setDoctor] = useState<BrowserDoctorReport | null>(null)
+  // `null` when closed; carries the at-open snapshot of `chromeAlreadyRunning`
+  // so the modal copy doesn't flicker if the user takes their time confirming.
+  const [confirmSpawn, setConfirmSpawn] = useState<{ chromeAlreadyRunning: boolean } | null>(null)
+
   const refresh = useCallback(async () => {
-    try {
-      const [st, pf] = await Promise.all([
-        getTransport().call<BrowserStatus>("browser_get_status"),
-        getTransport().call<BrowserProfileInfo[]>("browser_list_profiles"),
-      ])
-      setStatus(st)
-      setProfiles(pf)
-      if (!selectedProfile && pf.length > 0) {
-        setSelectedProfile(pf[0].name)
-      }
-    } catch (e) {
-      logger.error("settings", "BrowserPanel", `Failed to load status: ${e}`)
-      setError(String(e))
-    } finally {
-      setLoading(false)
+    // Critical path: status / profiles / config must render even if the
+    // best-effort doctor probe fails. Use `allSettled` so a 2s probe timeout
+    // or a `pgrep` hiccup can't blank the whole panel.
+    const [st, pf, cfg, doc] = await Promise.allSettled([
+      getTransport().call<BrowserStatus>("browser_get_status"),
+      getTransport().call<BrowserProfileInfo[]>("browser_list_profiles"),
+      getTransport().call<BrowserConfig>("browser_get_config"),
+      getTransport().call<BrowserDoctorReport>("browser_doctor"),
+    ])
+    const firstError = [st, pf, cfg, doc].find(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    )
+    if (st.status === "fulfilled") setStatus(st.value)
+    if (pf.status === "fulfilled") setProfiles(pf.value)
+    if (cfg.status === "fulfilled") {
+      const c = cfg.value
+      setBrowserCfg({
+        backend: (c.backend ?? "auto") as BackendPref,
+        defaultMode: (c.defaultMode ?? "managed") as BrowserMode,
+        userAttach: c.userAttach,
+      })
     }
+    if (doc.status === "fulfilled") setDoctor(doc.value)
+    if (pf.status === "fulfilled" && !selectedProfile && pf.value.length > 0) {
+      setSelectedProfile(pf.value[0].name)
+    }
+    if (firstError) {
+      logger.error("settings", "BrowserPanel", `Partial refresh failure: ${firstError.reason}`)
+      // Only surface as fatal if the core triplet (status / profiles / config) failed.
+      if (
+        st.status === "rejected" ||
+        pf.status === "rejected" ||
+        cfg.status === "rejected"
+      ) {
+        setError(String(firstError.reason))
+      }
+    }
+    setLoading(false)
   }, [selectedProfile])
 
   useEffect(() => {
@@ -164,9 +234,10 @@ export default function BrowserPanel() {
     )
   }
 
-  const onConnect = () => {
+  const onConnect = (url?: string) => {
+    const target = (url ?? connectUrl).trim()
     void runAction("connect", () =>
-      getTransport().call<BrowserStatus>("browser_connect", { url: connectUrl.trim() }),
+      getTransport().call<BrowserStatus>("browser_connect", { url: target }),
     )
   }
 
@@ -214,6 +285,88 @@ export default function BrowserPanel() {
     }
   }
 
+  const persistCfg = async (next: BrowserConfig) => {
+    // Radio bursts produce same-value clicks; short-circuit so we don't
+    // hammer config saves + autosave backups + toast spam.
+    if (
+      next.backend === browserCfg.backend &&
+      next.defaultMode === browserCfg.defaultMode
+    ) {
+      return false
+    }
+    setBrowserCfg(next)
+    setSavingCfg(true)
+    try {
+      await getTransport().call("browser_set_config", { config: next })
+      return true
+    } catch (e) {
+      logger.error("settings", "BrowserPanel", `set_config failed: ${e}`)
+      setError(String(e))
+      return false
+    } finally {
+      setSavingCfg(false)
+    }
+  }
+
+  const onModeChange = (mode: BrowserMode) => {
+    void persistCfg({ ...browserCfg, defaultMode: mode })
+  }
+
+  const onBackendChange = (pref: BackendPref) => {
+    void (async () => {
+      const changed = await persistCfg({ ...browserCfg, backend: pref })
+      if (changed) {
+        toast(t("settings.browser.backendChangeHint"), {
+          action: {
+            label: t("settings.browser.reconnectNow"),
+            onClick: () => onDisconnect(),
+          },
+        })
+      }
+    })()
+  }
+
+  const openConfirmSpawn = () => {
+    // Use the cached doctor snapshot for the modal copy. The doctor refresh
+    // runs on panel mount + every user "Refresh" click, so this is rarely
+    // stale; even if it is, the spawn itself is idempotent.
+    setConfirmSpawn({ chromeAlreadyRunning: doctor?.chromeAlreadyRunning ?? false })
+  }
+
+  const onSpawnUserChrome = async () => {
+    setBusy("spawn-user-chrome")
+    setError(null)
+    try {
+      const result = await getTransport().call<SpawnUserChromeResult>(
+        "browser_spawn_user_chrome",
+        { args: {} },
+      )
+      toast.success(t("settings.browser.spawnUserChrome.spawned", { port: result.port }))
+      setConfirmSpawn(null)
+      // Poll the debug port instead of guessing a fixed sleep — Chrome cold
+      // start ranges from a few hundred ms (warm disk) to several seconds
+      // (cold + large user-data-dir). 10 × 300ms = 3s upper bound is enough
+      // for any reasonable boot; if Chrome never comes up the user sees
+      // the existing error path on Connect.
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 300))
+        try {
+          const doc = await getTransport().call<BrowserDoctorReport>("browser_doctor")
+          if (doc.probe.found) break
+        } catch {
+          // probe failed transiently; keep polling
+        }
+      }
+      onConnect(result.debugUrl)
+      void refresh()
+    } catch (e) {
+      logger.error("settings", "BrowserPanel", `spawn-user-chrome failed: ${e}`)
+      setError(String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const connected = status?.connected ?? false
 
   const statusText = useMemo(() => {
@@ -255,6 +408,11 @@ export default function BrowserPanel() {
                 <div className="text-xs text-muted-foreground truncate">{statusText}</div>
               )}
             </div>
+            {doctor?.activeBackend && (
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground bg-secondary/60 px-1.5 py-0.5 rounded">
+                {doctor.activeBackend}
+              </span>
+            )}
             <IconTip label={t("settings.browser.refresh")}>
               <span className="inline-flex">
                 <Button
@@ -284,6 +442,39 @@ export default function BrowserPanel() {
               {error}
             </div>
           )}
+
+          {/* Mode selector */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.browser.modeLabel")}
+            </h3>
+            <RadioPills<BrowserMode>
+              value={(browserCfg.defaultMode ?? "managed") as BrowserMode}
+              cols="grid-cols-2"
+              options={[
+                {
+                  value: "managed",
+                  label: t("settings.browser.modeStandalone"),
+                },
+                {
+                  value: "user_attach",
+                  label: t("settings.browser.modeUserChrome"),
+                },
+              ]}
+              onChange={onModeChange}
+            />
+            <p className="text-xs text-muted-foreground">
+              {browserCfg.defaultMode === "user_attach"
+                ? t("settings.browser.modeUserChromeHint")
+                : t("settings.browser.modeStandaloneHint")}
+            </p>
+            {savingCfg && (
+              <p className="text-[11px] text-muted-foreground">
+                <Loader2 className="inline h-3 w-3 animate-spin mr-1" />
+                {t("common.saving")}
+              </p>
+            )}
+          </div>
 
           {/* Active tabs (when connected) */}
           {connected && status && status.tabs.length > 0 && (
@@ -483,7 +674,7 @@ export default function BrowserPanel() {
             )}
           </div>
 
-          {/* Advanced: connect to existing */}
+          {/* Connect / Doctor section */}
           <div className="space-y-4">
             <div>
               <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
@@ -493,6 +684,61 @@ export default function BrowserPanel() {
                 {t("settings.browser.connectHelp")}
               </p>
             </div>
+
+            {/* Doctor banner */}
+            {doctor?.probe.found ? (
+              <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2.5 flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium">
+                    {t("settings.browser.doctorChromeFound", {
+                      url: doctor.probe.browserUrl,
+                    })}
+                  </div>
+                  {doctor.probe.version && (
+                    <div className="text-xs text-muted-foreground truncate">
+                      {doctor.probe.version}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onConnect(doctor.probe.browserUrl)}
+                  disabled={busy !== null}
+                >
+                  <Plug className="h-3.5 w-3.5" />
+                  <span className="ml-1.5">{t("settings.browser.doctorConnect")}</span>
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 flex items-center gap-3 text-sm">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium">{t("settings.browser.doctorChromeMissing")}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("settings.browser.doctorChromeMissingHint")}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void openConfirmSpawn()}
+                  disabled={busy !== null}
+                >
+                  {busy === "spawn-user-chrome" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  <span className="ml-1.5">
+                    {t("settings.browser.doctorLaunchUserChrome")}
+                  </span>
+                </Button>
+              </div>
+            )}
+
+            {/* Manual connect URL */}
             <div className="flex gap-2 items-end">
               <div className="flex-1 space-y-1.5">
                 <label className="text-sm font-medium">
@@ -506,7 +752,7 @@ export default function BrowserPanel() {
               </div>
               <Button
                 variant="outline"
-                onClick={onConnect}
+                onClick={() => onConnect()}
                 disabled={busy !== null || !connectUrl.trim()}
                 className="shrink-0"
               >
@@ -518,6 +764,33 @@ export default function BrowserPanel() {
                 <span className="ml-1.5">{t("settings.browser.connect")}</span>
               </Button>
             </div>
+          </div>
+
+          {/* Backend section */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.browser.backendLabel")}
+            </h3>
+            <RadioPills<BackendPref>
+              value={(browserCfg.backend ?? "auto") as BackendPref}
+              cols="grid-cols-3"
+              options={[
+                { value: "auto", label: t("settings.browser.backendAuto") },
+                { value: "cdp", label: t("settings.browser.backendForceCdp") },
+                { value: "mcp", label: t("settings.browser.backendForceMcp") },
+              ]}
+              onChange={onBackendChange}
+            />
+            {doctor && (
+              <p className="text-xs text-muted-foreground">
+                {doctor.nodeAvailable && doctor.nodeVersion
+                  ? t("settings.browser.nodeDetected", { version: doctor.nodeVersion })
+                  : t("settings.browser.nodeMissing")}
+              </p>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              {t("settings.browser.backendRestartHint")}
+            </p>
           </div>
         </div>
       </div>
@@ -539,6 +812,27 @@ export default function BrowserPanel() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {t("settings.browser.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!confirmSpawn} onOpenChange={(o) => !o && setConfirmSpawn(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("settings.browser.spawnUserChrome.confirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmSpawn?.chromeAlreadyRunning
+                ? t("settings.browser.spawnUserChrome.confirmBodyRunning")
+                : t("settings.browser.spawnUserChrome.confirmBodyIdle")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void onSpawnUserChrome()}>
+              {t("settings.browser.spawnUserChrome.continue")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

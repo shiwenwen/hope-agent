@@ -110,6 +110,33 @@ pub(super) fn find_chrome_executable() -> Option<PathBuf> {
     None
 }
 
+pub(super) async fn chrome_already_running() -> bool {
+    // tasklist's CSV output is one line per matching process. `/FI` (filter)
+    // accepts simple wildcards. We check the three common bin names.
+    for name in ["chrome.exe", "msedge.exe", "chromium.exe"] {
+        let filter = format!("IMAGENAME eq {name}");
+        let output = match tokio::process::Command::new("tasklist")
+            .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+            .kill_on_drop(true)
+            .output()
+            .await
+        {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // tasklist prints "INFO: No tasks ..." when nothing matches; CSV
+        // lines start with a quote when matches exist.
+        if stdout.trim_start().starts_with('"') {
+            return true;
+        }
+    }
+    false
+}
+
 pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::File>> {
     use std::io::ErrorKind;
 

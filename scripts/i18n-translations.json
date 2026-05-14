@@ -1,6 +1,19 @@
 {
   "ja": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "ブラウザバックエンド：{{backend}}",
+        "captureFailed": "フレーム取得に失敗、次のフレームを待っています",
+        "close": "パネルを閉じる",
+        "idleHint": "ブラウザはまだ起動していません。設定 → ブラウザから開始してください。",
+        "idleTitle": "ブラウザミラー",
+        "openExternal": "システムブラウザで開く",
+        "openExternalShort": "開く",
+        "refresh": "今すぐ更新",
+        "resumeMirror": "ミラーを再開",
+        "takeOver": "操作を引き継ぐ",
+        "takeOverHint": "1Hz の自動更新を停止し、Chrome を直接操作します"
+      },
       "copy": "コピー",
       "details": "詳細",
       "duration": "所要時間",
@@ -840,6 +853,19 @@
   },
   "ko": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
+        "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",
+        "close": "패널 닫기",
+        "idleHint": "브라우저가 아직 실행되지 않았습니다. 설정 → 브라우저에서 시작하세요.",
+        "idleTitle": "브라우저 미러",
+        "openExternal": "시스템 브라우저에서 열기",
+        "openExternalShort": "열기",
+        "refresh": "지금 새로고침",
+        "resumeMirror": "미러 다시 시작",
+        "takeOver": "직접 조작",
+        "takeOverHint": "1Hz 자동 새로고침을 일시 중지하고 Chrome을 직접 조작합니다"
+      },
       "copy": "복사",
       "details": "상세",
       "duration": "소요 시간",
@@ -1679,6 +1705,19 @@
   },
   "zh-TW": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
+        "captureFailed": "截圖失敗，等待下一幀",
+        "close": "關閉面板",
+        "idleHint": "瀏覽器尚未啟動。打開設定 → 瀏覽器開始。",
+        "idleTitle": "瀏覽器鏡像",
+        "openExternal": "在系統瀏覽器中開啟",
+        "openExternalShort": "外部開啟",
+        "refresh": "立即重新整理",
+        "resumeMirror": "繼續鏡像",
+        "takeOver": "我來操作",
+        "takeOverHint": "暫停 1Hz 自動重新整理，你在 Chrome 中手動操作"
+      },
       "copy": "複製",
       "details": "詳情",
       "duration": "耗時",
@@ -2518,6 +2557,19 @@
   },
   "tr": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "Tarayıcı arka ucu: {{backend}}",
+        "captureFailed": "Kare yakalanamadı, sonraki kare bekleniyor",
+        "close": "Paneli kapat",
+        "idleHint": "Tarayıcı henüz başlatılmadı. Ayarlar → Tarayıcı'dan başlatın.",
+        "idleTitle": "Tarayıcı aynası",
+        "openExternal": "Sistem tarayıcısında aç",
+        "openExternalShort": "Aç",
+        "refresh": "Şimdi yenile",
+        "resumeMirror": "Aynayı sürdür",
+        "takeOver": "Devral",
+        "takeOverHint": "1Hz otomatik yenilemeyi duraklatın ve Chrome'u kendiniz kontrol edin"
+      },
       "copy": "Kopyala",
       "details": "Ayrıntılar",
       "duration": "Süre",
@@ -3357,6 +3409,19 @@
   },
   "vi": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
+        "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",
+        "close": "Đóng bảng",
+        "idleHint": "Trình duyệt chưa khởi động. Vào Cài đặt → Trình duyệt để bắt đầu.",
+        "idleTitle": "Bản phản chiếu trình duyệt",
+        "openExternal": "Mở trong trình duyệt hệ thống",
+        "openExternalShort": "Mở",
+        "refresh": "Làm mới ngay",
+        "resumeMirror": "Tiếp tục phản chiếu",
+        "takeOver": "Tiếp quản",
+        "takeOverHint": "Tạm dừng làm mới 1Hz để bạn tự thao tác Chrome"
+      },
       "copy": "Sao chép",
       "details": "Chi tiết",
       "duration": "Thời gian",
@@ -4196,6 +4261,19 @@
   },
   "pt": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "Backend do navegador: {{backend}}",
+        "captureFailed": "Falha ao capturar quadro, aguardando o próximo",
+        "close": "Fechar painel",
+        "idleHint": "O navegador ainda não está em execução. Configurações → Navegador para iniciar.",
+        "idleTitle": "Espelho do navegador",
+        "openExternal": "Abrir no navegador do sistema",
+        "openExternalShort": "Abrir",
+        "refresh": "Atualizar agora",
+        "resumeMirror": "Retomar espelho",
+        "takeOver": "Assumir",
+        "takeOverHint": "Pausa a atualização de 1Hz enquanto você opera o Chrome"
+      },
       "copy": "Copiar",
       "details": "Detalhes",
       "duration": "Duração",
@@ -5035,6 +5113,19 @@
   },
   "ru": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "Бэкенд браузера: {{backend}}",
+        "captureFailed": "Не удалось получить кадр, ожидание следующего",
+        "close": "Закрыть панель",
+        "idleHint": "Браузер ещё не запущен. Откройте Настройки → Браузер, чтобы начать.",
+        "idleTitle": "Зеркало браузера",
+        "openExternal": "Открыть в системном браузере",
+        "openExternalShort": "Открыть",
+        "refresh": "Обновить сейчас",
+        "resumeMirror": "Возобновить зеркало",
+        "takeOver": "Взять управление",
+        "takeOverHint": "Приостановить автообновление 1 Гц, пока вы управляете Chrome сами"
+      },
       "copy": "Копировать",
       "details": "Подробности",
       "duration": "Длительность",
@@ -5874,6 +5965,19 @@
   },
   "ar": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "خلفية المتصفح: {{backend}}",
+        "captureFailed": "فشل التقاط الإطار، بانتظار التالي",
+        "close": "إغلاق اللوحة",
+        "idleHint": "المتصفح لم يبدأ بعد. افتح الإعدادات ← المتصفح للبدء.",
+        "idleTitle": "مرآة المتصفح",
+        "openExternal": "افتح في متصفح النظام",
+        "openExternalShort": "فتح",
+        "refresh": "تحديث الآن",
+        "resumeMirror": "استئناف المرآة",
+        "takeOver": "تولّى التحكم",
+        "takeOverHint": "إيقاف التحديث التلقائي 1 هرتز أثناء تشغيل Chrome بنفسك"
+      },
       "copy": "نسخ",
       "details": "التفاصيل",
       "duration": "المدة",
@@ -6713,6 +6817,19 @@
   },
   "es": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "Backend del navegador: {{backend}}",
+        "captureFailed": "Fallo al capturar el fotograma, esperando el siguiente",
+        "close": "Cerrar panel",
+        "idleHint": "El navegador aún no se ha iniciado. Ajustes → Navegador para empezar.",
+        "idleTitle": "Espejo del navegador",
+        "openExternal": "Abrir en el navegador del sistema",
+        "openExternalShort": "Abrir",
+        "refresh": "Refrescar ahora",
+        "resumeMirror": "Reanudar espejo",
+        "takeOver": "Tomar el control",
+        "takeOverHint": "Pausa la actualización automática de 1Hz mientras tú controlas Chrome"
+      },
       "copy": "Copiar",
       "details": "Detalles",
       "duration": "Duración",
@@ -7552,6 +7669,19 @@
   },
   "ms": {
     "chat": {
+      "browserPanel": {
+        "backendBadgeTooltip": "Backend pelayar: {{backend}}",
+        "captureFailed": "Gagal menangkap bingkai, menunggu yang seterusnya",
+        "close": "Tutup panel",
+        "idleHint": "Pelayar belum dimulakan. Tetapan → Pelayar untuk memulakan.",
+        "idleTitle": "Cermin pelayar",
+        "openExternal": "Buka dalam pelayar sistem",
+        "openExternalShort": "Buka",
+        "refresh": "Muat semula sekarang",
+        "resumeMirror": "Sambung semula cermin",
+        "takeOver": "Ambil alih",
+        "takeOverHint": "Jeda penyegaran automatik 1Hz semasa anda mengawal Chrome sendiri"
+      },
       "copy": "Salin",
       "details": "Butiran",
       "duration": "Tempoh",

@@ -27,6 +27,7 @@ pub mod agent_loader;
 pub mod ask_user;
 pub mod awareness;
 pub mod backup;
+pub mod browser;
 pub mod browser_state;
 pub mod browser_ui;
 pub mod canvas_db;

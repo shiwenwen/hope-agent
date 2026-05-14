@@ -34,7 +34,56 @@ pub(super) fn default_shell_command_tokio(cmdline: &str) -> tokio::process::Comm
 }
 
 pub(super) fn find_chrome_executable() -> Option<PathBuf> {
+    // macOS-specific .app bundles first; if present, prefer Chrome over
+    // Chromium (matches the user's likely daily browser).
+    #[cfg(target_os = "macos")]
+    {
+        for candidate in [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ] {
+            let p = PathBuf::from(candidate);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    // Linux + BSD: `which` the well-known binary names. Defensive — these
+    // distros often install Chromium under different bin names.
+    for name in [
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "microsoft-edge",
+    ] {
+        if let Ok(p) = which::which(name) {
+            return Some(p);
+        }
+    }
     None
+}
+
+pub(super) async fn chrome_already_running() -> bool {
+    // `pgrep -f` matches against the full command line. The pattern needs
+    // to be broad enough to catch macOS's `Google Chrome` (with space) and
+    // Linux's `chrome` / `chromium-browser`, but narrow enough that random
+    // tools with "chrome" in their name don't trip it.
+    let output = match tokio::process::Command::new("pgrep")
+        .args([
+            "-f",
+            "Google Chrome|chrome-stable|chromium|chromium-browser|/chrome\\b",
+        ])
+        .kill_on_drop(true)
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    // `pgrep` exits 0 when at least one match, 1 when none, >1 on error.
+    output.status.success() && !output.stdout.is_empty()
 }
 
 pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::File>> {

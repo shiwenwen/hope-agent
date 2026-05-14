@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **浏览器工具 27 → 8 action 收敛**：原来散乱的 `connect / launch / navigate / take_snapshot / click / fill / fill_form / hover / drag / press_key / upload_file / evaluate / wait_for / handle_dialog / resize / scroll / list_profiles / save_pdf` 等 27 个 action 全部下沉到 8 个高层 action（`status / profile / tabs / navigate / snapshot / act / observe / control`）。工具默认进 deferred 池（`tool_search` 按需暴露），常态不占 system prompt。配套新 [`ha-browser` bundled skill](skills/ha-browser/SKILL.md) 教模型标准 `status → tabs → snapshot → act` loop、stale-ref 自恢复、登录/2FA/captcha 阻塞情形清单。
+- **双 backend 架构**：浏览器自动化底层在 `chromiumoxide` 直连 CDP 与 Google 官方 `chrome-devtools-mcp` 之间自动切换——检测到 Node.js ≥ 18 时优先用 MCP backend（复用 Google 处理过的 Chrome 单实例锁、自动重连、stale-ref recovery 等工程细节），缺 Node 自动降级到直连 CDP。LLM 看到的 ref / op / 错误语义完全一致，BrowserPanel 右上角 `MCP` / `CDP` 角标显示当前 backend。
+
 ### Added
 
 - **Dashboard 新增「本地模型」面板**：一眼看清 Ollama 运行态、当前加载的模型与 VRAM 占用、硬件预算余量、本地模型在所选时间窗内的调用次数 / Token / 平均 TTFT / 错误率，以及在跑的安装 / 拉取 / 预热后台任务；面板只读，模型管理仍走「设置 → 本地 LLM 助手」单一入口。
+- **实时 BrowserPanel（chat 右侧镜像）**：agent 操作浏览器时右侧自动弹出实时镜像面板，每次 `act` / `navigate` / `tabs` 后立即 emit `browser:frame` 事件推一帧，配 1 秒兜底轮询捕捉用户手动操作。新 `browser_capture_frame` Tauri 命令 + HTTP `POST /api/browser/capture-frame` 同时暴露。面板支持「我来操作」按钮暂停自动刷新让用户手动接管 Chrome。与 PlanPanel / DiffPanel / CanvasPanel 视觉互斥。详见 [`docs/architecture/browser.md`](docs/architecture/browser.md)。
+- **SSRF 守卫覆盖所有浏览器出站入口**：`navigate.go` / `tabs.new url=` / `profile.connect url=`（CDP endpoint）/ `control.evaluate`（regex 扫脚本里的 URL 字面量）全部经 `security::ssrf::check_url`，防 agent 被 prompt injection 后让浏览器访问 cloud metadata 端点或内网。
+- **Stale-ref 一次自恢复**：`act` 失败且匹配 stale-ref 错误模式（element not found / detached / 等）时，工具内部重新 snapshot 一次，按 `(role, text)` 模糊匹配旧 ref 找新 ref，retry 一次。成功返回字符串带 `(ref auto-recovered)` 让模型知道发生过；失败再正常上抛。
+- **`observe` ring buffer**：新 `browser.observe.kind=console|network|page_errors` 暴露最近 500 条浏览器侧事件（CDP backend 直接订阅 `Console.messageAdded` / `Network.responseReceived` / `Runtime.exceptionThrown`），让模型自检页面问题不用反复 evaluate。
+- **chrome-devtools-mcp backend 真正落地**：上一版 MCP backend 是 stub，本版接入完整 rmcp stdio client（hope-agent 自己 launch Chrome 后通过 `--browserUrl http://127.0.0.1:9222` 让 chrome-devtools-mcp 接管主控；observe 旁路继续走 hope-agent 自持的 chromiumoxide 控制面，与 CDP backend 行为完全一致）。首次 `npx -y chrome-devtools-mcp@0.26.0` 拉包 60s 超时自动降级 CDP；版本 pin 防供应链漂移；子进程随 `reset_backend()` 回收。
+- **设置 → 浏览器 UX 重写**：顶部新增「独立浏览器 / 接管用户态 Chrome」Mode Radio；Connect 段内嵌 doctor banner——探到 9222 显示绿色「Found Chrome at … [Attach]」，未探到显示黄色「No Chrome detected」+「Launch user Chrome」一键按钮（弹模态二次确认后在 `~/.hope-agent/browser/user-attach/` 启动独立 user-data-dir 的 Chrome，不动用户日常浏览数据，自动 polling 端口就绪后连上）。底部新增 Backend Radio（`auto` / `cdp` / `mcp`），切换立即 toast「下次 launch/connect 生效」+「立即重连」action；切偏好同步 `reset_backend()` 让 ACTIVE_BACKEND 失效。Profile CRUD / executablePath / 手动 connect URL 等老入口保留扁平铺开。12 语言齐全。
+- **浏览器 act.upload 路径安全闸门**：上传文件前 `canonicalize` 路径并按 `permission::protected_paths` 检查（默认覆盖 `~/.ssh/`、`~/.aws/`、`*.pem`、`*.key`、`*secret*` 等），拒绝 prompt injection 把本机敏感文件塞进网页 file input 的攻击面；CDP / MCP 两条 backend 都走同一守门。
+- **浏览器 control.evaluate 走 ask_user_question 审批**：任意 JS 执行是浏览器工具最危险的出站口，每次调用前都弹模态确认（脚本预览 280 字），用户取消 = 工具失败；YOLO / `permission.global_yolo` 模式按用户已知风险跳过；非交互上下文（缺 session_id）默认 deny。SSRF 字面量 regex 仍保留为 best-effort 第一道闸门。
 
 ## [0.2.0] - 2026-05-13
 

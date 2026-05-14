@@ -585,8 +585,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Browser Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_BROWSER.into(),
-            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. `new_page` is the usual entry point: it first tries an existing Chrome at --remote-debugging-port=9222, then auto-launches a managed instance if needed. Managed launches use a large responsive window instead of chromiumoxide's default 800x600 viewport emulation. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
-            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
+            description: "Drive Chrome via DevTools Protocol. Eight high-level actions cover the full surface; see the `ha-browser` skill for the standard `status → tabs → snapshot → act` loop and stale-ref recovery rules. Backend is auto-selected (`chrome-devtools-mcp` when Node.js >= 18 is on PATH, otherwise direct CDP via chromiumoxide) and is transparent to you — refs and ops are stable across backends.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: false,
             concurrent_safe: false,
             async_capable: false,
@@ -595,130 +595,133 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": [
-                            "connect", "launch", "disconnect",
-                            "list_pages", "new_page", "select_page", "close_page",
-                            "navigate", "go_back", "go_forward",
-                            "take_snapshot", "take_screenshot",
-                            "click", "fill", "fill_form", "hover", "drag",
-                            "press_key", "upload_file",
-                            "evaluate", "wait_for",
-                            "handle_dialog", "resize", "scroll",
-                            "list_profiles", "save_pdf"
-                        ],
-                        "description": "Browser action to perform"
+                        "enum": ["status", "profile", "tabs", "navigate", "snapshot", "act", "observe", "control"],
+                        "description": "Top-level action. `status` is read-only; `profile` manages the Chrome session (launch/connect/disconnect/list); `tabs` lists/opens/selects/closes tabs; `navigate` drives back/forward/reload/go; `snapshot` returns a role-tree, screenshot, or PDF; `act` performs the interaction (click/type/hover/drag/select/fill/press/upload); `observe` reads the console/network/page_errors ring buffer; `control` covers resize/scroll/wait_for/handle_dialog/evaluate."
                     },
-                    "url": {
+                    "op": {
                         "type": "string",
-                        "description": "URL for navigate/new_page/connect"
+                        "description": "Sub-operation for `profile` (list/launch/connect/disconnect), `tabs` (list/new/select/close), `navigate` (go/back/forward/reload), or `control` (resize/scroll/wait_for/handle_dialog/evaluate)."
                     },
-                    "ref": {
-                        "type": "integer",
-                        "description": "Element ref ID from take_snapshot for click/fill/hover/drag"
-                    },
-                    "value": {
+                    "kind": {
                         "type": "string",
-                        "description": "Value for fill action"
-                    },
-                    "expression": {
-                        "type": "string",
-                        "description": "JavaScript expression for evaluate action"
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "Text to wait for (wait_for action)"
-                    },
-                    "key": {
-                        "type": "string",
-                        "description": "Key name for press_key (e.g. 'Enter', 'Tab', 'Escape', 'ArrowDown')"
-                    },
-                    "page_id": {
-                        "type": "string",
-                        "description": "Page/tab target ID for select_page/close_page"
-                    },
-                    "fields": {
-                        "type": "object",
-                        "description": "For fill_form: map of ref IDs to values (e.g. {\"3\": \"hello\", \"5\": \"world\"})",
-                        "additionalProperties": { "type": "string" }
+                        "description": "For `act`: click | type | hover | drag | select | fill | press | upload. For `observe`: console | network | page_errors."
                     },
                     "format": {
                         "type": "string",
-                        "enum": ["png", "jpeg"],
-                        "description": "Screenshot format (default: png)"
+                        "description": "For `snapshot`: role | screenshot | pdf (default: role)."
                     },
-                    "full_page": {
-                        "type": "boolean",
-                        "description": "Capture full page screenshot (default: false)"
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Timeout in ms for navigate/wait_for (default: 30000)"
-                    },
-                    "width": {
-                        "type": "integer",
-                        "description": "Viewport width for resize action"
-                    },
-                    "height": {
-                        "type": "integer",
-                        "description": "Viewport height for resize action"
-                    },
-                    "double_click": {
-                        "type": "boolean",
-                        "description": "Double-click for click action"
-                    },
-                    "accept": {
-                        "type": "boolean",
-                        "description": "Accept (true) or dismiss (false) dialog"
-                    },
-                    "dialog_text": {
+                    "url": {
                         "type": "string",
-                        "description": "Text to enter in prompt dialog"
+                        "description": "URL for `navigate.go`, `tabs.new`, or `profile.connect` (CDP endpoint). All outbound URLs are validated against the SSRF policy before reaching Chrome."
+                    },
+                    "target_id": {
+                        "type": "string",
+                        "description": "Tab target id (returned by `tabs.list` / `tabs.new`) for `tabs.select` and `tabs.close`."
+                    },
+                    "ref": {
+                        "type": "integer",
+                        "description": "Element ref id from the most recent `snapshot.role`. Used by every `act.kind`. Stale refs are auto-recovered once (re-snapshot + role+text fuzzy match) before bubbling up an error — successful recovery is flagged in the result with `(ref auto-recovered)`."
                     },
                     "target_ref": {
                         "type": "integer",
-                        "description": "Target element ref for drag action"
+                        "description": "Destination ref for `act.kind=drag`."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text payload for `act.kind=type/fill` or the substring to wait for in `control.op=wait_for`."
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Key for `act.kind=press` (e.g. 'Enter', 'Tab', 'Escape', 'ArrowDown')."
                     },
                     "file_path": {
                         "type": "string",
-                        "description": "File path for upload_file action"
+                        "description": "File path for `act.kind=upload`."
                     },
-                    "executable_path": {
+                    "modifiers": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Modifier keys (e.g. ['Shift']) accompanying `act.kind=click`."
+                    },
+                    "values": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Option values for `act.kind=select`."
+                    },
+                    "expression": {
                         "type": "string",
-                        "description": "Chrome executable path for launch action"
+                        "description": "JavaScript expression for `control.op=evaluate`. URL literals inside fetch/import/XHR/new URL are SSRF-checked; dynamic URL construction is NOT validated."
                     },
-                    "headless": {
+                    "full_page": {
                         "type": "boolean",
-                        "description": "Launch in headless mode (default: false)"
+                        "description": "Capture full page for `snapshot.format=screenshot` (default: false)."
                     },
-                    "profile": {
+                    "image_format": {
                         "type": "string",
-                        "description": "Browser profile name for launch action. Each profile has isolated cookies, storage, and login state. Use 'list_profiles' to see existing profiles."
+                        "enum": ["png", "jpeg"],
+                        "description": "Image format for `snapshot.format=screenshot` (default: png)."
                     },
                     "output_path": {
                         "type": "string",
-                        "description": "File path for save_pdf output. Defaults to ~/.hope-agent/share/page_<timestamp>.pdf"
+                        "description": "Destination file for `snapshot.format=pdf` (default: ~/.hope-agent/share/page_<timestamp>.pdf)."
                     },
                     "paper_format": {
                         "type": "string",
                         "enum": ["a3", "a4", "a5", "letter", "legal", "tabloid"],
-                        "description": "Paper format for save_pdf (default: letter)"
+                        "description": "Paper size for `snapshot.format=pdf` (default: letter)."
                     },
                     "landscape": {
                         "type": "boolean",
-                        "description": "Use landscape orientation for save_pdf (default: false)"
+                        "description": "Landscape orientation for `snapshot.format=pdf`."
                     },
                     "print_background": {
                         "type": "boolean",
-                        "description": "Include background graphics in save_pdf (default: false)"
+                        "description": "Include background graphics for `snapshot.format=pdf`."
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Viewport width for `control.op=resize`."
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Viewport height for `control.op=resize`."
                     },
                     "direction": {
                         "type": "string",
                         "enum": ["up", "down", "left", "right"],
-                        "description": "Scroll direction (default: down)"
+                        "description": "Scroll direction for `control.op=scroll` (default: down)."
                     },
                     "amount": {
                         "type": "integer",
-                        "description": "Scroll amount in pixels (default: 500)"
+                        "description": "Scroll amount in pixels for `control.op=scroll` (default: 500)."
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in ms for `control.op=wait_for` (default: 30000)."
+                    },
+                    "accept": {
+                        "type": "boolean",
+                        "description": "Accept (true) or dismiss (false) for `control.op=handle_dialog`."
+                    },
+                    "dialog_text": {
+                        "type": "string",
+                        "description": "Prompt text reply for `control.op=handle_dialog`."
+                    },
+                    "since": {
+                        "type": "integer",
+                        "description": "Unix-millis cursor for `observe` — only entries newer than this are returned. Use the last `at` from the previous response."
+                    },
+                    "executable_path": {
+                        "type": "string",
+                        "description": "Chrome executable override for `profile.op=launch`."
+                    },
+                    "headless": {
+                        "type": "boolean",
+                        "description": "Launch headless (default: false) for `profile.op=launch`."
+                    },
+                    "profile": {
+                        "type": "string",
+                        "description": "Named profile for `profile.op=launch`. Each profile owns an isolated user-data-dir under ~/.hope-agent/browser-profiles/, so cookies and login state persist across launches."
                     }
                 },
                 "required": ["action"]
