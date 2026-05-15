@@ -137,6 +137,36 @@ pub(super) async fn chrome_already_running() -> bool {
     false
 }
 
+pub(super) async fn chrome_running_with_user_data_dir(user_data_dir: &Path) -> bool {
+    // tasklist /V dumps Window Title but not full commandline; wmic does
+    // give CommandLine but is deprecated. Use PowerShell instead — every
+    // Windows 10+ has it. Filter Get-CimInstance Win32_Process on
+    // CommandLine containing the user-data-dir.
+    let dir = user_data_dir.to_string_lossy().replace('\\', "\\\\");
+    // Bare backtick + grave avoidance: we double-escape for the powershell
+    // single-quoted string, then -like wraps with *…*.
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' OR Name='msedge.exe' OR Name='brave.exe'\" \
+         | Where-Object {{ $_.CommandLine -like '*--user-data-dir={}*' }} \
+         | Measure-Object | Select-Object -ExpandProperty Count",
+        dir
+    );
+    let output = match tokio::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .kill_on_drop(true)
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.trim().parse::<u64>().unwrap_or(0) > 0
+}
+
 pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::File>> {
     use std::io::ErrorKind;
 

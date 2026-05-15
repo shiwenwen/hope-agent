@@ -153,7 +153,7 @@ export default function ChatScreen({
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(520)
   const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
-  const [browserPanelWidth] = useState(480)
+  const [browserPanelWidth, setBrowserPanelWidth] = useState(480)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
@@ -1750,6 +1750,7 @@ export default function ChatScreen({
           {showBrowserPanel && (
             <BrowserPanel
               panelWidth={browserPanelWidth}
+              onPanelWidthChange={setBrowserPanelWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)

@@ -516,6 +516,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   browser_doctor:                  { method: "GET",    path: "/api/browser/doctor" },
   browser_get_config:              { method: "GET",    path: "/api/browser/config" },
   browser_set_config:              { method: "POST",   path: "/api/browser/config" },
+  browser_install_chromium_runtime:{ method: "POST",   path: "/api/browser/install-chromium-runtime" },
 
   // -- Theme / Language / UI --
   get_theme:                       { method: "GET",    path: "/api/config/theme" },

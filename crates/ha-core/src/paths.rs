@@ -241,6 +241,25 @@ pub fn browser_user_attach_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("browser").join("user-attach"))
 }
 
+/// Root for hope-agent–managed browser runtimes:
+/// `~/.hope-agent/browser/runtime/`. Holds the unzipped Chromium snapshot
+/// when the system has no Chrome / Edge / Brave / Chromium installed.
+///
+/// Pinned revisions live in [`crate::browser::runtime`] (per-platform
+/// constants — Chromium snapshots build each OS independently, so a
+/// single workspace-wide revision isn't representable).
+pub fn browser_runtime_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser").join("runtime"))
+}
+
+/// Per-revision Chromium runtime directory:
+/// `~/.hope-agent/browser/runtime/chromium-{revision}/`. Versioned so
+/// bumping the per-platform pinned revision doesn't collide with an
+/// older cached binary (old dirs can be hand-cleaned).
+pub fn chromium_runtime_dir(revision: u32) -> Result<PathBuf> {
+    Ok(browser_runtime_dir()?.join(format!("chromium-{revision}")))
+}
+
 // ── Generated Images ────────────────────────────────────────────────
 
 /// Generated images directory: ~/.hope-agent/generated-images/

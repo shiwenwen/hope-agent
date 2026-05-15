@@ -40,7 +40,7 @@ pub(crate) async fn tool_browser(args: &Value, session_id: Option<&str>) -> Resu
 
     match action {
         "status" => action_status(args).await,
-        "profile" => action_profile(args).await,
+        "profile" => action_profile(args, session_id).await,
         "tabs" => action_tabs(args).await,
         "navigate" => action_navigate(args).await,
         "snapshot" => action_snapshot(args, session_id).await,
@@ -136,18 +136,21 @@ async fn action_status(_args: &Value) -> Result<String> {
 
 // ── profile ──────────────────────────────────────────────────────────────
 
-async fn action_profile(args: &Value) -> Result<String> {
+async fn action_profile(args: &Value, session_id: Option<&str>) -> Result<String> {
     let op = get_str(args, "op").ok_or_else(|| {
-        anyhow!("profile requires 'op' parameter (list / launch / connect / disconnect)")
+        anyhow!(
+            "profile requires 'op' parameter (list / launch / connect / disconnect / install_runtime)"
+        )
     })?;
 
     match op {
         "list" => profile_list().await,
-        "launch" => profile_launch(args).await,
+        "launch" => profile_launch(args, session_id).await,
         "connect" => profile_connect(args).await,
         "disconnect" => profile_disconnect().await,
+        "install_runtime" => profile_install_runtime().await,
         other => Err(anyhow!(
-            "Unknown profile.op: '{}'. Valid: list / launch / connect / disconnect",
+            "Unknown profile.op: '{}'. Valid: list / launch / connect / disconnect / install_runtime",
             other
         )),
     }
@@ -188,7 +191,43 @@ async fn profile_list() -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-async fn profile_launch(args: &Value) -> Result<String> {
+/// Where `profile.op=launch` should put cookies/history/extensions.
+///
+/// See the doc on `BROWSER_TOOL_DEFINITION.target` schema (in
+/// [`crate::tools::definitions::core_tools`]) for the per-variant
+/// trade-offs — this enum just carries the wire-format value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ProfileTarget {
+    #[default]
+    Managed,
+    UserAttach,
+    System,
+}
+
+/// Dispatch on the `target` parameter. Default `managed` preserves the
+/// legacy behaviour (isolated profile under `~/.hope-agent/browser-profiles/`).
+/// `user_attach` spawns the agent's day-to-day Chrome in a separate
+/// user-data-dir. `system` attaches the user's REAL daily Chrome —
+/// requires explicit consent in default/smart, auto-allowed in YOLO.
+async fn profile_launch(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let target: ProfileTarget = match args.get("target") {
+        None | Some(Value::Null) => ProfileTarget::default(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|_| {
+            anyhow!(
+                "Unknown profile.target '{}'. Valid: managed / user_attach / system",
+                v
+            )
+        })?,
+    };
+    match target {
+        ProfileTarget::Managed => profile_launch_managed(args).await,
+        ProfileTarget::UserAttach => profile_launch_user_attach(args).await,
+        ProfileTarget::System => profile_launch_system(args, session_id).await,
+    }
+}
+
+async fn profile_launch_managed(args: &Value) -> Result<String> {
     let executable = get_str(args, "executable_path");
     let headless = get_bool(args, "headless").unwrap_or(false);
     let profile = get_str(args, "profile");
@@ -214,6 +253,200 @@ async fn profile_launch(args: &Value) -> Result<String> {
         "Chrome launched successfully{}{}. {} page(s) available.",
         if headless { " (headless)" } else { "" },
         profile_info,
+        page_count
+    ))
+}
+
+/// Spawn the user-attach Chrome (separate user-data-dir under
+/// `~/.hope-agent/browser/user-attach/`) and immediately connect to it.
+/// Isolated from the user's real profile, so there's no extra approval —
+/// same risk profile as `managed`.
+async fn profile_launch_user_attach(args: &Value) -> Result<String> {
+    let exec_arg = get_str(args, "executable_path").map(|s| s.to_string());
+    let spawn_args = crate::browser::user_attach::SpawnUserChromeArgs {
+        executable_path: exec_arg,
+    };
+    let result = crate::browser::user_attach::spawn_user_chrome(spawn_args).await?;
+
+    let mut state = crate::browser_state::get_browser_state().lock().await;
+    if state.is_connected() {
+        state.disconnect().await;
+    }
+    state.connect(&result.debug_url).await?;
+    let page_count = state.pages.len();
+    drop(state);
+
+    reset_backend().await;
+    let _ = acquire_backend().await?;
+
+    Ok(format!(
+        "Spawned user-attach Chrome on port {} and connected. {} page(s) available. \
+         Cookies/extensions persist across launches in `~/.hope-agent/browser/user-attach/`.",
+        result.port, page_count
+    ))
+}
+
+const TARGET_SYSTEM_PROCEED_LABEL: &str = "Grant access";
+const TARGET_SYSTEM_PROCEED_AND_CLOSE_LABEL: &str = "Close & Grant access";
+
+/// Attach the user's REAL daily Chrome with full login state.
+///
+/// Workflow:
+/// 1. Detect daily browser installation (brand + executable + user-data-dir).
+/// 2. Decide if a graceful quit is needed (SingletonLock present OR a
+///    process is currently using this user-data-dir).
+/// 3. One combined consent modal — covers BOTH "close my running browser"
+///    AND "grant agent access" in one click. YOLO mode skips the modal.
+/// 4. If needed, graceful quit (5s deadline) then force_kill (5s deadline).
+/// 5. Launch chromiumoxide pointed at the system user-data-dir.
+async fn profile_launch_system(args: &Value, session_id: Option<&str>) -> Result<String> {
+    use crate::browser::singleton_lock;
+    use crate::platform::{chrome_paths, chrome_quit};
+    use std::time::Duration;
+
+    let _ = args;
+
+    // 1) Resolve daily browser.
+    let inst = chrome_paths::detect_daily_browser().ok_or_else(|| {
+        anyhow!(
+            "No daily Chrome / Edge / Brave / Chromium detected on this system. \
+             Install one of these browsers, or use `profile.op=launch target=managed` \
+             (isolated profile under ~/.hope-agent/browser-profiles/)."
+        )
+    })?;
+
+    // 2) Detect whether the user-data-dir is in use.
+    let needs_quit = singleton_lock::user_data_dir_is_locked(&inst.user_data_dir)
+        || crate::platform::chrome_running_with_user_data_dir(&inst.user_data_dir).await;
+
+    // 3) Consent gate (combined: quit + access in one approval).
+    let yolo = crate::security::dangerous::is_dangerous_skip_active();
+    let affirmative_label = if needs_quit {
+        TARGET_SYSTEM_PROCEED_AND_CLOSE_LABEL
+    } else {
+        TARGET_SYSTEM_PROCEED_LABEL
+    };
+    if !yolo {
+        let Some(sid) = session_id else {
+            return Err(anyhow!(
+                "profile.op=launch target=system refused: no active session to confirm against. \
+                 Enable global YOLO mode if this call is from a non-interactive context."
+            ));
+        };
+        let brand = inst.brand.display_name();
+        let path = inst.user_data_dir.display().to_string();
+        let question_text = if needs_quit {
+            format!(
+                "⚠ Your {brand} is currently running. Continuing will close it (unsaved page state may be lost).\n\n\
+                 Then the agent will be granted full access to your {brand} profile at:\n{path}\n\n\
+                 This includes:\n\
+                 • All logged-in accounts (Google, banks, social media)\n\
+                 • Saved passwords and autofill data\n\
+                 • Browsing history and bookmarks\n\
+                 • Installed extensions\n\n\
+                 The agent can read pages, submit forms, and impersonate you on any site. \
+                 Only proceed if you trust the current task."
+            )
+        } else {
+            format!(
+                "Allow the agent to attach your daily {brand} at:\n{path}\n\n\
+                 This grants full access including:\n\
+                 • All logged-in accounts (Google, banks, social media)\n\
+                 • Saved passwords and autofill data\n\
+                 • Browsing history and bookmarks\n\
+                 • Installed extensions\n\n\
+                 The agent can read pages, submit forms, and impersonate you on any site. \
+                 Only proceed if you trust the current task."
+            )
+        };
+        let ask_args = serde_json::json!({
+            "context": format!(
+                "Browser profile.op=launch target=system: attach the user's daily {brand}."
+            ),
+            "questions": [{
+                "question_id": "confirm_browser_target_system",
+                "text": question_text,
+                "header": format!("Attach daily {brand}"),
+                "options": [
+                    {"value": "confirm", "label": affirmative_label, "recommended": false},
+                    {"value": "cancel",  "label": "Deny",            "recommended": true}
+                ],
+                "multi_select": false,
+                "default_values": ["cancel"]
+            }]
+        });
+        let raw = crate::tools::ask_user_question::execute(&ask_args, Some(sid)).await;
+        if !crate::ask_user::was_affirmative(&raw, &[affirmative_label]) {
+            return Err(anyhow!(
+                "profile.op=launch target=system denied by user (or no response)."
+            ));
+        }
+    } else if needs_quit {
+        crate::app_warn!(
+            "browser",
+            "target_system",
+            "YOLO: closing running {} to take over user-data-dir {}",
+            inst.brand.display_name(),
+            inst.user_data_dir.display()
+        );
+    } else {
+        crate::app_warn!(
+            "browser",
+            "target_system",
+            "YOLO: launching system {} without user confirmation",
+            inst.brand.display_name()
+        );
+    }
+
+    // 4) Quit running Chrome two-phase (graceful → wait → force_kill → wait).
+    if needs_quit {
+        chrome_quit::graceful_quit(inst.brand).await.ok();
+        if singleton_lock::wait_for_release(&inst.user_data_dir, Duration::from_secs(5))
+            .await
+            .is_err()
+        {
+            crate::app_warn!(
+                "browser",
+                "target_system",
+                "graceful quit timed out; escalating to force-kill on {}",
+                inst.brand.display_name()
+            );
+            chrome_quit::force_kill(inst.brand).await.ok();
+            singleton_lock::wait_for_release(&inst.user_data_dir, Duration::from_secs(5))
+                .await
+                .map_err(|_| {
+                    anyhow!(
+                        "Could not close {} cleanly. \
+                         Please quit it manually (Cmd+Q on macOS, Alt+F4 on Windows) and retry.",
+                        inst.brand.display_name()
+                    )
+                })?;
+        }
+    }
+
+    // 5) Launch via browser_state with the system user-data-dir.
+    let mut state = crate::browser_state::get_browser_state().lock().await;
+    if state.is_connected() {
+        state.disconnect().await;
+    }
+    state
+        .launch_with_user_data_dir(
+            Some(&inst.executable.to_string_lossy()),
+            &inst.user_data_dir,
+            false, // headless=false: it's the user's daily browser
+        )
+        .await?;
+    let page_count = state.pages.len();
+    drop(state);
+
+    reset_backend().await;
+    let _ = acquire_backend().await?;
+
+    Ok(format!(
+        "Launched system {} with daily profile ({}). {} page(s) available. \
+         All cookies, extensions, and login state are now accessible.",
+        inst.brand.display_name(),
+        inst.user_data_dir.display(),
         page_count
     ))
 }
@@ -251,6 +484,51 @@ async fn profile_disconnect() -> Result<String> {
     drop(state);
     reset_backend().await;
     Ok("Browser disconnected.".to_string())
+}
+
+/// Download + unpack the pinned Chromium snapshot so the agent can run
+/// `profile.op=launch` on systems with no Chrome installed. Idempotent —
+/// re-running once the binary exists returns immediately.
+///
+/// Progress is emitted on the `browser:chromium_download_progress`
+/// EventBus channel; tool-level callers should treat this as
+/// `async_capable=true` so the LLM can poll `job_status`.
+async fn profile_install_runtime() -> Result<String> {
+    use crate::browser::runtime;
+
+    if let Some(cached) = runtime::cached_binary_path() {
+        return Ok(format!(
+            "Chromium runtime already installed at {}.",
+            cached.display()
+        ));
+    }
+
+    let spec = runtime::spec_for_current_platform().ok_or_else(|| {
+        anyhow!(
+            "Chromium runtime is not available for this platform / architecture. \
+             Install Google Chrome system-wide instead."
+        )
+    })?;
+    crate::app_info!(
+        "browser",
+        "install_runtime",
+        "downloading Chromium runtime rev={} for {}",
+        spec.revision,
+        spec.platform_key
+    );
+
+    let binary = runtime::install_with_event_bus_progress().await?;
+    crate::app_info!(
+        "browser",
+        "install_runtime",
+        "Chromium runtime ready at {}",
+        binary.display()
+    );
+    Ok(format!(
+        "Chromium runtime installed at {}. Subsequent `profile.op=launch` calls \
+         will use this binary when no system Chrome is found.",
+        binary.display()
+    ))
 }
 
 // ── tabs ─────────────────────────────────────────────────────────────────
@@ -673,7 +951,7 @@ async fn confirm_evaluate(script: &str, session_id: Option<&str>) -> Result<()> 
         }]
     });
     let raw = crate::tools::ask_user_question::execute(&ask_args, Some(sid)).await;
-    if is_evaluate_confirmed(&raw) {
+    if crate::ask_user::was_affirmative(&raw, &[EVALUATE_AFFIRMATIVE_LABEL]) {
         Ok(())
     } else {
         Err(anyhow!(
@@ -681,34 +959,6 @@ async fn confirm_evaluate(script: &str, session_id: Option<&str>) -> Result<()> 
              If this is a trusted automation, enable YOLO mode."
         ))
     }
-}
-
-/// `ask_user_question` returns JSON shaped like
-/// `{ "answers": [{ "selected": ["Run it"], ... }], "timedOut"?: true }`.
-/// `selected` carries the *label* strings, not the `value` field — match
-/// against our affirmative label only, and never against a timed-out reply.
-fn is_evaluate_confirmed(raw: &str) -> bool {
-    let v: serde_json::Value = match serde_json::from_str(raw) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    if v.get("timedOut").and_then(|t| t.as_bool()).unwrap_or(false) {
-        return false;
-    }
-    let Some(answers) = v.get("answers").and_then(|a| a.as_array()) else {
-        return false;
-    };
-    for a in answers {
-        let Some(selected) = a.get("selected").and_then(|s| s.as_array()) else {
-            continue;
-        };
-        for sel in selected {
-            if sel.as_str().map(str::trim) == Some(EVALUATE_AFFIRMATIVE_LABEL) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Best-effort SSRF scan over a JS evaluation payload. Catches URL literals
@@ -781,44 +1031,6 @@ mod tests {
         assert!(evaluate_with_ssrf_scan(script).await.is_ok());
     }
 
-    #[test]
-    fn is_evaluate_confirmed_accepts_run_it_label() {
-        let raw =
-            r#"{"answers":[{"question":"Run this?","selected":["Run it"],"customInput":null}]}"#;
-        assert!(is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_cancel_label() {
-        let raw =
-            r#"{"answers":[{"question":"Run this?","selected":["Cancel"],"customInput":null}]}"#;
-        assert!(!is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_timed_out_even_with_label() {
-        // Defensive: if the question times out *and* the default happened to
-        // be the affirmative label for some reason, still treat as deny.
-        let raw = r#"{"answers":[{"question":"Run this?","selected":["Run it"],"customInput":null}],"timedOut":true}"#;
-        assert!(!is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_garbage() {
-        assert!(!is_evaluate_confirmed(""));
-        assert!(!is_evaluate_confirmed(
-            "Error: no session context available"
-        ));
-        assert!(!is_evaluate_confirmed(r#"{"answers":[]}"#));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_value_string_in_raw() {
-        // Defence-in-depth: the value `"confirm"` (which is what an earlier
-        // implementation matched on) should NOT trigger affirmation — only
-        // the label appears in `selected`, and we now strictly check labels.
-        let raw =
-            r#"{"answers":[{"question":"Run this?","selected":["confirm"],"customInput":null}]}"#;
-        assert!(!is_evaluate_confirmed(raw));
-    }
+    // Affirmative-label parsing is covered by `crate::ask_user::was_affirmative`'s
+    // own test suite. We don't re-test it here.
 }

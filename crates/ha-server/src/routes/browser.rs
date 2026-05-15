@@ -130,3 +130,18 @@ pub async fn set_config(
     ha_core::browser::reset_backend().await;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
+
+/// `POST /api/browser/install-chromium-runtime`
+///
+/// Downloads + unpacks the pinned Chromium snapshot when the system has
+/// no Chrome. Progress events flow through
+/// [`ha_core::browser::runtime::install_with_event_bus_progress`] on the
+/// `browser:chromium_download_progress` channel for SSE/WS subscribers.
+pub async fn install_chromium_runtime() -> Result<Json<serde_json::Value>, AppError> {
+    let binary = ha_core::browser::runtime::install_with_event_bus_progress()
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "binaryPath": binary.display().to_string(),
+    })))
+}

@@ -70,11 +70,49 @@ pub struct BrowserDoctorReport {
     pub preference: crate::browser::backend_select::BackendPreference,
     pub probe: ProbeUserChromeReport,
     pub chrome_already_running: bool,
+    /// Detected daily browser (Chrome / Edge / Brave / Chromium) for the
+    /// `target=system` path. `None` when nothing is installed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_chrome: Option<SystemChromeReport>,
+    /// Cached Chromium runtime — populated when
+    /// `~/.hope-agent/browser/runtime/chromium-{rev}/` has a usable binary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_chromium: Option<RuntimeChromiumReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemChromeReport {
+    /// "Google Chrome" / "Microsoft Edge" / "Brave" / "Chromium".
+    pub brand: String,
+    pub executable: String,
+    pub user_data_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeChromiumReport {
+    pub revision: u32,
+    pub binary_path: String,
 }
 
 pub async fn browser_doctor() -> BrowserDoctorReport {
     use crate::browser::backend_select;
-    let (node_available, node_version, active_backend, probe, chrome_already_running) = tokio::join!(
+    // Two extra probes Phase 2 added (system browser + runtime binary
+    // cache) are sync but hit the filesystem — `detect_daily_browser`
+    // does up to 4 brands × 2 `.exists()` + `which::which` PATH walks
+    // on Linux. Park them on the blocking pool so the doctor scan
+    // remains a single async wait rather than a 5-way join followed by
+    // a 2-step sync tail.
+    let (
+        node_available,
+        node_version,
+        active_backend,
+        probe,
+        chrome_already_running,
+        system_chrome,
+        runtime_chromium,
+    ) = tokio::join!(
         backend_select::detect_node_available(),
         backend_select::probe_node_version(),
         async {
@@ -84,6 +122,31 @@ pub async fn browser_doctor() -> BrowserDoctorReport {
         },
         probe_user_chrome(DEFAULT_USER_ATTACH_PORT),
         crate::platform::chrome_already_running(),
+        async {
+            tokio::task::spawn_blocking(|| {
+                crate::platform::chrome_paths::detect_daily_browser().map(|inst| {
+                    SystemChromeReport {
+                        brand: inst.brand.display_name().to_string(),
+                        executable: inst.executable.display().to_string(),
+                        user_data_dir: inst.user_data_dir.display().to_string(),
+                    }
+                })
+            })
+            .await
+            .unwrap_or(None)
+        },
+        async {
+            tokio::task::spawn_blocking(|| {
+                let p = crate::browser::runtime::cached_binary_path()?;
+                let spec = crate::browser::runtime::spec_for_current_platform()?;
+                Some(RuntimeChromiumReport {
+                    revision: spec.revision,
+                    binary_path: p.display().to_string(),
+                })
+            })
+            .await
+            .unwrap_or(None)
+        },
     );
     let preference = crate::config::cached_config()
         .browser
@@ -97,6 +160,8 @@ pub async fn browser_doctor() -> BrowserDoctorReport {
         preference,
         probe,
         chrome_already_running,
+        system_chrome,
+        runtime_chromium,
     }
 }
 

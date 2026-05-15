@@ -637,6 +637,7 @@ pub fn run() {
             commands::browser::browser_doctor,
             commands::browser::browser_get_config,
             commands::browser::browser_set_config,
+            commands::browser::browser_install_chromium_runtime,
             // IM Channel management
             commands::channel::channel_list_plugins,
             commands::channel::channel_list_accounts,

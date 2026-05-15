@@ -112,12 +112,59 @@ You should not have to care, but a few error strings differ:
 
 If you need to confirm the backend, look at the BrowserPanel badge in the desktop UI, or call `status` (the `backend` field).
 
+## Choosing `profile.op=launch target=` (Phase 2)
+
+```
+target=managed       → automation, scrapers, anything that should NOT inherit
+                       the user's login state. Isolated profile under
+                       ~/.hope-agent/browser-profiles/<name>/. This is the
+                       default — omit `target` to get it.
+
+target=user_attach   → routine work where you DO want a persistent profile
+                       (sign in once, keep the cookies, reuse extensions),
+                       but you don't want to touch the user's real daily
+                       browser. Lives at ~/.hope-agent/browser/user-attach/.
+                       No extra approval — same risk profile as managed.
+
+target=system        → user EXPLICITLY asks to use their REAL daily browser
+                       ("check my Gmail inbox", "open my work GitHub").
+                       Grants full access to Gmail / banks / SSO / saved
+                       passwords / extensions. ALWAYS triggers an approval
+                       prompt in default/smart mode; auto-allowed in YOLO.
+                       Will close the user's running browser first if any —
+                       the modal warns about unsaved state.
+
+                       NEVER use `target=system` proactively. Wait for an
+                       explicit request from the user — they need to weigh
+                       the privacy trade-off.
+```
+
+When `target=system` is denied or fails (e.g. graceful quit times out and
+the daily browser is hung), fall back to `target=user_attach` and surface
+the situation: "Your daily Chrome wouldn't close cleanly. I'll attach a
+separate Chrome instead — log in to {site} once and I'll proceed."
+
+## When Chrome / Chromium is missing entirely
+
+If `profile.op=launch` fails with "No Chrome / Chromium found...", suggest
+ONE of:
+
+1. Install Google Chrome system-wide (best user experience).
+2. Run `browser(action="profile", op="install_runtime")` — downloads a
+   pinned Chromium snapshot (~150 MB) into `~/.hope-agent/browser/runtime/`.
+   This is an async job; poll `job_status` for progress, or check the
+   settings → Browser doctor banner.
+3. Pass `executable_path` explicitly if the user has a custom Chrome build.
+
 ## Quick reference — full action surface
 
 ```
 browser(action="status")
 browser(action="profile", op="list")
 browser(action="profile", op="launch", profile="default", headless=false)
+browser(action="profile", op="launch", target="user_attach")
+browser(action="profile", op="launch", target="system")     # ← requires approval
+browser(action="profile", op="install_runtime")             # ← async, downloads Chromium
 browser(action="profile", op="connect", url="http://127.0.0.1:9222")
 browser(action="profile", op="disconnect")
 browser(action="tabs", op="list")

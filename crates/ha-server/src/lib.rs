@@ -1184,6 +1184,10 @@ fn build_router_with_cors(
             "/browser/config",
             get(routes::browser::get_config).post(routes::browser::set_config),
         )
+        .route(
+            "/browser/install-chromium-runtime",
+            post(routes::browser::install_chromium_runtime),
+        )
         // Subagent
         .route("/subagent/runs", get(routes::subagent::list_subagent_runs))
         .route(

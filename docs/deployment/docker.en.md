@@ -87,6 +87,14 @@ volumes:
 
 The directory must be writable by UID 1000 (the in-container `hope` user).
 
+## Browser automation
+
+The image bundles Debian trixie's `chromium` package (adds ~250 MB to the image) so `profile.op=launch headless=true` works out of the box. When the agent invokes the browser tool, it starts this Chromium in headless mode automatically — no extra configuration required.
+
+If your deployment doesn't need browser automation (e.g. a pure IM bot), fork the repo and remove `chromium` plus its runtime libs (`fonts-liberation` / `libnss3` / `libgbm1` / `libxss1`) from the [`Dockerfile`](../../Dockerfile)'s runtime stage to slim the image down.
+
+Even without a `chromium` package, the agent can fall back to `profile.op=install_runtime`, which downloads a pinned Chromium snapshot to `~/.hope-agent/browser/runtime/` at first use.
+
 ## Ollama for local LLMs
 
 The image does not bundle Ollama — Ollama has its own well-maintained multi-arch image, models are large, and GPU passthrough adds complexity. Keeping it as a separate sidecar gives users full control.

@@ -123,6 +123,12 @@ FROM debian:trixie-slim AS runtime
 # wget: used by HEALTHCHECK below.
 # tini: PID 1 with proper signal forwarding so `docker stop` shuts the
 #       hope-agent server down cleanly.
+# chromium + shared libs: makes `profile.op=launch headless=true` work
+#       out of the box. hope-agent's `find_chrome_executable()` probes
+#       `chromium` first in PATH; without it the agent would have to
+#       fall back to runtime download (~150 MB) on first browser call.
+#       Users who don't need the browser tool can rebuild without this
+#       block to shave ~250 MB off the image.
 #
 # No wayland / pipewire / gtk-3 / egl libs here — the desktop-tools
 # Cargo feature is disabled when ha-server builds `hope-agent`, so xcap /
@@ -134,6 +140,11 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
         tzdata \
         wget \
         tini \
+        chromium \
+        fonts-liberation \
+        libnss3 \
+        libgbm1 \
+        libxss1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user. /data is the persisted HA_DATA_DIR (mount this as a volume).

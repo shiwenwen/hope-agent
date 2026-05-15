@@ -96,3 +96,22 @@ pub async fn browser_set_config(config: ha_core::browser::BrowserConfig) -> Resu
     ha_core::browser::reset_backend().await;
     Ok(())
 }
+
+/// Download + unpack the pinned Chromium snapshot for systems with no
+/// Chrome installed. Idempotent. Progress events flow through
+/// [`ha_core::browser::runtime::install_with_event_bus_progress`] on the
+/// `browser:chromium_download_progress` channel so the settings panel
+/// can render a progress bar.
+#[tauri::command]
+pub async fn browser_install_chromium_runtime() -> Result<ChromiumRuntimeResult, CmdError> {
+    let binary = ha_core::browser::runtime::install_with_event_bus_progress().await?;
+    Ok(ChromiumRuntimeResult {
+        binary_path: binary.display().to_string(),
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChromiumRuntimeResult {
+    pub binary_path: String,
+}
