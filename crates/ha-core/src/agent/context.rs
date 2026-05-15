@@ -4,6 +4,29 @@ use serde_json::json;
 use super::llm_adapter::{OneShotMode, OneShotRequest};
 use super::types::{AssistantAgent, LlmProvider};
 
+/// Count tool-use signals in a single conversation-history item across
+/// all three provider shapes. See `AssistantAgent::history_tail_stats`.
+fn count_tool_uses(msg: &serde_json::Value) -> usize {
+    // OpenAI Responses: top-level `{ "type": "function_call" }` item.
+    if msg.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+        return 1;
+    }
+    // OpenAI Chat: assistant message with `tool_calls: [...]`.
+    if let Some(arr) = msg.get("tool_calls").and_then(|v| v.as_array()) {
+        if !arr.is_empty() {
+            return arr.len();
+        }
+    }
+    // Anthropic: assistant message with `content[].type == "tool_use"`.
+    if let Some(arr) = msg.get("content").and_then(|v| v.as_array()) {
+        return arr
+            .iter()
+            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
+            .count();
+    }
+    0
+}
+
 impl AssistantAgent {
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
@@ -24,6 +47,15 @@ impl AssistantAgent {
     /// Compute trailing-slice stats under a single lock — avoids cloning
     /// the whole history just to count messages and tool_use blocks in
     /// the post-turn hot path. Returns `(new_message_count, tool_use_count)`.
+    ///
+    /// Recognises all three provider history shapes:
+    /// - **Anthropic**: assistant message with `content[].type == "tool_use"`
+    /// - **OpenAI Chat**: assistant message with non-empty `tool_calls: []`
+    /// - **OpenAI Responses**: top-level item `{ "type": "function_call" }`
+    ///
+    /// If you only check the Anthropic shape, OpenAI users have a
+    /// permanent `tool_use_count == 0`, which collapses the skill
+    /// auto-review trigger entirely under the default `require_tool_use`.
     pub fn history_tail_stats(&self, since_len: usize) -> (usize, usize) {
         let guard = self
             .conversation_history
@@ -31,19 +63,7 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner());
         let tail = guard.get(since_len..).unwrap_or(&[]);
         let messages = tail.len();
-        let tool_use = tail
-            .iter()
-            .map(|msg| {
-                msg.get("content")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
-                            .count()
-                    })
-                    .unwrap_or(0)
-            })
-            .sum();
+        let tool_use = tail.iter().map(count_tool_uses).sum();
         (messages, tool_use)
     }
 
@@ -972,6 +992,69 @@ pub(crate) fn build_compaction_provider(
         prov_config.user_agent.clone(),
         display_name,
     ))
+}
+
+#[cfg(test)]
+mod count_tool_uses_tests {
+    use super::count_tool_uses;
+    use serde_json::json;
+
+    #[test]
+    fn anthropic_content_block_tool_use_counted() {
+        let msg = json!({
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "ok"},
+                {"type": "tool_use", "name": "exec", "input": {}},
+                {"type": "tool_use", "name": "read", "input": {}},
+            ],
+        });
+        assert_eq!(count_tool_uses(&msg), 2);
+    }
+
+    #[test]
+    fn openai_chat_tool_calls_counted() {
+        let msg = json!({
+            "role": "assistant",
+            "content": "ok",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "exec"}},
+                {"id": "c2", "type": "function", "function": {"name": "read"}},
+            ],
+        });
+        assert_eq!(count_tool_uses(&msg), 2);
+    }
+
+    #[test]
+    fn openai_responses_function_call_item_counted_as_one() {
+        let msg = json!({
+            "type": "function_call",
+            "call_id": "c1",
+            "name": "exec",
+            "arguments": "{}",
+        });
+        assert_eq!(count_tool_uses(&msg), 1);
+    }
+
+    #[test]
+    fn pure_text_message_returns_zero() {
+        let msg = json!({"role": "user", "content": "hello"});
+        assert_eq!(count_tool_uses(&msg), 0);
+    }
+
+    #[test]
+    fn empty_tool_calls_returns_zero() {
+        let msg = json!({"role": "assistant", "content": "ok", "tool_calls": []});
+        assert_eq!(count_tool_uses(&msg), 0);
+    }
+
+    #[test]
+    fn function_call_output_does_not_count() {
+        // Output items are paired with function_call but only the
+        // function_call side represents a model-emitted tool use.
+        let msg = json!({"type": "function_call_output", "call_id": "c1", "output": "ok"});
+        assert_eq!(count_tool_uses(&msg), 0);
+    }
 }
 
 #[cfg(test)]

@@ -1126,7 +1126,10 @@ function ListField({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && draft.trim()) {
-              onChange([...value, draft.trim()])
+              const trimmed = draft.trim()
+              if (!value.includes(trimmed)) {
+                onChange([...value, trimmed])
+              }
               setDraft("")
               e.preventDefault()
             }

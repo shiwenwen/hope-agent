@@ -955,6 +955,19 @@
 - **影响面**：API 设计整洁，零行为变化
 - **触发时机建议**：与 F-041 / F-043 enum 化打包一起做
 
+### F-045 接入 `auto_curator_enabled` 后台周期合并扫描
+
+- **来源**：2026-05-15 auto-review 五道闸自查
+- **现象**：[`SkillsAutoReviewConfig::auto_curator_enabled`](../../crates/ha-core/src/skills/auto_review/config.rs) 和 `auto_curator_interval_days` 字段已经定义、reset_fields 已覆盖、sanitize 已 clamp，但**没有任何背景任务消费它们**。前端 UI 也未暴露开关。当前 v1 仅支持手动按钮触发 curator scan
+- **为什么留**：周期任务涉及 init_runtime 启动期接入 + cfg 变化时重启策略 + 测试覆盖；本 PR 已经 8 commit 38 文件，再加 background lifecycle 风险偏高，单独 PR 做
+- **改的话要做什么**：
+  - 在 `init_runtime`（或 `lib.rs::run`）启动期 spawn 一个 `tokio::time::interval` 后台 task，tick 时读 `cached_config().skills.auto_review`，按 enabled + interval 决定是否跑 `auto_review::curator::run_curator_pass()`
+  - 跑出来的 `CuratorReport` emit 到 EventBus 作为 `skills:curator_proposals_ready`，UI 在 SkillEvolutionView 顶部加一个"有 N 组合并建议"提醒
+  - SkillEvolutionView 加 `Auto-curator` 开关 + interval input（已 reserve i18n key）
+  - cfg 变化时——简化策略：读 cfg 的循环每 tick 重读 cached_config，自然生效；不重新 spawn
+- **影响面**：补完已 ship 的配置项，避免用户开了不生效的体验
+- **触发时机建议**：下一个 auto-review 相关 PR 或专门做 background lifecycle 的 PR
+
 ---
 
 ## Closed

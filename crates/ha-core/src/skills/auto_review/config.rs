@@ -111,9 +111,15 @@ pub struct SkillsAutoReviewConfig {
 
     // ── Curator (draft consolidation) ───────────────────────────────────
     /// Schedule the periodic consolidation pass on its own timer.
+    ///
+    /// **Not yet wired** — v1 ships only the manual `run_skills_curator_now`
+    /// + `apply_skills_curator_merge` path. Setting this to `true` has no
+    /// effect until the background loop lands; tracked in
+    /// `docs/plans/review-followups.md` F-045.
     #[serde(default)]
     pub auto_curator_enabled: bool,
-    /// Days between consolidation passes when `auto_curator_enabled`.
+    /// Days between consolidation passes when `auto_curator_enabled` is on.
+    /// See `auto_curator_enabled` for current support status.
     #[serde(default = "default_auto_curator_interval_days")]
     pub auto_curator_interval_days: u64,
 
