@@ -126,18 +126,6 @@ impl Drop for StreamLifecycle {
     }
 }
 
-/// Count `tool_use` content blocks inside a single conversation-history
-/// entry. Used by the skill auto-review trigger to suppress reviews on
-/// pure-chat turns (zero tool use).
-fn count_tool_use_blocks(msg: &serde_json::Value) -> usize {
-    let Some(arr) = msg.get("content").and_then(|v| v.as_array()) else {
-        return 0;
-    };
-    arr.iter()
-        .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
-        .count()
-}
-
 fn take_failed_attempt_partial(
     slot: &Arc<Mutex<Option<FailedAttemptPartial>>>,
 ) -> Option<FailedAttemptPartial> {
@@ -811,6 +799,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         // waterfall). Feed tool_use_count from this round's
                         // conversation slice — pure-chat turns yield 0 and
                         // are filtered by `require_tool_use` in the config.
+                        // `history_tail_stats` walks the slice under one lock
+                        // without cloning the whole history.
                         {
                             let round_tokens = {
                                 let u = persister.usage();
@@ -818,21 +808,24 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 let output = u.output_tokens.unwrap_or(0);
                                 (input + output) as usize
                             };
-                            let history = agent.get_conversation_history();
-                            let new_slice = history.get(history_len_before..).unwrap_or(&[]);
-                            let round_messages = new_slice.len();
-                            let tool_use_count =
-                                new_slice.iter().map(count_tool_use_blocks).sum::<usize>();
+                            let (round_messages, tool_use_count) =
+                                agent.history_tail_stats(history_len_before);
                             let cfg = crate::config::cached_config()
                                 .skills
                                 .auto_review
                                 .clone()
                                 .sanitize();
+                            // Two user messages within 30 seconds is the
+                            // "user is correcting themselves" signal — cheap
+                            // DB read, only consulted when the master
+                            // toggle is on.
+                            let user_correction = cfg.correction_signal_enabled
+                                && db.user_messages_within(&session_id, 30).unwrap_or(false);
                             let signals = crate::skills::auto_review::TriggerSignals {
                                 turn_tokens: round_tokens,
                                 new_messages: round_messages,
                                 tool_use_count,
-                                user_correction: false,
+                                user_correction,
                             };
                             if let Some(gate) = crate::skills::auto_review::touch_and_maybe_trigger(
                                 &session_id,

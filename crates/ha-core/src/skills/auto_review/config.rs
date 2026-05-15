@@ -109,7 +109,7 @@ pub struct SkillsAutoReviewConfig {
     #[serde(default = "default_max_steps")]
     pub max_steps: usize,
 
-    // ── Curator (deferred to PR 4) ──────────────────────────────────────
+    // ── Curator (draft consolidation) ───────────────────────────────────
     /// Schedule the periodic consolidation pass on its own timer.
     #[serde(default)]
     pub auto_curator_enabled: bool,

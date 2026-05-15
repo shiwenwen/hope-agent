@@ -15,7 +15,6 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::skills::author::delete_skill;
-use crate::skills::discovery::get_skill_content;
 use crate::skills::{load_all_skills_with_extra, SkillEntry, SkillStatus};
 use crate::truncate_utf8;
 
@@ -84,11 +83,11 @@ pub fn run_curator_pass() -> Result<CuratorReport> {
     }
 
     // Build a (skill_id, description, tokenset) tuple for each draft.
+    // Read each SKILL.md directly via the prebuilt `entry.file_path` —
+    // `get_skill_content` would re-scan the whole skill tree per call.
     let mut indexed: Vec<(String, String, std::collections::HashSet<String>)> = Vec::new();
     for entry in &entries {
-        let body = get_skill_content(&entry.name, &config.extra_skills_dirs, &[])
-            .map(|d| d.content)
-            .unwrap_or_default();
+        let body = std::fs::read_to_string(&entry.file_path).unwrap_or_default();
         let mut hay = String::new();
         hay.push_str(&entry.description);
         hay.push(' ');

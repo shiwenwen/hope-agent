@@ -264,7 +264,7 @@ pub fn set_auto_review_config_patch(
     crate::config::mutate_config(("skills.auto_review", source), |store| {
         let mut current = serde_json::to_value(&store.skills.auto_review)
             .context("serialize current auto_review config")?;
-        merge_json(&mut current, &patch);
+        crate::util::merge_json(&mut current, patch.clone());
         let next: auto_review::SkillsAutoReviewConfig =
             serde_json::from_value(current).context("deserialize merged auto_review config")?;
         store.skills.auto_review = next.sanitize();
@@ -339,19 +339,6 @@ pub fn recent_auto_review_skips(limit: usize) -> Vec<serde_json::Value> {
             serde_json::Value::Object(out)
         })
         .collect()
-}
-
-fn merge_json(dst: &mut serde_json::Value, src: &serde_json::Value) {
-    match (dst, src) {
-        (serde_json::Value::Object(d), serde_json::Value::Object(s)) => {
-            for (k, v) in s {
-                merge_json(d.entry(k.clone()).or_insert(serde_json::Value::Null), v);
-            }
-        }
-        (slot, v) => {
-            *slot = v.clone();
-        }
-    }
 }
 
 // ── Curator (draft consolidation) ───────────────────────────────────

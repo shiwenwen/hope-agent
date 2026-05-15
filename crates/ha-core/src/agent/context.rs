@@ -21,6 +21,32 @@ impl AssistantAgent {
             .clone()
     }
 
+    /// Compute trailing-slice stats under a single lock — avoids cloning
+    /// the whole history just to count messages and tool_use blocks in
+    /// the post-turn hot path. Returns `(new_message_count, tool_use_count)`.
+    pub fn history_tail_stats(&self, since_len: usize) -> (usize, usize) {
+        let guard = self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tail = guard.get(since_len..).unwrap_or(&[]);
+        let messages = tail.len();
+        let tool_use = tail
+            .iter()
+            .map(|msg| {
+                msg.get("content")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
+                            .count()
+                    })
+                    .unwrap_or(0)
+            })
+            .sum();
+        (messages, tool_use)
+    }
+
     /// Sync the in-flight round-loop snapshot back to `self.conversation_history`
     /// and persist it to `sessions.context_json`. Called at every round
     /// boundary so a mid-turn crash leaves all completed rounds durable.

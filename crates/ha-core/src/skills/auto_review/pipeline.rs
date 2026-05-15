@@ -25,9 +25,7 @@ use crate::dashboard::{emit_learning_event, EVT_SKILL_DISCARDED};
 use crate::skills::author::{
     create_skill, patch_skill_fuzzy, security_scan, CreateOpts, FuzzyOpts, PatchResult,
 };
-use crate::skills::{
-    discovery::get_skill_content, load_all_skills_with_extra, SkillEntry, SkillStatus,
-};
+use crate::skills::{load_all_skills_with_extra, SkillEntry, SkillStatus};
 use crate::truncate_utf8;
 
 use super::config::{AutoReviewPromotion, SkillsAutoReviewConfig};
@@ -38,6 +36,20 @@ use super::triggers::AutoReviewGate;
 /// Learning-event kind written whenever a review cycle ends without
 /// producing a create/patch (regardless of which gate fired).
 pub const EVT_SKILL_REVIEW_SKIPPED: &str = "skill_review_skipped";
+
+// Reason codes for the pipeline's own skip paths (gates 2 and 5 own their
+// own consts in `heuristics.rs`). Keep all reject reasons centralised so
+// `learning_events.meta_json.reject_reason` is a stable enum the UI can
+// localise — see `settings.skillsEvolution.rejectReasons.*` in i18n.
+pub const REASON_NO_RECENT_MESSAGES: &str = "no_recent_messages";
+pub const REASON_MODEL_DECIDED_SKIP: &str = "model_decided_skip";
+pub const REASON_PATCH_TARGET_NOT_FOUND: &str = "patch_target_not_found";
+pub const REASON_GATE4_LOW_PROB: &str = "gate4_low_reuse_probability";
+pub const REASON_GATE4_MISSING_PROB: &str = "gate4_missing_reuse_probability";
+pub const REASON_GATE4_NOT_CLASS_LEVEL: &str = "gate4_not_class_level";
+pub const REASON_GATE4_SCENARIOS_MISSING: &str = "gate4_scenarios_missing";
+pub const REASON_GATE4_SCENARIOS_TOO_SHORT: &str = "gate4_scenarios_too_short";
+pub const REASON_GATE4_SCENARIOS_PARAPHRASE: &str = "gate4_scenarios_paraphrase";
 
 /// Which path fired the review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,10 +208,14 @@ async fn run_inner(
     if conversation.trim().is_empty() {
         return Ok(skip_report(
             session_id,
-            "no_recent_messages",
+            REASON_NO_RECENT_MESSAGES,
             Some("no recent messages".to_string()),
         ));
     }
+
+    // Conversation tokens are reused by gate 2 (`pre_gate`) and the
+    // dedup-block builder; tokenize once.
+    let conv_keys = tokenize(&conversation);
 
     // ── Gate 2: pre-LLM heuristics ─────────────────────────────────────
     let recent_discards = load_recent_discards(cfg);
@@ -211,7 +227,7 @@ async fn run_inner(
         allow: false,
         reason,
         hit,
-    } = pre_gate(cfg, message_count, &conversation, &discard_topics)
+    } = pre_gate(cfg, message_count, &conv_keys, &discard_topics)
     {
         let rationale = hit
             .as_ref()
@@ -224,12 +240,11 @@ async fn run_inner(
     }
 
     // ── Build top-K dedup candidates with full body ────────────────────
-    let config = cached_config();
-    let entries: Vec<SkillEntry> = load_all_skills_with_extra(&config.extra_skills_dirs)
+    let entries: Vec<SkillEntry> = load_all_skills_with_extra(&cached_config().extra_skills_dirs)
         .into_iter()
         .filter(|s| s.source != "bundled")
         .collect();
-    let dedup_block = build_dedup_block(&entries, &config.extra_skills_dirs, &conversation, cfg);
+    let dedup_block = build_dedup_block(&entries, &conv_keys, cfg);
     let blacklist_block = recent_discards
         .iter()
         .map(|e| {
@@ -267,7 +282,7 @@ async fn run_inner(
         "patch" => apply_patch(session_id, decision),
         _ => Ok(skip_report(
             session_id,
-            "model_decided_skip",
+            REASON_MODEL_DECIDED_SKIP,
             decision.rationale,
         )),
     }
@@ -394,7 +409,7 @@ fn apply_create(
         if p < cfg.min_reuse_probability {
             return Ok(skip_report(
                 session_id,
-                "gate4_low_reuse_probability",
+                REASON_GATE4_LOW_PROB,
                 Some(format!(
                     "model reported reuse_probability={:.2}; floor={:.2}",
                     p, cfg.min_reuse_probability
@@ -404,7 +419,7 @@ fn apply_create(
     } else {
         return Ok(skip_report(
             session_id,
-            "gate4_missing_reuse_probability",
+            REASON_GATE4_MISSING_PROB,
             Some("model omitted required `reuse_probability` field".to_string()),
         ));
     }
@@ -412,7 +427,7 @@ fn apply_create(
     if !class_level {
         return Ok(skip_report(
             session_id,
-            "gate4_not_class_level",
+            REASON_GATE4_NOT_CLASS_LEVEL,
             Some("model self-flagged skill_id as session-specific".to_string()),
         ));
     }
@@ -517,7 +532,7 @@ fn apply_patch(session_id: &str, d: ReviewDecision) -> Result<ReviewReport> {
                 "patch target not found (best similarity {:.2})",
                 best_similarity
             )),
-            reject_reason: Some("patch_target_not_found".to_string()),
+            reject_reason: Some(REASON_PATCH_TARGET_NOT_FOUND.to_string()),
             fire_reason: None,
             duration_ms: 0,
             error: None,
@@ -529,11 +544,11 @@ fn apply_patch(session_id: &str, d: ReviewDecision) -> Result<ReviewReport> {
 /// future scenarios. Returns a `Some(reason)` to short-circuit gate 4.
 fn validate_reuse_scenarios(scenarios: &[String]) -> Option<&'static str> {
     if scenarios.len() < 3 {
-        return Some("gate4_scenarios_missing");
+        return Some(REASON_GATE4_SCENARIOS_MISSING);
     }
     for s in scenarios {
         if s.chars().count() < 20 {
-            return Some("gate4_scenarios_too_short");
+            return Some(REASON_GATE4_SCENARIOS_TOO_SHORT);
         }
     }
     // Pairwise Jaccard: if any pair >= 0.8 the model is paraphrasing
@@ -542,7 +557,7 @@ fn validate_reuse_scenarios(scenarios: &[String]) -> Option<&'static str> {
     for i in 0..toks.len() {
         for j in (i + 1)..toks.len() {
             if jaccard(&toks[i], &toks[j]) >= 0.8 {
-                return Some("gate4_scenarios_paraphrase");
+                return Some(REASON_GATE4_SCENARIOS_PARAPHRASE);
             }
         }
     }
@@ -619,17 +634,17 @@ fn load_recent_discards(cfg: &SkillsAutoReviewConfig) -> Vec<DiscardEntry> {
 
 /// Pre-format the top-K dedup candidates. Each entry: header line +
 /// truncated frontmatter+body so the model can judge "is this the same
-/// territory" without us shipping the entire library.
+/// territory" without us shipping the entire library. Reads each skill's
+/// `SKILL.md` directly via the prebuilt `entry.file_path` — avoids the
+/// N+1 re-discovery `get_skill_content` would otherwise trigger.
 fn build_dedup_block(
     entries: &[SkillEntry],
-    extra_dirs: &[String],
-    conversation: &str,
+    conv_keys: &HashSet<String>,
     cfg: &SkillsAutoReviewConfig,
 ) -> String {
     if entries.is_empty() {
         return String::new();
     }
-    let conv_keys = tokenize(conversation);
     // Score each entry by Jaccard against the transcript.
     let mut scored: Vec<(f32, &SkillEntry)> = entries
         .iter()
@@ -638,7 +653,7 @@ fn build_dedup_block(
             hay.push_str(&e.name);
             hay.push(' ');
             hay.push_str(&e.description);
-            (jaccard(&conv_keys, &tokenize(&hay)), e)
+            (jaccard(conv_keys, &tokenize(&hay)), e)
         })
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -649,11 +664,11 @@ fn build_dedup_block(
         if taken >= cfg.top_k_for_dedup {
             break;
         }
-        let detail = match get_skill_content(&entry.name, extra_dirs, &[]) {
-            Some(d) => d,
-            None => continue,
+        let raw = match std::fs::read_to_string(&entry.file_path) {
+            Ok(s) => s,
+            Err(_) => continue,
         };
-        let body = truncate_utf8(detail.content.as_str(), 1200);
+        let body = truncate_utf8(raw.as_str(), 1200);
         out.push_str(&format!(
             "─── {} (score {:.2}) — {}\n{}\n\n",
             entry.name,
@@ -796,10 +811,7 @@ mod tests {
         };
         let r = apply_create("sid", &cfg, d).unwrap();
         assert_eq!(r.outcome, "skipped");
-        assert_eq!(
-            r.reject_reason.as_deref(),
-            Some("gate4_low_reuse_probability")
-        );
+        assert_eq!(r.reject_reason.as_deref(), Some(REASON_GATE4_LOW_PROB));
     }
 
     #[test]
@@ -825,7 +837,10 @@ mod tests {
         };
         let r = apply_create("sid", &cfg, d).unwrap();
         assert_eq!(r.outcome, "skipped");
-        assert_eq!(r.reject_reason.as_deref(), Some("gate4_not_class_level"));
+        assert_eq!(
+            r.reject_reason.as_deref(),
+            Some(REASON_GATE4_NOT_CLASS_LEVEL)
+        );
     }
 
     #[test]
@@ -850,7 +865,7 @@ mod tests {
         assert_eq!(r.outcome, "skipped");
         assert_eq!(
             r.reject_reason.as_deref(),
-            Some("gate4_scenarios_paraphrase")
+            Some(REASON_GATE4_SCENARIOS_PARAPHRASE)
         );
     }
 

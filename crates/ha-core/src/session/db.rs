@@ -2908,6 +2908,43 @@ impl SessionDB {
         Ok(None)
     }
 
+    /// Whether the two most recent user messages of `session_id` are
+    /// within `window_secs` of each other. Used by the auto-review trigger
+    /// as a proxy for "user just corrected themselves / changed their mind"
+    /// — those turns are exactly the ones where a fresh skill draft is
+    /// most likely to come from a genuine learning. Returns `false` when
+    /// the session has fewer than 2 user messages or the deltas can't be
+    /// parsed (best-effort).
+    pub fn user_messages_within(&self, session_id: &str, window_secs: u64) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT timestamp FROM messages
+             WHERE session_id = ?1 AND role = 'user'
+             ORDER BY id DESC LIMIT 2",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        let first = match rows.next()? {
+            Some(r) => r.get::<_, String>(0)?,
+            None => return Ok(false),
+        };
+        let second = match rows.next()? {
+            Some(r) => r.get::<_, String>(0)?,
+            None => return Ok(false),
+        };
+        let (a, b) = match (
+            chrono::DateTime::parse_from_rfc3339(&first),
+            chrono::DateTime::parse_from_rfc3339(&second),
+        ) {
+            (Ok(a), Ok(b)) => (a, b),
+            _ => return Ok(false),
+        };
+        let delta = (a - b).num_seconds().unsigned_abs();
+        Ok(delta <= window_secs)
+    }
+
     /// Return the last N user messages for a session within a time window.
     /// Used by awareness LLM extraction to give the model concrete recent activity.
     pub fn recent_user_messages_for_preview(

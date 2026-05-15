@@ -49,37 +49,36 @@ impl PreGateOutcome {
 /// pipeline before any model call.
 ///
 /// `message_count` is the number of role-bearing entries in the trimmed
-/// transcript (the same count the prompt would see). `discard_topics`
-/// is an unordered list of `(id, topic_text)` pairs the user has
-/// discarded in the configured blacklist window. `topic_text` is the
-/// language-rich representation: `description` if captured at delete
-/// time, else the kebab `id` (which may not share a language with the
-/// transcript).
+/// transcript (the same count the prompt would see). `conv_keys` is the
+/// pre-tokenized transcript — callers tokenize once and share with the
+/// dedup-block builder so we don't walk the conversation twice.
+/// `discard_topics` is an unordered list of `(id, topic_text)` pairs
+/// the user has discarded in the configured blacklist window. `topic_text`
+/// is the language-rich representation: `description` if captured at
+/// delete time, else the kebab `id` (which may not share a language
+/// with the transcript).
 pub fn pre_gate(
     cfg: &SkillsAutoReviewConfig,
     message_count: usize,
-    conversation: &str,
+    conv_keys: &HashSet<String>,
     discard_topics: &[(String, String)],
 ) -> PreGateOutcome {
     if message_count < cfg.min_message_count {
         return PreGateOutcome::deny(REASON_TOO_FEW_MESSAGES, None);
     }
-    if cfg.discard_blacklist_days > 0 && !discard_topics.is_empty() {
-        let conv_keys = tokenize(conversation);
-        if !conv_keys.is_empty() {
-            for (id, topic) in discard_topics {
-                let topic_keys = tokenize(topic);
-                if topic_keys.is_empty() {
-                    continue;
-                }
-                // Overlap coefficient (|A ∩ B| / min(|A|, |B|)) — asks
-                // "does the conversation cover most of the rejected
-                // topic's keywords", which is the right semantic for a
-                // blacklist hit. Jaccard alone underweights short topic
-                // strings against long transcripts.
-                if overlap_coefficient(&conv_keys, &topic_keys) >= 0.3 {
-                    return PreGateOutcome::deny(REASON_DISCARD_BLACKLIST, Some(id.clone()));
-                }
+    if cfg.discard_blacklist_days > 0 && !discard_topics.is_empty() && !conv_keys.is_empty() {
+        for (id, topic) in discard_topics {
+            let topic_keys = tokenize(topic);
+            if topic_keys.is_empty() {
+                continue;
+            }
+            // Overlap coefficient (|A ∩ B| / min(|A|, |B|)) — asks
+            // "does the conversation cover most of the rejected
+            // topic's keywords", which is the right semantic for a
+            // blacklist hit. Jaccard alone underweights short topic
+            // strings against long transcripts.
+            if overlap_coefficient(conv_keys, &topic_keys) >= 0.3 {
+                return PreGateOutcome::deny(REASON_DISCARD_BLACKLIST, Some(id.clone()));
             }
         }
     }
@@ -399,7 +398,8 @@ mod tests {
     #[test]
     fn pre_gate_blocks_short_transcripts() {
         let cfg = cfg_default();
-        let out = pre_gate(&cfg, 2, "[user]: hi\n[assistant]: hi", &[]);
+        let keys = tokenize("[user]: hi\n[assistant]: hi");
+        let out = pre_gate(&cfg, 2, &keys, &[]);
         assert!(!out.allow);
         assert_eq!(out.reason.as_deref(), Some(REASON_TOO_FEW_MESSAGES));
     }
@@ -407,24 +407,20 @@ mod tests {
     #[test]
     fn pre_gate_allows_long_transcripts() {
         let cfg = cfg_default();
-        let out = pre_gate(
-            &cfg,
-            10,
-            "[user]: rust clippy warning E0382 moved value",
-            &[],
-        );
+        let keys = tokenize("[user]: rust clippy warning E0382 moved value");
+        let out = pre_gate(&cfg, 10, &keys, &[]);
         assert!(out.allow, "expected allow, got {:?}", out);
     }
 
     #[test]
     fn pre_gate_blocks_discard_blacklist_match() {
         let cfg = cfg_default();
-        let conv = "[user]: 我想把我的猫从城市带回农村";
+        let keys = tokenize("[user]: 我想把我的猫从城市带回农村");
         let discards = vec![(
             "adult-cat-relocation-to-rural".to_string(),
             "为成年猫从城市搬到农村提供安置步骤与风险评估".to_string(),
         )];
-        let out = pre_gate(&cfg, 8, conv, &discards);
+        let out = pre_gate(&cfg, 8, &keys, &discards);
         assert!(!out.allow);
         assert_eq!(out.reason.as_deref(), Some(REASON_DISCARD_BLACKLIST));
     }
@@ -433,10 +429,11 @@ mod tests {
     fn pre_gate_discard_blacklist_off_when_zero_days() {
         let mut cfg = cfg_default();
         cfg.discard_blacklist_days = 0;
+        let keys = tokenize("[user]: 我想把我的猫从城市带回农村");
         let out = pre_gate(
             &cfg,
             8,
-            "[user]: 我想把我的猫从城市带回农村",
+            &keys,
             &[(
                 "adult-cat-relocation-to-rural".to_string(),
                 "搬猫".to_string(),

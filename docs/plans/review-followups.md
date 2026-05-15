@@ -892,6 +892,69 @@
 - **影响面**：理论 bug。命中时用户看到「更新已安装，正在重新启动 Hope Agent...」但 app 没起来（前端 fallback 文案 `about.updateRestartManually` 已经覆盖了"用户感知"层）
 - **触发时机建议**：用户实际报上来时启动调查；或下次动 plugin-process / single-instance 集成时
 
+### F-038 抽 `jaccard` / `tokenize` 到共享 `crate::text::similarity` 模块
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（reuse agent）
+- **现象**：项目里现存三处 word-bag Jaccard 实现：[`skills/author.rs::patch_skill_fuzzy`](../../crates/ha-core/src/skills/author.rs)（ASCII 分词，无 CJK）、[`memory/mmr.rs::jaccard_similarity`](../../crates/ha-core/src/memory/mmr.rs)（CJK 一元+二元）、新 [`skills/auto_review/heuristics.rs::jaccard`](../../crates/ha-core/src/skills/auto_review/heuristics.rs)（CJK 二元 + `overlap_coefficient`）。三个都是 file-private，行为不一致
+- **为什么留**：本期已经在 heuristics.rs 写好「CJK 二元 + 单字符过滤 + overlap」版本最完整；统一到 `crate::text::similarity` 会牵动 `author.rs::patch_skill_fuzzy` 的模糊补丁阈值（ASCII → CJK 后可能改变命中率），属于跨模块行为变更，单独 PR 处理更稳
+- **改的话要做什么**：新建 `crates/ha-core/src/text/mod.rs` + `similarity.rs`，迁三处实现统一；`author.rs::patch_skill_fuzzy` 跟随更新后跑现有 patch-fuzzy 测试验证未回归
+- **影响面**：纯重复消除，可能改善 patch_skill_fuzzy 对中文 skill body 的命中率（当前 ASCII 分词把中文 skill 体当一个 token 处理）
+- **触发时机建议**：下次动 `patch_skill_fuzzy` 或 mmr / memory 重排时顺手收
+
+### F-039 `CollapsibleSection` lift 到 `src/components/ui/`
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（reuse agent）
+- **现象**：[`agent-panel/tabs/CapabilitiesTab.tsx::CollapsibleSection`](../../src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx) 和新 [`skills-panel/SkillEvolutionView.tsx::Section`](../../src/components/settings/skills-panel/SkillEvolutionView.tsx) 都是 ChevronDown + button + collapse 的同形组件；后者多了 `warning` / `disabled` props
+- **为什么留**：lift 需要把两个 tab-local 视觉细节统一（subtitle 行位、warning 图标），属于 UI primitive 重构 PR
+- **改的话要做什么**：在 `src/components/ui/collapsible-section.tsx` 落一个 shadcn 风的 primitive，参数化 (open / onToggle / title / subtitle / warning / disabled)，两处消费方迁过去
+- **影响面**：UI primitive 复用，零行为变化
+- **触发时机建议**：下一个新 Settings panel 也需要折叠区时
+
+### F-040 `FieldRow` + per-field `StatusBadge` 抽成 Settings 公共原语
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（reuse agent）
+- **现象**：[`SkillEvolutionView.tsx::FieldRow`](../../src/components/settings/skills-panel/SkillEvolutionView.tsx)（RotateCcw + IconTip + StatusBadge + child slot）是新写的 per-field 三态保存模式；其它 Settings panel（GlobalModelPanel / ContextCompactPanel / SandboxPanel / AcpControlPanel 等）目前是 panel-wide 三态。AGENTS.md "保存按钮统一三态"契约让两种粒度共存，但代码上没有共用 primitive
+- **为什么留**：per-field autosave 是这次新引入的模式，存量 panel 还在 panel-wide 模式。等下一个 panel 迁到 per-field 时一起抽，避免过早抽象
+- **改的话要做什么**：在 `src/components/settings/_shared/FieldRow.tsx`（或 `src/components/ui/field-row.tsx`）落一个 primitive，两处以上 panel 用过再固化
+- **影响面**：UI 复用，零行为变化
+- **触发时机建议**：下一个 panel 迁到 per-field autosave 时
+
+### F-041 `ReviewReport` 改 enum-shaped outcome 消除 `None` 字段族
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（quality agent）
+- **现象**：[`pipeline.rs::ReviewReport`](../../crates/ha-core/src/skills/auto_review/pipeline.rs) 用 `outcome: String` + 一堆 `Option<...>`（`skill_id` / `similarity` / `rationale` / `reject_reason` / `fire_reason` / `error`）。`similarity` 只对 patch 有意义；`reject_reason` 只对 skipped 有意义——字段语义随 outcome 字符串隐式分支
+- **为什么留**：当前形状已经 wire 到 EventBus、UI 和 i18n；改 enum 要带 TS 端 discriminated-union 改写 + JSON wire format 兼容，独立 PR
+- **改的话要做什么**：定义 `enum ReviewOutcome { Created { skill_id, rationale }, Patched { skill_id, similarity, rationale }, Skipped { reason, rationale }, Errored { message } }`，`ReviewReport` 收 `trigger, session_id, fire_reason, duration_ms, outcome: ReviewOutcome`；前端用 `outcome.kind` discriminate
+- **影响面**：纯架构整洁度，零功能变化
+- **触发时机建议**：下次给 `ReviewReport` 加字段时一并改
+
+### F-042 `config::reset_fields` 23 块 if-ladder → 静态字段表
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（quality agent）
+- **现象**：[`config.rs::SkillsAutoReviewConfig::reset_fields`](../../crates/ha-core/src/skills/auto_review/config.rs) 有 23 个近似的 `if want("...")` 块；每加一个字段必须人工同步两处（struct + reset 表）
+- **为什么留**：23 行还能读；macro 影响 grep、静态表需要 typed fn pointer，收益不够大且 PR 已庞大
+- **改的话要做什么**：option A：`macro_rules! reset_fields! { self, d, fields, [enabled, promotion, ...] }`。option B：`static FIELDS: &[(&str, fn(&mut Self, &Self))] = &[("enabled", |s, d| s.enabled = d.enabled), ...]`
+- **影响面**：可维护性，零行为变化
+- **触发时机建议**：下次 `SkillsAutoReviewConfig` 加字段时顺手
+
+### F-043 `fire_reason: String` 改 `enum FireReason`
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（quality agent）
+- **现象**：[`triggers.rs::AutoReviewGate::fire_reason`](../../crates/ha-core/src/skills/auto_review/triggers.rs) 返回 `&str`（`"tool_use" | "bulk" | "correction" | "manual"`），全程以 `String` 在 `ReviewReport` 流转到 TS。`reject_reason` 同形（已抽常量但仍是 String）
+- **为什么留**：常量化已落（[`pipeline.rs::REASON_*`](../../crates/ha-core/src/skills/auto_review/pipeline.rs) + heuristics 常量），enum 改造涉及 serde `rename_all` + TS discriminated union 迁移
+- **改的话要做什么**：`#[derive(Serialize)] #[serde(rename_all = "snake_case")] enum FireReason { ToolUse, Bulk, Correction, Manual }`；ReviewReport 同形改 RejectReason
+- **影响面**：类型安全，零行为变化
+- **触发时机建议**：与 F-041 一起做
+
+### F-044 `DiscardEntry` 提到 `heuristics.rs` + `pre_gate` 接收 `&[DiscardEntry]`
+
+- **来源**：2026-05-15 auto-review 五道闸 `/simplify` review（quality agent）
+- **现象**：[`pipeline.rs::DiscardEntry`](../../crates/ha-core/src/skills/auto_review/pipeline.rs) 私有 struct；调到 [`heuristics::pre_gate`](../../crates/ha-core/src/skills/auto_review/heuristics.rs) 前 .map 成 `Vec<(String, String)>` 元组，被回 destructure 成 `(id, topic)`。位置型契约，换字段顺序静默 footgun
+- **为什么留**：当前只有 1 个 call site，定位+修复几分钟就够，但需要决定 DiscardEntry 该住 heuristics（信号契约）还是 pipeline（持久化源）—— 顺便决定时机
+- **改的话要做什么**：把 `DiscardEntry { id, topic_text }` 公开到 heuristics.rs 或一个新的 `auto_review::types` 子模块；`pre_gate` 接 `&[DiscardEntry]`
+- **影响面**：API 设计整洁，零行为变化
+- **触发时机建议**：与 F-041 / F-043 enum 化打包一起做
+
 ---
 
 ## Closed

@@ -20,7 +20,7 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 
 // ──────────────────────────────────────────────────────────────────────
-// Types — kept locally; PR 1 already serializes camelCase via serde.
+// Types — kept locally; the Rust side serializes camelCase via serde.
 // ──────────────────────────────────────────────────────────────────────
 
 interface AutoReviewConfig {
@@ -49,7 +49,7 @@ interface AutoReviewConfig {
   sessionRecapThreshold: number
   minSteps: number
   maxSteps: number
-  // Curator (PR 4)
+  // Curator
   autoCuratorEnabled: boolean
   autoCuratorIntervalDays: number
   // Retention
@@ -286,23 +286,19 @@ export default function SkillEvolutionView({
     [keepSelections],
   )
 
-  const runReviewNow = useCallback(async () => {
-    // Cheap manual fire — uses current chat session if available; otherwise
-    // the trigger is rejected silently and we just reload recent rejects.
-    flashSave("__manual", "saving")
+  const refreshRejects = useCallback(async () => {
+    flashSave("__refresh", "saving")
     try {
-      // Note: trigger_skill_review_now requires a session_id; we leave it
-      // wired through the Sessions UI in PR 4. For now, just reload data.
       await reload()
-      flashSave("__manual", "saved")
+      flashSave("__refresh", "saved")
     } catch (e) {
       logger.error(
         "settings",
-        "SkillEvolutionView::reload",
-        "Failed manual run",
+        "SkillEvolutionView::refreshRejects",
+        "Failed to refresh recent rejects",
         e,
       )
-      flashSave("__manual", "failed")
+      flashSave("__refresh", "failed")
     }
   }, [flashSave, reload])
 
@@ -416,10 +412,10 @@ export default function SkillEvolutionView({
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs"
-            onClick={runReviewNow}
-            disabled={!autoReviewEnabled || saveStatus.__manual === "saving"}
+            onClick={refreshRejects}
+            disabled={!autoReviewEnabled || saveStatus.__refresh === "saving"}
           >
-            {saveStatus.__manual === "saving" ? (
+            {saveStatus.__refresh === "saving" ? (
               <Loader2 className="h-3 w-3 animate-spin mr-1" />
             ) : (
               <RotateCcw className="h-3 w-3 mr-1" />
