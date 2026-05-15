@@ -22,6 +22,7 @@ import QuickImportDialog from "./QuickImportDialog"
 export default function SkillsPanel() {
   const { t } = useTranslation()
   const { drafts } = useDraftSkillsStore()
+  const [activeTab, setActiveTab] = useState<"manage" | "evolution">("manage")
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [draftPending, setDraftPending] = useState<
     Record<string, "activate" | "discard" | undefined>
@@ -69,12 +70,15 @@ export default function SkillsPanel() {
     return unlisten
   }, [reload])
 
-  // Whenever the panel is open and the draft list changes (mount, store
-  // refresh, or live event), the user is implicitly "seeing" the current set —
-  // clear the unseen-count badge that drives the IconSidebar / SettingsView dots.
+  // Drafts now live inside the Evolution tab — only mark them seen when the
+  // user actually lands on (or is already on) that tab. Doing it on panel
+  // mount would clear the IconSidebar / SettingsView dots before the user
+  // ever sees the list.
   useEffect(() => {
-    markDraftsSeen()
-  }, [drafts])
+    if (activeTab === "evolution") {
+      markDraftsSeen()
+    }
+  }, [activeTab, drafts])
 
   useEffect(() => {
     let cancelled = false
@@ -306,7 +310,11 @@ export default function SkillsPanel() {
   // ── Skills List View ───────────────────────────────────────────
   return (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-      <Tabs defaultValue="manage" className="flex-1 flex flex-col min-h-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as "manage" | "evolution")}
+        className="flex-1 flex flex-col min-h-0"
+      >
         <div className="px-6 pt-4 shrink-0">
           <TabsList>
             <TabsTrigger value="manage">{t("settings.skillsTab.manage")}</TabsTrigger>
