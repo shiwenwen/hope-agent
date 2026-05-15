@@ -625,6 +625,83 @@ impl SessionDB {
         }
     }
 
+    /// Raw timeline of `learning_events` matching `kind` with
+    /// `ts >= since_ts`, most recent first. **Does not** deduplicate by
+    /// `ref_id` and **does not** filter rows with NULL `ref_id` —
+    /// callers like `skill_review_skipped` need every individual event
+    /// (most skip events carry no `ref_id` at all because no skill was
+    /// created), not a per-skill latest snapshot.
+    pub fn recent_learning_events_timeline(
+        &self,
+        kind: &str,
+        since_ts: i64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<(i64, Option<String>, Option<String>, Option<String>)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT ts, ref_id, session_id, meta_json
+             FROM learning_events
+             WHERE kind = ?1 AND ts >= ?2
+             ORDER BY ts DESC, id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![kind, since_ts, limit as i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows.flatten() {
+            out.push(r);
+        }
+        Ok(out)
+    }
+
+    /// Most recent `learning_events` matching `kind` with `ts >= since_ts`,
+    /// deduplicated by `ref_id`. Returns `(ref_id, meta_json)` pairs, most
+    /// recent first. Rows with empty `ref_id` are filtered out; `meta_json`
+    /// may be `None` if the event was emitted without metadata.
+    pub fn recent_learning_event_rows(
+        &self,
+        kind: &str,
+        since_ts: i64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<(String, Option<String>)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Pick the latest meta_json per ref_id (highest ts wins).
+        let mut stmt = conn.prepare(
+            "SELECT le.ref_id, le.meta_json
+             FROM learning_events le
+             JOIN (
+                 SELECT ref_id, MAX(ts) AS ts_max
+                 FROM learning_events
+                 WHERE kind = ?1 AND ts >= ?2 AND ref_id IS NOT NULL AND ref_id != ''
+                 GROUP BY ref_id
+             ) latest
+             ON le.ref_id = latest.ref_id AND le.ts = latest.ts_max
+             WHERE le.kind = ?1
+             ORDER BY le.ts DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![kind, since_ts, limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for t in rows.flatten() {
+            out.push(t);
+        }
+        Ok(out)
+    }
+
     /// Delete learning_events older than `ts_cutoff`. Returns the number of
     /// rows removed. Called by the retention sweeper.
     pub fn prune_learning_events(&self, ts_cutoff: i64) -> anyhow::Result<usize> {
@@ -2867,6 +2944,43 @@ impl SessionDB {
             return Ok(Some(trimmed));
         }
         Ok(None)
+    }
+
+    /// Whether the two most recent user messages of `session_id` are
+    /// within `window_secs` of each other. Used by the auto-review trigger
+    /// as a proxy for "user just corrected themselves / changed their mind"
+    /// — those turns are exactly the ones where a fresh skill draft is
+    /// most likely to come from a genuine learning. Returns `false` when
+    /// the session has fewer than 2 user messages or the deltas can't be
+    /// parsed (best-effort).
+    pub fn user_messages_within(&self, session_id: &str, window_secs: u64) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT timestamp FROM messages
+             WHERE session_id = ?1 AND role = 'user'
+             ORDER BY id DESC LIMIT 2",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        let first = match rows.next()? {
+            Some(r) => r.get::<_, String>(0)?,
+            None => return Ok(false),
+        };
+        let second = match rows.next()? {
+            Some(r) => r.get::<_, String>(0)?,
+            None => return Ok(false),
+        };
+        let (a, b) = match (
+            chrono::DateTime::parse_from_rfc3339(&first),
+            chrono::DateTime::parse_from_rfc3339(&second),
+        ) {
+            (Ok(a), Ok(b)) => (a, b),
+            _ => return Ok(false),
+        };
+        let delta = (a - b).num_seconds().unsigned_abs();
+        Ok(delta <= window_secs)
     }
 
     /// Return the last N user messages for a session within a time window.

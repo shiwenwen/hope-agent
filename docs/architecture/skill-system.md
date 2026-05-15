@@ -1291,17 +1291,67 @@ SkillsPanel 列表中每个技能显示状态标签：
     "autoReview": {
       "enabled": true,
       "promotion": "draft",
-      "cooldownSecs": 600,
-      "tokenThreshold": 10000,
-      "messageThreshold": 15,
+      // Gate 1 — trigger
+      "cooldownSecs": 900,
+      "tokenThreshold": 12000,
+      "messageThreshold": 20,
+      "toolUseThreshold": 3,
+      "correctionSignalEnabled": true,
+      "requireToolUse": true,
+      // Gate 2 — pre-LLM heuristics
+      "minMessageCount": 4,
+      "discardBlacklistDays": 30,
+      // Gate 3 — LLM review
+      "topKForDedup": 5,
       "reviewModel": null,
       "candidateLimit": 24,
       "timeoutSecs": 90,
+      "reviewSystemOverride": null,
+      "extraRejectCategories": [],
+      // Gate 4 — self-score floor
+      "minReuseProbability": 0.7,
+      // Gate 5 — post-LLM lint
+      "sessionRecapThreshold": 2,
+      "minSteps": 2,
+      "maxSteps": 12,
+      // Curator (manual + optional periodic)
+      "autoCuratorEnabled": false,
+      "autoCuratorIntervalDays": 7,
+      // Learning-event retention
       "retentionDays": 180
     }
   }
 }
 ```
+
+### 自动审核：五道瀑布过滤
+
+每次 chat 收尾后，auto-review 管线按下面五道闸串行处理；任意一道判 skip 都会写入 `learning_events.kind='skill_review_skipped'`，UI 的 "最近的拒绝原因" 卡片就靠这条流。
+
+```
+[闸 1 触发器] → [闸 2 启发式 gate] → [闸 3 LLM 审核 + dedup] → [闸 4 自评分硬阈值] → [闸 5 后置 lint] → 落盘 draft / patch existing
+```
+
+- **闸 1（[`triggers.rs`](../../crates/ha-core/src/skills/auto_review/triggers.rs)）**：[`TriggerSignals { turn_tokens, new_messages, tool_use_count, user_correction }`](../../crates/ha-core/src/skills/auto_review/triggers.rs)。默认 `requireToolUse=true` —— 纯聊天对话 `tool_use_count=0` 永远不触发；`tool_use_count ≥ toolUseThreshold` 是主入口；`correctionSignalEnabled=true` 时连发两条用户消息（< 30s）也独立触发。
+- **闸 2（[`heuristics::pre_gate`](../../crates/ha-core/src/skills/auto_review/heuristics.rs)）**：消息条数低于 `minMessageCount` 直接 skip；最近 `discardBlacklistDays` 天内被用户 discard 的草稿主题（按 description 做 overlap-coefficient 相似度匹配）直接 skip。`delete_skill` 会把当时的 description 写到 `learning_events.meta_json`，所以中英文题目都能匹配。
+- **闸 3（[`pipeline.rs`](../../crates/ha-core/src/skills/auto_review/pipeline.rs) + [`prompts.rs`](../../crates/ha-core/src/skills/auto_review/prompts.rs)）**：内置 prompt 列出 6 类禁拍（`ENV-FAILURE` / `NEGATIVE-CLAIM` / `TRANSIENT-ERROR` / `ONE-OFF-TASK` / `PERSONAL-LIFE-DECISION` / `ECHO-OF-USER-INPUT`），用户 `extraRejectCategories` 追加进去；按 Jaccard 选 `topKForDedup` 条现有 skill，**注入完整 body** 让模型优先 `patch` 而非 `create`；用户也可整段覆盖 `reviewSystemOverride`，但闸 4 / 5 不受影响。
+- **闸 4（pipeline `apply_create` 内）**：要求模型在 create 决策里返回 `reuse_scenarios: [string; 3]`（每条 ≥ 20 字、互相 Jaccard < 0.8）+ `reuse_probability ≥ minReuseProbability` + `class_level_name = true`，否则强制 skip。
+- **闸 5（[`heuristics::post_lint`](../../crates/ha-core/src/skills/auto_review/heuristics.rs)）**：会话化词阈值（"今天 / this conversation / 上面" 等）≥ `sessionRecapThreshold`、步骤数不在 `[minSteps, maxSteps]`、缺少具体命令 / 路径 / 代码、命名含 `fix-issue` / `-today` / 末尾纯数字等"会话产物"特征任一命中即 skip。
+
+### Curator（草稿合并）
+
+[`curator.rs`](../../crates/ha-core/src/skills/auto_review/curator.rs) 提供一次性扫描：用 Jaccard 把 `status=draft` 的 managed skill 聚类（默认阈值 0.4），输出 `MergeProposal { members, min_similarity }`。**不调用 LLM、不落盘**；前端展示给用户选择保留哪一个，调用 `apply_skills_curator_merge` 时通过 `delete_skill` 删除其余成员（同时进 gate 2 黑名单）。`autoCuratorEnabled=true` 时由独立后台任务按 `autoCuratorIntervalDays` 周期触发（默认关）。
+
+### 命令一览
+
+| 用途 | Tauri 命令 | HTTP 路由 |
+|---|---|---|
+| 读取 sanitize 后整个 auto-review 配置 | `get_skills_auto_review_config` | `GET /api/skills/auto-review/config` |
+| 深合并 patch（任意字段子集） | `set_skills_auto_review_config` | `PATCH /api/skills/auto-review/config` |
+| 按字段名重置（不传字段即整组重置） | `reset_skills_auto_review_config` | `POST /api/skills/auto-review/config/reset` |
+| 最近被拒原因（默认 20 条，7 天窗口） | `get_skills_auto_review_recent_rejects` | `GET /api/skills/auto-review/recent-rejects` |
+| Curator 扫描 | `run_skills_curator_now` | `POST /api/skills/curator/run` |
+| Curator 合并应用 | `apply_skills_curator_merge` | `POST /api/skills/curator/apply` |
 
 ### Agent 级过滤（agent.json）
 

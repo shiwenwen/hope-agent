@@ -31,6 +31,32 @@ pub fn skill_cache_version() -> u64 {
     SKILL_CACHE_VERSION.load(Ordering::Relaxed)
 }
 
+/// Extract the `description:` frontmatter field from a SKILL.md content
+/// string without instantiating the full `ParsedFrontmatter`. Used by
+/// `author::delete_skill` to persist the language-rich description into
+/// the `skill_discarded` learning event meta so the auto-review pipeline
+/// can build a real topical blacklist (rather than matching against
+/// kebab-case ids that may not share a language with the user).
+pub(crate) fn parse_frontmatter_for_discard(content: &str) -> Option<String> {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+    let after_open = &trimmed[3..];
+    let end = after_open.find("\n---")?;
+    let yaml_block = &after_open[..end];
+    for line in yaml_block.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("description:") {
+            let v = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
 pub(super) fn skill_cache_version_raw() -> u64 {
     SKILL_CACHE_VERSION.load(Ordering::Relaxed)
 }

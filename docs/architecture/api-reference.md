@@ -659,6 +659,12 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `set_skills_auto_review_promotion` | `PUT /api/skills/auto-review/promotion` | ✅ |
 | `get_skills_auto_review_enabled` | `GET /api/skills/auto-review/enabled` | ✅ |
 | `set_skills_auto_review_enabled` | `PUT /api/skills/auto-review/enabled` | ✅ |
+| `get_skills_auto_review_config` | `GET /api/skills/auto-review/config` | ✅ |
+| `set_skills_auto_review_config` | `PATCH /api/skills/auto-review/config` | ✅ |
+| `reset_skills_auto_review_config` | `POST /api/skills/auto-review/config/reset` | ✅ |
+| `get_skills_auto_review_recent_rejects` | `GET /api/skills/auto-review/recent-rejects` | ✅ |
+| `run_skills_curator_now` | `POST /api/skills/curator/run` | ✅ |
+| `apply_skills_curator_merge` | `POST /api/skills/curator/apply` | ✅ |
 
 ### Slash commands
 
