@@ -134,47 +134,13 @@ pub async fn set_config(
 /// `POST /api/browser/install-chromium-runtime`
 ///
 /// Downloads + unpacks the pinned Chromium snapshot when the system has
-/// no Chrome. Progress events go on the EventBus channel
-/// `browser:chromium_download_progress` for SSE/WS subscribers.
+/// no Chrome. Progress events flow through
+/// [`ha_core::browser::runtime::install_with_event_bus_progress`] on the
+/// `browser:chromium_download_progress` channel for SSE/WS subscribers.
 pub async fn install_chromium_runtime() -> Result<Json<serde_json::Value>, AppError> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
-    let last_percent = Arc::new(AtomicU64::new(u64::MAX));
-    let progress_last_percent = Arc::clone(&last_percent);
-    let progress = move |downloaded: u64, total: Option<u64>| {
-        let percent = total
-            .and_then(|t| downloaded.checked_mul(100).and_then(|n| n.checked_div(t)))
-            .map(|p| p.min(100));
-        let report_pct = percent.unwrap_or(u64::MAX);
-        let prev = progress_last_percent.load(Ordering::Relaxed);
-        if prev == u64::MAX || (report_pct != u64::MAX && report_pct != prev) {
-            progress_last_percent.store(report_pct, Ordering::Relaxed);
-            if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
-                bus.emit(
-                    "browser:chromium_download_progress",
-                    serde_json::json!({
-                        "stage": "downloading",
-                        "percent": percent,
-                        "downloadedBytes": downloaded,
-                        "totalBytes": total,
-                    }),
-                );
-            }
-        }
-    };
-    let binary = ha_core::browser::runtime::ensure_chromium(progress)
+    let binary = ha_core::browser::runtime::install_with_event_bus_progress()
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
-    if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
-        bus.emit(
-            "browser:chromium_download_progress",
-            serde_json::json!({
-                "stage": "ready",
-                "percent": 100,
-                "binaryPath": binary.display().to_string(),
-            }),
-        );
-    }
     Ok(Json(serde_json::json!({
         "binaryPath": binary.display().to_string(),
     })))

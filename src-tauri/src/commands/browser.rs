@@ -98,49 +98,13 @@ pub async fn browser_set_config(config: ha_core::browser::BrowserConfig) -> Resu
 }
 
 /// Download + unpack the pinned Chromium snapshot for systems with no
-/// Chrome installed. Idempotent. Progress is emitted on the
-/// `browser:chromium_download_progress` EventBus channel so the settings
-/// panel can render a progress bar.
+/// Chrome installed. Idempotent. Progress events flow through
+/// [`ha_core::browser::runtime::install_with_event_bus_progress`] on the
+/// `browser:chromium_download_progress` channel so the settings panel
+/// can render a progress bar.
 #[tauri::command]
 pub async fn browser_install_chromium_runtime() -> Result<ChromiumRuntimeResult, CmdError> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
-
-    let last_percent = Arc::new(AtomicU64::new(u64::MAX));
-    let progress_last_percent = Arc::clone(&last_percent);
-    let progress = move |downloaded: u64, total: Option<u64>| {
-        let percent = total
-            .and_then(|t| downloaded.checked_mul(100).and_then(|n| n.checked_div(t)))
-            .map(|p| p.min(100));
-        let report_pct = percent.unwrap_or(u64::MAX);
-        let prev = progress_last_percent.load(Ordering::Relaxed);
-        if prev == u64::MAX || (report_pct != u64::MAX && report_pct != prev) {
-            progress_last_percent.store(report_pct, Ordering::Relaxed);
-            if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
-                bus.emit(
-                    "browser:chromium_download_progress",
-                    serde_json::json!({
-                        "stage": "downloading",
-                        "percent": percent,
-                        "downloadedBytes": downloaded,
-                        "totalBytes": total,
-                    }),
-                );
-            }
-        }
-    };
-
-    let binary = ha_core::browser::runtime::ensure_chromium(progress).await?;
-    if let Some(bus) = ha_core::globals::EVENT_BUS.get() {
-        bus.emit(
-            "browser:chromium_download_progress",
-            serde_json::json!({
-                "stage": "ready",
-                "percent": 100,
-                "binaryPath": binary.display().to_string(),
-            }),
-        );
-    }
+    let binary = ha_core::browser::runtime::install_with_event_bus_progress().await?;
     Ok(ChromiumRuntimeResult {
         binary_path: binary.display().to_string(),
     })

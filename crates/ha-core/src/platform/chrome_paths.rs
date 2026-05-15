@@ -36,8 +36,11 @@ impl ChromeBrand {
         }
     }
 
-    /// Substring used by `pkill -f` to match the running binary.
-    pub fn linux_bin_pattern(self) -> &'static str {
+    /// Substring used by `pkill -f` to match the running binary's argv.
+    /// Works on both Linux (where it's the executable name) and macOS
+    /// (where pgrep -f matches the full command line, which includes the
+    /// `.app` bundle path containing the same string).
+    pub fn unix_process_pattern(self) -> &'static str {
         match self {
             ChromeBrand::Chrome => "google-chrome",
             ChromeBrand::Edge => "microsoft-edge",
@@ -77,19 +80,30 @@ pub fn detect_daily_browser() -> Option<ChromeInstallation> {
         ChromeBrand::Brave,
         ChromeBrand::Chromium,
     ] {
-        if let (Some(executable), Some(user_data_dir)) =
-            (executable_for(brand), user_data_dir_for(brand))
-        {
-            if executable.exists() && user_data_dir.exists() {
-                return Some(ChromeInstallation {
-                    brand,
-                    executable,
-                    user_data_dir,
-                });
-            }
+        if let Some(installation) = lookup_brand_installation(brand) {
+            return Some(installation);
         }
     }
     None
+}
+
+/// Look up a single brand's executable + user-data-dir, both required.
+/// Early-returns when the executable is missing so we don't waste the
+/// user-data-dir syscall on brands the user hasn't installed.
+pub fn lookup_brand_installation(brand: ChromeBrand) -> Option<ChromeInstallation> {
+    let executable = executable_for(brand)?;
+    if !executable.exists() {
+        return None;
+    }
+    let user_data_dir = user_data_dir_for(brand)?;
+    if !user_data_dir.exists() {
+        return None;
+    }
+    Some(ChromeInstallation {
+        brand,
+        executable,
+        user_data_dir,
+    })
 }
 
 pub fn executable_for(brand: ChromeBrand) -> Option<PathBuf> {

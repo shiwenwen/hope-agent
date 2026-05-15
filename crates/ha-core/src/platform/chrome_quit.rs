@@ -29,7 +29,7 @@ pub async fn graceful_quit(brand: ChromeBrand) -> Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         // SIGTERM lets Chrome run its shutdown hooks.
-        let pat = brand.linux_bin_pattern();
+        let pat = brand.unix_process_pattern();
         let _ = Command::new("pkill")
             .args(["-TERM", "-f", pat])
             .kill_on_drop(true)
@@ -58,7 +58,7 @@ pub async fn force_kill(brand: ChromeBrand) -> Result<()> {
     {
         // `pkill -KILL -f <pattern>` works on macOS too; the pattern
         // matches the binary name in argv[0].
-        let pat = brand.linux_bin_pattern();
+        let pat = brand.unix_process_pattern();
         let _ = Command::new("pkill")
             .args(["-KILL", "-f", pat])
             .kill_on_drop(true)

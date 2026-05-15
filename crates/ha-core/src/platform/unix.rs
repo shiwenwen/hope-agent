@@ -91,15 +91,12 @@ pub(super) async fn chrome_running_with_user_data_dir(user_data_dir: &Path) -> b
     // whose argv carries this exact `--user-data-dir=…`. Used by
     // `target=system` so we don't mis-detect an isolated managed Chrome
     // owning some other directory as "Chrome is busy".
+    //
+    // `pgrep -f` takes an ERE pattern, so any regex metachar in the path
+    // needs `\` prefix. `regex::escape` is the canonical helper —
+    // `Path::Display` paths routinely contain `.` and on macOS often `(`/`)`.
     let dir = user_data_dir.to_string_lossy();
-    // Escape regex metachars in the path; pgrep -f takes ERE.
-    let escaped = dir.replace(
-        [
-            '.', '+', '*', '?', '[', ']', '(', ')', '{', '}', '|', '^', '$', '\\',
-        ],
-        "\\",
-    );
-    let pattern = format!("--user-data-dir={}\\b", escaped);
+    let pattern = format!("--user-data-dir={}\\b", regex::escape(&dir));
     let output = match tokio::process::Command::new("pgrep")
         .args(["-f", &pattern])
         .kill_on_drop(true)

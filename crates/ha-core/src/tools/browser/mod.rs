@@ -191,21 +191,39 @@ async fn profile_list() -> Result<String> {
     Ok(lines.join("\n"))
 }
 
+/// Where `profile.op=launch` should put cookies/history/extensions.
+///
+/// See the doc on `BROWSER_TOOL_DEFINITION.target` schema (in
+/// [`crate::tools::definitions::core_tools`]) for the per-variant
+/// trade-offs — this enum just carries the wire-format value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ProfileTarget {
+    #[default]
+    Managed,
+    UserAttach,
+    System,
+}
+
 /// Dispatch on the `target` parameter. Default `managed` preserves the
 /// legacy behaviour (isolated profile under `~/.hope-agent/browser-profiles/`).
 /// `user_attach` spawns the agent's day-to-day Chrome in a separate
 /// user-data-dir. `system` attaches the user's REAL daily Chrome —
 /// requires explicit consent in default/smart, auto-allowed in YOLO.
 async fn profile_launch(args: &Value, session_id: Option<&str>) -> Result<String> {
-    let target = get_str(args, "target").unwrap_or("managed");
+    let target: ProfileTarget = match args.get("target") {
+        None | Some(Value::Null) => ProfileTarget::default(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|_| {
+            anyhow!(
+                "Unknown profile.target '{}'. Valid: managed / user_attach / system",
+                v
+            )
+        })?,
+    };
     match target {
-        "managed" => profile_launch_managed(args).await,
-        "user_attach" => profile_launch_user_attach(args).await,
-        "system" => profile_launch_system(args, session_id).await,
-        other => Err(anyhow!(
-            "Unknown profile.target '{}'. Valid: managed / user_attach / system",
-            other
-        )),
+        ProfileTarget::Managed => profile_launch_managed(args).await,
+        ProfileTarget::UserAttach => profile_launch_user_attach(args).await,
+        ProfileTarget::System => profile_launch_system(args, session_id).await,
     }
 }
 
@@ -286,7 +304,7 @@ async fn profile_launch_system(args: &Value, session_id: Option<&str>) -> Result
     use crate::platform::{chrome_paths, chrome_quit};
     use std::time::Duration;
 
-    let _ = args; // future: explicit brand override, executable hint, etc.
+    let _ = args;
 
     // 1) Resolve daily browser.
     let inst = chrome_paths::detect_daily_browser().ok_or_else(|| {
@@ -358,7 +376,7 @@ async fn profile_launch_system(args: &Value, session_id: Option<&str>) -> Result
             }]
         });
         let raw = crate::tools::ask_user_question::execute(&ask_args, Some(sid)).await;
-        if !is_target_system_confirmed(&raw, affirmative_label) {
+        if !crate::ask_user::was_affirmative(&raw, &[affirmative_label]) {
             return Err(anyhow!(
                 "profile.op=launch target=system denied by user (or no response)."
             ));
@@ -433,33 +451,6 @@ async fn profile_launch_system(args: &Value, session_id: Option<&str>) -> Result
     ))
 }
 
-/// Parse the ask_user_question reply for `target=system` consent.
-/// Same shape as `is_evaluate_confirmed` — `selected[]` carries label
-/// strings, never trust a `timedOut` answer.
-fn is_target_system_confirmed(raw: &str, affirmative_label: &str) -> bool {
-    let v: serde_json::Value = match serde_json::from_str(raw) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    if v.get("timedOut").and_then(|t| t.as_bool()).unwrap_or(false) {
-        return false;
-    }
-    let Some(answers) = v.get("answers").and_then(|a| a.as_array()) else {
-        return false;
-    };
-    for a in answers {
-        let Some(selected) = a.get("selected").and_then(|s| s.as_array()) else {
-            continue;
-        };
-        for sel in selected {
-            if sel.as_str().map(str::trim) == Some(affirmative_label) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 async fn profile_connect(args: &Value) -> Result<String> {
     let url = get_str(args, "url").unwrap_or("http://127.0.0.1:9222");
     // Treat the CDP endpoint as an outbound URL — refuse anything outside the
@@ -504,15 +495,11 @@ async fn profile_disconnect() -> Result<String> {
 /// `async_capable=true` so the LLM can poll `job_status`.
 async fn profile_install_runtime() -> Result<String> {
     use crate::browser::runtime;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
 
-    if runtime::cached_binary_path().is_some() {
+    if let Some(cached) = runtime::cached_binary_path() {
         return Ok(format!(
             "Chromium runtime already installed at {}.",
-            runtime::cached_binary_path()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default()
+            cached.display()
         ));
     }
 
@@ -522,7 +509,6 @@ async fn profile_install_runtime() -> Result<String> {
              Install Google Chrome system-wide instead."
         )
     })?;
-
     crate::app_info!(
         "browser",
         "install_runtime",
@@ -531,44 +517,7 @@ async fn profile_install_runtime() -> Result<String> {
         spec.platform_key
     );
 
-    // Throttle progress event emission to once per percent so the bus
-    // doesn't get hammered by 250+ updates over a 150 MB download.
-    let last_percent = Arc::new(AtomicU64::new(u64::MAX));
-    let progress_last_percent = Arc::clone(&last_percent);
-    let progress = move |downloaded: u64, total: Option<u64>| {
-        let percent = total
-            .and_then(|t| downloaded.checked_mul(100).and_then(|n| n.checked_div(t)))
-            .map(|p| p.min(100));
-        let report_pct = percent.unwrap_or(u64::MAX);
-        let prev = progress_last_percent.load(Ordering::Relaxed);
-        // First call (prev=MAX) and every percent step thereafter.
-        if prev == u64::MAX || (report_pct != u64::MAX && report_pct != prev) {
-            progress_last_percent.store(report_pct, Ordering::Relaxed);
-            if let Some(bus) = crate::globals::EVENT_BUS.get() {
-                bus.emit(
-                    "browser:chromium_download_progress",
-                    serde_json::json!({
-                        "stage": "downloading",
-                        "percent": percent,
-                        "downloadedBytes": downloaded,
-                        "totalBytes": total,
-                    }),
-                );
-            }
-        }
-    };
-
-    let binary = runtime::ensure_chromium(progress).await?;
-    if let Some(bus) = crate::globals::EVENT_BUS.get() {
-        bus.emit(
-            "browser:chromium_download_progress",
-            serde_json::json!({
-                "stage": "ready",
-                "percent": 100,
-                "binaryPath": binary.display().to_string(),
-            }),
-        );
-    }
+    let binary = runtime::install_with_event_bus_progress().await?;
     crate::app_info!(
         "browser",
         "install_runtime",
@@ -1002,7 +951,7 @@ async fn confirm_evaluate(script: &str, session_id: Option<&str>) -> Result<()> 
         }]
     });
     let raw = crate::tools::ask_user_question::execute(&ask_args, Some(sid)).await;
-    if is_evaluate_confirmed(&raw) {
+    if crate::ask_user::was_affirmative(&raw, &[EVALUATE_AFFIRMATIVE_LABEL]) {
         Ok(())
     } else {
         Err(anyhow!(
@@ -1010,34 +959,6 @@ async fn confirm_evaluate(script: &str, session_id: Option<&str>) -> Result<()> 
              If this is a trusted automation, enable YOLO mode."
         ))
     }
-}
-
-/// `ask_user_question` returns JSON shaped like
-/// `{ "answers": [{ "selected": ["Run it"], ... }], "timedOut"?: true }`.
-/// `selected` carries the *label* strings, not the `value` field — match
-/// against our affirmative label only, and never against a timed-out reply.
-fn is_evaluate_confirmed(raw: &str) -> bool {
-    let v: serde_json::Value = match serde_json::from_str(raw) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    if v.get("timedOut").and_then(|t| t.as_bool()).unwrap_or(false) {
-        return false;
-    }
-    let Some(answers) = v.get("answers").and_then(|a| a.as_array()) else {
-        return false;
-    };
-    for a in answers {
-        let Some(selected) = a.get("selected").and_then(|s| s.as_array()) else {
-            continue;
-        };
-        for sel in selected {
-            if sel.as_str().map(str::trim) == Some(EVALUATE_AFFIRMATIVE_LABEL) {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Best-effort SSRF scan over a JS evaluation payload. Catches URL literals
@@ -1110,88 +1031,6 @@ mod tests {
         assert!(evaluate_with_ssrf_scan(script).await.is_ok());
     }
 
-    #[test]
-    fn is_evaluate_confirmed_accepts_run_it_label() {
-        let raw =
-            r#"{"answers":[{"question":"Run this?","selected":["Run it"],"customInput":null}]}"#;
-        assert!(is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_cancel_label() {
-        let raw =
-            r#"{"answers":[{"question":"Run this?","selected":["Cancel"],"customInput":null}]}"#;
-        assert!(!is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_timed_out_even_with_label() {
-        // Defensive: if the question times out *and* the default happened to
-        // be the affirmative label for some reason, still treat as deny.
-        let raw = r#"{"answers":[{"question":"Run this?","selected":["Run it"],"customInput":null}],"timedOut":true}"#;
-        assert!(!is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_garbage() {
-        assert!(!is_evaluate_confirmed(""));
-        assert!(!is_evaluate_confirmed(
-            "Error: no session context available"
-        ));
-        assert!(!is_evaluate_confirmed(r#"{"answers":[]}"#));
-    }
-
-    #[test]
-    fn is_evaluate_confirmed_rejects_value_string_in_raw() {
-        // Defence-in-depth: the value `"confirm"` (which is what an earlier
-        // implementation matched on) should NOT trigger affirmation — only
-        // the label appears in `selected`, and we now strictly check labels.
-        let raw =
-            r#"{"answers":[{"question":"Run this?","selected":["confirm"],"customInput":null}]}"#;
-        assert!(!is_evaluate_confirmed(raw));
-    }
-
-    #[test]
-    fn is_target_system_confirmed_accepts_grant_access() {
-        let raw = r#"{"answers":[{"question":"Attach?","selected":["Grant access"],"customInput":null}]}"#;
-        assert!(is_target_system_confirmed(raw, TARGET_SYSTEM_PROCEED_LABEL));
-    }
-
-    #[test]
-    fn is_target_system_confirmed_accepts_close_and_grant() {
-        // The two affirmative labels — the one used when Chrome is running.
-        let raw = r#"{"answers":[{"question":"Close + attach?","selected":["Close & Grant access"],"customInput":null}]}"#;
-        assert!(is_target_system_confirmed(
-            raw,
-            TARGET_SYSTEM_PROCEED_AND_CLOSE_LABEL
-        ));
-    }
-
-    #[test]
-    fn is_target_system_confirmed_rejects_deny_or_timeout() {
-        let denied =
-            r#"{"answers":[{"question":"Attach?","selected":["Deny"],"customInput":null}]}"#;
-        assert!(!is_target_system_confirmed(
-            denied,
-            TARGET_SYSTEM_PROCEED_LABEL
-        ));
-
-        let timed_out = r#"{"answers":[{"question":"Attach?","selected":["Grant access"],"customInput":null}],"timedOut":true}"#;
-        assert!(
-            !is_target_system_confirmed(timed_out, TARGET_SYSTEM_PROCEED_LABEL),
-            "timed-out reply must NEVER count as consent"
-        );
-    }
-
-    #[test]
-    fn is_target_system_confirmed_label_specific() {
-        // Cross-label safety: a "Close & Grant access" selection must NOT
-        // satisfy a "Grant access" gate (and vice versa). Prevents an
-        // inverted-state bug if needs_quit detection misfires.
-        let raw = r#"{"answers":[{"question":"x","selected":["Close & Grant access"],"customInput":null}]}"#;
-        assert!(!is_target_system_confirmed(
-            raw,
-            TARGET_SYSTEM_PROCEED_LABEL
-        ));
-    }
+    // Affirmative-label parsing is covered by `crate::ask_user::was_affirmative`'s
+    // own test suite. We don't re-test it here.
 }

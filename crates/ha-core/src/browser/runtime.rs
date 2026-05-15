@@ -86,6 +86,63 @@ pub fn spec_for_current_platform() -> Option<RuntimeSpec> {
     None
 }
 
+/// Event bus channel for Chromium runtime download progress.
+///
+/// Three callsites publish here ([`tools::browser::profile_install_runtime`],
+/// the Tauri `browser_install_chromium_runtime` command, and the HTTP
+/// `/api/browser/install-chromium-runtime` route) — all funnel through
+/// [`install_with_event_bus_progress`] so the wire format and throttle
+/// stay consistent.
+pub const PROGRESS_EVENT: &str = "browser:chromium_download_progress";
+
+/// One-percent–throttled wrapper around [`ensure_chromium`] that also
+/// emits structured progress events on the global EventBus. Returns the
+/// cached binary path on completion (same as `ensure_chromium`).
+///
+/// Each callsite (Tauri command / HTTP route / tool op) previously
+/// open-coded the same `AtomicU64` percent throttle + `stage:
+/// "downloading"/"ready"` emit closure. Centralising it here means the
+/// payload shape is changed in exactly one place.
+pub async fn install_with_event_bus_progress() -> Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    let last_percent = Arc::new(AtomicU64::new(u64::MAX));
+    let progress_last_percent = Arc::clone(&last_percent);
+    let progress = move |downloaded: u64, total: Option<u64>| {
+        let percent = total
+            .and_then(|t| downloaded.checked_mul(100).and_then(|n| n.checked_div(t)))
+            .map(|p| p.min(100));
+        let report_pct = percent.unwrap_or(u64::MAX);
+        let prev = progress_last_percent.load(Ordering::Relaxed);
+        if prev == u64::MAX || (report_pct != u64::MAX && report_pct != prev) {
+            progress_last_percent.store(report_pct, Ordering::Relaxed);
+            if let Some(bus) = crate::globals::EVENT_BUS.get() {
+                bus.emit(
+                    PROGRESS_EVENT,
+                    serde_json::json!({
+                        "stage": "downloading",
+                        "percent": percent,
+                        "downloadedBytes": downloaded,
+                        "totalBytes": total,
+                    }),
+                );
+            }
+        }
+    };
+    let binary = ensure_chromium(progress).await?;
+    if let Some(bus) = crate::globals::EVENT_BUS.get() {
+        bus.emit(
+            PROGRESS_EVENT,
+            serde_json::json!({
+                "stage": "ready",
+                "percent": 100,
+                "binaryPath": binary.display().to_string(),
+            }),
+        );
+    }
+    Ok(binary)
+}
+
 /// Resolve the cached Chromium binary path, downloading + unpacking the
 /// snapshot on first call. `progress` is invoked periodically during the
 /// download with `(downloaded_bytes, total_bytes)`; `total_bytes` is
