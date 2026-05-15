@@ -683,6 +683,24 @@ export default function ChatScreen({
     return () => window.removeEventListener("keydown", handler)
   }, [currentSessionId, openSessionSearch, focusGlobalSearch])
 
+  // Cmd/Ctrl+N: start a fresh draft chat with the current agent, matching the
+  // sidebar New Chat button and tray "new-session" behavior.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const modKey = e.metaKey || e.ctrlKey
+      if (!modKey || e.altKey || e.shiftKey || e.repeat) return
+      if (e.key.toLowerCase() !== "n") return
+
+      const target = e.target as HTMLElement | null
+      if (target?.isContentEditable) return
+
+      e.preventDefault()
+      void handleStartNewChat(currentAgentId)
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [handleStartNewChat, currentAgentId])
+
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     return getTransport().listen("new-session", () => {
