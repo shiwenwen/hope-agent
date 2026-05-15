@@ -3475,6 +3475,134 @@
     "skillsDraftsAuthoredBy": "创建来源",
     "skillsDraftsDesc": "Agent 在对话结束后自动识别出可复用的模式，创建了以下草稿技能，点击「激活」即可让它们进入系统提示。",
     "skillsDraftsTitle": "待审核的技能草稿",
+    "skillsEvolution": {
+      "loading": "正在加载…",
+      "refresh": "刷新",
+      "fieldReset": "恢复默认值",
+      "units": {
+        "seconds": "秒",
+        "days": "天"
+      },
+      "recentRejects": {
+        "title": "最近的拒绝原因",
+        "empty": "暂无被拒记录。系统会在每次审核被任意一道闸拦下时记录原因。"
+      },
+      "curator": {
+        "title": "草稿合并建议",
+        "help": "在所有草稿技能中查找主题重叠的聚类，让你一键保留一个、清理其余。不调用 LLM、只读扫描。",
+        "run": "扫描",
+        "idle": "尚未扫描。点击右上「扫描」检查现有草稿是否存在重叠。",
+        "noClusters": "已扫描 {{count}} 条草稿，未发现明显重叠。",
+        "foundN": "在 {{scanned}} 条草稿中发现 {{proposals}} 组潜在重叠。",
+        "clusterMeta": "{{members}} 条草稿 · 最低相似度 {{similarity}}",
+        "apply": "保留这一条、删除其余 {{n}} 条"
+      },
+      "resetAll": {
+        "label": "全部恢复默认",
+        "confirm": "确定重置所有自定义配置？",
+        "yes": "重置",
+        "no": "取消"
+      },
+      "sections": {
+        "trigger": {
+          "title": "触发设置",
+          "subtitle": "决定什么样的对话会被送进审核管线（默认收紧，纯聊天不会触发）。"
+        },
+        "quality": {
+          "title": "质量门槛",
+          "subtitle": "模型给出建议后，依据这些门槛决定是否真的落盘成草稿。"
+        },
+        "advanced": {
+          "title": "高级（覆盖审核 Prompt）",
+          "subtitle": "覆盖内置审核提示词、追加自定义禁拍主题、指定专用审核模型。即便用户改坏，后端质量门 4 / 5 仍会兜底。",
+          "confirm": "高级选项可能降低自动审核质量；请确认你了解风险后再继续。"
+        }
+      },
+      "rejectReasons": {
+        "pre_gate_too_few_messages": "对话过短",
+        "pre_gate_discard_blacklist": "命中拒绝主题黑名单",
+        "post_lint_session_recap": "正文像是本次对话的复述",
+        "post_lint_step_count_out_of_range": "步骤数过少或过多",
+        "post_lint_too_abstract": "缺少具体命令 / 路径 / 代码",
+        "post_lint_session_artifact_name": "命名带有本次会话痕迹",
+        "gate4_low_reuse_probability": "模型自评复用概率过低",
+        "gate4_missing_reuse_probability": "模型未给出复用概率",
+        "gate4_not_class_level": "模型自评不属于类级别",
+        "gate4_scenarios_missing": "缺少 3 条复用场景",
+        "gate4_scenarios_too_short": "复用场景描述过短",
+        "gate4_scenarios_paraphrase": "三条复用场景互相复述",
+        "no_recent_messages": "没有可分析的近期消息",
+        "model_decided_skip": "模型主动判定跳过",
+        "patch_target_not_found": "未找到要补丁的片段",
+        "unknown": "未知原因"
+      },
+      "fields": {
+        "requireToolUse": {
+          "label": "要求本轮发生工具调用",
+          "help": "开启时，零工具调用的纯聊天对话直接跳过审核（推荐）。"
+        },
+        "correctionSignalEnabled": {
+          "label": "启用「用户矫正」触发",
+          "help": "当 30 秒内连发两条用户消息时（疑似改口）也触发一次审核。"
+        },
+        "toolUseThreshold": {
+          "label": "工具调用次数阈值",
+          "help": "本轮累计 ≥ 此次数时触发审核；为 0 表示禁用此信号。"
+        },
+        "cooldownSecs": {
+          "label": "同会话冷却",
+          "help": "同一会话两次自动审核之间至少间隔多久。"
+        },
+        "tokenThreshold": {
+          "label": "Token 累计阈值",
+          "help": "本轮累计输入+输出 Token ≥ 此值且发生过工具调用时也会触发。"
+        },
+        "messageThreshold": {
+          "label": "消息累计阈值",
+          "help": "本轮新增消息数 ≥ 此值且发生过工具调用时也会触发。"
+        },
+        "minReuseProbability": {
+          "label": "复用概率下限",
+          "help": "模型自评未来 30 天复用一次的概率；低于此值的草稿直接丢弃。"
+        },
+        "topKForDedup": {
+          "label": "去重候选数 (Top-K)",
+          "help": "把最相似的现有技能完整正文喂给模型，让它优先选择补丁而非新建。"
+        },
+        "discardBlacklistDays": {
+          "label": "被拒主题黑名单天数",
+          "help": "在此天数内被你删除的草稿主题不会再次被自动生成；0 表示关闭。"
+        },
+        "minMessageCount": {
+          "label": "最少消息条数",
+          "help": "对话条数少于此值时跳过审核（避免对一问一答开技能）。"
+        },
+        "sessionRecapThreshold": {
+          "label": "复述用语阈值",
+          "help": "正文里含「今天 / 本次 / this conversation / 上面」等用语累计达到此值即视为对话复述。"
+        },
+        "minSteps": {
+          "label": "最少步骤数",
+          "help": "正文中的列表项总数不少于此值（避免空洞建议）。"
+        },
+        "maxSteps": {
+          "label": "最多步骤数",
+          "help": "正文中的列表项总数不超过此值（过长往往是把对话流水账整理成步骤）。"
+        },
+        "reviewModel": {
+          "label": "专用审核模型",
+          "help": "格式 provider:model。留空则复用主对话的缓存前缀。"
+        },
+        "extraRejectCategories": {
+          "label": "追加禁拍主题",
+          "help": "在内置 6 类禁拍之外追加你自己的类别，例如「医疗建议」「法律建议」。回车添加。"
+        },
+        "reviewSystemOverride": {
+          "label": "覆盖审核 Prompt",
+          "help": "完全替换内置审核系统提示词；留空则用内置版本。后端硬阈值仍会生效。"
+        }
+      }
+    },
     "skillsEvolutionHero": {
       "body": "Hope Agent 不会停在原地。每聊一阵，会回看对话、把你重复做过的事提炼成可复用的技能 —— 下次再遇到，直接就会了。",
       "note": "默认开启 · 越用越懂你。关闭后不影响日常对话，只是不再自动沉淀新技能。",

@@ -188,3 +188,50 @@ pub async fn set_skills_auto_review_enabled(
 ) -> Result<(), CmdError> {
     core::set_auto_review_enabled(enabled, SOURCE).map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn get_skills_auto_review_config(
+    _state: State<'_, AppState>,
+) -> Result<ha_core::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
+    Ok(core::get_auto_review_config_snapshot())
+}
+
+#[tauri::command]
+pub async fn set_skills_auto_review_config(
+    patch: serde_json::Value,
+    _state: State<'_, AppState>,
+) -> Result<ha_core::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
+    core::set_auto_review_config_patch(patch, SOURCE).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn reset_skills_auto_review_config(
+    fields: Option<Vec<String>>,
+    _state: State<'_, AppState>,
+) -> Result<ha_core::skills::auto_review::SkillsAutoReviewConfig, CmdError> {
+    core::reset_auto_review_config(fields, SOURCE).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_skills_auto_review_recent_rejects(
+    limit: Option<usize>,
+    _state: State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, CmdError> {
+    Ok(core::recent_auto_review_skips(limit.unwrap_or(20)))
+}
+
+#[tauri::command]
+pub async fn run_skills_curator_now(
+    _state: State<'_, AppState>,
+) -> Result<ha_core::skills::auto_review::curator::CuratorReport, CmdError> {
+    core::run_curator_pass_sync().map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn apply_skills_curator_merge(
+    keep_id: String,
+    member_ids: Vec<String>,
+    _state: State<'_, AppState>,
+) -> Result<usize, CmdError> {
+    core::apply_curator_merge(&keep_id, &member_ids).map_err(Into::into)
+}

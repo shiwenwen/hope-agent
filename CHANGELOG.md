@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **技能自动审核「五道瀑布」收紧**：纯聊天对话（零工具调用）不再触发自动建技能；新增模型自评分硬阈值 + 用户已删主题黑名单 + 步骤数 / 命名 / 命令具体度后置 lint，多管齐下挡住「一次性话题被当方法论」「描述相近的草稿被重复开」。设置 → 技能 → 演化面板可逐字段微调（含触发阈值、质量门、覆盖审核 prompt、追加自定义禁拍主题），每个字段独立恢复默认，底部一键全部重置；新增「最近被拒原因」时间线 + 草稿合并扫描，让你看到为什么这次没产新草稿、并一键合并主题相近的旧草稿。
 - **Dashboard 新增「本地模型」面板**：一眼看清 Ollama 运行态、当前加载的模型与 VRAM 占用、硬件预算余量、本地模型在所选时间窗内的调用次数 / Token / 平均 TTFT / 错误率，以及在跑的安装 / 拉取 / 预热后台任务；面板只读，模型管理仍走「设置 → 本地 LLM 助手」单一入口。
 - **实时 BrowserPanel（chat 右侧镜像）**：agent 操作浏览器时右侧自动弹出实时镜像面板，每次 `act` / `navigate` / `tabs` 后立即 emit `browser:frame` 事件推一帧，配 1 秒兜底轮询捕捉用户手动操作。新 `browser_capture_frame` Tauri 命令 + HTTP `POST /api/browser/capture-frame` 同时暴露。面板支持「我来操作」按钮暂停自动刷新让用户手动接管 Chrome。与 PlanPanel / DiffPanel / CanvasPanel 视觉互斥。详见 [`docs/architecture/browser.md`](docs/architecture/browser.md)。
 - **SSRF 守卫覆盖所有浏览器出站入口**：`navigate.go` / `tabs.new url=` / `profile.connect url=`（CDP endpoint）/ `control.evaluate`（regex 扫脚本里的 URL 字面量）全部经 `security::ssrf::check_url`，防 agent 被 prompt injection 后让浏览器访问 cloud metadata 端点或内网。

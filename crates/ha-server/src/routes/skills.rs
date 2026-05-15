@@ -237,3 +237,92 @@ pub async fn set_auto_review_enabled(
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "ok": true, "enabled": body.enabled })))
 }
+
+/// `GET /api/skills/auto-review/config` — full sanitized auto-review
+/// config snapshot. Used by the Settings panel; UI binds to camelCase
+/// keys directly.
+pub async fn get_auto_review_config() -> Result<Json<Value>, AppError> {
+    serde_json::to_value(core::get_auto_review_config_snapshot())
+        .map(Json)
+        .map_err(|e| AppError::internal(e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchConfigBody {
+    pub patch: Value,
+}
+
+/// `PATCH /api/skills/auto-review/config` — deep-merge a partial
+/// config object. Unknown keys are ignored by the serde round-trip.
+/// Returns the resulting sanitized config.
+pub async fn set_auto_review_config(
+    Json(body): Json<PatchConfigBody>,
+) -> Result<Json<Value>, AppError> {
+    let snapshot = core::set_auto_review_config_patch(body.patch, SOURCE)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    serde_json::to_value(snapshot)
+        .map(Json)
+        .map_err(|e| AppError::internal(e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetConfigBody {
+    /// `None` (or missing) → reset every field; `Some([...])` → reset
+    /// only those snake_case keys.
+    pub fields: Option<Vec<String>>,
+}
+
+/// `POST /api/skills/auto-review/config/reset` — reset per-field or
+/// whole-config to built-in defaults. Returns the resulting config.
+pub async fn reset_auto_review_config(
+    Json(body): Json<ResetConfigBody>,
+) -> Result<Json<Value>, AppError> {
+    let snapshot = core::reset_auto_review_config(body.fields, SOURCE)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    serde_json::to_value(snapshot)
+        .map(Json)
+        .map_err(|e| AppError::internal(e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecentRejectsQuery {
+    pub limit: Option<usize>,
+}
+
+/// `GET /api/skills/auto-review/recent-rejects?limit=N` — most recent
+/// `skill_review_skipped` learning events, parsed into camelCase JSON.
+pub async fn get_auto_review_recent_rejects(
+    Query(q): Query<RecentRejectsQuery>,
+) -> Result<Json<Value>, AppError> {
+    let limit = q.limit.unwrap_or(20).clamp(1, 200);
+    Ok(Json(Value::Array(core::recent_auto_review_skips(limit))))
+}
+
+/// `POST /api/skills/curator/run` — synchronous draft-consolidation
+/// scan. Returns merge proposals; UI shows them and the user picks
+/// which to apply via `apply_skills_curator_merge`.
+pub async fn run_skills_curator_now() -> Result<Json<Value>, AppError> {
+    let report = core::run_curator_pass_sync().map_err(|e| AppError::internal(e.to_string()))?;
+    serde_json::to_value(report)
+        .map(Json)
+        .map_err(|e| AppError::internal(e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyMergeBody {
+    pub keep_id: String,
+    pub member_ids: Vec<String>,
+}
+
+/// `POST /api/skills/curator/apply` — apply a single merge proposal.
+/// Returns `{ "discarded": N }` indicating how many drafts were
+/// actually deleted.
+pub async fn apply_skills_curator_merge(
+    Json(body): Json<ApplyMergeBody>,
+) -> Result<Json<Value>, AppError> {
+    let n = core::apply_curator_merge(&body.keep_id, &body.member_ids)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "discarded": n })))
+}

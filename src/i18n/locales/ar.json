@@ -2399,6 +2399,12 @@
     },
     "browser": {
       "activeBadge": "نشط",
+      "backendAuto": "تلقائي",
+      "backendChangeHint": "سيُطبق اختيار الواجهة الخلفية عند الإطلاق أو الإرفاق التالي.",
+      "backendForceCdp": "فرض CDP",
+      "backendForceMcp": "فرض MCP",
+      "backendLabel": "الواجهة الخلفية",
+      "backendRestartHint": "يختار «تلقائي» chrome-devtools-mcp عندما يكون Node.js ≥ v18 في PATH؛ وإلا يستخدم واجهة CDP المدمجة في hope-agent.",
       "connect": "إرفاق",
       "connectHelp": "هل Chrome يعمل بالفعل مع --remote-debugging-port=9222؟ اتصل به بدلًا من تشغيل نسخة جديدة.",
       "connectUrlLabel": "رابط التصحيح",
@@ -2410,6 +2416,11 @@
       "deleteDisabledActive": "أوقف المتصفح قبل حذف ملف التعريف الخاص به",
       "desc": "يمكن لـ Hope Agent تشغيل وقيادة نسخة Chrome مخصصة لك. أنشئ ملفات تعريف منفصلة للحفاظ على تسجيلات الدخول (Google و GitHub وأدوات العمل…) معزولة — يتشارك Agent معك نفس الجلسة، لذا كل ما تسجل الدخول إليه يمكن لـ Agent العمل به.",
       "disconnect": "إيقاف",
+      "doctorChromeFound": "تم العثور على Chrome على {{url}}",
+      "doctorChromeMissing": "لم يتم اكتشاف Chrome على منفذ التصحيح القياسي",
+      "doctorChromeMissingHint": "تشغيل Chrome منفصل (يستخدم user-data-dir خاص به؛ بياناتك اليومية لا تُمَس).",
+      "doctorConnect": "إرفاق",
+      "doctorLaunchUserChrome": "تشغيل Chrome الخاص بالمستخدم",
       "executableHint": "اتركه فارغًا للاكتشاف التلقائي. عيّنه فقط إذا كنت تريد إصدار Chrome/Chromium محددًا.",
       "executableLabel": "ملف Chrome التنفيذي (اختياري)",
       "executablePlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -2421,8 +2432,16 @@
       "launchHelp": "اختر ملف تعريف أدناه ثم انقر على تشغيل. ستُفتح نافذة Chrome — سجّل الدخول مرة واحدة وستُحفَظ ملفات تعريف الارتباط في دليل الملف الشخصي للمرة القادمة.",
       "minutesAgo": "منذ {{count}} د",
       "modeConnect": "مرفق بمتصفح Chrome خارجي",
+      "modeLabel": "الوضع",
       "modeLaunch": "تم تشغيله بواسطة Hope Agent",
+      "modeStandalone": "متصفح مستقل",
+      "modeStandaloneHint": "يحافظ hope-agent على نسخة Chrome معزولة. مُوصى به للأتمتة.",
+      "modeUserChrome": "تولّي Chrome الخاص بالمستخدم",
+      "modeUserChromeHint": "تشغيل أو إرفاق Chrome الذي تستخدمه يوميًا. يستخدم user-data-dir منفصل، لذا لا تُمَس بياناتك الفعلية.",
       "newProfileLabel": "اسم ملف التعريف الجديد",
+      "nodeDetected": "تم اكتشاف Node.js {{version}}؛ يمكن استخدام chrome-devtools-mcp.",
+      "nodeMissing": "لم يتم اكتشاف Node.js. الواجهة الخلفية MCP غير متاحة؛ يعود التلقائي إلى CDP.",
+      "reconnectNow": "إعادة الاتصال الآن",
       "newProfilePlaceholder": "مثال: work-google",
       "profileHint": "استخدام الملف الشخصي '{{name}}' — سيتم الاحتفاظ بملفات تعريف الارتباط وحالات تسجيل الدخول.",
       "profileLabel": "ملف التعريف",
@@ -2436,36 +2455,17 @@
       "sectionLaunch": "التشغيل",
       "sectionProfiles": "ملفات التعريف",
       "sectionTabs": "علامات التبويب المفتوحة",
-      "statusConnected": "المتصفح قيد التشغيل",
-      "statusDisconnected": "لا يعمل",
-      "title": "المتصفح",
-      "untitledTab": "بدون عنوان",
-      "backendAuto": "تلقائي",
-      "backendChangeHint": "سيُطبق اختيار الواجهة الخلفية عند الإطلاق أو الإرفاق التالي.",
-      "backendForceCdp": "فرض CDP",
-      "backendForceMcp": "فرض MCP",
-      "backendLabel": "الواجهة الخلفية",
-      "backendRestartHint": "يختار «تلقائي» chrome-devtools-mcp عندما يكون Node.js ≥ v18 في PATH؛ وإلا يستخدم واجهة CDP المدمجة في hope-agent.",
-      "doctorChromeFound": "تم العثور على Chrome على {{url}}",
-      "doctorChromeMissing": "لم يتم اكتشاف Chrome على منفذ التصحيح القياسي",
-      "doctorChromeMissingHint": "تشغيل Chrome منفصل (يستخدم user-data-dir خاص به؛ بياناتك اليومية لا تُمَس).",
-      "doctorConnect": "إرفاق",
-      "doctorLaunchUserChrome": "تشغيل Chrome الخاص بالمستخدم",
-      "modeLabel": "الوضع",
-      "modeStandalone": "متصفح مستقل",
-      "modeStandaloneHint": "يحافظ hope-agent على نسخة Chrome معزولة. مُوصى به للأتمتة.",
-      "modeUserChrome": "تولّي Chrome الخاص بالمستخدم",
-      "modeUserChromeHint": "تشغيل أو إرفاق Chrome الذي تستخدمه يوميًا. يستخدم user-data-dir منفصل، لذا لا تُمَس بياناتك الفعلية.",
-      "nodeDetected": "تم اكتشاف Node.js {{version}}؛ يمكن استخدام chrome-devtools-mcp.",
-      "nodeMissing": "لم يتم اكتشاف Node.js. الواجهة الخلفية MCP غير متاحة؛ يعود التلقائي إلى CDP.",
-      "reconnectNow": "إعادة الاتصال الآن",
       "spawnUserChrome": {
         "confirmBodyIdle": "سيقوم hope-agent بتشغيل Chrome جديد بـ user-data-dir خاص تحت ~/.hope-agent/browser/user-attach/. هل تريد المتابعة؟",
         "confirmBodyRunning": "يبدو أن Chrome يعمل بالفعل. سيقوم hope-agent بتشغيل نسخة Chrome منفصلة بـ user-data-dir خاص، لذا لن يتأثر تصفحك اليومي. هل تريد المتابعة؟",
         "confirmTitle": "تشغيل Chrome منفصل؟",
         "continue": "متابعة",
         "spawned": "تم تشغيل Chrome على المنفذ {{port}}؛ جارٍ الإرفاق…"
-      }
+      },
+      "statusConnected": "المتصفح قيد التشغيل",
+      "statusDisconnected": "لا يعمل",
+      "title": "المتصفح",
+      "untitledTab": "بدون عنوان"
     },
     "bytes": "بايت",
     "canvas": "اللوحة",
@@ -3475,6 +3475,134 @@
     "skillsDraftsAuthoredBy": "المصدر",
     "skillsDraftsDesc": "حدد Agent هذه الأنماط القابلة لإعادة الاستخدام بعد المحادثات الأخيرة وأنشأ مسودات مهارات. قم بتفعيلها لإتاحتها في مطالبة النظام.",
     "skillsDraftsTitle": "مسودات مهارات بانتظار المراجعة",
+    "skillsEvolution": {
+      "loading": "Loading…",
+      "refresh": "Refresh",
+      "fieldReset": "Reset to default",
+      "units": {
+        "seconds": "sec",
+        "days": "days"
+      },
+      "recentRejects": {
+        "title": "Recent reject reasons",
+        "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
+      },
+      "resetAll": {
+        "label": "Reset everything",
+        "confirm": "Reset every custom field to defaults?",
+        "yes": "Reset",
+        "no": "Cancel"
+      },
+      "sections": {
+        "trigger": {
+          "title": "Trigger",
+          "subtitle": "Decides which conversations even reach the review pipeline. Pure-chat turns are skipped by default."
+        },
+        "quality": {
+          "title": "Quality floor",
+          "subtitle": "After the model's call, these floors decide whether the suggestion actually lands as a draft."
+        },
+        "advanced": {
+          "title": "Advanced (prompt overrides)",
+          "subtitle": "Override the built-in review prompt, append custom reject categories, pin a dedicated review model. Backend gates 4 / 5 still apply regardless.",
+          "confirm": "Advanced overrides can lower the model-side quality bar. Confirm you understand the trade-off."
+        }
+      },
+      "rejectReasons": {
+        "pre_gate_too_few_messages": "Conversation too short",
+        "pre_gate_discard_blacklist": "Topic on the discard blacklist",
+        "post_lint_session_recap": "Body reads like a conversation recap",
+        "post_lint_step_count_out_of_range": "Step count out of range",
+        "post_lint_too_abstract": "Body lacks concrete commands / paths / code",
+        "post_lint_session_artifact_name": "Skill id looks session-specific",
+        "gate4_low_reuse_probability": "Model's reuse probability too low",
+        "gate4_missing_reuse_probability": "Model omitted reuse probability",
+        "gate4_not_class_level": "Model flagged itself as not class-level",
+        "gate4_scenarios_missing": "Missing 3 reuse scenarios",
+        "gate4_scenarios_too_short": "Reuse scenarios too short",
+        "gate4_scenarios_paraphrase": "Scenarios paraphrase each other",
+        "no_recent_messages": "No recent messages to analyze",
+        "model_decided_skip": "Model decided to skip",
+        "patch_target_not_found": "Patch target not found in existing skill",
+        "unknown": "Unknown reason"
+      },
+      "fields": {
+        "requireToolUse": {
+          "label": "Require tool use this turn",
+          "help": "When on, pure-chat turns (zero tool use) never trigger review. Recommended."
+        },
+        "correctionSignalEnabled": {
+          "label": "Treat user corrections as a trigger",
+          "help": "Two user messages within 30 seconds (likely a correction) also fire one review."
+        },
+        "toolUseThreshold": {
+          "label": "Tool-use count threshold",
+          "help": "Triggers when the round's tool calls reach this count. Set 0 to disable."
+        },
+        "cooldownSecs": {
+          "label": "Per-session cooldown",
+          "help": "Minimum interval between automatic reviews for the same session."
+        },
+        "tokenThreshold": {
+          "label": "Token threshold",
+          "help": "Round-level input+output tokens. Also requires at least one tool call when the require-tool-use switch is on."
+        },
+        "messageThreshold": {
+          "label": "Message threshold",
+          "help": "Number of new messages this round. Same tool-use requirement applies."
+        },
+        "minReuseProbability": {
+          "label": "Minimum reuse probability",
+          "help": "Model's self-estimated probability the skill gets used in the next 30 days. Drafts below this floor are discarded."
+        },
+        "topKForDedup": {
+          "label": "Dedup candidates (Top-K)",
+          "help": "Feed the top-K closest existing skills' full bodies to the model so it can prefer patching over creating."
+        },
+        "discardBlacklistDays": {
+          "label": "Discard blacklist window (days)",
+          "help": "Topics you discarded within this window will not be auto-created again. 0 disables."
+        },
+        "minMessageCount": {
+          "label": "Minimum message count",
+          "help": "Skip review when the recent transcript has fewer than this many messages."
+        },
+        "sessionRecapThreshold": {
+          "label": "Session-recap word threshold",
+          "help": "Reject when this many session-recap markers (\"today\", \"this conversation\", \"上面\", etc.) appear in the body."
+        },
+        "minSteps": {
+          "label": "Minimum steps in body",
+          "help": "Total list-item count in the body must be at least this many."
+        },
+        "maxSteps": {
+          "label": "Maximum steps in body",
+          "help": "Bodies above this length are usually conversation transcripts dressed up as a procedure."
+        },
+        "reviewModel": {
+          "label": "Dedicated review model",
+          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+        },
+        "extraRejectCategories": {
+          "label": "Extra reject categories",
+          "help": "Append your own reject categories on top of the built-in six (e.g. \"MEDICAL-ADVICE\", \"LEGAL-ADVICE\"). Press Enter to add."
+        },
+        "reviewSystemOverride": {
+          "label": "Override review system prompt",
+          "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        }
+      },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      }
+    },
     "skillsEvolutionHero": {
       "body": "Hope Agent لا يقف مكانه. من حين لآخر يُعيد قراءة المحادثات ويستخلص ما يتكرّر في مهارات قابلة لإعادة الاستخدام — وفي المرة التالية يكون الأمر مُتعلَّمًا بالفعل.",
       "note": "مفعّل افتراضيًا · يتأقلم معك أكثر مع كل استخدام. عند الإيقاف لا تتأثر المحادثات اليومية، فقط تتوقف المهارات الجديدة عن التراكم تلقائيًا.",

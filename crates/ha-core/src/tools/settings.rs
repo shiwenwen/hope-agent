@@ -131,6 +131,10 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         "multimodal" => Some(
             "Switching modalities or raising maxFileBytes affects which attachments embed: enabling without a multimodal-capable embedding provider will produce empty vectors."
         ),
+        "skills_auto_review" => Some(
+            "Drives the five-gate skill auto-review pipeline. Trigger / quality-floor fields (cooldown, token / message / tool_use thresholds, min_reuse_probability, min_steps, …) are safe to tune. \
+             ⚠️ `review_system_override` replaces the built-in review prompt verbatim and can lower the model-side quality bar — backend gates 2 / 4 / 5 still apply (rejection by deterministic heuristics, self-score floor, body lint), but a malformed override can silently drop dedup or reject-category instructions. `extra_reject_categories` is appended as free-form text to the prompt's reject list. Use `reset_skills_auto_review_config` to revert. See `skills/ha-settings/SKILL.md` for risk levels per field."
+        ),
         "dreaming" => Some(
             "Dreaming runs offline LLM consolidation cycles. Disabling stops idle / cron triggers entirely; promotion thresholds gate which candidates get pinned into long-term memory."
         ),

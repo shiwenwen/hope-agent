@@ -2399,6 +2399,12 @@
     },
     "browser": {
       "activeBadge": "aktif",
+      "backendAuto": "Otomatik",
+      "backendChangeHint": "Arka uç seçimi sonraki Başlat veya Ekle işleminde uygulanır.",
+      "backendForceCdp": "CDP zorla",
+      "backendForceMcp": "MCP zorla",
+      "backendLabel": "Arka uç",
+      "backendRestartHint": "PATH üzerinde Node.js ≥ v18 varsa Otomatik chrome-devtools-mcp seçer; yoksa hope-agent'in yerleşik CDP arka ucu kullanılır.",
       "connect": "Bağlan",
       "connectHelp": "--remote-debugging-port=9222 ile Chrome'u zaten çalıştırıyor musunuz? Yeni bir örnek başlatmak yerine bağlanın.",
       "connectUrlLabel": "Hata ayıklama URL'si",
@@ -2410,6 +2416,11 @@
       "deleteDisabledActive": "Profilini silmeden önce tarayıcıyı durdurun",
       "desc": "Hope Agent, sizin için özel bir Chrome örneği başlatıp yönetebilir. Girişleri (Google, GitHub, iş araçları…) ayrı tutmak için farklı profiller oluşturun — agent ve siz aynı oturumu paylaşırsınız, böylece giriş yaptığınız her şeyde agent da çalışabilir.",
       "disconnect": "Durdur",
+      "doctorChromeFound": "{{url}} adresinde Chrome bulundu",
+      "doctorChromeMissing": "Standart hata ayıklama portunda Chrome algılanmadı",
+      "doctorChromeMissingHint": "Ayrı bir Chrome başlatın (kendi user-data-dir'i; günlük gezinme verileriniz etkilenmez).",
+      "doctorConnect": "Bağlan",
+      "doctorLaunchUserChrome": "Kullanıcı Chrome'unu başlat",
       "executableHint": "Otomatik algılama için boş bırakın. Yalnızca belirli bir Chrome/Chromium sürümü istiyorsanız ayarlayın.",
       "executableLabel": "Chrome yürütülebilir dosya (isteğe bağlı)",
       "executablePlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -2421,8 +2432,16 @@
       "launchHelp": "Aşağıdan bir profil seçin ve Başlat'a tıklayın. Bir Chrome penceresi açılır — bir kez oturum açtığınızda çerezleriniz bir sonraki sefer için profil dizininde saklanır.",
       "minutesAgo": "{{count}} dk önce",
       "modeConnect": "Harici Chrome'a bağlı",
+      "modeLabel": "Mod",
       "modeLaunch": "Hope Agent tarafından başlatıldı",
+      "modeStandalone": "Bağımsız tarayıcı",
+      "modeStandaloneHint": "hope-agent yalıtılmış bir Chrome örneğini yönetir. Otomasyon için önerilir.",
+      "modeUserChrome": "Kullanıcı Chrome'unu devral",
+      "modeUserChromeHint": "Günlük kullandığınız Chrome'u başlatın veya buna bağlanın. Ayrı bir user-data-dir kullandığı için gerçek gezinme verileriniz etkilenmez.",
       "newProfileLabel": "Yeni profil adı",
+      "nodeDetected": "Node.js {{version}} algılandı; chrome-devtools-mcp kullanılabilir.",
+      "nodeMissing": "Node.js algılanmadı. MCP arka ucu kullanılamaz; Otomatik CDP'ye geri döner.",
+      "reconnectNow": "Şimdi yeniden bağlan",
       "newProfilePlaceholder": "örn. work-google",
       "profileHint": "Profil '{{name}}' — çerezler ve oturumlar korunur.",
       "profileLabel": "Profil",
@@ -2436,36 +2455,17 @@
       "sectionLaunch": "Başlat",
       "sectionProfiles": "Profiller",
       "sectionTabs": "Açık sekmeler",
-      "statusConnected": "Tarayıcı çalışıyor",
-      "statusDisconnected": "Çalışmıyor",
-      "title": "Tarayıcı",
-      "untitledTab": "Başlıksız",
-      "backendAuto": "Otomatik",
-      "backendChangeHint": "Arka uç seçimi sonraki Başlat veya Ekle işleminde uygulanır.",
-      "backendForceCdp": "CDP zorla",
-      "backendForceMcp": "MCP zorla",
-      "backendLabel": "Arka uç",
-      "backendRestartHint": "PATH üzerinde Node.js ≥ v18 varsa Otomatik chrome-devtools-mcp seçer; yoksa hope-agent'in yerleşik CDP arka ucu kullanılır.",
-      "doctorChromeFound": "{{url}} adresinde Chrome bulundu",
-      "doctorChromeMissing": "Standart hata ayıklama portunda Chrome algılanmadı",
-      "doctorChromeMissingHint": "Ayrı bir Chrome başlatın (kendi user-data-dir'i; günlük gezinme verileriniz etkilenmez).",
-      "doctorConnect": "Bağlan",
-      "doctorLaunchUserChrome": "Kullanıcı Chrome'unu başlat",
-      "modeLabel": "Mod",
-      "modeStandalone": "Bağımsız tarayıcı",
-      "modeStandaloneHint": "hope-agent yalıtılmış bir Chrome örneğini yönetir. Otomasyon için önerilir.",
-      "modeUserChrome": "Kullanıcı Chrome'unu devral",
-      "modeUserChromeHint": "Günlük kullandığınız Chrome'u başlatın veya buna bağlanın. Ayrı bir user-data-dir kullandığı için gerçek gezinme verileriniz etkilenmez.",
-      "nodeDetected": "Node.js {{version}} algılandı; chrome-devtools-mcp kullanılabilir.",
-      "nodeMissing": "Node.js algılanmadı. MCP arka ucu kullanılamaz; Otomatik CDP'ye geri döner.",
-      "reconnectNow": "Şimdi yeniden bağlan",
       "spawnUserChrome": {
         "confirmBodyIdle": "hope-agent ~/.hope-agent/browser/user-attach/ altında kendi user-data-dir'i ile yeni bir Chrome başlatacak. Devam edilsin mi?",
         "confirmBodyRunning": "Chrome çalışıyor gibi görünüyor. hope-agent ayrı bir user-data-dir ile yeni bir Chrome örneği başlatacak; günlük gezinmeniz etkilenmez. Devam edilsin mi?",
         "confirmTitle": "Ayrı bir Chrome başlatılsın mı?",
         "continue": "Devam",
         "spawned": "{{port}} portunda Chrome başlatıldı; bağlanılıyor…"
-      }
+      },
+      "statusConnected": "Tarayıcı çalışıyor",
+      "statusDisconnected": "Çalışmıyor",
+      "title": "Tarayıcı",
+      "untitledTab": "Başlıksız"
     },
     "bytes": "bayt",
     "canvas": "Canvas",
@@ -3475,6 +3475,134 @@
     "skillsDraftsAuthoredBy": "Oluşturan",
     "skillsDraftsDesc": "Agent'iniz son sohbetlerden sonra bu yeniden kullanılabilir desenleri belirledi ve taslak Skills oluşturdu. Sistem isteminde kullanılabilir yapmak için etkinleştirin.",
     "skillsDraftsTitle": "İnceleme bekleyen taslak Skills",
+    "skillsEvolution": {
+      "loading": "Loading…",
+      "refresh": "Refresh",
+      "fieldReset": "Reset to default",
+      "units": {
+        "seconds": "sec",
+        "days": "days"
+      },
+      "recentRejects": {
+        "title": "Recent reject reasons",
+        "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
+      },
+      "resetAll": {
+        "label": "Reset everything",
+        "confirm": "Reset every custom field to defaults?",
+        "yes": "Reset",
+        "no": "Cancel"
+      },
+      "sections": {
+        "trigger": {
+          "title": "Trigger",
+          "subtitle": "Decides which conversations even reach the review pipeline. Pure-chat turns are skipped by default."
+        },
+        "quality": {
+          "title": "Quality floor",
+          "subtitle": "After the model's call, these floors decide whether the suggestion actually lands as a draft."
+        },
+        "advanced": {
+          "title": "Advanced (prompt overrides)",
+          "subtitle": "Override the built-in review prompt, append custom reject categories, pin a dedicated review model. Backend gates 4 / 5 still apply regardless.",
+          "confirm": "Advanced overrides can lower the model-side quality bar. Confirm you understand the trade-off."
+        }
+      },
+      "rejectReasons": {
+        "pre_gate_too_few_messages": "Conversation too short",
+        "pre_gate_discard_blacklist": "Topic on the discard blacklist",
+        "post_lint_session_recap": "Body reads like a conversation recap",
+        "post_lint_step_count_out_of_range": "Step count out of range",
+        "post_lint_too_abstract": "Body lacks concrete commands / paths / code",
+        "post_lint_session_artifact_name": "Skill id looks session-specific",
+        "gate4_low_reuse_probability": "Model's reuse probability too low",
+        "gate4_missing_reuse_probability": "Model omitted reuse probability",
+        "gate4_not_class_level": "Model flagged itself as not class-level",
+        "gate4_scenarios_missing": "Missing 3 reuse scenarios",
+        "gate4_scenarios_too_short": "Reuse scenarios too short",
+        "gate4_scenarios_paraphrase": "Scenarios paraphrase each other",
+        "no_recent_messages": "No recent messages to analyze",
+        "model_decided_skip": "Model decided to skip",
+        "patch_target_not_found": "Patch target not found in existing skill",
+        "unknown": "Unknown reason"
+      },
+      "fields": {
+        "requireToolUse": {
+          "label": "Require tool use this turn",
+          "help": "When on, pure-chat turns (zero tool use) never trigger review. Recommended."
+        },
+        "correctionSignalEnabled": {
+          "label": "Treat user corrections as a trigger",
+          "help": "Two user messages within 30 seconds (likely a correction) also fire one review."
+        },
+        "toolUseThreshold": {
+          "label": "Tool-use count threshold",
+          "help": "Triggers when the round's tool calls reach this count. Set 0 to disable."
+        },
+        "cooldownSecs": {
+          "label": "Per-session cooldown",
+          "help": "Minimum interval between automatic reviews for the same session."
+        },
+        "tokenThreshold": {
+          "label": "Token threshold",
+          "help": "Round-level input+output tokens. Also requires at least one tool call when the require-tool-use switch is on."
+        },
+        "messageThreshold": {
+          "label": "Message threshold",
+          "help": "Number of new messages this round. Same tool-use requirement applies."
+        },
+        "minReuseProbability": {
+          "label": "Minimum reuse probability",
+          "help": "Model's self-estimated probability the skill gets used in the next 30 days. Drafts below this floor are discarded."
+        },
+        "topKForDedup": {
+          "label": "Dedup candidates (Top-K)",
+          "help": "Feed the top-K closest existing skills' full bodies to the model so it can prefer patching over creating."
+        },
+        "discardBlacklistDays": {
+          "label": "Discard blacklist window (days)",
+          "help": "Topics you discarded within this window will not be auto-created again. 0 disables."
+        },
+        "minMessageCount": {
+          "label": "Minimum message count",
+          "help": "Skip review when the recent transcript has fewer than this many messages."
+        },
+        "sessionRecapThreshold": {
+          "label": "Session-recap word threshold",
+          "help": "Reject when this many session-recap markers (\"today\", \"this conversation\", \"上面\", etc.) appear in the body."
+        },
+        "minSteps": {
+          "label": "Minimum steps in body",
+          "help": "Total list-item count in the body must be at least this many."
+        },
+        "maxSteps": {
+          "label": "Maximum steps in body",
+          "help": "Bodies above this length are usually conversation transcripts dressed up as a procedure."
+        },
+        "reviewModel": {
+          "label": "Dedicated review model",
+          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+        },
+        "extraRejectCategories": {
+          "label": "Extra reject categories",
+          "help": "Append your own reject categories on top of the built-in six (e.g. \"MEDICAL-ADVICE\", \"LEGAL-ADVICE\"). Press Enter to add."
+        },
+        "reviewSystemOverride": {
+          "label": "Override review system prompt",
+          "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        }
+      },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      }
+    },
     "skillsEvolutionHero": {
       "body": "Hope Agent yerinde durmaz. Arada sohbetleri gözden geçirir, tekrar ettiğin şeyleri yeniden kullanılabilir yeteneklere dönüştürür — bir dahaki sefere konu zaten öğrenilmiş olur.",
       "note": "Varsayılan açık · kullandıkça daha iyi uyum sağlar. Kapatınca günlük sohbet etkilenmez, yalnızca yeni yetenekler kendiliğinden birikmez.",

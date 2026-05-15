@@ -1031,6 +1031,27 @@ fn build_router_with_cors(
                 .put(routes::skills::set_auto_review_enabled),
         )
         .route(
+            "/skills/auto-review/config",
+            get(routes::skills::get_auto_review_config)
+                .patch(routes::skills::set_auto_review_config),
+        )
+        .route(
+            "/skills/auto-review/config/reset",
+            post(routes::skills::reset_auto_review_config),
+        )
+        .route(
+            "/skills/auto-review/recent-rejects",
+            get(routes::skills::get_auto_review_recent_rejects),
+        )
+        .route(
+            "/skills/curator/run",
+            post(routes::skills::run_skills_curator_now),
+        )
+        .route(
+            "/skills/curator/apply",
+            post(routes::skills::apply_skills_curator_merge),
+        )
+        .route(
             "/skills/extra-dirs",
             get(routes::skills::get_extra_skills_dirs),
         )
