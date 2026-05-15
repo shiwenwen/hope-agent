@@ -162,6 +162,60 @@ impl BrowserState {
         Ok(())
     }
 
+    /// Launch a Chrome with an explicit, brand-resolved user-data-dir.
+    ///
+    /// Used by `profile.op=launch target=system` to attach to the user's
+    /// REAL daily browser profile (cookies, extensions, logins). Unlike
+    /// [`launch`], we don't synthesise a path under
+    /// `~/.hope-agent/browser-profiles/` — the caller passes the resolved
+    /// system path verbatim (e.g. `~/Library/Application Support/Google/Chrome`).
+    pub async fn launch_with_user_data_dir(
+        &mut self,
+        executable_path: Option<&str>,
+        user_data_dir: &std::path::Path,
+        headless: bool,
+    ) -> anyhow::Result<()> {
+        let config =
+            build_launch_config_with_user_data_dir(executable_path, user_data_dir, headless)?;
+
+        let (browser, mut handler) = Browser::launch(config).await.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to launch Chrome with system user-data-dir {}: {}. \
+                 Make sure the daily browser is fully quit (Cmd+Q on macOS).",
+                user_data_dir.display(),
+                e
+            )
+        })?;
+
+        let handle = tokio::spawn(async move {
+            loop {
+                match handler.next().await {
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => {
+                        app_warn!("browser", "cdp", "CDP handler error (continuing): {}", e);
+                    }
+                    None => {
+                        app_info!("browser", "cdp", "CDP handler stream ended (launch-system)");
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.connection_url = http_base_from_ws_url(browser.websocket_address());
+        self.browser = Some(browser);
+        self.handler_task = Some(handle);
+        // Tag the profile slot with a marker so the settings panel and
+        // status card can render "system Chrome" — the user-data-dir is
+        // the user's daily one, not a hope-agent profile name.
+        self.profile = Some("__system__".to_string());
+
+        tokio::task::yield_now().await;
+        self.refresh_pages().await?;
+
+        Ok(())
+    }
+
     /// Disconnect from the browser and clean up resources
     pub async fn disconnect(&mut self) {
         self.pages.clear();
@@ -265,6 +319,27 @@ fn build_launch_config(
             probed.display()
         );
         config = config.chrome_executable(probed);
+    } else if let Some(cached) = crate::browser::runtime::cached_binary_path() {
+        // System has no Chrome but we have a downloaded Chromium runtime —
+        // use it. The runtime is installed via `profile.op=install_runtime`
+        // or the settings "Install Chromium runtime" button.
+        app_info!(
+            "browser",
+            "cdp",
+            "Using cached Chromium runtime: {}",
+            cached.display()
+        );
+        config = config.chrome_executable(cached);
+    } else {
+        // Neither system Chrome nor a downloaded runtime. The chromiumoxide
+        // probe would otherwise fail with an opaque error — give callers a
+        // concrete remediation path instead.
+        anyhow::bail!(
+            "No Chrome / Chromium found on this system. Options:\n\
+             1. Install Google Chrome from https://www.google.com/chrome/\n\
+             2. Run `profile.op=install_runtime` to download a Chromium runtime (~150 MB)\n\
+             3. Pass `executable_path` to override with a custom Chrome binary"
+        );
     }
 
     // chromiumoxide defaults to old headless mode unless we opt out.
@@ -297,6 +372,45 @@ fn build_launch_config(
     config
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build browser config: {}", e))
+}
+
+/// Sibling of [`build_launch_config`] that takes an absolute
+/// user-data-dir path instead of synthesising one under
+/// `~/.hope-agent/browser-profiles/{name}/`. Used by `target=system` so
+/// the agent attaches the user's REAL daily profile.
+fn build_launch_config_with_user_data_dir(
+    executable_path: Option<&str>,
+    user_data_dir: &std::path::Path,
+    headless: bool,
+) -> anyhow::Result<BrowserConfig> {
+    let mut config = BrowserConfig::builder();
+
+    if let Some(path) = executable_path {
+        config = config.chrome_executable(path);
+    } else if let Some(probed) = crate::platform::find_chrome_executable() {
+        config = config.chrome_executable(probed);
+    }
+
+    config = if headless {
+        config.new_headless_mode()
+    } else {
+        config.with_head()
+    };
+
+    config = config
+        .viewport(Option::<chromiumoxide::handler::viewport::Viewport>::None)
+        .window_size(MANAGED_BROWSER_WINDOW_WIDTH, MANAGED_BROWSER_WINDOW_HEIGHT);
+
+    config = config.user_data_dir(user_data_dir);
+
+    config = config
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg("--disable-background-networking");
+
+    config
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build browser config (system mode): {}", e))
 }
 
 // ── Global Singleton ─────────────────────────────────────────────

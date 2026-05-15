@@ -70,6 +70,30 @@ pub struct BrowserDoctorReport {
     pub preference: crate::browser::backend_select::BackendPreference,
     pub probe: ProbeUserChromeReport,
     pub chrome_already_running: bool,
+    /// Detected daily browser (Chrome / Edge / Brave / Chromium) for the
+    /// `target=system` path. `None` when nothing is installed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_chrome: Option<SystemChromeReport>,
+    /// Cached Chromium runtime — populated when
+    /// `~/.hope-agent/browser/runtime/chromium-{rev}/` has a usable binary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_chromium: Option<RuntimeChromiumReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemChromeReport {
+    /// "Google Chrome" / "Microsoft Edge" / "Brave" / "Chromium".
+    pub brand: String,
+    pub executable: String,
+    pub user_data_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeChromiumReport {
+    pub revision: u32,
+    pub binary_path: String,
 }
 
 pub async fn browser_doctor() -> BrowserDoctorReport {
@@ -90,6 +114,21 @@ pub async fn browser_doctor() -> BrowserDoctorReport {
         .as_ref()
         .and_then(|b| b.backend)
         .unwrap_or_default();
+    let system_chrome =
+        crate::platform::chrome_paths::detect_daily_browser().map(|inst| SystemChromeReport {
+            brand: inst.brand.display_name().to_string(),
+            executable: inst.executable.display().to_string(),
+            user_data_dir: inst.user_data_dir.display().to_string(),
+        });
+    let runtime_chromium = crate::browser::runtime::cached_binary_path().map(|p| {
+        let revision = crate::browser::runtime::spec_for_current_platform()
+            .map(|s| s.revision)
+            .unwrap_or(crate::paths::CHROMIUM_PINNED_REVISION);
+        RuntimeChromiumReport {
+            revision,
+            binary_path: p.display().to_string(),
+        }
+    });
     BrowserDoctorReport {
         node_available,
         node_version,
@@ -97,6 +136,8 @@ pub async fn browser_doctor() -> BrowserDoctorReport {
         preference,
         probe,
         chrome_already_running,
+        system_chrome,
+        runtime_chromium,
     }
 }
 

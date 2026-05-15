@@ -9,6 +9,7 @@ import {
   Bot,
   Brain,
   Code,
+  Compass,
   Globe,
   Info,
   MessageSquare,
@@ -144,7 +145,7 @@ const SECTIONS: SettingsSectionItem[] = [
   },
   {
     id: "browser",
-    icon: <Globe className="h-4 w-4" />,
+    icon: <Compass className="h-4 w-4" />,
     labelKey: "settings.browser.title",
   },
   {

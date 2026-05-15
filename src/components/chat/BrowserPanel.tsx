@@ -23,6 +23,7 @@ interface BrowserPanelProps {
   /** Right-panel width in px. Driven by the same drag handler ChatScreen uses
    *  for the sibling Plan / Diff / Canvas panels. */
   panelWidth?: number
+  onPanelWidthChange?: (width: number) => void
   onClose: () => void
 }
 
@@ -37,6 +38,7 @@ const POLL_INTERVAL_MS = 1000
 
 export default function BrowserPanel({
   panelWidth = 480,
+  onPanelWidthChange,
   onClose,
 }: BrowserPanelProps) {
   const { t } = useTranslation()
@@ -103,15 +105,55 @@ export default function BrowserPanel({
     return () => clearInterval(interval)
   }, [paused, refresh])
 
+  // Same column-drag UX as the sibling CanvasPanel: an invisible 3px gutter
+  // on the panel's left edge becomes a faint divider on hover/active, and
+  // disables iframe pointer-events during the drag so the cursor stays sane.
+  const handlePanelDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startWidth = panelWidth
+      const maxWidth = Math.min(960, Math.max(420, window.innerWidth * 0.55))
+      const onMouseMove = (ev: MouseEvent) => {
+        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
+        onPanelWidthChange?.(newWidth)
+      }
+      const iframes = document.querySelectorAll("iframe")
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove)
+        document.removeEventListener("mouseup", onMouseUp)
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+      }
+      document.addEventListener("mousemove", onMouseMove)
+      document.addEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    },
+    [panelWidth, onPanelWidthChange],
+  )
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
     <div
-      className="relative flex h-full flex-col border-l border-border bg-card text-card-foreground"
-      style={{ width: panelWidth, minWidth: 280 }}
+      className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
+      style={{ width: panelWidth }}
     >
+      <div
+        className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
+        onMouseDown={handlePanelDragStart}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("chat.browserPanel.resizePanel", "Resize browser panel")}
+      >
+        <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
+      </div>
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground shadow-sm">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <Globe className="h-4 w-4 text-muted-foreground" />
         <div className="flex-1 truncate text-sm font-medium">
           {frame?.title || t("chat.browserPanel.idleTitle")}
@@ -157,7 +199,7 @@ export default function BrowserPanel({
 
       {/* URL bar */}
       {frame?.url && (
-        <div className="truncate border-b border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+        <div className="truncate border-b border-border/60 bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
           {frame.url}
         </div>
       )}
@@ -183,7 +225,7 @@ export default function BrowserPanel({
       </div>
 
       {/* Footer actions */}
-      <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2">
         <IconTip label={t("chat.browserPanel.takeOverHint")}>
           <Button
             type="button"
@@ -219,6 +261,7 @@ export default function BrowserPanel({
             ? new Date(frame.capturedAt).toLocaleTimeString()
             : ""}
         </div>
+      </div>
       </div>
     </div>
   )

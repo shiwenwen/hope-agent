@@ -15,6 +15,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+pub mod chrome_paths;
+pub mod chrome_quit;
+
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -141,6 +144,20 @@ pub fn find_chrome_executable() -> Option<PathBuf> {
 /// not a gate.
 pub async fn chrome_already_running() -> bool {
     imp::chrome_already_running().await
+}
+
+/// Narrower than [`chrome_already_running`]: returns true only when a
+/// Chrome / Edge / Brave process is currently using *this specific*
+/// `user-data-dir`. Used by `profile.op=launch target=system` to gate
+/// the graceful-quit prompt — so an isolated managed Chrome owning a
+/// different dir doesn't trigger a "your daily Chrome is running"
+/// warning.
+///
+/// Unix: `pgrep -f --user-data-dir=<path>`.
+/// Windows: PowerShell `Win32_Process` CIM query filtered on
+/// `CommandLine -like '*--user-data-dir=<path>*'`.
+pub async fn chrome_running_with_user_data_dir(user_data_dir: &std::path::Path) -> bool {
+    imp::chrome_running_with_user_data_dir(user_data_dir).await
 }
 
 /// Synchronous, best-effort detection of a discrete GPU. Used by the local

@@ -87,6 +87,14 @@ volumes:
 
 注意：bind mount 的目录需要 UID 1000 可写（容器内运行用户 `hope` 的 UID）。
 
+## 浏览器自动化
+
+镜像内置了 Debian trixie 仓库的 `chromium`（约增加 250 MB 镜像体积），让 `profile.op=launch headless=true` 在容器内开箱即用。Agent 调用浏览器工具时会自动用 headless 模式启动这个 Chromium，无需额外配置。
+
+如果你的部署不需要浏览器能力（例如纯 IM 机器人），可以 fork 仓库后从 [`Dockerfile`](../../Dockerfile) 的 runtime 阶段移除 `chromium` 及其依赖（`fonts-liberation` / `libnss3` / `libgbm1` / `libxss1`），重建后镜像更小。
+
+无 `chromium` 包的环境（比如自建的极简镜像）下，agent 仍可以通过 `profile.op=install_runtime` 在运行期下载固定版本的 Chromium snapshot 兜底，落 `~/.hope-agent/browser/runtime/`。
+
 ## Ollama 本地 LLM
 
 镜像本身不打包 Ollama —— Ollama 自己有官方多架构镜像，且模型体积大、GPU 配置复杂，独立 sidecar 更灵活。

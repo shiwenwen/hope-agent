@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **浏览器 `profile.op=launch target=system`**：模型可显式调起用户**日常浏览器**（Chrome / Edge / Brave / Chromium），自动复用用户已有的全部登录态、扩展、书签和浏览历史，不再仅限 hope-agent 隔离 profile。三种 target：`managed`（默认，旧行为）/ `user_attach`（agent 专用日常 Chrome，独立 user-data-dir）/ `system`（用户真实日常浏览器，需要审批）。`system` 在 default / smart 模式弹 ask_user_question 模态明确警示「agent 将获得 Gmail / 银行 / SSO 等全部登录态」+「会先关闭你当前的浏览器，可能丢失未保存草稿」；yolo 模式按既有承担风险跳过。Chrome 在跑时一次审批同时覆盖关闭 + 接管，graceful quit 5s 超时自动 force_kill 兜底，仍超时报错引导手动 Cmd+Q。跨平台覆盖 macOS / Linux / Windows 的真实 user-data-dir 路径。
+- **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。
+- **Docker 镜像内置 Chromium**：`Dockerfile` 加 `chromium` + 字体 / nss / libgbm / libxss 共享库，让 `profile.op=launch headless=true` 在服务器 / CI / 容器内开箱即用。镜像体积增加约 250 MB；不需要浏览器自动化的部署可 fork 移除。
+- **Doctor 段升级显示浏览器运行时状态**：settings → Browser 面板的健康行根据本机情况显示「✓ {brand} detected」/「✓ Chromium runtime ready (rev X)」/「⚠ No browser binary — [Install Chromium runtime]」三态，缺 binary 时直接按钮触发 runtime 下载，避免用户卡在 chromiumoxide 英文报错上。
+- **缺 binary 错误带引导**：之前 chromiumoxide 自己 detect 失败的 raw error 透传给模型；现在 `build_launch_config` 提前拦截并改写为带三条解决方案（装系统 Chrome / 运行 install_runtime / 设 executable_path）的中文友好错误，模型能直接照着选下一步。
+
 ### Changed
 
 - **浏览器工具 27 → 8 action 收敛**：原来散乱的 `connect / launch / navigate / take_snapshot / click / fill / fill_form / hover / drag / press_key / upload_file / evaluate / wait_for / handle_dialog / resize / scroll / list_profiles / save_pdf` 等 27 个 action 全部下沉到 8 个高层 action（`status / profile / tabs / navigate / snapshot / act / observe / control`）。工具默认进 deferred 池（`tool_search` 按需暴露），常态不占 system prompt。配套新 [`ha-browser` bundled skill](skills/ha-browser/SKILL.md) 教模型标准 `status → tabs → snapshot → act` loop、stale-ref 自恢复、登录/2FA/captcha 阻塞情形清单。

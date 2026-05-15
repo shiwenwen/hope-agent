@@ -86,6 +86,32 @@ pub(super) async fn chrome_already_running() -> bool {
     output.status.success() && !output.stdout.is_empty()
 }
 
+pub(super) async fn chrome_running_with_user_data_dir(user_data_dir: &Path) -> bool {
+    // Narrower than `chrome_already_running` — matches only processes
+    // whose argv carries this exact `--user-data-dir=…`. Used by
+    // `target=system` so we don't mis-detect an isolated managed Chrome
+    // owning some other directory as "Chrome is busy".
+    let dir = user_data_dir.to_string_lossy();
+    // Escape regex metachars in the path; pgrep -f takes ERE.
+    let escaped = dir.replace(
+        [
+            '.', '+', '*', '?', '[', ']', '(', ')', '{', '}', '|', '^', '$', '\\',
+        ],
+        "\\",
+    );
+    let pattern = format!("--user-data-dir={}\\b", escaped);
+    let output = match tokio::process::Command::new("pgrep")
+        .args(["-f", &pattern])
+        .kill_on_drop(true)
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    output.status.success() && !output.stdout.is_empty()
+}
+
 pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::File>> {
     use std::io::ErrorKind;
 

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
 import { RadioPills } from "@/components/ui/radio-pills"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectTrigger,
@@ -41,6 +42,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Sparkles,
+  Download,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
@@ -90,6 +92,17 @@ interface ProbeUserChromeReport {
   version?: string
 }
 
+interface SystemChromeReport {
+  brand: string
+  executable: string
+  userDataDir: string
+}
+
+interface RuntimeChromiumReport {
+  revision: number
+  binaryPath: string
+}
+
 interface BrowserDoctorReport {
   nodeAvailable: boolean
   nodeVersion?: string
@@ -97,6 +110,8 @@ interface BrowserDoctorReport {
   preference: BackendPref
   probe: ProbeUserChromeReport
   chromeAlreadyRunning: boolean
+  systemChrome?: SystemChromeReport
+  runtimeChromium?: RuntimeChromiumReport
 }
 
 interface SpawnUserChromeResult {
@@ -159,6 +174,13 @@ export default function BrowserPanel() {
   // so the modal copy doesn't flicker if the user takes their time confirming.
   const [confirmSpawn, setConfirmSpawn] = useState<{ chromeAlreadyRunning: boolean } | null>(null)
 
+  // Chromium runtime install — only relevant when the host has no Chrome.
+  // `installing` keeps the button in spinner state; `installPercent` lets
+  // the live progress bar render before any download bytes have arrived.
+  const [installing, setInstalling] = useState<boolean>(false)
+  const [installPercent, setInstallPercent] = useState<number | null>(null)
+  const [installError, setInstallError] = useState<string | null>(null)
+
   const refresh = useCallback(async () => {
     // Critical path: status / profiles / config must render even if the
     // best-effort doctor probe fails. Use `allSettled` so a 2s probe timeout
@@ -204,6 +226,57 @@ export default function BrowserPanel() {
     void refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Subscribe to Chromium runtime download progress. The backend emits
+  // `browser:chromium_download_progress` on every percent boundary and
+  // a final `stage: "ready"` payload once the binary is on disk.
+  useEffect(() => {
+    const unlisten = getTransport().listen(
+      "browser:chromium_download_progress",
+      (raw) => {
+        try {
+          const data = JSON.parse(String(raw)) as {
+            stage?: string
+            percent?: number | null
+          }
+          if (data.stage === "ready") {
+            setInstallPercent(100)
+            return
+          }
+          if (typeof data.percent === "number") {
+            setInstallPercent(data.percent)
+          }
+        } catch {
+          /* ignore parse errors — the bus may send legacy shapes */
+        }
+      },
+    )
+    return () => {
+      try {
+        unlisten?.()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+
+  const onInstallRuntime = useCallback(async () => {
+    setInstalling(true)
+    setInstallError(null)
+    setInstallPercent(0)
+    try {
+      await getTransport().call("browser_install_chromium_runtime")
+      toast.success(t("settings.browser.installRuntimeReady"))
+      await refresh()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      logger.error("settings", "BrowserPanel", `install-chromium-runtime failed: ${msg}`)
+      setInstallError(msg)
+      toast.error(t("settings.browser.installRuntimeFailed", { error: msg }))
+    } finally {
+      setInstalling(false)
+    }
+  }, [refresh, t])
 
   const runAction = async (
     action: "launch" | "connect" | "disconnect",
@@ -443,39 +516,6 @@ export default function BrowserPanel() {
             </div>
           )}
 
-          {/* Mode selector */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              {t("settings.browser.modeLabel")}
-            </h3>
-            <RadioPills<BrowserMode>
-              value={(browserCfg.defaultMode ?? "managed") as BrowserMode}
-              cols="grid-cols-2"
-              options={[
-                {
-                  value: "managed",
-                  label: t("settings.browser.modeStandalone"),
-                },
-                {
-                  value: "user_attach",
-                  label: t("settings.browser.modeUserChrome"),
-                },
-              ]}
-              onChange={onModeChange}
-            />
-            <p className="text-xs text-muted-foreground">
-              {browserCfg.defaultMode === "user_attach"
-                ? t("settings.browser.modeUserChromeHint")
-                : t("settings.browser.modeStandaloneHint")}
-            </p>
-            {savingCfg && (
-              <p className="text-[11px] text-muted-foreground">
-                <Loader2 className="inline h-3 w-3 animate-spin mr-1" />
-                {t("common.saving")}
-              </p>
-            )}
-          </div>
-
           {/* Active tabs (when connected) */}
           {connected && status && status.tabs.length > 0 && (
             <div className="space-y-2">
@@ -503,6 +543,24 @@ export default function BrowserPanel() {
               </div>
             </div>
           )}
+
+          <Tabs
+            value={(browserCfg.defaultMode ?? "managed") as BrowserMode}
+            onValueChange={(v) => onModeChange(v as BrowserMode)}
+            className="space-y-4"
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="managed">{t("settings.browser.modeStandalone")}</TabsTrigger>
+              <TabsTrigger value="user_attach">
+                {t("settings.browser.modeUserChrome")}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="managed" className="space-y-6">
+              <p className="text-xs text-muted-foreground">
+                {t("settings.browser.modeStandaloneHint")}
+                {savingCfg && <Loader2 className="inline h-3 w-3 animate-spin ml-2" />}
+              </p>
 
           {/* Launch section */}
           <div className="space-y-4">
@@ -673,6 +731,13 @@ export default function BrowserPanel() {
               </p>
             )}
           </div>
+            </TabsContent>
+
+            <TabsContent value="user_attach" className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                {t("settings.browser.modeUserChromeHint")}
+                {savingCfg && <Loader2 className="inline h-3 w-3 animate-spin ml-2" />}
+              </p>
 
           {/* Connect / Doctor section */}
           <div className="space-y-4">
@@ -765,6 +830,91 @@ export default function BrowserPanel() {
               </Button>
             </div>
           </div>
+            </TabsContent>
+          </Tabs>
+
+          {/* Runtime status — surfaces system Chrome / cached Chromium / "no binary" state.
+              Hidden once Chrome is connected: the doctor info is purely about whether
+              future launches will work, not what's currently running. */}
+          {doctor && !connected && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                {t("settings.browser.runtimeStatusLabel")}
+              </h3>
+              {doctor.systemChrome ? (
+                <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2.5 flex items-start gap-3 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium">
+                      {t("settings.browser.doctorSystemChrome", {
+                        brand: doctor.systemChrome.brand,
+                      })}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {doctor.systemChrome.executable}
+                    </div>
+                  </div>
+                </div>
+              ) : doctor.runtimeChromium ? (
+                <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2.5 flex items-start gap-3 text-sm">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium">
+                      {t("settings.browser.doctorRuntimeChromium", {
+                        rev: doctor.runtimeChromium.revision,
+                      })}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {doctor.runtimeChromium.binaryPath}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 flex items-start gap-3 text-sm">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div>
+                      <div className="font-medium">{t("settings.browser.doctorNoBinary")}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t("settings.browser.doctorNoBinaryHint")}
+                      </div>
+                    </div>
+                    {installing && (
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          {t("settings.browser.installRuntimeRunning", {
+                            percent: installPercent ?? 0,
+                          })}
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/60">
+                          <div
+                            className="h-full bg-primary transition-all"
+                            style={{ width: `${Math.max(0, Math.min(100, installPercent ?? 0))}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {installError && (
+                      <div className="text-xs text-destructive">{installError}</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void onInstallRuntime()}
+                    disabled={installing}
+                  >
+                    {installing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    <span className="ml-1.5">{t("settings.browser.installRuntime")}</span>
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Backend section */}
           <div className="space-y-2">

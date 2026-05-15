@@ -777,6 +777,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `browser_doctor` | `GET /api/browser/doctor` | ✅ |
 | `browser_get_config` | `GET /api/browser/config` | ✅ |
 | `browser_set_config` | `POST /api/browser/config` | ✅ |
+| `browser_install_chromium_runtime` | `POST /api/browser/install-chromium-runtime` | ✅ |
 
 ### Theme / Language / UI
 

@@ -241,6 +241,32 @@ pub fn browser_user_attach_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("browser").join("user-attach"))
 }
 
+/// Pinned Chromium snapshot revision used by the auto-install fallback.
+///
+/// **Update procedure**: bump this constant, smoke-test the new revision
+/// boots on all 4 platforms (`Mac` / `Mac_Arm` / `Linux_x64` / `Win_x64`),
+/// confirm `chrome-browser-snapshots/{platform}/{rev}/{archive}` returns
+/// 200, and update the matching `RuntimeSpec` table if Chromium changes
+/// the in-archive binary path. Revisions are NOT guaranteed forever —
+/// Google removes old ones eventually, so the constant should be kept
+/// reasonably current.
+pub const CHROMIUM_PINNED_REVISION: u32 = 1373000;
+
+/// Root for hope-agent–managed browser runtimes:
+/// `~/.hope-agent/browser/runtime/`. Holds the unzipped Chromium snapshot
+/// when the system has no Chrome / Edge / Brave / Chromium installed.
+pub fn browser_runtime_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser").join("runtime"))
+}
+
+/// Per-revision Chromium runtime directory:
+/// `~/.hope-agent/browser/runtime/chromium-{revision}/`. Versioned so
+/// bumping `CHROMIUM_PINNED_REVISION` doesn't collide with an older
+/// cached binary (old dirs can be hand-cleaned).
+pub fn chromium_runtime_dir(revision: u32) -> Result<PathBuf> {
+    Ok(browser_runtime_dir()?.join(format!("chromium-{revision}")))
+}
+
 // ── Generated Images ────────────────────────────────────────────────
 
 /// Generated images directory: ~/.hope-agent/generated-images/

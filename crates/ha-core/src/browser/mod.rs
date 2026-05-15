@@ -22,6 +22,8 @@ pub mod frame;
 pub mod mcp_backend;
 pub(crate) mod mcp_client;
 pub mod observe_buffer;
+pub mod runtime;
+pub mod singleton_lock;
 pub mod user_attach;
 
 pub use backend::{
@@ -73,9 +75,13 @@ pub fn authorise_upload_path(raw: &str) -> anyhow::Result<std::path::PathBuf> {
 
 use serde::{Deserialize, Serialize};
 
-/// Default browser mode for the settings UI. `Managed` runs an isolated
-/// hope-agent Chrome (`browser-profiles/`); `UserAttach` spawns a Chrome
-/// the user can drive day-to-day, kept in `browser/user-attach/`.
+/// UI-only preference: which tab the settings BrowserPanel opens on
+/// (Standalone vs. Take-over-user-Chrome). The actual runtime path is
+/// decided by *which button the user clicks* — `browser_launch` always
+/// runs managed Chrome, `browser_spawn_user_chrome` always runs the
+/// user-attach Chrome — independent of this field. No backend code
+/// reads `default_mode`; treat it as remembered UI state, not a
+/// behaviour switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserMode {
