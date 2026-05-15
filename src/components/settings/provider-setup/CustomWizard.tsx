@@ -354,7 +354,7 @@ export function CustomWizard({
                     {
                       id: "",
                       name: "",
-                      inputTypes: ["text"],
+                      inputTypes: [],
                       contextWindow: 128000,
                       maxTokens: 8192,
                       reasoning: false,

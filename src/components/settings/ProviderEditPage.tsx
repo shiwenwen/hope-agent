@@ -481,7 +481,7 @@ export default function ProviderEditPage({
                     {
                       id: "",
                       name: "",
-                      inputTypes: ["text"],
+                      inputTypes: [],
                       contextWindow: 128000,
                       maxTokens: 8192,
                       reasoning: false,
