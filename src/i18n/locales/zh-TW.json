@@ -2399,6 +2399,12 @@
     },
     "browser": {
       "activeBadge": "使用中",
+      "backendAuto": "自動",
+      "backendChangeHint": "後端選擇將在下次啟動或附加時生效。",
+      "backendForceCdp": "強制 CDP",
+      "backendForceMcp": "強制 MCP",
+      "backendLabel": "後端",
+      "backendRestartHint": "Auto 在 PATH 中存在 Node.js ≥ v18 時會選擇 chrome-devtools-mcp；否則使用內建 CDP 後端。",
       "connect": "接管",
       "connectHelp": "若已用 --remote-debugging-port=9222 啟動 Chrome，可直接接管而不是另開一個。",
       "connectUrlLabel": "除錯 URL",
@@ -2410,6 +2416,11 @@
       "deleteDisabledActive": "刪除前請先停止正在使用該設定檔的瀏覽器",
       "desc": "Hope Agent 可以直接託管一個 Chrome 實例供你使用。為每種登入狀態（Google、GitHub、工作帳號…）建立獨立的專屬設定檔，cookie 與登入會持久保留；你和 Agent 共用同一個瀏覽器工作階段——你登入過的網站，Agent 就能直接操作。",
       "disconnect": "停止",
+      "doctorChromeFound": "已在 {{url}} 找到 Chrome",
+      "doctorChromeMissing": "標準偵錯埠未偵測到 Chrome",
+      "doctorChromeMissingHint": "啟動獨立的 Chrome（使用自有 user-data-dir，不會動到你日常瀏覽資料）。",
+      "doctorConnect": "附加",
+      "doctorLaunchUserChrome": "啟動使用者 Chrome",
       "executableHint": "留空自動偵測。僅當需要指定特定 Chrome/Chromium 版本時才填寫。",
       "executableLabel": "Chrome 可執行檔（可選）",
       "executablePlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -2421,8 +2432,16 @@
       "launchHelp": "選擇下方設定檔後點擊啟動，會彈出一個 Chrome 視窗。只需登入一次，cookie 就會保存至該設定檔的目錄，下次啟動自動帶上。",
       "minutesAgo": "{{count}} 分鐘前",
       "modeConnect": "已接管外部 Chrome",
+      "modeLabel": "模式",
       "modeLaunch": "由 Hope Agent 託管",
+      "modeStandalone": "獨立瀏覽器",
+      "modeStandaloneHint": "hope-agent 維護獨立的 Chrome 實例，建議用於自動化。",
+      "modeUserChrome": "接管使用者 Chrome",
+      "modeUserChromeHint": "啟動或附加到你日常使用的 Chrome，使用獨立 user-data-dir，不會動到真正的瀏覽資料。",
       "newProfileLabel": "新設定檔名稱",
+      "nodeDetected": "偵測到 Node.js {{version}}；可使用 chrome-devtools-mcp。",
+      "nodeMissing": "未偵測到 Node.js。MCP 後端無法使用,Auto 會回退至 CDP。",
+      "reconnectNow": "立即重新連線",
       "newProfilePlaceholder": "例如 work-google",
       "profileHint": "使用設定檔 '{{name}}'，cookie 與登入狀態會被保留。",
       "profileLabel": "設定檔",
@@ -2436,36 +2455,17 @@
       "sectionLaunch": "啟動",
       "sectionProfiles": "設定檔列表",
       "sectionTabs": "開啟的分頁",
-      "statusConnected": "瀏覽器執行中",
-      "statusDisconnected": "未執行",
-      "title": "瀏覽器",
-      "untitledTab": "未命名",
-      "backendAuto": "自動",
-      "backendChangeHint": "後端選擇將在下次啟動或附加時生效。",
-      "backendForceCdp": "強制 CDP",
-      "backendForceMcp": "強制 MCP",
-      "backendLabel": "後端",
-      "backendRestartHint": "Auto 在 PATH 中存在 Node.js ≥ v18 時會選擇 chrome-devtools-mcp；否則使用內建 CDP 後端。",
-      "doctorChromeFound": "已在 {{url}} 找到 Chrome",
-      "doctorChromeMissing": "標準偵錯埠未偵測到 Chrome",
-      "doctorChromeMissingHint": "啟動獨立的 Chrome（使用自有 user-data-dir，不會動到你日常瀏覽資料）。",
-      "doctorConnect": "附加",
-      "doctorLaunchUserChrome": "啟動使用者 Chrome",
-      "modeLabel": "模式",
-      "modeStandalone": "獨立瀏覽器",
-      "modeStandaloneHint": "hope-agent 維護獨立的 Chrome 實例，建議用於自動化。",
-      "modeUserChrome": "接管使用者 Chrome",
-      "modeUserChromeHint": "啟動或附加到你日常使用的 Chrome，使用獨立 user-data-dir，不會動到真正的瀏覽資料。",
-      "nodeDetected": "偵測到 Node.js {{version}}；可使用 chrome-devtools-mcp。",
-      "nodeMissing": "未偵測到 Node.js。MCP 後端無法使用,Auto 會回退至 CDP。",
-      "reconnectNow": "立即重新連線",
       "spawnUserChrome": {
         "confirmBodyIdle": "hope-agent 將在 ~/.hope-agent/browser/user-attach/ 下使用獨立 user-data-dir 啟動新 Chrome。要繼續嗎？",
         "confirmBodyRunning": "似乎已有 Chrome 在執行。hope-agent 會以獨立 user-data-dir 啟動另一個 Chrome 實例,你的日常瀏覽不受影響。要繼續嗎？",
         "confirmTitle": "啟動獨立的 Chrome？",
         "continue": "繼續",
         "spawned": "已在連接埠 {{port}} 啟動 Chrome,正在連線…"
-      }
+      },
+      "statusConnected": "瀏覽器執行中",
+      "statusDisconnected": "未執行",
+      "title": "瀏覽器",
+      "untitledTab": "未命名"
     },
     "bytes": "位元組",
     "canvas": "畫布",
@@ -3475,6 +3475,124 @@
     "skillsDraftsAuthoredBy": "建立來源",
     "skillsDraftsDesc": "Agent 在對話結束後自動識別出可重複使用的模式並建立草稿技能。點擊「啟用」即可讓它們進入系統提示。",
     "skillsDraftsTitle": "待審核的技能草稿",
+    "skillsEvolution": {
+      "loading": "正在加载…",
+      "refresh": "刷新",
+      "fieldReset": "恢复默认值",
+      "units": {
+        "seconds": "秒",
+        "days": "天"
+      },
+      "recentRejects": {
+        "title": "最近的拒绝原因",
+        "empty": "暂无被拒记录。系统会在每次审核被任意一道闸拦下时记录原因。"
+      },
+      "resetAll": {
+        "label": "全部恢复默认",
+        "confirm": "确定重置所有自定义配置？",
+        "yes": "重置",
+        "no": "取消"
+      },
+      "sections": {
+        "trigger": {
+          "title": "触发设置",
+          "subtitle": "决定什么样的对话会被送进审核管线（默认收紧，纯聊天不会触发）。"
+        },
+        "quality": {
+          "title": "质量门槛",
+          "subtitle": "模型给出建议后，依据这些门槛决定是否真的落盘成草稿。"
+        },
+        "advanced": {
+          "title": "高级（覆盖审核 Prompt）",
+          "subtitle": "覆盖内置审核提示词、追加自定义禁拍主题、指定专用审核模型。即便用户改坏，后端质量门 4 / 5 仍会兜底。",
+          "confirm": "高级选项可能降低自动审核质量；请确认你了解风险后再继续。"
+        }
+      },
+      "rejectReasons": {
+        "pre_gate_too_few_messages": "对话过短",
+        "pre_gate_discard_blacklist": "命中拒绝主题黑名单",
+        "post_lint_session_recap": "正文像是本次对话的复述",
+        "post_lint_step_count_out_of_range": "步骤数过少或过多",
+        "post_lint_too_abstract": "缺少具体命令 / 路径 / 代码",
+        "post_lint_session_artifact_name": "命名带有本次会话痕迹",
+        "gate4_low_reuse_probability": "模型自评复用概率过低",
+        "gate4_missing_reuse_probability": "模型未给出复用概率",
+        "gate4_not_class_level": "模型自评不属于类级别",
+        "gate4_scenarios_missing": "缺少 3 条复用场景",
+        "gate4_scenarios_too_short": "复用场景描述过短",
+        "gate4_scenarios_paraphrase": "三条复用场景互相复述",
+        "no_recent_messages": "没有可分析的近期消息",
+        "model_decided_skip": "模型主动判定跳过",
+        "patch_target_not_found": "未找到要补丁的片段",
+        "unknown": "未知原因"
+      },
+      "fields": {
+        "requireToolUse": {
+          "label": "要求本轮发生工具调用",
+          "help": "开启时，零工具调用的纯聊天对话直接跳过审核（推荐）。"
+        },
+        "correctionSignalEnabled": {
+          "label": "启用「用户矫正」触发",
+          "help": "当 30 秒内连发两条用户消息时（疑似改口）也触发一次审核。"
+        },
+        "toolUseThreshold": {
+          "label": "工具调用次数阈值",
+          "help": "本轮累计 ≥ 此次数时触发审核；为 0 表示禁用此信号。"
+        },
+        "cooldownSecs": {
+          "label": "同会话冷却",
+          "help": "同一会话两次自动审核之间至少间隔多久。"
+        },
+        "tokenThreshold": {
+          "label": "Token 累计阈值",
+          "help": "本轮累计输入+输出 Token ≥ 此值且发生过工具调用时也会触发。"
+        },
+        "messageThreshold": {
+          "label": "消息累计阈值",
+          "help": "本轮新增消息数 ≥ 此值且发生过工具调用时也会触发。"
+        },
+        "minReuseProbability": {
+          "label": "复用概率下限",
+          "help": "模型自评未来 30 天复用一次的概率；低于此值的草稿直接丢弃。"
+        },
+        "topKForDedup": {
+          "label": "去重候选数 (Top-K)",
+          "help": "把最相似的现有技能完整正文喂给模型，让它优先选择补丁而非新建。"
+        },
+        "discardBlacklistDays": {
+          "label": "被拒主题黑名单天数",
+          "help": "在此天数内被你删除的草稿主题不会再次被自动生成；0 表示关闭。"
+        },
+        "minMessageCount": {
+          "label": "最少消息条数",
+          "help": "对话条数少于此值时跳过审核（避免对一问一答开技能）。"
+        },
+        "sessionRecapThreshold": {
+          "label": "复述用语阈值",
+          "help": "正文里含「今天 / 本次 / this conversation / 上面」等用语累计达到此值即视为对话复述。"
+        },
+        "minSteps": {
+          "label": "最少步骤数",
+          "help": "正文中的列表项总数不少于此值（避免空洞建议）。"
+        },
+        "maxSteps": {
+          "label": "最多步骤数",
+          "help": "正文中的列表项总数不超过此值（过长往往是把对话流水账整理成步骤）。"
+        },
+        "reviewModel": {
+          "label": "专用审核模型",
+          "help": "格式 provider:model。留空则复用主对话的缓存前缀。"
+        },
+        "extraRejectCategories": {
+          "label": "追加禁拍主题",
+          "help": "在内置 6 类禁拍之外追加你自己的类别，例如「医疗建议」「法律建议」。回车添加。"
+        },
+        "reviewSystemOverride": {
+          "label": "覆盖审核 Prompt",
+          "help": "完全替换内置审核系统提示词；留空则用内置版本。后端硬阈值仍会生效。"
+        }
+      }
+    },
     "skillsEvolutionHero": {
       "body": "Hope Agent 不會停在原地。每聊一陣，會回看對話、把你重複做過的事提煉成可複用的技能 —— 下次再遇到，直接就會了。",
       "note": "預設開啟 · 越用越懂你。關閉後不影響日常對話，只是不再自動沉澱新技能。",

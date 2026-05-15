@@ -2399,6 +2399,12 @@
     },
     "browser": {
       "activeBadge": "使用中",
+      "backendAuto": "自動",
+      "backendChangeHint": "バックエンドの選択は次回の起動またはアタッチで反映されます。",
+      "backendForceCdp": "CDP 強制",
+      "backendForceMcp": "MCP 強制",
+      "backendLabel": "バックエンド",
+      "backendRestartHint": "Auto は Node.js ≥ v18 が PATH 上にあれば chrome-devtools-mcp を選択。それ以外は組み込みの CDP バックエンド。",
       "connect": "アタッチ",
       "connectHelp": "すでに --remote-debugging-port=9222 で Chrome を起動していますか？新規インスタンスを立ち上げずに接続できます。",
       "connectUrlLabel": "デバッグ URL",
@@ -2410,6 +2416,11 @@
       "deleteDisabledActive": "プロファイルを削除する前に、使用中のブラウザを停止してください",
       "desc": "Hope Agent は専用の Chrome インスタンスを起動して操作できます。ログイン状態（Google、GitHub、業務ツールなど）ごとに別々のプロファイルを作成して保持できます — Agent とあなたは同じセッションを共有するので、あなたがログインしているサイトで Agent もそのまま操作できます。",
       "disconnect": "停止",
+      "doctorChromeFound": "{{url}} に Chrome が見つかりました",
+      "doctorChromeMissing": "標準デバッグポートに Chrome が検出されません",
+      "doctorChromeMissingHint": "別の Chrome を起動します（独立した user-data-dir を使うので、普段の閲覧データには影響しません）。",
+      "doctorConnect": "アタッチ",
+      "doctorLaunchUserChrome": "ユーザー Chrome を起動",
       "executableHint": "空欄で自動検出。特定の Chrome/Chromium ビルドを指定したい場合のみ入力してください。",
       "executableLabel": "Chrome 実行ファイル（任意）",
       "executablePlaceholder": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -2421,8 +2432,16 @@
       "launchHelp": "下のプロファイルを選択して「起動」をクリック。Chrome ウィンドウが開きます — 一度ログインすれば cookie がプロファイルディレクトリに保存され、次回からそのまま使えます。",
       "minutesAgo": "{{count}} 分前",
       "modeConnect": "外部 Chrome にアタッチ",
+      "modeLabel": "モード",
       "modeLaunch": "Hope Agent が起動",
+      "modeStandalone": "独立ブラウザ",
+      "modeStandaloneHint": "hope-agent が独立した Chrome インスタンスを管理します。自動化用途に推奨。",
+      "modeUserChrome": "ユーザー Chrome を引き継ぐ",
+      "modeUserChromeHint": "普段使いの Chrome を起動またはアタッチします。専用の user-data-dir を使うため、通常のブラウジングデータには影響しません。",
       "newProfileLabel": "新規プロファイル名",
+      "nodeDetected": "Node.js {{version}} を検出。chrome-devtools-mcp が使用可能です。",
+      "nodeMissing": "Node.js が検出されません。MCP バックエンドは利用不可、Auto は CDP に切り替わります。",
+      "reconnectNow": "今すぐ再接続",
       "newProfilePlaceholder": "例：work-google",
       "profileHint": "プロファイル '{{name}}' を使用 — cookie とログイン状態が保持されます。",
       "profileLabel": "プロファイル",
@@ -2436,36 +2455,17 @@
       "sectionLaunch": "起動",
       "sectionProfiles": "プロファイル一覧",
       "sectionTabs": "開いているタブ",
-      "statusConnected": "ブラウザ実行中",
-      "statusDisconnected": "実行されていません",
-      "title": "ブラウザ",
-      "untitledTab": "無題",
-      "backendAuto": "自動",
-      "backendChangeHint": "バックエンドの選択は次回の起動またはアタッチで反映されます。",
-      "backendForceCdp": "CDP 強制",
-      "backendForceMcp": "MCP 強制",
-      "backendLabel": "バックエンド",
-      "backendRestartHint": "Auto は Node.js ≥ v18 が PATH 上にあれば chrome-devtools-mcp を選択。それ以外は組み込みの CDP バックエンド。",
-      "doctorChromeFound": "{{url}} に Chrome が見つかりました",
-      "doctorChromeMissing": "標準デバッグポートに Chrome が検出されません",
-      "doctorChromeMissingHint": "別の Chrome を起動します（独立した user-data-dir を使うので、普段の閲覧データには影響しません）。",
-      "doctorConnect": "アタッチ",
-      "doctorLaunchUserChrome": "ユーザー Chrome を起動",
-      "modeLabel": "モード",
-      "modeStandalone": "独立ブラウザ",
-      "modeStandaloneHint": "hope-agent が独立した Chrome インスタンスを管理します。自動化用途に推奨。",
-      "modeUserChrome": "ユーザー Chrome を引き継ぐ",
-      "modeUserChromeHint": "普段使いの Chrome を起動またはアタッチします。専用の user-data-dir を使うため、通常のブラウジングデータには影響しません。",
-      "nodeDetected": "Node.js {{version}} を検出。chrome-devtools-mcp が使用可能です。",
-      "nodeMissing": "Node.js が検出されません。MCP バックエンドは利用不可、Auto は CDP に切り替わります。",
-      "reconnectNow": "今すぐ再接続",
       "spawnUserChrome": {
         "confirmBodyIdle": "hope-agent は ~/.hope-agent/browser/user-attach/ に専用 user-data-dir を作り、新しい Chrome を起動します。続行しますか？",
         "confirmBodyRunning": "Chrome が起動しているようです。hope-agent は別の Chrome インスタンスを専用 user-data-dir で起動します。日常の閲覧には影響しません。続行しますか？",
         "confirmTitle": "別の Chrome を起動しますか？",
         "continue": "続行",
         "spawned": "ポート {{port}} で Chrome を起動しました。アタッチ中…"
-      }
+      },
+      "statusConnected": "ブラウザ実行中",
+      "statusDisconnected": "実行されていません",
+      "title": "ブラウザ",
+      "untitledTab": "無題"
     },
     "bytes": "バイト",
     "canvas": "キャンバス",
@@ -3475,6 +3475,124 @@
     "skillsDraftsAuthoredBy": "作成者",
     "skillsDraftsDesc": "最近の会話から Agent がこれらの再利用可能なパターンを特定し、ドラフトスキルを作成しました。有効化するとシステムプロンプトで利用可能になります。",
     "skillsDraftsTitle": "レビュー待ちのドラフトスキル",
+    "skillsEvolution": {
+      "loading": "Loading…",
+      "refresh": "Refresh",
+      "fieldReset": "Reset to default",
+      "units": {
+        "seconds": "sec",
+        "days": "days"
+      },
+      "recentRejects": {
+        "title": "Recent reject reasons",
+        "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
+      },
+      "resetAll": {
+        "label": "Reset everything",
+        "confirm": "Reset every custom field to defaults?",
+        "yes": "Reset",
+        "no": "Cancel"
+      },
+      "sections": {
+        "trigger": {
+          "title": "Trigger",
+          "subtitle": "Decides which conversations even reach the review pipeline. Pure-chat turns are skipped by default."
+        },
+        "quality": {
+          "title": "Quality floor",
+          "subtitle": "After the model's call, these floors decide whether the suggestion actually lands as a draft."
+        },
+        "advanced": {
+          "title": "Advanced (prompt overrides)",
+          "subtitle": "Override the built-in review prompt, append custom reject categories, pin a dedicated review model. Backend gates 4 / 5 still apply regardless.",
+          "confirm": "Advanced overrides can lower the model-side quality bar. Confirm you understand the trade-off."
+        }
+      },
+      "rejectReasons": {
+        "pre_gate_too_few_messages": "Conversation too short",
+        "pre_gate_discard_blacklist": "Topic on the discard blacklist",
+        "post_lint_session_recap": "Body reads like a conversation recap",
+        "post_lint_step_count_out_of_range": "Step count out of range",
+        "post_lint_too_abstract": "Body lacks concrete commands / paths / code",
+        "post_lint_session_artifact_name": "Skill id looks session-specific",
+        "gate4_low_reuse_probability": "Model's reuse probability too low",
+        "gate4_missing_reuse_probability": "Model omitted reuse probability",
+        "gate4_not_class_level": "Model flagged itself as not class-level",
+        "gate4_scenarios_missing": "Missing 3 reuse scenarios",
+        "gate4_scenarios_too_short": "Reuse scenarios too short",
+        "gate4_scenarios_paraphrase": "Scenarios paraphrase each other",
+        "no_recent_messages": "No recent messages to analyze",
+        "model_decided_skip": "Model decided to skip",
+        "patch_target_not_found": "Patch target not found in existing skill",
+        "unknown": "Unknown reason"
+      },
+      "fields": {
+        "requireToolUse": {
+          "label": "Require tool use this turn",
+          "help": "When on, pure-chat turns (zero tool use) never trigger review. Recommended."
+        },
+        "correctionSignalEnabled": {
+          "label": "Treat user corrections as a trigger",
+          "help": "Two user messages within 30 seconds (likely a correction) also fire one review."
+        },
+        "toolUseThreshold": {
+          "label": "Tool-use count threshold",
+          "help": "Triggers when the round's tool calls reach this count. Set 0 to disable."
+        },
+        "cooldownSecs": {
+          "label": "Per-session cooldown",
+          "help": "Minimum interval between automatic reviews for the same session."
+        },
+        "tokenThreshold": {
+          "label": "Token threshold",
+          "help": "Round-level input+output tokens. Also requires at least one tool call when the require-tool-use switch is on."
+        },
+        "messageThreshold": {
+          "label": "Message threshold",
+          "help": "Number of new messages this round. Same tool-use requirement applies."
+        },
+        "minReuseProbability": {
+          "label": "Minimum reuse probability",
+          "help": "Model's self-estimated probability the skill gets used in the next 30 days. Drafts below this floor are discarded."
+        },
+        "topKForDedup": {
+          "label": "Dedup candidates (Top-K)",
+          "help": "Feed the top-K closest existing skills' full bodies to the model so it can prefer patching over creating."
+        },
+        "discardBlacklistDays": {
+          "label": "Discard blacklist window (days)",
+          "help": "Topics you discarded within this window will not be auto-created again. 0 disables."
+        },
+        "minMessageCount": {
+          "label": "Minimum message count",
+          "help": "Skip review when the recent transcript has fewer than this many messages."
+        },
+        "sessionRecapThreshold": {
+          "label": "Session-recap word threshold",
+          "help": "Reject when this many session-recap markers (\"today\", \"this conversation\", \"上面\", etc.) appear in the body."
+        },
+        "minSteps": {
+          "label": "Minimum steps in body",
+          "help": "Total list-item count in the body must be at least this many."
+        },
+        "maxSteps": {
+          "label": "Maximum steps in body",
+          "help": "Bodies above this length are usually conversation transcripts dressed up as a procedure."
+        },
+        "reviewModel": {
+          "label": "Dedicated review model",
+          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+        },
+        "extraRejectCategories": {
+          "label": "Extra reject categories",
+          "help": "Append your own reject categories on top of the built-in six (e.g. \"MEDICAL-ADVICE\", \"LEGAL-ADVICE\"). Press Enter to add."
+        },
+        "reviewSystemOverride": {
+          "label": "Override review system prompt",
+          "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        }
+      }
+    },
     "skillsEvolutionHero": {
       "body": "Hope Agent は立ち止まりません。少しずつ会話を振り返り、繰り返している作業を再利用可能なスキルとして抽出します。次に同じ場面が来たら、すでに習得済みです。",
       "note": "既定でオン · 使うほど馴染んでいきます。オフにしても日常会話に支障はなく、ただ新しいスキルが自動で蓄積されなくなるだけです。",
