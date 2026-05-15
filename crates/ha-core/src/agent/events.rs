@@ -119,11 +119,35 @@ pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::V
 }
 
 /// Build tool result content for OpenAI Chat Completions API.
-/// Returns a content array with `image_url` (data URI) + `text` blocks when images are detected.
-pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json::Value {
+///
+/// When `model_supports_vision` is true, returns a content array with
+/// `image_url` (data URI) + `text` blocks. When false, collapses the markers
+/// into a plain string with `Image captured.` placeholders — the OpenAI Chat
+/// `role: tool` content type rejects `image_url` blocks on non-vision
+/// backends (e.g. DeepSeek text-only) with a 400, so we must strip them.
+pub(super) fn build_openai_chat_tool_result_content(
+    result: &str,
+    model_supports_vision: bool,
+) -> serde_json::Value {
     let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
         return json!(result);
     };
+
+    if !model_supports_vision {
+        let mut text_parts = Vec::new();
+        if !parsed.leading_text.is_empty() {
+            text_parts.push(parsed.leading_text.to_string());
+        }
+        for m in &parsed.markers {
+            let label = if m.text.is_empty() {
+                "Image captured."
+            } else {
+                &m.text
+            };
+            text_parts.push(label.to_string());
+        }
+        return json!(text_parts.join("\n"));
+    }
 
     let mut content = Vec::new();
     if !parsed.leading_text.is_empty() {
@@ -233,14 +257,18 @@ pub(super) fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<V
         .collect()
 }
 
-pub(super) fn expand_openai_chat_image_markers_for_api(history: &[Value]) -> Vec<Value> {
+pub(super) fn expand_openai_chat_image_markers_for_api(
+    history: &[Value],
+    model_supports_vision: bool,
+) -> Vec<Value> {
     history
         .iter()
         .map(|item| {
             let mut msg = item.clone();
             if msg.get("role").and_then(|r| r.as_str()) == Some("tool") {
                 if let Some(result) = msg.get("content").and_then(|c| c.as_str()) {
-                    msg["content"] = build_openai_chat_tool_result_content(result);
+                    msg["content"] =
+                        build_openai_chat_tool_result_content(result, model_supports_vision);
                 }
             }
             msg
@@ -359,7 +387,10 @@ pub(super) fn emit_usage(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_responses_tool_result, expand_responses_image_markers_for_api};
+    use super::{
+        build_openai_chat_tool_result_content, build_responses_tool_result,
+        expand_openai_chat_image_markers_for_api, expand_responses_image_markers_for_api,
+    };
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
     use serde_json::json;
 
@@ -433,6 +464,70 @@ mod tests {
 
         assert_eq!(text_output, result);
         assert!(image_items.is_empty());
+    }
+
+    #[test]
+    fn openai_chat_tool_result_vision_emits_image_url_blocks() {
+        let result = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+        let content = build_openai_chat_tool_result_content(&result, true);
+        let arr = content.as_array().expect("vision path returns array");
+        assert!(arr
+            .iter()
+            .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("image_url")));
+        assert!(arr
+            .iter()
+            .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("text")));
+    }
+
+    #[test]
+    fn openai_chat_tool_result_no_vision_collapses_to_text_string() {
+        let result = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+        let content = build_openai_chat_tool_result_content(&result, false);
+        // Non-vision must produce a plain string — `role: tool` content
+        // on DeepSeek / text-only OpenAI-compat backends rejects any object
+        // block (including `image_url`) with a 400.
+        let text = content.as_str().expect("no-vision returns string");
+        assert!(!text.contains("image_url"));
+        assert!(!text.contains("data:image/png"));
+        assert!(text.contains("Screenshot captured."));
+    }
+
+    #[test]
+    fn openai_chat_tool_result_passthrough_without_markers() {
+        let result = "plain text result with no image markers";
+        let with_vision = build_openai_chat_tool_result_content(result, true);
+        let without_vision = build_openai_chat_tool_result_content(result, false);
+        assert_eq!(with_vision, json!(result));
+        assert_eq!(without_vision, json!(result));
+    }
+
+    #[test]
+    fn openai_chat_history_expansion_respects_vision_flag() {
+        let result = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+        let history = vec![
+            json!({ "role": "user", "content": "ignore me" }),
+            json!({ "role": "tool", "tool_call_id": "c1", "content": result }),
+        ];
+        let with_vision = expand_openai_chat_image_markers_for_api(&history, true);
+        let without_vision = expand_openai_chat_image_markers_for_api(&history, false);
+
+        assert!(with_vision[1]["content"].is_array());
+        // Non-vision path must keep `content` as a string so the server's
+        // tool-message deserializer accepts it.
+        assert!(without_vision[1]["content"].is_string());
+        assert!(without_vision[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Screenshot captured."));
     }
 
     #[test]

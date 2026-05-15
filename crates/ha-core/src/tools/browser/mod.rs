@@ -574,12 +574,41 @@ async fn tabs_new(args: &Value) -> Result<String> {
         }
     }
     let backend = acquire_backend().await?;
-    let tab = backend.new_page(url).await?;
+    let mut tab = backend.new_page(url).await?;
+    // chrome-devtools-mcp's `new_page` doesn't always honor the `url` arg —
+    // it can return a blank tab even when one was requested. Only follow up
+    // when the tab clearly didn't load anything; legitimate redirects (e.g.
+    // http→https, login-gate 302, one-time tokens) must NOT be re-navigated
+    // or we risk consuming the token twice or stomping on the redirect chain.
+    if let Some(target) = url {
+        if target != "about:blank" && tab_url_indicates_blank_load(&tab.url) {
+            backend.navigate(target).await?;
+            tab.url = target.to_string();
+        }
+    }
     browser::frame::emit_frame_async();
     Ok(format!(
         "New page created: {} (url: {})",
         tab.target_id, tab.url
     ))
+}
+
+fn tab_url_indicates_blank_load(tab_url: &str) -> bool {
+    let trimmed = tab_url.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    matches!(
+        trimmed,
+        "about:blank"
+            | "about:newtab"
+            | "chrome://newtab/"
+            | "chrome://newtab"
+            | "chrome://new-tab-page/"
+            | "chrome://new-tab-page"
+            | "edge://newtab/"
+            | "edge://newtab"
+    ) || trimmed.starts_with("data:,")
 }
 
 async fn tabs_select(args: &Value) -> Result<String> {
@@ -1033,4 +1062,35 @@ mod tests {
 
     // Affirmative-label parsing is covered by `crate::ask_user::was_affirmative`'s
     // own test suite. We don't re-test it here.
+
+    #[test]
+    fn tab_url_indicates_blank_load_for_empty_and_about_blank() {
+        assert!(tab_url_indicates_blank_load(""));
+        assert!(tab_url_indicates_blank_load("   "));
+        assert!(tab_url_indicates_blank_load("about:blank"));
+    }
+
+    #[test]
+    fn tab_url_indicates_blank_load_for_browser_newtab_urls() {
+        // chrome-devtools-mcp can hand back the browser's new-tab page
+        // instead of the requested URL; treat those as blank loads so we
+        // navigate to the target.
+        assert!(tab_url_indicates_blank_load("chrome://newtab/"));
+        assert!(tab_url_indicates_blank_load("chrome://new-tab-page/"));
+        assert!(tab_url_indicates_blank_load("edge://newtab/"));
+        assert!(tab_url_indicates_blank_load("data:,"));
+    }
+
+    #[test]
+    fn tab_url_indicates_blank_load_false_for_redirected_url() {
+        // If the server redirected (e.g. http→https, login gate, one-time
+        // token), the tab url won't match the request — but it's loaded.
+        // Re-navigating the original URL would consume the redirect
+        // chain twice or break login flows, so this MUST stay false.
+        assert!(!tab_url_indicates_blank_load("https://example.com/login"));
+        assert!(!tab_url_indicates_blank_load(
+            "https://example.com/auth?token=abc"
+        ));
+        assert!(!tab_url_indicates_blank_load("https://www.lingotech.xyz/"));
+    }
 }

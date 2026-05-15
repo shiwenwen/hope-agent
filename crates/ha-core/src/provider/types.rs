@@ -313,6 +313,30 @@ impl ProviderConfig {
         self.models.iter().find(|m| m.id == model_id)
     }
 
+    /// Whether the given model accepts image input.
+    ///
+    /// `["text"]` and the empty list are both ambiguous: they're the
+    /// serde / wizard defaults that get carried over from legacy configs
+    /// where the user never picked a value, so we can't tell them apart
+    /// from a deliberate text-only choice. Treat both as unknown (assume
+    /// vision) and let the API be authoritative — runtime retry in the
+    /// OpenAI Chat adapter catches the rejection and folds the next round
+    /// to text. Only an `input_types` list that's been populated with
+    /// something specific (e.g. `["text", "audio"]`) and still lacks
+    /// `image` counts as an explicit opt-out.
+    pub fn model_supports_vision(&self, model_id: &str) -> bool {
+        let Some(m) = self.model_config(model_id) else {
+            return true;
+        };
+        if m.input_types.iter().any(|t| t == "image") {
+            return true;
+        }
+        if m.input_types.is_empty() {
+            return true;
+        }
+        m.input_types.len() == 1 && m.input_types[0] == "text"
+    }
+
     /// Resolve the effective thinking style for a model.
     ///
     /// Precedence:
@@ -513,6 +537,115 @@ mod tests {
             cfg.effective_thinking_style_for_model("m1"),
             ThinkingStyle::None
         );
+    }
+
+    #[test]
+    fn model_supports_vision_when_input_types_contains_image() {
+        let mut cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.openai.com".to_string(),
+            String::new(),
+        );
+        cfg.models.push(ModelConfig {
+            id: "gpt-4o".to_string(),
+            name: "GPT-4o".to_string(),
+            input_types: vec!["text".to_string(), "image".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        });
+        assert!(cfg.model_supports_vision("gpt-4o"));
+    }
+
+    #[test]
+    fn model_supports_vision_treats_default_text_list_as_unknown() {
+        // The wizard / serde default is `["text"]`; that shape is
+        // indistinguishable from "user explicitly picked text-only", so
+        // we have to treat it as unknown and let the API decide. A
+        // legacy gpt-4o config that ships with the default must not
+        // silently lose vision because of static catalog inspection.
+        let mut cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.openai.com".to_string(),
+            String::new(),
+        );
+        cfg.models.push(ModelConfig {
+            id: "gpt-4o".to_string(),
+            name: "GPT-4o".to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        });
+        assert!(cfg.model_supports_vision("gpt-4o"));
+    }
+
+    #[test]
+    fn model_supports_vision_false_for_explicit_non_image_input_list() {
+        // A non-default list that omits `image` (e.g. `["text", "audio"]`)
+        // is a deliberate opt-out — the user has touched the field with
+        // intent. Skip the round-trip on those.
+        let mut cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.example.com".to_string(),
+            String::new(),
+        );
+        cfg.models.push(ModelConfig {
+            id: "text-audio-only".to_string(),
+            name: "Text+Audio Only".to_string(),
+            input_types: vec!["text".to_string(), "audio".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        });
+        assert!(!cfg.model_supports_vision("text-audio-only"));
+    }
+
+    #[test]
+    fn model_supports_vision_treats_empty_input_list_as_unknown() {
+        let mut cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.example.com".to_string(),
+            String::new(),
+        );
+        cfg.models.push(ModelConfig {
+            id: "empty-list".to_string(),
+            name: "Empty List".to_string(),
+            input_types: vec![],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        });
+        assert!(cfg.model_supports_vision("empty-list"));
+    }
+
+    #[test]
+    fn model_supports_vision_defaults_true_for_uncatalogued_alias() {
+        // Preserve legacy behavior for users whose model id isn't in the
+        // catalog — assume vision so we don't break working vision flows.
+        let cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.openai.com".to_string(),
+            String::new(),
+        );
+        assert!(cfg.model_supports_vision("unknown-model"));
     }
 
     #[test]

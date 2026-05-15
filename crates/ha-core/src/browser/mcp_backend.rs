@@ -383,8 +383,13 @@ impl BrowserBackend for ChromeMcpBackend {
     }
 
     async fn evaluate(&self, script: &str) -> Result<Value> {
+        // chrome-devtools-mcp's `evaluate_script` takes a `function` arg: a
+        // JS function literal that gets `Function(funcStr)()` invoked. The
+        // hope-agent surface accepts a plain JS expression, so wrap when
+        // the script isn't already a function literal.
+        let function = wrap_evaluate_script_as_function(script);
         let v = self
-            .call_tool_json("evaluate_script", json!({ "script": script }))
+            .call_tool_json("evaluate_script", json!({ "function": function }))
             .await?;
         Ok(v)
     }
@@ -580,6 +585,69 @@ fn extract_value(result: &CallToolResult) -> Value {
     serde_json::from_str(&text).unwrap_or(Value::String(text))
 }
 
+/// Wrap a raw JS expression as a function literal for chrome-devtools-mcp's
+/// `evaluate_script` tool, which calls `Function(funcStr)()` on the arg and
+/// returns the result. If the script already starts with a function literal
+/// (`function`, `async`, or an arrow form), pass it through unchanged so
+/// callers who already know the contract can opt out of the wrap.
+fn wrap_evaluate_script_as_function(script: &str) -> String {
+    let trimmed = script.trim_start();
+    if looks_like_function_literal(trimmed) {
+        script.to_string()
+    } else {
+        // Single-expression arrow returning the value. Multi-statement
+        // scripts must be passed as a full function literal with an
+        // explicit `return`; that matches chrome-devtools-mcp's contract.
+        format!("() => ({})", script)
+    }
+}
+
+fn looks_like_function_literal(s: &str) -> bool {
+    if s.starts_with("function") || s.starts_with("async ") {
+        return true;
+    }
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    // `(...) => ...` — match the *outer* closing paren via depth tracking
+    // so IIFE expressions like `(() => x)()` don't read as function
+    // literals on the inner arrow's closer. chrome-devtools-mcp would
+    // call the IIFE's return value (which isn't a function) and fail.
+    if bytes[0] == b'(' {
+        return arrow_after_balanced_paren(s);
+    }
+    // `ident => ...` — bare arrow with single param. Ident must be a valid
+    // JS identifier so we don't false-positive on expressions like `a + b`.
+    let first = bytes[0] as char;
+    if first.is_ascii_alphabetic() || first == '_' || first == '$' {
+        if let Some(arrow) = s.find("=>") {
+            let head = s[..arrow].trim_end();
+            return head
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+        }
+    }
+    false
+}
+
+fn arrow_after_balanced_paren(s: &str) -> bool {
+    let mut depth: u32 = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth = depth.saturating_add(1),
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return s[i + c.len_utf8()..].trim_start().starts_with("=>");
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 fn extract_base64_image(result: &CallToolResult) -> Option<Vec<u8>> {
     use base64::Engine;
     for c in &result.content {
@@ -679,5 +747,78 @@ mod tests {
     fn parse_tabs_returns_empty_on_garbage() {
         assert!(parse_tabs(&json!({ "nope": 1 })).is_empty());
         assert!(parse_tabs(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn wrap_evaluate_script_wraps_plain_expression() {
+        assert_eq!(
+            wrap_evaluate_script_as_function("document.title"),
+            "() => (document.title)"
+        );
+        assert_eq!(
+            wrap_evaluate_script_as_function("window.location.href"),
+            "() => (window.location.href)"
+        );
+    }
+
+    #[test]
+    fn wrap_evaluate_script_passes_arrow_function_through() {
+        assert_eq!(
+            wrap_evaluate_script_as_function("() => document.title"),
+            "() => document.title"
+        );
+        assert_eq!(
+            wrap_evaluate_script_as_function("(a, b) => a + b"),
+            "(a, b) => a + b"
+        );
+        assert_eq!(wrap_evaluate_script_as_function("x => x * 2"), "x => x * 2");
+    }
+
+    #[test]
+    fn wrap_evaluate_script_passes_function_keyword_through() {
+        assert_eq!(
+            wrap_evaluate_script_as_function("function () { return 1; }"),
+            "function () { return 1; }"
+        );
+        assert_eq!(
+            wrap_evaluate_script_as_function("async () => fetch('/')"),
+            "async () => fetch('/')"
+        );
+    }
+
+    #[test]
+    fn wrap_evaluate_script_does_not_misread_arithmetic_as_arrow() {
+        // `a => b` is an arrow, but `a + b => c` (illegal anyway) shouldn't
+        // pass through — and neither should `a*b`, which has no `=>` at all.
+        assert_eq!(wrap_evaluate_script_as_function("a * b"), "() => (a * b)");
+    }
+
+    #[test]
+    fn wrap_evaluate_script_wraps_iife_expression() {
+        // IIFEs are expressions returning a value, NOT function literals.
+        // chrome-devtools-mcp would call the returned value (e.g. a
+        // number) as if it were a function and crash. Must be wrapped.
+        assert_eq!(
+            wrap_evaluate_script_as_function("(() => 1)()"),
+            "() => ((() => 1)())"
+        );
+        assert_eq!(
+            wrap_evaluate_script_as_function("(() => { return document.title; })()"),
+            "() => ((() => { return document.title; })())"
+        );
+        assert_eq!(
+            wrap_evaluate_script_as_function("(function() { return 1; })()"),
+            "() => ((function() { return 1; })())"
+        );
+    }
+
+    #[test]
+    fn wrap_evaluate_script_wraps_paren_expression_without_arrow() {
+        // `(window).foo` is a parenthesized expression, not an arrow.
+        // Must be wrapped, not passed through.
+        assert_eq!(
+            wrap_evaluate_script_as_function("(window).foo"),
+            "() => ((window).foo)"
+        );
     }
 }

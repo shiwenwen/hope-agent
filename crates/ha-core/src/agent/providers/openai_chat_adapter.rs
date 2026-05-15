@@ -40,6 +40,7 @@ struct ThinkingAutoDisable {
 fn build_chat_body(
     model: &str,
     thinking_style: &ThinkingStyle,
+    model_supports_vision: bool,
     req: &RoundRequest<'_>,
 ) -> (
     serde_json::Value,
@@ -63,7 +64,8 @@ fn build_chat_body(
             api_messages.push(json!({ "role": "system", "content": task_suffix }));
         }
     }
-    let expanded_history = expand_openai_chat_image_markers_for_api(req.history_for_api);
+    let expanded_history =
+        expand_openai_chat_image_markers_for_api(req.history_for_api, model_supports_vision);
     api_messages.extend(expanded_history);
 
     let tools_array: Vec<Value> = req
@@ -312,6 +314,58 @@ fn maybe_auto_disable_thinking(
     })
 }
 
+fn is_unsupported_image_url_error(status: u16, error_text: &str) -> bool {
+    if status != 400 {
+        return false;
+    }
+    let lower = error_text.to_lowercase();
+    // OpenAI-compat backends that don't accept `image_url` tool content
+    // surface this through the body deserializer; DeepSeek phrases it as
+    // `unknown variant \`image_url\`, expected \`text\``. Other backends
+    // may differ — match on the field name plus any rejection word.
+    lower.contains("image_url")
+        && (lower.contains("unknown variant")
+            || lower.contains("invalid type")
+            || lower.contains("invalid_type")
+            || lower.contains("unsupported")
+            || lower.contains("not supported"))
+}
+
+fn log_vision_auto_disabled(
+    provider_config: Option<&crate::provider::ProviderConfig>,
+    model: &str,
+    status: u16,
+    error_text: &str,
+) {
+    let Some(logger) = crate::get_logger() else {
+        return;
+    };
+    let (provider_id, provider_name) = provider_config
+        .map(|p| (Some(p.id.clone()), p.name.clone()))
+        .unwrap_or((None, "Unknown Provider".to_string()));
+    logger.log(
+        "warn",
+        "agent",
+        "agent::chat_openai_chat::vision_autofix",
+        &format!(
+            "Auto-folded tool image content to text for {} / {} after image_url rejection",
+            provider_name, model
+        ),
+        Some(
+            json!({
+                "provider_id": provider_id,
+                "provider_name": provider_name,
+                "model": model,
+                "status": status,
+                "error": error_text,
+            })
+            .to_string(),
+        ),
+        None,
+        None,
+    );
+}
+
 async fn send_chat_request(
     client: &reqwest::Client,
     api_url: &str,
@@ -357,8 +411,12 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<RoundOutcome> {
         let api_url = build_api_url(self.base_url, "/v1/chat/completions");
+        let model_supports_vision = self
+            .provider_config
+            .map(|pc| pc.model_supports_vision(self.model))
+            .unwrap_or(true);
         let (body, api_messages, tools_array) =
-            build_chat_body(self.model, self.thinking_style, &req);
+            build_chat_body(self.model, self.thinking_style, model_supports_vision, &req);
         log_openai_chat_request(
             &api_url,
             self.model,
@@ -385,7 +443,46 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                 on_delta(&autofix.payload.to_string());
                 let retry_style = ThinkingStyle::None;
                 let (retry_body, retry_messages, retry_tools) =
-                    build_chat_body(self.model, &retry_style, &req);
+                    build_chat_body(self.model, &retry_style, model_supports_vision, &req);
+                log_openai_chat_request(
+                    &api_url,
+                    self.model,
+                    &req,
+                    &retry_messages,
+                    &retry_tools,
+                    &retry_body,
+                );
+                request_start = std::time::Instant::now();
+                resp = send_chat_request(client, &api_url, self.api_key, &retry_body, req.round)
+                    .await?;
+                if !resp.status().is_success() {
+                    let retry_status = resp.status().as_u16();
+                    let retry_error = resp.text().await.unwrap_or_default();
+                    log_openai_chat_error(retry_status, &retry_error, req.round);
+                    return Err(anyhow::anyhow!(
+                        "OpenAI Chat API error ({}): {}",
+                        retry_status,
+                        retry_error
+                    ));
+                }
+            } else if model_supports_vision && is_unsupported_image_url_error(status, &error_text) {
+                log_vision_auto_disabled(self.provider_config, self.model, status, &error_text);
+                let provider_id = self.provider_config.map(|p| p.id.clone());
+                let provider_name = self
+                    .provider_config
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| "Unknown Provider".to_string());
+                on_delta(
+                    &json!({
+                        "type": "vision_auto_disabled",
+                        "provider_id": provider_id,
+                        "provider_name": provider_name,
+                        "model_id": self.model,
+                    })
+                    .to_string(),
+                );
+                let (retry_body, retry_messages, retry_tools) =
+                    build_chat_body(self.model, self.thinking_style, false, &req);
                 log_openai_chat_request(
                     &api_url,
                     self.model,
@@ -737,4 +834,48 @@ async fn parse_chat_completions_sse(
         collected_thinking,
         first_token_time,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_unsupported_image_url_error;
+
+    #[test]
+    fn detects_deepseek_unknown_variant_rejection() {
+        // Exact phrasing observed from DeepSeek v4-flash; this is the
+        // failure mode that motivated the retry path.
+        let body = r#"{"error":{"message":"Failed to deserialize the JSON body into the target type: messages[15]: unknown variant `image_url`, expected `text` at line 1 column 1906020","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}"#;
+        assert!(is_unsupported_image_url_error(400, body));
+    }
+
+    #[test]
+    fn detects_invalid_type_phrasing() {
+        let body = r#"{"error":{"message":"invalid_type at messages[3].content: image_url is not supported"}}"#;
+        assert!(is_unsupported_image_url_error(400, body));
+    }
+
+    #[test]
+    fn ignores_non_400_status() {
+        let body = r#"{"error":{"message":"unknown variant `image_url`"}}"#;
+        assert!(!is_unsupported_image_url_error(500, body));
+        assert!(!is_unsupported_image_url_error(429, body));
+    }
+
+    #[test]
+    fn ignores_400_without_image_url_signal() {
+        // 400 from a different cause (e.g. bad tool schema) must not
+        // trigger the vision-disable retry — that would hide the real
+        // error and waste an HTTP round-trip.
+        let body = r#"{"error":{"message":"missing required field `tools[0].function.name`"}}"#;
+        assert!(!is_unsupported_image_url_error(400, body));
+    }
+
+    #[test]
+    fn ignores_image_url_appearance_without_rejection_words() {
+        // image_url merely appearing in an error (e.g. content quoted back
+        // in a 401 / rate-limit message) must not trigger retry.
+        let body =
+            r#"{"error":{"message":"rate limit exceeded; last request had image_url content"}}"#;
+        assert!(!is_unsupported_image_url_error(400, body));
+    }
 }
