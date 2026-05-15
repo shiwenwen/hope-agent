@@ -18,6 +18,8 @@ import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import type { SkillSummary } from "../types"
+import DraftReviewSection from "./DraftReviewSection"
 
 // ──────────────────────────────────────────────────────────────────────
 // Types — kept locally; the Rust side serializes camelCase via serde.
@@ -87,6 +89,11 @@ interface SkillEvolutionViewProps {
   autoReviewPromotion: boolean
   onSetAutoReviewEnabled: (v: boolean) => void
   onSetAutoReviewPromotion: (v: boolean) => void
+  drafts: SkillSummary[]
+  draftPending: Record<string, "activate" | "discard" | undefined>
+  onActivateDraft: (name: string) => void
+  onDiscardDraft: (name: string) => void
+  onSelectSkill: (name: string) => void
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "failed"
@@ -96,6 +103,11 @@ export default function SkillEvolutionView({
   autoReviewPromotion,
   onSetAutoReviewEnabled,
   onSetAutoReviewPromotion,
+  drafts,
+  draftPending,
+  onActivateDraft,
+  onDiscardDraft,
+  onSelectSkill,
 }: SkillEvolutionViewProps) {
   const { t } = useTranslation()
   const [cfg, setCfg] = useState<AutoReviewConfig | null>(null)
@@ -322,6 +334,15 @@ export default function SkillEvolutionView({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
+      {/* ── Drafts awaiting review ──────────────────────────────────── */}
+      <DraftReviewSection
+        drafts={drafts}
+        pendingAction={draftPending}
+        onActivate={onActivateDraft}
+        onDiscard={onDiscardDraft}
+        onSelectSkill={onSelectSkill}
+      />
+
       {/* ── Hero: master switch ─────────────────────────────────────── */}
       <div className="overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-500/10 via-fuchsia-500/8 to-pink-500/5 dark:border-violet-400/30 dark:from-violet-500/15 dark:via-fuchsia-500/12 dark:to-pink-500/8">
         <div className="flex items-start gap-4 p-6">

@@ -17,7 +17,6 @@ import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
 import SkillEvolutionView from "./SkillEvolutionView"
 import SkillDetailView from "./SkillDetailView"
-import DraftReviewSection from "./DraftReviewSection"
 import QuickImportDialog from "./QuickImportDialog"
 
 export default function SkillsPanel() {
@@ -307,23 +306,17 @@ export default function SkillsPanel() {
   // ── Skills List View ───────────────────────────────────────────
   return (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-      {drafts.length > 0 && (
-        <div className="px-6 pt-4">
-          <DraftReviewSection
-            drafts={drafts}
-            pendingAction={draftPending}
-            onActivate={handleActivateDraft}
-            onDiscard={handleDiscardDraft}
-            onSelectSkill={handleSelectSkill}
-          />
-        </div>
-      )}
       <Tabs defaultValue="manage" className="flex-1 flex flex-col min-h-0">
         <div className="px-6 pt-4 shrink-0">
           <TabsList>
             <TabsTrigger value="manage">{t("settings.skillsTab.manage")}</TabsTrigger>
-            <TabsTrigger value="evolution">
+            <TabsTrigger value="evolution" className="gap-1.5">
               {t("settings.skillsTab.evolution")}
+              {drafts.length > 0 && (
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                  {drafts.length}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -349,6 +342,11 @@ export default function SkillsPanel() {
             autoReviewPromotion={autoReviewPromotion}
             onSetAutoReviewEnabled={handleSetAutoReviewEnabled}
             onSetAutoReviewPromotion={handleSetAutoReviewPromotion}
+            drafts={drafts}
+            draftPending={draftPending}
+            onActivateDraft={handleActivateDraft}
+            onDiscardDraft={handleDiscardDraft}
+            onSelectSkill={handleSelectSkill}
           />
         </TabsContent>
       </Tabs>

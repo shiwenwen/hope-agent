@@ -57,7 +57,7 @@ export function DiffPanel({
   const change = changes[safeIndex]
 
   const wrapperClasses = cn(
-    "flex h-full min-h-0 w-full flex-col rounded-lg border border-border bg-card shadow-sm",
+    "flex h-full min-h-0 w-full flex-col rounded-lg border border-border bg-background shadow-sm",
     embedded ? "" : "max-w-4xl",
   )
 

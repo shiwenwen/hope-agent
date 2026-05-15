@@ -480,13 +480,13 @@ export default function CanvasPanel({
         className={
           maximized
             ? "fixed inset-0 z-50 flex flex-col bg-background"
-            : "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm"
+            : "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm"
         }
       >
         {/* Title Bar */}
         <div
           className={cn(
-            "flex h-11 items-center gap-2 border-b border-border/60 bg-card/95 px-4 shrink-0",
+            "flex h-11 items-center gap-2 border-b border-border/60 bg-background px-4 shrink-0",
             maximized && "h-[72px] items-end pb-2 pt-7",
           )}
           data-tauri-drag-region

@@ -27,7 +27,7 @@ export default function DraftReviewSection({
   if (drafts.length === 0) return null
 
   return (
-    <div className="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
       <div className="flex items-center gap-2 mb-2">
         <Sparkles className="h-4 w-4 text-amber-500" />
         <h3 className="text-sm font-semibold text-foreground">
@@ -40,7 +40,7 @@ export default function DraftReviewSection({
       <p className="text-xs text-muted-foreground mb-3">
         {t("settings.skillsDraftsDesc")}
       </p>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
         {drafts.map((d) => {
           const pending = pendingAction[d.name]
           return (
