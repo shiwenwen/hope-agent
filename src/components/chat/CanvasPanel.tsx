@@ -434,10 +434,10 @@ export default function CanvasPanel({
         >
           <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
         </div>
-        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel">
           {/* Title Bar */}
           <div
-            className="flex h-11 items-center gap-2 border-b border-border/60 bg-card/95 px-4 shrink-0"
+            className="flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel/95 px-4 shrink-0"
             data-tauri-drag-region
           >
             <span className="text-sm font-medium truncate flex-1">{canvas.title}</span>
@@ -485,14 +485,14 @@ export default function CanvasPanel({
       <div
         className={
           maximized
-            ? "fixed inset-0 z-50 flex flex-col bg-background"
-            : "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm"
+            ? "fixed inset-0 z-50 flex flex-col bg-surface-app"
+            : "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel"
         }
       >
         {/* Title Bar */}
         <div
           className={cn(
-            "flex h-11 items-center gap-2 border-b border-border/60 bg-background px-4 shrink-0",
+            "flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel px-4 shrink-0",
             maximized && "h-[72px] items-end pb-2 pt-7",
           )}
           data-tauri-drag-region
@@ -549,7 +549,7 @@ export default function CanvasPanel({
         </div>
 
         {/* iframe preview */}
-        <div className="flex-1 overflow-hidden bg-white dark:bg-zinc-900">
+        <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
           <iframe
             ref={iframeRef}
             key={`${canvas.projectId}-${refreshKey}`}

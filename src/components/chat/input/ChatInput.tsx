@@ -345,7 +345,7 @@ export default function ChatInput({
     <div className="px-3 pb-3 pt-2">
       <div
         ref={inputShellRef}
-        className="relative rounded-2xl border border-border bg-white dark:bg-card"
+        className="relative rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock"
       >
         {/* Slash Command Menu */}
         {slash.isOpen && (
@@ -408,7 +408,7 @@ export default function ChatInput({
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content
-                    className="min-w-[140px] bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-1.5 z-50 animate-in fade-in-0 zoom-in-95 duration-150"
+                    className="min-w-[140px] bg-surface-floating/95 backdrop-blur-xl border border-border-soft rounded-floating shadow-floating p-1.5 z-50 animate-in fade-in-0 zoom-in-95 duration-150"
                     sideOffset={6}
                     align="end"
                   >
@@ -522,7 +522,7 @@ export default function ChatInput({
                 </Tooltip>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content
-                    className="z-50 min-w-[180px] overflow-hidden rounded-xl border border-border/60 bg-white p-1.5 text-popover-foreground shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150 dark:bg-popover/95"
+                    className="z-50 min-w-[180px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
                     side="top"
                     align="start"
                     sideOffset={8}

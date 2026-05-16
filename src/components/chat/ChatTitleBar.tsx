@@ -245,7 +245,7 @@ export default function ChatTitleBar({
 
   return (
     <div
-      className="h-10 flex items-end justify-between px-4 bg-background shrink-0"
+      className="h-10 flex items-end justify-between px-4 bg-surface-app shrink-0"
       data-tauri-drag-region
     >
       <div className="flex items-end gap-2 min-w-0 pb-1.5">

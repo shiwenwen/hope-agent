@@ -413,7 +413,7 @@ export default function App() {
     <ErrorBoundary>
       <TooltipProvider>
         <LightboxProvider>
-          <div className="flex flex-col h-screen overflow-hidden bg-background">
+          <div className="flex flex-col h-screen overflow-hidden bg-surface-app">
             <StarrySky />
             <Toaster />
             <DangerousModeBanner />

@@ -297,27 +297,27 @@ export function PlanPanel({
   // Whether inline commenting is enabled
   const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
   const panelShellClass = maximized
-    ? "fixed inset-0 z-50 flex flex-col bg-background"
+    ? "fixed inset-0 z-50 flex flex-col bg-surface-app"
     : cn(
         "flex h-full min-h-0 flex-col shrink-0 overflow-hidden animate-in slide-in-from-right-2 duration-200",
         embedded
-          ? "w-full rounded-xl border border-border/70 bg-background shadow-sm"
+          ? "w-full rounded-panel border border-border-soft bg-surface-panel shadow-panel"
           : desktopMode
-            ? "max-w-[40vw] bg-background"
-            : "max-w-[42vw] border-l border-border/70 bg-background/95",
+            ? "max-w-[40vw] bg-surface-panel"
+            : "max-w-[42vw] border-l border-border-soft bg-surface-panel/95",
       )
   const headerClass = cn(
     "flex items-center gap-2 px-3 border-b shrink-0",
     embedded
-      ? "h-11 border-border/60 bg-background px-4"
+      ? "h-11 border-border-soft bg-surface-panel px-4"
       : desktopMode
-        ? "py-2 border-border bg-secondary/30"
-        : "h-10 border-border/70 bg-background/95",
+        ? "py-2 border-border-soft bg-surface-subtle"
+        : "h-10 border-border-soft bg-surface-panel/95",
     maximized && desktopMode && "h-[72px] items-end pb-2 pt-7",
   )
   const actionBarClass = cn(
     "px-3 py-3 border-t border-border shrink-0 space-y-2",
-    embedded ? "bg-background" : desktopMode ? "bg-secondary/20" : "bg-background/95",
+    embedded ? "bg-surface-panel" : desktopMode ? "bg-surface-subtle" : "bg-surface-panel/95",
   )
 
   // Detached: show compact placeholder
@@ -327,14 +327,14 @@ export function PlanPanel({
         className={cn(
           "flex flex-col shrink-0 animate-in slide-in-from-right-2 duration-200",
           embedded
-            ? "h-full w-full overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm"
-            : "w-[200px] bg-background",
+            ? "h-full w-full overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel"
+            : "w-[200px] bg-surface-panel",
         )}
       >
         <div
           className={cn(
             "flex items-center gap-2 px-3 py-2 border-b border-border shrink-0",
-            embedded ? "bg-card/95" : "bg-secondary/30",
+            embedded ? "bg-surface-panel/95" : "bg-surface-subtle",
           )}
           data-tauri-drag-region={desktopMode ? true : undefined}
         >

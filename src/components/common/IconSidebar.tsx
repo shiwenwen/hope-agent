@@ -91,7 +91,7 @@ export default function IconSidebar({
   const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
 
   return (
-    <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
+    <div className="w-[72px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
         {/* Drag region for window movement — covers traffic light area */}
         <div className="w-full pt-10 flex flex-col items-center gap-2" data-tauri-drag-region>
           {/* User avatar (if set) */}
@@ -364,7 +364,7 @@ export default function IconSidebar({
             {showLangMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
-                <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto animate-in fade-in-0 zoom-in-95 slide-in-from-left-1 duration-150">
+                <div className="absolute left-12 bottom-0 z-50 bg-surface-floating border border-border-soft rounded-floating shadow-floating py-1 min-w-[160px] max-h-[400px] overflow-y-auto animate-in fade-in-0 zoom-in-95 slide-in-from-left-1 duration-150">
                   {/* Follow System option */}
                   <button
                     className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
@@ -436,7 +436,7 @@ export default function IconSidebar({
                 variant="ghost"
                 size="icon"
                 aria-label={t("about.title")}
-                className="h-11 w-11 rounded-full border border-border/70 bg-background/80 p-0 shadow-sm hover:bg-secondary hover:shadow-md"
+                className="h-11 w-11 rounded-full border border-border-soft bg-surface-floating/80 p-0 shadow-panel hover:bg-secondary hover:shadow-floating"
                 onClick={() => onOpenSettings("about")}
               >
                 <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-secondary">

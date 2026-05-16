@@ -257,7 +257,7 @@ export default function ChatSidebar({
             aria-hidden={sidebarCollapsed}
             inert={sidebarCollapsed ? true : undefined}
             className={cn(
-              "h-full border-r border-border bg-background flex flex-col transition-[opacity,transform] duration-200 ease-out",
+              "h-full border-r border-border-soft bg-surface-sidebar flex flex-col transition-[opacity,transform] duration-200 ease-out",
               sidebarCollapsed
                 ? "pointer-events-none -translate-x-3 opacity-0"
                 : "translate-x-0 opacity-100",

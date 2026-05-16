@@ -255,9 +255,9 @@ export default function SettingsView({
   }, [])
 
   return (
-    <div className="flex flex-1 h-full overflow-hidden bg-background">
+    <div className="flex flex-1 h-full overflow-hidden bg-surface-app">
       {/* Left Sidebar — Settings Navigation */}
-      <div className="w-[220px] shrink-0 border-r border-border bg-secondary/20 flex flex-col">
+      <div className="w-[220px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col">
         {/* Header with back button + drag region */}
         <div className="h-10 flex items-end px-4 gap-2 shrink-0" data-tauri-drag-region>
           <Button

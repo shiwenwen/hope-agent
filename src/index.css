@@ -25,11 +25,23 @@
   --color-accent: hsl(0 0% 93%);
   --color-accent-foreground: hsl(0 0% 9%);
   --color-border: hsl(0 0% 89%);
+  --color-border-soft: hsl(220 16% 90%);
   --color-input: hsl(0 0% 89%);
   --color-destructive: hsl(0 84% 60%);
   --color-destructive-foreground: hsl(0 0% 100%);
   --color-ring: hsl(0 0% 45%);
+  --color-surface-app: hsl(220 20% 98%);
+  --color-surface-sidebar: hsl(215 20% 96%);
+  --color-surface-panel: hsl(0 0% 99%);
+  --color-surface-floating: hsl(0 0% 100%);
+  --color-surface-subtle: hsl(220 18% 95%);
   --radius: 0.5rem;
+  --radius-panel: 0.5rem;
+  --radius-floating: 0.75rem;
+  --radius-input-dock: 1rem;
+  --shadow-panel: 0 1px 2px hsl(220 18% 20% / 0.04), 0 10px 30px hsl(220 18% 20% / 0.04);
+  --shadow-floating: 0 8px 30px hsl(220 18% 20% / 0.12);
+  --shadow-input-dock: 0 1px 2px hsl(220 18% 20% / 0.05), 0 16px 48px hsl(220 18% 20% / 0.08);
   --color-user-bubble: hsl(210 40% 93%);
 }
 
@@ -50,10 +62,16 @@
   --color-accent: hsl(220 13% 20%);
   --color-accent-foreground: hsl(210 20% 90%);
   --color-border: hsl(220 13% 22%);
+  --color-border-soft: hsl(220 13% 25%);
   --color-input: hsl(220 13% 22%);
   --color-destructive: hsl(0 72% 51%);
   --color-destructive-foreground: hsl(0 0% 100%);
   --color-ring: hsl(215 15% 50%);
+  --color-surface-app: hsl(220 13% 11%);
+  --color-surface-sidebar: hsl(220 13% 14%);
+  --color-surface-panel: hsl(220 13% 13%);
+  --color-surface-floating: hsl(220 13% 15%);
+  --color-surface-subtle: hsl(220 13% 18%);
   --color-user-bubble: hsl(215 20% 28%);
 }
 

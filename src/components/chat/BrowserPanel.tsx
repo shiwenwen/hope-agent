@@ -151,7 +151,7 @@ export default function BrowserPanel({
       >
         <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
       </div>
-      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-background text-foreground shadow-sm">
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel text-foreground shadow-panel">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <Globe className="h-4 w-4 text-muted-foreground" />
