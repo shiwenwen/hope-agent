@@ -41,6 +41,7 @@ pub mod server_status;
 pub mod sessions;
 pub mod skills;
 pub mod slash;
+pub mod stt;
 pub mod subagent;
 pub mod system;
 pub mod tasks;

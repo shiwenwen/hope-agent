@@ -14,8 +14,19 @@ use crate::user_config;
 /// - `mcp_servers`: the per-server config holds OAuth tokens, command paths and
 ///   trust acknowledgements; writes must go through the GUI which also drives
 ///   the trust dialog and 0600 credential write.
-const BLOCKED_UPDATE_CATEGORIES: &[&str] =
-    &["active_model", "fallback_models", "channels", "mcp_servers"];
+const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
+    "active_model",
+    "fallback_models",
+    "channels",
+    "mcp_servers",
+    // STT subsystem — providers carry API keys + provider-specific secrets
+    // (e.g. Volcengine app_id / access_key, iFlytek app_id), and the active /
+    // fallback selection writes coordinate with the desktop voice-input
+    // flow + runtime engine cache. Writes must go through Settings → STT.
+    "stt_providers",
+    "active_stt_model",
+    "stt_fallback_models",
+];
 
 /// Risk classification for a settings category.
 /// The skill / model uses this to decide whether to double-confirm with the user.
@@ -75,7 +86,14 @@ fn risk_level(category: &str) -> &'static str {
         // Read-only categories — no risk since they can't be mutated here.
         // `channels` and `mcp_servers` are categorized "low" for read because
         // the response is redacted before it reaches the model.
-        "active_model" | "fallback_models" | "channels" | "mcp_servers" | "all" => "low",
+        "active_model"
+        | "fallback_models"
+        | "channels"
+        | "mcp_servers"
+        | "stt_providers"
+        | "active_stt_model"
+        | "stt_fallback_models"
+        | "all" => "low",
 
         _ => "medium",
     }
@@ -138,8 +156,48 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         "dreaming" => Some(
             "Dreaming runs offline LLM consolidation cycles. Disabling stops idle / cron triggers entirely; promotion thresholds gate which candidates get pinned into long-term memory."
         ),
+        "stt_providers" => Some(
+            "Read-only via this tool. STT provider configs carry API keys (apiKey / authProfiles[*].apiKey) plus provider-specific secrets in `extra` (Volcengine app_id / access_key, iFlytek app_id, Azure region key, etc.). The response from get_settings redacts every secret-bearing field — writes must go through Settings → Speech-to-Text so credentials stay out of conversation logs."
+        ),
+        "active_stt_model" => Some(
+            "Read-only via this tool. STT active model selection — change it in Settings → Speech-to-Text so the desktop voice-input path picks up the new engine without an app restart."
+        ),
+        "stt_fallback_models" => Some(
+            "Read-only via this tool. STT failover chain — change it in Settings → Speech-to-Text."
+        ),
         _ => None,
     }
+}
+
+/// Redact API keys + auth_profiles[*].apiKey + entire `extra` map from a
+/// `SttConfig.providers` JSON tree. Mirrors `redact_channels_value` /
+/// `redact_mcp_servers_value`: per-provider write path is the safer
+/// configuration channel for secrets.
+fn redact_stt_providers_value(mut value: Value) -> Value {
+    let Some(providers) = value.as_array_mut() else {
+        return value;
+    };
+    for provider in providers.iter_mut() {
+        let Some(obj) = provider.as_object_mut() else {
+            continue;
+        };
+        redact_string_field(obj, "apiKey");
+        if let Some(profiles) = obj.get_mut("authProfiles").and_then(|v| v.as_array_mut()) {
+            for profile in profiles.iter_mut() {
+                if let Some(p) = profile.as_object_mut() {
+                    redact_string_field(p, "apiKey");
+                }
+            }
+        }
+        if obj
+            .get("extra")
+            .map(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+            .unwrap_or(false)
+        {
+            obj.insert("extra".into(), json!("[REDACTED]"));
+        }
+    }
+    value
 }
 
 /// Redact secret-bearing fields from a `ChannelStoreConfig` JSON tree before
@@ -374,6 +432,11 @@ fn read_category(category: &str) -> Result<Value> {
             let templates = db.list_team_templates()?;
             Ok(serde_json::to_value(&templates)?)
         }
+        "stt_providers" => Ok(redact_stt_providers_value(serde_json::to_value(
+            &cfg.stt.providers,
+        )?)),
+        "active_stt_model" => Ok(json!({ "activeSttModel": cfg.stt.active_model })),
+        "stt_fallback_models" => Ok(json!({ "fallbackModels": cfg.stt.fallback_models })),
         _ => bail!("Unknown settings category: '{category}'"),
     }
 }
@@ -449,6 +512,12 @@ fn get_all_overview() -> Result<String> {
             "accountCount": cfg.channels.accounts.len(),
             "defaultAgentId": cfg.channels.default_agent_id,
         },
+        "stt": {
+            "providerCount": cfg.stt.providers.len(),
+            "activeModel": cfg.stt.active_model,
+            "fallbackCount": cfg.stt.fallback_models.len(),
+            "imFallbackConfigured": cfg.stt.im_fallback_model.is_some(),
+        },
     });
 
     // Expose risk classification so the model can decide when to double-confirm.
@@ -473,7 +542,8 @@ fn get_all_overview() -> Result<String> {
             "smart_mode", "mcp_global"
         ],
         "read_only": [
-            "active_model", "fallback_models", "channels", "mcp_servers"
+            "active_model", "fallback_models", "channels", "mcp_servers",
+            "stt_providers", "active_stt_model", "stt_fallback_models"
         ],
     });
 

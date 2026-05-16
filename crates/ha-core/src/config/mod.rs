@@ -688,6 +688,11 @@ pub struct AppConfig {
     /// Local LLM (Ollama) auto-maintenance + user-stop intent persistence.
     #[serde(default)]
     pub local_llm: LocalLlmConfig,
+
+    /// Speech-to-Text subsystem (cloud + local STT providers, IM auto-
+    /// transcribe selection). See `crate::stt`.
+    #[serde(default)]
+    pub stt: crate::stt::SttConfig,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -784,6 +789,7 @@ impl Default for AppConfig {
             mcp_servers: Vec::new(),
             mcp_global: crate::mcp::McpGlobalSettings::default(),
             local_llm: LocalLlmConfig::default(),
+            stt: crate::stt::SttConfig::default(),
         }
     }
 }

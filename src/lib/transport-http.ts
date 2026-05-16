@@ -410,6 +410,24 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_model_auto_maintenance_disable:   { method: "POST", path: "/api/local-model/auto-maintenance/disable" },
   local_model_auto_maintenance_trigger:   { method: "POST", path: "/api/local-model/auto-maintenance/trigger" },
 
+  // -- STT (Speech-to-Text) --
+  get_stt_providers:                 { method: "GET",    path: "/api/stt/providers" },
+  add_stt_provider:                  { method: "POST",   path: "/api/stt/providers" },
+  update_stt_provider:               { method: "PUT",    path: "/api/stt/providers/{providerId}" },
+  delete_stt_provider:               { method: "DELETE", path: "/api/stt/providers/{providerId}" },
+  reorder_stt_providers:             { method: "POST",   path: "/api/stt/providers/reorder" },
+  get_active_stt_model:              { method: "GET",    path: "/api/stt/active-model" },
+  set_active_stt_model:              { method: "PUT",    path: "/api/stt/active-model" },
+  clear_active_stt_model:            { method: "DELETE", path: "/api/stt/active-model" },
+  get_stt_fallback_models:           { method: "GET",    path: "/api/stt/fallback-models" },
+  set_stt_fallback_models:           { method: "PUT",    path: "/api/stt/fallback-models" },
+  get_im_fallback_stt_model:         { method: "GET",    path: "/api/stt/im-fallback-model" },
+  set_im_fallback_stt_model:         { method: "PUT",    path: "/api/stt/im-fallback-model" },
+  list_known_local_stt_backends:     { method: "GET",    path: "/api/stt/local-backends" },
+  probe_local_stt_backend:           { method: "GET",    path: "/api/stt/local-backends/{key}/probe" },
+  upsert_known_local_stt_provider_cmd:{method: "POST",  path: "/api/stt/local-backends/{backendKey}/upsert" },
+  stt_transcribe_blob:               { method: "POST",   path: "/api/stt/transcribe" },
+
   // -- Skills --
   get_skills:                      { method: "GET",    path: "/api/skills" },
   get_skill_detail:                { method: "GET",    path: "/api/skills/{name}" },

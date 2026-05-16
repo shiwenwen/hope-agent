@@ -75,6 +75,7 @@ pub mod session;
 pub mod session_title;
 pub mod skills;
 pub mod slash_commands;
+pub mod stt;
 pub mod subagent;
 pub mod system_prompt;
 pub mod team;

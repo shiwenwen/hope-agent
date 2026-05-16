@@ -32,6 +32,7 @@ pub mod recap;
 pub mod runtime_tasks;
 pub mod session;
 pub mod skills;
+pub mod stt;
 pub mod subagent;
 pub mod tasks;
 pub mod team;
