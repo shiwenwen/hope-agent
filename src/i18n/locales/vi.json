@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "Thêm dự án",
     "archiveProject": "Lưu trữ dự án",
+    "archivedProjects": "Dự án đã lưu trữ",
     "createFirstProject": "Tạo dự án đầu tiên",
     "defaultAgent": "Agent mặc định",
     "defaultModel": "Model mặc định",

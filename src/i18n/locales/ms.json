@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "Tambah projek",
     "archiveProject": "Arkib projek",
+    "archivedProjects": "Projek diarkibkan",
     "createFirstProject": "Cipta projek pertama anda",
     "defaultAgent": "Agent lalai",
     "defaultModel": "Model lalai",

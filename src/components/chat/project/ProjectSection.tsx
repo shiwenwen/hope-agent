@@ -20,6 +20,7 @@ import {
   Plus,
   Settings,
   Archive,
+  ArchiveRestore,
   CheckCheck,
 } from "lucide-react"
 
@@ -86,6 +87,8 @@ export default function ProjectSection(props: ProjectSectionProps) {
     onAddProject,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
+  const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
+  const [archivedExpanded, setArchivedExpanded] = useState(false)
 
   // Single localStorage entry for all project expansion states. Loaded once,
   // persisted on toggle. Stale keys for deleted projects are harmless and
@@ -155,24 +158,59 @@ export default function ProjectSection(props: ProjectSectionProps) {
 
       {expanded && (
         <div className="space-y-0.5">
-          {visibleProjects.length === 0 ? (
+          {visibleProjects.length === 0 && (
             <button
               onClick={onAddProject}
               className="w-full text-left text-xs text-muted-foreground/70 italic px-2 py-1.5 rounded-md hover:bg-accent/40"
             >
-              {t("project.createFirstProject")}
+              {archivedProjects.length > 0
+                ? t("project.newProject")
+                : t("project.createFirstProject")}
             </button>
-          ) : (
-            visibleProjects.map((project) => (
-              <ProjectGroup
-                key={project.id}
-                {...props}
-                project={project}
-                projectSessions={sessionsByProject.get(project.id) ?? []}
-                expanded={expandedMap[project.id] ?? false}
-                onToggleExpanded={() => toggleProjectExpanded(project.id)}
-              />
-            ))
+          )}
+          {visibleProjects.map((project) => (
+            <ProjectGroup
+              key={project.id}
+              {...props}
+              project={project}
+              projectSessions={sessionsByProject.get(project.id) ?? []}
+              expanded={expandedMap[project.id] ?? false}
+              onToggleExpanded={() => toggleProjectExpanded(project.id)}
+            />
+          ))}
+          {archivedProjects.length > 0 && (
+            <div className="mt-2 border-t border-border/40 pt-2">
+              <button
+                onClick={() => setArchivedExpanded((prev) => !prev)}
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground transition-colors"
+              >
+                {archivedExpanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                <Archive className="h-3 w-3" />
+                <span className="truncate">{t("project.archivedProjects")}</span>
+                <span className="ml-auto text-muted-foreground/60">
+                  {archivedProjects.length}
+                </span>
+              </button>
+              {archivedExpanded && (
+                <div className="mt-0.5 space-y-0.5">
+                  {archivedProjects.map((project) => (
+                    <ProjectGroup
+                      key={project.id}
+                      {...props}
+                      project={project}
+                      projectSessions={sessionsByProject.get(project.id) ?? []}
+                      expanded={expandedMap[project.id] ?? false}
+                      onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                      archivedView
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -187,6 +225,7 @@ interface ProjectGroupProps extends Omit<ProjectSectionProps, "expanded" | "setE
   projectSessions: SessionMeta[]
   expanded: boolean
   onToggleExpanded: () => void
+  archivedView?: boolean
 }
 
 function ProjectGroup({
@@ -214,6 +253,7 @@ function ProjectGroup({
   getAgentInfo,
   formatRelativeTime,
   projects,
+  archivedView = false,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
   const currentSessionUnreadCount = useMemo(
@@ -288,17 +328,19 @@ function ProjectGroup({
             </div>
             {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
                 the two sections feel consistent. */}
-            <IconTip label={t("project.newChatInProject")}>
-              <button
-                className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onNewChatInProject(project.id)
-                }}
-              >
-                <MessageSquarePlus className="h-3.5 w-3.5" />
-              </button>
-            </IconTip>
+            {!archivedView && (
+              <IconTip label={t("project.newChatInProject")}>
+                <button
+                  className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onNewChatInProject(project.id)
+                  }}
+                >
+                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            )}
             <IconTip label={t("project.openProjectSettings")}>
               <button
                 className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
@@ -310,6 +352,19 @@ function ProjectGroup({
                 <Settings className="h-3.5 w-3.5" />
               </button>
             </IconTip>
+            {archivedView && (
+              <IconTip label={t("project.unarchiveProject")}>
+                <button
+                  className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onArchiveProject(project.id, false)
+                  }}
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            )}
             {project.sessionCount > 0 && (
               <span
                 className={cn(
@@ -324,10 +379,12 @@ function ProjectGroup({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onClick={() => onNewChatInProject(project.id)}>
-            <MessageSquarePlus className="h-3 w-3 mr-2" />
-            {t("project.newChatInProject")}
-          </ContextMenuItem>
+          {!archivedView && (
+            <ContextMenuItem onClick={() => onNewChatInProject(project.id)}>
+              <MessageSquarePlus className="h-3 w-3 mr-2" />
+              {t("project.newChatInProject")}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={() => onOpenProjectSettings(project)}>
             <Settings className="h-3 w-3 mr-2" />
             {t("project.openProjectSettings")}
@@ -340,8 +397,14 @@ function ProjectGroup({
             {t("chat.markAllRead")}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => onArchiveProject(project.id, !project.archived)}>
-            <Archive className="h-3 w-3 mr-2" />
+          <ContextMenuItem
+            onClick={() => onArchiveProject(project.id, archivedView ? false : !project.archived)}
+          >
+            {archivedView ? (
+              <ArchiveRestore className="h-3 w-3 mr-2" />
+            ) : (
+              <Archive className="h-3 w-3 mr-2" />
+            )}
             {project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
           </ContextMenuItem>
         </ContextMenuContent>
@@ -350,12 +413,18 @@ function ProjectGroup({
       {groupExpanded && (
         <div className="pl-3 pr-1 mt-0.5 space-y-0.5">
           {projectSessions.length === 0 ? (
-            <button
-              onClick={() => onNewChatInProject(project.id)}
-              className="w-full text-left text-[11px] text-muted-foreground/70 italic px-2 py-1 rounded-md hover:bg-accent/30"
-            >
-              {t("project.noSessionsHint")}
-            </button>
+            archivedView ? (
+              <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
+                {t("project.sessionsInProject", { count: 0 })}
+              </div>
+            ) : (
+              <button
+                onClick={() => onNewChatInProject(project.id)}
+                className="w-full text-left text-[11px] text-muted-foreground/70 italic px-2 py-1 rounded-md hover:bg-accent/30"
+              >
+                {t("project.noSessionsHint")}
+              </button>
+            )
           ) : (
             projectSessions.map((session) => (
               <SessionItem

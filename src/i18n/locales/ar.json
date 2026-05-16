@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "إضافة مشروع",
     "archiveProject": "أرشفة المشروع",
+    "archivedProjects": "المشاريع المؤرشفة",
     "createFirstProject": "أنشئ مشروعك الأول",
     "defaultAgent": "الوكيل الافتراضي",
     "defaultModel": "النموذج الافتراضي",

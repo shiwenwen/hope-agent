@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "Adicionar projeto",
     "archiveProject": "Arquivar projeto",
+    "archivedProjects": "Projetos arquivados",
     "createFirstProject": "Crie seu primeiro projeto",
     "defaultAgent": "Agent padrão",
     "defaultModel": "Modelo padrão",

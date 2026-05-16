@@ -217,7 +217,7 @@ export default function ChatScreen({
     archiveProject,
     moveSessionToProject,
     reloadProjects,
-  } = useProjects()
+  } = useProjects({ includeArchived: true })
 
   const refreshProjectAggregates = useCallback(() => {
     void reloadProjects()

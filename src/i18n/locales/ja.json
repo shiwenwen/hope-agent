@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "プロジェクトを追加",
     "archiveProject": "プロジェクトをアーカイブ",
+    "archivedProjects": "アーカイブ済みプロジェクト",
     "createFirstProject": "最初のプロジェクトを作成",
     "defaultAgent": "デフォルト Agent",
     "defaultModel": "デフォルトモデル",

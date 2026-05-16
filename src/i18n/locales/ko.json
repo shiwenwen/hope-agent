@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "프로젝트 추가",
     "archiveProject": "프로젝트 아카이브",
+    "archivedProjects": "보관된 프로젝트",
     "createFirstProject": "첫 프로젝트 만들기",
     "defaultAgent": "기본 Agent",
     "defaultModel": "기본 모델",

@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "Proje ekle",
     "archiveProject": "Projeyi arşivle",
+    "archivedProjects": "Arşivlenmiş projeler",
     "createFirstProject": "İlk projenizi oluşturun",
     "defaultAgent": "Varsayılan Agent",
     "defaultModel": "Varsayılan model",

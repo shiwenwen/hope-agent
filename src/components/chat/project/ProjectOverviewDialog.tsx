@@ -167,15 +167,17 @@ export default function ProjectOverviewDialog({
               <StatCard label={t("project.overview.totalMemories")} value={project.memoryCount} />
             </div>
 
-            <Button
-              onClick={() => {
-                onNewSessionInProject(project.id, project.defaultAgentId)
-                onOpenChange(false)
-              }}
-              className="w-full"
-            >
-              {t("project.newChatInProject")}
-            </Button>
+            {!project.archived && (
+              <Button
+                onClick={() => {
+                  onNewSessionInProject(project.id, project.defaultAgentId)
+                  onOpenChange(false)
+                }}
+                className="w-full"
+              >
+                {t("project.newChatInProject")}
+              </Button>
+            )}
           </TabsContent>
 
           {/* Files */}

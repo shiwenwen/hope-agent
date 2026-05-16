@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "Добавить проект",
     "archiveProject": "Архивировать проект",
+    "archivedProjects": "Архивные проекты",
     "createFirstProject": "Создайте свой первый проект",
     "defaultAgent": "Agent по умолчанию",
     "defaultModel": "Модель по умолчанию",

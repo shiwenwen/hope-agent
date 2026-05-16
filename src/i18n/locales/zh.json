@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "添加项目",
     "archiveProject": "归档项目",
+    "archivedProjects": "已归档项目",
     "createFirstProject": "创建第一个项目",
     "defaultAgent": "默认助手",
     "defaultModel": "默认模型",

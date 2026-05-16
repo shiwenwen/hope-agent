@@ -1815,6 +1815,7 @@
   "project": {
     "addProject": "新增專案",
     "archiveProject": "封存專案",
+    "archivedProjects": "已封存專案",
     "createFirstProject": "建立第一個專案",
     "defaultAgent": "預設 Agent",
     "defaultModel": "預設模型",
