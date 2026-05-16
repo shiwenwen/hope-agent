@@ -17,12 +17,12 @@ import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
 import SkillEvolutionView from "./SkillEvolutionView"
 import SkillDetailView from "./SkillDetailView"
-import DraftReviewSection from "./DraftReviewSection"
 import QuickImportDialog from "./QuickImportDialog"
 
 export default function SkillsPanel() {
   const { t } = useTranslation()
   const { drafts } = useDraftSkillsStore()
+  const [activeTab, setActiveTab] = useState<"manage" | "evolution">("manage")
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [draftPending, setDraftPending] = useState<
     Record<string, "activate" | "discard" | undefined>
@@ -70,12 +70,15 @@ export default function SkillsPanel() {
     return unlisten
   }, [reload])
 
-  // Whenever the panel is open and the draft list changes (mount, store
-  // refresh, or live event), the user is implicitly "seeing" the current set —
-  // clear the unseen-count badge that drives the IconSidebar / SettingsView dots.
+  // Drafts now live inside the Evolution tab — only mark them seen when the
+  // user actually lands on (or is already on) that tab. Doing it on panel
+  // mount would clear the IconSidebar / SettingsView dots before the user
+  // ever sees the list.
   useEffect(() => {
-    markDraftsSeen()
-  }, [drafts])
+    if (activeTab === "evolution") {
+      markDraftsSeen()
+    }
+  }, [activeTab, drafts])
 
   useEffect(() => {
     let cancelled = false
@@ -307,23 +310,21 @@ export default function SkillsPanel() {
   // ── Skills List View ───────────────────────────────────────────
   return (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-      {drafts.length > 0 && (
-        <div className="px-6 pt-4">
-          <DraftReviewSection
-            drafts={drafts}
-            pendingAction={draftPending}
-            onActivate={handleActivateDraft}
-            onDiscard={handleDiscardDraft}
-            onSelectSkill={handleSelectSkill}
-          />
-        </div>
-      )}
-      <Tabs defaultValue="manage" className="flex-1 flex flex-col min-h-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as "manage" | "evolution")}
+        className="flex-1 flex flex-col min-h-0"
+      >
         <div className="px-6 pt-4 shrink-0">
           <TabsList>
             <TabsTrigger value="manage">{t("settings.skillsTab.manage")}</TabsTrigger>
-            <TabsTrigger value="evolution">
+            <TabsTrigger value="evolution" className="gap-1.5">
               {t("settings.skillsTab.evolution")}
+              {drafts.length > 0 && (
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                  {drafts.length}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -349,6 +350,11 @@ export default function SkillsPanel() {
             autoReviewPromotion={autoReviewPromotion}
             onSetAutoReviewEnabled={handleSetAutoReviewEnabled}
             onSetAutoReviewPromotion={handleSetAutoReviewPromotion}
+            drafts={drafts}
+            draftPending={draftPending}
+            onActivateDraft={handleActivateDraft}
+            onDiscardDraft={handleDiscardDraft}
+            onSelectSkill={handleSelectSkill}
           />
         </TabsContent>
       </Tabs>

@@ -301,7 +301,7 @@ export function PlanPanel({
     : cn(
         "flex h-full min-h-0 flex-col shrink-0 overflow-hidden animate-in slide-in-from-right-2 duration-200",
         embedded
-          ? "w-full rounded-xl border border-border/70 bg-card shadow-sm"
+          ? "w-full rounded-xl border border-border/70 bg-background shadow-sm"
           : desktopMode
             ? "max-w-[40vw] bg-background"
             : "max-w-[42vw] border-l border-border/70 bg-background/95",
@@ -309,7 +309,7 @@ export function PlanPanel({
   const headerClass = cn(
     "flex items-center gap-2 px-3 border-b shrink-0",
     embedded
-      ? "h-11 border-border/60 bg-card/95 px-4"
+      ? "h-11 border-border/60 bg-background px-4"
       : desktopMode
         ? "py-2 border-border bg-secondary/30"
         : "h-10 border-border/70 bg-background/95",
@@ -317,7 +317,7 @@ export function PlanPanel({
   )
   const actionBarClass = cn(
     "px-3 py-3 border-t border-border shrink-0 space-y-2",
-    embedded ? "bg-card/95" : desktopMode ? "bg-secondary/20" : "bg-background/95",
+    embedded ? "bg-background" : desktopMode ? "bg-secondary/20" : "bg-background/95",
   )
 
   // Detached: show compact placeholder

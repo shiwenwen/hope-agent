@@ -25,9 +25,8 @@ pub use questions::{
 /// timeout as consent would be a silent privilege escalation.
 ///
 /// Use this for every Yes/No (or Continue/Cancel) gate that wraps a
-/// dangerous tool action — `control.evaluate`, `profile.op=launch
-/// target=system`, `app_update install/rollback`, etc. — so the
-/// affirmative-label scan is identical across callsites.
+/// dangerous tool action — `control.evaluate`, `app_update install/rollback`,
+/// etc. — so the affirmative-label scan is identical across callsites.
 pub fn was_affirmative(raw: &str, labels: &[&str]) -> bool {
     let v: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,

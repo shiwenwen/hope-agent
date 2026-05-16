@@ -9,6 +9,8 @@ export type ChatTurnStatus = "running" | "cancelling" | "completed" | "interrupt
 
 export type ChatDisplayMode = "bubble" | "timeline"
 
+export type ContentRenderMode = "markdown" | "text"
+
 export type ChatTurnInterruptReason =
   | "user_stop"
   | "shutdown"

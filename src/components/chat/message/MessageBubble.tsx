@@ -4,7 +4,17 @@ import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Copy, Check, Info, Network, Timer, PlayCircle, ChevronDown } from "lucide-react"
+import {
+  Copy,
+  Check,
+  Info,
+  Network,
+  Timer,
+  PlayCircle,
+  ChevronDown,
+  Code2,
+  Type,
+} from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
   formatTokens,
@@ -14,6 +24,7 @@ import {
   isUserAlignedMessage,
 } from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import PlainTextRenderer from "@/components/common/PlainTextRenderer"
 import FileAttachments from "./FileAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import ProfileRotationBanner from "@/components/chat/ProfileRotationBanner"
@@ -24,6 +35,7 @@ import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
 import type {
   ChatDisplayMode,
+  ContentRenderMode,
   Message,
   AgentSummaryForSidebar,
   ProfileRotationEvent,
@@ -59,7 +71,9 @@ export interface MessageBubbleProps {
   onViewSystemPrompt?: () => void
   // Open the right-side diff panel for a file change payload.
   onOpenDiff?: (
-    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+    metadata:
+      | import("@/types/chat").FileChangeMetadata
+      | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
   displayMode?: ChatDisplayMode
@@ -74,6 +88,12 @@ const TOOL_JOB_STATUSES = new Set([
   "interrupted",
   "running",
 ])
+
+function hasRenderableTextContent(msg: Message): boolean {
+  return (
+    !!msg.content || !!msg.contentBlocks?.some((block) => block.type === "text" && !!block.content)
+  )
+}
 
 function getXmlishAttribute(attrs: string, name: string): string | undefined {
   const match = attrs.match(new RegExp(`\\b${name}="([^"]*)"`))
@@ -271,6 +291,7 @@ function MessageBubbleInner({
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
   const [resultExpanded, setResultExpanded] = useState(false)
+  const [contentRenderMode, setContentRenderMode] = useState<ContentRenderMode>("markdown")
 
   const modifiedFiles = useMemo(
     () =>
@@ -288,6 +309,32 @@ function MessageBubbleInner({
     }
   }, [msg.content, msg.role])
   const isUserAligned = isUserAlignedMessage(msg)
+  const hasTextContent = hasRenderableTextContent(msg)
+  const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
+  const hasToolbarActions = hasTextContent || hasDetails
+  const renderToggleLabel =
+    contentRenderMode === "markdown"
+      ? String(t("chat.showPlainText", { defaultValue: "Show plain text" }))
+      : String(t("chat.renderMarkdown", { defaultValue: "Render Markdown" }))
+  const renderToggleButton = hasTextContent ? (
+    <IconTip label={renderToggleLabel}>
+      <button
+        type="button"
+        aria-label={renderToggleLabel}
+        aria-pressed={contentRenderMode === "markdown"}
+        onClick={() =>
+          setContentRenderMode((mode) => (mode === "markdown" ? "text" : "markdown"))
+        }
+        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+      >
+        {contentRenderMode === "markdown" ? (
+          <Type className="h-3.5 w-3.5" />
+        ) : (
+          <Code2 className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </IconTip>
+  ) : null
 
   if (msg.role === "event" && !isUserAligned) {
     // Interactive model picker card
@@ -413,7 +460,12 @@ function MessageBubbleInner({
   // The markdown displayText still lives in `msg.content` as a fallback for
   // IM channels and historical sessions where the metadata wasn't captured.
   if (msg.planComment) {
-    return <PlanCommentBubble selectedText={msg.planComment.selectedText} comment={msg.planComment.comment} />
+    return (
+      <PlanCommentBubble
+        selectedText={msg.planComment.selectedText}
+        comment={msg.planComment.comment}
+      />
+    )
   }
 
   if (displayMode === "timeline" && msg.role === "assistant") {
@@ -472,6 +524,7 @@ function MessageBubbleInner({
             onSwitchSession={onSwitchSession}
             onOpenDiff={onOpenDiff}
             displayMode="timeline"
+            contentRenderMode={contentRenderMode}
           />
           {modifiedFiles.length > 0 && (
             <div className="ml-7">
@@ -486,7 +539,7 @@ function MessageBubbleInner({
           <div
             className={cn(
               "ml-7 mt-0.5 flex h-6 items-center gap-0.5",
-              (!msg.content || !(isHovered || isCopied)) && "invisible",
+              (!hasTextContent || !(isHovered || isCopied)) && "invisible",
             )}
           >
             {msg.content && (
@@ -503,6 +556,7 @@ function MessageBubbleInner({
                 </button>
               </IconTip>
             )}
+            {renderToggleButton}
           </div>
         </div>
       </div>
@@ -557,10 +611,13 @@ function MessageBubbleInner({
           className={cn(
             "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
             isUserAligned && !msg.fromAgentId
-              ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
+              ? "bg-[var(--color-user-bubble)] text-foreground"
               : msg.fromAgentId
-                ? "bg-purple-500/10 border border-purple-500/20 text-foreground whitespace-pre-wrap"
+                ? "bg-purple-500/10 border border-purple-500/20 text-foreground"
                 : "bg-card text-foreground/80",
+            contentRenderMode === "markdown"
+              ? "message-markdown-content"
+              : "message-plain-content",
             msg.role === "assistant" &&
               !msg.content &&
               !msg.toolCalls?.length &&
@@ -584,10 +641,12 @@ function MessageBubbleInner({
               onOpenPlanPanel={onOpenPlanPanel}
               onSwitchSession={onSwitchSession}
               onOpenDiff={onOpenDiff}
+              contentRenderMode={contentRenderMode}
             />
+          ) : contentRenderMode === "markdown" ? (
+            <MarkdownRenderer content={msg.content} />
           ) : (
-            // User message content
-            msg.content
+            <PlainTextRenderer content={msg.content} />
           )}
           {/* URL Previews (only for non-streaming messages) */}
           {msg.content && !(loading && isLast) && (
@@ -614,12 +673,11 @@ function MessageBubbleInner({
           className={cn(
             "flex items-center gap-0.5 mt-0.5 h-6",
             isUserAligned ? "justify-end" : "justify-start",
-            (!msg.content || !(isHovered || isCopied || detailsIndex === index)) &&
+            (!hasToolbarActions || !(isHovered || isCopied || detailsIndex === index)) &&
               "invisible",
           )}
         >
           {msg.content && (
-            <>
             <IconTip label={t("chat.copy")}>
               <button
                 onClick={() => onCopy(msg.content, index)}
@@ -632,109 +690,109 @@ function MessageBubbleInner({
                 )}
               </button>
             </IconTip>
-            {msg.role === "assistant" && (msg.usage || msg.model) && (
-              <div className="relative">
-                <IconTip label={t("chat.details")}>
-                  <button
-                    onClick={() => setDetailsIndex(detailsIndex === index ? null : index)}
-                    className={cn(
-                      "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-                      detailsIndex === index && "text-foreground bg-muted/80",
+          )}
+          {renderToggleButton}
+          {hasDetails && (
+            <div className="relative">
+              <IconTip label={t("chat.details")}>
+                <button
+                  onClick={() => setDetailsIndex(detailsIndex === index ? null : index)}
+                  className={cn(
+                    "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                    detailsIndex === index && "text-foreground bg-muted/80",
+                  )}
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+              {detailsIndex === index && (
+                <div className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-lg">
+                  <div className="space-y-1.5 text-xs">
+                    {msg.model && (
+                      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                        <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                          {t("chat.statusModel")}
+                        </span>
+                        <IconTip label={msg.model}>
+                          <span className="block truncate text-right font-medium text-foreground">
+                            {msg.model}
+                          </span>
+                        </IconTip>
+                      </div>
                     )}
-                  >
-                    <Info className="h-3.5 w-3.5" />
-                  </button>
-                </IconTip>
-                {detailsIndex === index && (
-                  <div className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-lg">
-                    <div className="space-y-1.5 text-xs">
-                      {msg.model && (
-                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                          <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                            {t("chat.statusModel")}
-                          </span>
-                          <IconTip label={msg.model}>
-                            <span className="block truncate text-right font-medium text-foreground">
-                              {msg.model}
-                            </span>
-                          </IconTip>
-                        </div>
-                      )}
-                      {msg.model && msg.usage?.inputTokens != null && (
-                        <div className="border-t border-border" />
-                      )}
-                      {(() => {
-                        const inputTokens = msg.usage?.inputTokens
-                        const lastInputTokens = msg.usage?.lastInputTokens
-                        const showLastInput =
-                          inputTokens != null &&
-                          lastInputTokens != null &&
-                          lastInputTokens !== inputTokens
-                        if (inputTokens == null) return null
-                        return (
-                          <>
-                            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                              <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                                {showLastInput
-                                  ? t("chat.inputTokensCumulative")
-                                  : t("chat.inputTokens")}
-                              </span>
-                              <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                                {formatTokens(inputTokens)}
-                              </span>
-                            </div>
-                            {showLastInput && lastInputTokens != null && (
-                              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                                <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                                  {t("chat.lastRoundInputTokens")}
-                                </span>
-                                <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                                  {formatTokens(lastInputTokens)}
-                                </span>
-                              </div>
-                            )}
-                          </>
-                        )
-                      })()}
-                      {msg.usage?.outputTokens != null && (
-                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                          <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                            {t("chat.outputTokens")}
-                          </span>
-                          <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                            {formatTokens(msg.usage.outputTokens)}
-                          </span>
-                        </div>
-                      )}
-                      {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+                    {msg.model && msg.usage?.inputTokens != null && (
+                      <div className="border-t border-border" />
+                    )}
+                    {(() => {
+                      const inputTokens = msg.usage?.inputTokens
+                      const lastInputTokens = msg.usage?.lastInputTokens
+                      const showLastInput =
+                        inputTokens != null &&
+                        lastInputTokens != null &&
+                        lastInputTokens !== inputTokens
+                      if (inputTokens == null) return null
+                      return (
                         <>
-                          <div className="border-t border-border" />
                           <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                             <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                              {t("chat.totalTokens")}
+                              {showLastInput
+                                ? t("chat.inputTokensCumulative")
+                                : t("chat.inputTokens")}
                             </span>
                             <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                              {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
+                              {formatTokens(inputTokens)}
                             </span>
                           </div>
+                          {showLastInput && lastInputTokens != null && (
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                              <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                                {t("chat.lastRoundInputTokens")}
+                              </span>
+                              <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                                {formatTokens(lastInputTokens)}
+                              </span>
+                            </div>
+                          )}
                         </>
-                      )}
-                      {msg.usage?.durationMs != null && (
+                      )
+                    })()}
+                    {msg.usage?.outputTokens != null && (
+                      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                        <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                          {t("chat.outputTokens")}
+                        </span>
+                        <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                          {formatTokens(msg.usage.outputTokens)}
+                        </span>
+                      </div>
+                    )}
+                    {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+                      <>
+                        <div className="border-t border-border" />
                         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                           <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                            {t("chat.duration")}
+                            {t("chat.totalTokens")}
                           </span>
                           <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                            {formatDuration(msg.usage.durationMs)}
+                            {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
                           </span>
                         </div>
-                      )}
-                    </div>
+                      </>
+                    )}
+                    {msg.usage?.durationMs != null && (
+                      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                        <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                          {t("chat.duration")}
+                        </span>
+                        <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                          {formatDuration(msg.usage.durationMs)}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
-            </>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

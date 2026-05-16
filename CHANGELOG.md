@@ -10,8 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **删除 `chrome-devtools-mcp` 浏览器 backend**：浏览器自动化只保留 CDP 直连一条路径，不再需要 Node.js / npx。原 Backend Radio 设置项移除，老 `config.json` 里的 `"backend": "auto" | "mcp"` 字段被静默忽略。
+- **删除浏览器 `profile.op=launch target=system`**：不再尝试接管用户真实日常 Chrome profile。Chrome 148+ 对默认 user-data-dir 开远程调试有限制，且 Google / SSO 等站点会拒绝这种自动化登录路径；需要持久登录态时改用独立 `profile=user_attach`。
 
 ### Added
+
+- **聊天消息 Markdown / 纯文本渲染可切换**：用户消息现在与模型消息一样默认支持 Markdown 渲染，气泡 hover 操作区新增 Markdown / 纯文本切换按钮，复制仍保留原始文本。两种模式都会自动识别裸链接（`https://...` / `www.example.com` / 邮箱）并渲染为可点击超链，复用既有外链与本地路径打开策略。
 - **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。
 - **Docker 镜像内置 Chromium**：`Dockerfile` 加 `chromium` + 字体 / nss / libgbm / libxss 共享库，让 `profile.op=launch headless=true` 在服务器 / CI / 容器内开箱即用。镜像体积增加约 250 MB；不需要浏览器自动化的部署可 fork 移除。
 - **Doctor 段升级显示浏览器运行时状态**：settings → Browser 面板的健康行根据本机情况显示「✓ {brand} detected」/「✓ Chromium runtime ready (rev X)」/「⚠ No browser binary — [Install Chromium runtime]」三态，缺 binary 时直接按钮触发 runtime 下载，避免用户卡在 chromiumoxide 英文报错上。

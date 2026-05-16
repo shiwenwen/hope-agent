@@ -38,6 +38,7 @@ import i18next from "i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
+import { findAutoLinkMatches } from "@/lib/autoLink"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -282,7 +283,7 @@ function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo
   return { Icon: Link2, kind: "link" }
 }
 
-function MarkdownLink({
+export function MarkdownLink({
   href,
   children,
   className,
@@ -331,6 +332,71 @@ function MarkdownLink({
 }
 
 const markdownComponents = { a: MarkdownLink }
+
+interface HastNode {
+  type?: string
+  tagName?: string
+  value?: string
+  properties?: Record<string, unknown>
+  children?: HastNode[]
+}
+
+const AUTOLINK_SKIP_TAGS = new Set(["a", "code", "pre", "script", "style", "kbd", "samp"])
+
+function createAutoLinkElement(text: string, href: string): HastNode {
+  return {
+    type: "element",
+    tagName: "a",
+    properties: { href },
+    children: [{ type: "text", value: text }],
+  }
+}
+
+function splitTextWithAutoLinks(value: string): HastNode[] {
+  const matches = findAutoLinkMatches(value)
+  if (matches.length === 0) return [{ type: "text", value }]
+
+  const nodes: HastNode[] = []
+  let cursor = 0
+  for (const match of matches) {
+    if (match.start > cursor) {
+      nodes.push({ type: "text", value: value.slice(cursor, match.start) })
+    }
+    nodes.push(createAutoLinkElement(match.text, match.href))
+    cursor = match.end
+  }
+  if (cursor < value.length) {
+    nodes.push({ type: "text", value: value.slice(cursor) })
+  }
+  return nodes
+}
+
+function linkifyHastTextNodes(node: HastNode): void {
+  if (node.type !== "element" && node.type !== "root") return
+  if (node.tagName && AUTOLINK_SKIP_TAGS.has(node.tagName)) return
+  if (!node.children?.length) return
+
+  const children: HastNode[] = []
+  let changed = false
+  for (const child of node.children) {
+    if (child.type === "text" && typeof child.value === "string") {
+      const split = splitTextWithAutoLinks(child.value)
+      children.push(...split)
+      changed ||= split.length !== 1 || split[0]?.value !== child.value
+    } else {
+      linkifyHastTextNodes(child)
+      children.push(child)
+    }
+  }
+
+  if (changed) node.children = children
+}
+
+function autolinkRehypePlugin() {
+  return (tree: HastNode) => {
+    linkifyHastTextNodes(tree)
+  }
+}
 
 /** Start catching up when backlog exceeds this */
 const CATCHUP_THRESHOLD = 60
@@ -476,12 +542,16 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
   // 流式期间把外部 animate plugin 注入 rehype 链尾；静态历史消息直接复用
   // streamdown 默认 rehype（raw/sanitize/harden 安全基线）。`animated={false}`
   // 关掉 streamdown 内部建实例的路径，避免与外部 plugin 重复跑。
+  const defaultRehypePluginList = Object.values(defaultRehypePlugins)
   const rehypePlugins = isActive
-    ? [...Object.values(defaultRehypePlugins), animatePlugin.rehypePlugin]
-    : Object.values(defaultRehypePlugins)
+    ? [...defaultRehypePluginList, autolinkRehypePlugin, animatePlugin.rehypePlugin]
+    : [...defaultRehypePluginList, autolinkRehypePlugin]
 
   return (
-    <div ref={containerRef} className={isActive ? "streaming-height markdown-content" : "markdown-content"}>
+    <div
+      ref={containerRef}
+      className={isActive ? "streaming-height markdown-content" : "markdown-content"}
+    >
       <div ref={contentRef}>
         <Streamdown
           animated={false}
