@@ -5,8 +5,8 @@
 //! calls to the helpers used to live in `tools/browser/*.rs`. Stale-ref
 //! recovery for `act` is implemented here once (no per-action duplication).
 //!
-//! When chrome-devtools-mcp is unavailable (no Node.js), this is the only
-//! backend in play.
+//! This is the only backend implementation; the trait is kept as a future
+//! extension point.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex as StdMutex;
@@ -191,13 +191,11 @@ fn subscribed_pages() -> &'static StdMutex<HashSet<String>> {
 /// Forget all subscribed page IDs — called from [`super::backend_select::reset_backend`]
 /// so a relaunch of Chrome starts with a fresh subscriber registry instead of
 /// hanging onto dead target IDs.
+///
 /// Walk every currently-known page in `browser_state` and install observe
-/// subscribers. Called by [`super::mcp_backend::ChromeMcpBackend::try_new`]
-/// at MCP backend init so that even though the LLM's `act` / `snapshot`
-/// calls are going through chrome-devtools-mcp (which bypasses our
-/// `ensure_observe_subscribers` per-call gate), we still get Console /
-/// Network / Exception events fed into `observe_buffer` via hope-agent's
-/// own chromiumoxide control plane on the same 9222 port.
+/// subscribers (Console / Network / Exception). Called from launch and
+/// reconnect paths to make sure new sessions immediately start capturing
+/// observability events into [`super::observe_buffer`].
 pub async fn activate_observe_subscribers_for_all_pages() -> anyhow::Result<()> {
     let state = crate::browser_state::get_browser_state().lock().await;
     if !state.is_connected() {
@@ -210,9 +208,9 @@ pub async fn activate_observe_subscribers_for_all_pages() -> anyhow::Result<()> 
 }
 
 /// Like [`activate_observe_subscribers_for_all_pages`] but scoped to a
-/// single target id — called from `mcp_backend::new_page` so opening tab
-/// `N+1` doesn't re-walk the first N. `subscribed_pages` HashSet is
-/// idempotent so re-entry is also safe.
+/// single target id — called when opening a new tab so we don't re-walk
+/// the first N. `subscribed_pages` HashSet is idempotent so re-entry is
+/// also safe.
 pub async fn activate_observe_subscribers_for_target(target_id: &str) -> anyhow::Result<()> {
     let state = crate::browser_state::get_browser_state().lock().await;
     if !state.is_connected() {
@@ -276,7 +274,7 @@ async fn ensure_observe_subscribers(page: &Page, target_id: &str) {
 
     if let Ok(mut stream) = page.event_listener::<EventConsoleApiCalled>().await {
         let tid = target_id.to_string();
-        tokio::spawn(async move {
+        crate::browser_state::browser_runtime().spawn(async move {
             while let Some(evt) = stream.next().await {
                 let level = format!("{:?}", evt.r#type).to_ascii_lowercase();
                 let text = evt
@@ -306,7 +304,7 @@ async fn ensure_observe_subscribers(page: &Page, target_id: &str) {
 
     if let Ok(mut stream) = page.event_listener::<EventExceptionThrown>().await {
         let tid = target_id.to_string();
-        tokio::spawn(async move {
+        crate::browser_state::browser_runtime().spawn(async move {
             while let Some(evt) = stream.next().await {
                 let text = evt.exception_details.text.clone();
                 let detail_msg = evt
@@ -339,7 +337,7 @@ async fn ensure_observe_subscribers(page: &Page, target_id: &str) {
         .await
     {
         let tid = target_id.to_string();
-        tokio::spawn(async move {
+        crate::browser_state::browser_runtime().spawn(async move {
             while let Some(evt) = stream.next().await {
                 let url = evt.response.url.clone();
                 let status = evt.response.status;
@@ -520,37 +518,50 @@ impl BrowserBackend for CdpBackend {
     }
 
     async fn status(&self) -> Result<BackendStatus> {
-        let mut state = get_browser_state().lock().await;
-        let connected = state.is_connected();
-        let active_target_id = state.active_page_id.clone();
-        let mut tabs: Vec<TabInfo> = Vec::new();
-        let mut page_handles: Vec<(String, Page)> = Vec::new();
-        if connected {
-            let _ = state.refresh_pages().await;
-            let active_id = state.active_page_id.clone().unwrap_or_default();
-            for (id, page) in &state.pages {
-                let url = page
-                    .url()
-                    .await
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "about:blank".to_string());
-                let title = page
-                    .evaluate("document.title")
-                    .await
-                    .ok()
-                    .and_then(|v| v.into_value().ok())
-                    .unwrap_or_else(|| "untitled".to_string());
-                tabs.push(TabInfo {
-                    target_id: id.clone(),
-                    url,
-                    title,
-                    is_active: *id == active_id,
-                });
-                page_handles.push((id.clone(), page.clone()));
-            }
+        // Snapshot phase: hold the lock only long enough to refresh the page
+        // table and clone the page handles we want to introspect. The
+        // subsequent CDP round-trips (`page.url()`, `page.evaluate(...)`)
+        // are awaited with the global mutex released so a concurrent tool
+        // call (or BrowserPanel 1Hz capture) isn't blocked behind this
+        // status report.
+        let (connected, active_target_id, page_handles) = {
+            let mut state = get_browser_state().lock().await;
+            let connected = state.is_connected();
+            let active_target_id = state.active_page_id.clone();
+            let handles: Vec<(String, Page)> = if connected {
+                let _ = state.refresh_pages().await;
+                state
+                    .pages
+                    .iter()
+                    .map(|(id, page)| (id.clone(), page.clone()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            (connected, active_target_id, handles)
+        };
+        let active_id_str = active_target_id.clone().unwrap_or_default();
+        let mut tabs: Vec<TabInfo> = Vec::with_capacity(page_handles.len());
+        for (id, page) in &page_handles {
+            let url = page
+                .url()
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "about:blank".to_string());
+            let title = page
+                .evaluate("document.title")
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok())
+                .unwrap_or_else(|| "untitled".to_string());
+            tabs.push(TabInfo {
+                target_id: id.clone(),
+                url,
+                title,
+                is_active: *id == active_id_str,
+            });
         }
-        drop(state);
         for (id, page) in &page_handles {
             ensure_observe_subscribers(page, id).await;
         }
@@ -595,12 +606,23 @@ impl BrowserBackend for CdpBackend {
 
     async fn list_pages(&self) -> Result<Vec<TabInfo>> {
         crate::browser_state::ensure_connected_or_launch_managed().await?;
-        let mut state = get_browser_state().lock().await;
-        state.refresh_pages().await?;
-        let active_id = state.active_page_id.clone().unwrap_or_default();
-        let mut out = Vec::new();
-        let mut page_handles: Vec<(String, Page)> = Vec::new();
-        for (id, page) in &state.pages {
+        // Snapshot phase: hold the lock only long enough to refresh and
+        // clone Page handles. The per-tab `url()` / `evaluate("document.title")`
+        // CDP round-trips run after the lock is dropped so a concurrent
+        // tool call doesn't queue behind this listing.
+        let (active_id, page_handles) = {
+            let mut state = get_browser_state().lock().await;
+            state.refresh_pages().await?;
+            let active_id = state.active_page_id.clone().unwrap_or_default();
+            let handles: Vec<(String, Page)> = state
+                .pages
+                .iter()
+                .map(|(id, page)| (id.clone(), page.clone()))
+                .collect();
+            (active_id, handles)
+        };
+        let mut out = Vec::with_capacity(page_handles.len());
+        for (id, page) in &page_handles {
             let url = page
                 .url()
                 .await
@@ -619,9 +641,7 @@ impl BrowserBackend for CdpBackend {
                 title,
                 is_active: *id == active_id,
             });
-            page_handles.push((id.clone(), page.clone()));
         }
-        drop(state);
         for (id, page) in &page_handles {
             ensure_observe_subscribers(page, id).await;
         }
@@ -789,8 +809,10 @@ impl BrowserBackend for CdpBackend {
     }
 
     async fn take_screenshot(&self, params: ScreenshotParams) -> Result<Vec<u8>> {
-        use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
-        use chromiumoxide::page::ScreenshotParams as PwParams;
+        use base64::Engine;
+        use chromiumoxide::cdp::browser_protocol::page::{
+            CaptureScreenshotFormat, CaptureScreenshotParams, GetLayoutMetricsParams, Viewport,
+        };
         crate::browser_state::ensure_connected().await?;
         let page = {
             let state = get_browser_state().lock().await;
@@ -800,13 +822,44 @@ impl BrowserBackend for CdpBackend {
             ImageFormat::Jpeg => CaptureScreenshotFormat::Jpeg,
             ImageFormat::Png => CaptureScreenshotFormat::Png,
         };
-        let pw = PwParams::builder()
-            .format(format)
-            .full_page(params.full_page)
-            .build();
-        page.screenshot(pw)
+        // Bypass `Page::screenshot` because chromiumoxide 0.9.1 internally
+        // calls `Page.bringToFront` on every screenshot (handler/page.rs:397
+        // `self.activate().await?` before the actual CDP call). That makes
+        // Chrome steal focus from Hope Agent every time. The BrowserPanel UI
+        // polls a screenshot at 1 Hz, so the user would see Chrome jump to
+        // the foreground every second. `Page.captureScreenshot` itself does
+        // not require the tab to be foregrounded — Chrome headless mode
+        // captures fine — so we emit the CDP command directly via
+        // `page.execute(...)` and skip the activate step.
+        let mut cdp = CaptureScreenshotParams {
+            format: Some(format),
+            quality: params.quality.map(|q| q as i64),
+            ..Default::default()
+        };
+        if params.full_page {
+            let metrics = page
+                .execute(GetLayoutMetricsParams::default())
+                .await
+                .map_err(|e| anyhow!("getLayoutMetrics failed: {}", e))?;
+            let css = &metrics.result.css_content_size;
+            cdp.clip = Some(Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: css.width,
+                height: css.height,
+                scale: 1.0,
+            });
+            cdp.capture_beyond_viewport = Some(true);
+        }
+        let resp = page
+            .execute(cdp)
             .await
-            .map_err(|e| anyhow!("Screenshot failed: {}", e))
+            .map_err(|e| anyhow!("Screenshot failed: {}", e))?;
+        let b64: &str = resp.result.data.as_ref();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| anyhow!("Screenshot base64 decode failed: {}", e))?;
+        Ok(bytes)
     }
 
     async fn save_pdf(&self, params: PdfParams) -> Result<Vec<u8>> {
@@ -916,18 +969,26 @@ impl BrowserBackend for CdpBackend {
                 .replace('\'', "\\'")
                 .replace('\n', "\\n")
         );
+        // Clone the active Page handle ONCE up front. The previous version
+        // re-acquired the global state mutex inside every poll iteration AND
+        // held it across `page.evaluate(...).await`, blocking concurrent
+        // tool calls / BrowserPanel frame captures for the whole timeout
+        // window. Page is a cheap chromiumoxide handle (Arc internally), so
+        // cloning is fine; tab navigations during the wait stay observable
+        // because the handle tracks the underlying target.
+        let page = {
+            let state = get_browser_state().lock().await;
+            state.get_active_page()?.clone()
+        };
         let start = std::time::Instant::now();
         let poll = std::time::Duration::from_millis(500);
         loop {
-            let found: bool = {
-                let state = get_browser_state().lock().await;
-                let page = state.get_active_page()?;
-                page.evaluate(check_js.as_str())
-                    .await
-                    .ok()
-                    .and_then(|r| r.into_value().ok())
-                    .unwrap_or(false)
-            };
+            let found: bool = page
+                .evaluate(check_js.as_str())
+                .await
+                .ok()
+                .and_then(|r| r.into_value().ok())
+                .unwrap_or(false);
             if found {
                 return Ok(format!("Text \"{}\" found on page.", needle));
             }

@@ -15,9 +15,6 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-pub mod chrome_paths;
-pub mod chrome_quit;
-
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -46,6 +43,23 @@ pub fn terminate_process_tree(pid: u32) {
 /// windows and CTRL_BREAK to console apps).
 pub fn send_graceful_stop(pid: u32) {
     imp::send_graceful_stop(pid)
+}
+
+/// Best-effort: is a process with this pid still running on this host?
+///
+/// Used by [`crate::browser::singleton_lock`] to detect stale SingletonLock
+/// files (lock present, but owner crashed without cleanup). False negatives
+/// (live process, reported dead) leave a real Chrome's lock alone — the
+/// worst outcome is a misleading "already in use" error. False positives
+/// (dead process, reported alive) keep stale locks around — the worst
+/// outcome is the user has to hand-clean. sysinfo polls `/proc` on Linux,
+/// `proc_pidinfo` on macOS, and `Process32First` on Windows; ~1ms cost is
+/// acceptable for the once-per-launch caller.
+pub fn pid_alive(pid: u32) -> bool {
+    let target = sysinfo::Pid::from_u32(pid);
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]), false);
+    sys.process(target).is_some()
 }
 
 /// Try to discover the user-configured HTTP proxy from the OS.
@@ -144,20 +158,6 @@ pub fn find_chrome_executable() -> Option<PathBuf> {
 /// not a gate.
 pub async fn chrome_already_running() -> bool {
     imp::chrome_already_running().await
-}
-
-/// Narrower than [`chrome_already_running`]: returns true only when a
-/// Chrome / Edge / Brave process is currently using *this specific*
-/// `user-data-dir`. Used by `profile.op=launch target=system` to gate
-/// the graceful-quit prompt — so an isolated managed Chrome owning a
-/// different dir doesn't trigger a "your daily Chrome is running"
-/// warning.
-///
-/// Unix: `pgrep -f --user-data-dir=<path>`.
-/// Windows: PowerShell `Win32_Process` CIM query filtered on
-/// `CommandLine -like '*--user-data-dir=<path>*'`.
-pub async fn chrome_running_with_user_data_dir(user_data_dir: &std::path::Path) -> bool {
-    imp::chrome_running_with_user_data_dir(user_data_dir).await
 }
 
 /// Synchronous, best-effort detection of a discrete GPU. Used by the local

@@ -585,7 +585,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Browser Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_BROWSER.into(),
-            description: "Drive Chrome via DevTools Protocol. Eight high-level actions cover the full surface; see the `ha-browser` skill for the standard `status → tabs → snapshot → act` loop and stale-ref recovery rules. Backend is auto-selected (`chrome-devtools-mcp` when Node.js >= 18 is on PATH, otherwise direct CDP via chromiumoxide) and is transparent to you — refs and ops are stable across backends. For `profile.op=launch`, choose `target=managed` (default, isolated profile) for automation, `target=user_attach` for routine work that benefits from a persistent profile, or `target=system` when the user explicitly asks to open their REAL daily browser with full login state (this path requires user approval).".into(),
+            description: "Drive Chrome via DevTools Protocol. Eight high-level actions cover the full surface; see the `ha-browser` skill for the standard `status → tabs → snapshot → act` loop and stale-ref recovery rules. Backend is direct CDP via chromiumoxide. For `profile.op=launch`, pick `profile=managed` (default, ephemeral isolated profile) for automation or `profile=user_attach` (persistent, port 9222) for routine work where cookies / logins / extensions should survive disconnect. Users can configure additional profiles in settings → Browser → Profiles.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -724,12 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "profile": {
                         "type": "string",
-                        "description": "Named profile for `profile.op=launch target=managed`. Each profile owns an isolated user-data-dir under ~/.hope-agent/browser-profiles/, so cookies and login state persist across launches."
-                    },
-                    "target": {
-                        "type": "string",
-                        "enum": ["managed", "user_attach", "system"],
-                        "description": "Where to place cookies/history/extensions for `profile.op=launch` (default: managed). `managed` = isolated hope-agent profile (legacy behaviour). `user_attach` = the agent's day-to-day Chrome under ~/.hope-agent/browser/user-attach/ — fine for routine work that benefits from a persistent profile but doesn't need real user logins. `system` = the user's REAL daily Chrome with ALL real login state (Gmail / banks / SSO) — requires explicit user approval in default/smart modes, auto-allowed in YOLO. If the user's daily browser is running, the approval prompt covers both closing it and granting access; YOLO closes it without prompting. Choose `system` only when the user EXPLICITLY asks to open their real browser (e.g. \"check my Gmail\"); for everything else, prefer `managed` or `user_attach`."
+                        "description": "Profile name for `profile.op=launch`. Built-ins: `managed` (default, ephemeral, OS-picked port) for automation that should NOT inherit user logins; `user_attach` (persistent, port 9222) for routine work where cookies / logins should survive disconnect. Additional names can be configured in settings → Browser → Profiles."
                     }
                 },
                 "required": ["action"]

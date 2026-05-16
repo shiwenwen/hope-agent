@@ -241,6 +241,18 @@ pub fn browser_user_attach_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("browser").join("user-attach"))
 }
 
+/// Managed-launch Chrome user-data-dir: `~/.hope-agent/browser/managed-runner/`.
+///
+/// Used by `profile.op=launch target=managed` when no `profile` arg is
+/// given. chromiumoxide's default behaviour is to pick a random `/tmp`
+/// directory which makes SingletonLock observability impossible — a crashed
+/// Chrome leaves a stale lock there and the next launch fails with
+/// `File exists (17)`. Pinning a stable path lets
+/// [`crate::browser::singleton_lock`] detect and clean stale locks.
+pub fn browser_managed_runner_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser").join("managed-runner"))
+}
+
 /// Root for hope-agent–managed browser runtimes:
 /// `~/.hope-agent/browser/runtime/`. Holds the unzipped Chromium snapshot
 /// when the system has no Chrome / Edge / Brave / Chromium installed.

@@ -42,7 +42,9 @@ pub struct BrowserFramePayload {
     pub jpeg_base64: String,
     /// Unix-millis capture timestamp.
     pub captured_at: i64,
-    /// `cdp` or `mcp` for the BrowserPanel backend badge.
+    /// Backend identifier (always `"cdp"` since the MCP backend was removed;
+    /// kept on the wire for forward compatibility / front-end badge code
+    /// that switches on this string).
     pub backend: String,
 }
 
@@ -92,7 +94,7 @@ pub async fn capture_frame() -> Result<Option<BrowserFramePayload>> {
 /// surface to the caller: the panel will pick up the next opportunity via
 /// the 1s fallback poll.
 pub fn emit_frame_async() {
-    tokio::spawn(async move {
+    crate::browser_state::browser_runtime().spawn(async move {
         match capture_frame().await {
             Ok(Some(payload)) => {
                 if let Some(bus) = crate::globals::get_event_bus() {

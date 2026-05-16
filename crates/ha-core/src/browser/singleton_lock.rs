@@ -47,6 +47,91 @@ pub async fn wait_for_release(user_data_dir: &Path, timeout: Duration) -> Result
     Ok(())
 }
 
+/// Read the SingletonLock symlink target on Unix, or parse the lockfile on
+/// Windows. Returns the owner pid encoded in the lock.
+///
+/// Unix format: SingletonLock is a symlink whose target is `{hostname}-{pid}`
+/// (see Chromium source `chrome/browser/process_singleton_posix.cc`). We
+/// only need the trailing pid — the hostname guard is irrelevant when the
+/// host changes (hibernate / rename) because pid_alive will return false
+/// regardless.
+/// Windows format: lockfile is a plain text file whose first line is the pid.
+pub fn read_lock_owner_pid(user_data_dir: &Path) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        let link = user_data_dir.join("SingletonLock");
+        let target = std::fs::read_link(&link).ok()?;
+        let s = target.to_string_lossy();
+        s.rsplit_once('-').and_then(|(_, p)| p.parse::<u32>().ok())
+    }
+    #[cfg(windows)]
+    {
+        let body = std::fs::read_to_string(user_data_dir.join("lockfile")).ok()?;
+        body.lines().next()?.trim().parse::<u32>().ok()
+    }
+}
+
+/// A SingletonLock exists and its owner pid is no longer alive on this host.
+///
+/// "No lock" returns false (nothing to clean). "Lock exists with unparseable
+/// owner" returns true: a hostname mismatch / malformed target would
+/// otherwise leave the lock permanently un-cleanable, which is worse than
+/// occasionally clearing one whose owner is actually alive (in that case
+/// Chrome itself would still bail on the subsequent re-lock).
+pub fn is_lock_stale(user_data_dir: &Path) -> bool {
+    if !user_data_dir_is_locked(user_data_dir) {
+        return false;
+    }
+    match read_lock_owner_pid(user_data_dir) {
+        Some(pid) => !crate::platform::pid_alive(pid),
+        None => {
+            app_warn!(
+                "browser",
+                "singleton_lock",
+                "Lock at {} has unparseable owner — assuming stale",
+                user_data_dir.display()
+            );
+            true
+        }
+    }
+}
+
+/// Remove a stale SingletonLock (and its sibling Singleton* files on Unix).
+///
+/// Errors when the lock owner is still alive — callers must escalate via a
+/// graceful_quit / user prompt rather than yank the lock out from under a
+/// running Chrome. Best-effort `remove_file` for each file: an absent
+/// SingletonCookie / SingletonSocket on Unix is fine.
+pub fn cleanup_stale_lock(user_data_dir: &Path) -> Result<()> {
+    if !user_data_dir_is_locked(user_data_dir) {
+        return Ok(());
+    }
+    if !is_lock_stale(user_data_dir) {
+        bail!(
+            "Chrome at {} is still running (lock owner alive). \
+             Quit it or use a different `profile` arg.",
+            user_data_dir.display()
+        );
+    }
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(user_data_dir.join("SingletonLock"));
+        let _ = std::fs::remove_file(user_data_dir.join("SingletonCookie"));
+        let _ = std::fs::remove_file(user_data_dir.join("SingletonSocket"));
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::fs::remove_file(user_data_dir.join("lockfile"));
+    }
+    app_info!(
+        "browser",
+        "singleton_lock",
+        "Cleaned stale lock at {}",
+        user_data_dir.display()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +169,49 @@ mod tests {
             .await
             .expect("should return ok");
         assert!(start.elapsed() < Duration::from_millis(100));
+    }
+
+    #[test]
+    fn is_lock_stale_returns_false_for_unlocked_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        assert!(!is_lock_stale(tmp.path()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_lock_owner_pid_parses_unix_format() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Chromium writes `{hostname}-{pid}`; rsplit_once('-') takes the
+        // trailing pid even when the hostname itself contains hyphens.
+        std::os::unix::fs::symlink("some-host-name-12345", tmp.path().join("SingletonLock"))
+            .expect("symlink");
+        assert_eq!(read_lock_owner_pid(tmp.path()), Some(12345));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_stale_lock_refuses_live_owner() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Our own pid is guaranteed alive for the duration of the test.
+        let target = format!("host-{}", std::process::id());
+        std::os::unix::fs::symlink(&target, tmp.path().join("SingletonLock")).expect("symlink");
+        let err = cleanup_stale_lock(tmp.path()).expect_err("should refuse live owner");
+        assert!(err.to_string().contains("still running"));
+        assert!(tmp.path().join("SingletonLock").symlink_metadata().is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_stale_lock_succeeds_for_dead_pid() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // pid 4,000,000,000 is well beyond Linux's `kernel.pid_max` default
+        // (4_194_303) and macOS's much-lower 99_998 cap — guaranteed dead.
+        std::os::unix::fs::symlink("host-4000000000", tmp.path().join("SingletonLock"))
+            .expect("symlink");
+        // Also seed sibling files we'd expect Chrome to drop.
+        std::fs::write(tmp.path().join("SingletonCookie"), b"").expect("seed cookie");
+        cleanup_stale_lock(tmp.path()).expect("should clean stale lock");
+        assert!(tmp.path().join("SingletonLock").symlink_metadata().is_err());
+        assert!(!tmp.path().join("SingletonCookie").exists());
     }
 }

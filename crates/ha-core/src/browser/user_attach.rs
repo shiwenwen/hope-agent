@@ -4,24 +4,16 @@
 //! dedicated user-data-dir under [`paths::browser_user_attach_dir`], so the
 //! user's real daily-browsing profile is never touched.
 //!
-//! The spawned `std::process::Child` is intentionally not retained — once
-//! Chrome is up, hope-agent attaches to it via the normal `browser.profile
+//! Once Chrome is up, hope-agent attaches to it via the normal `browser.profile
 //! .connect` path (CDP on `--remote-debugging-port`). If the user closes
-//! Chrome, hope-agent simply loses the connection; we never try to keep it
-//! alive on their behalf.
-
-use std::ffi::OsString;
-use std::path::PathBuf;
-use std::process::Command;
+//! Chrome, hope-agent simply loses the connection.
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::paths;
 use crate::platform;
 
-/// Default remote-debugging port we hand to user-attach Chrome. Matches the
-/// CDP backend's expectation and chrome-devtools-mcp's default.
+/// Default remote-debugging port we hand to user-attach Chrome.
 pub const DEFAULT_USER_ATTACH_PORT: u16 = 9222;
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,37 +48,27 @@ pub async fn probe_user_chrome(port: u16) -> ProbeUserChromeReport {
 }
 
 /// Single-shot report covering everything the settings panel needs to
-/// render its banners: Node toolchain availability, current/active
-/// backend, the `--remote-debugging-port=9222` probe, and whether a Chrome
-/// process is already running. Bundling avoids 3 round-trips per refresh.
+/// render its banners: the `--remote-debugging-port=9222` probe, whether
+/// a Chrome process is already running, and the cached Chromium runtime
+/// path (when one was downloaded via `profile.op=install_runtime`).
+/// Bundling avoids round-trips per refresh.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserDoctorReport {
-    pub node_available: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_backend: Option<String>,
-    pub preference: crate::browser::backend_select::BackendPreference,
     pub probe: ProbeUserChromeReport,
     pub chrome_already_running: bool,
-    /// Detected daily browser (Chrome / Edge / Brave / Chromium) for the
-    /// `target=system` path. `None` when nothing is installed.
+    /// Path to a Chrome / Chromium / Edge / Brave binary discovered by the
+    /// platform probe — populated whenever
+    /// [`crate::platform::find_chrome_executable`] returns a path. Lets the
+    /// settings UI distinguish "system Chrome present" from "needs runtime
+    /// download" without the `runtime_chromium` field falsely implying the
+    /// host has no browser.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_chrome: Option<SystemChromeReport>,
+    pub system_chrome_path: Option<String>,
     /// Cached Chromium runtime — populated when
     /// `~/.hope-agent/browser/runtime/chromium-{rev}/` has a usable binary.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_chromium: Option<RuntimeChromiumReport>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SystemChromeReport {
-    /// "Google Chrome" / "Microsoft Edge" / "Brave" / "Chromium".
-    pub brand: String,
-    pub executable: String,
-    pub user_data_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,40 +79,12 @@ pub struct RuntimeChromiumReport {
 }
 
 pub async fn browser_doctor() -> BrowserDoctorReport {
-    use crate::browser::backend_select;
-    // Two extra probes Phase 2 added (system browser + runtime binary
-    // cache) are sync but hit the filesystem — `detect_daily_browser`
-    // does up to 4 brands × 2 `.exists()` + `which::which` PATH walks
-    // on Linux. Park them on the blocking pool so the doctor scan
-    // remains a single async wait rather than a 5-way join followed by
-    // a 2-step sync tail.
-    let (
-        node_available,
-        node_version,
-        active_backend,
-        probe,
-        chrome_already_running,
-        system_chrome,
-        runtime_chromium,
-    ) = tokio::join!(
-        backend_select::detect_node_available(),
-        backend_select::probe_node_version(),
-        async {
-            backend_select::peek_active()
-                .await
-                .map(|b| b.backend_name().to_string())
-        },
+    let (probe, chrome_already_running, system_chrome_path, runtime_chromium) = tokio::join!(
         probe_user_chrome(DEFAULT_USER_ATTACH_PORT),
         crate::platform::chrome_already_running(),
         async {
             tokio::task::spawn_blocking(|| {
-                crate::platform::chrome_paths::detect_daily_browser().map(|inst| {
-                    SystemChromeReport {
-                        brand: inst.brand.display_name().to_string(),
-                        executable: inst.executable.display().to_string(),
-                        user_data_dir: inst.user_data_dir.display().to_string(),
-                    }
-                })
+                crate::platform::find_chrome_executable().map(|p| p.display().to_string())
             })
             .await
             .unwrap_or(None)
@@ -148,19 +102,10 @@ pub async fn browser_doctor() -> BrowserDoctorReport {
             .unwrap_or(None)
         },
     );
-    let preference = crate::config::cached_config()
-        .browser
-        .as_ref()
-        .and_then(|b| b.backend)
-        .unwrap_or_default();
     BrowserDoctorReport {
-        node_available,
-        node_version,
-        active_backend,
-        preference,
         probe,
         chrome_already_running,
-        system_chrome,
+        system_chrome_path,
         runtime_chromium,
     }
 }
@@ -186,47 +131,29 @@ pub struct SpawnUserChromeResult {
     pub chrome_was_already_running: bool,
 }
 
-/// Build the argv vector for the Chrome spawn. Extracted so it can be
-/// unit-tested without actually starting a child process.
-pub fn build_spawn_command(exec: &str, user_data_dir: &PathBuf, port: u16) -> Command {
-    let mut cmd = Command::new(exec);
-    cmd.arg(format!("--remote-debugging-port={}", port));
-    let mut user_data_arg = OsString::from("--user-data-dir=");
-    user_data_arg.push(user_data_dir);
-    cmd.arg(user_data_arg);
-    cmd.arg("--no-first-run");
-    cmd.arg("--no-default-browser-check");
-    cmd.arg("about:blank");
-    cmd
-}
-
-/// Spawn Chrome for the "Take over user Chrome" flow. Persists the chosen
-/// port to `AppConfig.browser.userAttach.lastSpawnedPort` so the settings
-/// panel's "Reconnect" path can target it next session.
+/// Spawn the user-attach Chrome and connect via CDP.
+///
+/// Resolves the `user_attach` profile (built-in: port 9222 + persistent
+/// user-data-dir) and delegates to
+/// [`crate::browser_state::BrowserState::spawn_chrome_and_connect`] so
+/// process management is identical to the managed-launch path.
 pub async fn spawn_user_chrome(args: SpawnUserChromeArgs) -> Result<SpawnUserChromeResult> {
     let chrome_was_already_running = platform::chrome_already_running().await;
 
-    let user_data_dir = paths::browser_user_attach_dir()?;
-    std::fs::create_dir_all(&user_data_dir)?;
+    // Resolve the user_attach profile from config + built-in defaults.
+    let mut resolved =
+        crate::browser::profile::resolve_profile(crate::browser::profile::BUILTIN_USER_ATTACH)?;
+    // Caller-supplied executable override beats profile-config exec.
+    if let Some(exec) = args
+        .executable_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        resolved.executable = Some(exec.to_string());
+    }
 
-    let exec: String = match args.executable_path {
-        Some(p) if !p.trim().is_empty() => p,
-        _ => platform::find_chrome_executable()
-            .map(|p| p.to_string_lossy().into_owned())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Chrome executable not found on this system. \
-                     Please set an explicit path in settings → Browser → Advanced \
-                     (Executable path)."
-                )
-            })?,
-    };
-
-    // Probe the default port; if it's taken we bail rather than guess,
-    // because chrome-devtools-mcp / CDP backend / settings all assume 9222.
-    // TOCTOU window is ms-scale and only triggered by an explicit user
-    // click — acceptable.
-    let port = DEFAULT_USER_ATTACH_PORT;
+    let port = resolved.port.unwrap_or(DEFAULT_USER_ATTACH_PORT);
     if tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .is_err()
@@ -237,36 +164,31 @@ pub async fn spawn_user_chrome(args: SpawnUserChromeArgs) -> Result<SpawnUserChr
         );
     }
 
-    let mut cmd = build_spawn_command(&exec, &user_data_dir, port);
-    cmd.spawn().map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to launch Chrome at {exec:?}: {e}. \
-             Double-check the Executable path in settings → Browser → Advanced."
-        )
-    })?;
-
-    // Best-effort: persist `lastSpawnedPort`. We do not block the spawn on
-    // a config write failure — the user can still connect to 9222 even if
-    // we couldn't remember it for next time.
-    if let Err(e) =
-        crate::config::mutate_config::<_, ()>(("browser.user_attach", "settings"), |cfg| {
-            let browser = cfg
-                .browser
-                .get_or_insert_with(crate::browser::BrowserConfig::default);
-            let ua = browser
-                .user_attach
-                .get_or_insert_with(crate::browser::UserAttachConfig::default);
-            ua.last_spawned_port = Some(port);
-            Ok(())
-        })
+    let exec_owned = resolved.executable.clone();
+    let extra = resolved.extra_args.clone();
+    let spec = crate::browser::spawn::LaunchSpec {
+        profile: &resolved.name,
+        executable: exec_owned.as_deref(),
+        user_data_dir: &resolved.user_data_dir,
+        port,
+        headless: resolved.headless,
+        extra_args: &extra,
+    };
+    // Match the `profile_launch` / `browser_ui::launch` lifecycle:
+    // (1) `needs_cleanup` (not `is_connected`) so a dead-ws Chrome still
+    // gets reaped; (2) `reset_backend` clears `ACTIVE_BACKEND` /
+    // `observe_buffer` / subscribed-pages so the new session doesn't see
+    // leftover events from the previous launch; (3) `acquire_backend`
+    // re-initialises a fresh CdpBackend for the new Chrome.
     {
-        app_warn!(
-            "browser",
-            "user_attach",
-            "Failed to persist lastSpawnedPort: {}",
-            e
-        );
+        let mut state = crate::browser_state::get_browser_state().lock().await;
+        if state.needs_cleanup() {
+            state.disconnect().await;
+        }
+        state.spawn_chrome_and_connect(spec).await?;
     }
+    crate::browser::reset_backend().await;
+    let _ = crate::browser::acquire_backend().await;
 
     app_info!(
         "browser",
@@ -279,36 +201,16 @@ pub async fn spawn_user_chrome(args: SpawnUserChromeArgs) -> Result<SpawnUserChr
     Ok(SpawnUserChromeResult {
         port,
         debug_url: format!("http://127.0.0.1:{}", port),
-        user_data_dir: user_data_dir.to_string_lossy().into_owned(),
+        user_data_dir: resolved.user_data_dir.to_string_lossy().into_owned(),
         chrome_was_already_running,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn build_spawn_command_includes_required_flags() {
-        let cmd = build_spawn_command(
-            "/usr/bin/google-chrome",
-            &PathBuf::from("/tmp/user-attach"),
-            9222,
-        );
-        let argv: Vec<String> = cmd
-            .get_args()
-            .map(|s| s.to_string_lossy().into_owned())
-            .collect();
-        assert!(argv.iter().any(|a| a == "--remote-debugging-port=9222"));
-        assert!(argv.iter().any(|a| a.starts_with("--user-data-dir=")));
-        assert!(argv.iter().any(|a| a == "--no-first-run"));
-        assert!(argv.iter().any(|a| a == "--no-default-browser-check"));
-        assert!(argv.iter().any(|a| a == "about:blank"));
-    }
-
     #[test]
     fn user_attach_dir_under_root() {
-        let p = paths::browser_user_attach_dir().expect("user attach dir");
+        let p = crate::paths::browser_user_attach_dir().expect("user attach dir");
         let s = p.to_string_lossy();
         assert!(s.contains("browser"));
         assert!(s.ends_with("user-attach") || s.ends_with("user-attach/"));

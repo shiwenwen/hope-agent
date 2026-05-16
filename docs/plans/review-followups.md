@@ -30,6 +30,21 @@
 
 ## Open
 
+### F-087 browser `act.kind=type` / `modifiers` / `screenshot ref` schema-vs-impl gap
+
+- **来源**：2026-05-16 browser 子系统重构 codex review
+- **现象**：三处 schema 承诺与 CDP 实现不一致：
+  - [`cdp_backend.rs::act_inner` kind=type 分支](../../crates/ha-core/src/browser/cdp_backend.rs)（约 line 1051）当前等同 `fill`（先清空 input 再写值）。chromiumoxide / Puppeteer 的 `type` 语义是 "per-char keyDown/keyUp 不清空原值"。当前实现会把已有内容删掉
+  - [`tools/browser/mod.rs` 解析 `modifiers: ["Ctrl","Shift",...]`](../../crates/ha-core/src/tools/browser/mod.rs)（约 line 634）但 [`ActParams`](../../crates/ha-core/src/browser/backend.rs) 没有 modifiers 字段、CDP backend 完全不用 —— LLM 设置组合键会被默默忽略
+  - [`snapshot screenshot` 接受 `ref`](../../crates/ha-core/src/tools/browser/mod.rs)（约 line 540）但 [`cdp_backend.rs::take_screenshot`](../../crates/ha-core/src/browser/cdp_backend.rs)（约 line 789）只截整个 viewport,从不按元素 bbox 裁剪
+- **为什么留**：本期重构主线是稳定性（handler runtime / SSRF 统一 / ephemeral / docker flags）,schema 一致性是单独的产品决策 —— 三个都可以"删除 schema 承诺"或"补实现",但既然没有用户报障,需要先和产品确认哪些应真的留下再动 schema（动 schema 影响所有 LLM 的 tool calling 行为）
+- **改的话要做什么**：
+  - `act.kind=type`：要么 schema 里删掉 type kind / SKILL.md 说明等同 fill,要么实现真正的 `Input.dispatchKeyEvent` 字符序列（不清空 + per-char keyDown/keyUp）
+  - `modifiers`：在 [`ActParams`](../../crates/ha-core/src/browser/backend.rs) 加 `modifiers: Vec<String>`,backend `act_inner` 处理 Ctrl/Shift/Alt/Meta（CDP `Input.dispatchKeyEvent` 的 `modifiers` bitfield）
+  - `screenshot ref`：让 `take_screenshot` 接受可选 `ref_id`,按 [`element_refs`](../../crates/ha-core/src/browser_state.rs) 查 bbox + `Page.captureScreenshot` 的 `clip` 字段裁剪
+- **影响面**：当前 LLM 收到"type 工具调用成功"但页面行为可能不符预期（已有内容被清掉 / 组合键无效 / screenshot 拿到全屏而不是按钮）。错误是 silent,不是 hard fail
+- **触发时机建议**：下次有用户报"type 把内容清掉了"或"组合键不生效"时,或独立"browser tool schema cleanup" PR
+
 ### F-084 抽 `usePlanVersions(sessionId)` hook 让 PlanPanel + PlansView 共用版本拉取逻辑
 
 - **来源**：2026-05-11 历史 Plan 查看器 `/simplify` review（quality agent）
@@ -1313,3 +1328,18 @@
 - **改的话要做什么**：抽 `<RelativeTimeCountdown expiresAt=... />` 小组件，内部 `useState + useEffect` 30s setInterval 强制 re-render，limited blast radius。
 - **影响面**：UX 微瑕，无 bug。
 - **触发时机建议**：用户反馈倒计时不准时再做。
+
+---
+
+### F-089 后端构造的 ask_user_question payload 改协议:发 i18n key + params,前端按 locale 渲染
+
+- **来源**:2026-05-15 session `9f7bdd58` 现场。模型走 `profile.op=launch target=system` 弹审批 modal,modal 正文 / 按钮 / 标题**全英文**(`⚠ Your Google Chrome is currently running...` / `Close & Grant access` / `Attach daily Google Chrome`),中文用户感知突兀
+- **现象**:[`tools/browser/mod.rs::profile_launch_system`](../../crates/ha-core/src/tools/browser/mod.rs#L340-L415) 直接 `format!("⚠ Your {brand} is currently running...")` 拼字符串塞进 [`ask_user_question::execute`](../../crates/ha-core/src/tools/ask_user_question.rs) 的 `text` / `header` / `options[].label` 字段;前端 ask_user UI 原样渲染。系统性问题:**所有后端构造的 ask_user payload 都没接 i18n 通道**——前端 i18n 字典在 `src/i18n/locales/*.json`,ha-core Rust 后端无对应加载机制。同款问题至少存在于:`browser.targetSystem`(本期发现) / `browser.control.evaluate`(Phase 1)/`app_update install` / `app_update rollback`(F-094 系列) / 任何 `dangerous` 内部弹的 ask_user。Phase 2 plan 文件 [`golden-growing-seahorse.md`](~/.claude/plans/golden-growing-seahorse.md) "i18n 增量"段曾登记 `tools.browser.targetSystem.askTitle/askBody/askBodyQuit/proceed/proceedAndClose/cancel` 6 个 key 但**实施漏了**——而且 `sync-i18n.mjs --check` 只验"已用 key 的翻译完整性",抓不出"该用 key 的地方写了字面量"
+- **为什么留**:本期主线在排查 mcp transport / cdp 重启循环 / SingletonLock 路径分叉,UI 文案是优先级 P2 的体验问题;且**正确修法是改协议**(短期翻译成中文等于把英文债换成中文债,违反 i18n),工程量超过本期 PR 范围
+- **改的话要做什么**:
+  1. **协议改造**:`ask_user_question` payload 的 `text` / `header` / `options[].label` / `context` 字段从 `String` 变为 `{ key: String, params: Map<String, Value> }`,后端发 i18n key + params,前端按当前 `i18n.language` 用 `t(key, params)` 渲染。需要兼容老 payload(优先 key,缺则 fallback 字面量字符串)
+  2. **批量替换 callsite**:`tools/browser/mod.rs::profile_launch_system` / `tools/browser/mod.rs::confirm_evaluate`(control.evaluate)/ `tools/app_update.rs` 的 install / rollback 确认 / 其它后端弹的 ask_user。每条都把 inline 英文挪到 `src/i18n/locales/*.json` 新增 key
+  3. **i18n key 命名**:沿用 settings 区段惯例,如 `tools.browser.targetSystem.askBodyQuit` / `tools.browser.targetSystem.proceedAndClose` / `tools.appUpdate.confirmInstall.body`,12 语言全补齐
+  4. **lint 工具**:给 `sync-i18n.mjs` 加规则——`tools::ask_user_question::execute` 调用周边的 `format!("..中文/英文...")` 应当告警(grep heuristic 即可,无需 AST)。或者更彻底:让 ask_user_question 协议层只接受 key 形式,字面量直接拒绝
+- **影响面**:中等。当前后端弹的所有 modal 都是英文(影响中文用户感知,但不是 bug);改完一次性解决,且未来后端新增 ask_user 入口强制走 i18n,杜绝同类回归
+- **触发时机建议**:做"Browser Phase 3"或"权限审批 UX 整理"PR 时一起做;或者用户反馈"为啥弹窗是英文"再单独立项。**不要短期硬翻成中文**——会把英文债换成中文债,丢失多语言支持

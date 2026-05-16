@@ -10,7 +10,7 @@ status: active
 
 # Hope Agent Browser — operating loop
 
-The `browser` tool exposes 8 high-level actions over a single Chrome session. Two backends sit underneath transparently: `chrome-devtools-mcp` (default when Node.js ≥ 18 is on PATH) and direct CDP via `chromiumoxide`. **You do not need to know which backend is active** — refs, ops, and error messages are unified. The desktop user can see which one is running via the BrowserPanel badge.
+The `browser` tool exposes 8 high-level actions over a single Chrome session. Backend is direct CDP via `chromiumoxide` — no Node.js required.
 
 ## The standard loop
 
@@ -101,48 +101,44 @@ Browser automation is the most expensive tool you have — every step is round-t
 - **Two snapshots in a row without anything in between**: you wasted a turn. Snapshot once, then `act` a few times, then re-snapshot.
 - **`act.kind=fill` with a ref that points to a `<div>` instead of `<input>`**: the snapshot output annotates `role`; check it before filling. Use `evaluate` to inspect the DOM if unsure.
 - **Trusting the URL on a redirect-heavy site**: after `navigate.go`, the page may bounce through several URLs. Re-snapshot after navigation, do not assume the URL in your `navigate.go` argument matches the current page.
-- **Forgetting `observe`**: when something silently fails, `observe.kind=console` and `observe.kind=page_errors` often surface the cause for free. (Network observe lags by ~one user request on the MCP backend — see status output for the CDP side-channel readiness note.)
+- **Forgetting `observe`**: when something silently fails, `observe.kind=console` and `observe.kind=page_errors` often surface the cause for free.
 
-## Backend-specific notes
+## Common CDP error strings
 
-You should not have to care, but a few error strings differ:
+- `"Cannot find context with specified id"` / `"detached"` / `"no such element"` — stale ref or page replaced. Recovery: re-snapshot.
+- `"selected page closed"` — active tab was closed externally. Recovery: `tabs.list` → `tabs.select` on a live tab.
 
-- **MCP backend**: errors from `chrome-devtools-mcp` may say "selected page closed" — that means the active tab was closed externally. Recovery: `tabs.list` to find a live tab, then `tabs.select`.
-- **CDP backend**: errors usually carry the underlying CDP message (`"Cannot find context with specified id"` for stale targets). Recovery: re-snapshot.
-
-If you need to confirm the backend, look at the BrowserPanel badge in the desktop UI, or call `status` (the `backend` field).
-
-## Choosing `profile.op=launch target=` (Phase 2)
+## Choosing `profile.op=launch profile=`
 
 ```
-target=managed       → automation, scrapers, anything that should NOT inherit
-                       the user's login state. Isolated profile under
-                       ~/.hope-agent/browser-profiles/<name>/. This is the
-                       default — omit `target` to get it.
+profile=managed       → automation, scrapers, anything that should NOT inherit
+                        the user's login state. Ephemeral runner under
+                        ~/.hope-agent/browser/managed-runner/, OS-picked
+                        debug port. This is the default — omit `profile=`
+                        to get it.
 
-target=user_attach   → routine work where you DO want a persistent profile
-                       (sign in once, keep the cookies, reuse extensions),
-                       but you don't want to touch the user's real daily
-                       browser. Lives at ~/.hope-agent/browser/user-attach/.
-                       No extra approval — same risk profile as managed.
+profile=user_attach   → routine work where you DO want a persistent profile
+                        (sign in once, keep the cookies, reuse extensions).
+                        Lives at ~/.hope-agent/browser/user-attach/, pinned
+                        to port 9222. This is the recommended way to maintain
+                        "the user's hope-agent browser" — populate the logins
+                        once and reuse them. No extra approval — same risk
+                        profile as managed.
 
-target=system        → user EXPLICITLY asks to use their REAL daily browser
-                       ("check my Gmail inbox", "open my work GitHub").
-                       Grants full access to Gmail / banks / SSO / saved
-                       passwords / extensions. ALWAYS triggers an approval
-                       prompt in default/smart mode; auto-allowed in YOLO.
-                       Will close the user's running browser first if any —
-                       the modal warns about unsaved state.
-
-                       NEVER use `target=system` proactively. Wait for an
-                       explicit request from the user — they need to weigh
-                       the privacy trade-off.
+profile=<other>       → user-defined profiles in AppConfig.browser.profiles
+                        (per-profile user-data-dir / port / executable /
+                        headless / extra args). Treat them like user_attach
+                        in terms of persistence assumption.
 ```
 
-When `target=system` is denied or fails (e.g. graceful quit times out and
-the daily browser is hung), fall back to `target=user_attach` and surface
-the situation: "Your daily Chrome wouldn't close cleanly. I'll attach a
-separate Chrome instead — log in to {site} once and I'll proceed."
+The legacy `target=managed|user_attach` parameter is gone — only `profile=<name>`
+is accepted now. A previous `target=system` option (attach the user's REAL
+daily Chrome profile) was also removed: Chrome 148+ refuses remote-debugging
+on default user-data-dir paths as an anti-cookie-theft measure. When a user
+asks "open my daily Chrome with my logins", tell them: their daily Chrome
+can't be attached on modern Chrome versions; the persistent way is to sign
+in once inside `profile=user_attach`, and those credentials will be reused
+on every subsequent launch.
 
 ## When Chrome / Chromium is missing entirely
 
@@ -161,9 +157,8 @@ ONE of:
 ```
 browser(action="status")
 browser(action="profile", op="list")
-browser(action="profile", op="launch", profile="default", headless=false)
-browser(action="profile", op="launch", target="user_attach")
-browser(action="profile", op="launch", target="system")     # ← requires approval
+browser(action="profile", op="launch", profile="managed", headless=false)
+browser(action="profile", op="launch", profile="user_attach")
 browser(action="profile", op="install_runtime")             # ← async, downloads Chromium
 browser(action="profile", op="connect", url="http://127.0.0.1:9222")
 browser(action="profile", op="disconnect")

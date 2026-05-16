@@ -277,6 +277,34 @@ fn extract_readable_text_basic(html: &str) -> String {
     html_decode(result.trim())
 }
 
+/// Stream-read up to `byte_cap` bytes of an error response body and return
+/// up to 256 characters of UTF-8 lossy text — enough for the LLM to spot a
+/// Cloudflare error page (`<title>Just a moment...</title>`, "Error 1020",
+/// etc.) without paying full-body memory for a giant HTML challenge page.
+async fn read_error_body_preview(resp: reqwest::Response, byte_cap: usize) -> String {
+    use futures_util::StreamExt;
+    let mut buf = Vec::with_capacity(byte_cap.min(4096));
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(c) => {
+                buf.extend_from_slice(&c);
+                if buf.len() >= byte_cap {
+                    buf.truncate(byte_cap);
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut out: String = text.chars().take(256).collect();
+    if text.chars().count() > 256 {
+        out.push('…');
+    }
+    out
+}
+
 fn truncate_to_char_count(s: &str, max_chars: usize) -> &str {
     if s.chars().count() <= max_chars {
         return s;
@@ -384,16 +412,64 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
     .build()
     .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
-    let resp = client
-        .get(parsed_url)
-        .header("Accept", "text/html,application/json,text/plain,*/*")
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Fetch request failed: {}", e))?;
+    // Two-attempt loop: install browser-style headers, retry once on
+    // 429 / 503 honouring Retry-After (cap 5s). The cap defends against a
+    // hostile server pinning us asleep; 5s is the rough budget between
+    // "small chance the rate-limit just lifted" and "the LLM should
+    // surface this to the user".
+    let mut attempt: u32 = 0;
+    let resp = loop {
+        let rb = client.get(parsed_url.clone());
+        let rb = crate::tools::web_fetch_common::apply_browser_headers(rb);
+        let r = rb
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Fetch request failed: {}", e))?;
+        let st = r.status().as_u16();
+        if matches!(st, 429 | 503) && attempt == 0 {
+            let wait = crate::tools::web_fetch_common::retry_after_seconds(
+                r.headers().get(reqwest::header::RETRY_AFTER),
+                5,
+            )
+            .unwrap_or(2);
+            app_warn!(
+                "tool",
+                "web_fetch",
+                "Got {} from {}, retrying once in {}s",
+                st,
+                url,
+                wait
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            attempt += 1;
+            continue;
+        }
+        break r;
+    };
 
     let status = resp.status().as_u16();
     if !resp.status().is_success() {
-        return Err(anyhow::anyhow!("Fetch failed with status: {}", status));
+        // Surface up to 256 chars of body so the LLM can distinguish
+        // "anti-bot HTML challenge page" from "URL really 404'd". Cap the
+        // read with the same streaming logic the success path uses so a
+        // 100MB error page doesn't OOM us.
+        let body_preview = read_error_body_preview(resp, 4096).await;
+        let hint = match status {
+            401 | 403 => {
+                " — likely anti-bot protection; try the `browser` tool \
+                 (profile.op=launch → browser.navigate) or `exec` with curl."
+            }
+            429 => " — rate-limited; reduce request rate or retry later.",
+            503 => " — service unavailable or anti-bot challenge; try the `browser` tool.",
+            404 => " — URL not found; verify the URL.",
+            _ => "",
+        };
+        return Err(anyhow::anyhow!(
+            "Fetch failed with status: {}{}\nBody preview: {}",
+            status,
+            hint,
+            body_preview
+        ));
     }
 
     let final_url = resp.url().to_string();

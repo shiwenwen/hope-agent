@@ -57,6 +57,25 @@ pub(crate) async fn tool_browser(args: &Value, session_id: Option<&str>) -> Resu
 // ── Param helpers ────────────────────────────────────────────────────────
 
 fn get_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key)
+        .and_then(|v| {
+            v.as_str()
+                .or_else(|| v.get("text").and_then(|t| t.as_str()))
+        })
+        // Codex-style providers serialise omitted fields as empty strings
+        // rather than `null`. Treat `""` as "field not provided" so
+        // downstream callers don't pass an empty `executable_path` /
+        // `profile` / `url` to chromiumoxide (which then fails the spawn
+        // with a confusing `No such file or directory` since `""` parses
+        // as an explicit zero-length path).
+        .filter(|s| !s.is_empty())
+}
+
+/// Like [`get_str`] but preserves empty strings. Use for fields where the
+/// empty value carries meaning — e.g. `act.kind=fill text=""` clears an
+/// input. [`get_str`]'s empty-string-as-missing filter would silently
+/// turn that into a "requires 'text' parameter" error.
+fn get_str_any<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(|v| {
         v.as_str()
             .or_else(|| v.get("text").and_then(|t| t.as_str()))
@@ -100,18 +119,11 @@ async fn action_status(_args: &Value) -> Result<String> {
     // honest about "not connected yet".
     let active = browser::peek_active().await;
     let Some(backend) = active else {
-        let cfg = crate::config::cached_config();
-        let pref = cfg
-            .browser
-            .as_ref()
-            .and_then(|b| b.backend)
-            .unwrap_or_default();
-        return Ok(format!(
-            "Browser disconnected. Backend preference: {}.\n\
-             Use `profile.op=launch` to start a managed Chrome, or `profile.op=connect` \
-             to attach to an existing Chrome on a CDP port.",
-            pref
-        ));
+        return Ok(
+            "Browser disconnected. Use `profile.op=launch` to start a managed Chrome, \
+             or `profile.op=connect` to attach to an existing Chrome on a CDP port."
+                .to_string(),
+        );
     };
     let status = backend.status().await?;
     let mut out = format!(
@@ -191,262 +203,71 @@ async fn profile_list() -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-/// Where `profile.op=launch` should put cookies/history/extensions.
+/// Dispatch `profile.op=launch`. Accepts only `profile=<name>` going
+/// forward; the legacy `target=managed|user_attach` parameter is removed
+/// and returns a migration error pointing at the new parameter.
 ///
-/// See the doc on `BROWSER_TOOL_DEFINITION.target` schema (in
-/// [`crate::tools::definitions::core_tools`]) for the per-variant
-/// trade-offs — this enum just carries the wire-format value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ProfileTarget {
-    #[default]
-    Managed,
-    UserAttach,
-    System,
-}
-
-/// Dispatch on the `target` parameter. Default `managed` preserves the
-/// legacy behaviour (isolated profile under `~/.hope-agent/browser-profiles/`).
-/// `user_attach` spawns the agent's day-to-day Chrome in a separate
-/// user-data-dir. `system` attaches the user's REAL daily Chrome —
-/// requires explicit consent in default/smart, auto-allowed in YOLO.
+/// Built-in profile names: `managed` (default, ephemeral) and `user_attach`
+/// (persistent, port 9222). Users can configure additional profiles in
+/// `AppConfig.browser.profiles`.
 async fn profile_launch(args: &Value, session_id: Option<&str>) -> Result<String> {
-    let target: ProfileTarget = match args.get("target") {
-        None | Some(Value::Null) => ProfileTarget::default(),
-        Some(v) => serde_json::from_value(v.clone()).map_err(|_| {
-            anyhow!(
-                "Unknown profile.target '{}'. Valid: managed / user_attach / system",
-                v
-            )
-        })?,
-    };
-    match target {
-        ProfileTarget::Managed => profile_launch_managed(args).await,
-        ProfileTarget::UserAttach => profile_launch_user_attach(args).await,
-        ProfileTarget::System => profile_launch_system(args, session_id).await,
+    let _ = session_id;
+
+    if args.get("target").is_some_and(|v| !v.is_null()) {
+        return Err(anyhow!(
+            "The `target` parameter is no longer supported. Use \
+             `profile=managed` (ephemeral) or `profile=user_attach` \
+             (persistent, port 9222) instead. See settings → Browser → \
+             Profiles for the full list."
+        ));
     }
-}
 
-async fn profile_launch_managed(args: &Value) -> Result<String> {
-    let executable = get_str(args, "executable_path");
-    let headless = get_bool(args, "headless").unwrap_or(false);
-    let profile = get_str(args, "profile");
+    let profile_name = get_str(args, "profile")
+        .map(|s| s.to_string())
+        .unwrap_or_else(crate::browser::profile::default_profile_name);
 
-    // Profile launch reaches into the legacy `browser_state` for the actual
-    // chromiumoxide spawn. The backend abstraction sits on top of it — this
-    // op is intentionally CDP-coupled (managed Chrome is always CDP).
+    let resolved = crate::browser::profile::resolve_profile(&profile_name)?;
+    let exec_override = get_str(args, "executable_path").map(|s| s.to_string());
+    let headless = get_bool(args, "headless").unwrap_or(resolved.headless);
+    let port = match resolved.port {
+        Some(p) => p,
+        None => crate::browser::spawn::pick_managed_port().await?,
+    };
+    let exec_resolved = exec_override.or_else(|| resolved.executable.clone());
+    let extra = resolved.extra_args.clone();
+    let spec = crate::browser::spawn::LaunchSpec {
+        profile: &resolved.name,
+        executable: exec_resolved.as_deref(),
+        user_data_dir: &resolved.user_data_dir,
+        port,
+        headless,
+        extra_args: &extra,
+    };
+
     let mut state = crate::browser_state::get_browser_state().lock().await;
-    if state.is_connected() {
+    // `needs_cleanup` (not `is_connected`) — the ws may already be dead but
+    // the Chrome process / handler task still owns the user-data-dir lock.
+    if state.needs_cleanup() {
         state.disconnect().await;
     }
-    state.launch(executable, headless, profile).await?;
+    state.spawn_chrome_and_connect(spec).await?;
     let page_count = state.pages.len();
     drop(state);
 
     reset_backend().await;
-    let _ = acquire_backend().await?; // initialise the new backend session
+    let _ = acquire_backend().await?;
 
-    let profile_info = profile
-        .map(|p| format!(", profile: {}", p))
-        .unwrap_or_default();
+    let persistent_note = if resolved.persistent {
+        " (persistent profile — cookies / logins survive disconnect)"
+    } else {
+        ""
+    };
     Ok(format!(
-        "Chrome launched successfully{}{}. {} page(s) available.",
+        "Chrome launched successfully{} for profile '{}' on port {}{}. {} page(s) available.",
         if headless { " (headless)" } else { "" },
-        profile_info,
-        page_count
-    ))
-}
-
-/// Spawn the user-attach Chrome (separate user-data-dir under
-/// `~/.hope-agent/browser/user-attach/`) and immediately connect to it.
-/// Isolated from the user's real profile, so there's no extra approval —
-/// same risk profile as `managed`.
-async fn profile_launch_user_attach(args: &Value) -> Result<String> {
-    let exec_arg = get_str(args, "executable_path").map(|s| s.to_string());
-    let spawn_args = crate::browser::user_attach::SpawnUserChromeArgs {
-        executable_path: exec_arg,
-    };
-    let result = crate::browser::user_attach::spawn_user_chrome(spawn_args).await?;
-
-    let mut state = crate::browser_state::get_browser_state().lock().await;
-    if state.is_connected() {
-        state.disconnect().await;
-    }
-    state.connect(&result.debug_url).await?;
-    let page_count = state.pages.len();
-    drop(state);
-
-    reset_backend().await;
-    let _ = acquire_backend().await?;
-
-    Ok(format!(
-        "Spawned user-attach Chrome on port {} and connected. {} page(s) available. \
-         Cookies/extensions persist across launches in `~/.hope-agent/browser/user-attach/`.",
-        result.port, page_count
-    ))
-}
-
-const TARGET_SYSTEM_PROCEED_LABEL: &str = "Grant access";
-const TARGET_SYSTEM_PROCEED_AND_CLOSE_LABEL: &str = "Close & Grant access";
-
-/// Attach the user's REAL daily Chrome with full login state.
-///
-/// Workflow:
-/// 1. Detect daily browser installation (brand + executable + user-data-dir).
-/// 2. Decide if a graceful quit is needed (SingletonLock present OR a
-///    process is currently using this user-data-dir).
-/// 3. One combined consent modal — covers BOTH "close my running browser"
-///    AND "grant agent access" in one click. YOLO mode skips the modal.
-/// 4. If needed, graceful quit (5s deadline) then force_kill (5s deadline).
-/// 5. Launch chromiumoxide pointed at the system user-data-dir.
-async fn profile_launch_system(args: &Value, session_id: Option<&str>) -> Result<String> {
-    use crate::browser::singleton_lock;
-    use crate::platform::{chrome_paths, chrome_quit};
-    use std::time::Duration;
-
-    let _ = args;
-
-    // 1) Resolve daily browser.
-    let inst = chrome_paths::detect_daily_browser().ok_or_else(|| {
-        anyhow!(
-            "No daily Chrome / Edge / Brave / Chromium detected on this system. \
-             Install one of these browsers, or use `profile.op=launch target=managed` \
-             (isolated profile under ~/.hope-agent/browser-profiles/)."
-        )
-    })?;
-
-    // 2) Detect whether the user-data-dir is in use.
-    let needs_quit = singleton_lock::user_data_dir_is_locked(&inst.user_data_dir)
-        || crate::platform::chrome_running_with_user_data_dir(&inst.user_data_dir).await;
-
-    // 3) Consent gate (combined: quit + access in one approval).
-    let yolo = crate::security::dangerous::is_dangerous_skip_active();
-    let affirmative_label = if needs_quit {
-        TARGET_SYSTEM_PROCEED_AND_CLOSE_LABEL
-    } else {
-        TARGET_SYSTEM_PROCEED_LABEL
-    };
-    if !yolo {
-        let Some(sid) = session_id else {
-            return Err(anyhow!(
-                "profile.op=launch target=system refused: no active session to confirm against. \
-                 Enable global YOLO mode if this call is from a non-interactive context."
-            ));
-        };
-        let brand = inst.brand.display_name();
-        let path = inst.user_data_dir.display().to_string();
-        let question_text = if needs_quit {
-            format!(
-                "⚠ Your {brand} is currently running. Continuing will close it (unsaved page state may be lost).\n\n\
-                 Then the agent will be granted full access to your {brand} profile at:\n{path}\n\n\
-                 This includes:\n\
-                 • All logged-in accounts (Google, banks, social media)\n\
-                 • Saved passwords and autofill data\n\
-                 • Browsing history and bookmarks\n\
-                 • Installed extensions\n\n\
-                 The agent can read pages, submit forms, and impersonate you on any site. \
-                 Only proceed if you trust the current task."
-            )
-        } else {
-            format!(
-                "Allow the agent to attach your daily {brand} at:\n{path}\n\n\
-                 This grants full access including:\n\
-                 • All logged-in accounts (Google, banks, social media)\n\
-                 • Saved passwords and autofill data\n\
-                 • Browsing history and bookmarks\n\
-                 • Installed extensions\n\n\
-                 The agent can read pages, submit forms, and impersonate you on any site. \
-                 Only proceed if you trust the current task."
-            )
-        };
-        let ask_args = serde_json::json!({
-            "context": format!(
-                "Browser profile.op=launch target=system: attach the user's daily {brand}."
-            ),
-            "questions": [{
-                "question_id": "confirm_browser_target_system",
-                "text": question_text,
-                "header": format!("Attach daily {brand}"),
-                "options": [
-                    {"value": "confirm", "label": affirmative_label, "recommended": false},
-                    {"value": "cancel",  "label": "Deny",            "recommended": true}
-                ],
-                "multi_select": false,
-                "default_values": ["cancel"]
-            }]
-        });
-        let raw = crate::tools::ask_user_question::execute(&ask_args, Some(sid)).await;
-        if !crate::ask_user::was_affirmative(&raw, &[affirmative_label]) {
-            return Err(anyhow!(
-                "profile.op=launch target=system denied by user (or no response)."
-            ));
-        }
-    } else if needs_quit {
-        crate::app_warn!(
-            "browser",
-            "target_system",
-            "YOLO: closing running {} to take over user-data-dir {}",
-            inst.brand.display_name(),
-            inst.user_data_dir.display()
-        );
-    } else {
-        crate::app_warn!(
-            "browser",
-            "target_system",
-            "YOLO: launching system {} without user confirmation",
-            inst.brand.display_name()
-        );
-    }
-
-    // 4) Quit running Chrome two-phase (graceful → wait → force_kill → wait).
-    if needs_quit {
-        chrome_quit::graceful_quit(inst.brand).await.ok();
-        if singleton_lock::wait_for_release(&inst.user_data_dir, Duration::from_secs(5))
-            .await
-            .is_err()
-        {
-            crate::app_warn!(
-                "browser",
-                "target_system",
-                "graceful quit timed out; escalating to force-kill on {}",
-                inst.brand.display_name()
-            );
-            chrome_quit::force_kill(inst.brand).await.ok();
-            singleton_lock::wait_for_release(&inst.user_data_dir, Duration::from_secs(5))
-                .await
-                .map_err(|_| {
-                    anyhow!(
-                        "Could not close {} cleanly. \
-                         Please quit it manually (Cmd+Q on macOS, Alt+F4 on Windows) and retry.",
-                        inst.brand.display_name()
-                    )
-                })?;
-        }
-    }
-
-    // 5) Launch via browser_state with the system user-data-dir.
-    let mut state = crate::browser_state::get_browser_state().lock().await;
-    if state.is_connected() {
-        state.disconnect().await;
-    }
-    state
-        .launch_with_user_data_dir(
-            Some(&inst.executable.to_string_lossy()),
-            &inst.user_data_dir,
-            false, // headless=false: it's the user's daily browser
-        )
-        .await?;
-    let page_count = state.pages.len();
-    drop(state);
-
-    reset_backend().await;
-    let _ = acquire_backend().await?;
-
-    Ok(format!(
-        "Launched system {} with daily profile ({}). {} page(s) available. \
-         All cookies, extensions, and login state are now accessible.",
-        inst.brand.display_name(),
-        inst.user_data_dir.display(),
+        profile_name,
+        port,
+        persistent_note,
         page_count
     ))
 }
@@ -455,10 +276,13 @@ async fn profile_connect(args: &Value) -> Result<String> {
     let url = get_str(args, "url").unwrap_or("http://127.0.0.1:9222");
     // Treat the CDP endpoint as an outbound URL — refuse anything outside the
     // SSRF policy (defaults allow loopback; private network needs opt-in).
-    check_url_via_ssrf(url).await?;
+    // Shared helper so UI (`browser_ui::connect`) / HTTP
+    // (`/api/browser/connect`) / tool (`profile.connect`) apply the same
+    // scheme + SSRF gate.
+    crate::browser::validate_cdp_endpoint_url(url).await?;
 
     let mut state = crate::browser_state::get_browser_state().lock().await;
-    if state.is_connected() {
+    if state.needs_cleanup() {
         state.disconnect().await;
     }
     state.connect(url).await?;
@@ -477,7 +301,11 @@ async fn profile_connect(args: &Value) -> Result<String> {
 
 async fn profile_disconnect() -> Result<String> {
     let mut state = crate::browser_state::get_browser_state().lock().await;
-    if !state.is_connected() {
+    // Use `needs_cleanup` instead of `is_connected` so disconnect runs even
+    // when the heartbeat has marked the ws dead — Chrome may still be alive
+    // (idle ws close doesn't kill the process) and we must reap it to free
+    // the SingletonLock for the next launch.
+    if !state.needs_cleanup() {
         return Ok("Not connected to any browser.".to_string());
     }
     state.disconnect().await;
@@ -575,10 +403,10 @@ async fn tabs_new(args: &Value) -> Result<String> {
     }
     let backend = acquire_backend().await?;
     let mut tab = backend.new_page(url).await?;
-    // chrome-devtools-mcp's `new_page` doesn't always honor the `url` arg —
-    // it can return a blank tab even when one was requested. Only follow up
-    // when the tab clearly didn't load anything; legitimate redirects (e.g.
-    // http→https, login-gate 302, one-time tokens) must NOT be re-navigated
+    // The backend's `new_page` may return a blank tab even when a URL was
+    // requested (e.g. when Chrome opens its new-tab page first). Only follow
+    // up when the tab clearly didn't load anything; legitimate redirects
+    // (http→https, login-gate 302, one-time tokens) must NOT be re-navigated
     // or we risk consuming the token twice or stomping on the redirect chain.
     if let Some(target) = url {
         if target != "about:blank" && tab_url_indicates_blank_load(&tab.url) {
@@ -778,17 +606,22 @@ async fn snapshot_pdf(args: &Value, backend: &dyn BrowserBackend) -> Result<Stri
             print_background: get_bool(args, "print_background"),
         })
         .await?;
+    // `output_path` is LLM-controlled: a prompt-injected page could ask
+    // the agent to write the PDF to `~/.ssh/authorized_keys`, the user's
+    // shell rc, etc. Run the same protected-paths gate `act.upload` uses
+    // for the inverse (file → page) direction. The default path under
+    // `share_dir()` skips the check because share_dir is by definition the
+    // sandboxed write target.
     let output_path: PathBuf = if let Some(path) = get_str(args, "output_path") {
-        PathBuf::from(path)
+        browser::authorise_pdf_output_path(path)?
     } else {
         let share_dir = crate::paths::share_dir()?;
         std::fs::create_dir_all(&share_dir)?;
         let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
         share_dir.join(format!("page_{}.pdf", ts))
     };
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    // `authorise_pdf_output_path` already created the parent for the
+    // LLM-supplied path. The default branch above created `share_dir`.
     std::fs::write(&output_path, &bytes)?;
     Ok(format!(
         "PDF saved: {} ({} bytes)",
@@ -809,7 +642,10 @@ async fn action_act(args: &Value) -> Result<String> {
     let params = ActParams {
         ref_id: get_u32(args, "ref"),
         target_ref: get_u32(args, "target_ref"),
-        text: get_str(args, "text").map(String::from),
+        // `text` uses `get_str_any` so `act.fill text=""` (clear input)
+        // survives the empty-string-as-missing filter that `get_str`
+        // applies to path-like params.
+        text: get_str_any(args, "text").map(String::from),
         key: get_str(args, "key").map(String::from),
         file_path: get_str(args, "file_path").map(String::from),
         modifiers: get_str_array(args, "modifiers"),
@@ -1072,9 +908,9 @@ mod tests {
 
     #[test]
     fn tab_url_indicates_blank_load_for_browser_newtab_urls() {
-        // chrome-devtools-mcp can hand back the browser's new-tab page
-        // instead of the requested URL; treat those as blank loads so we
-        // navigate to the target.
+        // Chrome can hand back the browser's new-tab page instead of the
+        // requested URL; treat those as blank loads so we navigate to the
+        // target.
         assert!(tab_url_indicates_blank_load("chrome://newtab/"));
         assert!(tab_url_indicates_blank_load("chrome://new-tab-page/"));
         assert!(tab_url_indicates_blank_load("edge://newtab/"));

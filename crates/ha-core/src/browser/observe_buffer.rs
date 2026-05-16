@@ -2,10 +2,7 @@
 //!
 //! Single global instance per process. CDP backend feeds it directly from
 //! `Console.messageAdded` / `Network.responseReceived` / `Runtime.exceptionThrown`
-//! event subscribers. MCP backend opens a read-only side-channel `chromiumoxide`
-//! connection to the same Chrome 9222 port (see [`super::mcp_backend`]) and feeds
-//! the buffer from there — `chrome-devtools-mcp` itself does not expose
-//! console/network/page-errors as MCP tools.
+//! event subscribers.
 //!
 //! `observe` action reads from the buffer with an optional `since` cursor.
 

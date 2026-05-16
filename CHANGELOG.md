@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Removed
 
-- **浏览器 `profile.op=launch target=system`**：模型可显式调起用户**日常浏览器**（Chrome / Edge / Brave / Chromium），自动复用用户已有的全部登录态、扩展、书签和浏览历史，不再仅限 hope-agent 隔离 profile。三种 target：`managed`（默认，旧行为）/ `user_attach`（agent 专用日常 Chrome，独立 user-data-dir）/ `system`（用户真实日常浏览器，需要审批）。`system` 在 default / smart 模式弹 ask_user_question 模态明确警示「agent 将获得 Gmail / 银行 / SSO 等全部登录态」+「会先关闭你当前的浏览器，可能丢失未保存草稿」；yolo 模式按既有承担风险跳过。Chrome 在跑时一次审批同时覆盖关闭 + 接管，graceful quit 5s 超时自动 force_kill 兜底，仍超时报错引导手动 Cmd+Q。跨平台覆盖 macOS / Linux / Windows 的真实 user-data-dir 路径。
+- **删除 `chrome-devtools-mcp` 浏览器 backend**：浏览器自动化只保留 CDP 直连一条路径，不再需要 Node.js / npx。原 Backend Radio 设置项移除，老 `config.json` 里的 `"backend": "auto" | "mcp"` 字段被静默忽略。
+
+### Added
 - **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。
 - **Docker 镜像内置 Chromium**：`Dockerfile` 加 `chromium` + 字体 / nss / libgbm / libxss 共享库，让 `profile.op=launch headless=true` 在服务器 / CI / 容器内开箱即用。镜像体积增加约 250 MB；不需要浏览器自动化的部署可 fork 移除。
 - **Doctor 段升级显示浏览器运行时状态**：settings → Browser 面板的健康行根据本机情况显示「✓ {brand} detected」/「✓ Chromium runtime ready (rev X)」/「⚠ No browser binary — [Install Chromium runtime]」三态，缺 binary 时直接按钮触发 runtime 下载，避免用户卡在 chromiumoxide 英文报错上。
@@ -18,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **浏览器工具 27 → 8 action 收敛**：原来散乱的 `connect / launch / navigate / take_snapshot / click / fill / fill_form / hover / drag / press_key / upload_file / evaluate / wait_for / handle_dialog / resize / scroll / list_profiles / save_pdf` 等 27 个 action 全部下沉到 8 个高层 action（`status / profile / tabs / navigate / snapshot / act / observe / control`）。工具默认进 deferred 池（`tool_search` 按需暴露），常态不占 system prompt。配套新 [`ha-browser` bundled skill](skills/ha-browser/SKILL.md) 教模型标准 `status → tabs → snapshot → act` loop、stale-ref 自恢复、登录/2FA/captcha 阻塞情形清单。
-- **双 backend 架构**：浏览器自动化底层在 `chromiumoxide` 直连 CDP 与 Google 官方 `chrome-devtools-mcp` 之间自动切换——检测到 Node.js ≥ 18 时优先用 MCP backend（复用 Google 处理过的 Chrome 单实例锁、自动重连、stale-ref recovery 等工程细节），缺 Node 自动降级到直连 CDP。LLM 看到的 ref / op / 错误语义完全一致，BrowserPanel 右上角 `MCP` / `CDP` 角标显示当前 backend。
 
 ### Added
 
@@ -28,9 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SSRF 守卫覆盖所有浏览器出站入口**：`navigate.go` / `tabs.new url=` / `profile.connect url=`（CDP endpoint）/ `control.evaluate`（regex 扫脚本里的 URL 字面量）全部经 `security::ssrf::check_url`，防 agent 被 prompt injection 后让浏览器访问 cloud metadata 端点或内网。
 - **Stale-ref 一次自恢复**：`act` 失败且匹配 stale-ref 错误模式（element not found / detached / 等）时，工具内部重新 snapshot 一次，按 `(role, text)` 模糊匹配旧 ref 找新 ref，retry 一次。成功返回字符串带 `(ref auto-recovered)` 让模型知道发生过；失败再正常上抛。
 - **`observe` ring buffer**：新 `browser.observe.kind=console|network|page_errors` 暴露最近 500 条浏览器侧事件（CDP backend 直接订阅 `Console.messageAdded` / `Network.responseReceived` / `Runtime.exceptionThrown`），让模型自检页面问题不用反复 evaluate。
-- **chrome-devtools-mcp backend 真正落地**：上一版 MCP backend 是 stub，本版接入完整 rmcp stdio client（hope-agent 自己 launch Chrome 后通过 `--browserUrl http://127.0.0.1:9222` 让 chrome-devtools-mcp 接管主控；observe 旁路继续走 hope-agent 自持的 chromiumoxide 控制面，与 CDP backend 行为完全一致）。首次 `npx -y chrome-devtools-mcp@0.26.0` 拉包 60s 超时自动降级 CDP；版本 pin 防供应链漂移；子进程随 `reset_backend()` 回收。
-- **设置 → 浏览器 UX 重写**：顶部新增「独立浏览器 / 接管用户态 Chrome」Mode Radio；Connect 段内嵌 doctor banner——探到 9222 显示绿色「Found Chrome at … [Attach]」，未探到显示黄色「No Chrome detected」+「Launch user Chrome」一键按钮（弹模态二次确认后在 `~/.hope-agent/browser/user-attach/` 启动独立 user-data-dir 的 Chrome，不动用户日常浏览数据，自动 polling 端口就绪后连上）。底部新增 Backend Radio（`auto` / `cdp` / `mcp`），切换立即 toast「下次 launch/connect 生效」+「立即重连」action；切偏好同步 `reset_backend()` 让 ACTIVE_BACKEND 失效。Profile CRUD / executablePath / 手动 connect URL 等老入口保留扁平铺开。12 语言齐全。
-- **浏览器 act.upload 路径安全闸门**：上传文件前 `canonicalize` 路径并按 `permission::protected_paths` 检查（默认覆盖 `~/.ssh/`、`~/.aws/`、`*.pem`、`*.key`、`*secret*` 等），拒绝 prompt injection 把本机敏感文件塞进网页 file input 的攻击面；CDP / MCP 两条 backend 都走同一守门。
+- **设置 → 浏览器 UX 重写**：顶部新增「独立浏览器 / 接管用户态 Chrome」Mode Radio；Connect 段内嵌 doctor banner——探到 9222 显示绿色「Found Chrome at … [Attach]」，未探到显示黄色「No Chrome detected」+「Launch user Chrome」一键按钮（弹模态二次确认后在 `~/.hope-agent/browser/user-attach/` 启动独立 user-data-dir 的 Chrome，不动用户日常浏览数据，自动 polling 端口就绪后连上）。Profile CRUD / executablePath / 手动 connect URL 等老入口保留扁平铺开。12 语言齐全。
+- **浏览器 act.upload 路径安全闸门**：上传文件前 `canonicalize` 路径并按 `permission::protected_paths` 检查（默认覆盖 `~/.ssh/`、`~/.aws/`、`*.pem`、`*.key`、`*secret*` 等），拒绝 prompt injection 把本机敏感文件塞进网页 file input 的攻击面。
 - **浏览器 control.evaluate 走 ask_user_question 审批**：任意 JS 执行是浏览器工具最危险的出站口，每次调用前都弹模态确认（脚本预览 280 字），用户取消 = 工具失败；YOLO / `permission.global_yolo` 模式按用户已知风险跳过；非交互上下文（缺 session_id）默认 deny。SSRF 字面量 regex 仍保留为 best-effort 第一道闸门。
 - **官方 Docker 镜像 + docker-compose 部署**：新增多架构容器镜像 `ghcr.io/shiwenwen/hope-agent`（覆盖 `linux/amd64` / `linux/arm64`），随每次 Release Tag 自动构建发布；浏览器访问容器暴露端口即得完整 Web GUI 与桌面端等价。默认 loopback + 浏览器 token 输入对话框 + `?token=` URL 一次性 bootstrap；`app_update` 工具在容器内检测后引导 `docker pull` 升级而非 binary swap。 (#171)
 

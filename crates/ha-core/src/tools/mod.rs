@@ -45,6 +45,7 @@ pub(crate) mod team;
 pub(crate) mod tool_search;
 mod weather;
 pub mod web_fetch;
+pub mod web_fetch_common;
 pub mod web_search;
 mod write;
 
@@ -171,7 +172,7 @@ pub(crate) fn extract_string_param(val: &Value) -> Option<&str> {
 }
 
 /// Expand ~ and ~/ to home directory.
-pub(crate) fn expand_tilde(path: &str) -> String {
+pub fn expand_tilde(path: &str) -> String {
     if path == "~" || path.starts_with("~/") {
         if let Some(home) = dirs::home_dir() {
             return if path == "~" {
