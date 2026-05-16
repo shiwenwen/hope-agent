@@ -1,5 +1,6 @@
 import React from "react"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import PlainTextRenderer from "@/components/common/PlainTextRenderer"
 import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
@@ -21,6 +22,7 @@ import type {
   ChatDisplayMode,
   ChatTurnStatus,
   ContentBlock,
+  ContentRenderMode,
   FileChangeMetadata,
   FileChangesMetadata,
   ToolCall,
@@ -118,6 +120,7 @@ interface MessageContentProps {
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
   displayMode?: ChatDisplayMode
+  contentRenderMode?: ContentRenderMode
 }
 
 // Synthesize ContentBlock[] from legacy `msg.thinking` / `msg.toolCalls` /
@@ -209,6 +212,7 @@ export function AssistantContentBlocks({
   onSwitchSession,
   onOpenDiff,
   displayMode = "bubble",
+  contentRenderMode = "markdown",
 }: MessageContentProps) {
   const blocks =
     msg.contentBlocks && msg.contentBlocks.length > 0
@@ -292,10 +296,14 @@ export function AssistantContentBlocks({
         key: `text-${i}`,
         node: (
           <div key={i}>
-            <MarkdownRenderer
-              content={block.content}
-              isStreaming={loading && isLast && i === blocks.length - 1}
-            />
+            {contentRenderMode === "markdown" ? (
+              <MarkdownRenderer
+                content={block.content}
+                isStreaming={loading && isLast && i === blocks.length - 1}
+              />
+            ) : (
+              <PlainTextRenderer content={block.content} />
+            )}
             {block.interrupted ? <InterruptedMark /> : null}
           </div>
         ),

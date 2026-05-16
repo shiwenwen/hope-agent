@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, test, vi } from "vitest"
+import type { ReactNode } from "react"
 import type { ContentBlock, Message, ToolCall } from "@/types/chat"
 import { AssistantContentBlocks } from "./MessageContent"
 
@@ -17,6 +18,9 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/components/common/MarkdownRenderer", () => ({
   default: ({ content }: { content: string }) => <div data-testid="markdown">{content}</div>,
+  MarkdownLink: ({ href, children }: { href?: string; children: ReactNode }) => (
+    <a href={href}>{children}</a>
+  ),
 }))
 
 vi.mock("./ThinkingBlock", () => ({

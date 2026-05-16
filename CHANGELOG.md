@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **聊天消息 Markdown / 纯文本渲染可切换**：用户消息现在与模型消息一样默认支持 Markdown 渲染，气泡 hover 操作区新增 Markdown / 纯文本切换按钮，复制仍保留原始文本。两种模式都会自动识别裸链接（`https://...` / `www.example.com` / 邮箱）并渲染为可点击超链，复用既有外链与本地路径打开策略。
 - **浏览器 `profile.op=launch target=system`**：模型可显式调起用户**日常浏览器**（Chrome / Edge / Brave / Chromium），自动复用用户已有的全部登录态、扩展、书签和浏览历史，不再仅限 hope-agent 隔离 profile。三种 target：`managed`（默认，旧行为）/ `user_attach`（agent 专用日常 Chrome，独立 user-data-dir）/ `system`（用户真实日常浏览器，需要审批）。`system` 在 default / smart 模式弹 ask_user_question 模态明确警示「agent 将获得 Gmail / 银行 / SSO 等全部登录态」+「会先关闭你当前的浏览器，可能丢失未保存草稿」；yolo 模式按既有承担风险跳过。Chrome 在跑时一次审批同时覆盖关闭 + 接管，graceful quit 5s 超时自动 force_kill 兜底，仍超时报错引导手动 Cmd+Q。跨平台覆盖 macOS / Linux / Windows 的真实 user-data-dir 路径。
 - **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。
 - **Docker 镜像内置 Chromium**：`Dockerfile` 加 `chromium` + 字体 / nss / libgbm / libxss 共享库，让 `profile.op=launch headless=true` 在服务器 / CI / 容器内开箱即用。镜像体积增加约 250 MB；不需要浏览器自动化的部署可 fork 移除。
