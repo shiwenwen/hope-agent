@@ -271,12 +271,9 @@ impl ToolExecContext {
             ));
         }
 
-        let Some(def) = super::dispatch::all_dispatchable_tools()
+        let def = super::dispatch::all_dispatchable_tools()
             .iter()
-            .find(|def| def.name == canonical)
-        else {
-            return None;
-        };
+            .find(|def| def.name == canonical)?;
 
         // Plan-mode tools are injected by `AssistantAgent::apply_plan_tools`
         // according to live session state rather than by static tool fate.
@@ -430,6 +427,42 @@ fn is_skill_read(name: &str, args: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn mcp_server_auto_approves_config(cfg: &crate::mcp::McpServerConfig) -> bool {
+    cfg.auto_approve && matches!(cfg.trust_level, crate::mcp::McpTrustLevel::Trusted)
+}
+
+async fn mcp_tool_auto_approves(name: &str) -> bool {
+    if !crate::mcp::catalog::is_mcp_tool_name(name) {
+        return false;
+    }
+    let Some(manager) = crate::mcp::McpManager::global() else {
+        return false;
+    };
+    let Some(entry) = manager.lookup_tool(name).await else {
+        return false;
+    };
+    let Some(handle) = manager.get_by_id(&entry.server_id).await else {
+        return false;
+    };
+    let cfg = handle.config.read().await;
+    mcp_server_auto_approves_config(&cfg)
+}
+
+fn needs_permission_engine(
+    name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    effective_auto_approve: bool,
+) -> bool {
+    let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
+    let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
+    let auto_approve_blocked_by_plan = effective_auto_approve && plan_requires_ask;
+    let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
+    (!effective_auto_approve || auto_approve_blocked_by_plan)
+        && !is_skill_read(name, args)
+        && (name != TOOL_EXEC || exec_skip_blocked_by_plan)
+}
+
 /// Execute a tool with additional context (model info, etc.)
 pub async fn execute_tool_with_context(
     name: &str,
@@ -466,16 +499,13 @@ pub async fn execute_tool_with_context(
     //   - `auto_approve_tools=true` (IM channel auto-approve account
     //     convenience must NOT pierce Plan Mode's user-sovereignty
     //     contract), or
+    //   - MCP server `autoApprove=true` + `trustLevel=Trusted` skips the
+    //     ordinary tool approval gate, or
     //   - the tool is `exec` (which usually skips the engine for its own
     //     command-level prefix gate; in Plan Mode the engine's
     //     plan-mode-ask path takes precedence).
-    let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
-    let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
-    let auto_approve_blocked_by_plan = ctx.auto_approve_tools && plan_requires_ask;
-    let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
-    let needs_engine = (!ctx.auto_approve_tools || auto_approve_blocked_by_plan)
-        && !is_skill_read(name, args)
-        && (name != TOOL_EXEC || exec_skip_blocked_by_plan);
+    let effective_auto_approve = ctx.auto_approve_tools || mcp_tool_auto_approves(name).await;
+    let needs_engine = needs_permission_engine(name, args, ctx, effective_auto_approve);
     if needs_engine {
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
@@ -1111,9 +1141,47 @@ fn persist_large_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_persisted_large_result_preview, ToolExecContext};
+    use super::{
+        build_persisted_large_result_preview, mcp_server_auto_approves_config,
+        needs_permission_engine, ToolExecContext,
+    };
+    use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    use serde_json::json;
+    use std::collections::BTreeMap;
     use std::path::Path;
+
+    fn mcp_cfg(auto_approve: bool, trust_level: McpTrustLevel) -> McpServerConfig {
+        McpServerConfig {
+            id: "id-alpha".into(),
+            name: "alpha".into(),
+            enabled: true,
+            transport: McpTransportSpec::Stdio {
+                command: "true".into(),
+                args: vec![],
+                cwd: None,
+            },
+            env: BTreeMap::new(),
+            headers: BTreeMap::new(),
+            oauth: None,
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            connect_timeout_secs: 30,
+            call_timeout_secs: 120,
+            health_check_interval_secs: 60,
+            max_concurrent_calls: 4,
+            auto_approve,
+            trust_level,
+            eager: false,
+            deferred_tools: false,
+            project_paths: vec![],
+            description: None,
+            icon: None,
+            created_at: 0,
+            updated_at: 0,
+            trust_acknowledged_at: None,
+        }
+    }
 
     #[test]
     fn default_path_prefers_session_working_dir_over_agent_home() {
@@ -1180,5 +1248,41 @@ mod tests {
 
         assert!(preview.starts_with(crate::agent::MEDIA_ITEMS_PREFIX));
         assert!(preview.contains("/tmp/tool.txt"));
+    }
+
+    #[test]
+    fn trusted_mcp_auto_approve_config_skips_regular_approval() {
+        let cfg = mcp_cfg(true, McpTrustLevel::Trusted);
+        assert!(mcp_server_auto_approves_config(&cfg));
+    }
+
+    #[test]
+    fn untrusted_mcp_auto_approve_is_rejected_and_not_honored() {
+        let cfg = mcp_cfg(true, McpTrustLevel::Untrusted);
+        assert!(cfg.validate().is_err());
+        assert!(!mcp_server_auto_approves_config(&cfg));
+    }
+
+    #[test]
+    fn auto_approved_mcp_tool_skips_engine_outside_plan_mode() {
+        let ctx = ToolExecContext::default();
+        assert!(!needs_permission_engine(
+            "mcp__alpha__read",
+            &json!({}),
+            &ctx,
+            true
+        ));
+    }
+
+    #[test]
+    fn plan_ask_tools_keep_engine_for_auto_approved_mcp_tool() {
+        let tool = "mcp__alpha__read".to_string();
+        let ctx = ToolExecContext {
+            plan_mode_allowed_tools: vec![tool.clone()],
+            plan_mode_ask_tools: vec![tool.clone()],
+            ..ToolExecContext::default()
+        };
+
+        assert!(needs_permission_engine(&tool, &json!({}), &ctx, true));
     }
 }

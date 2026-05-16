@@ -179,6 +179,7 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
                 crate::tools::TOOL_TOOL_SEARCH => {
                     if has_deferred_builtin_tools(app_config)
                         || (ctx.mcp_enabled
+                            && app_config.mcp_global.enabled
                             && crate::mcp::catalog::has_deferred_tool_server(
                                 &app_config.mcp_servers,
                             ))
@@ -208,7 +209,7 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             }
         }
         ToolTier::Mcp => {
-            if ctx.mcp_enabled {
+            if ctx.mcp_enabled && app_config.mcp_global.enabled {
                 ToolFate::InjectEager
             } else {
                 ToolFate::Hidden
@@ -378,6 +379,15 @@ mod tests {
         let mut f = Fixture::new();
         f.mcp_enabled = false;
         let def = def_with_tier("mcp_resource", ToolTier::Mcp);
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn tier_mcp_hidden_when_global_mcp_disabled() {
+        let mut f = Fixture::new();
+        f.app.mcp_global.enabled = false;
+        let def = def_with_tier("mcp_prompt", ToolTier::Mcp);
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }

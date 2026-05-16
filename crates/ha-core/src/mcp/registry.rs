@@ -228,7 +228,7 @@ impl McpManager {
             let permits = global.max_concurrent_calls.max(1) as usize;
             let mut map = HashMap::new();
             for cfg in servers {
-                if !cfg.enabled || global.denied_servers.contains(&cfg.name) {
+                if !server_effectively_enabled(&global, &cfg) {
                     continue;
                 }
                 if cfg.validate().is_err() {
@@ -338,9 +338,10 @@ impl McpManager {
     }
 
     /// Compare the live server set with a freshly-loaded config and
-    /// minimally rebuild: add new, remove deleted, replace config on
-    /// unchanged id. **Does not** touch transport-level state — the
-    /// watchdog or the GUI's "Reconnect" button picks that up.
+    /// minimally rebuild: add new effective servers, remove disabled /
+    /// denied / deleted entries, and replace config on unchanged ids.
+    /// Existing transport state is kept for still-effective servers; removed
+    /// servers are disconnected after the registry lock is released.
     ///
     /// TODO(phase2+): detect transport-critical field diffs (command,
     /// args, url, env) and force a disconnect + reconnect round.
@@ -353,47 +354,110 @@ impl McpManager {
         // never shrunk live (shrinking would starve in-flight calls).
         {
             let mut g = self.global_settings.write().await;
-            *g = new_settings;
+            *g = new_settings.clone();
         }
 
-        let mut servers = self.servers.write().await;
-        let mut new_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for cfg in new_servers {
-            new_ids.insert(cfg.id.clone());
-            if !cfg.enabled {
-                // Drop disabled entries entirely — keeping them idle would
-                // still tie up fds / memory for no benefit.
-                servers.remove(&cfg.id);
-                continue;
-            }
-            if cfg.validate().is_err() {
-                crate::app_warn!(
-                    "mcp",
-                    "reconcile",
-                    "Skipping invalid config: name={}",
-                    cfg.name
-                );
-                continue;
-            }
-            if let Some(existing) = servers.get(&cfg.id) {
-                // Replace the config; state/client stay. The watchdog
-                // will observe the new config on its next tick.
-                *existing.config.write().await = cfg;
-            } else {
-                servers.insert(cfg.id.clone(), Arc::new(ServerHandle::new(cfg)));
-            }
-        }
-        // Drop any server not in the new list.
-        servers.retain(|id, _| new_ids.contains(id));
+        let mut removed = Vec::new();
+        let active_handles = {
+            let mut servers = self.servers.write().await;
+            let mut active_ids: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for cfg in new_servers {
+                if !server_effectively_enabled(&new_settings, &cfg) {
+                    if let Some(handle) = servers.remove(&cfg.id) {
+                        removed.push(handle);
+                    }
+                    continue;
+                }
+                if cfg.validate().is_err() {
+                    crate::app_warn!(
+                        "mcp",
+                        "reconcile",
+                        "Skipping invalid config: name={}",
+                        cfg.name
+                    );
+                    if let Some(handle) = servers.remove(&cfg.id) {
+                        removed.push(handle);
+                    }
+                    continue;
+                }
 
-        // Invalidate the tool index + cache — both will be rebuilt the
-        // next time any server refreshes its catalog.
-        self.tool_index.write().await.clear();
-        self.cached_tool_defs.store(Arc::new(Vec::new()));
+                active_ids.insert(cfg.id.clone());
+                if let Some(existing) = servers.get(&cfg.id) {
+                    // Replace the config; state/client stay. Ready catalogs
+                    // below are immediately re-indexed against this new config
+                    // so allow/deny edits do not leave the runtime empty.
+                    *existing.config.write().await = cfg;
+                } else {
+                    servers.insert(cfg.id.clone(), Arc::new(ServerHandle::new(cfg)));
+                }
+            }
+
+            let stale_ids: Vec<String> = servers
+                .keys()
+                .filter(|id| !active_ids.contains(*id))
+                .cloned()
+                .collect();
+            for id in stale_ids {
+                if let Some(handle) = servers.remove(&id) {
+                    removed.push(handle);
+                }
+            }
+
+            servers.values().cloned().collect::<Vec<_>>()
+        };
+
+        for handle in removed {
+            let _ = super::client::disconnect(&handle).await;
+        }
+
+        self.rebuild_ready_catalog_cache(active_handles).await;
 
         super::events::emit_servers_changed();
         Ok(())
     }
+
+    async fn rebuild_ready_catalog_cache(&self, handles: Vec<Arc<ServerHandle>>) {
+        let mut next_index = HashMap::new();
+        let mut next_defs = Vec::new();
+
+        for handle in handles {
+            let cfg = handle.config.read().await.clone();
+            let tools = {
+                let state = handle.state.lock().await;
+                match &*state {
+                    ServerState::Ready { tools, .. } => tools.clone(),
+                    _ => continue,
+                }
+            };
+
+            for tool in tools {
+                let original = tool.name.to_string();
+                if !super::catalog::tool_allowed_by_server_config(&cfg, &original) {
+                    continue;
+                }
+
+                let namespaced = super::catalog::namespaced_tool_name(&cfg.name, &original);
+                next_index.insert(
+                    namespaced,
+                    ToolIndexEntry {
+                        server_id: cfg.id.clone(),
+                        server_name: cfg.name.clone(),
+                        original_tool_name: original,
+                    },
+                );
+                next_defs.push(super::catalog::rmcp_tool_to_definition(&cfg, &tool));
+            }
+        }
+
+        next_defs.sort_by(|a, b| a.name.cmp(&b.name));
+        *self.tool_index.write().await = next_index;
+        self.cached_tool_defs.store(Arc::new(next_defs));
+    }
+}
+
+fn server_effectively_enabled(global: &McpGlobalSettings, cfg: &McpServerConfig) -> bool {
+    global.enabled && cfg.enabled && !global.denied_servers.contains(&cfg.name)
 }
 
 #[cfg(test)]
@@ -431,6 +495,47 @@ mod tests {
             updated_at: 0,
             trust_acknowledged_at: None,
         }
+    }
+
+    fn sample_tool(name: &str) -> model::Tool {
+        model::Tool::new(
+            name.to_string(),
+            format!("{name} tool"),
+            std::sync::Arc::new(serde_json::Map::new()),
+        )
+    }
+
+    fn test_manager(configs: Vec<McpServerConfig>) -> McpManager {
+        let global = McpGlobalSettings::default();
+        let mut map = HashMap::new();
+        for cfg in configs {
+            map.insert(cfg.id.clone(), Arc::new(ServerHandle::new(cfg)));
+        }
+        McpManager {
+            servers: RwLock::new(map),
+            tool_index: RwLock::new(HashMap::new()),
+            cached_tool_defs: ArcSwap::from_pointee(Vec::new()),
+            global_semaphore: Arc::new(Semaphore::new(global.max_concurrent_calls.max(1) as usize)),
+            global_settings: RwLock::new(global),
+        }
+    }
+
+    async fn seed_ready_catalog(manager: &McpManager, id: &str, tools: Vec<model::Tool>) {
+        let handle = manager.get_by_id(id).await.expect("server exists");
+        *handle.state.lock().await = ServerState::Ready {
+            tools,
+            resources: vec![],
+            prompts: vec![],
+        };
+        manager.rebuild_ready_catalog_cache(vec![handle]).await;
+    }
+
+    fn cached_tool_names(manager: &McpManager) -> Vec<String> {
+        manager
+            .mcp_tool_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect()
     }
 
     #[tokio::test]
@@ -472,5 +577,77 @@ mod tests {
             .label(),
             "failed"
         );
+    }
+
+    #[tokio::test]
+    async fn reconcile_reindexes_ready_catalog_after_allow_change() {
+        let mut cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        seed_ready_catalog(
+            &manager,
+            "id-alpha",
+            vec![sample_tool("read"), sample_tool("write")],
+        )
+        .await;
+        assert!(manager.lookup_tool("mcp__alpha__write").await.is_some());
+
+        cfg.allowed_tools = vec!["read".into()];
+        manager
+            .reconcile(McpGlobalSettings::default(), vec![cfg])
+            .await
+            .unwrap();
+
+        assert_eq!(cached_tool_names(&manager), vec!["mcp__alpha__read"]);
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_some());
+        assert!(manager.lookup_tool("mcp__alpha__write").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn reconcile_removes_denied_server_and_catalog_entries() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        seed_ready_catalog(&manager, "id-alpha", vec![sample_tool("read")]).await;
+
+        let global = McpGlobalSettings {
+            denied_servers: vec!["alpha".into()],
+            ..Default::default()
+        };
+        manager.reconcile(global, vec![cfg]).await.unwrap();
+
+        assert!(manager.get_by_id("id-alpha").await.is_none());
+        assert!(manager.mcp_tool_definitions().is_empty());
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn reconcile_global_disable_clears_catalog_and_reenable_starts_idle() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        seed_ready_catalog(&manager, "id-alpha", vec![sample_tool("read")]).await;
+
+        let disabled = McpGlobalSettings {
+            enabled: false,
+            ..Default::default()
+        };
+        manager
+            .reconcile(disabled, vec![cfg.clone()])
+            .await
+            .unwrap();
+
+        assert!(manager.get_by_id("id-alpha").await.is_none());
+        assert!(manager.mcp_tool_definitions().is_empty());
+
+        manager
+            .reconcile(McpGlobalSettings::default(), vec![cfg])
+            .await
+            .unwrap();
+
+        let handle = manager
+            .get_by_id("id-alpha")
+            .await
+            .expect("server restored");
+        assert_eq!(handle.snapshot().await.state, "idle");
+        assert!(manager.mcp_tool_definitions().is_empty());
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_none());
     }
 }

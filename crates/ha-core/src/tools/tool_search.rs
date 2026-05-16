@@ -63,8 +63,9 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         }
     }
 
-    // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled.
-    if agent_cfg.capabilities.mcp_enabled {
+    // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled
+    // and the global MCP kill switch.
+    if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
         if let Some(mcp) = crate::mcp::McpManager::global() {
             for def in mcp.mcp_tool_definitions().iter() {
                 if !candidates.iter().any(|c| c.name == def.name) {
@@ -193,8 +194,10 @@ mod tests {
     #[tokio::test]
     async fn test_context_denied_tools_are_hidden() {
         let args = json!({ "query": "select:read,write" });
-        let mut ctx = ToolExecContext::default();
-        ctx.denied_tools = vec!["write".to_string()];
+        let ctx = ToolExecContext {
+            denied_tools: vec!["write".to_string()],
+            ..ToolExecContext::default()
+        };
 
         let result = tool_search(&args, &ctx).await.unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();

@@ -1192,7 +1192,7 @@ impl AssistantAgent {
             schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SUBAGENT);
         }
 
-        if caps.mcp_enabled {
+        if caps.mcp_enabled && app_config.mcp_global.enabled {
             if let Some(mcp) = crate::mcp::McpManager::global() {
                 for def in mcp.mcp_tool_definitions().iter() {
                     if crate::mcp::catalog::tool_belongs_to_deferred_server(

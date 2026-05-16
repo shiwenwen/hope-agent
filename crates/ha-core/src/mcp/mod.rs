@@ -49,6 +49,13 @@ pub(crate) async fn locate_server(
 ) -> anyhow::Result<std::sync::Arc<ServerHandle>> {
     let mgr =
         McpManager::global().ok_or_else(|| anyhow::anyhow!("MCP subsystem not initialized"))?;
+    if !mgr.is_enabled().await {
+        anyhow::bail!(
+            "MCP subsystem is disabled in config (mcpGlobal.enabled=false); \
+             server '{}' is unavailable",
+            name_or_id
+        );
+    }
     mgr.locate(name_or_id)
         .await
         .ok_or_else(|| anyhow::anyhow!("MCP server '{name_or_id}' not found"))
