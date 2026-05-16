@@ -43,7 +43,11 @@ function resolveLanguage(raw: string): string {
 
 /** Detect the system/browser language and resolve to a supported code. */
 function detectSystemLanguage(): string {
-  const detected = navigator.language || (navigator.languages && navigator.languages[0]) || "en"
+  if (typeof navigator === "undefined") {
+    return "en"
+  }
+
+  const detected = navigator.language || navigator.languages?.[0] || "en"
   return resolveLanguage(detected)
 }
 
