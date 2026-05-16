@@ -58,7 +58,7 @@ export default function PermissionModeSwitcher({
           activeTheme.buttonTone,
         )}
       >
-        <ActiveIcon className="h-3.5 w-3.5 shrink-0" />
+        <ActiveIcon className="h-4 w-4 shrink-0" />
         <span>{t(`chat.permissionMode.${permissionMode}.label`)}</span>
       </button>
 
@@ -82,7 +82,7 @@ export default function PermissionModeSwitcher({
                     setOpen(false)
                   }}
                 >
-                  <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", theme.iconTone)} />
+                  <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", theme.iconTone)} />
                   <div className="flex flex-col">
                     <span className="text-[13px]">
                       {t(`chat.permissionMode.${mode}.label`)}

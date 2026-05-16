@@ -33,7 +33,7 @@ export default function TemperatureSlider({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <Thermometer className="h-3.5 w-3.5 shrink-0" />
+          <Thermometer className="h-4 w-4 shrink-0" />
           {sessionTemperature != null && (
             <span>{sessionTemperature.toFixed(1)}</span>
           )}

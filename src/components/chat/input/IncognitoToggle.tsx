@@ -16,6 +16,8 @@ interface IncognitoToggleProps {
   enabled: boolean
   saving?: boolean
   disabledReason?: IncognitoDisabledReason
+  variant?: "toolbar" | "titlebar"
+  showLabel?: boolean
   onChange: (enabled: boolean) => void
 }
 
@@ -24,6 +26,8 @@ export default function IncognitoToggle({
   enabled,
   saving = false,
   disabledReason,
+  variant = "toolbar",
+  showLabel = true,
   onChange,
 }: IncognitoToggleProps) {
   const { t } = useTranslation()
@@ -32,27 +36,33 @@ export default function IncognitoToggle({
   const tooltip = disabled
     ? t(DISABLED_REASON_KEY[disabledReason] ?? "chat.incognitoMutuallyExclusive")
     : t(sessionId ? "chat.incognito" : "chat.incognitoPreset")
+  const titlebar = variant === "titlebar"
 
   return (
     <IconTip label={tooltip}>
       <button
         type="button"
+        aria-label={showLabel ? t("chat.incognito") : tooltip}
         disabled={saving || disabled}
         onClick={() => onChange(!enabled)}
         className={cn(
-          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+          titlebar
+            ? "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            : "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
           saving && "disabled:cursor-wait disabled:opacity-70",
           enabled && !disabled
-            ? INCOGNITO_TOGGLE_ON_CLASSES
+            ? titlebar
+              ? "text-slate-700 dark:text-slate-200"
+              : INCOGNITO_TOGGLE_ON_CLASSES
             : "text-muted-foreground hover:text-foreground",
         )}
       >
         {saving ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Ghost className="h-3.5 w-3.5" />
+          <Ghost className="h-4 w-4" />
         )}
-        <span>{t("chat.incognito")}</span>
+        {showLabel && <span>{t("chat.incognito")}</span>}
       </button>
     </IconTip>
   )
