@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { X, RefreshCw, Maximize2, Minimize2, ExternalLink, PanelLeftClose } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
+import { RightPanelShell } from "./right-panel/RightPanelShell"
 
 interface CanvasInfo {
   projectId: string
@@ -384,33 +385,6 @@ export default function CanvasPanel({
     setDetached(false)
   }, [])
 
-  const handlePanelDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = panelWidth
-      const maxWidth = Math.min(960, Math.max(420, window.innerWidth * 0.55))
-      const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
-        onPanelWidthChange?.(newWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-      }
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [panelWidth, onPanelWidthChange],
-  )
-
   if (!canvas) return null
 
   // Build the iframe URL via the transport — `asset://` scheme in Tauri,
@@ -421,122 +395,26 @@ export default function CanvasPanel({
   // When detached, show a compact placeholder panel
   if (detached) {
     return (
-      <div
-        className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-        style={{ width: panelWidth }}
-      >
-        <div
-          className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
-          onMouseDown={handlePanelDragStart}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("canvas.resizePanel", "Resize canvas panel")}
-        >
-          <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
-        </div>
-        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel">
-          {/* Title Bar */}
-          <div
-            className="flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel/95 px-4 shrink-0"
-            data-tauri-drag-region
-          >
-            <span className="text-sm font-medium truncate flex-1">{canvas.title}</span>
-            <div className="flex items-center gap-0.5">
-              <IconTip label={t("canvas.reattach")}>
-                <button
-                  onClick={handleReattach}
-                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <PanelLeftClose className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-              <IconTip label={t("canvas.close")}>
-                <button
-                  onClick={handleClose}
-                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-            </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center p-4">
-            <p className="text-xs text-muted-foreground text-center">{t("canvas.popOutActive")}</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-      style={{ width: panelWidth }}
-    >
-      <div
-        className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
-        onMouseDown={handlePanelDragStart}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("canvas.resizePanel", "Resize canvas panel")}
-      >
-        <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
-      </div>
-      <div
-        className={
-          maximized
-            ? "fixed inset-0 z-50 flex flex-col bg-surface-app"
-            : "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel"
-        }
+      <RightPanelShell
+        width={panelWidth}
+        onWidthChange={onPanelWidthChange}
+        resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
       >
         {/* Title Bar */}
         <div
-          className={cn(
-            "flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel px-4 shrink-0",
-            maximized && "h-[72px] items-end pb-2 pt-7",
-          )}
+          className="flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel/95 px-4 shrink-0"
           data-tauri-drag-region
         >
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {canvas.contentType}
-          </span>
           <span className="text-sm font-medium truncate flex-1">{canvas.title}</span>
-
           <div className="flex items-center gap-0.5">
-            <IconTip label={t("canvas.refresh")}>
+            <IconTip label={t("canvas.reattach")}>
               <button
-                onClick={handleRefresh}
+                onClick={handleReattach}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <PanelLeftClose className="h-3.5 w-3.5" />
               </button>
             </IconTip>
-
-            {/* Detach is desktop-only — spawning a WebviewWindow requires Tauri. */}
-            {isTauriMode() && (
-              <IconTip label={t("canvas.popOut")}>
-                <button
-                  onClick={handleDetach}
-                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-            )}
-
-            <IconTip label={maximized ? t("canvas.minimize") : t("canvas.maximize")}>
-              <button
-                onClick={() => setMaximized((v) => !v)}
-                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-              >
-                {maximized ? (
-                  <Minimize2 className="h-3.5 w-3.5" />
-                ) : (
-                  <Maximize2 className="h-3.5 w-3.5" />
-                )}
-              </button>
-            </IconTip>
-
             <IconTip label={t("canvas.close")}>
               <button
                 onClick={handleClose}
@@ -547,19 +425,90 @@ export default function CanvasPanel({
             </IconTip>
           </div>
         </div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-xs text-muted-foreground text-center">{t("canvas.popOutActive")}</p>
+        </div>
+      </RightPanelShell>
+    )
+  }
 
-        {/* iframe preview */}
-        <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
-          <iframe
-            ref={iframeRef}
-            key={`${canvas.projectId}-${refreshKey}`}
-            src={iframeSrc}
-            sandbox="allow-scripts"
-            className="w-full h-full border-0"
-            title={canvas.title}
-          />
+  return (
+    <RightPanelShell
+      width={panelWidth}
+      onWidthChange={onPanelWidthChange}
+      resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
+      maximized={maximized}
+    >
+      {/* Title Bar */}
+      <div
+        className={cn(
+          "flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel px-4 shrink-0",
+          maximized && "h-[72px] items-end pb-2 pt-7",
+        )}
+        data-tauri-drag-region
+      >
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          {canvas.contentType}
+        </span>
+        <span className="text-sm font-medium truncate flex-1">{canvas.title}</span>
+
+        <div className="flex items-center gap-0.5">
+          <IconTip label={t("canvas.refresh")}>
+            <button
+              onClick={handleRefresh}
+              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+
+          {/* Detach is desktop-only — spawning a WebviewWindow requires Tauri. */}
+          {isTauriMode() && (
+            <IconTip label={t("canvas.popOut")}>
+              <button
+                onClick={handleDetach}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          )}
+
+          <IconTip label={maximized ? t("canvas.minimize") : t("canvas.maximize")}>
+            <button
+              onClick={() => setMaximized((v) => !v)}
+              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              {maximized ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </IconTip>
+
+          <IconTip label={t("canvas.close")}>
+            <button
+              onClick={handleClose}
+              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
         </div>
       </div>
-    </div>
+
+      {/* iframe preview */}
+      <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
+        <iframe
+          ref={iframeRef}
+          key={`${canvas.projectId}-${refreshKey}`}
+          src={iframeSrc}
+          sandbox="allow-scripts"
+          className="w-full h-full border-0"
+          title={canvas.title}
+        />
+      </div>
+    </RightPanelShell>
   )
 }

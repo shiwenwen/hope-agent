@@ -17,7 +17,7 @@ import {
   FolderCheck,
   ListChecks,
   Loader2,
-  MessagesSquare,
+  MessageCircle,
   Search,
   Send,
   Ghost,
@@ -371,7 +371,7 @@ export default function ChatTitleBar({
               }
             >
               {displayMode === "timeline" ? (
-                <MessagesSquare className="h-4 w-4" />
+                <MessageCircle className="h-4 w-4" />
               ) : (
                 <ListChecks className="h-4 w-4" />
               )}

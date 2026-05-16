@@ -301,7 +301,7 @@ export function PlanPanel({
     : cn(
         "flex h-full min-h-0 flex-col shrink-0 overflow-hidden animate-in slide-in-from-right-2 duration-200",
         embedded
-          ? "w-full rounded-panel border border-border-soft bg-surface-panel shadow-panel"
+          ? "w-full"
           : desktopMode
             ? "max-w-[40vw] bg-surface-panel"
             : "max-w-[42vw] border-l border-border-soft bg-surface-panel/95",
@@ -327,7 +327,7 @@ export function PlanPanel({
         className={cn(
           "flex flex-col shrink-0 animate-in slide-in-from-right-2 duration-200",
           embedded
-            ? "h-full w-full overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel"
+            ? "h-full w-full overflow-hidden"
             : "w-[200px] bg-surface-panel",
         )}
       >

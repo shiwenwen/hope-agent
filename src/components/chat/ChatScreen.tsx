@@ -49,6 +49,7 @@ import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
 import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
+import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { useProjects } from "./project/hooks/useProjects"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
@@ -1300,60 +1301,6 @@ export default function ChatScreen({
     lastRightPanelKeyRef.current = rightPanelKey
   }, [rightPanelKey])
 
-  const handlePlanPanelDragStart = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = planPanelWidth
-      const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
-      const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
-        setPlanPanelWidth(newWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-      }
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [planPanelWidth],
-  )
-
-  const handleDiffPanelDragStart = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = diffPanel.panelWidth
-      const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
-      const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
-        diffPanel.setPanelWidth(newWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-      }
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [diffPanel],
-  )
-
   // Right-side panels (PlanPanel / CanvasPanel / DiffPanel / BrowserPanel)
   // are mutually exclusive at the visual level — opening one closes the
   // others but keeps their internal state so re-toggling restores the prior
@@ -1707,19 +1654,12 @@ export default function ChatScreen({
 
           {/* Diff panel (right side; mutually exclusive with PlanPanel) */}
           {diffPanel.showPanel && diffPanel.activeChanges.length > 0 && (
-            <div
-              className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-              style={{ width: diffPanel.panelWidth }}
+            <RightPanelShell
+              width={diffPanel.panelWidth}
+              onWidthChange={diffPanel.setPanelWidth}
+              resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
+              maxWidth={860}
             >
-              <div
-                className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
-                onMouseDown={handleDiffPanelDragStart}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={t("diffPanel.resizePanel", "Resize diff panel")}
-              >
-                <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
-              </div>
               <DiffPanel
                 changes={diffPanel.activeChanges}
                 activeIndex={diffPanel.activeIndex}
@@ -1727,24 +1667,17 @@ export default function ChatScreen({
                 onClose={diffPanel.closeDiff}
                 embedded
               />
-            </div>
+            </RightPanelShell>
           )}
 
           {/* Plan workspace (right side, integrated under the shared title bar) */}
           {shouldShowPlanPanel && (
-            <div
-              className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-              style={{ width: planPanelWidth }}
+            <RightPanelShell
+              width={planPanelWidth}
+              onWidthChange={setPlanPanelWidth}
+              resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
+              maxWidth={860}
             >
-              <div
-                className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
-                onMouseDown={handlePlanPanelDragStart}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={t("planMode.resizePanel", "Resize plan panel")}
-              >
-                <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
-              </div>
               <PlanPanel
                 planState={planMode.planState}
                 planContent={planMode.planContent}
@@ -1757,7 +1690,7 @@ export default function ChatScreen({
                 onRequestChanges={handleRequestChanges}
                 embedded
               />
-            </div>
+            </RightPanelShell>
           )}
 
           {/* Canvas Preview Panel */}

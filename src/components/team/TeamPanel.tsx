@@ -1,10 +1,10 @@
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback } from "react"
 import { X } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
+import { RightPanelShell } from "@/components/chat/right-panel/RightPanelShell"
 import { useTeam } from "./useTeam"
 import { TeamToolbar } from "./TeamToolbar"
 import { TeamDashboard } from "./TeamDashboard"
@@ -35,38 +35,7 @@ export function TeamPanel({
     useTeam(teamId)
   const [tab, setTab] = useState("dashboard")
 
-  // ── Drag resize handle ──────────────────────────────────
-  const dragging = useRef(false)
-  const startX = useRef(0)
-  const startW = useRef(0)
-
   const width = panelWidth ?? DEFAULT_WIDTH
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault()
-      dragging.current = true
-      startX.current = e.clientX
-      startW.current = width
-
-      const handleMove = (ev: PointerEvent) => {
-        if (!dragging.current) return
-        const delta = startX.current - ev.clientX // drag left = wider
-        const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + delta))
-        onPanelWidthChange?.(next)
-      }
-
-      const handleUp = () => {
-        dragging.current = false
-        document.removeEventListener("pointermove", handleMove)
-        document.removeEventListener("pointerup", handleUp)
-      }
-
-      document.addEventListener("pointermove", handleMove)
-      document.addEventListener("pointerup", handleUp)
-    },
-    [width, onPanelWidthChange],
-  )
 
   // ── Actions ─────────────────────────────────────────────
   const handlePause = useCallback(async () => {
@@ -83,36 +52,29 @@ export function TeamPanel({
 
   if (!team) {
     return (
-      <div
-        className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-        style={{ width }}
+      <RightPanelShell
+        width={width}
+        onWidthChange={onPanelWidthChange}
+        resizeLabel={t("team.resizePanel", "Resize team panel")}
+        minWidth={MIN_WIDTH}
+        maxWidth={MAX_WIDTH}
       >
-        <div className="flex h-full min-h-0 w-full items-center justify-center rounded-xl border border-border/70 bg-card text-sm text-muted-foreground shadow-sm">
+        <div className="flex h-full min-h-0 w-full items-center justify-center text-sm text-muted-foreground">
           {t("team.loading", "Loading...")}
         </div>
-      </div>
+      </RightPanelShell>
     )
   }
 
   return (
-    <div
-      className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-      style={{ width }}
+    <RightPanelShell
+      width={width}
+      onWidthChange={onPanelWidthChange}
+      resizeLabel={t("team.resizePanel", "Resize team panel")}
+      minWidth={MIN_WIDTH}
+      maxWidth={MAX_WIDTH}
     >
-      {/* Drag handle */}
-      <div
-        className={cn(
-          "group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center",
-        )}
-        onPointerDown={handlePointerDown}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("team.resizePanel", "Resize team panel")}
-      >
-        <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
-      </div>
-
-      <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+      <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
         {/* Close button */}
         <Button
           variant="ghost"
@@ -171,6 +133,6 @@ export function TeamPanel({
           </TabsContent>
         </Tabs>
       </div>
-    </div>
+    </RightPanelShell>
   )
 }
