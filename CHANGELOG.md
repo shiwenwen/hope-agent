@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Agent 工具开关语义收敛**：`capabilities.tools.allow/deny` 现在只表示非 Core 内置工具的显式开 / 关覆盖；Core 工具始终可用，Standard / Configured 工具缺省走代码里的 tier 默认值，deferred 只决定已开启工具的 schema 加载方式。移除独立 `capabilityToggles` / `toolOverrides` 分支，OpenClaw 导入不再映射两边语义不同的工具权限；飞书业务工具仍默认关闭，需在 Agent 设置里显式开启，UI 列表补充中文语义化名称与说明。
 - **浏览器工具 27 → 8 action 收敛**：原来散乱的 `connect / launch / navigate / take_snapshot / click / fill / fill_form / hover / drag / press_key / upload_file / evaluate / wait_for / handle_dialog / resize / scroll / list_profiles / save_pdf` 等 27 个 action 全部下沉到 8 个高层 action（`status / profile / tabs / navigate / snapshot / act / observe / control`）。工具默认进 deferred 池（`tool_search` 按需暴露），常态不占 system prompt。配套新 [`ha-browser` bundled skill](skills/ha-browser/SKILL.md) 教模型标准 `status → tabs → snapshot → act` loop、stale-ref 自恢复、登录/2FA/captcha 阻塞情形清单。
 - **双 backend 架构**：浏览器自动化底层在 `chromiumoxide` 直连 CDP 与 Google 官方 `chrome-devtools-mcp` 之间自动切换——检测到 Node.js ≥ 18 时优先用 MCP backend（复用 Google 处理过的 Chrome 单实例锁、自动重连、stale-ref recovery 等工程细节），缺 Node 自动降级到直连 CDP。LLM 看到的 ref / op / 错误语义完全一致，BrowserPanel 右上角 `MCP` / `CDP` 角标显示当前 backend。
 

@@ -161,13 +161,13 @@ TOOL_ASK_USER_QUESTION => {
 
 **系统提示词注入**（两层设计）：
 
-1. **⑥ 工具描述层** —— `system_prompt/constants.rs` 的 `TOOL_DESC_ASK_USER_QUESTION` 在动态系统提示词拼装阶段挂载到 `ask_user_question` key，随 Agent 的 `capabilities.tools` 过滤后注入。这一层只保留**工具调用规则**（参数语法、推荐项标注、Plan Mode 和 tool approval 两道禁令），指向下面的全局指引段而不重复展开 WHEN / WHEN NOT / HOW。
+1. **⑥ 工具描述层** —— `system_prompt/constants.rs` 的 `TOOL_DESC_ASK_USER_QUESTION` 在动态系统提示词拼装阶段挂载到 `ask_user_question` key。`ask_user_question` 是 Core Interaction 工具，随 Core 工具描述稳定注入，不受 `capabilities.tools.allow/deny` 影响。这一层只保留**工具调用规则**（参数语法、推荐项标注、Plan Mode 和 tool approval 两道禁令），指向下面的全局指引段而不重复展开 WHEN / WHEN NOT / HOW。
    - 1–4 个问题、每题 2–4 个选项
    - 推荐项首位并带 `(Recommended)` 标签
    - **禁止**用来询问 "is my plan ready?"（应使用 `submit_plan`）
    - **禁止**用来询问 "should I run this command?"（应使用工具审批机制）
 
-2. **⑥c 全局 Human-in-the-loop 段** —— `system_prompt/constants.rs` 的 `HUMAN_IN_THE_LOOP_GUIDANCE` 常量，由 `system_prompt/build.rs` 在 Tool definitions 之后条件注入（仅当 Agent 通过 `agent_tool_filter_allows(TOOL_ASK_USER_QUESTION, …)` 检查时）。这一层是**全局思维框架**，提供 WHEN / WHEN NOT / HOW 三段触发规则：
+2. **⑥c 全局 Human-in-the-loop 段** —— `system_prompt/constants.rs` 的 `HUMAN_IN_THE_LOOP_GUIDANCE` 常量，由 `system_prompt/build.rs` 在 Tool definitions 之后始终注入。`ask_user_question` 是 Core Interaction 工具，不受非 Core 工具开关影响。这一层是**全局思维框架**，提供 WHEN / WHEN NOT / HOW 三段触发规则：
    - **Ask the user when**：不可逆或高代价操作（删 >5 文件、DB 迁移、force push、依赖 major bump）、真实歧义、多路径相近、即将硬编码假设、≥2 次失败
    - **Do NOT ask when**：可通过 read/grep/ls 自查的、AGENTS.md / CLAUDE.md 已规定的、低成本可撤销操作（创建测试文件、加日志）、纯风格/命名/格式
    - **How to ask**（节流）：相关问题合并成一次调用（最多 4 题）、每任务 ≤2 次、优先前置（执行前）而非中途打断、若想问第二次先考虑能否自己查

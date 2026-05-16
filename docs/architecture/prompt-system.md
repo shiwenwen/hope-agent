@@ -92,9 +92,9 @@ graph LR
     AD --> S3["③ agent.md"]
     AD --> S4["④ persona.md"]
     AD --> S5["⑤ tools.md"]
-    AD --> S6["⑥ Tool Descriptions (FilterConfig)"]
+    AD --> S6["⑥ Tool Descriptions (dispatch::resolve_tool_fate)"]
     S6 --> S6b["⑥c Tool-Call Narration guidance (hardcoded, always injected)"]
-    S6b --> S6c["⑥d Human-in-the-loop guidance (hardcoded, only if ask_user_question is enabled)"]
+    S6b --> S6c["⑥d Human-in-the-loop guidance (hardcoded, always injected)"]
     AD --> S7["⑦ Skills (FilterConfig)"]
     S7 --> S7d["⑦d Working Directory (conditional)"]
     S7d --> S8["⑧ Memory"]
@@ -239,26 +239,23 @@ The following project context files have been loaded:
 
 **代码位置**：`crates/ha-core/src/system_prompt/constants.rs`
 
-### 动态过滤机制
+### 动态工具段生成
 
 ```rust
-fn build_tools_section(filter: &FilterConfig) -> String {
-    let no_filter = filter.allow.is_empty() && filter.deny.is_empty();
-    let descs: Vec<&str> = TOOL_DESCRIPTIONS
-        .iter()
-        .filter(|(name, _)| no_filter || crate::tools::agent_tool_filter_allows(name, filter))
-        .map(|(_, desc)| *desc)
-        .collect();
+fn build_tools_section(agent_id: &str, agent_config: &AgentConfig) -> String {
+    let ctx = DispatchContext { agent_id, agent_config, app_config };
+    let eager_names = all_dispatchable_tools()
+        .filter(|tool| matches!(resolve_tool_fate(tool, &ctx), InjectEager));
+    let descs = TOOL_DESCRIPTIONS
+        .filter(|(name, _)| eager_names.contains(name));
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
 }
 ```
 
-- `allow` 为空且 `deny` 为空 → 注入全部工具描述
-- `allow` 非空 → 只注入白名单中的工具
-- `deny` 非空 → 排除黑名单中的工具
-- 过滤后为空 → 不注入工具段
-- **internal 工具例外**：Agent 设置 UI 不暴露 internal system tools，因此 `FilterConfig` 在这一层默认保留 internal 工具描述
-- **共享同一套过滤语义**：Section ⑥ 使用的 `FilterConfig` 语义与 `agent/mod.rs` 的 `build_tool_schemas()`、`tool_search` 结果过滤和执行层兜底保持一致，都是 Agent 级基线工具权限的一部分
+- Core 工具按 tier 直接注入；Standard / Configured 工具先按 `capabilities.tools.allow/deny` 覆盖 tier 默认值
+- Configured 工具未完成全局配置时不进 Available Tools，而进入 `# Unconfigured Capabilities` 提示
+- deferred 工具不进 Available Tools，进入 `# Additional Tools (use tool_search to discover)`
+- **共享同一套语义**：Section ⑥、`agent/mod.rs::build_tool_schemas()`、`tool_search` 和执行层兜底都以 `dispatch::resolve_tool_fate()` 为准
 
 **代码位置**：`crates/ha-core/src/system_prompt/sections.rs` — `build_tools_section()`
 
@@ -349,7 +346,7 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 **位置**：`system_prompt/build.rs` 的 ⑥d 段，紧跟工具描述 / Tool-Call Narration 之后（Tool definitions → Deferred tools → Tool-Call Narration → **Human-in-the-loop** → Skills）
 
-**注入条件**：仅当 agent 启用了 `ask_user_question` 工具（通过 `agent_tool_filter_allows()` 检查）。完全不能交互的 agent 跳过该段，避免灌输不可执行的规则。
+**注入条件**：始终注入。`ask_user_question` 是 Core Interaction 工具，不受非 Core 工具开关影响；这段规则必须和工具 schema 一起保持可用。
 
 **为什么硬编码而非走 `agent.md` 模板**：[agent.en.md](../../crates/ha-core/templates/agent.en.md) / `agent.zh.md` 是默认模板，用户可以在 `~/.hope-agent/agents/{id}/agent.md` 自定义甚至彻底重写。如果把人机交互规则放模板里，用户改 agent.md 时可能整段删掉，行为约束就丢了。所以这段指引以 `HUMAN_IN_THE_LOOP_GUIDANCE` 常量形式编译进二进制，由 `build.rs` 用 `sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string())` 直接注入，不可篡改。参考已有的 Sandbox Mode（⑪）和 Memory Guidelines（8d）也是同样的硬编码范式。
 

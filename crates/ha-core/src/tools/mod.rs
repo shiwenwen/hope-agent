@@ -121,29 +121,18 @@ pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
-/// Agent-level tool filter semantics.
-///
-/// Internal system tools are always allowed here because the Agent settings UI
-/// only exposes user-facing built-in tools. Stronger restrictions such as
-/// denied_tools / skill_allowed_tools / Plan Mode still apply separately.
-pub fn agent_tool_filter_allows(name: &str, filter: &crate::agent_config::FilterConfig) -> bool {
-    if is_internal_tool(name) {
-        return true;
-    }
-    filter.is_allowed(name)
-}
-
-/// Combined tool visibility check shared by schema generation, tool_search, and
-/// execution-layer defense-in-depth.
+/// Combined context-level visibility check shared by schema generation,
+/// tool_search, and execution-layer defense-in-depth. Agent-level on/off
+/// switches are handled by `dispatch::resolve_tool_fate`; this helper applies
+/// only additional narrowing layers.
 pub fn tool_visible_with_filters(
     name: &str,
-    agent_filter: &crate::agent_config::FilterConfig,
+    _agent_filter: &crate::agent_config::FilterConfig,
     denied_tools: &[String],
     skill_allowed_tools: &[String],
     plan_mode_allowed_tools: &[String],
 ) -> bool {
-    agent_tool_filter_allows(name, agent_filter)
-        && !denied_tools.iter().any(|t| t == name)
+    !denied_tools.iter().any(|t| t == name)
         && (skill_allowed_tools.is_empty() || skill_allowed_tools.iter().any(|t| t == name))
         && (plan_mode_allowed_tools.is_empty() || plan_mode_allowed_tools.iter().any(|t| t == name))
 }
@@ -188,26 +177,17 @@ pub(crate) fn expand_tilde(path: &str) -> String {
 mod tests {
     use crate::agent_config::FilterConfig;
 
-    use super::{agent_tool_filter_allows, tool_visible_with_filters, TOOL_TOOL_SEARCH};
+    use super::tool_visible_with_filters;
 
     #[test]
-    fn agent_filter_keeps_internal_tools_visible() {
-        let filter = FilterConfig {
-            allow: vec!["read".to_string()],
-            deny: vec![],
-        };
-        assert!(agent_tool_filter_allows(TOOL_TOOL_SEARCH, &filter));
-    }
-
-    #[test]
-    fn combined_visibility_applies_all_restrictions() {
+    fn combined_visibility_applies_context_restrictions() {
         let filter = FilterConfig {
             allow: vec!["read".to_string(), "write".to_string()],
             deny: vec!["write".to_string()],
         };
 
         assert!(tool_visible_with_filters("read", &filter, &[], &[], &[]));
-        assert!(!tool_visible_with_filters("write", &filter, &[], &[], &[]));
+        assert!(tool_visible_with_filters("write", &filter, &[], &[], &[]));
         assert!(!tool_visible_with_filters(
             "read",
             &filter,

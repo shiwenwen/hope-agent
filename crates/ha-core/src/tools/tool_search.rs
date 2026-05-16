@@ -45,7 +45,6 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         mcp_enabled: agent_cfg.capabilities.mcp_enabled,
         memory_enabled: agent_cfg.memory.enabled,
         tools_filter: &agent_cfg.capabilities.tools,
-        capability_toggles: &agent_cfg.capabilities.capability_toggles,
         app_config: &app_config,
     };
 
@@ -192,10 +191,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_filter_hides_denied_tools() {
+    async fn test_context_denied_tools_are_hidden() {
         let args = json!({ "query": "select:read,write" });
         let mut ctx = ToolExecContext::default();
-        ctx.agent_tool_filter.deny = vec!["write".to_string()];
+        ctx.denied_tools = vec!["write".to_string()];
 
         let result = tool_search(&args, &ctx).await.unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();

@@ -149,8 +149,8 @@ pub struct ToolExecContext {
     pub agent_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)
     pub subagent_depth: u32,
-    /// Agent-level tool filter from `agent.json` capabilities.tools.
-    /// Internal system tools are exempt at this layer to preserve existing UI semantics.
+    /// Agent-level non-Core tool switch overrides from `agent.json`
+    /// `capabilities.tools`.
     pub agent_tool_filter: crate::agent_config::FilterConfig,
     /// Tools removed by sub-agent depth policy or other schema-level denies.
     pub denied_tools: Vec<String>,
@@ -251,13 +251,74 @@ impl ToolExecContext {
         )
     }
 
-    /// Human-readable reason when a tool is blocked by the current restrictions.
-    pub fn tool_visibility_error(&self, name: &str) -> Option<String> {
-        if !super::agent_tool_filter_allows(name, &self.agent_tool_filter) {
+    fn builtin_fate_error(&self, name: &str) -> Option<String> {
+        let canonical = canonical_builtin_tool_name(name);
+        let agent_id = self
+            .agent_id
+            .as_deref()
+            .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+        let agent_def = crate::agent_loader::load_agent(agent_id).ok();
+        let default_cfg = crate::agent_config::AgentConfig::default();
+        let agent_cfg = agent_def
+            .as_ref()
+            .map(|d| &d.config)
+            .unwrap_or(&default_cfg);
+
+        if crate::mcp::catalog::is_mcp_tool_name(canonical) && !agent_cfg.capabilities.mcp_enabled {
             return Some(format!(
-                "Agent tool filter: tool '{}' is disabled for this agent.",
+                "Agent tool switch: MCP tools are disabled for this agent, so '{}' cannot execute.",
                 name
             ));
+        }
+
+        let Some(def) = super::dispatch::all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == canonical)
+        else {
+            return None;
+        };
+
+        // Plan-mode tools are injected by `AssistantAgent::apply_plan_tools`
+        // according to live session state rather than by static tool fate.
+        // Their handlers also validate the active plan state, so the generic
+        // dispatcher verdict (`Hidden`) must not block legitimate calls.
+        if matches!(
+            def.tier,
+            super::ToolTier::Core {
+                subclass: super::CoreSubclass::PlanMode
+            }
+        ) {
+            return None;
+        }
+
+        let app_config = crate::config::cached_config();
+        let dispatch_ctx = super::dispatch::DispatchContext {
+            agent_id,
+            mcp_enabled: agent_cfg.capabilities.mcp_enabled,
+            memory_enabled: agent_cfg.memory.enabled,
+            tools_filter: &agent_cfg.capabilities.tools,
+            app_config: &app_config,
+        };
+
+        match super::dispatch::resolve_tool_fate(def, &dispatch_ctx) {
+            super::dispatch::ToolFate::InjectEager | super::dispatch::ToolFate::InjectDeferred => {
+                None
+            }
+            super::dispatch::ToolFate::HintOnly { config_hint } => Some(format!(
+                "Agent tool switch: tool '{}' is enabled but not configured. {}",
+                canonical, config_hint
+            )),
+            super::dispatch::ToolFate::Hidden => Some(format!(
+                "Agent tool switch: tool '{}' is disabled for this agent.",
+                canonical
+            )),
+        }
+    }
+
+    /// Human-readable reason when a tool is blocked by the current restrictions.
+    pub fn tool_visibility_error(&self, name: &str) -> Option<String> {
+        if let Some(err) = self.builtin_fate_error(name) {
+            return Some(err);
         }
         if self.denied_tools.iter().any(|t| t == name) {
             return Some(format!(
@@ -292,6 +353,15 @@ impl ToolExecContext {
         if let Some(sink) = &self.metadata_sink {
             *sink.lock().await = Some(value);
         }
+    }
+}
+
+fn canonical_builtin_tool_name(name: &str) -> &str {
+    match name {
+        "read_file" => TOOL_READ,
+        "write_file" => TOOL_WRITE,
+        "patch_file" => TOOL_EDIT,
+        _ => name,
     }
 }
 

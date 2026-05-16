@@ -2,7 +2,12 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { isMainAgent, TOOL_I18N_KEY, TOOL_NAME_TO_TOGGLE_KEY } from "@/types/tools"
+import {
+  isMainAgent,
+  toolDisplayDescFallback,
+  toolDisplayNameFallback,
+  TOOL_I18N_KEY,
+} from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -70,6 +75,7 @@ type BuiltinTool = {
   /** Tier 3 only — `null` for other tiers. `false` means provider/feature
    * not yet configured globally; the UI should surface the hint banner. */
   globally_configured?: boolean | null
+  defer_capable?: boolean | null
 }
 
 interface CapabilitiesTabProps {
@@ -102,7 +108,7 @@ export default function CapabilitiesTab({
   textInputProps,
   CharCounter,
 }: CapabilitiesTabProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isMain = isMainAgent(agentId)
 
   // ── Collapsible state (default collapsed to keep the tab compact) ──
@@ -111,13 +117,17 @@ export default function CapabilitiesTab({
   const [mcpOpen, setMcpOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
 
-  const toolDisplayName = (name: string) => {
+  const toolDisplayName = (tool: BuiltinTool) => {
+    const name = tool.name
     const key = TOOL_I18N_KEY[name]
-    return key ? t(`settings.tool${key}Name`) : name
+    return key ? t(`settings.tool${key}Name`) : toolDisplayNameFallback(name, i18n.language)
   }
-  const toolDisplayDesc = (name: string) => {
+  const toolDisplayDesc = (tool: BuiltinTool) => {
+    const name = tool.name
     const key = TOOL_I18N_KEY[name]
-    return key ? t(`settings.tool${key}Desc`) : ""
+    return key
+      ? t(`settings.tool${key}Desc`)
+      : toolDisplayDescFallback(name, tool.description, i18n.language)
   }
 
   const updateCapabilities = (patch: Partial<AgentConfig["capabilities"]>) =>
@@ -132,72 +142,35 @@ export default function CapabilitiesTab({
       t.core_subclass !== "plan_mode" &&
       t.core_subclass !== "meta",
   )
-  // Tier 2 (Standard) and Tier 3 (Configured) share the same UI section —
-  // the only behavioral difference is which config branch holds the toggle
-  // (`tools.deny` vs `capabilityToggles`) and whether to render the
-  // "needs global provider" hint below the row.
+  // Tier 2 (Standard) and Tier 3 (Configured) share the same UI section.
+  // Individual switches write `capabilities.tools.allow/deny`; Tier 3 still
+  // renders an extra "needs global provider/account" hint when enabled but
+  // not globally provisioned.
   const userToggleableTools = builtinTools.filter(
     (t) => t.tier === "standard" || t.tier === "configured",
   )
   // memory / mcp tools are not individually toggleable in this UI — they're
   // controlled by the global memory enabled flag and the MCP master switch.
 
-  // ── Helpers for Tier 2 (Standard, controlled via tools.deny) ──
-  const tier2Enabled = (tool: BuiltinTool) => {
+  // ── Helpers for user-toggleable tool defaults + explicit overrides ──
+  const toolDefaultEnabled = (tool: BuiltinTool) =>
+    isMain ? !!tool.default_for_main : !!tool.default_for_others
+
+  const toolEnabled = (tool: BuiltinTool) => {
     if (config.capabilities.tools.deny.includes(tool.name)) return false
     if (config.capabilities.tools.allow.includes(tool.name)) return true
-    return isMain ? !!tool.default_for_main : !!tool.default_for_others
-  }
-  const setTier2Enabled = (tool: BuiltinTool, on: boolean) => {
-    const tierDefault = isMain
-      ? !!tool.default_for_main
-      : !!tool.default_for_others
-    const inDeny = config.capabilities.tools.deny.includes(tool.name)
-    let newDeny = config.capabilities.tools.deny.slice()
-    if (on) {
-      // Want it on. If denied, remove from deny. If tier default is off and we
-      // want it on, we still need to remove from deny (deny absent = use default,
-      // but default is off — so we'd need an "allow" list. Tier 2 doesn't
-      // currently support enabling-via-allow because tools.allow is unused.
-      // Practical effect: turning on a tool whose tier default is off becomes
-      // a no-op unless we add the override to tools.allow. To keep semantics
-      // honest, we treat allow as the override list for Tier 2.)
-      newDeny = newDeny.filter((n) => n !== tool.name)
-      const allow = config.capabilities.tools.allow.slice()
-      if (!tierDefault && !allow.includes(tool.name)) allow.push(tool.name)
-      updateCapabilities({
-        tools: { allow, deny: newDeny },
-      })
-    } else {
-      if (!inDeny) newDeny.push(tool.name)
-      const allow = config.capabilities.tools.allow.filter((n) => n !== tool.name)
-      updateCapabilities({
-        tools: { allow, deny: newDeny },
-      })
-    }
+    return toolDefaultEnabled(tool)
   }
 
-  // ── Helpers for Tier 3 (Configured, controlled via capabilityToggles) ──
-  const tier3Resolved = (tool: BuiltinTool): boolean => {
-    const key = TOOL_NAME_TO_TOGGLE_KEY[tool.name]
-    if (!key) return false
-    const explicit = config.capabilities.capabilityToggles?.[key]
-    if (explicit === true || explicit === false) return explicit
-    return isMain ? !!tool.default_for_main : !!tool.default_for_others
-  }
-  const setTier3Toggle = (tool: BuiltinTool, on: boolean) => {
-    const key = TOOL_NAME_TO_TOGGLE_KEY[tool.name]
-    if (!key) return
-    const next = { ...(config.capabilities.capabilityToggles ?? {}), [key]: on }
-    updateCapabilities({ capabilityToggles: next })
-  }
-
-  // ── Unified helpers for the merged "Standard tools" section ──
-  const toolEnabled = (tool: BuiltinTool) =>
-    tool.tier === "configured" ? tier3Resolved(tool) : tier2Enabled(tool)
   const setToolEnabled = (tool: BuiltinTool, on: boolean) => {
-    if (tool.tier === "configured") setTier3Toggle(tool, on)
-    else setTier2Enabled(tool, on)
+    const allow = config.capabilities.tools.allow.filter((n) => n !== tool.name)
+    const deny = config.capabilities.tools.deny.filter((n) => n !== tool.name)
+    const defaultEnabled = toolDefaultEnabled(tool)
+    const tools = {
+      allow: on && !defaultEnabled ? [...allow, tool.name] : allow,
+      deny: !on && defaultEnabled ? [...deny, tool.name] : deny,
+    }
+    updateCapabilities({ tools })
   }
 
   return (
@@ -262,10 +235,10 @@ export default function CapabilitiesTab({
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-foreground">
-                      {toolDisplayName(tool.name)}
+                      {toolDisplayName(tool)}
                     </div>
                     <div className="text-[11px] text-muted-foreground/60 line-clamp-1">
-                      {toolDisplayDesc(tool.name)}
+                      {toolDisplayDesc(tool)}
                     </div>
                   </div>
                   <span className="text-[10px] text-muted-foreground/60 px-2 py-0.5 rounded bg-secondary/60">
@@ -308,10 +281,10 @@ export default function CapabilitiesTab({
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-medium text-foreground">
-                          {toolDisplayName(tool.name)}
+                          {toolDisplayName(tool)}
                         </div>
                         <div className="text-[11px] text-muted-foreground/60 line-clamp-1">
-                          {toolDisplayDesc(tool.name)}
+                          {toolDisplayDesc(tool)}
                         </div>
                       </div>
                       <Switch

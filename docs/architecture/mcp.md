@@ -199,10 +199,12 @@ name if crate::mcp::catalog::is_mcp_tool_name(n) => {
 
 ### 与现有过滤体系整合
 
-[`tools::tool_visible_with_filters`](../../crates/ha-core/src/tools/mod.rs) 完全复用：
-- Agent 工具过滤（`agent.json capabilities.tools`）通过全限定名 `mcp__<server>__<tool>` 走通用规则
-- `allowed_tools` / `denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 都自然生效
-- 支持 `mcp__<server>__*` 通配（"允许整个 server"的便捷语法糖）
+MCP 工具的可见性分两层：
+- Agent 级 MCP master switch：`agent.json capabilities.mcpEnabled=false` 时，MCP 元工具和动态 `mcp__<server>__<tool>` 都不注入，也不进入 `tool_search`
+- Server 级 deferred：单个 MCP server 配置 `deferredTools=true` 时，该 server 的动态工具改由 `tool_search` 按需发现
+- 上下文级收紧：`denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 通过 [`tools::tool_visible_with_filters`](../../crates/ha-core/src/tools/mod.rs) 生效
+
+`capabilities.tools.allow/deny` 只表示非 Core 内置工具的开关覆盖，不再通过 `mcp__<server>__<tool>` 全限定名过滤动态 MCP 工具。
 
 ---
 

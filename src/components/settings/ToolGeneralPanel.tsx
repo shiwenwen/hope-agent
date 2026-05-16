@@ -9,7 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { WeatherSection } from "@/components/settings/WeatherSection"
 import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
-import { TOOL_I18N_KEY } from "@/types/tools"
+import {
+  toolDisplayDescFallback,
+  toolDisplayNameFallback,
+  TOOL_I18N_KEY,
+} from "@/types/tools"
 
 interface UserConfig {
   weatherEnabled?: boolean
@@ -46,7 +50,7 @@ const DEFAULT_LIMITS: ToolLimitsConfig = {
 }
 
 export default function ToolGeneralPanel() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(300)
   const [savedTimeout, setSavedTimeout] = useState(300)
   const [approvalTimeout, setApprovalTimeout] = useState(300)
@@ -244,11 +248,13 @@ export default function ToolGeneralPanel() {
   const deferCapableTools = builtinTools.filter((tool) => tool.defer_capable)
   const toolDisplayName = (name: string) => {
     const key = TOOL_I18N_KEY[name]
-    return key ? t(`settings.tool${key}Name`) : name
+    return key ? t(`settings.tool${key}Name`) : toolDisplayNameFallback(name, i18n.language)
   }
   const toolDisplayDesc = (tool: BuiltinTool) => {
     const key = TOOL_I18N_KEY[tool.name]
-    return key ? t(`settings.tool${key}Desc`) : tool.description
+    return key
+      ? t(`settings.tool${key}Desc`)
+      : toolDisplayDescFallback(tool.name, tool.description, i18n.language)
   }
 
   return (

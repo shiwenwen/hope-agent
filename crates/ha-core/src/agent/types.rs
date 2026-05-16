@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
-use crate::agent_config::{AsyncToolPolicy, CapabilityToggles, FilterConfig};
+use crate::agent_config::{AsyncToolPolicy, FilterConfig};
 use crate::provider::ThinkingStyle;
 
 /// Snapshot of the fields read from `agent.json` on every chat / tool-loop
@@ -11,15 +11,13 @@ use crate::provider::ThinkingStyle;
 /// agent.json 10+ times per chat turn.
 #[derive(Debug, Clone)]
 pub(super) struct AgentCapsCache {
+    /// Per-agent non-Core tool switch overrides.
     pub agent_tool_filter: FilterConfig,
     pub sandbox: bool,
     pub async_tool_policy: AsyncToolPolicy,
     /// Per-agent MCP master switch (mirrors `agent.json` `capabilities.mcpEnabled`).
     /// When false, all MCP tools are excluded from schema + system prompt.
     pub mcp_enabled: bool,
-    /// Tier 3 capability toggle overrides (web_search / canvas / image_generate /
-    /// send_notification / subagent / acp_spawn).
-    pub capability_toggles: CapabilityToggles,
     /// Whether memory is enabled for this agent (mirrors `agent.json`
     /// `memory.enabled`). Drives Tier::Memory tool injection gate.
     pub memory_enabled: bool,
@@ -34,11 +32,10 @@ pub(super) struct AgentCapsCache {
 impl Default for AgentCapsCache {
     fn default() -> Self {
         Self {
-            agent_tool_filter: FilterConfig::default(),
             sandbox: false,
             async_tool_policy: AsyncToolPolicy::default(),
             mcp_enabled: true,
-            capability_toggles: CapabilityToggles::default(),
+            agent_tool_filter: FilterConfig::default(),
             memory_enabled: true,
             enable_custom_tool_approval: false,
             custom_approval_tools: Vec::new(),

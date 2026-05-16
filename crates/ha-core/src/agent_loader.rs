@@ -281,7 +281,6 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     } else {
         AgentConfig::default()
     };
-
     // Load optional markdown files
     let agent_md = read_optional_md(&dir, AGENT_MD)?;
     let persona = read_optional_md(&dir, PERSONA_MD)?;
@@ -389,7 +388,6 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
         } else {
             AgentConfig::default()
         };
-
         // Count memories for this agent
         let memory_count = crate::get_memory_backend()
             .and_then(|b| {

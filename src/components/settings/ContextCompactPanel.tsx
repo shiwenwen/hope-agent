@@ -19,6 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, IconTip } from "@/components/u
 import { ChevronDown, ChevronRight, Loader2, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import { toolDisplayNameFallback } from "@/types/tools"
 
 interface CompactConfig {
   enabled: boolean
@@ -128,7 +129,7 @@ function NumberField({
 }
 
 export default function ContextCompactPanel() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [config, setConfig] = useState<CompactConfig | null>(null)
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
@@ -240,7 +241,9 @@ export default function ContextCompactPanel() {
                       policies[tool.name] === "eager" || policies[tool.name] === "protect"
                         ? policies[tool.name]
                         : "default"
-                    const displayName = t(`tools.${tool.name}`, { defaultValue: "" }) || tool.name
+                    const displayName = t(`tools.${tool.name}`, {
+                      defaultValue: toolDisplayNameFallback(tool.name, i18n.language),
+                    })
                     return (
                       <div
                         key={tool.name}
