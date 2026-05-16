@@ -274,10 +274,7 @@ pub async fn get_status() -> Result<BrowserStatus> {
     let tabs = if connected {
         // Best-effort refresh so the panel shows tabs opened via the real
         // Chrome window; swallow errors and keep returning whatever we have.
-        let _ = {
-            let mut st = get_browser_state().lock().await;
-            st.refresh_pages().await
-        };
+        let _ = crate::browser_state::refresh_pages_unlocked().await;
         collect_tabs().await
     } else {
         Vec::new()

@@ -220,9 +220,8 @@ pub struct BackendStatus {
 #[async_trait]
 pub trait BrowserBackend: Send + Sync {
     /// Stable identifier for telemetry / BrowserPanel badge. Currently
-    /// always `"cdp"` (chrome-devtools-mcp backend was removed); kept as a
-    /// `&'static str` extension point should we add Playwright / WebDriver
-    /// in the future.
+    /// always `"cdp"`; kept as a `&'static str` extension point should we
+    /// add Playwright / WebDriver in the future.
     fn backend_name(&self) -> &'static str;
 
     /// Best-effort connection check. Used by `status` action and for deciding

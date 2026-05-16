@@ -13,7 +13,7 @@
 //! Each handler grabs the active [`crate::browser::BrowserBackend`] via
 //! [`crate::browser::acquire_backend`] and formats a string result for the
 //! LLM. SSRF checks for any URL field happen *before* the backend call so the
-//! same policy applies regardless of the underlying backend (CDP / MCP).
+//! CDP layer never sees a URL that policy rejected.
 
 use std::path::PathBuf;
 

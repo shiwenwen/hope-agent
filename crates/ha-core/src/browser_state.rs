@@ -519,6 +519,46 @@ pub fn get_browser_state() -> &'static Mutex<BrowserState> {
     BROWSER_STATE.get_or_init(|| Mutex::new(BrowserState::new()))
 }
 
+/// Refresh the global page table without holding [`BROWSER_STATE`]'s mutex
+/// across the CDP `Browser.pages()` round-trip. Prefer this for status/UI
+/// refresh paths; [`BrowserState::refresh_pages`] remains available for
+/// code that is already performing a larger locked state transition.
+pub async fn refresh_pages_unlocked() -> anyhow::Result<()> {
+    let browser = {
+        let state = get_browser_state().lock().await;
+        state
+            .browser
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Not connected to browser"))?
+    };
+
+    let pages = browser
+        .pages()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list pages: {}", e))?;
+
+    let mut state = get_browser_state().lock().await;
+    state.pages.clear();
+    for page in pages {
+        let target_id = page.target_id().as_ref().to_string();
+        state.pages.insert(target_id, page);
+    }
+
+    if state
+        .active_page_id
+        .as_ref()
+        .is_some_and(|id| !state.pages.contains_key(id))
+    {
+        state.active_page_id = None;
+    }
+    if state.active_page_id.is_none() {
+        state.active_page_id = state.pages.keys().next().cloned();
+    }
+
+    Ok(())
+}
+
 /// Auto-connect to Chrome if not already connected (tries 127.0.0.1:9222)
 pub async fn ensure_connected() -> anyhow::Result<()> {
     let mut state = get_browser_state().lock().await;

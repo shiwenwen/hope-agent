@@ -14,8 +14,8 @@
 //!    closed.
 //!
 //! Frames are JPEG quality≈70 to keep the per-frame payload to ~50–200KB.
-//! When the active backend is the MCP one, the same backend trait method is
-//! used so the path is uniform — the BrowserPanel badge just toggles.
+//! Capture goes through the active browser backend trait, which is currently
+//! the direct CDP backend.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

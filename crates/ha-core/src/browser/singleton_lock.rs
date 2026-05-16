@@ -2,8 +2,8 @@
 //!
 //! Chrome's "only one instance per profile" guarantee is enforced via a
 //! lock file in the user-data-dir. We never bypass it — instead we check
-//! it before `target=system` launch so we can either ask the user to
-//! quit gracefully or escalate to a forced quit ourselves.
+//! it before launching any app-owned Chrome profile, and refuse to reuse a
+//! live-locked profile.
 
 use anyhow::{bail, Result};
 use std::path::Path;

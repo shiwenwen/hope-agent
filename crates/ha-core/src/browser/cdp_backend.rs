@@ -524,12 +524,21 @@ impl BrowserBackend for CdpBackend {
         // are awaited with the global mutex released so a concurrent tool
         // call (or BrowserPanel 1Hz capture) isn't blocked behind this
         // status report.
-        let (connected, active_target_id, page_handles) = {
-            let mut state = get_browser_state().lock().await;
-            let connected = state.is_connected();
-            let active_target_id = state.active_page_id.clone();
+        let connected = {
+            let state = get_browser_state().lock().await;
+            state.is_connected()
+        };
+        if connected {
+            let _ = crate::browser_state::refresh_pages_unlocked().await;
+        }
+        let (active_target_id, page_handles) = {
+            let state = get_browser_state().lock().await;
+            let active_target_id = if connected {
+                state.active_page_id.clone()
+            } else {
+                None
+            };
             let handles: Vec<(String, Page)> = if connected {
-                let _ = state.refresh_pages().await;
                 state
                     .pages
                     .iter()
@@ -538,7 +547,7 @@ impl BrowserBackend for CdpBackend {
             } else {
                 Vec::new()
             };
-            (connected, active_target_id, handles)
+            (active_target_id, handles)
         };
         let active_id_str = active_target_id.clone().unwrap_or_default();
         let mut tabs: Vec<TabInfo> = Vec::with_capacity(page_handles.len());
@@ -610,9 +619,9 @@ impl BrowserBackend for CdpBackend {
         // clone Page handles. The per-tab `url()` / `evaluate("document.title")`
         // CDP round-trips run after the lock is dropped so a concurrent
         // tool call doesn't queue behind this listing.
+        crate::browser_state::refresh_pages_unlocked().await?;
         let (active_id, page_handles) = {
-            let mut state = get_browser_state().lock().await;
-            state.refresh_pages().await?;
+            let state = get_browser_state().lock().await;
             let active_id = state.active_page_id.clone().unwrap_or_default();
             let handles: Vec<(String, Page)> = state
                 .pages
@@ -652,16 +661,20 @@ impl BrowserBackend for CdpBackend {
         let target_url = url.unwrap_or("about:blank");
         let _ready: BrowserReadyMode =
             crate::browser_state::ensure_connected_or_launch_managed().await?;
-        let mut state = get_browser_state().lock().await;
-        let browser = state
-            .browser
-            .as_ref()
-            .ok_or_else(|| anyhow!("Not connected"))?;
+        let browser = {
+            let state = get_browser_state().lock().await;
+            state
+                .browser
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| anyhow!("Not connected"))?
+        };
         let page = browser
             .new_page(target_url)
             .await
             .map_err(|e| anyhow!("Failed to create new page: {}", e))?;
         let target_id = page.target_id().as_ref().to_string();
+        let mut state = get_browser_state().lock().await;
         state.active_page_id = Some(target_id.clone());
         let page_clone = page.clone();
         state.pages.insert(target_id.clone(), page);
@@ -696,17 +709,20 @@ impl BrowserBackend for CdpBackend {
 
     async fn close_page(&self, target_id: &str) -> Result<()> {
         crate::browser_state::ensure_connected().await?;
-        let mut state = get_browser_state().lock().await;
-        let page = state
-            .pages
-            .remove(target_id)
-            .ok_or_else(|| anyhow!("Page '{}' not found", target_id))?;
+        let page = {
+            let mut state = get_browser_state().lock().await;
+            let page = state
+                .pages
+                .remove(target_id)
+                .ok_or_else(|| anyhow!("Page '{}' not found", target_id))?;
+            if state.active_page_id.as_deref() == Some(target_id) {
+                state.active_page_id = state.pages.keys().next().cloned();
+                state.element_refs.clear();
+                state.snapshot_url = None;
+            }
+            page
+        };
         let _ = page.close().await;
-        if state.active_page_id.as_deref() == Some(target_id) {
-            state.active_page_id = state.pages.keys().next().cloned();
-            state.element_refs.clear();
-            state.snapshot_url = None;
-        }
         Ok(())
     }
 

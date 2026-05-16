@@ -72,49 +72,99 @@ pub fn authorise_upload_path(raw: &str) -> anyhow::Result<std::path::PathBuf> {
 
 /// Authorise a path being handed to `snapshot.pdf output_path`. Same SSRF
 /// equivalent for write: an LLM-controlled path could otherwise overwrite
-/// `~/.ssh/authorized_keys`, system config, etc. We canonicalise the path's
-/// parent (the file itself may not exist yet), check it against the user's
-/// `permission.protected_paths` allowlist, and reject parent-less /
-/// empty inputs.
+/// `~/.ssh/authorized_keys`, system config, etc.
+///
+/// Important ordering: run a lexical protected-path preflight before creating
+/// parent directories. A denied tool call must not leave filesystem side
+/// effects behind. After the parent exists, canonicalise and check again to
+/// catch symlinks / mount indirection before returning the final write path.
 pub fn authorise_pdf_output_path(raw: &str) -> anyhow::Result<std::path::PathBuf> {
     use anyhow::anyhow;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(anyhow!("snapshot.pdf: output_path is empty"));
     }
-    let target = std::path::PathBuf::from(trimmed);
-    // Resolve via the parent directory so we can canonicalise even when the
-    // PDF file itself doesn't exist yet. We require the parent to exist or
-    // be creatable — `create_dir_all` is run later by the caller, but we
-    // need the canonical absolute path *now* to compare against patterns.
-    let parent = target.parent().ok_or_else(|| {
-        anyhow!(
-            "snapshot.pdf: output_path '{}' has no parent directory",
-            trimmed
-        )
-    })?;
-    std::fs::create_dir_all(parent).map_err(|e| {
-        anyhow!(
-            "snapshot.pdf: cannot create parent directory {}: {}",
-            parent.display(),
-            e
-        )
-    })?;
-    let canonical_parent = std::fs::canonicalize(parent).map_err(|e| {
-        anyhow!(
-            "snapshot.pdf: cannot resolve parent directory {}: {}",
-            parent.display(),
-            e
-        )
-    })?;
-    let file_name = target.file_name().ok_or_else(|| {
+    let target = std::path::PathBuf::from(crate::tools::expand_tilde(trimmed));
+    let lexical_target = crate::permission::rules::normalize_lexical(&target);
+    let patterns = crate::permission::protected_paths::current_patterns();
+    if let Some(matched) =
+        crate::permission::protected_paths::matches(&lexical_target, &patterns)
+    {
+        return Err(anyhow!(
+            "snapshot.pdf: refusing to write to protected path {} (matches pattern '{}'). \
+             Adjust `permission.protected_paths` in settings if this is intentional.",
+            lexical_target.display(),
+            matched
+        ));
+    }
+
+    // Resolve via the nearest existing ancestor first so symlinked parents
+    // are checked before we create any missing directories.
+    let file_name = lexical_target.file_name().ok_or_else(|| {
         anyhow!(
             "snapshot.pdf: output_path '{}' has no file name component",
             trimmed
         )
     })?;
+    let parent = lexical_target.parent().ok_or_else(|| {
+        anyhow!(
+            "snapshot.pdf: output_path '{}' has no parent directory",
+            trimmed
+        )
+    })?;
+    let parent_to_resolve = if parent.as_os_str().is_empty() {
+        std::path::Path::new(".")
+    } else {
+        parent
+    };
+    let mut existing_ancestor = parent_to_resolve;
+    let mut missing_components: Vec<std::ffi::OsString> = Vec::new();
+    while !existing_ancestor.exists() {
+        if let Some(name) = existing_ancestor.file_name() {
+            missing_components.push(name.to_os_string());
+        }
+        existing_ancestor = existing_ancestor
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+    }
+    let canonical_ancestor = std::fs::canonicalize(existing_ancestor).map_err(|e| {
+        anyhow!(
+            "snapshot.pdf: cannot resolve parent ancestor {}: {}",
+            existing_ancestor.display(),
+            e
+        )
+    })?;
+    let mut resolved_parent = canonical_ancestor;
+    for component in missing_components.iter().rev() {
+        resolved_parent.push(component);
+    }
+    let resolved_target = resolved_parent.join(file_name);
+    if let Some(matched) = crate::permission::protected_paths::matches(&resolved_target, &patterns)
+    {
+        return Err(anyhow!(
+            "snapshot.pdf: refusing to write to protected path {} (matches pattern '{}'). \
+             Adjust `permission.protected_paths` in settings if this is intentional.",
+            resolved_target.display(),
+            matched
+        ));
+    }
+
+    std::fs::create_dir_all(&resolved_parent).map_err(|e| {
+        anyhow!(
+            "snapshot.pdf: cannot create parent directory {}: {}",
+            resolved_parent.display(),
+            e
+        )
+    })?;
+    let canonical_parent = std::fs::canonicalize(&resolved_parent).map_err(|e| {
+        anyhow!(
+            "snapshot.pdf: cannot resolve parent directory {}: {}",
+            resolved_parent.display(),
+            e
+        )
+    })?;
     let canonical = canonical_parent.join(file_name);
-    let patterns = crate::permission::protected_paths::current_patterns();
     if let Some(matched) = crate::permission::protected_paths::matches(&canonical, &patterns) {
         return Err(anyhow!(
             "snapshot.pdf: refusing to write to protected path {} (matches pattern '{}'). \
@@ -174,8 +224,8 @@ pub enum BrowserMode {
 /// the same zero-config defaults the legacy version had.
 ///
 /// Schema evolution notes:
-/// - A previous `backend` field selected between CDP and chrome-devtools-mcp;
-///   the MCP backend was removed and any leftover `"backend"` key in old
+/// - A previous `backend` field selected between CDP and an external bridge;
+///   the external backend was removed and any leftover `"backend"` key in old
 ///   `config.json` is silently ignored by serde.
 /// - A previous `userAttach: { lastSpawnedPort }` field tracked the
 ///   user-attach Chrome port bookkeeping; user_attach is now a first-class

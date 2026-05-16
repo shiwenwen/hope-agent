@@ -1,7 +1,7 @@
 //! Backend acquisition.
 //!
-//! After PR removing chrome-devtools-mcp, there is only one backend
-//! implementation: [`super::cdp_backend::CdpBackend`]. This module keeps the
+//! There is only one backend implementation:
+//! [`super::cdp_backend::CdpBackend`]. This module keeps the
 //! caching layer around so future Playwright / WebDriver implementations
 //! could slot in without churning callsites.
 //!
