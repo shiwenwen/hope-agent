@@ -122,13 +122,11 @@ mod tests {
 
     #[test]
     fn check_passes_when_no_failures_recorded() {
-        reset_all();
         assert!(check("fresh-profile-name").is_ok());
     }
 
     #[test]
     fn record_failure_opens_circuit_after_default_threshold() {
-        reset_all();
         let p = "test-profile-opens-after-3";
         for _ in 0..3 {
             record_failure(p);
@@ -140,7 +138,6 @@ mod tests {
 
     #[test]
     fn record_success_resets_circuit() {
-        reset_all();
         let p = "test-profile-reset-on-success";
         record_failure(p);
         record_failure(p);
@@ -156,7 +153,6 @@ mod tests {
 
     #[test]
     fn check_isolates_per_profile() {
-        reset_all();
         for _ in 0..3 {
             record_failure("profile-a-failing");
         }
@@ -167,7 +163,6 @@ mod tests {
 
     #[test]
     fn failure_threshold_zero_disables_breaker() {
-        reset_all();
         // We can't easily inject a 0 threshold via config in unit tests
         // without mutating global state, so we just verify the function
         // contract: when threshold is 0, check always returns Ok even

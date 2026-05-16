@@ -436,9 +436,9 @@ export default function BrowserPanel() {
   }, [status, t])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="space-y-6 max-w-3xl">
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <div className="flex-1 min-w-0 overflow-y-auto p-6">
+        <div className="w-full min-w-0 space-y-6">
           {/* Header */}
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">{t("settings.browser.desc")}</p>
