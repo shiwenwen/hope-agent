@@ -46,12 +46,14 @@ interface CanvasPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
   currentSessionId?: string | null
+  onOpenChange?: (open: boolean) => void
 }
 
 export default function CanvasPanel({
   panelWidth = 480,
   onPanelWidthChange,
   currentSessionId = null,
+  onOpenChange,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
@@ -118,6 +120,10 @@ export default function CanvasPanel({
       win.setMinSize(new LogicalSize(840, 480))
     }
   }, [canvas, detached])
+
+  useEffect(() => {
+    onOpenChange?.(!!canvas)
+  }, [canvas, onOpenChange])
 
   // Restore canvas when switching sessions: query the session's canvas
   // projects and adopt the most recent one. Backend `canvas_show` events

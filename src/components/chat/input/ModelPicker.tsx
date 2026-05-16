@@ -140,7 +140,7 @@ export default function ModelPicker({
             onClick={() => setShowThinkMenu(!showThinkMenu)}
             className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap"
           >
-            <Brain className="h-3.5 w-3.5 shrink-0" />
+            <Brain className="h-4 w-4 shrink-0" />
             <span>
               {getEffortOptionsForModel(currentModelInfo, t).find(
                 (o) => o.value === reasoningEffort,

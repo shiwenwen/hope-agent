@@ -482,7 +482,7 @@
       "loading": "加载中……",
       "parent": "返回上一级",
       "pathPlaceholder": "绝对路径，例如 /srv/projects/app",
-      "select": "选择工作目录",
+      "select": "设置工作目录",
       "selectCurrent": "选择此目录",
       "selectPreset": "开始对话后即可设置工作目录",
       "titleBarInherited": "继承自项目",

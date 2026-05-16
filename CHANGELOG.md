@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **聊天界面窄栏自适应整理**：输入框工作目录入口改为纯图标 + 「设置工作目录」提示，统一工具条图标尺寸；无痕模式入口移至顶部标题栏；右侧 Browser / Plan / Diff / Canvas / Team 面板打开时自动收起左侧 session 列表，用户仍可手动展开；输入框溢出菜单改为按容器宽度触发，修复右侧面板压缩聊天列时「+」菜单不出现。
 - **聊天消息 Markdown / 纯文本渲染可切换**：用户消息现在与模型消息一样默认支持 Markdown 渲染，气泡 hover 操作区新增 Markdown / 纯文本切换按钮，复制仍保留原始文本。两种模式都会自动识别裸链接（`https://...` / `www.example.com` / 邮箱）并渲染为可点击超链，复用既有外链与本地路径打开策略。
 - **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。
 - **Docker 镜像内置 Chromium**：`Dockerfile` 加 `chromium` + 字体 / nss / libgbm / libxss 共享库，让 `profile.op=launch headless=true` 在服务器 / CI / 容器内开箱即用。镜像体积增加约 250 MB；不需要浏览器自动化的部署可 fork 移除。

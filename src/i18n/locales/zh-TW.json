@@ -482,7 +482,7 @@
       "loading": "載入中……",
       "parent": "返回上一層",
       "pathPlaceholder": "絕對路徑，例如 /srv/projects/app",
-      "select": "選擇工作目錄",
+      "select": "設定工作目錄",
       "selectCurrent": "選擇此目錄",
       "selectPreset": "開始對話後即可設定工作目錄",
       "titleBarInherited": "繼承自專案",
