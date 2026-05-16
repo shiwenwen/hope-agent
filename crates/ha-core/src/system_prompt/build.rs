@@ -223,14 +223,9 @@ pub fn build(
     }
 
     // ⑥d Human-in-the-loop guidance — hardcoded so it cannot be overridden by
-    // a user-customized agent.md. Only emitted when the agent has access to
-    // the `ask_user_question` tool (agents with no interactive surface skip it).
-    if crate::tools::agent_tool_filter_allows(
-        crate::tools::TOOL_ASK_USER_QUESTION,
-        &definition.config.capabilities.tools,
-    ) {
-        sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string());
-    }
+    // a user-customized agent.md. `ask_user_question` is a Core Interaction
+    // tool, so this guidance is always available alongside its schema.
+    sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string());
 
     // ⑦ Skills (filtered by agent config + per-session `paths:` activation)
     sections.push(build_skills_section(

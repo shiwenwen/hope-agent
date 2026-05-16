@@ -47,7 +47,7 @@ allowed-tools:
 
 # 飞书 (Lark) 工作流套件
 
-40 个 `feishu_*` tool 覆盖飞书除 IM 之外的核心业务面：docx / bitable / drive / wiki / approval / calendar / contact / hire。所有 tool 共享同一个账号路由——`account` 参数仅在配了 ≥2 个飞书账号时才必须，否则自动选唯一一个。
+35 个 `feishu_*` tool 覆盖飞书除 IM 之外的核心业务面：docx / bitable / drive / wiki / approval / calendar / contact / hire。所有 tool 共享同一个账号路由——`account` 参数仅在配了 ≥2 个飞书账号时才必须，否则自动选唯一一个。
 
 ## 典型工作流剧本
 

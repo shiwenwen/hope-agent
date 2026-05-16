@@ -482,7 +482,7 @@
       "loading": "Loading…",
       "parent": "Up one level",
       "pathPlaceholder": "Absolute path, e.g. /srv/projects/app",
-      "select": "Select working directory",
+      "select": "Set working directory",
       "selectCurrent": "Select this directory",
       "selectPreset": "Working directory is set when you start the chat",
       "titleBarInherited": "Inherited from project",

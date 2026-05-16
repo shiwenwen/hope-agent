@@ -12,6 +12,7 @@ import {
 import { ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { toolDisplayNameFallback } from "@/types/tools"
 import type { ToolUsageStats } from "./types"
 import { chartName, chartNumber, formatNumber, formatDuration } from "./types"
 
@@ -53,12 +54,16 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
   data,
   loading,
 }: ToolUsageSectionProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>("callCount")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
 
-  const getToolLabel = useCallback((name: string) => t(`tools.${name}`, name), [t])
+  const getToolLabel = useCallback(
+    (name: string) =>
+      t(`tools.${name}`, { defaultValue: toolDisplayNameFallback(name, i18n.language) }),
+    [i18n.language, t],
+  )
 
   const frequencyData = useMemo(() => {
     if (!data) return []

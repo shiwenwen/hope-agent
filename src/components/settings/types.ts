@@ -241,15 +241,6 @@ export interface AgentConfig {
     skills: { allow: string[]; deny: string[] }
     /** MCP master switch (default true). When false all MCP tools are excluded. */
     mcpEnabled?: boolean
-    /** Tier 3 capability toggles. `null/undefined` means "use tier default". */
-    capabilityToggles?: {
-      webSearch?: boolean | null
-      imageGenerate?: boolean | null
-      canvas?: boolean | null
-      sendNotification?: boolean | null
-      subagent?: boolean | null
-      acpSpawn?: boolean | null
-    }
     /**
      * Permission system v2 — when true, the tools listed in
      * `customApprovalTools` also require approval in Default mode.

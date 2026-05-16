@@ -224,10 +224,7 @@ async fn rebuild_tool_index_for(
         idx.retain(|_, e| e.server_id != cfg.id);
         for tool in tools {
             let orig = tool.name.to_string();
-            if !cfg.denied_tools.is_empty() && cfg.denied_tools.contains(&orig) {
-                continue;
-            }
-            if !cfg.allowed_tools.is_empty() && !cfg.allowed_tools.contains(&orig) {
+            if !super::catalog::tool_allowed_by_server_config(cfg, &orig) {
                 continue;
             }
             let namespaced = super::catalog::namespaced_tool_name(&cfg.name, &orig);
@@ -249,11 +246,7 @@ async fn rebuild_tool_index_for(
     //    schema list, or vice versa.
     let defs_for_server: Vec<crate::tools::ToolDefinition> = tools
         .iter()
-        .filter(|tool| {
-            let orig = tool.name.to_string();
-            !(cfg.denied_tools.iter().any(|d| d == &orig)
-                || (!cfg.allowed_tools.is_empty() && !cfg.allowed_tools.iter().any(|a| a == &orig)))
-        })
+        .filter(|tool| super::catalog::tool_allowed_by_server_config(cfg, tool.name.as_ref()))
         .map(|t| super::catalog::rmcp_tool_to_definition(cfg, t))
         .collect();
 

@@ -173,20 +173,24 @@ pub struct AgentModelConfig {
 
 // ── Filter Config ────────────────────────────────────────────────
 
-/// Generic allow/deny filter for skills and tools.
+/// Generic allow/deny pair.
+///
+/// Skill filtering still uses strict allowlist/denylist semantics via
+/// [`FilterConfig::is_allowed`]. Tool switches interpret the same shape as
+/// explicit non-Core on/off overrides in `dispatch::resolve_tool_fate`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FilterConfig {
-    /// Allowlist (if non-empty, only these are permitted)
+    /// Allowed names, or explicitly enabled tool names when used as tool switches.
     #[serde(default)]
     pub allow: Vec<String>,
 
-    /// Denylist (these are excluded)
+    /// Denied names, or explicitly disabled tool names when used as tool switches.
     #[serde(default)]
     pub deny: Vec<String>,
 }
 
 impl FilterConfig {
-    /// Check if a name passes through the filter.
+    /// Check if a name passes through strict filter semantics.
     pub fn is_allowed(&self, name: &str) -> bool {
         if !self.allow.is_empty() && !self.allow.iter().any(|a| a == name) {
             return false;
@@ -232,7 +236,10 @@ pub struct CapabilitiesConfig {
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
 
-    /// Tool visibility filter (allow/deny by tool name)
+    /// Per-agent tool switch overrides for non-Core built-in tools.
+    ///
+    /// `allow` means explicitly enabled, `deny` means explicitly disabled, and
+    /// absence from both lists falls back to the tool tier's default.
     #[serde(default)]
     pub tools: FilterConfig,
 
@@ -250,16 +257,6 @@ pub struct CapabilitiesConfig {
     /// surfaces a hint to enable MCP in agent settings.
     #[serde(default = "crate::default_true")]
     pub mcp_enabled: bool,
-
-    /// Per-agent capability toggles for Tier 3 tools (web_search / canvas /
-    /// image_generate / send_notification / subagent / acp_spawn).
-    ///
-    /// `None` for a field means "inherit the tier's default for this agent
-    /// kind" — i.e. `default_for_main` when `agent_id == "ha-main"`,
-    /// `default_for_others` otherwise. `Some(true/false)` is an explicit
-    /// override that survives any future changes to tier defaults.
-    #[serde(default)]
-    pub capability_toggles: CapabilityToggles,
 
     /// Whether the agent owner has opted into "Custom Tool Approval".
     /// When false, `custom_approval_tools` is ignored — only the hardcoded
@@ -287,39 +284,6 @@ pub struct CapabilitiesConfig {
     pub default_session_permission_mode: Option<crate::permission::SessionMode>,
 }
 
-/// Per-agent capability toggle overrides. Each `None` means "fall back to
-/// the tier default" — they are NOT all-or-nothing booleans.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CapabilityToggles {
-    pub web_search: Option<bool>,
-    pub image_generate: Option<bool>,
-    pub canvas: Option<bool>,
-    pub send_notification: Option<bool>,
-    pub subagent: Option<bool>,
-    pub acp_spawn: Option<bool>,
-}
-
-impl CapabilityToggles {
-    /// Look up a tool name's per-agent override (if any). `None` means
-    /// "no explicit override, fall back to tier default".
-    pub fn override_for(&self, name: &str) -> Option<bool> {
-        use crate::tools::{
-            TOOL_ACP_SPAWN, TOOL_CANVAS, TOOL_IMAGE_GENERATE, TOOL_SEND_NOTIFICATION,
-            TOOL_SUBAGENT, TOOL_WEB_SEARCH,
-        };
-        match name {
-            TOOL_WEB_SEARCH => self.web_search,
-            TOOL_IMAGE_GENERATE => self.image_generate,
-            TOOL_CANVAS => self.canvas,
-            TOOL_SEND_NOTIFICATION => self.send_notification,
-            TOOL_SUBAGENT => self.subagent,
-            TOOL_ACP_SPAWN => self.acp_spawn,
-            _ => None,
-        }
-    }
-}
-
 fn default_max_rounds() -> u32 {
     0
 }
@@ -338,7 +302,6 @@ impl Default for CapabilitiesConfig {
             skills: FilterConfig::default(),
             async_tool_policy: AsyncToolPolicy::default(),
             mcp_enabled: true,
-            capability_toggles: CapabilityToggles::default(),
             enable_custom_tool_approval: false,
             custom_approval_tools: Vec::new(),
             default_session_permission_mode: None,
@@ -530,10 +493,10 @@ impl Default for MemoryConfig {
 
 /// Configuration for sub-agent delegation capabilities.
 ///
-/// Note: whether the agent can spawn sub-agents is now controlled by
-/// `capabilities.capability_toggles.subagent` (Tier 3). The fields here
-/// configure delegation *behavior* (who's allowed, depth limits, timeouts),
-/// not the master switch.
+/// Note: whether the agent can spawn sub-agents is controlled by the
+/// `subagent` tool switch in `capabilities.tools`. The fields here configure
+/// delegation *behavior* (who's allowed, depth limits, timeouts), not the
+/// master switch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubagentConfig {

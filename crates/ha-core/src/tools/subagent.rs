@@ -17,7 +17,6 @@ pub(crate) fn subagent_capability_enabled(agent_id: &str, agent_config: &AgentCo
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
         tools_filter: &agent_config.capabilities.tools,
-        capability_toggles: &agent_config.capabilities.capability_toggles,
         app_config: &app_config,
     };
     let def = super::dispatch::all_dispatchable_tools()

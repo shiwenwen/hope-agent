@@ -520,7 +520,7 @@ pub(crate) async fn tool_update_settings(args: &Value) -> Result<String> {
         return update_session_title_config(values);
     }
 
-    update_app_config(category, values)
+    update_app_config(category, values).await
 }
 
 fn update_user_config(values: &Value) -> Result<String> {
@@ -562,7 +562,7 @@ fn update_session_title_config(values: &Value) -> Result<String> {
     }))?)
 }
 
-fn update_app_config(category: &str, values: &Value) -> Result<String> {
+async fn update_app_config(category: &str, values: &Value) -> Result<String> {
     let mut store = config::load_config()?;
 
     match category {
@@ -778,7 +778,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
     }
 
     // Backend hot-reload: trigger side-effects for categories that cache state
-    trigger_backend_hot_reload(category, &store);
+    trigger_backend_hot_reload(category, &store).await?;
 
     // Return the saved value directly from the mutated store (avoids re-reading cache)
     let updated_value = read_category(category)?;
@@ -847,7 +847,7 @@ fn update_team_templates(values: &Value) -> Result<String> {
 }
 
 /// Trigger backend hot-reload side-effects for categories that cache state in memory.
-fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) {
+async fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) -> Result<()> {
     match category {
         "embedding" => {
             // Re-initialize embedding provider when config changes
@@ -889,16 +889,17 @@ fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) {
             // Smart mode reads PermissionGlobalConfig.smart fresh on every approval
             // decision via cached_config(); no in-memory cache to invalidate.
         }
-        // MCP manager reads cached_config() on each dispatch / reconnect attempt,
-        // so the new global knobs take effect on the next call. Flipping
-        // `enabled=false` does not actively disconnect existing sessions — that
-        // path is reserved for explicit "disable server" actions in Settings →
-        // MCP. Surface the rationale to ops via log when the kill switch flips.
-        "mcp_global" if !store.mcp_global.enabled => {
+        "mcp_global" => {
+            if let Some(manager) = crate::mcp::McpManager::global() {
+                manager
+                    .reconcile(store.mcp_global.clone(), store.mcp_servers.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
             crate::app_info!(
                 "settings",
                 "hot_reload",
-                "mcp_global.enabled=false applied; existing sessions stay connected, dispatch will short-circuit on next call"
+                "mcp_global hot-reloaded into the MCP manager"
             );
         }
         "multimodal" | "dreaming" => {
@@ -907,6 +908,7 @@ fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) {
         }
         _ => {} // Other categories: config cache (ArcSwap) already updated by save_config
     }
+    Ok(())
 }
 
 /// Trigger weather cache refresh when user_config weather settings change.

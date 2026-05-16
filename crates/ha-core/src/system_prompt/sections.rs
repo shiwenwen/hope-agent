@@ -23,7 +23,6 @@ pub(super) fn build_tools_section(agent_id: &str, agent_config: &AgentConfig) ->
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
         tools_filter: &agent_config.capabilities.tools,
-        capability_toggles: &agent_config.capabilities.capability_toggles,
         app_config: &app_config,
     };
 
@@ -78,7 +77,6 @@ pub(super) fn build_deferred_tools_section(
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
         tools_filter: &agent_config.capabilities.tools,
-        capability_toggles: &agent_config.capabilities.capability_toggles,
         app_config: &app_config,
     };
 

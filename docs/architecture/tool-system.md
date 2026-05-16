@@ -85,8 +85,8 @@ pub struct ToolDefinition {
 | Core::PlanMode | — | — | Hidden（由 PlanAgentMode 二次注入）|
 | Memory | `agent.memory.enabled` | — | InjectEager / Hidden |
 | Mcp | `agent.capabilities.mcpEnabled` | — | InjectEager / Hidden |
-| Standard | `tools.deny` / `tools.allow` | `deferredTools.enabled && toolNames contains name` | InjectEager / InjectDeferred / Hidden |
-| Configured | `capability_toggles.<name>` | provider 是否就绪 + `deferredTools.enabled && toolNames contains name` | InjectEager / InjectDeferred / HintOnly / Hidden |
+| Standard | `tools.allow` 显式开 / `tools.deny` 显式关 | `deferredTools.enabled && toolNames contains name` | InjectEager / InjectDeferred / Hidden |
+| Configured | `tools.allow` 显式开 / `tools.deny` 显式关 | provider 是否就绪 + `deferredTools.enabled && toolNames contains name` | InjectEager / InjectDeferred / HintOnly / Hidden |
 
 ### 派生方法（不再有独立 bool）
 
@@ -356,7 +356,7 @@ flowchart TD
     PA --> Filter
     EA --> Filter
 
-    Filter["schemas.retain<br/><small>tool_visible_with_filters 多维过滤</small>"] --> FD[依次 AND:<br/>1. agent FilterConfig allow/deny<br/>2. denied_tools 子 Agent 拒绝<br/>3. skill_allowed_tools 技能裁剪<br/>4. plan_allowed_tools Plan 白名单<br/>internal 工具该层始终保留]
+    Filter["schemas.retain<br/><small>tool_visible_with_filters 多维过滤</small>"] --> FD[依次 AND:<br/>1. denied_tools 子 Agent 拒绝<br/>2. skill_allowed_tools 技能裁剪<br/>3. plan_allowed_tools Plan 白名单]
 
     FD --> Done([最终 tool_schemas → API 请求])
 
@@ -368,7 +368,7 @@ flowchart TD
 |------|--------|----------|
 | `supports_deferred()` | 工具是否**允许**被用户放进 deferred 池 | 由 tier `Standard`/`Configured` 的 `default_deferred` 字段派生 |
 | `deferredTools.enabled` + `toolNames` | 哪些内置工具**本轮**变成 `InjectDeferred`（两者 AND）| `dispatch::resolve_tool_fate` |
-| `capability_toggles` / provider 配置 | Configured 工具是否 eager / hint-only / hidden | `dispatch::resolve_tool_fate` |
+| `tools.allow` / `tools.deny` + provider 配置 | 非 Core 工具是否 eager / hint-only / hidden | `dispatch::resolve_tool_fate` |
 | MCP server `deferredTools` | 某台 server 的动态 MCP 工具是否走 `tool_search` | `agent::build_tool_schemas` + `tool_search` |
 
 **规律**：是否"用户能开关启用"决定它走哪条路径——
@@ -816,7 +816,7 @@ flowchart LR
 
 | 类别 | 维度 | 作用 | 配置位置 |
 |------|------|------|----------|
-| **Agent 基线权限** | Agent 工具过滤（FilterConfig） | 统一裁剪 system prompt、tool schema、`tool_search` 结果，并在执行层兜底拒绝 | Agent 设置 → 能力 → 工具 → 工具注入 |
+| **Agent 工具开关** | 非 Core 工具开关（FilterConfig） | 通过 `dispatch::resolve_tool_fate` 统一决定 system prompt、tool schema、`tool_search` 和执行层兜底 | Agent 设置 → 能力 → 工具 → 工具注入 |
 | **Schema 可见性** | 子 Agent 工具拒绝（denied_tools） | 从实际发送给 LLM API 的 tool schema 中移除 | Agent 设置 → 子 Agent |
 | **执行审批** | 会话权限模式（ToolPermissionMode） | 决定工具执行前**是否弹审批** | 输入框盾牌按钮 |
 | **执行审批** | Agent 审批列表（require_approval） | 指定哪些工具需要审批 | Agent 设置 → 能力 → 工具 → 工具审批 |
@@ -825,42 +825,43 @@ flowchart LR
 
 ---
 
-### 1. Agent 工具过滤（FilterConfig）
+### 1. Agent 工具开关（FilterConfig）
 
 **源码**：`agent_config.rs` → `AgentConfig.capabilities.tools: FilterConfig`
 **UI**：Agent 设置面板 → 能力 → 工具子 tab → 工具注入折叠段落
 **生效位置**：
 
-- `system_prompt/build.rs:build_tools_section()` — 过滤 system prompt 中的工具描述
-- `agent/mod.rs:build_tool_schemas()` — 过滤实际发送给 LLM API 的 `tool_schemas`
-- `tools/tool_search.rs` — 过滤 deferred tool discovery 结果
-- `tools/execution.rs:execute_tool_with_context()` — 执行层 defense-in-depth 兜底拒绝
+- `dispatch::resolve_tool_fate()` — 决定 Standard / Configured 工具的 enabled 状态
+- `system_prompt/build.rs:build_tools_section()` — 只描述当前 eager 工具
+- `agent/mod.rs:build_tool_schemas()` — 只发送当前 eager schema
+- `tools/tool_search.rs` — 只发现当前 eager/deferred 工具
+- `tools/execution.rs:execute_tool_with_context()` — 执行层按同一 fate 兜底拒绝
 
 ```rust
 pub struct FilterConfig {
-    pub allow: Vec<String>,  // 白名单（非空时仅允许列表中的工具）
-    pub deny: Vec<String>,   // 黑名单（始终排除）
+    pub allow: Vec<String>,  // 非 Core 工具：显式打开
+    pub deny: Vec<String>,   // 非 Core 工具：显式关闭
 }
 ```
 
-**判断逻辑**（`FilterConfig::is_allowed()`）：
+**判断逻辑**（仅 Standard / Configured 工具）：
 
 ```
-allow 非空 且 工具不在 allow 中 → 拒绝
-工具在 deny 中 → 拒绝
-其他 → 允许
+工具在 deny 中 → 关闭
+工具在 allow 中 → 打开
+其他 → 使用 ToolTier 的 default_for_main / default_for_others
 ```
 
-- 默认值：`allow=[]`, `deny=[]`（即不过滤，所有用户可配置工具均可见）
-- **作用范围**：这是 Agent 级**硬过滤**。同一份 `FilterConfig` 会同时影响 prompt 描述、Provider tool schema、`tool_search` 返回结果和执行层校验
-- **internal 工具例外**：internal system tools（UI 中隐藏不可关闭的工具，如 `tool_search`、部分 plan / memory / canvas 能力）在这一层始终保留；若需要进一步限制，依赖 `denied_tools`、skill allowlist 或 Plan Mode 白名单
+- 默认值：`allow=[]`, `deny=[]`（即不覆盖代码默认值）
+- **作用范围**：只控制非 Core 内置工具的开关覆盖。Core 工具不受该字段影响；Memory / MCP 仍走各自 master switch
+- **执行层兜底**：执行前重新解析 `resolve_tool_fate()`，避免旧上下文或异常 provider 输出绕过开关
 
 **这样设计的理由**：
 
-- **UI 语义一致**：设置面板写的是“选择该 Agent 可使用的内置工具”，硬过滤才符合用户直觉
+- **UI 语义一致**：设置面板的开关只记录用户对默认值的覆盖，不把默认开启工具展开写进 agent.json
 - **避免 deferred tools 绕过**：如果只裁剪 prompt 或主 schema，模型仍可能通过 `tool_search` 发现被禁用工具；统一过滤后不会出现这类旁路
 - **执行层防绕过**：即使未来某个 Provider 解析异常、历史消息注入异常，执行层仍会按同一规则拒绝被禁用工具
-- **保持层次分工**：`FilterConfig` 负责 Agent 级基础权限；`denied_tools` 负责子 Agent / 深度分层收紧；skill allowlist 和 Plan Mode 负责更强的上下文级收紧
+- **保持层次分工**：`FilterConfig` 负责 Agent 级工具开关；`denied_tools`、skill allowlist 和 Plan Mode 负责更强的上下文级收紧
 
 ### 2. 子 Agent 工具拒绝（denied_tools）
 
@@ -921,7 +922,7 @@ pub enum ToolPermissionMode {
 
 ## 完整决策流程
 
-> **说明**：下图描述的是“schema 可见性 + 执行审批”的硬控制链路。`FilterConfig` 已并入这条链路，会先裁剪 `tool_schemas`，并在执行层再次兜底校验。
+> **说明**：下图描述的是“schema 可见性 + 执行审批”的硬控制链路。非 Core 工具开关先由 `resolve_tool_fate` 决定 schema / `tool_search` 可见性，并在执行层再次兜底校验。
 
 ```mermaid
 flowchart TD
@@ -1185,7 +1186,7 @@ v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 /
 
 **多账号路由**：每个 tool schema 都有可选 `account` 参数；零账号报错引导用户去 Settings → Channels；单账号自动选；多账号且未指定 `account` 时报错列出可选 ID。
 
-**Tier 与默认值**：全部 Tier 3 Configured，`default_for_main = false / default_for_others = false`（用户主动开），`default_deferred = true`（首版后预计 40+ 飞书 tool，鼓励放进 deferred 池）。`is_globally_configured` 用 `n.starts_with("feishu_")` 通配——所有飞书 tool 共享一个全局配置门：「至少一个飞书账号已配」。未配但 agent 已开 → `HintOnly`，system prompt `# Unconfigured Capabilities` 段引导。
+**Tier 与默认值**：全部 Tier 3 Configured，`default_for_main = false / default_for_others = false`（用户主动开），`default_deferred = true`（飞书工具鼓励放进 deferred 池）。`is_globally_configured` 用 `n.starts_with("feishu_")` 通配——所有飞书 tool 共享一个全局配置门：「至少一个飞书账号已配」。未配但 agent 已开 → `HintOnly`，system prompt `# Unconfigured Capabilities` 段引导。
 
 **SSRF 豁免**：飞书域名（feishu.cn / larksuite.com / 自部署）按既有 `channel/feishu/api.rs::authorized_request` 惯例豁免 `security::ssrf::check_url`。每个 `api_<module>.rs` 顶部 doc 注明此豁免，新增非飞书出站 tool 仍必走 SSRF。
 
@@ -1253,7 +1254,7 @@ C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/
 | `crates/ha-core/src/tools/definitions/registry.rs` | `is_internal_tool()` / `is_async_capable()` / `is_concurrent_safe()` —— 由 `dispatch::all_dispatchable_tools()` 派生的 LazyLock 缓存 |
 | `crates/ha-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.hope-agent/async_jobs.db` |
 | `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 per-job `Notify` + 100ms→×1.5→2s 退避轮询兜底 |
-| `crates/ha-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`CapabilitiesConfig.require_approval` / `mcp_enabled` / `capability_toggles`、`SubagentConfig.denied_tools` |
+| `crates/ha-core/src/agent_config.rs` | `FilterConfig`（非 Core 工具 allow/deny 开关覆盖）、`CapabilitiesConfig.require_approval` / `mcp_enabled`、`SubagentConfig.denied_tools` |
 | `crates/ha-core/src/agent/mod.rs` | `build_tool_schemas()` / `build_full_system_prompt()` 共享 `dispatch::resolve_tool_fate` 单一注入决策；`tool_context()` 构建 ToolExecContext |
 | `crates/ha-core/src/agent/providers/*.rs` | 消费已过滤后的 `tool_schemas` 并发送 API 请求 |
 | `crates/ha-core/src/system_prompt/sections.rs` | `build_tools_section()` / `build_deferred_tools_section()` 由 `dispatch::resolve_tool_fate` 驱动，分别渲染 eager 描述段落 / deferred 一行索引 |

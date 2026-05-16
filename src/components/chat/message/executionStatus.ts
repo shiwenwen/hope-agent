@@ -1,6 +1,8 @@
 import type { TFunction } from "i18next"
 import type { ToolCall } from "@/types/chat"
 import { parseMcpToolName } from "@/lib/mcp"
+import i18n from "@/i18n/i18n"
+import { toolDisplayNameFallback } from "@/types/tools"
 
 export type ExecutionState = "running" | "completed" | "failed"
 export type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
@@ -101,7 +103,11 @@ export function getToolDisplayName(t: TFunction, toolName: string): string {
   // `<server> · <tool>` so the chat UI stays readable.
   const mcp = parseMcpToolName(toolName)
   if (mcp) return `${mcp.serverName} · ${mcp.tool}`
-  return String(t(`tools.${toolName}`, { defaultValue: toolName }))
+  return String(
+    t(`tools.${toolName}`, {
+      defaultValue: toolDisplayNameFallback(toolName, i18n.language),
+    }),
+  )
 }
 
 export function getExecutionToolLabel(params: {

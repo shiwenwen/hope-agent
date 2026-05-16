@@ -7,6 +7,7 @@ import type { ContentBlock, Message, ToolCall } from "@/types/chat"
 import { AssistantContentBlocks } from "./MessageContent"
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => {
       if (key === "executionStatus.processed.completed") return "已处理"

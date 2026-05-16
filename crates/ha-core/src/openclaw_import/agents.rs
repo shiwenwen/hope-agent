@@ -271,25 +271,17 @@ pub(super) fn import_single_agent(
     let temperature = extract_temperature(source);
     let primary = resolve_primary_model(source, model_id_to_provider, warnings);
 
-    let tools = source
-        .tools
-        .as_ref()
-        .map(|t| FilterConfig {
-            allow: t.allow.clone().unwrap_or_default(),
-            deny: t.deny.clone().unwrap_or_default(),
-        })
-        .unwrap_or_default();
+    if source.tools.is_some() {
+        warnings.push(format!(
+            "Agent '{}': OpenClaw tool allow/deny settings were not imported; review Hope Agent tool switches manually",
+            source.id
+        ));
+    }
 
     let skills = FilterConfig {
         allow: source.skills.clone().unwrap_or_default(),
         deny: Vec::new(),
     };
-
-    let has_subagents = source
-        .subagents
-        .as_ref()
-        .map(|v| !v.is_null())
-        .unwrap_or(false);
 
     let agent_config = AgentConfig {
         name: req.name.clone(),
@@ -310,12 +302,7 @@ pub(super) fn import_single_agent(
         },
         capabilities: CapabilitiesConfig {
             sandbox: req.sandbox,
-            tools,
             skills,
-            capability_toggles: crate::agent_config::CapabilityToggles {
-                subagent: Some(has_subagents),
-                ..Default::default()
-            },
             ..Default::default()
         },
         openclaw_mode: true,

@@ -15,6 +15,7 @@ const originalScrollIntoView = Object.getOwnPropertyDescriptor(
 const originalScrollTo = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTo")
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: () => {} },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 

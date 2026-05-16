@@ -87,6 +87,19 @@ pub fn has_deferred_tool_server(servers: &[McpServerConfig]) -> bool {
     servers.iter().any(|cfg| cfg.enabled && cfg.deferred_tools)
 }
 
+/// True iff a server config exposes the original MCP tool name. The filters
+/// are stored pre-namespace: `allowed_tools=["search"]`, not
+/// `mcp__server__search`.
+pub(crate) fn tool_allowed_by_server_config(
+    cfg: &McpServerConfig,
+    original_tool_name: &str,
+) -> bool {
+    if cfg.denied_tools.iter().any(|d| d == original_tool_name) {
+        return false;
+    }
+    cfg.allowed_tools.is_empty() || cfg.allowed_tools.iter().any(|a| a == original_tool_name)
+}
+
 /// Build a short "MCP Capabilities" system-prompt section when any
 /// MCP server has landed a populated tool catalog (i.e. a server that
 /// completed at least one `tools/list` round is connected). Reads

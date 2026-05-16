@@ -148,19 +148,6 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
-  test("renders incognito controls when enabled by the caller", () => {
-    const onIncognitoChange = vi.fn()
-    renderChatInput({
-      currentSessionId: null,
-      incognitoEnabled: true,
-      onIncognitoChange,
-    })
-
-    fireEvent.click(screen.getByRole("button", { name: "chat.incognito" }))
-
-    expect(onIncognitoChange).toHaveBeenCalledWith(false)
-  })
-
   test("explicit interrupted execution state wins over loading for task progress", () => {
     renderChatInput({
       loading: true,

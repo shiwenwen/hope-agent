@@ -29,6 +29,7 @@ import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDisplay"
 import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
+import IncognitoToggle, { type IncognitoDisabledReason } from "./input/IncognitoToggle"
 import { logger } from "@/lib/logger"
 import AgentSwitcher from "./AgentSwitcher"
 import ProjectIcon from "./project/ProjectIcon"
@@ -98,6 +99,11 @@ interface ChatTitleBarProps {
   displayMode?: ChatDisplayMode
   /** Switches between bubble and task timeline presentation. */
   onDisplayModeChange?: (mode: ChatDisplayMode) => void
+  /** Draft/new-session incognito toggle, surfaced in the title bar. */
+  incognitoEnabled?: boolean
+  incognitoSaving?: boolean
+  incognitoDisabledReason?: IncognitoDisabledReason
+  onIncognitoChange?: (enabled: boolean) => void
 }
 
 export default function ChatTitleBar({
@@ -130,6 +136,10 @@ export default function ChatTitleBar({
   onExpandSidebar,
   displayMode = "bubble",
   onDisplayModeChange,
+  incognitoEnabled = false,
+  incognitoSaving = false,
+  incognitoDisabledReason,
+  onIncognitoChange,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -327,6 +337,17 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
+        {!currentSessionId && onIncognitoChange && (
+          <IncognitoToggle
+            sessionId={null}
+            enabled={incognitoEnabled}
+            saving={incognitoSaving}
+            disabledReason={incognitoDisabledReason}
+            variant="titlebar"
+            showLabel={false}
+            onChange={onIncognitoChange}
+          />
+        )}
         {onDisplayModeChange && (
           <IconTip
             label={
@@ -338,7 +359,6 @@ export default function ChatTitleBar({
             <button
               className={cn(
                 "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                displayMode === "timeline" && "text-foreground",
               )}
               aria-pressed={displayMode === "timeline"}
               aria-label={

@@ -153,6 +153,7 @@ export default function ChatScreen({
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(520)
   const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
+  const [canvasPanelOpen, setCanvasPanelOpen] = useState(false)
   const [browserPanelWidth, setBrowserPanelWidth] = useState(480)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
@@ -1278,6 +1279,26 @@ export default function ChatScreen({
     planMode.showPanel &&
     planMode.planState !== "off" &&
     (planMode.planState === "planning" || planMode.planContent.trim().length > 0)
+  const rightPanelKey =
+    diffPanel.showPanel && diffPanel.activeChanges.length > 0
+      ? "diff"
+      : shouldShowPlanPanel
+        ? "plan"
+        : showBrowserPanel
+          ? "browser"
+          : canvasPanelOpen
+            ? "canvas"
+            : activeTeamId && showTeamPanel
+              ? "team"
+              : null
+  const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
+
+  useEffect(() => {
+    if (rightPanelKey && rightPanelKey !== lastRightPanelKeyRef.current) {
+      setSidebarCollapsed(true)
+    }
+    lastRightPanelKeyRef.current = rightPanelKey
+  }, [rightPanelKey])
 
   const handlePlanPanelDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1547,6 +1568,9 @@ export default function ChatScreen({
           onExpandSidebar={() => setSidebarCollapsed(false)}
           displayMode={displayMode}
           onDisplayModeChange={handleDisplayModeChange}
+          incognitoEnabled={incognitoEnabled}
+          incognitoDisabledReason={incognitoDisabledReason}
+          onIncognitoChange={handleIncognitoChange}
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -1660,8 +1684,6 @@ export default function ChatScreen({
                   sessionTemperature={sessionTemperature}
                   onSessionTemperatureChange={setSessionTemperature}
                   incognitoEnabled={incognitoEnabled}
-                  incognitoDisabledReason={incognitoDisabledReason}
-                  onIncognitoChange={handleIncognitoChange}
                   workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
                   workingDirInherited={
                     session.currentSessionId ? workingDirSource === "project" : false
@@ -1743,6 +1765,7 @@ export default function ChatScreen({
             panelWidth={canvasPanelWidth}
             onPanelWidthChange={setCanvasPanelWidth}
             currentSessionId={currentSessionId}
+            onOpenChange={setCanvasPanelOpen}
           />
 
           {/* Browser live-mirror panel — open on first `browser:frame` push,

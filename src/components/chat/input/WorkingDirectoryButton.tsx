@@ -8,7 +8,6 @@ import ServerDirectoryBrowser from "./ServerDirectoryBrowser"
 import { useDirectoryPicker } from "./useDirectoryPicker"
 
 interface WorkingDirectoryButtonProps {
-  sessionId: string | null
   workingDir: string | null | undefined
   /**
    * `workingDir` came from the parent project (session itself has no
@@ -29,7 +28,6 @@ interface WorkingDirectoryButtonProps {
 }
 
 export default function WorkingDirectoryButton({
-  sessionId,
   workingDir,
   inherited = false,
   saving = false,
@@ -62,14 +60,7 @@ export default function WorkingDirectoryButton({
     onChange(null)
   }
 
-  const tooltipLabel = hasSelection
-    ? inherited
-      ? `${t("chat.workingDir.titleBarInherited")}: ${workingDir}`
-      : `${t("chat.workingDir.current")}: ${workingDir}`
-    : sessionId
-      ? t("chat.workingDir.select")
-      : t("chat.workingDir.selectPreset")
-
+  const tooltipLabel = t("chat.workingDir.select")
   const label = hasSelection ? basename(workingDir!) : t("chat.workingDir.select")
 
   if (variant === "menu") {
@@ -86,11 +77,11 @@ export default function WorkingDirectoryButton({
           )}
         >
           {saving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-muted-foreground" />
+            <Loader2 className="h-4 w-4 animate-spin shrink-0 text-muted-foreground" />
           ) : hasSelection ? (
-            <FolderCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <FolderCheck className="h-4 w-4 shrink-0 text-primary" />
           ) : (
-            <FolderPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <FolderPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
           <span className="truncate">{hasSelection ? label : t("chat.addWorkingDirectory")}</span>
         </button>
@@ -111,10 +102,11 @@ export default function WorkingDirectoryButton({
       <IconTip label={tooltipLabel}>
         <button
           type="button"
+          aria-label={tooltipLabel}
           disabled={saving || disabled}
           onClick={handlePick}
           className={cn(
-            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap max-w-[200px] disabled:cursor-not-allowed disabled:opacity-50",
+            "inline-flex h-8 w-8 items-center justify-center bg-transparent rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
             saving && "disabled:cursor-wait disabled:opacity-70",
             hasSelection
               ? "text-primary hover:text-primary"
@@ -123,13 +115,12 @@ export default function WorkingDirectoryButton({
           )}
         >
           {saving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
           ) : hasSelection ? (
-            <FolderCheck className="h-3.5 w-3.5 shrink-0" />
+            <FolderCheck className="h-4 w-4 shrink-0" />
           ) : (
-            <FolderPlus className="h-3.5 w-3.5 shrink-0" />
+            <FolderPlus className="h-4 w-4 shrink-0" />
           )}
-          <span className="truncate">{label}</span>
         </button>
       </IconTip>
       {showClear && !saving && (

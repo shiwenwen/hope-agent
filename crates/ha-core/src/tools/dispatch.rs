@@ -3,15 +3,14 @@
 //! Each LLM request triggers a fresh decision per tool: eager-inject schema,
 //! deferred (discoverable via tool_search), hint-only (configure-me banner in
 //! system prompt), or hidden. The decision is driven by tool tier + agent
-//! capability toggles + global config, with no scattered if-branches in
+//! per-agent tool switches + global config, with no scattered if-branches in
 //! `build_tool_schemas` / `build_tools_section` / `tool_search`.
 //!
 //! Three-axis decision:
 //! 1. **Tier-based default** — Tier 1 always eager; Memory bound to global
 //!    `memory.enabled`; Mcp bound to per-agent `mcp_enabled`.
-//! 2. **Per-agent override** — for Tier 2 / Tier 3 the user can flip the
-//!    default off via `capabilities.tools.deny` (Tier 2) or
-//!    `capabilities.capability_toggles.<name>` (Tier 3).
+//! 2. **Per-agent override** — for Standard / Configured tools the user can
+//!    flip the tier default via `capabilities.tools.allow` / `deny`.
 //! 3. **Global provisioning** — Tier 3 also requires the corresponding
 //!    provider to be configured globally (search backend, image provider,
 //!    canvas enabled, etc.). When the user enabled the toggle but provisioning
@@ -19,7 +18,7 @@
 
 use std::sync::LazyLock;
 
-use crate::agent_config::{CapabilityToggles, FilterConfig};
+use crate::agent_config::FilterConfig;
 use crate::agent_loader::is_main_agent;
 use crate::config::AppConfig;
 
@@ -36,10 +35,8 @@ pub struct DispatchContext<'a> {
     pub mcp_enabled: bool,
     /// `agent.json` `memory.enabled`
     pub memory_enabled: bool,
-    /// `agent.json` `capabilities.tools` (allow/deny filter)
+    /// `agent.json` `capabilities.tools` (non-Core tool switch overrides)
     pub tools_filter: &'a FilterConfig,
-    /// `agent.json` `capabilities.capabilityToggles`
-    pub capability_toggles: &'a CapabilityToggles,
     pub app_config: &'a AppConfig,
 }
 
@@ -62,7 +59,7 @@ pub enum ToolFate {
     /// - Memory is disabled and tool tier is Memory
     /// - MCP is disabled and tool tier is Mcp
     /// - Plan-mode tool is requested but PlanAgentMode is Off
-    /// - User explicitly denied the tool via `capabilities.tools.deny`
+    /// - User explicitly disabled a non-Core tool via `capabilities.tools.deny`
     Hidden,
 }
 
@@ -95,11 +92,17 @@ pub fn is_globally_configured(name: &str, app_config: &AppConfig) -> bool {
 
 /// Resolve whether the user has the tool enabled at the agent level.
 ///
-/// - For Tier 2 (Standard) we use the existing `tools.deny` filter as the
-///   on/off switch (user can move tools into deny via the GUI).
-/// - For Tier 3 (Configured) we use the dedicated `capability_toggles`
-///   field, falling back to tier defaults when unset.
+/// `capabilities.tools.allow` means "explicitly enabled" and `deny` means
+/// "explicitly disabled" for non-Core user-toggleable tools. Absence from both
+/// lists falls back to the tier default for this agent kind.
 fn user_enables_tool(name: &str, tier: &ToolTier, ctx: &DispatchContext) -> bool {
+    if ctx.tools_filter.deny.iter().any(|t| t == name) {
+        return false;
+    }
+    if ctx.tools_filter.allow.iter().any(|t| t == name) {
+        return true;
+    }
+
     let main = is_main_agent(ctx.agent_id);
     match tier {
         ToolTier::Standard {
@@ -107,12 +110,6 @@ fn user_enables_tool(name: &str, tier: &ToolTier, ctx: &DispatchContext) -> bool
             default_for_others,
             ..
         } => {
-            if ctx.tools_filter.deny.iter().any(|t| t == name) {
-                return false;
-            }
-            if ctx.tools_filter.allow.iter().any(|t| t == name) {
-                return true;
-            }
             if main {
                 *default_for_main
             } else {
@@ -124,9 +121,6 @@ fn user_enables_tool(name: &str, tier: &ToolTier, ctx: &DispatchContext) -> bool
             default_for_others,
             ..
         } => {
-            if let Some(explicit) = ctx.capability_toggles.override_for(name) {
-                return explicit;
-            }
             if main {
                 *default_for_main
             } else {
@@ -172,19 +166,6 @@ fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
 /// (it depends on `PlanAgentMode` which isn't a static fact about the tool).
 pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFate {
     let app_config = ctx.app_config;
-    // Agent-level tools allow/deny applies to every tier — including Core
-    // tools the user explicitly turned off (read / write / exec / etc.).
-    // Internal tools are exempt by `agent_tool_filter_allows` (matches the
-    // semantic in `tool_visible_with_filters` used downstream during schema
-    // emission), so framework helpers like `skill` / `tool_search` still
-    // surface even when the agent ships a tight allow-list. Without this
-    // gate the Core arm always returned `InjectEager` and `build_tools_section`
-    // (driven by tool fate) would advertise a tool that `build_tool_schemas`
-    // (driven by both fate AND `tool_visible_with_filters`) refused to send
-    // — system prompt and schema array drifting out of sync.
-    if !super::agent_tool_filter_allows(&def.name, ctx.tools_filter) {
-        return ToolFate::Hidden;
-    }
     match &def.tier {
         ToolTier::Core { subclass } => match subclass {
             // Plan-mode tools are decided by the PlanAgentMode at the call
@@ -198,6 +179,7 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
                 crate::tools::TOOL_TOOL_SEARCH => {
                     if has_deferred_builtin_tools(app_config)
                         || (ctx.mcp_enabled
+                            && app_config.mcp_global.enabled
                             && crate::mcp::catalog::has_deferred_tool_server(
                                 &app_config.mcp_servers,
                             ))
@@ -227,7 +209,7 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
             }
         }
         ToolTier::Mcp => {
-            if ctx.mcp_enabled {
+            if ctx.mcp_enabled && app_config.mcp_global.enabled {
                 ToolFate::InjectEager
             } else {
                 ToolFate::Hidden
@@ -304,13 +286,12 @@ pub fn all_dispatchable_tools() -> &'static [ToolDefinition] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_config::{CapabilityToggles, FilterConfig};
+    use crate::agent_config::FilterConfig;
     use crate::agent_loader::DEFAULT_AGENT_ID;
 
     /// Test fixture — owns the data so each `&` reference in DispatchContext
     /// is valid for the duration of the test.
     struct Fixture {
-        toggles: CapabilityToggles,
         filter: FilterConfig,
         app: AppConfig,
         mcp_enabled: bool,
@@ -320,7 +301,6 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             Self {
-                toggles: CapabilityToggles::default(),
                 filter: FilterConfig::default(),
                 app: AppConfig::default(),
                 mcp_enabled: true,
@@ -334,7 +314,6 @@ mod tests {
                 mcp_enabled: self.mcp_enabled,
                 memory_enabled: self.memory_enabled,
                 tools_filter: &self.filter,
-                capability_toggles: &self.toggles,
                 app_config: &self.app,
             }
         }
@@ -405,6 +384,15 @@ mod tests {
     }
 
     #[test]
+    fn tier_mcp_hidden_when_global_mcp_disabled() {
+        let mut f = Fixture::new();
+        f.app.mcp_global.enabled = false;
+        let def = def_with_tier("mcp_prompt", ToolTier::Mcp);
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
     fn tier_standard_default_main_vs_others() {
         let f = Fixture::new();
         let def = def_with_tier(
@@ -438,6 +426,22 @@ mod tests {
     }
 
     #[test]
+    fn tier_standard_allow_enables_default_off() {
+        let mut f = Fixture::new();
+        f.filter.allow.push("get_weather".into());
+        let def = def_with_tier(
+            "get_weather",
+            ToolTier::Standard {
+                default_for_main: false,
+                default_for_others: false,
+                default_deferred: false,
+            },
+        );
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::InjectEager);
+    }
+
+    #[test]
     fn tier_configured_unconfigured_emits_hint() {
         let mut f = Fixture::new();
         // Clear all providers — default config ships with DuckDuckGo enabled.
@@ -458,13 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn tier_core_user_deny_hides() {
-        // Regression: user-facing Core tools (read/write/exec/...) must
-        // honor `capabilities.tools.deny`. Pre-fix the Core arm returned
-        // InjectEager unconditionally, so `build_tools_section` advertised
-        // the tool while `build_tool_schemas` (filtered downstream) refused
-        // to send the schema — system prompt drifted from the actual tool
-        // array.
+    fn tier_core_user_deny_does_not_hide_core_tools() {
         let mut f = Fixture::new();
         f.filter.deny.push("read".into());
         let def = def_with_tier(
@@ -474,16 +472,14 @@ mod tests {
             },
         );
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
-        assert_eq!(fate, ToolFate::Hidden);
+        assert_eq!(fate, ToolFate::InjectEager);
     }
 
     #[test]
-    fn tier_core_internal_tool_survives_allowlist() {
-        // Internal framework tools must NOT be filtered by the agent-level
-        // `tools.allow` list — `agent_tool_filter_allows` exempts them, and
-        // the dispatcher needs to pass that exemption through.
+    fn tier_core_internal_tool_survives_tool_switch_overrides() {
+        // Core tools must not be affected by non-Core tool switch overrides.
         let mut f = Fixture::new();
-        f.filter.allow.push("read".into()); // tight allow-list
+        f.filter.allow.push("read".into());
         let def = ToolDefinition {
             name: "skill".into(),
             description: "test".into(),
@@ -500,9 +496,9 @@ mod tests {
     }
 
     #[test]
-    fn tier_configured_user_off_takes_precedence_over_unconfigured() {
+    fn tier_configured_user_deny_takes_precedence_over_unconfigured() {
         let mut f = Fixture::new();
-        f.toggles.web_search = Some(false);
+        f.filter.deny.push("web_search".into());
         let def = def_with_tier(
             "web_search",
             ToolTier::Configured {
@@ -514,5 +510,22 @@ mod tests {
         );
         let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn tier_configured_allow_enables_default_off() {
+        let mut f = Fixture::new();
+        f.filter.allow.push("custom_configured".into());
+        let def = def_with_tier(
+            "custom_configured",
+            ToolTier::Configured {
+                default_for_main: false,
+                default_for_others: false,
+                default_deferred: false,
+                config_hint: "Settings → Tools",
+            },
+        );
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
+        assert_eq!(fate, ToolFate::InjectEager);
     }
 }

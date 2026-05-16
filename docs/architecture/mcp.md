@@ -199,10 +199,14 @@ name if crate::mcp::catalog::is_mcp_tool_name(n) => {
 
 ### 与现有过滤体系整合
 
-[`tools::tool_visible_with_filters`](../../crates/ha-core/src/tools/mod.rs) 完全复用：
-- Agent 工具过滤（`agent.json capabilities.tools`）通过全限定名 `mcp__<server>__<tool>` 走通用规则
-- `allowed_tools` / `denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 都自然生效
-- 支持 `mcp__<server>__*` 通配（"允许整个 server"的便捷语法糖）
+MCP 工具的可见性分两层：
+- Agent 级 MCP master switch：`agent.json capabilities.mcpEnabled=false` 时，MCP 元工具和动态 `mcp__<server>__<tool>` 都不注入，也不进入 `tool_search`
+- 全局 / server 级启用条件：`mcpGlobal.enabled=false` 时 MCP 元工具和动态工具都隐藏；动态 MCP 工具只有在 `mcpGlobal.enabled && server.enabled && !mcpGlobal.deniedServers.contains(server.name)` 时进入 live registry；任一条件变为 false 会从 schema cache / `tool_search` / 执行反查表中同步移除
+- Server 级工具过滤：`allowedTools` / `deniedTools` 以原始 MCP tool name 配置，catalog refresh 和配置热更新都会立刻重建该 server 的 schema cache 与执行反查表
+- Server 级 deferred：单个 MCP server 配置 `deferredTools=true` 时，该 server 的动态工具改由 `tool_search` 按需发现
+- 上下文级收紧：`denied_tools` / `skill_allowed_tools` / `plan_mode_allowed_tools` 通过 [`tools::tool_visible_with_filters`](../../crates/ha-core/src/tools/mod.rs) 生效
+
+`capabilities.tools.allow/deny` 只表示非 Core 内置工具的开关覆盖，不再通过 `mcp__<server>__<tool>` 全限定名过滤动态 MCP 工具。
 
 ---
 
@@ -358,7 +362,7 @@ stdio server 是任意 binary，潜在命令执行入口：
 ### 审批
 
 - MCP 工具 `internal=false` → 默认走现有工具审批门
-- `cfg.auto_approve=true` 可跳过（仅 `trust_level=Trusted` 生效，double gate）
+- `cfg.auto_approve=true` 可跳过普通工具审批（仅 `trust_level=Trusted` 生效，double gate）；Plan Mode 的 `ask_tools` 仍优先，不能被该开关绕过
 - Dangerous Mode (`--dangerously-skip-all-approvals`) 与 `auto_approve` 正交，都会放行
 - `ChannelAccountConfig.auto_approve_tools=true` 在 IM 渠道场景跳门控
 
@@ -515,7 +519,7 @@ pub mcp_global: McpGlobalSettings,            // 全局开关、并发上限等
 | `auto_approve` | `bool` | 跳过工具审批（仅 `Trusted` 时生效） |
 | `trust_level` | `Untrusted` / `Trusted` | 影响 SSRF policy 和 `auto_approve` 门控 |
 | `eager` | `bool` | app 启动时预热连接；默认 lazy |
-| `project_paths` | `Vec<String>` | 仅这些项目根激活（空=所有） |
+| `project_paths` | `Vec<String>` | 预留字段；当前不参与 live registry / tool_search / 执行层过滤 |
 | `description` / `icon` | `Option<String>` | GUI 展示 |
 | `created_at` / `updated_at` | `i64` | timestamp |
 | `trust_acknowledged_at` | `Option<i64>` | 用户点过"信任子进程"确认的时间 |
@@ -537,13 +541,13 @@ pub struct McpOAuthConfig {
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `enabled` | `true` | 全局 kill switch；改为 `false` 全停 MCP 子系统 |
+| `enabled` | `true` | 全局 kill switch；改为 `false` 会从 live registry 移除所有 MCP server，并清空动态工具 cache / 反查表 |
 | `maxConcurrentCalls` | `8` | 全局 semaphore |
 | `backoffInitialSecs` | `5` | 失败后首次重连退避；每次失败翻倍直到 `backoffMaxSecs` |
 | `backoffMaxSecs` | `300` | 退避上限 |
 | `consecutiveFailureCircuitBreaker` | `10` | 连续失败达到该值触发熔断；`0` 关闭熔断（无限重试） |
 | `autoReconnectAfterCircuitSecs` | `1800` | 熔断后多久系统自动再试；用户点 Reconnect 立即绕过 |
-| `deniedServers` | `[]` | 按 name 黑名单（企业预设） |
+| `deniedServers` | `[]` | 按 name 黑名单（企业预设）；运行时热更新会移除对应 server 和其动态工具 |
 | `deferredTools` | `false` | per-server 设置；`true` 时该 server 的动态工具不 eager 注入，改由 `tool_search` 发现 |
 
 ### Scope 分层
@@ -555,7 +559,8 @@ pub struct McpOAuthConfig {
 - **读** `cached_config().mcp_servers` / `.mcp_global`（`Arc<AppConfig>` 快照）
 - **写** `mutate_config(("mcp.<op>", "settings_panel"), |cfg| { ... })`
   - `op` ∈ `add` / `update` / `remove` / `reorder` / `settings`
-  - 写入后自动 emit `config:changed`；`McpManager` 订阅后做增量 reconcile（新增 → 启动；删除 → 关闭；transport/env 变 → 重启；元数据变 → 不动）
+  - 写入后调用 `McpManager::reconcile`：新增有效 server → Idle 等待 lazy/eager 连接；禁用 / deny / 删除 → 断开并移除；Ready server 的 `allowedTools` / `deniedTools` 等 catalog 过滤变化 → 用已有原始 catalog 立即重建 schema cache 和执行反查表
+  - `update_settings(category="mcp_global")` 与 Settings UI 走同一条 reconcile 路径；不要假设 dispatch 会直接读取 `cached_config().mcp_global`
 
 ---
 
