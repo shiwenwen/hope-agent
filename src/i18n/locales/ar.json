@@ -4261,6 +4261,37 @@
     "permissionDenied": "تم رفض إذن الميكروفون",
     "noProvider": "لم يتم ضبط نموذج تحويل الصوت إلى نص",
     "failed": "فشل تفريغ الصوت",
-    "empty": "لم يتم اكتشاف كلام"
+    "empty": "لم يتم اكتشاف كلام",
+    "settings": {
+      "tab": "تحويل الكلام إلى نص",
+      "title": "تحويل الكلام إلى نص",
+      "subtitle": "إدخال صوتي للسطح المكتب + تفريغ تلقائي لقنوات الرسائل الفورية. أدر مزودي STT السحابيين والخوادم المحلية المتوافقة مع OpenAI.",
+      "activeModel": "النموذج النشط",
+      "activeModelLabel": "نموذج الإدخال الصوتي للسطح المكتب",
+      "noModel": "غير مهيّأ",
+      "imFallback": "نموذج تفريغ رسائل IM",
+      "imFallbackHint": "يُستخدم بواسطة حسابات IM التي مكنت autoTranscribeVoice. عند غيابه يعود إلى نموذج سطح المكتب.",
+      "imFallbackEmpty": "استخدم نموذج سطح المكتب النشط",
+      "providers": "المزودون السحابيون",
+      "addProvider": "إضافة مزود",
+      "editProvider": "تعديل المزود",
+      "noProviders": "لا يوجد مزود مهيّأ. يمكنك إضافة OpenAI Whisper أو DashScope (Qwen3-ASR) أو Groq أو Deepgram أو أي نقطة نهاية متوافقة مع OpenAI.",
+      "disabled": "معطّل",
+      "localBackends": "الخوادم المحلية",
+      "backendAlive": "تم اكتشافه",
+      "backendOffline": "غير قيد التشغيل",
+      "probe": "اختبار",
+      "providerName": "اسم العرض",
+      "providerKind": "البروتوكول",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "apiKeyMasked": "اتركه فارغًا للاحتفاظ بالمفتاح الحالي",
+      "models": "النماذج",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "نموذج واحد لكل سطر. الصيغة: `model_id<TAB>اسم العرض`. TAB اختياري.",
+      "enabled": "مفعّل",
+      "allowPrivate": "السماح بالشبكة المحلية / loopback",
+      "allowPrivateHint": "ضروري للخوادم المحلية على 127.0.0.1 / LAN."
+    }
   }
 }

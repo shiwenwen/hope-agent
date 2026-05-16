@@ -4261,6 +4261,37 @@
     "permissionDenied": "マイクのアクセス権限が拒否されました",
     "noProvider": "音声認識モデルが未設定です",
     "failed": "音声認識に失敗しました",
-    "empty": "音声が検出されませんでした"
+    "empty": "音声が検出されませんでした",
+    "settings": {
+      "tab": "音声認識",
+      "title": "音声認識",
+      "subtitle": "デスクトップ音声入力 + IM チャンネル自動文字起こし。クラウド STT プロバイダーとセルフホスト OpenAI 互換バックエンドを管理。",
+      "activeModel": "アクティブモデル",
+      "activeModelLabel": "デスクトップ音声入力モデル",
+      "noModel": "未設定",
+      "imFallback": "IM 自動文字起こしモデル",
+      "imFallbackHint": "autoTranscribeVoice を有効にした IM アカウントで使用。未設定時はデスクトップモデルにフォールバック。",
+      "imFallbackEmpty": "デスクトップのアクティブモデルを使用",
+      "providers": "クラウドプロバイダー",
+      "addProvider": "プロバイダーを追加",
+      "editProvider": "プロバイダーを編集",
+      "noProviders": "プロバイダー未設定。OpenAI Whisper / DashScope (Qwen3-ASR) / Groq / Deepgram などを追加可能。",
+      "disabled": "無効",
+      "localBackends": "ローカルバックエンド",
+      "backendAlive": "検出",
+      "backendOffline": "停止中",
+      "probe": "確認",
+      "providerName": "表示名",
+      "providerKind": "プロトコル",
+      "baseUrl": "ベース URL",
+      "apiKey": "API キー",
+      "apiKeyMasked": "空のまま既存キー保持",
+      "models": "モデル",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "1 行 1 モデル。形式: `model_id<TAB>表示名`。TAB は省略可。",
+      "enabled": "有効",
+      "allowPrivate": "loopback / プライベートネットワーク許可",
+      "allowPrivateHint": "127.0.0.1 / LAN のセルフホストサーバーに必須。"
+    }
   }
 }

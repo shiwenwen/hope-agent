@@ -4261,6 +4261,37 @@
     "permissionDenied": "Доступ к микрофону запрещён",
     "noProvider": "Модель распознавания речи не настроена",
     "failed": "Не удалось распознать речь",
-    "empty": "Речь не обнаружена"
+    "empty": "Речь не обнаружена",
+    "settings": {
+      "tab": "Распознавание речи",
+      "title": "Распознавание речи",
+      "subtitle": "Голосовой ввод на десктопе + автоматическая расшифровка в IM-каналах. Управление облачными STT-провайдерами и самохостинговыми OpenAI-совместимыми бэкендами.",
+      "activeModel": "Активная модель",
+      "activeModelLabel": "Модель голосового ввода (десктоп)",
+      "noModel": "Не настроено",
+      "imFallback": "Модель IM-расшифровки",
+      "imFallbackHint": "Используется аккаунтами IM с включенным autoTranscribeVoice. Если не задано, используется модель десктопа.",
+      "imFallbackEmpty": "Использовать активную модель десктопа",
+      "providers": "Облачные провайдеры",
+      "addProvider": "Добавить провайдера",
+      "editProvider": "Редактировать провайдера",
+      "noProviders": "Провайдеры не настроены. Добавьте OpenAI Whisper, DashScope (Qwen3-ASR), Groq, Deepgram или любой OpenAI-совместимый эндпоинт.",
+      "disabled": "отключено",
+      "localBackends": "Локальные бэкенды",
+      "backendAlive": "Обнаружен",
+      "backendOffline": "Не запущен",
+      "probe": "Проверить",
+      "providerName": "Отображаемое имя",
+      "providerKind": "Протокол",
+      "baseUrl": "Базовый URL",
+      "apiKey": "API Key",
+      "apiKeyMasked": "Оставьте пустым, чтобы сохранить текущий ключ",
+      "models": "Модели",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "Одна модель на строку. Формат: `model_id<TAB>имя`. TAB необязателен.",
+      "enabled": "Включено",
+      "allowPrivate": "Разрешить loopback / приватную сеть",
+      "allowPrivateHint": "Необходимо для self-hosted серверов на 127.0.0.1 / LAN."
+    }
   }
 }

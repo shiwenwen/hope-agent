@@ -4261,6 +4261,37 @@
     "permissionDenied": "마이크 권한이 거부되었습니다",
     "noProvider": "STT 모델이 설정되지 않았습니다",
     "failed": "음성 인식 실패",
-    "empty": "음성이 감지되지 않았습니다"
+    "empty": "음성이 감지되지 않았습니다",
+    "settings": {
+      "tab": "음성 인식",
+      "title": "음성 인식",
+      "subtitle": "데스크톱 음성 입력 + IM 채널 자동 전사. 클라우드 STT 제공자와 셀프 호스트 OpenAI 호환 백엔드 관리.",
+      "activeModel": "활성 모델",
+      "activeModelLabel": "데스크톱 음성 입력 모델",
+      "noModel": "미설정",
+      "imFallback": "IM 자동 전사 모델",
+      "imFallbackHint": "autoTranscribeVoice 가 켜진 IM 계정에서 사용. 미설정 시 데스크톱 모델로 폴백.",
+      "imFallbackEmpty": "데스크톱 활성 모델 사용",
+      "providers": "클라우드 제공자",
+      "addProvider": "제공자 추가",
+      "editProvider": "제공자 편집",
+      "noProviders": "구성된 제공자 없음. OpenAI Whisper / DashScope (Qwen3-ASR) / Groq / Deepgram 등 추가 가능.",
+      "disabled": "비활성",
+      "localBackends": "로컬 백엔드",
+      "backendAlive": "감지됨",
+      "backendOffline": "실행 안 됨",
+      "probe": "탐지",
+      "providerName": "표시 이름",
+      "providerKind": "프로토콜",
+      "baseUrl": "기본 URL",
+      "apiKey": "API 키",
+      "apiKeyMasked": "비워두면 기존 키 유지",
+      "models": "모델",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "한 줄 한 모델. 형식: `model_id<TAB>표시명`. TAB 생략 가능.",
+      "enabled": "활성",
+      "allowPrivate": "loopback / 사설 네트워크 허용",
+      "allowPrivateHint": "127.0.0.1 / LAN 셀프 호스트 서버에 필요."
+    }
   }
 }

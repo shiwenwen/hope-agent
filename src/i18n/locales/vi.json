@@ -4261,6 +4261,37 @@
     "permissionDenied": "Quyền truy cập micrô bị từ chối",
     "noProvider": "Chưa cấu hình mô hình nhận dạng giọng nói",
     "failed": "Chuyển giọng nói thành văn bản thất bại",
-    "empty": "Không phát hiện giọng nói"
+    "empty": "Không phát hiện giọng nói",
+    "settings": {
+      "tab": "Nhận dạng giọng nói",
+      "title": "Nhận dạng giọng nói",
+      "subtitle": "Đầu vào giọng nói trên máy tính + tự động phiên âm kênh IM. Quản lý nhà cung cấp STT đám mây và backend tương thích OpenAI tự host.",
+      "activeModel": "Mô hình đang hoạt động",
+      "activeModelLabel": "Mô hình đầu vào giọng nói (máy tính)",
+      "noModel": "Chưa cấu hình",
+      "imFallback": "Mô hình phiên âm IM",
+      "imFallbackHint": "Dùng cho tài khoản IM bật autoTranscribeVoice. Nếu trống sẽ dùng mô hình máy tính.",
+      "imFallbackEmpty": "Dùng mô hình máy tính đang hoạt động",
+      "providers": "Nhà cung cấp đám mây",
+      "addProvider": "Thêm nhà cung cấp",
+      "editProvider": "Chỉnh sửa nhà cung cấp",
+      "noProviders": "Chưa cấu hình nhà cung cấp. Thêm OpenAI Whisper, DashScope (Qwen3-ASR), Groq, Deepgram hoặc bất kỳ endpoint nào tương thích OpenAI.",
+      "disabled": "đã tắt",
+      "localBackends": "Backend cục bộ",
+      "backendAlive": "Đã phát hiện",
+      "backendOffline": "Chưa chạy",
+      "probe": "Kiểm tra",
+      "providerName": "Tên hiển thị",
+      "providerKind": "Giao thức",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "apiKeyMasked": "Để trống để giữ khoá hiện tại",
+      "models": "Mô hình",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "Một mô hình mỗi dòng. Định dạng: `model_id<TAB>tên`. TAB tuỳ chọn.",
+      "enabled": "Bật",
+      "allowPrivate": "Cho phép loopback / mạng riêng",
+      "allowPrivateHint": "Cần cho server tự host trên 127.0.0.1 / LAN."
+    }
   }
 }

@@ -4261,6 +4261,37 @@
     "permissionDenied": "Permiso de micrófono denegado",
     "noProvider": "No hay modelo de voz a texto configurado",
     "failed": "La transcripción de voz falló",
-    "empty": "No se detectó voz"
+    "empty": "No se detectó voz",
+    "settings": {
+      "tab": "Voz a texto",
+      "title": "Voz a texto",
+      "subtitle": "Entrada de voz en escritorio + transcripción automática en canales IM. Gestiona proveedores STT en la nube y backends OpenAI-compatibles autohospedados.",
+      "activeModel": "Modelo activo",
+      "activeModelLabel": "Modelo de entrada de voz (escritorio)",
+      "noModel": "Sin configurar",
+      "imFallback": "Modelo de transcripción IM",
+      "imFallbackHint": "Usado por cuentas IM con autoTranscribeVoice activado. Si está vacío, usa el modelo de escritorio.",
+      "imFallbackEmpty": "Usar modelo activo de escritorio",
+      "providers": "Proveedores en la nube",
+      "addProvider": "Añadir proveedor",
+      "editProvider": "Editar proveedor",
+      "noProviders": "Sin proveedores configurados. Añade OpenAI Whisper, DashScope (Qwen3-ASR), Groq, Deepgram o cualquier endpoint compatible con OpenAI.",
+      "disabled": "deshabilitado",
+      "localBackends": "Backends locales",
+      "backendAlive": "Detectado",
+      "backendOffline": "No en ejecución",
+      "probe": "Probar",
+      "providerName": "Nombre visible",
+      "providerKind": "Protocolo",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "apiKeyMasked": "Vacío para conservar la clave existente",
+      "models": "Modelos",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "Un modelo por línea. Formato: `model_id<TAB>nombre`. TAB opcional.",
+      "enabled": "Habilitado",
+      "allowPrivate": "Permitir loopback / red privada",
+      "allowPrivateHint": "Necesario para servidores locales en 127.0.0.1 / LAN."
+    }
   }
 }

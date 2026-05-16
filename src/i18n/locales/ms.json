@@ -4261,6 +4261,37 @@
     "permissionDenied": "Kebenaran mikrofon ditolak",
     "noProvider": "Tiada model pertuturan-ke-teks yang dikonfigurasi",
     "failed": "Transkripsi suara gagal",
-    "empty": "Tiada pertuturan dikesan"
+    "empty": "Tiada pertuturan dikesan",
+    "settings": {
+      "tab": "Pertuturan ke teks",
+      "title": "Pertuturan ke teks",
+      "subtitle": "Input suara desktop + transkripsi automatik saluran IM. Urus pembekal STT awan dan backend serasi OpenAI yang dihos sendiri.",
+      "activeModel": "Model aktif",
+      "activeModelLabel": "Model input suara desktop",
+      "noModel": "Tidak dikonfigurasi",
+      "imFallback": "Model transkripsi IM",
+      "imFallbackHint": "Digunakan oleh akaun IM dengan autoTranscribeVoice dihidupkan. Jika kosong, fallback ke model desktop.",
+      "imFallbackEmpty": "Gunakan model aktif desktop",
+      "providers": "Pembekal awan",
+      "addProvider": "Tambah pembekal",
+      "editProvider": "Edit pembekal",
+      "noProviders": "Tiada pembekal dikonfigurasi. Tambah OpenAI Whisper, DashScope (Qwen3-ASR), Groq, Deepgram atau mana-mana endpoint serasi OpenAI.",
+      "disabled": "dilumpuhkan",
+      "localBackends": "Backend tempatan",
+      "backendAlive": "Dikesan",
+      "backendOffline": "Tidak berjalan",
+      "probe": "Uji",
+      "providerName": "Nama paparan",
+      "providerKind": "Protokol",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "apiKeyMasked": "Biarkan kosong untuk kekalkan kekunci sedia ada",
+      "models": "Model",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "Satu model setiap baris. Format: `model_id<TAB>nama`. TAB pilihan.",
+      "enabled": "Diaktifkan",
+      "allowPrivate": "Benarkan loopback / rangkaian persendirian",
+      "allowPrivateHint": "Diperlukan untuk pelayan dihos sendiri pada 127.0.0.1 / LAN."
+    }
   }
 }

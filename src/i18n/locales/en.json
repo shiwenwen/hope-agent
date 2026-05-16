@@ -4261,6 +4261,37 @@
     "permissionDenied": "Microphone permission denied",
     "noProvider": "No Speech-to-Text model configured",
     "failed": "Voice transcription failed",
-    "empty": "No speech detected"
+    "empty": "No speech detected",
+    "settings": {
+      "tab": "Speech-to-Text",
+      "title": "Speech-to-Text",
+      "subtitle": "Voice input on desktop + IM-channel auto-transcribe. Manage cloud STT providers and self-hosted OpenAI-compatible backends.",
+      "activeModel": "Active Model",
+      "activeModelLabel": "Desktop voice-input model",
+      "noModel": "Not configured",
+      "imFallback": "IM-channel auto-transcribe model",
+      "imFallbackHint": "Used by IM accounts with autoTranscribeVoice on. Falls back to the desktop model when unset.",
+      "imFallbackEmpty": "Use desktop active model",
+      "providers": "Cloud Providers",
+      "addProvider": "Add provider",
+      "editProvider": "Edit provider",
+      "noProviders": "No providers configured. Add OpenAI Whisper, DashScope (Qwen3-ASR), Groq, Deepgram or any OpenAI-compatible endpoint.",
+      "disabled": "disabled",
+      "localBackends": "Local Backends",
+      "backendAlive": "Detected",
+      "backendOffline": "Not running",
+      "probe": "Probe",
+      "providerName": "Display name",
+      "providerKind": "Wire protocol",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "apiKeyMasked": "Leave empty to keep existing key",
+      "models": "Models",
+      "modelsPlaceholder": "whisper-1\\tWhisper\\nqwen3-asr-flash\\tQwen3-ASR Flash",
+      "modelsHint": "One model per line. Format: `model_id<TAB>display_name`. Tab is optional.",
+      "enabled": "Enabled",
+      "allowPrivate": "Allow loopback / private network",
+      "allowPrivateHint": "Required for self-hosted servers on 127.0.0.1 / LAN."
+    }
   }
 }
