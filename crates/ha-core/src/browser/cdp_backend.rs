@@ -1083,7 +1083,7 @@ impl CdpBackend {
             ActKind::Click | ActKind::DoubleClick => {
                 self.act_click(params, kind == ActKind::DoubleClick).await
             }
-            ActKind::Type | ActKind::Fill => self.act_fill(params).await,
+            ActKind::Fill => self.act_fill(params).await,
             ActKind::Hover => self.act_hover(params).await,
             ActKind::Drag => self.act_drag(params).await,
             ActKind::Press => self.act_press_key(params).await,

@@ -556,7 +556,7 @@ async fn snapshot_screenshot(
             format,
             full_page,
             quality: None,
-            ref_id: get_u32(args, "ref"),
+            ref_id: None,
         })
         .await?;
     let mime = format.mime();
@@ -636,7 +636,7 @@ async fn action_act(args: &Value) -> Result<String> {
     let kind_str = get_str(args, "kind").ok_or_else(|| anyhow!("act requires 'kind' parameter"))?;
     let kind = ActKind::parse(kind_str)
         .ok_or_else(|| anyhow!(
-            "Unknown act.kind: '{}'. Valid: click / type / hover / drag / select / fill / press / upload",
+            "Unknown act.kind: '{}'. Valid: click / dblclick / fill / hover / drag / select / press / upload",
             kind_str
         ))?;
     let params = ActParams {
@@ -648,7 +648,6 @@ async fn action_act(args: &Value) -> Result<String> {
         text: get_str_any(args, "text").map(String::from),
         key: get_str(args, "key").map(String::from),
         file_path: get_str(args, "file_path").map(String::from),
-        modifiers: get_str_array(args, "modifiers"),
         values: get_str_array(args, "values"),
     };
     let backend = acquire_backend().await?;

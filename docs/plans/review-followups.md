@@ -30,21 +30,6 @@
 
 ## Open
 
-### F-087 browser `act.kind=type` / `modifiers` / `screenshot ref` schema-vs-impl gap
-
-- **来源**：2026-05-16 browser 子系统重构 codex review
-- **现象**：三处 schema 承诺与 CDP 实现不一致：
-  - [`cdp_backend.rs::act_inner` kind=type 分支](../../crates/ha-core/src/browser/cdp_backend.rs)（约 line 1051）当前等同 `fill`（先清空 input 再写值）。chromiumoxide / Puppeteer 的 `type` 语义是 "per-char keyDown/keyUp 不清空原值"。当前实现会把已有内容删掉
-  - [`tools/browser/mod.rs` 解析 `modifiers: ["Ctrl","Shift",...]`](../../crates/ha-core/src/tools/browser/mod.rs)（约 line 634）但 [`ActParams`](../../crates/ha-core/src/browser/backend.rs) 没有 modifiers 字段、CDP backend 完全不用 —— LLM 设置组合键会被默默忽略
-  - [`snapshot screenshot` 接受 `ref`](../../crates/ha-core/src/tools/browser/mod.rs)（约 line 540）但 [`cdp_backend.rs::take_screenshot`](../../crates/ha-core/src/browser/cdp_backend.rs)（约 line 789）只截整个 viewport,从不按元素 bbox 裁剪
-- **为什么留**：本期重构主线是稳定性（handler runtime / SSRF 统一 / ephemeral / docker flags）,schema 一致性是单独的产品决策 —— 三个都可以"删除 schema 承诺"或"补实现",但既然没有用户报障,需要先和产品确认哪些应真的留下再动 schema（动 schema 影响所有 LLM 的 tool calling 行为）
-- **改的话要做什么**：
-  - `act.kind=type`：要么 schema 里删掉 type kind / SKILL.md 说明等同 fill,要么实现真正的 `Input.dispatchKeyEvent` 字符序列（不清空 + per-char keyDown/keyUp）
-  - `modifiers`：在 [`ActParams`](../../crates/ha-core/src/browser/backend.rs) 加 `modifiers: Vec<String>`,backend `act_inner` 处理 Ctrl/Shift/Alt/Meta（CDP `Input.dispatchKeyEvent` 的 `modifiers` bitfield）
-  - `screenshot ref`：让 `take_screenshot` 接受可选 `ref_id`,按 [`element_refs`](../../crates/ha-core/src/browser_state.rs) 查 bbox + `Page.captureScreenshot` 的 `clip` 字段裁剪
-- **影响面**：当前 LLM 收到"type 工具调用成功"但页面行为可能不符预期（已有内容被清掉 / 组合键无效 / screenshot 拿到全屏而不是按钮）。错误是 silent,不是 hard fail
-- **触发时机建议**：下次有用户报"type 把内容清掉了"或"组合键不生效"时,或独立"browser tool schema cleanup" PR
-
 ### F-084 抽 `usePlanVersions(sessionId)` hook 让 PlanPanel + PlansView 共用版本拉取逻辑
 
 - **来源**：2026-05-11 历史 Plan 查看器 `/simplify` review（quality agent）
@@ -988,6 +973,18 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-095 browser `act.kind=type` / `modifiers` / `screenshot ref` schema-vs-impl gap
+
+- **关闭于**：2026-05-16，分支 `feat/browser-stability-770a`，紧接 commit f48f0539（browser refactor 主提交）的清理 commit
+- **来源**：2026-05-16 browser 子系统重构 codex review（用户综合 codex review 与人工 review 的 8 条意见之一）
+- **现象**：三处 schema 承诺与 CDP 实现不一致 —— `act.kind=type` 当 `fill` 用（先清空 input，不是真正的 per-char 敲键）；`modifiers: ["Ctrl","Shift",...]` 解析后丢，`ActParams` 没字段、backend 不用；`snapshot screenshot ref=N` 收到 ref 但 `take_screenshot` 只截整个 viewport
+- **如何关闭**：走"删 schema 承诺"路线（不补实现）：
+  - `type` → `fill` alias：[backend.rs::ActKind](../../crates/ha-core/src/browser/backend.rs) 删 `Type` 变体，`parse("type" | "fill")` 都返 `ActKind::Fill`（旧 LLM 调用不报错）；[cdp_backend.rs::act_inner](../../crates/ha-core/src/browser/cdp_backend.rs) match 单写 `Fill`；schema description 改 `click | dblclick | fill | hover | drag | select | press | upload`；[SKILL.md](../../skills/ha-browser/SKILL.md) 速查表删 `"type" | "fill"` 改单 `fill` + 注释清空语义
+  - `modifiers`：删 [`ActParams`](../../crates/ha-core/src/browser/backend.rs) 字段、[tools/browser/mod.rs](../../crates/ha-core/src/tools/browser/mod.rs) `get_str_array("modifiers")` 解析、schema 的 `modifiers` 整段 property
+  - `screenshot ref`：[snapshot_screenshot](../../crates/ha-core/src/tools/browser/mod.rs) 硬传 `ref_id: None`；[`ScreenshotParams.ref_id`](../../crates/ha-core/src/browser/backend.rs) 字段保留但注释改 "Reserved for future per-element cropping; CDP backend currently ignores"（避免一并改 trait + frame.rs 调用点，影响面更小）。schema 描述本来就没承诺 ref 给 screenshot，无需改
+- **测试**：1390 个 ha-core unit test 全过、`cargo clippy -p ha-core -p ha-server -- -D warnings` 干净
+- **影响面**：LLM 用 `act.kind=type` 旧调用继续工作（alias 兜底）；新发的 schema 不再误导模型尝试 `modifiers` 或 screenshot 元素裁剪。**若未来产品决定补实现真正的 per-char type / modifier bitfield / element clip,需要新建 follow-up,不是 reopen 本条**
 
 ### F-082 阶段 2 / 3 — Telegram / WeChat hardening 收尾
 

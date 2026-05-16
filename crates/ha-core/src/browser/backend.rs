@@ -68,7 +68,9 @@ pub struct ScreenshotParams {
     pub format: ImageFormat,
     pub full_page: bool,
     pub quality: Option<u8>,
-    /// Optional crop to a specific element (by ref_id).
+    /// Reserved for future per-element cropping (`Page.captureScreenshot`
+    /// `clip`). The current CDP backend ignores this field — the tool
+    /// schema does not expose `ref` for `snapshot.format=screenshot`.
     pub ref_id: Option<u32>,
 }
 
@@ -117,7 +119,6 @@ pub struct PdfParams {
 pub enum ActKind {
     Click,
     DoubleClick,
-    Type,
     Hover,
     Drag,
     Select,
@@ -131,11 +132,15 @@ impl ActKind {
         Some(match s {
             "click" => ActKind::Click,
             "double_click" | "dblclick" => ActKind::DoubleClick,
-            "type" => ActKind::Type,
+            // `type` is an alias of `fill` — we never implemented true
+            // per-character keydown/keyup typing (chromiumoxide 0.9.1 has
+            // no high-level helper and our backend just called act_fill).
+            // Keep the alias so existing LLM tool calls don't error out,
+            // but the schema only advertises `fill` going forward.
+            "type" | "fill" => ActKind::Fill,
             "hover" => ActKind::Hover,
             "drag" => ActKind::Drag,
             "select" => ActKind::Select,
-            "fill" => ActKind::Fill,
             "press" => ActKind::Press,
             "upload" => ActKind::Upload,
             _ => return None,
@@ -150,7 +155,6 @@ pub struct ActParams {
     pub text: Option<String>,
     pub key: Option<String>,
     pub file_path: Option<String>,
-    pub modifiers: Option<Vec<String>>,
     pub values: Option<Vec<String>>,
 }
 

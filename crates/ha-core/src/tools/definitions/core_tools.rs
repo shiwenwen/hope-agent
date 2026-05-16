@@ -599,7 +599,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "action": {
                         "type": "string",
                         "enum": ["status", "profile", "tabs", "navigate", "snapshot", "act", "observe", "control"],
-                        "description": "Top-level action. `status` is read-only; `profile` manages the Chrome session (launch/connect/disconnect/list); `tabs` lists/opens/selects/closes tabs; `navigate` drives back/forward/reload/go; `snapshot` returns a role-tree, screenshot, or PDF; `act` performs the interaction (click/type/hover/drag/select/fill/press/upload); `observe` reads the console/network/page_errors ring buffer; `control` covers resize/scroll/wait_for/handle_dialog/evaluate."
+                        "description": "Top-level action. `status` is read-only; `profile` manages the Chrome session (launch/connect/disconnect/list); `tabs` lists/opens/selects/closes tabs; `navigate` drives back/forward/reload/go; `snapshot` returns a role-tree, screenshot, or PDF; `act` performs the interaction (click/dblclick/fill/hover/drag/select/press/upload); `observe` reads the console/network/page_errors ring buffer; `control` covers resize/scroll/wait_for/handle_dialog/evaluate."
                     },
                     "op": {
                         "type": "string",
@@ -607,7 +607,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "kind": {
                         "type": "string",
-                        "description": "For `act`: click | type | hover | drag | select | fill | press | upload. For `observe`: console | network | page_errors."
+                        "description": "For `act`: click | dblclick | fill | hover | drag | select | press | upload. For `observe`: console | network | page_errors."
                     },
                     "format": {
                         "type": "string",
@@ -631,7 +631,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "text": {
                         "type": "string",
-                        "description": "Text payload for `act.kind=type/fill` or the substring to wait for in `control.op=wait_for`."
+                        "description": "Text payload for `act.kind=fill` or the substring to wait for in `control.op=wait_for`."
                     },
                     "key": {
                         "type": "string",
@@ -640,11 +640,6 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "file_path": {
                         "type": "string",
                         "description": "File path for `act.kind=upload`."
-                    },
-                    "modifiers": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Modifier keys (e.g. ['Shift']) accompanying `act.kind=click`."
                     },
                     "values": {
                         "type": "array",
