@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent 编辑器：异步工具后台化策略三选**：`asyncToolPolicy` 字段（`model-decide` / `always-background` / `never-background`）此前只能手编 `agents/<id>/agent.json`，现在加到「能力」标签页的工具区，与 `maxToolRounds` / `sandbox` 同列。控制 async-capable 工具（`exec` / `web_search` / `image_generate`）何时 detach 到后台 —— 跟审批正交，不影响弹窗。12 语言齐全。
 - **IM 文本审批可用性增强（无按钮渠道：WeChat / Signal / iMessage / IRC / WhatsApp）**：审批回复 parsing 从「只接 `1`/`2`/`3`」扩到大小写无关 + 中英自然语言白名单（`yes` / `y` / `ok` / `allow` / `好` / `同意` / `允许` / `2` / `always` / `总是` / `永远` / `3` / `no` / `n` / `deny` / `拒绝` / `取消` 等）；审批 prompt 渲染 `#tag` 6 字符短前缀，多个 pending 时可用 `yes#abc123` 精准定位（不限于 LIFO 栈顶）；超时不再 IM 端静默 —— 走新的 `approval_timed_out` EventBus 事件给 chat 发一条「⏱ approval timed out」通知；pending 期间用户发非审批消息时 1 分钟节流提示一次「你有 N 个待审批，回 1/2/3 或 yes/no」，照常进入新 turn 不绑架用户。
 - **`hope-agent server` 新增 `--auto-approve-tools` flag / `HA_SERVER_AUTO_APPROVE_TOOLS=1` env**：headless 部署（CI / Docker / pipeline）下 HTTP 客户端通常不接审批 UI，所有工具调用会等满 5 分钟超时再被 deny。新开关让 HTTP 入口的 chat 全部按「自动批准工具」处理（permission engine 的 dangerous-commands / protected-paths / Plan Mode ask 仍执行），等同桌面 IM 渠道账号勾「auto-approve tools」。进程态、不持久化、启动 stderr 红字 banner 提醒。比 `--dangerously-skip-all-approvals` 更窄；常规 headless 推荐用这个。
 - **聊天工作台视觉与布局改造**：主界面切成全局 rail + 会话 pane 两层导航，右侧 Browser / Plan / Diff / Canvas / Team 面板统一为共享 shell；空会话时输入框居中加宽并显示品牌 Logo，有消息后回到底部；应用默认窗口尺寸放大到更适合双栏工作台的 1360×860。

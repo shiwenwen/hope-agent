@@ -13,8 +13,29 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { OpenClawHintBanner } from "./CustomTab"
 import type { AgentConfig, SkillSummary } from "../types"
+
+type AsyncToolPolicy = NonNullable<AgentConfig["capabilities"]["asyncToolPolicy"]>
+const ASYNC_TOOL_POLICY_DEFAULT: AsyncToolPolicy = "model-decide"
+const ASYNC_TOOL_POLICY_LABEL_KEYS: Record<AsyncToolPolicy, string> = {
+  "model-decide": "settings.agentAsyncToolPolicyModelDecide",
+  "always-background": "settings.agentAsyncToolPolicyAlwaysBackground",
+  "never-background": "settings.agentAsyncToolPolicyNeverBackground",
+}
+const ASYNC_TOOL_POLICY_DESC_KEYS: Record<AsyncToolPolicy, string> = {
+  "model-decide": "settings.agentAsyncToolPolicyModelDecideDesc",
+  "always-background": "settings.agentAsyncToolPolicyAlwaysBackgroundDesc",
+  "never-background": "settings.agentAsyncToolPolicyNeverBackgroundDesc",
+}
+const ASYNC_TOOL_POLICY_VALUES = Object.keys(ASYNC_TOOL_POLICY_LABEL_KEYS) as AsyncToolPolicy[]
 
 /** Collapsible section wrapper used by every tier block in this tab. */
 function CollapsibleSection({
@@ -213,6 +234,38 @@ export default function CapabilitiesTab({
               {t("settings.agentUnlimited")}
             </label>
           </div>
+        </div>
+
+        {/* Async tool backgrounding policy */}
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+            {t("settings.agentAsyncToolPolicy")}
+          </div>
+          <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+            {t("settings.agentAsyncToolPolicyDesc")}
+          </p>
+          <Select
+            value={config.capabilities.asyncToolPolicy ?? ASYNC_TOOL_POLICY_DEFAULT}
+            onValueChange={(v) =>
+              updateCapabilities({ asyncToolPolicy: v as AsyncToolPolicy })
+            }
+          >
+            <SelectTrigger className="h-8 w-full text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ASYNC_TOOL_POLICY_VALUES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  <div className="flex flex-col gap-0.5 text-left">
+                    <span>{t(ASYNC_TOOL_POLICY_LABEL_KEYS[value])}</span>
+                    <span className="text-[11px] text-muted-foreground/70">
+                      {t(ASYNC_TOOL_POLICY_DESC_KEYS[value])}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Tier 1: Core (read-only listing) */}
