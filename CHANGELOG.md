@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **聊天工作台视觉与布局改造**：主界面切成全局 rail + 会话 pane 两层导航，右侧 Browser / Plan / Diff / Canvas / Team 面板统一为共享 shell；空会话时输入框居中加宽并显示品牌 Logo，有消息后回到底部；应用默认窗口尺寸放大到更适合双栏工作台的 1360×860。
 - **聊天界面窄栏自适应整理**：输入框工作目录入口改为纯图标 + 「设置工作目录」提示，统一工具条图标尺寸；无痕模式入口移至顶部标题栏；右侧 Browser / Plan / Diff / Canvas / Team 面板打开时自动收起左侧 session 列表，用户仍可手动展开；输入框溢出菜单改为按容器宽度触发，修复右侧面板压缩聊天列时「+」菜单不出现。
 - **聊天消息 Markdown / 纯文本渲染可切换**：用户消息现在与模型消息一样默认支持 Markdown 渲染，气泡 hover 操作区新增 Markdown / 纯文本切换按钮，复制仍保留原始文本。两种模式都会自动识别裸链接（`https://...` / `www.example.com` / 邮箱）并渲染为可点击超链，复用既有外链与本地路径打开策略。
 - **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **聊天任务视图消息操作区补齐**：任务视图下模型消息恢复「详情」按钮，复制 / Markdown 切换 / 详情三枚按钮统一对齐；`showPlainText` / `renderMarkdown` 补齐 12 语言文案；亮色主题用户气泡改为更克制的冷灰色，并修复首次打开时 session pane 宽度被空 `localStorage` 错夹到最小值的问题。
 - **MCP 工具开关热更新一致性**：`mcpGlobal.enabled` / `deniedServers` / server `enabled` 现在会同步更新 live registry、schema cache、`tool_search` 与执行反查表；修改 server `allowedTools` / `deniedTools` 不再把已 Ready 的 MCP 工具清空到必须手动 Reconnect。server `autoApprove` 现在只在 `trustLevel=Trusted` 时真正跳过普通工具审批，且不会绕过 Plan Mode ask。
 - **切回流式输出中的会话不再从头重放打字机动画**：MarkdownRenderer 在 mount 时把当前 content 长度记为基线，已经看过的内容直接整段显示，仅对 mount 之后新到达的 delta 继续走 typewriter + blurIn 动画。修复切到别的会话再切回时整段内容"咵地从头一字一字 / 模糊变清晰重放一遍"的视觉问题。
 - **会话内切换模型不再污染全局默认 & 不再闪回**：聊天界面 ModelPicker、桌面斜杠 `/model` 卡片、IM `/model` 命令现在都只把模型固定到**当前会话**（写入 `sessions.provider_id/model_id`），不再改 `config.active_model`。下次发消息时 chat_engine 解析顺序变为 **session > agent.primary > config.active_model**。同一会话切模型 UI 由 `manualModelOverrideRef` 兜底，不会再因 `config:changed` 广播被回退成旧值。全局默认模型现在仅由「设置 → 模型」面板修改。
