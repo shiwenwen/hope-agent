@@ -140,11 +140,15 @@ pub fn spawn_explicit_job(
     let clean_args = strip_async_control_args(args);
     let cancel_token = super::cancel::register_job(&job_id);
     ctx.bypass_async_dispatch = true;
-    // The outer call already passed the approval gate for this exact arg set;
-    // the recursive inner call must not re-prompt (the user has no surface to
-    // answer it from inside a background runtime). The visibility / plan-mode
+    // Engine gate already ran (or was deliberately skipped for `exec`) at
+    // the outer dispatch; the recursive inner call must not re-prompt (the
+    // user has no surface to answer it from inside a background runtime).
+    // `external_pre_approved` silences the engine-level prompt **without**
+    // bypassing `exec`'s command-level dangerous/edit audit — flipping
+    // `auto_approve_tools` here would let any shell command run silently
+    // whenever `run_in_background: true` is set. Visibility / plan-mode
     // checks still re-run as belt-and-suspenders.
-    ctx.auto_approve_tools = true;
+    ctx.external_pre_approved = true;
     ctx.suppress_global_tool_timeout = true;
     ctx.suppress_result_disk_persistence = true;
     ctx.cancellation_token = Some(cancel_token.clone());

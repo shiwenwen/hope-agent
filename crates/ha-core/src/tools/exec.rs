@@ -414,7 +414,15 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // store on top: once the user picks "allow always" for `git status`,
     // the prefix shortcut keeps the engine from re-asking for similar
     // commands.
-    if !ctx.auto_approve_tools {
+    //
+    // Gate predicate is `ToolExecContext::should_run_exec_command_gate` —
+    // it reads `auto_approve_tools` only, deliberately ignoring
+    // `external_pre_approved`. The latter is set by async-job re-entry to
+    // silence the *engine* gate (the engine intentionally excludes `exec`
+    // and would never have run anyway), and must NOT silence this
+    // command-level audit — otherwise dangerous shell commands could slip
+    // through whenever the call is re-dispatched into a background runtime.
+    if ctx.should_run_exec_command_gate() {
         let decision = super::execution::resolve_tool_permission(TOOL_EXEC, args, ctx, false).await;
         match decision {
             crate::permission::Decision::Allow => {}
