@@ -244,7 +244,6 @@ pub async fn stt_push_chunk(
         .map_err(|e| CmdError::msg(format!("Invalid base64 chunk: {e}")))?;
     SttSessionManager::global()
         .push_chunk(&session_id, bytes)
-        .await
         .map_err(|e| CmdError::msg(e.to_string()))
 }
 

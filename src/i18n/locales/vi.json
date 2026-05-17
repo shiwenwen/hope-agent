@@ -3489,6 +3489,16 @@
         "title": "Recent reject reasons",
         "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
       },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      },
       "resetAll": {
         "label": "Reset everything",
         "confirm": "Reset every custom field to defaults?",
@@ -3593,16 +3603,6 @@
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
         }
-      },
-      "curator": {
-        "title": "Draft consolidation",
-        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
-        "run": "Scan",
-        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
-        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
-        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
-        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
       }
     },
     "skillsEvolutionHero": {
@@ -4268,6 +4268,7 @@
       "subtitle": "Đầu vào giọng nói trên máy tính + tự động phiên âm kênh IM. Quản lý nhà cung cấp STT đám mây và backend tương thích OpenAI tự host.",
       "activeModel": "Mô hình đang hoạt động",
       "activeModelLabel": "Mô hình đầu vào giọng nói (máy tính)",
+      "batchOnlyHint": "Chỉ liệt kê các nhà cung cấp tương thích OpenAI — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek chỉ hỗ trợ WS thời gian thực và hiện chưa phục vụ luồng \"ghi xong rồi phiên âm\".",
       "noModel": "Chưa cấu hình",
       "imFallback": "Mô hình phiên âm IM",
       "imFallbackHint": "Dùng cho tài khoản IM bật autoTranscribeVoice. Nếu trống sẽ dùng mô hình máy tính.",

@@ -4269,6 +4269,7 @@
       "activeModel": "Active Model",
       "activeModelLabel": "Desktop voice-input model",
       "noModel": "Not configured",
+      "batchOnlyHint": "Only OpenAI-compatible providers are listed — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek are realtime-WS only and cannot serve the record-then-transcribe flow yet.",
       "imFallback": "IM-channel auto-transcribe model",
       "imFallbackHint": "Used by IM accounts with autoTranscribeVoice on. Falls back to the desktop model when unset.",
       "imFallbackEmpty": "Use desktop active model",

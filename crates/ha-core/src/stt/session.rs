@@ -164,23 +164,33 @@ impl SttSessionManager {
     /// `last_active` only refreshes every `LAST_ACTIVE_COALESCE` chunks so
     /// the GC sweeper's 60s resolution doesn't pay 60 lock-writes/sec under
     /// realtime streaming.
-    pub async fn push_chunk(&self, session_id: &str, chunk: Vec<u8>) -> SttResult<()> {
-        let tx_clone = {
-            let mut guard = self.sessions.lock().unwrap();
-            let handle = guard
-                .get_mut(session_id)
-                .ok_or_else(|| SttError::NotFound(session_id.to_string()))?;
-            handle.chunks_since_touch = handle.chunks_since_touch.wrapping_add(1);
-            if handle.chunks_since_touch >= LAST_ACTIVE_COALESCE {
-                handle.last_active = Instant::now();
-                handle.chunks_since_touch = 0;
+    ///
+    /// Uses `try_send` (not `.send().await`) under the std mutex: any cloned
+    /// sender released before the lock would have kept the channel open
+    /// across `finalize`, stranding the EOS signal and forcing the 30s
+    /// timeout. With `try_send` the sender lives only for the duration of
+    /// this call — once we return, the next `finalize` can drop the original
+    /// and the engine sees end-of-audio immediately.
+    pub fn push_chunk(&self, session_id: &str, chunk: Vec<u8>) -> SttResult<()> {
+        let mut guard = self.sessions.lock().unwrap();
+        let handle = guard
+            .get_mut(session_id)
+            .ok_or_else(|| SttError::NotFound(session_id.to_string()))?;
+        handle.chunks_since_touch = handle.chunks_since_touch.wrapping_add(1);
+        if handle.chunks_since_touch >= LAST_ACTIVE_COALESCE {
+            handle.last_active = Instant::now();
+            handle.chunks_since_touch = 0;
+        }
+        match handle.audio_tx.try_send(chunk) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(SttError::Network(format!(
+                "upstream STT buffer full for session {session_id} (provider {} too slow)",
+                handle.provider_id
+            ))),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(SttError::NotFound(session_id.to_string()))
             }
-            handle.audio_tx.clone()
-        };
-        tx_clone
-            .send(chunk)
-            .await
-            .map_err(|_| SttError::Network("upstream stream task has ended".to_string()))
+        }
     }
 
     /// Drop the audio channel and wait for the engine's final transcript.
@@ -454,5 +464,63 @@ mod tests {
         let resolved = resolve_active(&cfg, &active);
         assert!(resolved.is_some(), "fixture provider should resolve");
         let _ = manager; // suppress unused on shared-state branch
+    }
+
+    #[test]
+    fn push_chunk_does_not_hold_sender_across_finalize() {
+        // Regression for Codex finding: when `push_chunk` cloned `audio_tx`
+        // out of the lock and `.await`'d send, an in-flight chunk would
+        // keep the channel open after `finalize` removed the handle. With
+        // `try_send` the sender lives only for the call, so dropping the
+        // map entry immediately closes the channel — engine sees EOS.
+        let manager = SttSessionManager::new();
+        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4);
+        let (_ftx, frx) = oneshot::channel();
+        manager.sessions.lock().unwrap().insert(
+            "s".into(),
+            SttSessionHandle {
+                audio_tx: tx,
+                final_rx: Some(frx),
+                cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                last_active: Instant::now(),
+                chunks_since_touch: 0,
+                provider_id: "p".into(),
+                model_id: "m".into(),
+            },
+        );
+        manager.push_chunk("s", b"a".to_vec()).unwrap();
+        manager.push_chunk("s", b"b".to_vec()).unwrap();
+        // Simulate finalize-style drop: removing the entry must close the
+        // channel (rx.recv returns None) after we drain the queued bytes.
+        let removed = manager.sessions.lock().unwrap().remove("s").unwrap();
+        drop(removed);
+        // Drain queued chunks first.
+        assert!(rx.blocking_recv().is_some());
+        assert!(rx.blocking_recv().is_some());
+        // Now the channel must be closed (no cloned sender holding it).
+        assert!(rx.blocking_recv().is_none());
+    }
+
+    #[test]
+    fn push_chunk_returns_network_when_buffer_full() {
+        let manager = SttSessionManager::new();
+        let (tx, _rx) = mpsc::channel::<Vec<u8>>(1);
+        let (_ftx, frx) = oneshot::channel();
+        manager.sessions.lock().unwrap().insert(
+            "f".into(),
+            SttSessionHandle {
+                audio_tx: tx,
+                final_rx: Some(frx),
+                cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                last_active: Instant::now(),
+                chunks_since_touch: 0,
+                provider_id: "p".into(),
+                model_id: "m".into(),
+            },
+        );
+        manager.push_chunk("f", b"x".to_vec()).unwrap();
+        // Second push fills the 1-slot buffer (consumer never reads).
+        let err = manager.push_chunk("f", b"y".to_vec()).unwrap_err();
+        assert!(matches!(err, SttError::Network(_)));
     }
 }

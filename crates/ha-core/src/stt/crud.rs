@@ -13,7 +13,7 @@ use crate::provider::{is_masked_key, merge_profile_keys};
 use super::local::{
     known_local_stt_backend, known_local_stt_backend_matches, KnownLocalSttBackend,
 };
-use super::types::{ActiveSttModel, SttModelConfig, SttProviderConfig};
+use super::types::{ActiveSttModel, SttModelConfig, SttProviderConfig, SttProviderKind};
 
 pub type SttWriteResult<T> = Result<T, SttWriteError>;
 
@@ -25,6 +25,10 @@ pub enum SttWriteError {
         model_id: String,
     },
     UnknownLocalBackend(String),
+    IncapableForBatch {
+        provider_id: String,
+        kind: SttProviderKind,
+    },
     Config(anyhow::Error),
 }
 
@@ -36,6 +40,11 @@ impl fmt::Display for SttWriteError {
             Self::UnknownLocalBackend(key) => {
                 write!(f, "Unknown local STT backend: {key}")
             }
+            Self::IncapableForBatch { provider_id, kind } => write!(
+                f,
+                "STT provider {provider_id} ({kind:?}) cannot serve batch transcription \
+                 (record-then-transcribe / IM voice). Pick an OpenAI-compatible provider instead."
+            ),
             Self::Config(err) => write!(f, "{err:#}"),
         }
     }
@@ -126,6 +135,9 @@ pub fn set_stt_fallback_models(
     source: &'static str,
 ) -> SttWriteResult<()> {
     mutate_config(("stt.fallback", source), move |store| {
+        for selection in &chain {
+            check_batch_capable(store, selection).map_err(into_anyhow)?;
+        }
         store.stt.fallback_models = chain;
         Ok(())
     })
@@ -137,6 +149,9 @@ pub fn set_im_fallback_stt_model(
     source: &'static str,
 ) -> SttWriteResult<()> {
     mutate_config(("stt.im_fallback", source), move |store| {
+        if let Some(sel) = &selection {
+            check_batch_capable(store, sel).map_err(into_anyhow)?;
+        }
         store.stt.im_fallback_model = selection;
         Ok(())
     })
@@ -289,11 +304,46 @@ pub(crate) fn set_active_stt_model_in_config(
             model_id: model_id.to_string(),
         });
     }
+    // `active_model` feeds both `stt_transcribe_blob` (desktop) and
+    // `failover_transcribe_batch` (IM auto-transcribe). WS-only kinds reject
+    // batch in `engine::transcribe_with`, so accepting one here would let
+    // the user pin a config that always fails downstream.
+    if !provider.kind.supports_batch() {
+        return Err(SttWriteError::IncapableForBatch {
+            provider_id: provider_id.to_string(),
+            kind: provider.kind,
+        });
+    }
     store.stt.active_model = Some(ActiveSttModel {
         provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
     });
     Ok(provider)
+}
+
+pub(crate) fn check_batch_capable(
+    store: &AppConfig,
+    selection: &ActiveSttModel,
+) -> SttWriteResult<()> {
+    let provider = store
+        .stt
+        .providers
+        .iter()
+        .find(|p| p.id == selection.provider_id)
+        .ok_or_else(|| SttWriteError::NotFound(selection.provider_id.clone()))?;
+    if !provider.models.iter().any(|m| m.id == selection.model_id) {
+        return Err(SttWriteError::ModelNotFound {
+            provider_id: selection.provider_id.clone(),
+            model_id: selection.model_id.clone(),
+        });
+    }
+    if !provider.kind.supports_batch() {
+        return Err(SttWriteError::IncapableForBatch {
+            provider_id: selection.provider_id.clone(),
+            kind: provider.kind,
+        });
+    }
+    Ok(())
 }
 
 pub(crate) fn upsert_known_local_stt_provider_in_config(
@@ -446,6 +496,59 @@ mod tests {
         ));
         let provider = set_active_stt_model_in_config(&mut cfg, &pid, "whisper-1").unwrap();
         assert_eq!(provider.id, pid);
+    }
+
+    #[test]
+    fn set_active_rejects_ws_only_provider_kind() {
+        // Active model feeds both desktop blob path and IM auto-transcribe;
+        // both go through `engine::transcribe_with` which rejects WS-only
+        // kinds. The setter must refuse the selection upfront so users
+        // can't pin a config that always fails downstream.
+        let mut cfg = AppConfig::default();
+        let mut p = SttProviderConfig::new(
+            "Deepgram",
+            SttProviderKind::DeepgramWs,
+            "wss://api.deepgram.com",
+        );
+        p.api_key = "dg-real".into();
+        p.models.push(SttModelConfig::new("nova-3", "Nova 3"));
+        let pid = p.id.clone();
+        cfg.stt.providers.push(p);
+        let err = set_active_stt_model_in_config(&mut cfg, &pid, "nova-3").unwrap_err();
+        assert!(matches!(err, SttWriteError::IncapableForBatch { .. }));
+        assert!(cfg.stt.active_model.is_none());
+    }
+
+    #[test]
+    fn check_batch_capable_gates_im_and_fallback_chains() {
+        let mut cfg = AppConfig::default();
+        let mut ws = SttProviderConfig::new(
+            "AssemblyAI",
+            SttProviderKind::AssemblyaiWs,
+            "wss://api.assemblyai.com",
+        );
+        ws.api_key = "aai-real".into();
+        ws.models
+            .push(SttModelConfig::new("universal", "Universal"));
+        let wid = ws.id.clone();
+        let openai = make_provider("OpenAI", "https://api.openai.com");
+        let oid = openai.id.clone();
+        cfg.stt.providers.push(ws);
+        cfg.stt.providers.push(openai);
+
+        let bad = ActiveSttModel {
+            provider_id: wid.clone(),
+            model_id: "universal".into(),
+        };
+        assert!(matches!(
+            check_batch_capable(&cfg, &bad),
+            Err(SttWriteError::IncapableForBatch { .. })
+        ));
+        let good = ActiveSttModel {
+            provider_id: oid.clone(),
+            model_id: "whisper-1".into(),
+        };
+        assert!(check_batch_capable(&cfg, &good).is_ok());
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::security::ssrf::{check_url, SsrfPolicy};
 use crate::stt::errors::{SttError, SttResult};
 use crate::stt::types::{
     AudioPayload, SttModelConfig, SttProviderConfig, SttProviderKind, Transcript,
-    TranscriptOptions, TranscriptSegment,
+    TranscriptOptions, TranscriptSegment, MAX_BATCH_AUDIO_BYTES,
 };
 
 /// HTTP request timeout for one-shot batch transcription. Whisper requests
@@ -126,8 +126,30 @@ async fn build_multipart_form(
             bytes,
             mime_type,
             filename,
-        } => (bytes, mime_type, filename),
+        } => {
+            if bytes.len() > MAX_BATCH_AUDIO_BYTES {
+                return Err(SttError::UnsupportedAudio(format!(
+                    "Audio payload {} bytes exceeds {} MiB batch limit",
+                    bytes.len(),
+                    MAX_BATCH_AUDIO_BYTES / (1024 * 1024)
+                )));
+            }
+            (bytes, mime_type, filename)
+        }
         AudioPayload::File { path, mime_type } => {
+            // IM auto-transcribe and skill paths construct `File` payloads
+            // from inbound media that can easily exceed the 25 MiB Whisper
+            // limit (long voice notes, podcasts forwarded as audio
+            // attachments). Stat first so we never alloc the giant Vec.
+            let meta = tokio::fs::metadata(&path).await?;
+            if meta.len() > MAX_BATCH_AUDIO_BYTES as u64 {
+                return Err(SttError::UnsupportedAudio(format!(
+                    "Audio file {} ({} bytes) exceeds {} MiB batch limit",
+                    path.display(),
+                    meta.len(),
+                    MAX_BATCH_AUDIO_BYTES / (1024 * 1024)
+                )));
+            }
             let bytes = tokio::fs::read(&path).await?;
             let filename = path
                 .file_name()

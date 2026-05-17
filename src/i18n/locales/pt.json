@@ -3489,6 +3489,16 @@
         "title": "Recent reject reasons",
         "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
       },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      },
       "resetAll": {
         "label": "Reset everything",
         "confirm": "Reset every custom field to defaults?",
@@ -3593,16 +3603,6 @@
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
         }
-      },
-      "curator": {
-        "title": "Draft consolidation",
-        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
-        "run": "Scan",
-        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
-        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
-        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
-        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
       }
     },
     "skillsEvolutionHero": {
@@ -4268,6 +4268,7 @@
       "subtitle": "Entrada de voz no desktop + transcrição automática em canais IM. Gerencie provedores STT em nuvem e backends OpenAI-compatíveis auto-hospedados.",
       "activeModel": "Modelo ativo",
       "activeModelLabel": "Modelo de entrada de voz (desktop)",
+      "batchOnlyHint": "Apenas provedores compatíveis com OpenAI são listados — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek são apenas WS em tempo real e ainda não suportam o fluxo \"gravar e depois transcrever\".",
       "noModel": "Não configurado",
       "imFallback": "Modelo de transcrição IM",
       "imFallbackHint": "Usado por contas IM com autoTranscribeVoice ligado. Sem valor, usa o modelo do desktop.",

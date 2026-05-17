@@ -75,6 +75,16 @@ type SttProviderKind =
   | "volcengine-ws"
   | "xunfei-ws"
 
+// Mirrors `SttProviderKind::supports_batch()` in ha-core: the WS kinds reject
+// `engine::transcribe_with`, so they can't power the desktop voice button
+// (`stt_transcribe_blob`) or IM auto-transcribe (`failover_transcribe_batch`).
+// Keep the selectors limited to batch-capable kinds so users can't pin a
+// config that always fails downstream.
+const BATCH_CAPABLE_KINDS: ReadonlySet<SttProviderKind> = new Set([
+  "openai-transcriptions",
+  "openai-compatible",
+])
+
 interface SttModelConfig {
   id: string
   name: string
@@ -333,6 +343,7 @@ export default function VoicePanel() {
     const out: { providerId: string; modelId: string; label: string }[] = []
     for (const p of providers) {
       if (!p.enabled) continue
+      if (!BATCH_CAPABLE_KINDS.has(p.kind)) continue
       for (const m of p.models) {
         out.push({
           providerId: p.id,
@@ -410,6 +421,9 @@ export default function VoicePanel() {
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("voice.settings.batchOnlyHint")}
+            </p>
           </div>
           <div className="space-y-2">
             <Label>{t("voice.settings.imFallback")}</Label>

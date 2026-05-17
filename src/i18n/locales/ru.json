@@ -3489,6 +3489,16 @@
         "title": "Recent reject reasons",
         "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
       },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      },
       "resetAll": {
         "label": "Reset everything",
         "confirm": "Reset every custom field to defaults?",
@@ -3593,16 +3603,6 @@
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
         }
-      },
-      "curator": {
-        "title": "Draft consolidation",
-        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
-        "run": "Scan",
-        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
-        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
-        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
-        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
       }
     },
     "skillsEvolutionHero": {
@@ -4268,6 +4268,7 @@
       "subtitle": "Голосовой ввод на десктопе + автоматическая расшифровка в IM-каналах. Управление облачными STT-провайдерами и самохостинговыми OpenAI-совместимыми бэкендами.",
       "activeModel": "Активная модель",
       "activeModelLabel": "Модель голосового ввода (десктоп)",
+      "batchOnlyHint": "Перечислены только провайдеры, совместимые с OpenAI — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek работают только в режиме realtime-WS и пока не могут обслуживать поток «записать и расшифровать».",
       "noModel": "Не настроено",
       "imFallback": "Модель IM-расшифровки",
       "imFallbackHint": "Используется аккаунтами IM с включенным autoTranscribeVoice. Если не задано, используется модель десктопа.",

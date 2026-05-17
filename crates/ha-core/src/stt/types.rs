@@ -77,6 +77,16 @@ impl SttProviderKind {
         )
     }
 
+    /// Whether `engine::transcribe_with` can fulfil a batch (record-then-
+    /// transcribe) request for this kind. Currently aligned with multipart
+    /// upload — the WS-only kinds reject batch with `Other(...)`. Used to
+    /// gate `active_model` / `im_fallback_model` selectors so users can't
+    /// pin a config that the desktop voice button / IM auto-transcribe
+    /// path would always fail to use.
+    pub fn supports_batch(&self) -> bool {
+        self.uses_multipart_upload()
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             SttProviderKind::OpenaiTranscriptions => "OpenAI Audio Transcriptions",

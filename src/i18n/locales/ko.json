@@ -3489,6 +3489,16 @@
         "title": "Recent reject reasons",
         "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
       },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      },
       "resetAll": {
         "label": "Reset everything",
         "confirm": "Reset every custom field to defaults?",
@@ -3593,16 +3603,6 @@
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
         }
-      },
-      "curator": {
-        "title": "Draft consolidation",
-        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
-        "run": "Scan",
-        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
-        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
-        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
-        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
       }
     },
     "skillsEvolutionHero": {
@@ -4268,6 +4268,7 @@
       "subtitle": "데스크톱 음성 입력 + IM 채널 자동 전사. 클라우드 STT 제공자와 셀프 호스트 OpenAI 호환 백엔드 관리.",
       "activeModel": "활성 모델",
       "activeModelLabel": "데스크톱 음성 입력 모델",
+      "batchOnlyHint": "OpenAI 호환 공급자만 나열됩니다 — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek는 실시간 WS 전용이며 아직 \"녹음 후 전사\" 흐름에는 사용할 수 없습니다.",
       "noModel": "미설정",
       "imFallback": "IM 자동 전사 모델",
       "imFallbackHint": "autoTranscribeVoice 가 켜진 IM 계정에서 사용. 미설정 시 데스크톱 모델로 폴백.",

@@ -23,7 +23,9 @@ fn stt_write_error(err: SttWriteError) -> AppError {
         SttWriteError::NotFound(_) | SttWriteError::ModelNotFound { .. } => {
             AppError::not_found(err.to_string())
         }
-        SttWriteError::UnknownLocalBackend(_) => AppError::bad_request(err.to_string()),
+        SttWriteError::UnknownLocalBackend(_) | SttWriteError::IncapableForBatch { .. } => {
+            AppError::bad_request(err.to_string())
+        }
         SttWriteError::Config(err) => AppError::internal(err.to_string()),
     }
 }
@@ -332,7 +334,6 @@ pub async fn stt_push_chunk(
     }
     SttSessionManager::global()
         .push_chunk(&session_id, bytes)
-        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "pushed": true })))
 }

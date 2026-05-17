@@ -161,15 +161,21 @@ export default function ChatInput({
   }
   const slash = useSlashCommands(input, onInputChange, slashActions)
   const voice = useVoiceInput()
+  // Read the latest `input` when transcription resolves — the user can keep
+  // typing during the STT round-trip, and capturing `input` in the closure
+  // would overwrite anything typed in the meantime.
+  const inputRef = useRef(input)
+  useEffect(() => {
+    inputRef.current = input
+  }, [input])
   const handleVoiceStop = useCallback(async () => {
     const text = await voice.stopAndTranscribe()
     if (text) {
-      // Append (with a separator when the textarea already has content) so a
-      // half-typed message is preserved.
-      const sep = input.length > 0 && !input.endsWith(" ") ? " " : ""
-      onInputChange(input + sep + text)
+      const current = inputRef.current
+      const sep = current.length > 0 && !current.endsWith(" ") ? " " : ""
+      onInputChange(current + sep + text)
     }
-  }, [voice, input, onInputChange])
+  }, [voice, onInputChange])
 
   // File mention `@` popper — only meaningful when a working dir is set.
   const mention = useFileMention(input, onInputChange, textareaRef, workingDir ?? null)

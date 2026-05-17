@@ -3489,6 +3489,16 @@
         "title": "最近的拒绝原因",
         "empty": "暂无被拒记录。系统会在每次审核被任意一道闸拦下时记录原因。"
       },
+      "curator": {
+        "title": "草稿合并建议",
+        "help": "在所有草稿技能中查找主题重叠的聚类，让你一键保留一个、清理其余。不调用 LLM、只读扫描。",
+        "run": "扫描",
+        "idle": "尚未扫描。点击右上「扫描」检查现有草稿是否存在重叠。",
+        "noClusters": "已扫描 {{count}} 条草稿，未发现明显重叠。",
+        "foundN": "在 {{scanned}} 条草稿中发现 {{proposals}} 组潜在重叠。",
+        "clusterMeta": "{{members}} 条草稿 · 最低相似度 {{similarity}}",
+        "apply": "保留这一条、删除其余 {{n}} 条"
+      },
       "resetAll": {
         "label": "全部恢复默认",
         "confirm": "确定重置所有自定义配置？",
@@ -3593,16 +3603,6 @@
           "label": "覆盖审核 Prompt",
           "help": "完全替换内置审核系统提示词；留空则用内置版本。后端硬阈值仍会生效。"
         }
-      },
-      "curator": {
-        "title": "草稿合并建议",
-        "help": "在所有草稿技能中查找主题重叠的聚类，让你一键保留一个、清理其余。不调用 LLM、只读扫描。",
-        "run": "扫描",
-        "idle": "尚未扫描。点击右上「扫描」检查现有草稿是否存在重叠。",
-        "noClusters": "已扫描 {{count}} 条草稿，未发现明显重叠。",
-        "foundN": "在 {{scanned}} 条草稿中发现 {{proposals}} 组潜在重叠。",
-        "clusterMeta": "{{members}} 条草稿 · 最低相似度 {{similarity}}",
-        "apply": "保留这一条、删除其余 {{n}} 条"
       }
     },
     "skillsEvolutionHero": {
@@ -4268,6 +4268,7 @@
       "subtitle": "桌面語音輸入與 IM 頻道自動轉錄。管理雲端 STT provider 與本地 OpenAI 相容後端。",
       "activeModel": "預設模型",
       "activeModelLabel": "桌面語音輸入模型",
+      "batchOnlyHint": "僅列出 OpenAI 相容的 Provider —— Deepgram / AssemblyAI / Azure / 火山豆包 / 訊飛目前僅支援即時 WS，無法用於「先錄音再轉錄」的批次流程。",
       "noModel": "未設定",
       "imFallback": "IM 自動轉錄模型",
       "imFallbackHint": "用於開啟 autoTranscribeVoice 的 IM 帳號;未設定時回退到桌面預設模型。",
