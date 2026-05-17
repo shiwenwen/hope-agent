@@ -231,7 +231,7 @@ fn extract_command_prefix(command: &str) -> String {
         .to_string()
 }
 
-fn approval_timeout_secs() -> u64 {
+pub(crate) fn approval_timeout_secs() -> u64 {
     crate::config::cached_config()
         .permission
         .approval_timeout_secs
@@ -388,6 +388,7 @@ pub(crate) async fn check_and_request_approval(
                         "request_id": request_id,
                         "session_id": session_id,
                         "timeout_secs": timeout_secs,
+                        "timeout_action": approval_timeout_action(),
                     }),
                 );
             }

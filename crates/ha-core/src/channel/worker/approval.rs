@@ -159,11 +159,17 @@ fn id_tag(request_id: &str) -> &str {
 /// `stack_depth` is the number of pending approvals (including this one)
 /// in the current (account, chat). When >1 the reply hint nudges the user
 /// to disambiguate with `#tag`.
+///
+/// `timeout_secs` comes from `permission.approval_timeout_secs` so the
+/// deadline shown to the user matches the actual timeout. `0` is
+/// rendered as "no time limit" — matches the tool-side behaviour where
+/// `0` makes the approval wait forever.
 fn format_text_approval(
     command: &str,
     reason: Option<&ApprovalReasonPayload>,
     request_id: &str,
     stack_depth: usize,
+    timeout_secs: u64,
 ) -> String {
     let preview = crate::truncate_utf8(command, 500);
     let tag = id_tag(request_id);
@@ -172,10 +178,25 @@ fn format_text_approval(
     } else {
         String::new()
     };
+    let reply_header = timeout_reply_header(timeout_secs);
     format!(
-        "🔐 Tool approval required #{tag}:\n{preview}{smart}\n\nReply within 5 min:\n  1 / yes / ok — Allow once\n  2 / always   — Always allow\n  3 / no / deny — Deny\n(中文也可: 同意 / 总是 / 拒绝){stack_hint}",
+        "🔐 Tool approval required #{tag}:\n{preview}{smart}\n\n{reply_header}\n  1 / yes / ok — Allow once\n  2 / always   — Always allow\n  3 / no / deny — Deny\n(中文也可: 同意 / 总是 / 拒绝){stack_hint}",
         smart = smart_judge_line(reason)
     )
+}
+
+/// Render the "reply within X" header line from a timeout in seconds.
+/// `0` → no deadline; whole minutes are formatted as "X min", anything
+/// else stays in seconds so weird values like 90 don't get rounded.
+fn timeout_reply_header(timeout_secs: u64) -> String {
+    if timeout_secs == 0 {
+        "Reply (no time limit):".to_string()
+    } else if timeout_secs % 60 == 0 {
+        let mins = timeout_secs / 60;
+        format!("Reply within {mins} min:")
+    } else {
+        format!("Reply within {timeout_secs}s:")
+    }
 }
 
 // ── Text reply parsing ───────────────────────────────────────────
@@ -400,6 +421,7 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                         request.reason.as_ref(),
                         &request.request_id,
                         stack_depth,
+                        crate::tools::approval::approval_timeout_secs(),
                     )),
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
@@ -433,6 +455,14 @@ struct ApprovalTimedOut {
     session_id: Option<String>,
     #[serde(default)]
     timeout_secs: u64,
+    /// What the tool path did after the timeout. Determines whether the
+    /// IM notification says "denied" (the tool call was blocked) or
+    /// "continued anyway" (the tool ran with no human approval per
+    /// `permission.approval_timeout_action=proceed`). Optional only for
+    /// forward-compat with payloads emitted before the field existed;
+    /// missing → assume default `Deny`.
+    #[serde(default)]
+    timeout_action: crate::config::ApprovalTimeoutAction,
 }
 
 /// Tell the IM user the approval prompt expired. Best-effort — if the
@@ -484,9 +514,17 @@ async fn handle_timeout_event(
 
     let tag = id_tag(&event.request_id);
     let timeout_secs = event.timeout_secs;
-    let body = format!(
-        "⏱ Tool approval #{tag} timed out after {timeout_secs}s. The tool call has been denied — ask me again if you still want it to run."
-    );
+    let body = match event.timeout_action {
+        crate::config::ApprovalTimeoutAction::Deny => format!(
+            "⏱ Tool approval #{tag} timed out after {timeout_secs}s. The tool call has been denied — ask me again if you still want it to run."
+        ),
+        // `proceed` means the tool path didn't block: it ran the tool
+        // anyway. Tell the user clearly so they don't assume the action
+        // was cancelled — side effects already happened.
+        crate::config::ApprovalTimeoutAction::Proceed => format!(
+            "⏱ Tool approval #{tag} timed out after {timeout_secs}s. The tool call continued anyway (per `permission.approval_timeout_action=proceed`) — any side effects have already happened."
+        ),
+    };
     let payload = ReplyPayload {
         text: Some(body),
         thread_id: conversation.thread_id.clone(),
@@ -776,6 +814,7 @@ mod tests {
             Some(&smart(Some("ok per project rules"))),
             "abc123def456",
             1,
+            300,
         );
         assert!(txt.contains("💭 Smart Judge: ok per project rules"));
         assert!(txt.contains("1 / yes / ok"));
@@ -790,12 +829,33 @@ mod tests {
 
     #[test]
     fn format_text_approval_renders_stack_hint_when_multiple_pending() {
-        let single = format_text_approval("exec ls", None, "abcdef123456", 1);
+        let single = format_text_approval("exec ls", None, "abcdef123456", 1, 300);
         assert!(!single.contains("pending"));
 
-        let multi = format_text_approval("exec ls", None, "abcdef123456", 3);
+        let multi = format_text_approval("exec ls", None, "abcdef123456", 3, 300);
         assert!(multi.contains("3 pending"));
         assert!(multi.contains("#abcdef"));
+    }
+
+    #[test]
+    fn format_text_approval_renders_configured_timeout() {
+        // Default 5-minute timeout reads as "Reply within 5 min".
+        let default = format_text_approval("exec ls", None, "abcdef123456", 1, 300);
+        assert!(default.contains("Reply within 5 min:"));
+
+        // Custom whole-minute timeout follows the same shape.
+        let two_min = format_text_approval("exec ls", None, "abcdef123456", 1, 120);
+        assert!(two_min.contains("Reply within 2 min:"));
+
+        // Non-whole-minute timeout stays in seconds — no rounding.
+        let ninety = format_text_approval("exec ls", None, "abcdef123456", 1, 90);
+        assert!(ninety.contains("Reply within 90s:"));
+
+        // `0` = no time limit; the deadline phrase changes so the user
+        // doesn't assume a 5-min cutoff that doesn't exist.
+        let unlimited = format_text_approval("exec ls", None, "abcdef123456", 1, 0);
+        assert!(unlimited.contains("Reply (no time limit):"));
+        assert!(!unlimited.contains("Reply within"));
     }
 
     #[test]

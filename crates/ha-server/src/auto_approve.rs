@@ -15,10 +15,11 @@
 //! 1. CLI flag `--auto-approve-tools` on `hope-agent server`.
 //! 2. Env var `HA_SERVER_AUTO_APPROVE_TOOLS=1` (Docker-friendly).
 //!
-//! Neither persists to disk. Narrower than [`ha_core::security::dangerous`]:
-//! that one skips protected-paths + dangerous-commands too; this one only
-//! flips the per-chat `auto_approve_tools` flag, leaving the full permission
-//! engine wired up the same way as an IM auto-approve account.
+//! Neither persists to disk. Sets `ChatEngineParams.auto_approve_tools=true`
+//! on every HTTP chat — equivalent to an IM account with `auto_approve_tools=true`.
+//! Bypasses ALL approval gates (dangerous-commands / protected-paths / edit-command
+//! audits included). [`ha_core::security::dangerous`] is a strict superset: it also
+//! silences dispatcher-level `app_warn!` audit logs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
