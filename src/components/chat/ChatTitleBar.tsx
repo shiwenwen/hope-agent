@@ -6,7 +6,6 @@ import { useAppVersion } from "@/lib/appMeta"
 import { basename } from "@/lib/path"
 import { IconTip } from "@/components/ui/tooltip"
 import {
-  Settings,
   Copy,
   BarChart3,
   Pencil,
@@ -22,7 +21,7 @@ import {
   Send,
   Ghost,
   Share2,
-  PanelLeftOpen,
+  PanelLeft,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -55,7 +54,6 @@ interface ChatTitleBarProps {
   loading: boolean
   compacting: boolean
   setCompacting: (v: boolean) => void
-  onOpenAgentSettings?: (agentId: string) => void
   onRenameSession?: (sessionId: string, title: string) => void
   onViewSystemPrompt?: () => void
   systemPromptLoading?: boolean
@@ -119,7 +117,6 @@ export default function ChatTitleBar({
   compacting,
   setCompacting,
   onRenameSession,
-  onOpenAgentSettings,
   onViewSystemPrompt,
   systemPromptLoading,
   onCommandAction,
@@ -256,7 +253,7 @@ export default function ChatTitleBar({
               aria-label={t("chat.expandSidebar")}
               onClick={onExpandSidebar}
             >
-              <PanelLeftOpen className="h-4 w-4" />
+              <PanelLeft className="h-4 w-4" />
             </button>
           </IconTip>
         )}
@@ -778,17 +775,6 @@ export default function ChatTitleBar({
               onClick={() => onOpenHandover(currentSessionId)}
             >
               <Send className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {/* Settings Button */}
-        {onOpenAgentSettings && (
-          <IconTip label={t("settings.agentSettings")}>
-            <button
-              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => onOpenAgentSettings(currentAgentId)}
-            >
-              <Settings className="h-4 w-4" />
             </button>
           </IconTip>
         )}

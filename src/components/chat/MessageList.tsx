@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowDown, Ghost } from "lucide-react"
+import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
@@ -883,7 +884,15 @@ export default function MessageList({
                     <p className="mt-2 text-sm leading-relaxed">{t("chat.incognitoEmptyBody")}</p>
                   </div>
                 ) : (
-                  <p className="text-muted-foreground text-sm">{t("chat.howCanIHelp")}</p>
+                  <div className="px-4 text-center">
+                    <img
+                      src={alphaLogoUrl}
+                      alt=""
+                      className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-95"
+                      draggable={false}
+                    />
+                    <p className="text-sm text-muted-foreground">{t("chat.howCanIHelp")}</p>
+                  </div>
                 )}
               </div>
             )}

@@ -136,6 +136,19 @@ export default function AgentSection({
                         {agent.name}
                       </span>
                     </button>
+                    {onEditAgent && (
+                      <IconTip label={t("common.settings")}>
+                        <button
+                          className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEditAgent(agent.id)
+                          }}
+                        >
+                          <Settings className="h-3 w-3" />
+                        </button>
+                      </IconTip>
+                    )}
                     {/* New chat button */}
                     <IconTip label={t("chat.newChat")}>
                       <button

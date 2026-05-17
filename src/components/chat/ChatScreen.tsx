@@ -60,6 +60,12 @@ import {
   readChatDisplayModePreference,
   writeChatDisplayModePreference,
 } from "./chatDisplayModePreference"
+import {
+  CHAT_SIDEBAR_DEFAULT_WIDTH,
+  CHAT_SIDEBAR_MAX_WIDTH,
+  CHAT_SIDEBAR_MIN_WIDTH,
+  CHAT_SIDEBAR_WIDTH_STORAGE_KEY,
+} from "./sidebar/types"
 import type { Project, ProjectMeta } from "@/types/project"
 
 interface ChatScreenProps {
@@ -73,6 +79,10 @@ interface ChatScreenProps {
   pendingChatInsert?: string
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
+}
+
+function clampChatSidebarWidth(width: number): number {
+  return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
 }
 
 export default function ChatScreen({
@@ -104,11 +114,22 @@ export default function ChatScreen({
   } = useModelState()
 
   // Sidebar panel width
-  const [panelWidth, setPanelWidth] = useState(288)
+  const [panelWidth, setPanelWidth] = useState(() => {
+    if (typeof window === "undefined") return CHAT_SIDEBAR_DEFAULT_WIDTH
+    const stored = Number(window.localStorage.getItem(CHAT_SIDEBAR_WIDTH_STORAGE_KEY))
+    return Number.isFinite(stored)
+      ? clampChatSidebarWidth(stored)
+      : CHAT_SIDEBAR_DEFAULT_WIDTH
+  })
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false
     return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
   })
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(CHAT_SIDEBAR_WIDTH_STORAGE_KEY, String(panelWidth))
+  }, [panelWidth])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -1502,7 +1523,6 @@ export default function ChatScreen({
           loading={session.loading}
           compacting={compacting}
           setCompacting={setCompacting}
-          onOpenAgentSettings={onOpenAgentSettings}
           onRenameSession={handleRenameSession}
           onViewSystemPrompt={loadSystemPrompt}
           systemPromptLoading={systemPromptLoading}

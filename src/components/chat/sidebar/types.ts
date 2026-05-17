@@ -1,6 +1,11 @@
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 
+export const CHAT_SIDEBAR_WIDTH_STORAGE_KEY = "hope.chatSidebarPanelWidth"
+export const CHAT_SIDEBAR_DEFAULT_WIDTH = 260
+export const CHAT_SIDEBAR_MIN_WIDTH = 220
+export const CHAT_SIDEBAR_MAX_WIDTH = 360
+
 export interface ChatSidebarProps {
   sessions: SessionMeta[]
   agents: AgentSummaryForSidebar[]

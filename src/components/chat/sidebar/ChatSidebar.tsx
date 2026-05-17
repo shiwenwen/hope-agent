@@ -12,11 +12,16 @@ import {
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Bot, MessageSquarePlus, PanelLeftClose } from "lucide-react"
+import { Bot, MessageSquarePlus, PanelLeftDashed } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
-import type { ChatSidebarProps, SessionFilterType } from "./types"
+import {
+  CHAT_SIDEBAR_MAX_WIDTH,
+  CHAT_SIDEBAR_MIN_WIDTH,
+  type ChatSidebarProps,
+  type SessionFilterType,
+} from "./types"
 import { sortSessionSearchResults } from "../chatUtils"
 import { SEARCH_LIMIT } from "../hooks/constants"
 import AgentSection from "./AgentSection"
@@ -167,21 +172,27 @@ export default function ChatSidebar({
 
   // Drag handler for resizable panel
   const isDragging = useRef(false)
+  const [isResizing, setIsResizing] = useState(false)
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault()
     isDragging.current = true
+    setIsResizing(true)
     const startX = e.clientX
     const startWidth = panelWidth
 
     const onMouseMove = (ev: MouseEvent) => {
       if (!isDragging.current) return
       const delta = ev.clientX - startX
-      const newWidth = Math.min(400, Math.max(180, startWidth + delta))
+      const newWidth = Math.min(
+        CHAT_SIDEBAR_MAX_WIDTH,
+        Math.max(CHAT_SIDEBAR_MIN_WIDTH, startWidth + delta),
+      )
       onPanelWidthChange(newWidth)
     }
 
     const onMouseUp = () => {
       isDragging.current = false
+      setIsResizing(false)
       document.removeEventListener("mousemove", onMouseMove)
       document.removeEventListener("mouseup", onMouseUp)
       document.body.style.cursor = ""
@@ -249,7 +260,10 @@ export default function ChatSidebar({
     <>
       <div
         style={{ width: sidebarCollapsed ? 0 : panelWidth }}
-        className="relative h-full shrink-0 transition-[width] duration-200 ease-out"
+        className={cn(
+          "relative h-full shrink-0",
+          !isResizing && "transition-[width] duration-200 ease-out",
+        )}
       >
         <div className="h-full overflow-hidden">
           <div
@@ -257,35 +271,35 @@ export default function ChatSidebar({
             aria-hidden={sidebarCollapsed}
             inert={sidebarCollapsed ? true : undefined}
             className={cn(
-              "h-full border-r border-border-soft bg-surface-sidebar flex flex-col transition-[opacity,transform] duration-200 ease-out",
+              "h-full border-r border-border-soft bg-surface-panel shadow-panel flex flex-col transition-[opacity,transform] duration-200 ease-out",
               sidebarCollapsed
                 ? "pointer-events-none -translate-x-3 opacity-0"
                 : "translate-x-0 opacity-100",
             )}
           >
             {/* Title bar */}
-            <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
-              <h2 className="text-sm font-semibold text-foreground pb-1.5">
+            <div className="h-12 flex items-end px-3.5 shrink-0" data-tauri-drag-region>
+              <h2 className="text-sm font-semibold text-foreground pb-2">
                 {t("chat.conversations")}
               </h2>
-              <div className="ml-auto flex items-center gap-1 pb-1.5">
+              <div className="ml-auto flex items-center gap-1 pb-2">
                 <IconTip label={t("chat.collapseSidebar")}>
                   <button
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground"
                     aria-label={t("chat.collapseSidebar")}
                     onClick={(e) => {
                       e.currentTarget.blur()
                       onSidebarCollapsedChange(true)
                     }}
                   >
-                    <PanelLeftClose className="h-4 w-4" />
+                    <PanelLeftDashed className="h-4 w-4" />
                   </button>
                 </IconTip>
                 {/* New Chat button */}
                 <div className="relative" ref={newChatMenuRef}>
                   <IconTip label={t("chat.newChat")}>
                     <button
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground"
                       onClick={() => {
                         if (agents.length === 1) {
                           onNewChat(agents[0].id)
@@ -299,11 +313,11 @@ export default function ChatSidebar({
                   </IconTip>
                   {/* Agent selector popup */}
                   {showNewChatMenu && (
-                    <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5 animate-in fade-in-0 zoom-in-95 duration-150">
+                    <div className="absolute right-0 top-full mt-1 bg-surface-floating/95 backdrop-blur-xl border border-border-soft rounded-floating shadow-floating z-50 min-w-[180px] p-1.5 animate-in fade-in-0 zoom-in-95 duration-150">
                       {agents.map((agent) => (
                         <button
                           key={agent.id}
-                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md text-foreground/80 hover:bg-secondary/60 hover:text-foreground transition-colors"
+                          className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md text-foreground/80 hover:bg-surface-subtle hover:text-foreground transition-colors"
                           onClick={() => {
                             onNewChat(agent.id)
                             setShowNewChatMenu(false)
