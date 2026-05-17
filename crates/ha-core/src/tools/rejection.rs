@@ -30,6 +30,9 @@ pub enum ToolRejection {
     DeniedByUser { name: String },
     /// 权限引擎判定拒绝（保护路径 / 危险命令 / Smart judge 等）。
     DeniedByPolicy { name: String, reason: String },
+    /// 审批通道异常（非用户拒绝、非配置化超时），为了避免 fail-open
+    /// 默认阻止工具执行。
+    ApprovalFailed { name: String, error: String },
     /// 审批弹窗超时且 `approval_timeout_action=deny`。
     ApprovalTimeout { name: String, timeout_secs: u64 },
     /// 用户在工具执行期间取消整个 turn。
@@ -40,10 +43,10 @@ impl ToolRejection {
     /// 渲染成给 LLM 看的 `tool_result` 文本——[`TOOL_ERROR_PREFIX`] 触发
     /// `is_error` 通道，"STOP and wait" 后缀阻止模型把拒绝当成可重试错误。
     ///
-    /// `Deny` / `ApprovalTimeout` 在 permission gate 阶段返回，tool body 未跑——
-    /// 文案声明 "no side effects"。`Cancelled` 是 select! drop 已经在跑的 future，
-    /// 子进程 / `fs::write` / 网络调用可能已经发生且无法回滚——文案改为
-    /// "may have completed"，避免误导模型假设回滚或重试。
+    /// `Deny` / `ApprovalFailed` / `ApprovalTimeout` 在 permission gate 阶段返回，
+    /// tool body 未跑——文案声明 "no side effects"。`Cancelled` 是 select! drop
+    /// 已经在跑的 future，子进程 / `fs::write` / 网络调用可能已经发生且无法回滚——
+    /// 文案改为 "may have completed"，避免误导模型假设回滚或重试。
     pub fn to_tool_result(&self) -> String {
         let side_effect_clause = match self {
             Self::Cancelled { .. } => {
@@ -52,6 +55,7 @@ impl ToolRejection {
             }
             Self::DeniedByUser { .. }
             | Self::DeniedByPolicy { .. }
+            | Self::ApprovalFailed { .. }
             | Self::ApprovalTimeout { .. } => {
                 "The tool did not execute and no side effects occurred"
             }
@@ -92,6 +96,14 @@ impl ToolRejection {
         .into()
     }
 
+    pub fn approval_failed(name: impl Into<String>, error: impl Into<String>) -> anyhow::Error {
+        Self::ApprovalFailed {
+            name: name.into(),
+            error: error.into(),
+        }
+        .into()
+    }
+
     pub fn cancelled(name: impl Into<String>) -> Self {
         Self::Cancelled { name: name.into() }
     }
@@ -106,6 +118,10 @@ impl fmt::Display for ToolRejection {
             Self::DeniedByPolicy { name, reason } => {
                 write!(f, "Tool '{name}' denied: {reason}")
             }
+            Self::ApprovalFailed { name, error } => write!(
+                f,
+                "Tool '{name}' execution blocked: approval check failed ({error})"
+            ),
             Self::ApprovalTimeout { name, timeout_secs } => write!(
                 f,
                 "Tool '{name}' execution denied: approval timed out after {timeout_secs}s"
@@ -154,6 +170,18 @@ mod tests {
         };
         let s = r.to_tool_result();
         assert!(s.contains("approval timed out after 300s"));
+    }
+
+    #[test]
+    fn approval_failed_blocks_without_side_effects() {
+        let r = ToolRejection::ApprovalFailed {
+            name: "exec".into(),
+            error: "approval channel closed".into(),
+        };
+        let s = r.to_tool_result();
+        assert!(s.contains("approval check failed (approval channel closed)"));
+        assert!(s.contains("did not execute and no side effects occurred"));
+        assert!(s.contains("STOP what you are doing and wait"));
     }
 
     #[test]

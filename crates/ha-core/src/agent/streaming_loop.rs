@@ -29,6 +29,7 @@ use crate::tools::{self, ToolExecContext};
 /// budget estimator. OpenAI Chat / Responses / Codex don't put this in the
 /// request body — only in the budget calculator.
 const MAX_OUTPUT_TOKENS: u32 = 16384;
+const TOOL_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 fn final_round_handoff_guidance(max_rounds: u32) -> String {
     format!(
@@ -127,6 +128,7 @@ fn log_tool_output(call_id: &str, name: &str, result: &str, elapsed_ms: u64, rou
 /// constructed per call so concurrent peers cannot clobber each other.
 async fn execute_tool_with_cancel(
     name: &str,
+    call_id: &str,
     args: &serde_json::Value,
     ctx: &ToolExecContext,
     cancel: &Arc<AtomicBool>,
@@ -139,10 +141,14 @@ async fn execute_tool_with_cancel(
         Arc::new(tokio::sync::Mutex::new(None));
     let mut local_ctx = ctx.clone();
     local_ctx.metadata_sink = Some(sink.clone());
+    local_ctx.tool_call_id = Some(call_id.to_string());
+    let cancellation_token = tokio_util::sync::CancellationToken::new();
+    local_ctx.cancellation_token = Some(cancellation_token.clone());
     let tool_start = std::time::Instant::now();
     let cancel_clone = cancel.clone();
+    let mut dispatch = Box::pin(tools::execute_tool_with_context(name, args, &local_ctx));
     let result = tokio::select! {
-        res = tools::execute_tool_with_context(name, args, &local_ctx) => {
+        res = &mut dispatch => {
             match res {
                 Ok(r) => r,
                 Err(e) => tools::ToolRejection::render_error(&e),
@@ -154,6 +160,8 @@ async fn execute_tool_with_cancel(
                 if cancel_clone.load(Ordering::SeqCst) { break; }
             }
         } => {
+            cancellation_token.cancel();
+            let _ = tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await;
             tools::ToolRejection::cancelled(name).to_tool_result()
         }
     };
@@ -163,6 +171,29 @@ async fn execute_tool_with_cancel(
         result,
         elapsed_ms,
         super::streaming_adapter::ToolDispatchSideOutput { metadata },
+    )
+}
+
+fn invalid_tool_arguments_result(
+    name: &str,
+    raw_arguments: &str,
+    err: serde_json::Error,
+) -> String {
+    let preview = if raw_arguments.len() > 500 {
+        format!(
+            "{}...(truncated, total {}B)",
+            crate::truncate_utf8(raw_arguments, 500),
+            raw_arguments.len()
+        )
+    } else {
+        raw_arguments.to_string()
+    };
+    format!(
+        "{}Invalid JSON arguments for tool '{}': {}. Raw arguments: {}",
+        tools::TOOL_ERROR_PREFIX,
+        name,
+        err,
+        preview
     )
 }
 
@@ -416,11 +447,24 @@ impl AssistantAgent {
                         let name = tc.name.clone();
                         let arguments = tc.arguments.clone();
                         async move {
-                            let args: serde_json::Value =
-                                serde_json::from_str(&arguments).unwrap_or(json!({}));
-                            let (result, elapsed_ms, side) =
-                                execute_tool_with_cancel(&name, &args, &tool_ctx, &cancel_clone)
-                                    .await;
+                            let (result, elapsed_ms, side) = match serde_json::from_str(&arguments)
+                            {
+                                Ok(args) => {
+                                    execute_tool_with_cancel(
+                                        &name,
+                                        &call_id,
+                                        &args,
+                                        &tool_ctx,
+                                        &cancel_clone,
+                                    )
+                                    .await
+                                }
+                                Err(e) => (
+                                    invalid_tool_arguments_result(&name, &arguments, e),
+                                    0,
+                                    Default::default(),
+                                ),
+                            };
                             (call_id, name, arguments, result, elapsed_ms, side)
                         }
                     })
@@ -490,14 +534,20 @@ impl AssistantAgent {
                     tool_ctx = self.tool_context_with_usage(Some(estimated_used));
                 }
 
-                let args: serde_json::Value =
-                    serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
-
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
                 log_tool_input(tc, round);
 
-                let (result, elapsed_ms, side) =
-                    execute_tool_with_cancel(&tc.name, &args, &tool_ctx, cancel).await;
+                let (result, elapsed_ms, side) = match serde_json::from_str(&tc.arguments) {
+                    Ok(args) => {
+                        execute_tool_with_cancel(&tc.name, &tc.call_id, &args, &tool_ctx, cancel)
+                            .await
+                    }
+                    Err(e) => (
+                        invalid_tool_arguments_result(&tc.name, &tc.arguments, e),
+                        0,
+                        Default::default(),
+                    ),
+                };
 
                 log_tool_output(&tc.call_id, &tc.name, &result, elapsed_ms, round);
                 let is_error = result.starts_with("Tool error:");

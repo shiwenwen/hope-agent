@@ -119,7 +119,7 @@ pub(super) fn build_deferred_tools_section(
 
 /// Build the async-tools usage guide section. Emitted whenever the global
 /// `async_tools` feature is enabled — the model needs the `job_status` /
-/// `<tool-job-result>` vocabulary regardless of agent-level policy.
+/// `<task-notification>` vocabulary regardless of agent-level policy.
 pub(super) fn build_async_tools_section() -> Option<String> {
     let store = crate::config::cached_config();
     if !store.async_tools.enabled {
@@ -140,19 +140,21 @@ pub(super) fn build_async_tools_section() -> Option<String> {
          optional `run_in_background: true` parameter that detaches the call into a background job \
          and returns immediately with a synthetic `{{job_id, status: \"started\"}}` response. The \
          conversation can continue while the job runs, and the real result is auto-injected back \
-         into the chat as a `<tool-job-result job-id=\"...\">` user message when the session is idle.\n\n\
+         into the chat as a `<task-notification>` user message when the session is idle.\n\n\
+         Async-capable tools also accept optional `job_timeout_secs`. Use it only to set a shorter \
+         per-call outer async-job timeout; it cannot extend the user-configured `asyncTools.maxJobSecs` \
+         hard limit, and individual tools may still have their own internal timeouts.\n\n\
          **Use `run_in_background: true` when:**\n\
          - The task is expected to take more than a few seconds (long builds, slow web searches, \
            image generation, network-heavy operations), AND\n\
          - You can make progress on other things while it runs, OR\n\
          - The user explicitly asked you to continue working in parallel.\n\n\
          **Keep the call synchronous (default) when:** you need the result to decide your very next step.\n\n\
-         **Polling:** call `job_status(job_id, block?: bool, timeout_ms?: number)` to inspect or \
-         actively wait on a job. With `block: true` the call sleeps until the job reaches a terminal \
-         state or `timeout_ms` elapses (default 60000, max 600000).\n\n\
-         **Result injection:** when the job finishes, you'll see a `[Tool Job Completion — auto-delivered]` \
-         user message containing a `<tool-job-result job-id=\"...\" status=\"...\">` block. Match the \
-         `job-id` against the original synthetic response to associate the result with the original call.\n\n\
+         **Polling:** use `job_status(job_id)` only for a quick non-blocking snapshot. Do not wait in \
+         the chat turn; rely on the completion notification instead.\n\n\
+         **Result injection:** when the job finishes, you'll see a `<task-notification>` user message. \
+         Match `task-id` against the original synthetic `job_id`; when `output-file` is present, use \
+         `read` only if you need the detailed output.\n\n\
          {auto_bg_line}"
     ))
 }

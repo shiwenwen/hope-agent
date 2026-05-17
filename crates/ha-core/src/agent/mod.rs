@@ -1388,6 +1388,7 @@ impl AssistantAgent {
             home_dir: self.agent_home(),
             session_working_dir,
             session_id: self.session_id.clone(),
+            tool_call_id: None,
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
             agent_tool_filter,
@@ -1415,6 +1416,9 @@ impl AssistantAgent {
             project_id,
             async_tool_policy: caps.async_tool_policy,
             bypass_async_dispatch: false,
+            suppress_global_tool_timeout: false,
+            suppress_result_disk_persistence: false,
+            cancellation_token: None,
             metadata_sink: None,
         }
     }

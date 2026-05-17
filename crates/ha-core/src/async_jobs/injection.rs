@@ -1,7 +1,7 @@
 //! Bridge from finished async tool jobs back into the parent chat session.
 //!
 //! Reuses the subagent injection pipeline (`subagent::injection::inject_and_run_parent`)
-//! by formatting the tool job result as a push message and passing the job id
+//! by formatting the tool job notification as a push message and passing the job id
 //! as the `run_id` parameter — this lets us share the idle-wait, cancellation,
 //! and retry machinery with no duplication.
 
@@ -45,8 +45,10 @@ pub fn dispatch_injection(
     parent_agent_id: Option<String>,
     job_id: String,
     tool_name: String,
+    tool_call_id: Option<String>,
     status: AsyncJobStatus,
     result_preview: Option<String>,
+    result_path: Option<String>,
     error: Option<String>,
 ) {
     let session_db = match crate::get_session_db() {
@@ -89,8 +91,10 @@ pub fn dispatch_injection(
     let push_message = build_tool_job_push_message(
         &job_id,
         &tool_name,
+        tool_call_id.as_deref(),
         status,
         result_preview.as_deref(),
+        result_path.as_deref(),
         error.as_deref(),
     );
     // The subagent injection pipeline expects a `child_agent_id` label — we
@@ -140,7 +144,7 @@ pub fn dispatch_injection(
 /// Retry `mark_injected` with exponential backoff. If all retries fail,
 /// log an error and emit an EventBus alarm — the row will be replayed on
 /// the next `replay_pending_jobs()` sweep, creating a duplicate
-/// `<tool-job-result>` injection, so surfacing the failure matters.
+/// `<task-notification>` injection, so surfacing the failure matters.
 fn mark_injected_with_retry(job_id: &str) {
     const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
     let Some(jdb) = crate::async_jobs::get_async_jobs_db() else {
@@ -194,68 +198,104 @@ fn mark_injected_with_retry(job_id: &str) {
 
 /// Format the user-visible message that gets injected back into the parent
 /// session when a tool job completes. The LLM correlates this with the
-/// original synthetic response via the `job-id` attribute.
+/// original synthetic response via `task-id`, and reads `output-file` when it
+/// needs the detailed output.
 pub fn build_tool_job_push_message(
     job_id: &str,
     tool_name: &str,
+    tool_call_id: Option<&str>,
     status: AsyncJobStatus,
     result_preview: Option<&str>,
+    result_path: Option<&str>,
     error: Option<&str>,
 ) -> String {
-    let body = match status {
+    let output_file = result_path
+        .map(|path| format!("<output-file>{}</output-file>\n", escape_xml_text(path)))
+        .unwrap_or_default();
+    let tool_use_id = tool_call_id
+        .filter(|id| !id.trim().is_empty())
+        .map(|id| format!("<tool-use-id>{}</tool-use-id>\n", escape_xml_text(id)))
+        .unwrap_or_default();
+    let (clean_preview, media_items) = result_preview
+        .map(crate::agent::extract_media_items)
+        .unwrap_or_else(|| (String::new(), Vec::new()));
+    let media_block = if media_items.is_empty() {
+        String::new()
+    } else {
+        let json = serde_json::to_string(&media_items).unwrap_or_else(|_| "[]".to_string());
+        format!(
+            "<media-items-json>{}</media-items-json>\n",
+            escape_xml_text(&json)
+        )
+    };
+    let error_block = error
+        .map(|err| format!("<error>{}</error>\n", escape_xml_text(err)))
+        .unwrap_or_default();
+    let preview_block = if status == AsyncJobStatus::Completed
+        && result_path.is_none()
+        && !clean_preview.is_empty()
+    {
+        format!(
+            "<output-preview>\n{}\n</output-preview>\n",
+            escape_xml_text(&clean_preview)
+        )
+    } else {
+        String::new()
+    };
+    let summary = match status {
         AsyncJobStatus::Completed => {
-            let output = result_preview.unwrap_or("(empty result)");
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"completed\">\n\
-                 <output>\n{output}\n</output>\n\
-                 </tool-job-result>"
-            )
+            if result_path.is_some() {
+                format!(
+                    "Async tool \"{tool_name}\" completed; full output is saved in output-file."
+                )
+            } else {
+                format!("Async tool \"{tool_name}\" completed; output file is unavailable. See output-preview.")
+            }
         }
         AsyncJobStatus::Failed => {
             let err = error.unwrap_or("(unknown error)");
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"failed\">\n\
-                 <error>{err}</error>\n\
-                 </tool-job-result>"
-            )
+            format!("Async tool \"{tool_name}\" failed: {err}")
         }
         AsyncJobStatus::TimedOut => {
             let err = error.unwrap_or("exceeded max_job_secs");
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"timed_out\">\n\
-                 <error>{err}</error>\n\
-                 </tool-job-result>"
-            )
+            format!("Async tool \"{tool_name}\" timed out: {err}")
         }
         AsyncJobStatus::Cancelled => {
             let err = error.unwrap_or("Job was cancelled.");
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"cancelled\">\n\
-                 <error>{err}</error>\n\
-                 </tool-job-result>"
-            )
+            format!("Async tool \"{tool_name}\" was cancelled: {err}")
         }
         AsyncJobStatus::Interrupted => {
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"interrupted\">\n\
-                 <error>Job was running when the application restarted; result is unrecoverable.</error>\n\
-                 </tool-job-result>"
-            )
+            format!("Async tool \"{tool_name}\" was interrupted by application restart.")
         }
         AsyncJobStatus::Running => {
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"running\">\n\
-                 <note>Still running — call job_status to check.</note>\n\
-                 </tool-job-result>"
-            )
+            format!("Async tool \"{tool_name}\" is still running; call job_status to check.")
         }
         AsyncJobStatus::Cancelling => {
-            format!(
-                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"cancelling\">\n\
-                 <note>Cancellation requested; still shutting down.</note>\n\
-                 </tool-job-result>"
-            )
+            format!("Async tool \"{tool_name}\" is cancelling; wait for terminal notification.")
         }
     };
-    format!("[Tool Job Completion — auto-delivered]\n{body}")
+    format!(
+        "<task-notification>\n\
+         <task-id>{}</task-id>\n\
+         {tool_use_id}\
+         <tool>{}</tool>\n\
+         <status>{}</status>\n\
+         {output_file}\
+         {media_block}\
+         {preview_block}\
+         {error_block}\
+         <summary>{}</summary>\n\
+         </task-notification>",
+        escape_xml_text(job_id),
+        escape_xml_text(tool_name),
+        escape_xml_text(status.as_str()),
+        escape_xml_text(&summary)
+    )
+}
+
+fn escape_xml_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

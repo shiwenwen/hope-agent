@@ -15,7 +15,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     let mut tools = vec![
         ToolDefinition {
             name: TOOL_EXEC.into(),
-            description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params. Also supports `run_in_background: true` to detach the entire tool call as an async job whose result is auto-injected when ready.".into(),
+            description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params. Also supports `run_in_background: true` to detach the entire tool call as an async job whose result is auto-injected as a `<task-notification>` when ready.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
@@ -33,7 +33,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Timeout in seconds (max 7200). Defaults to 1800 (30 min)."
+                        "description": "Timeout in seconds. Defaults to 1800 (30 min). Positive values are capped at 7200; set 0 to disable the exec command timeout."
                     },
                     "env": {
                         "type": "object",
@@ -63,7 +63,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_PROCESS.into(),
-            description: "Manage running exec sessions: list, poll, log, write, kill, clear, remove.".into(),
+            description: "Manage running exec sessions: list, poll, log, kill, clear, remove.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
@@ -73,16 +73,12 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "Action: list, poll, log, write, kill, clear, remove",
-                        "enum": ["list", "poll", "log", "write", "kill", "clear", "remove"]
+                        "description": "Action: list, poll, log, kill, clear, remove",
+                        "enum": ["list", "poll", "log", "kill", "clear", "remove"]
                     },
                     "session_id": {
                         "type": "string",
                         "description": "Session ID (required for all actions except list)"
-                    },
-                    "data": {
-                        "type": "string",
-                        "description": "Data to write to stdin (for write action)"
                     },
                     "timeout": {
                         "type": "integer",

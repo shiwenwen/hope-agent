@@ -6,9 +6,10 @@ use tokio_util::sync::CancellationToken;
 use super::db::AsyncJobsDB;
 use super::injection;
 use super::types::{AsyncJob, AsyncJobStatus, JobOrigin};
-use crate::tools::ToolExecContext;
+use crate::tools::{ToolExecContext, ASYNC_JOB_TIMEOUT_ARG};
 
 const DEFAULT_PREVIEW_BYTES: usize = 4096;
+const CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Generate a stable, short-prefix job id.
 pub fn new_job_id() -> String {
@@ -29,7 +30,7 @@ pub fn record_running_job(
         session_id: ctx.session_id.clone(),
         agent_id: ctx.agent_id.clone(),
         tool_name: tool_name.to_string(),
-        tool_call_id: None,
+        tool_call_id: ctx.tool_call_id.clone(),
         args_json: serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string()),
         status: AsyncJobStatus::Running,
         result_preview: None,
@@ -50,13 +51,15 @@ pub fn synthetic_started_result(job_id: &str, tool_name: &str, origin: JobOrigin
     let hint = match origin {
         JobOrigin::Explicit | JobOrigin::PolicyForced => {
             "The tool is running in the background. Continue with other work; the result will \
-             be auto-injected as a `<tool-job-result>` user message when ready. To actively \
-             wait, call `job_status` with `block: true`."
+             be auto-injected as a `<task-notification>` user message when ready. Use \
+             `job_status` only for a quick non-blocking snapshot. \
+             Detailed output is saved to the notification's `output-file` when available."
         }
         JobOrigin::AutoBackgrounded => {
             "The tool exceeded the synchronous time budget and was auto-backgrounded. The \
-             result will be auto-injected when ready, or you can call `job_status` to wait \
-             for it explicitly."
+             result will be auto-injected as a `<task-notification>` when ready. Use \
+             `job_status` only for a quick non-blocking snapshot. \
+             Detailed output is saved to the notification's `output-file` when available."
         }
     };
     json!({
@@ -67,6 +70,39 @@ pub fn synthetic_started_result(job_id: &str, tool_name: &str, origin: JobOrigin
         "hint": hint,
     })
     .to_string()
+}
+
+/// Strip async-job control parameters before recursively dispatching the
+/// actual tool implementation. The outer async layer consumes these knobs;
+/// individual tools should only see their own schema parameters.
+fn strip_async_control_args(mut args: Value) -> Value {
+    if let Some(obj) = args.as_object_mut() {
+        obj.remove("run_in_background");
+        obj.remove(ASYNC_JOB_TIMEOUT_ARG);
+    }
+    args
+}
+
+fn requested_job_timeout_secs(args: &Value) -> Option<u64> {
+    args.get(ASYNC_JOB_TIMEOUT_ARG)
+        .and_then(|v| v.as_u64())
+        .filter(|secs| *secs > 0)
+}
+
+fn clamp_job_timeout_secs(configured_max_secs: u64, requested_secs: Option<u64>) -> u64 {
+    match (configured_max_secs, requested_secs) {
+        (0, Some(requested)) => requested,
+        (0, None) => 0,
+        (configured, Some(requested)) => configured.min(requested),
+        (configured, None) => configured,
+    }
+}
+
+fn effective_max_job_secs(args: &Value) -> u64 {
+    clamp_job_timeout_secs(
+        crate::config::cached_config().async_tools.max_job_secs,
+        requested_job_timeout_secs(args),
+    )
 }
 
 /// Public API: spawn a background tool job.
@@ -96,25 +132,25 @@ pub fn spawn_explicit_job(
 
     let synthetic = synthetic_started_result(&job_id, tool_name, origin);
 
-    // Strip `run_in_background` from args AND set bypass on the ctx so the
+    // Strip async-job controls from args AND set bypass on the ctx so the
     // recursive `execute_tool_with_context` call inside the OS thread runtime
     // goes straight to the sync dispatch path. Without bypass the
     // `AlwaysBackground` policy would re-enter `spawn_explicit_job` forever.
-    let mut clean_args = args;
-    if let Some(obj) = clean_args.as_object_mut() {
-        obj.remove("run_in_background");
-    }
+    let max_secs = effective_max_job_secs(&args);
+    let clean_args = strip_async_control_args(args);
+    let cancel_token = super::cancel::register_job(&job_id);
     ctx.bypass_async_dispatch = true;
     // The outer call already passed the approval gate for this exact arg set;
     // the recursive inner call must not re-prompt (the user has no surface to
     // answer it from inside a background runtime). The visibility / plan-mode
     // checks still re-run as belt-and-suspenders.
     ctx.auto_approve_tools = true;
-    let max_secs = crate::config::cached_config().async_tools.max_job_secs;
+    ctx.suppress_global_tool_timeout = true;
+    ctx.suppress_result_disk_persistence = true;
+    ctx.cancellation_token = Some(cancel_token.clone());
     let preview_bytes = preview_byte_budget();
     let tool_name_owned = tool_name.to_string();
     let job_id_owned = job_id.clone();
-    let cancel_token = super::cancel::register_job(&job_id);
 
     // Run on a dedicated OS thread so we don't constrain the dispatch future
     // to be `Send`. This mirrors `subagent::injection::inject_and_run_parent`.
@@ -186,16 +222,23 @@ pub async fn dispatch_with_auto_background(
     // Pre-allocate a job id so that, if we end up detaching, the OS thread
     // can later finalize it through the same path used by explicit jobs.
     let job_id = new_job_id();
-    let cancel_token = CancellationToken::new();
+    let cancel_token = ctx
+        .cancellation_token
+        .as_ref()
+        .map(CancellationToken::child_token)
+        .unwrap_or_default();
 
     let phase_w = phase.clone();
     let notify_w = notify.clone();
     let job_id_w = job_id.clone();
     let name_w = name.to_string();
-    let args_w = args.clone();
-    let ctx_w = ctx.clone();
+    let args_w = strip_async_control_args(args.clone());
     let cancel_w = cancel_token.clone();
+    let mut ctx_w = ctx.clone();
+    ctx_w.cancellation_token = Some(cancel_w.clone());
+    ctx_w.suppress_result_disk_persistence = true;
     let preview_bytes = preview_byte_budget();
+    let max_secs = effective_max_job_secs(args);
 
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
@@ -214,12 +257,38 @@ pub async fn dispatch_with_auto_background(
             let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
                 &name_w, &args_w, &ctx_w,
             ));
-            let result: Result<String, String> = tokio::select! {
-                inner = &mut dispatch => inner.map_err(|e| e.to_string()),
-                _ = cancel_w.cancelled() => Err(format!(
-                    "Async tool job '{}' was cancelled",
-                    job_id_w
-                )),
+            let result: Result<String, String> = if max_secs == 0 {
+                tokio::select! {
+                    inner = &mut dispatch => inner.map_err(|e| e.to_string()),
+                    _ = cancel_w.cancelled() => {
+                        let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                        Err(format!(
+                            "Async tool job '{}' was cancelled",
+                            job_id_w
+                        ))
+                    },
+                }
+            } else {
+                let timer = tokio::time::sleep(std::time::Duration::from_secs(max_secs));
+                tokio::pin!(timer);
+                tokio::select! {
+                    inner = &mut dispatch => inner.map_err(|e| e.to_string()),
+                    _ = &mut timer => {
+                        cancel_w.cancel();
+                        let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                        Err(format!(
+                            "Async tool job '{}' exceeded max_job_secs ({}s) and was cancelled",
+                            job_id_w, max_secs
+                        ))
+                    },
+                    _ = cancel_w.cancelled() => {
+                        let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                        Err(format!(
+                            "Async tool job '{}' was cancelled",
+                            job_id_w
+                        ))
+                    },
+                }
             };
 
             let mut p = phase_w.lock().unwrap_or_else(|p| p.into_inner());
@@ -249,12 +318,14 @@ pub async fn dispatch_with_auto_background(
                 };
                 let session_id = ctx_w.session_id.clone();
                 let agent_id = ctx_w.agent_id.clone();
+                let tool_call_id = ctx_w.tool_call_id.clone();
                 finalize_job(
                     &db,
                     &job_id_w,
                     &name_w,
                     session_id.as_deref(),
                     agent_id.as_deref(),
+                    tool_call_id,
                     r,
                     preview_bytes,
                 )
@@ -292,28 +363,41 @@ pub async fn dispatch_with_auto_background(
                         return r.map_err(|e| anyhow::anyhow!(e));
                     }
                     Phase::Pending => {
-                        *p = Phase::DetachedRunning;
-                        drop(p);
-
-                        // Persist the job row so `job_status` can find it.
-                        if let Some(db) = super::get_async_jobs_db() {
-                            if let Err(e) = record_running_job(
-                                db,
-                                &job_id,
-                                ctx,
-                                name,
-                                args,
-                                JobOrigin::AutoBackgrounded,
-                            ) {
-                                app_warn!(
-                                    "async_jobs",
-                                    "auto_bg",
-                                    "Failed to insert auto-background job row: {}",
-                                    e
-                                );
+                        // Persist the job row before returning a synthetic id.
+                        // If this claim fails, the model would receive an
+                        // unpollable job_id and the worker would be unable to
+                        // inject its result, so fail the current tool call
+                        // instead and cancel the detached worker best-effort.
+                        // Keep the phase lock until the row exists: otherwise
+                        // the worker can observe DetachedRunning, finish first,
+                        // and lose its result because update_terminal sees no row.
+                        let db = match super::get_async_jobs_db() {
+                            Some(db) => db,
+                            None => {
+                                *p = Phase::Consumed;
+                                drop(p);
+                                cancel_token.cancel();
+                                return Err(anyhow::anyhow!(
+                                    "Async jobs DB not initialized; cannot auto-background tool '{}'",
+                                    name
+                                ));
                             }
+                        };
+                        if let Err(e) =
+                            record_running_job(db, &job_id, ctx, name, args, JobOrigin::AutoBackgrounded)
+                        {
+                            *p = Phase::Consumed;
+                            drop(p);
+                            cancel_token.cancel();
+                            return Err(anyhow::anyhow!(
+                                "Failed to record auto-background job '{}': {}",
+                                job_id,
+                                e
+                            ));
                         }
                         super::cancel::register_job_token(&job_id, cancel_token.clone());
+                        *p = Phase::DetachedRunning;
+                        drop(p);
                         app_info!(
                             "async_jobs",
                             "auto_bg",
@@ -366,6 +450,7 @@ async fn run_job_to_completion(
 ) {
     let session_id = ctx.session_id.clone();
     let agent_id = ctx.agent_id.clone();
+    let tool_call_id = ctx.tool_call_id.clone();
 
     let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
         &tool_name, &args, &ctx,
@@ -373,24 +458,34 @@ async fn run_job_to_completion(
     let result: Result<String, String> = if max_secs == 0 {
         tokio::select! {
             inner = &mut dispatch => inner.map_err(|e| e.to_string()),
-            _ = cancel_token.cancelled() => Err(format!(
-                "Async tool job '{}' was cancelled",
-                job_id
-            )),
+            _ = cancel_token.cancelled() => {
+                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                Err(format!(
+                    "Async tool job '{}' was cancelled",
+                    job_id
+                ))
+            },
         }
     } else {
         let timer = tokio::time::sleep(std::time::Duration::from_secs(max_secs));
         tokio::pin!(timer);
         tokio::select! {
             inner = &mut dispatch => inner.map_err(|e| e.to_string()),
-            _ = &mut timer => Err(format!(
-                "Async tool job '{}' exceeded max_job_secs ({}s) and was cancelled",
-                job_id, max_secs
-            )),
-            _ = cancel_token.cancelled() => Err(format!(
-                "Async tool job '{}' was cancelled",
-                job_id
-            )),
+            _ = &mut timer => {
+                cancel_token.cancel();
+                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                Err(format!(
+                    "Async tool job '{}' exceeded max_job_secs ({}s) and was cancelled",
+                    job_id, max_secs
+                ))
+            },
+            _ = cancel_token.cancelled() => {
+                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                Err(format!(
+                    "Async tool job '{}' was cancelled",
+                    job_id
+                ))
+            },
         }
     };
 
@@ -400,6 +495,7 @@ async fn run_job_to_completion(
         &tool_name,
         session_id.as_deref(),
         agent_id.as_deref(),
+        tool_call_id,
         result,
         preview_bytes,
     )
@@ -412,6 +508,7 @@ async fn finalize_job(
     tool_name: &str,
     session_id: Option<&str>,
     agent_id: Option<&str>,
+    tool_call_id: Option<String>,
     result: Result<String, String>,
     preview_bytes: usize,
 ) {
@@ -473,8 +570,10 @@ async fn finalize_job(
             agent_id.map(|s| s.to_string()),
             job_id.to_string(),
             tool_name.to_string(),
+            tool_call_id,
             status,
             preview,
+            path,
             error_text,
         );
     } else {
@@ -483,12 +582,16 @@ async fn finalize_job(
     }
 }
 
-/// Spool the full result to disk if it exceeds the inline budget, returning
-/// (preview, optional_disk_path).
+/// Spool the full result to disk and keep a bounded inline preview in SQLite.
+/// Returning a stable output file lets the parent agent decide when to spend a
+/// `read` call on detailed output instead of embedding arbitrary tool text in
+/// the notification envelope.
 fn persist_result(job_id: &str, output: &str, max_bytes: usize) -> (String, Option<String>) {
-    if output.len() <= max_bytes {
-        return (output.to_string(), None);
-    }
+    let preview = if output.len() <= max_bytes {
+        output.to_string()
+    } else {
+        truncate_preview(output, max_bytes)
+    };
     let path = match crate::paths::async_job_result_path(job_id) {
         Ok(p) => p,
         Err(e) => {
@@ -499,7 +602,7 @@ fn persist_result(job_id: &str, output: &str, max_bytes: usize) -> (String, Opti
                 job_id,
                 e
             );
-            return (truncate_preview(output, max_bytes), None);
+            return (preview, None);
         }
     };
     if let Some(parent) = path.parent() {
@@ -521,9 +624,8 @@ fn persist_result(job_id: &str, output: &str, max_bytes: usize) -> (String, Opti
             job_id,
             e
         );
-        return (truncate_preview(output, max_bytes), None);
+        return (preview, None);
     }
-    let preview = truncate_preview(output, max_bytes);
     (preview, Some(path.to_string_lossy().to_string()))
 }
 
@@ -611,6 +713,26 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("exceeded the synchronous time budget"));
+    }
+
+    #[test]
+    fn per_call_job_timeout_only_tightens_configured_cap() {
+        assert_eq!(clamp_job_timeout_secs(1800, None), 1800);
+        assert_eq!(clamp_job_timeout_secs(1800, Some(600)), 600);
+        assert_eq!(clamp_job_timeout_secs(1800, Some(3600)), 1800);
+        assert_eq!(clamp_job_timeout_secs(0, None), 0);
+        assert_eq!(clamp_job_timeout_secs(0, Some(600)), 600);
+    }
+
+    #[test]
+    fn strip_async_control_args_removes_outer_async_knobs() {
+        let cleaned = strip_async_control_args(json!({
+            "command": "echo hi",
+            "run_in_background": true,
+            "job_timeout_secs": 60
+        }));
+
+        assert_eq!(cleaned, json!({ "command": "echo hi" }));
     }
 
     #[test]

@@ -62,7 +62,7 @@ pub use definitions::{
     is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
-pub use rejection::ToolRejection;
+pub use rejection::{ToolRejection, TOOL_ERROR_PREFIX};
 
 // ── Tool Name Constants ──────────────────────────────────────────
 
@@ -119,6 +119,13 @@ pub const TOOL_SEND_ATTACHMENT: &str = "send_attachment";
 pub const TOOL_SKILL: &str = "skill";
 pub const TOOL_MCP_RESOURCE: &str = "mcp_resource";
 pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
+
+/// Optional per-call async-job timeout injected into async-capable tool schemas.
+///
+/// This is intentionally separate from tool-specific timeouts such as
+/// `exec.timeout`: it caps the outer async job and can only tighten the user's
+/// configured `asyncTools.maxJobSecs` safety boundary.
+pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
