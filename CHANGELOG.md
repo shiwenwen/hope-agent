@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **聊天工作台视觉与布局改造**：主界面切成全局 rail + 会话 pane 两层导航，右侧 Browser / Plan / Diff / Canvas / Team 面板统一为共享 shell；空会话时输入框居中加宽并显示品牌 Logo，有消息后回到底部；应用默认窗口尺寸放大到更适合双栏工作台的 1360×860。
+- **macOS 系统权限页 v2**：权限设置切到 macOS 全量权限目录与 v2 数据模型，覆盖辅助功能、屏幕录制、输入监控、媒体/个人数据/文件访问/自动化/通知等类别；可原生检测或请求的权限走 macOS API，无法可靠检测的权限标记为「手动确认」并跳转系统设置。Windows / Linux / HTTP 模式本期显示禁用说明；旧权限命令保留兼容包装，`Info.plist` 补齐本期隐私 usage description。
 - **聊天界面窄栏自适应整理**：输入框工作目录入口改为纯图标 + 「设置工作目录」提示，统一工具条图标尺寸；无痕模式入口移至顶部标题栏；右侧 Browser / Plan / Diff / Canvas / Team 面板打开时自动收起左侧 session 列表，用户仍可手动展开；输入框溢出菜单改为按容器宽度触发，修复右侧面板压缩聊天列时「+」菜单不出现。
 - **聊天消息 Markdown / 纯文本渲染可切换**：用户消息现在与模型消息一样默认支持 Markdown 渲染，气泡 hover 操作区新增 Markdown / 纯文本切换按钮，复制仍保留原始文本。两种模式都会自动识别裸链接（`https://...` / `www.example.com` / 邮箱）并渲染为可点击超链，复用既有外链与本地路径打开策略。
 - **Chromium 运行时自动安装兜底**：系统没装 Chrome / Edge / Brave / Chromium 时，agent 可调 `profile.op=install_runtime` 或 settings → Browser → 「Install Chromium runtime」按钮，自动下载 pinned Chromium snapshot（约 150 MB）解压到 `~/.hope-agent/browser/runtime/chromium-{rev}/`，下载完后 `profile.op=launch` 自动使用。下载进度通过 EventBus `browser:chromium_download_progress` 推送给 UI 进度条；zip-slip / chmod +x / `--version` smoke-test 三道防线。新增 `browser_install_chromium_runtime` Tauri 命令 + `POST /api/browser/install-chromium-runtime` HTTP 路由 + 12 语言文案。

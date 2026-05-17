@@ -11,6 +11,11 @@ pub async fn check_all_permissions() -> ha_core::permissions::AllPermissions {
 }
 
 #[tauri::command]
+pub async fn check_system_permissions() -> ha_core::permissions::SystemPermissionsResponse {
+    ha_core::permissions::check_system_permissions().await
+}
+
+#[tauri::command]
 pub async fn check_permission(id: String) -> ha_core::permissions::PermissionStatus {
     ha_core::permissions::check_permission(id).await
 }
@@ -18,6 +23,11 @@ pub async fn check_permission(id: String) -> ha_core::permissions::PermissionSta
 #[tauri::command]
 pub async fn request_permission(id: String) -> ha_core::permissions::PermissionStatus {
     ha_core::permissions::request_permission(id).await
+}
+
+#[tauri::command]
+pub async fn request_system_permission(id: String) -> ha_core::permissions::SystemPermissionItem {
+    ha_core::permissions::request_system_permission(id).await
 }
 
 // ── Sandbox ──────────────────────────────────────────────────────

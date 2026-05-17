@@ -446,8 +446,10 @@ pub fn run() {
             commands::config::set_autostart_enabled,
             // Permissions (thin wrappers over ha-core)
             tauri_wrappers::check_all_permissions,
+            tauri_wrappers::check_system_permissions,
             tauri_wrappers::check_permission,
             tauri_wrappers::request_permission,
+            tauri_wrappers::request_system_permission,
             // Session management
             commands::session::create_session_cmd,
             commands::session::list_sessions_cmd,

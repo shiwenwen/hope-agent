@@ -2,9 +2,55 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Hope Agent needs Apple Events permission to automate selected apps only when a user workflow asks for it.</string>
+    <key>NSAppleMusicUsageDescription</key>
+    <string>Hope Agent needs media library access only when a user explicitly starts a media workflow.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Hope Agent needs system audio capture only when a user explicitly starts an audio workflow.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Hope Agent needs Bluetooth access only when a user workflow needs to discover or connect nearby devices.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Hope Agent needs Bluetooth access only when a user workflow needs to discover or connect nearby devices.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Hope Agent needs calendar access only when a user asks it to inspect or manage calendar events.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Hope Agent needs calendar access only when a user asks it to inspect or manage calendar events.</string>
+    <key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+    <string>Hope Agent needs write-only calendar access only when a user asks it to create calendar events.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Hope Agent needs camera access only when a user explicitly starts a visual input workflow.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Hope Agent needs contacts access only when a user workflow explicitly asks for contact information.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Hope Agent needs Desktop folder access only when a user asks it to work with files there.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Hope Agent needs Documents folder access only when a user asks it to work with files there.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Hope Agent needs Downloads folder access only when a user asks it to work with files there.</string>
+    <key>NSFocusStatusUsageDescription</key>
+    <string>Hope Agent needs Focus status only when a workflow adapts interruptions or notifications.</string>
+    <key>NSHomeKitUsageDescription</key>
+    <string>Hope Agent needs HomeKit access only if a user enables a Home workflow.</string>
     <key>NSLocationUsageDescription</key>
     <string>Hope Agent needs your location to provide local weather information.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Hope Agent needs your location to provide local weather information.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Hope Agent needs local network access to discover and connect to local services only when requested.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Hope Agent needs microphone access only when a user explicitly starts a voice input workflow.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>Hope Agent needs network volume access only when a user asks it to work with files there.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Hope Agent needs permission to add photos only when a user explicitly asks for a photo workflow.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Hope Agent needs photo library access only when a user explicitly asks for a photo workflow.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Hope Agent needs reminders access only when a user asks it to inspect or manage reminders.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Hope Agent needs removable volume access only when a user asks it to work with files there.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Hope Agent needs speech recognition only when a user explicitly starts a speech transcription workflow.</string>
 </dict>
 </plist>

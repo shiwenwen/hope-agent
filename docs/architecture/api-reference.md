@@ -921,18 +921,20 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 ## 已知不对齐项
 
-截至 2026-04-28 三端差集稳定为 7 条（§7.3 的 4 条 Desktop-only + `save_avatar` multipart + `fs_list_dir` / `fs_search_files` 两条 query-string GET），没有"HTTP 漏写 COMMAND_MAP"或"HTTP 路由缺失"的破口。COMMAND_MAP 里的每一条都能在 `tauri::generate_handler!` 里找到对应命令；反向差 7 条均已在下表登记。
+截至 2026-05-17 三端差集稳定为 9 条（§7.3 的 6 条 Desktop-only + `save_avatar` multipart + `fs_list_dir` / `fs_search_files` 两条 query-string GET），没有"HTTP 漏写 COMMAND_MAP"或"HTTP 路由缺失"的破口。COMMAND_MAP 里的每一条都能在 `tauri::generate_handler!` 里找到对应命令；反向差 9 条均已在下表登记。
 
-### §7.3 Desktop-only（Tauri 专属，合法缺失，4 条）
+### §7.3 Desktop-only（Tauri 专属，合法缺失，6 条）
 
 | Tauri Command | 说明 |
 |---|---|
-| `check_all_permissions` | `tauri-plugin-permissions` 本地权限查询 |
-| `check_permission` | 同上 |
-| `request_permission` | 同上 |
+| `check_system_permissions` | macOS 系统权限 v2 目录与状态查询 |
+| `request_system_permission` | macOS 系统权限 v2 请求/跳转 |
+| `check_all_permissions` | 权限 v1 兼容包装 |
+| `check_permission` | 权限 v1 兼容包装 |
+| `request_permission` | 权限 v1 兼容包装 |
 | `check_sandbox_available` | Linux bubblewrap 本地探测 |
 
-前端必须在 `supportsLocalFileOps()` 或等价的运行模式判定保护下调用，HTTP 模式应 gate 住相关 UI。
+前端必须在 `supportsLocalFileOps()` / `isTauriMode()` 或等价的运行模式判定保护下调用，HTTP 模式应 gate 住相关 UI。
 
 ### §7.3.1 不进 COMMAND_MAP 的合法非 REST 命令（3 条）
 
@@ -991,8 +993,9 @@ comm -23 \
       grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u) \
   <(awk '/^const COMMAND_MAP/,/^};/' src/lib/transport-http.ts | \
       grep -oE '^[[:space:]]+[a-z_][a-zA-Z0-9_]*:' | tr -d ': ' | sort -u)
-# 期望：7 行
-#   check_all_permissions / check_permission / request_permission
+# 期望：9 行
+#   check_system_permissions / request_system_permission
+#   / check_all_permissions / check_permission / request_permission
 #   / check_sandbox_available  （§7.3 Desktop-only）
 #   / save_avatar / fs_list_dir / fs_search_files  （§7.3.1 非 REST 路径）
 ```

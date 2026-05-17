@@ -3271,8 +3271,157 @@
     "permScreenRecording": "屏幕录制",
     "permScreenRecordingDesc": "允许截取屏幕内容，识别界面元素",
     "permSummary": "已授权 {{granted}} / {{total}} 项",
+    "permSummaryV2": "已授权 {{granted}} 项 · 需处理 {{needsAction}} 项 · 手动确认 {{manual}} 项 · 未使用/不适用 {{inactive}} 项",
     "permTitle": "系统权限",
+    "permUnsupportedDesc": "本页当前仅支持 macOS 桌面应用。Windows、Linux 和 HTTP/server 模式会在后续版本提供各自的权限适配。",
+    "permUnsupportedTitle": "系统权限页当前仅支持 macOS",
     "permUnknown": "请手动确认",
+    "permissionGroups": {
+      "controlCapture": "控制与捕获",
+      "deviceNetwork": "设备与网络",
+      "fileAccess": "文件访问",
+      "personalData": "个人数据",
+      "systemServices": "系统服务"
+    },
+    "permissionItems": {
+      "accessibility": {
+        "label": "辅助功能",
+        "usage": "允许控制鼠标、键盘和其他应用窗口。"
+      },
+      "app_management": {
+        "label": "应用管理",
+        "note": "macOS 没有可靠的公开接口可读取此项的逐 App 状态。",
+        "usage": "仅在工具明确需要时管理或更新其他应用。"
+      },
+      "automation_messages": {
+        "label": "自动化：Messages",
+        "note": "自动化授权按目标应用记录，最可靠的状态来源是系统设置。",
+        "usage": "在消息工作流需要时允许通过 Apple Events 自动化 Messages。"
+      },
+      "automation_system_events": {
+        "label": "自动化：System Events",
+        "note": "自动化授权按目标应用记录，最可靠的状态来源是系统设置。",
+        "usage": "允许通过 Apple Events 自动化 System Events。"
+      },
+      "bluetooth": {
+        "label": "蓝牙",
+        "usage": "在工作流需要时发现和连接蓝牙设备。"
+      },
+      "calendar": {
+        "label": "日历",
+        "usage": "在日程工作流需要时读取或写入日历事件。"
+      },
+      "camera": {
+        "label": "相机",
+        "usage": "仅在用户明确请求视觉输入时使用相机。"
+      },
+      "contacts": {
+        "label": "通讯录",
+        "usage": "仅在用户工作流明确需要联系人信息时读取通讯录。"
+      },
+      "desktop_folder": {
+        "label": "桌面文件夹",
+        "note": "macOS 将此项放在“文件与文件夹”中；这里通过探测展示。",
+        "usage": "在用户要求处理桌面文件时读写桌面。"
+      },
+      "developer_tools": {
+        "label": "开发者工具",
+        "note": "macOS 没有可靠的公开接口可读取此项的逐 App 状态。",
+        "usage": "使用 macOS 受开发者工具授权保护的调试或开发能力。"
+      },
+      "documents_folder": {
+        "label": "文稿文件夹",
+        "note": "macOS 将此项放在“文件与文件夹”中；这里通过探测展示。",
+        "usage": "在用户要求处理文稿文件时读写文稿。"
+      },
+      "downloads_folder": {
+        "label": "下载文件夹",
+        "note": "macOS 将此项放在“文件与文件夹”中；这里通过探测展示。",
+        "usage": "在用户要求处理下载文件时读写下载目录。"
+      },
+      "focus_status": {
+        "label": "专注状态",
+        "note": "macOS 没有可靠的公开接口可读取此项的逐 App 状态。",
+        "usage": "仅在工作流需要适配通知或打扰策略时读取专注状态。"
+      },
+      "full_disk_access": {
+        "label": "完全磁盘访问",
+        "note": "这里使用保守文件探测；未探测到时需要手动确认。",
+        "usage": "读取“文件与文件夹”授权无法覆盖的受保护文件。"
+      },
+      "homekit": {
+        "label": "HomeKit",
+        "note": "Hope Agent 当前未使用 HomeKit 工作流。",
+        "usage": "仅当后续启用家庭工作流时访问家庭数据。"
+      },
+      "input_monitoring": {
+        "label": "输入监控",
+        "usage": "监听桌面自动化所需的键盘和指针事件。"
+      },
+      "local_network": {
+        "label": "本地网络",
+        "note": "macOS 本地网络权限没有可靠的公开状态读取接口。",
+        "usage": "发现并连接本地网络中的设备和服务。"
+      },
+      "location": {
+        "label": "定位服务",
+        "usage": "用于本地天气和用户明确请求的定位相关工作流。"
+      },
+      "media_library": {
+        "label": "媒体资料库",
+        "note": "该 App 场景没有可靠的公开状态读取接口。",
+        "usage": "仅在媒体工作流明确需要时访问媒体资料库。"
+      },
+      "microphone": {
+        "label": "麦克风",
+        "usage": "仅在用户明确请求语音输入时使用麦克风。"
+      },
+      "network_volumes": {
+        "label": "网络卷",
+        "note": "macOS 没有可靠的公开接口可读取逐卷授权状态。",
+        "usage": "在用户要求处理网络卷文件时访问已挂载的网络卷。"
+      },
+      "notifications": {
+        "label": "通知",
+        "note": "通知的开关配置仍保留在通知设置页。",
+        "usage": "显示系统通知。"
+      },
+      "photos": {
+        "label": "照片",
+        "usage": "仅在用户明确请求照片工作流时访问照片图库。"
+      },
+      "reminders": {
+        "label": "提醒事项",
+        "usage": "在计划工作流需要时读取或写入提醒事项。"
+      },
+      "removable_volumes": {
+        "label": "可移动卷",
+        "note": "macOS 没有可靠的公开接口可读取逐卷授权状态。",
+        "usage": "在用户要求处理外置磁盘文件时访问可移动卷。"
+      },
+      "screen_recording": {
+        "label": "屏幕录制",
+        "usage": "截取屏幕内容，用于视觉理解和界面自动化。"
+      },
+      "speech_recognition": {
+        "label": "语音识别",
+        "usage": "仅在用户明确请求语音转写时使用语音识别。"
+      },
+      "system_audio_capture": {
+        "label": "系统音频捕获",
+        "note": "macOS 没有可靠的公开预检查接口可读取此项状态。",
+        "usage": "仅在后续工作流明确需要时捕获系统音频。"
+      }
+    },
+    "permissionStatuses": {
+      "granted": "已授权",
+      "manualCheck": "手动确认",
+      "notApplicable": "不适用",
+      "notDetermined": "未决定",
+      "notGranted": "未授权",
+      "notUsed": "未使用",
+      "restricted": "受限"
+    },
     "permissions": "系统权限",
     "personaModeDesc": "结构化字段填空，或直接写 SOUL.md 自由文本。SOUL.md 与 openclaw 兼容模式共用同一份文件。",
     "personaModeLabel": "人格编辑方式",

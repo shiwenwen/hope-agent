@@ -3271,8 +3271,157 @@
     "permScreenRecording": "Rakaman skrin",
     "permScreenRecordingDesc": "Tangkap kandungan skrin dan kenali elemen UI",
     "permSummary": "{{granted}} / {{total}} diberikan",
+    "permSummaryV2": "{{granted}} granted · {{needsAction}} need action · {{manual}} manual checks · {{inactive}} unused/not applicable",
     "permTitle": "Kebenaran sistem",
+    "permUnsupportedDesc": "This page currently supports the macOS desktop app only. Windows, Linux, and HTTP/server mode will get their own permissions implementation later.",
+    "permUnsupportedTitle": "System permissions are macOS-only for now",
     "permUnknown": "Sahkan secara manual",
+    "permissionGroups": {
+      "controlCapture": "Control & Capture",
+      "deviceNetwork": "Devices & Network",
+      "fileAccess": "File Access",
+      "personalData": "Personal Data",
+      "systemServices": "System Services"
+    },
+    "permissionItems": {
+      "accessibility": {
+        "label": "Accessibility",
+        "usage": "Control the mouse, keyboard, and other application windows."
+      },
+      "app_management": {
+        "label": "App Management",
+        "note": "macOS does not expose a reliable public per-app status API.",
+        "usage": "Manage or update other applications only when a tool explicitly needs it."
+      },
+      "automation_messages": {
+        "label": "Automation: Messages",
+        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
+        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+      },
+      "automation_system_events": {
+        "label": "Automation: System Events",
+        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
+        "usage": "Allow Apple Events automation of System Events."
+      },
+      "bluetooth": {
+        "label": "Bluetooth",
+        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+      },
+      "calendar": {
+        "label": "Calendars",
+        "usage": "Read or write calendar events when scheduling workflows need it."
+      },
+      "camera": {
+        "label": "Camera",
+        "usage": "Use the camera for visual input only when explicitly requested."
+      },
+      "contacts": {
+        "label": "Contacts",
+        "usage": "Read contacts only when a user workflow explicitly asks for it."
+      },
+      "desktop_folder": {
+        "label": "Desktop Folder",
+        "note": "macOS exposes this through Files & Folders; status is probed.",
+        "usage": "Read and write files on the Desktop when requested by the user."
+      },
+      "developer_tools": {
+        "label": "Developer Tools",
+        "note": "macOS does not expose a reliable public per-app status API.",
+        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+      },
+      "documents_folder": {
+        "label": "Documents Folder",
+        "note": "macOS exposes this through Files & Folders; status is probed.",
+        "usage": "Read and write files in Documents when requested by the user."
+      },
+      "downloads_folder": {
+        "label": "Downloads Folder",
+        "note": "macOS exposes this through Files & Folders; status is probed.",
+        "usage": "Read and write files in Downloads when requested by the user."
+      },
+      "focus_status": {
+        "label": "Focus Status",
+        "note": "macOS does not expose a reliable public per-app status API.",
+        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+      },
+      "full_disk_access": {
+        "label": "Full Disk Access",
+        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
+        "usage": "Read protected files that normal Files & Folders consent does not cover."
+      },
+      "homekit": {
+        "label": "HomeKit",
+        "note": "Hope Agent does not currently use HomeKit workflows.",
+        "usage": "Access Home data only if future HomeKit workflows are enabled."
+      },
+      "input_monitoring": {
+        "label": "Input Monitoring",
+        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+      },
+      "local_network": {
+        "label": "Local Network",
+        "note": "macOS Local Network privacy has no reliable public status API.",
+        "usage": "Discover and connect to devices on the local network."
+      },
+      "location": {
+        "label": "Location Services",
+        "usage": "Use device location for local weather and location-aware workflows."
+      },
+      "media_library": {
+        "label": "Media Library",
+        "note": "No reliable public status API is available for this app surface.",
+        "usage": "Access the media library only when a media workflow explicitly needs it."
+      },
+      "microphone": {
+        "label": "Microphone",
+        "usage": "Use the microphone for voice input only when explicitly requested."
+      },
+      "network_volumes": {
+        "label": "Network Volumes",
+        "note": "No reliable public per-volume status API is available.",
+        "usage": "Access mounted network volumes when the user asks the app to work there."
+      },
+      "notifications": {
+        "label": "Notifications",
+        "note": "Notification configuration stays on the Notifications settings page.",
+        "usage": "Show system notifications."
+      },
+      "photos": {
+        "label": "Photos",
+        "usage": "Access the Photos library only when the user asks for photo workflows."
+      },
+      "reminders": {
+        "label": "Reminders",
+        "usage": "Read or write reminders when planning workflows need it."
+      },
+      "removable_volumes": {
+        "label": "Removable Volumes",
+        "note": "No reliable public per-volume status API is available.",
+        "usage": "Access removable drives when the user asks the app to work there."
+      },
+      "screen_recording": {
+        "label": "Screen Recording",
+        "usage": "Capture screen contents for visual understanding and UI automation."
+      },
+      "speech_recognition": {
+        "label": "Speech Recognition",
+        "usage": "Use speech recognition when a voice workflow asks for transcription."
+      },
+      "system_audio_capture": {
+        "label": "System Audio Capture",
+        "note": "macOS does not expose a reliable public preflight API for this permission.",
+        "usage": "Capture system audio when a future workflow explicitly needs it."
+      }
+    },
+    "permissionStatuses": {
+      "granted": "Granted",
+      "manualCheck": "Manual check",
+      "notApplicable": "Not applicable",
+      "notDetermined": "Not determined",
+      "notGranted": "Not granted",
+      "notUsed": "Not used",
+      "restricted": "Restricted"
+    },
     "permissions": "Kebenaran",
     "personaModeDesc": "Isikan medan berstruktur, atau tulis markdown SOUL.md secara terus. Fail SOUL.md dikongsi dengan mod keserasian openclaw.",
     "personaModeLabel": "Permukaan tulisan persona",
@@ -3490,6 +3639,16 @@
         "title": "Recent reject reasons",
         "empty": "No rejections recorded yet. Whenever any gate stops a review from producing a draft, the reason lands here."
       },
+      "curator": {
+        "title": "Draft consolidation",
+        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
+        "run": "Scan",
+        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
+        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
+        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
+        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
+        "apply": "Keep this, discard the other {{n}}"
+      },
       "resetAll": {
         "label": "Reset everything",
         "confirm": "Reset every custom field to defaults?",
@@ -3594,16 +3753,6 @@
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
         }
-      },
-      "curator": {
-        "title": "Draft consolidation",
-        "help": "Find clusters of draft skills that overlap topically and merge them in one click — keep one, discard the rest. Read-only scan, no LLM call.",
-        "run": "Scan",
-        "idle": "Not scanned yet. Click \"Scan\" to look for overlapping drafts.",
-        "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
-        "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
-        "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
       }
     },
     "skillsEvolutionHero": {
