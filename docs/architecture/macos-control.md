@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 状态：Phase 3A running-app list/frontmost/activate 落地中
+> 状态：Phase 3 安全动作 MVP 已落地
 
 本文定义 Hope Agent 原生 macOS 控制能力的目标架构。目标不是依赖 Peekaboo，而是吸收它的工程经验：**先看屏幕与 AX 树，再按稳定元素行动；优先使用 Accessibility 原生 action，必要时才回落到合成键鼠事件**。
 
@@ -456,6 +456,15 @@ Phase 3A 先落地低风险 App 焦点控制：
 - `apps.activate` 进入审批系统，属于 `FocusOnly` 风险；不支持 launch / quit / hide / unhide
 - activation 只请求 macOS 切换焦点，返回系统是否接受请求，不假设目标 App 已立即完成激活
 
+Phase 3B 补齐安全动作 MVP：
+
+- `apps.launch` 支持按 `bundleId` 或 `appName` 启动已安装 App，并返回 launch/activate 结果
+- `windows(action=windows, op=list|focus|move|resize|minimize)` 基于当前前台 App 的 AXWindows；突变操作需要 `windowId` 或 `target.windowTitle`
+- `act(action=act, op=click|type|set_value|hotkey|scroll)` 优先走 AX 原生动作：`click` 优先 `AXPress`，无 AXPress 且有 bounds 时回落 CGEvent；`type` / `set_value` 走 `AXValue`；`hotkey` / `scroll` 走 CGEvent
+- `menu(action=menu, op=list|click)` 基于前台 App 的 `AXMenuBar`；`menu.click` 按标题 path 逐级 `AXPress`
+- `permission::engine` 对 `apps.launch`、窗口突变、`act.*`、`menu.click` 进入审批；`windows.list` / `menu.list` 仍为只读放行
+- Phase 3 暂不支持 close/quit/hide/unhide/delete/force quit 等破坏性动作
+
 验证场景：
 
 - Finder / System Settings / Notes / Safari 非网页区域
@@ -467,12 +476,12 @@ Phase 3A 先落地低风险 App 焦点控制：
 
 ### Phase 3：安全动作 MVP
 
-- `apps.launch`
-- `windows.list/focus/move/resize/minimize`
-- `act.click/type/set_value/hotkey/scroll`
-- `menu.list/click`
-- 集成 `permission::engine` 风险分类和审批弹窗 payload
-- stale-ref 一次自恢复
+- [x] `apps.launch`
+- [x] `windows.list/focus/move/resize/minimize`
+- [x] `act.click/type/set_value/hotkey/scroll`
+- [x] `menu.list/click`
+- [x] 集成 `permission::engine` 风险分类和审批弹窗 payload
+- [x] stale-ref 一次自恢复（通过 action 前 fresh snapshot + element id 重新解析）
 
 验证场景：
 

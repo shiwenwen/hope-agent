@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect Hope Agent's native macOS desktop-control readiness, capture read-only Accessibility snapshots, wait for a desktop target to appear, and perform low-risk app focus control. Phase 3A supports `status`, `permissions`, `snapshot`, read-only `wait`, and `apps` list/frontmost/activate. `snapshot.includeScreenshot=true` stores a primary-display JPEG and mirrors it in the right panel. Clicks, typing, windows, menus, launch, quit, and hide are intentionally unavailable until later phases.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Phase 3 supports `status`, `permissions`, `snapshot`, `wait`, `apps` list/frontmost/activate/launch, `windows` list/focus/move/resize/minimize, `act` click/type/set_value/hotkey/scroll, and `menu` list/click. Prefer snapshot/wait before mutation. Destructive quit/close/delete actions remain unavailable.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,13 +734,13 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions", "snapshot", "wait", "apps"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` also includes the underlying macOS system permissions response. `snapshot` returns a read-only frontmost-app/window/AX element summary and can include a stored screenshot summary. `wait` polls read-only AX snapshots until a target query matches or times out. `apps` supports op=list|frontmost|activate for running apps."
+                        "enum": ["status", "permissions", "snapshot", "wait", "apps", "windows", "act", "menu"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional screenshot. `wait` polls snapshots until a target query matches. `apps`, `windows`, `act`, and `menu` perform Phase 3 desktop operations."
                     },
                     "op": {
                         "type": "string",
-                        "enum": ["list", "frontmost", "activate"],
-                        "description": "Sub-operation for `apps`. `activate` changes desktop focus and requires approval; it targets an already-running app by pid, bundleId, or appName."
+                        "enum": ["list", "frontmost", "activate", "launch", "focus", "move", "resize", "minimize", "click", "type", "set_value", "hotkey", "scroll"],
+                        "description": "Sub-operation. For `apps`: list|frontmost|activate|launch. For `windows`: list|focus|move|resize|minimize. For `act`: click|type|set_value|hotkey|scroll. For `menu`: list|click."
                     },
                     "appName": {
                         "type": "string",
@@ -759,6 +759,56 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "minimum": 1,
                         "maximum": 100,
                         "description": "For `apps.list`: maximum running apps returned. Defaults to 50 and is hard-capped at 100."
+                    },
+                    "windowId": {
+                        "type": "string",
+                        "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1. Prefer target.windowTitle when possible."
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "For `windows.move` or coordinate click: x position in macOS screen points."
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "For `windows.move` or coordinate click: y position in macOS screen points."
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "For `windows.resize`: target width in macOS screen points."
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "For `windows.resize`: target height in macOS screen points."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "For `act.type`: text to set/type. For target matching, use target.text."
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "For `act.set_value`: value to set via Accessibility."
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "For `act.hotkey`: single key name, e.g. n, Enter, Escape, Tab."
+                    },
+                    "keys": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "For `act.hotkey`: ordered keys/modifiers, e.g. [\"cmd\",\"n\"] or [\"cmd\",\"shift\",\"g\"]."
+                    },
+                    "deltaX": {
+                        "type": "number",
+                        "description": "For `act.scroll`: horizontal scroll delta."
+                    },
+                    "deltaY": {
+                        "type": "number",
+                        "description": "For `act.scroll`: vertical scroll delta."
+                    },
+                    "path": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "For `menu.click`: menu title path, e.g. [\"File\", \"New Window\"]."
                     },
                     "includeScreenshot": {
                         "type": "boolean",
@@ -790,7 +840,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "target": {
                         "type": "object",
-                        "description": "For `wait`: target query. App/window filters combine with element filters when provided.",
+                        "description": "Target query for `wait`, `windows`, and `act`. App/window filters combine with element filters when provided.",
                         "properties": {
                             "appName": {
                                 "type": "string",

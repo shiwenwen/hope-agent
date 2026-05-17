@@ -1,9 +1,8 @@
 //! Desktop macOS control bridge.
 //!
-//! Phase 3A registers the authorized desktop process and exposes read-only
-//! Accessibility snapshots, primary-display JPEG frames, and low-risk
-//! running-app focus control. Pointer/keyboard/window mutations are
-//! intentionally left for later slices.
+//! Phase 3 registers the authorized desktop process and exposes Accessibility
+//! snapshots, primary-display JPEG frames, app launch/focus, window operations,
+//! AX-first element actions, and menu inspection/clicks.
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -11,14 +10,20 @@ mod imp {
     use std::os::raw::{c_char, c_void};
     use std::ptr;
     use std::sync::Arc;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
     use async_trait::async_trait;
     use base64::Engine;
     use ha_core::mac_control::{
-        MacControlAppSummary, MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult,
-        MacControlBounds, MacControlBridge, MacControlDisplaySummary, MacControlElementSummary,
-        MacControlFramePayload, MacControlRunningApp, MacControlScreenshotSummary,
-        MacControlSnapshot, MacControlSnapshotRequest, MacControlWindowSummary,
+        MacControlActOp, MacControlActRequest, MacControlActResult, MacControlAppSummary,
+        MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult, MacControlBounds,
+        MacControlBridge, MacControlDisplaySummary, MacControlElementSummary,
+        MacControlFramePayload, MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest,
+        MacControlMenuResult, MacControlRunningApp, MacControlScreenshotSummary,
+        MacControlSnapshot, MacControlSnapshotRequest, MacControlTargetQuery,
+        MacControlWindowSummary, MacControlWindowsOp, MacControlWindowsRequest,
+        MacControlWindowsResult,
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
@@ -60,6 +65,30 @@ mod imp {
                 .await
                 .map_err(|e| format!("macOS apps worker failed: {e}"))?
         }
+
+        async fn windows(
+            &self,
+            request: MacControlWindowsRequest,
+        ) -> Result<MacControlWindowsResult, String> {
+            tokio::task::spawn_blocking(move || handle_windows(request))
+                .await
+                .map_err(|e| format!("macOS windows worker failed: {e}"))?
+        }
+
+        async fn act(&self, request: MacControlActRequest) -> Result<MacControlActResult, String> {
+            tokio::task::spawn_blocking(move || handle_act(request))
+                .await
+                .map_err(|e| format!("macOS act worker failed: {e}"))?
+        }
+
+        async fn menu(
+            &self,
+            request: MacControlMenuRequest,
+        ) -> Result<MacControlMenuResult, String> {
+            tokio::task::spawn_blocking(move || handle_menu(request))
+                .await
+                .map_err(|e| format!("macOS menu worker failed: {e}"))?
+        }
     }
 
     pub fn register() {
@@ -76,12 +105,23 @@ mod imp {
     type CFArrayRef = *const c_void;
     type AXUIElementRef = *const c_void;
     type AXValueRef = *const c_void;
+    type CGEventRef = *const c_void;
+    type CGEventSourceRef = *const c_void;
 
     const AX_ERROR_SUCCESS: AXError = 0;
     const K_CFSTRING_ENCODING_UTF8: u32 = 0x0800_0100;
     const K_AXVALUE_CGPOINT_TYPE: i32 = 1;
     const K_AXVALUE_CGSIZE_TYPE: i32 = 2;
     const K_AXVALUE_CGRECT_TYPE: i32 = 3;
+    const K_CG_HID_EVENT_TAP: u32 = 0;
+    const K_CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
+    const K_CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
+    const K_CG_MOUSE_BUTTON_LEFT: u32 = 0;
+    const K_CG_SCROLL_EVENT_UNIT_LINE: u32 = 1;
+    const K_CG_EVENT_FLAG_MASK_SHIFT: u64 = 0x0002_0000;
+    const K_CG_EVENT_FLAG_MASK_CONTROL: u64 = 0x0004_0000;
+    const K_CG_EVENT_FLAG_MASK_ALTERNATE: u64 = 0x0008_0000;
+    const K_CG_EVENT_FLAG_MASK_COMMAND: u64 = 0x0010_0000;
 
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
@@ -114,13 +154,42 @@ mod imp {
         ) -> AXError;
         fn AXUIElementCopyActionNames(element: AXUIElementRef, names: *mut CFArrayRef) -> AXError;
         fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> AXError;
+        fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> AXError;
+        fn AXUIElementSetAttributeValue(
+            element: AXUIElementRef,
+            attribute: CFStringRef,
+            value: CFTypeRef,
+        ) -> AXError;
+        fn AXValueCreate(value_type: i32, value: *const c_void) -> AXValueRef;
         fn AXValueGetType(value: AXValueRef) -> i32;
         fn AXValueGetValue(value: AXValueRef, value_type: i32, value: *mut c_void) -> Boolean;
+        fn CGEventCreateMouseEvent(
+            source: CGEventSourceRef,
+            mouse_type: u32,
+            mouse_cursor_position: CGPoint,
+            mouse_button: u32,
+        ) -> CGEventRef;
+        fn CGEventCreateKeyboardEvent(
+            source: CGEventSourceRef,
+            virtual_key: u16,
+            key_down: bool,
+        ) -> CGEventRef;
+        fn CGEventCreateScrollWheelEvent(
+            source: CGEventSourceRef,
+            units: u32,
+            wheel_count: u32,
+            wheel1: i32,
+            ...
+        ) -> CGEventRef;
+        fn CGEventSetFlags(event: CGEventRef, flags: u64);
+        fn CGEventPost(tap: u32, event: CGEventRef);
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
+        static kCFBooleanTrue: CFTypeRef;
         fn CFRelease(cf: CFTypeRef);
+        fn CFRetain(cf: CFTypeRef) -> CFTypeRef;
         fn CFGetTypeID(cf: CFTypeRef) -> CFTypeID;
         fn CFStringGetTypeID() -> CFTypeID;
         fn CFArrayGetTypeID() -> CFTypeID;
@@ -291,20 +360,30 @@ mod imp {
             .cloned()
             .collect::<Vec<_>>();
 
-        let activated = if request.op == MacControlAppsOp::Activate {
-            let app = find_running_app_for_request(&request, &running, &all_apps)
-                .ok_or_else(|| "No running macOS app matched the activate request.".to_string())?;
-            let ok = app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
-            if !ok {
-                return Err("macOS refused the app activation request.".to_string());
+        let mut launched = None;
+        let activated = match request.op {
+            MacControlAppsOp::Activate => {
+                let app = find_running_app_for_request(&request, &running, &all_apps).ok_or_else(
+                    || "No running macOS app matched the activate request.".to_string(),
+                )?;
+                activate_running_app(&app)?;
+                let summary = running_app_summary(&app);
+                if apps.iter().all(|item| item.pid != summary.pid) {
+                    apps.insert(0, summary.clone());
+                }
+                Some(summary)
             }
-            let summary = running_app_summary(&app);
-            if apps.iter().all(|item| item.pid != summary.pid) {
-                apps.insert(0, summary.clone());
+            MacControlAppsOp::Launch => {
+                let app = launch_app(&request)?;
+                let summary = running_app_summary(&app);
+                if apps.iter().all(|item| item.pid != summary.pid) {
+                    apps.insert(0, summary.clone());
+                }
+                launched = Some(summary.clone());
+                activate_running_app(&app)?;
+                Some(summary)
             }
-            Some(summary)
-        } else {
-            None
+            MacControlAppsOp::List | MacControlAppsOp::Frontmost => None,
         };
 
         Ok(MacControlAppsResult {
@@ -312,6 +391,190 @@ mod imp {
             frontmost,
             apps,
             activated,
+            launched,
+        })
+    }
+
+    fn handle_windows(
+        request: MacControlWindowsRequest,
+    ) -> Result<MacControlWindowsResult, String> {
+        let request = request.clamped();
+        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+            include_screenshot: false,
+            max_elements: request.max_elements,
+            max_depth: request.max_depth,
+        })?;
+        let mut windows = snapshot.windows.clone();
+        let acted_window = if request.op == MacControlWindowsOp::List {
+            None
+        } else {
+            let (window, summary) = resolve_window(&request)?;
+            match request.op {
+                MacControlWindowsOp::Focus => {
+                    perform_ax_action(window.as_ptr() as AXUIElementRef, "AXRaise")?;
+                    let _ = set_ax_bool(window.as_ptr() as AXUIElementRef, "AXMain", true);
+                    let _ = set_ax_bool(window.as_ptr() as AXUIElementRef, "AXFocused", true);
+                }
+                MacControlWindowsOp::Move => {
+                    let x = request
+                        .x
+                        .ok_or_else(|| "windows.move requires x.".to_string())?;
+                    let y = request
+                        .y
+                        .ok_or_else(|| "windows.move requires y.".to_string())?;
+                    set_ax_point(
+                        window.as_ptr() as AXUIElementRef,
+                        "AXPosition",
+                        CGPoint { x, y },
+                    )?;
+                }
+                MacControlWindowsOp::Resize => {
+                    let width = request
+                        .width
+                        .ok_or_else(|| "windows.resize requires width.".to_string())?;
+                    let height = request
+                        .height
+                        .ok_or_else(|| "windows.resize requires height.".to_string())?;
+                    set_ax_size(
+                        window.as_ptr() as AXUIElementRef,
+                        "AXSize",
+                        CGSize { width, height },
+                    )?;
+                }
+                MacControlWindowsOp::Minimize => {
+                    set_ax_bool(window.as_ptr() as AXUIElementRef, "AXMinimized", true)?;
+                }
+                MacControlWindowsOp::List => {}
+            }
+            Some(window_summary(
+                window.as_ptr() as AXUIElementRef,
+                &summary.id,
+            ))
+        };
+        if let Some(acted) = acted_window.clone() {
+            if let Some(existing) = windows.iter_mut().find(|window| window.id == acted.id) {
+                *existing = acted.clone();
+            } else {
+                windows.insert(0, acted.clone());
+            }
+        }
+        Ok(MacControlWindowsResult {
+            op: request.op,
+            frontmost_app: snapshot.frontmost_app,
+            windows,
+            acted_window,
+        })
+    }
+
+    fn handle_act(request: MacControlActRequest) -> Result<MacControlActResult, String> {
+        let request = request.clamped();
+        let mut target = None;
+        let execution = match request.op {
+            MacControlActOp::Click => {
+                if let (Some(x), Some(y)) = (request.x, request.y) {
+                    post_mouse_click(CGPoint { x, y })?;
+                    "CGEventClick".to_string()
+                } else {
+                    let (element, summary, _) =
+                        resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                    let element_ref = element.as_ptr() as AXUIElementRef;
+                    target = Some(summary.clone());
+                    if summary.actions.iter().any(|action| action == "AXPress") {
+                        perform_ax_action(element_ref, "AXPress")?;
+                        "AXPress".to_string()
+                    } else {
+                        let bounds = summary.bounds_points.ok_or_else(|| {
+                            "act.click target has no AXPress action and no bounds for CGEvent fallback."
+                                .to_string()
+                        })?;
+                        post_mouse_click(CGPoint {
+                            x: bounds.x + bounds.width / 2.0,
+                            y: bounds.y + bounds.height / 2.0,
+                        })?;
+                        "CGEventFallback".to_string()
+                    }
+                }
+            }
+            MacControlActOp::Type => {
+                let text = request
+                    .text
+                    .as_deref()
+                    .ok_or_else(|| "act.type requires text.".to_string())?;
+                let (element, summary) = if target_query_is_empty(&request.target) {
+                    focused_element().ok_or_else(|| {
+                        "act.type requires a focused text element or explicit target.".to_string()
+                    })?
+                } else {
+                    let (element, summary, _) =
+                        resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                    (element, summary)
+                };
+                set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", text)?;
+                target = Some(summary);
+                "AXSetValue".to_string()
+            }
+            MacControlActOp::SetValue => {
+                let value = request
+                    .value
+                    .as_deref()
+                    .ok_or_else(|| "act.set_value requires value.".to_string())?;
+                let (element, summary, _) =
+                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", value)?;
+                target = Some(summary);
+                "AXSetValue".to_string()
+            }
+            MacControlActOp::Hotkey => {
+                let keys = if request.keys.is_empty() {
+                    vec![request.key.clone().unwrap_or_default()]
+                } else {
+                    request.keys.clone()
+                };
+                post_hotkey(&keys)?;
+                "CGEventHotkey".to_string()
+            }
+            MacControlActOp::Scroll => {
+                post_scroll(
+                    request.delta_x.unwrap_or(0.0),
+                    request.delta_y.unwrap_or(0.0),
+                )?;
+                "CGEventScroll".to_string()
+            }
+        };
+        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+            include_screenshot: false,
+            max_elements: request.max_elements,
+            max_depth: request.max_depth,
+        })
+        .ok();
+        Ok(MacControlActResult {
+            op: request.op,
+            execution,
+            target,
+            snapshot,
+        })
+    }
+
+    fn handle_menu(request: MacControlMenuRequest) -> Result<MacControlMenuResult, String> {
+        let request = request.clamped();
+        let app = focused_app_element()?;
+        let menu_bar = copy_attribute(app.as_ptr() as AXUIElementRef, "AXMenuBar")
+            .ok_or_else(|| "Focused app does not expose an AXMenuBar.".to_string())?;
+        let items = menu_children(menu_bar.as_ptr() as AXUIElementRef, request.max_depth);
+        let clicked = if request.op == MacControlMenuOp::Click {
+            Some(click_menu_path(
+                menu_bar.as_ptr() as AXUIElementRef,
+                &request.path,
+            )?)
+        } else {
+            None
+        };
+
+        Ok(MacControlMenuResult {
+            op: request.op,
+            path: request.path,
+            items,
+            clicked,
         })
     }
 
@@ -326,6 +589,58 @@ mod imp {
             return false;
         }
         true
+    }
+
+    fn launch_app(
+        request: &MacControlAppsRequest,
+    ) -> Result<Retained<NSRunningApplication>, String> {
+        let workspace = NSWorkspace::sharedWorkspace();
+        if let Some(bundle_id) = request.bundle_id.as_deref() {
+            let bundle_id_string = NSString::from_str(bundle_id);
+            let url = workspace
+                .URLForApplicationWithBundleIdentifier(&bundle_id_string)
+                .ok_or_else(|| format!("No installed macOS app has bundleId '{bundle_id}'."))?;
+            let ok = workspace.openURL(&url);
+            if !ok {
+                return Err(format!("macOS refused to open app bundle '{bundle_id}'."));
+            }
+            return wait_for_launched_app(request);
+        }
+        if let Some(app_name) = request.app_name.as_deref() {
+            let app_name = NSString::from_str(app_name);
+            #[allow(deprecated)]
+            let ok = workspace.launchApplication(&app_name);
+            if !ok {
+                return Err("macOS refused to launch the requested app name.".to_string());
+            }
+            return wait_for_launched_app(request);
+        }
+        Err("apps.launch requires bundleId or appName.".to_string())
+    }
+
+    fn wait_for_launched_app(
+        request: &MacControlAppsRequest,
+    ) -> Result<Retained<NSRunningApplication>, String> {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            let running = NSWorkspace::sharedWorkspace()
+                .runningApplications()
+                .to_vec();
+            if let Some(app) = find_running_app_for_request(request, &running, &[]) {
+                return Ok(app);
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        Err("Timed out waiting for launched macOS app to appear.".to_string())
+    }
+
+    fn activate_running_app(app: &NSRunningApplication) -> Result<(), String> {
+        let ok = app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
+        if ok {
+            Ok(())
+        } else {
+            Err("macOS refused the app activation request.".to_string())
+        }
     }
 
     fn find_running_app_for_request(
@@ -363,9 +678,498 @@ mod imp {
             .and_then(|app| NSRunningApplication::runningApplicationWithProcessIdentifier(app.pid))
     }
 
+    fn focused_app_element() -> Result<CfOwned, String> {
+        let system = unsafe { AXUIElementCreateSystemWide() };
+        let system = CfOwned::new(system as CFTypeRef)
+            .ok_or_else(|| "Unable to create the system Accessibility element.".to_string())?;
+        copy_attribute(system.as_ptr() as AXUIElementRef, "AXFocusedApplication")
+            .ok_or_else(|| "Unable to read focused macOS application.".to_string())
+    }
+
+    fn focused_element() -> Option<(CfOwned, MacControlElementSummary)> {
+        let system = unsafe { AXUIElementCreateSystemWide() };
+        let system = CfOwned::new(system as CFTypeRef)?;
+        let element = copy_attribute(system.as_ptr() as AXUIElementRef, "AXFocusedUIElement")?;
+        let summary = element_summary(element.as_ptr() as AXUIElementRef, None, 1);
+        Some((element, summary))
+    }
+
+    fn resolve_window(
+        request: &MacControlWindowsRequest,
+    ) -> Result<(CfOwned, MacControlWindowSummary), String> {
+        let app = focused_app_element()?;
+        let windows = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows")
+            .ok_or_else(|| "Focused app does not expose AXWindows.".to_string())?;
+        for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
+            let id = format!("win_{}", idx + 1);
+            let summary = window_summary(window_ref as AXUIElementRef, &id);
+            if window_matches_request(&summary, request) {
+                let retained = unsafe { CFRetain(window_ref as CFTypeRef) };
+                let window = CfOwned::new(retained)
+                    .ok_or_else(|| "Unable to retain matched AX window.".to_string())?;
+                return Ok((window, summary));
+            }
+        }
+        Err("No frontmost-app window matched the request.".to_string())
+    }
+
+    fn window_matches_request(
+        window: &MacControlWindowSummary,
+        request: &MacControlWindowsRequest,
+    ) -> bool {
+        if request
+            .window_id
+            .as_deref()
+            .filter(|query| !query.is_empty())
+            .is_some_and(|query| query != window.id)
+        {
+            return false;
+        }
+        contains_ci(
+            window.title.as_deref(),
+            request.target.window_title.as_deref(),
+        )
+    }
+
+    fn resolve_element(
+        target: &MacControlTargetQuery,
+        max_elements: usize,
+        max_depth: usize,
+    ) -> Result<(CfOwned, MacControlElementSummary, MacControlSnapshot), String> {
+        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+            include_screenshot: false,
+            max_elements,
+            max_depth,
+        })?;
+        let summary = snapshot
+            .elements
+            .iter()
+            .find(|element| element_matches_query(element, target, &snapshot))
+            .cloned()
+            .ok_or_else(|| "No AX element matched the act target.".to_string())?;
+        let element = resolve_element_by_id(&summary.id, max_elements, max_depth)?;
+        Ok((element, summary, snapshot))
+    }
+
+    fn resolve_element_by_id(
+        element_id: &str,
+        max_elements: usize,
+        max_depth: usize,
+    ) -> Result<CfOwned, String> {
+        let app = focused_app_element()?;
+        let mut state = CaptureState {
+            max_elements,
+            max_depth,
+            next_element_id: 1,
+            elements: Vec::new(),
+            truncated: false,
+        };
+        if let Some(windows) = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows") {
+            for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
+                let window_id = format!("win_{}", idx + 1);
+                if let Some(element) = find_element_by_generated_id(
+                    window_ref as AXUIElementRef,
+                    0,
+                    Some(&window_id),
+                    &mut state,
+                    element_id,
+                ) {
+                    return Ok(element);
+                }
+            }
+        }
+        find_element_by_generated_id(
+            app.as_ptr() as AXUIElementRef,
+            0,
+            None,
+            &mut state,
+            element_id,
+        )
+        .ok_or_else(|| "Matched AX element became stale before action.".to_string())
+    }
+
+    fn find_element_by_generated_id(
+        element: AXUIElementRef,
+        depth: usize,
+        window_id: Option<&str>,
+        state: &mut CaptureState,
+        target_id: &str,
+    ) -> Option<CfOwned> {
+        if state.elements.len() >= state.max_elements {
+            state.truncated = true;
+            return None;
+        }
+        let summary = element_summary(element, window_id, state.next_element_id);
+        if should_include_element(&summary) {
+            state.next_element_id += 1;
+            state.elements.push(summary.clone());
+            if summary.id == target_id {
+                let retained = unsafe { CFRetain(element as CFTypeRef) };
+                return CfOwned::new(retained);
+            }
+            if state.elements.len() >= state.max_elements {
+                state.truncated = true;
+                return None;
+            }
+        }
+        if depth >= state.max_depth {
+            return None;
+        }
+        let children = copy_attribute(element, "AXChildren")
+            .or_else(|| copy_attribute(element, "AXVisibleChildren"))?;
+        for child_ref in cf_array_values(children.as_ptr()) {
+            if let Some(found) = find_element_by_generated_id(
+                child_ref as AXUIElementRef,
+                depth + 1,
+                window_id,
+                state,
+                target_id,
+            ) {
+                return Some(found);
+            }
+            if state.truncated {
+                return None;
+            }
+        }
+        None
+    }
+
+    fn element_matches_query(
+        element: &MacControlElementSummary,
+        target: &MacControlTargetQuery,
+        snapshot: &MacControlSnapshot,
+    ) -> bool {
+        if !target
+            .element_id
+            .as_deref()
+            .filter(|query| !query.is_empty())
+            .map(|query| element.id == query)
+            .unwrap_or(true)
+        {
+            return false;
+        }
+        if !contains_ci(element.role.as_deref(), target.role.as_deref()) {
+            return false;
+        }
+        if !target
+            .text
+            .as_deref()
+            .filter(|query| !query.is_empty())
+            .map(|query| {
+                contains_ci(element.label.as_deref(), Some(query))
+                    || contains_ci(element.value.as_deref(), Some(query))
+            })
+            .unwrap_or(true)
+        {
+            return false;
+        }
+        if target
+            .enabled
+            .is_some_and(|enabled| element.enabled != Some(enabled))
+        {
+            return false;
+        }
+        if target
+            .focused
+            .is_some_and(|focused| element.focused != focused)
+        {
+            return false;
+        }
+        if !target
+            .window_title
+            .as_deref()
+            .filter(|query| !query.is_empty())
+            .map(|query| {
+                element
+                    .window_id
+                    .as_deref()
+                    .and_then(|window_id| {
+                        snapshot
+                            .windows
+                            .iter()
+                            .find(|window| window.id == window_id)
+                    })
+                    .is_some_and(|window| contains_ci(window.title.as_deref(), Some(query)))
+            })
+            .unwrap_or(true)
+        {
+            return false;
+        }
+        true
+    }
+
+    fn target_query_is_empty(target: &MacControlTargetQuery) -> bool {
+        target.app_name.as_deref().is_none_or(str::is_empty)
+            && target.bundle_id.as_deref().is_none_or(str::is_empty)
+            && target.window_title.as_deref().is_none_or(str::is_empty)
+            && target.element_id.as_deref().is_none_or(str::is_empty)
+            && target.text.as_deref().is_none_or(str::is_empty)
+            && target.role.as_deref().is_none_or(str::is_empty)
+            && target.enabled.is_none()
+            && target.focused.is_none()
+    }
+
     fn running_apps_with_bundle_id(bundle_id: &str) -> Vec<Retained<NSRunningApplication>> {
         let bundle_id = NSString::from_str(bundle_id);
         NSRunningApplication::runningApplicationsWithBundleIdentifier(&bundle_id).to_vec()
+    }
+
+    fn perform_ax_action(element: AXUIElementRef, action: &str) -> Result<(), String> {
+        let action = cf_string(action)?;
+        let err = unsafe { AXUIElementPerformAction(element, action.as_ptr() as CFStringRef) };
+        if err == AX_ERROR_SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("AX action failed with error {err}."))
+        }
+    }
+
+    fn set_ax_string(element: AXUIElementRef, attribute: &str, value: &str) -> Result<(), String> {
+        let attribute = cf_string(attribute)?;
+        let value = cf_string(value)?;
+        set_ax_value(element, attribute.as_ptr() as CFStringRef, value.as_ptr())
+    }
+
+    fn set_ax_bool(element: AXUIElementRef, attribute: &str, value: bool) -> Result<(), String> {
+        let attribute = cf_string(attribute)?;
+        let value = if value {
+            unsafe { kCFBooleanTrue }
+        } else {
+            return Err("Setting false AX booleans is not supported in Phase 3.".to_string());
+        };
+        set_ax_value(element, attribute.as_ptr() as CFStringRef, value)
+    }
+
+    fn set_ax_point(
+        element: AXUIElementRef,
+        attribute: &str,
+        point: CGPoint,
+    ) -> Result<(), String> {
+        let attribute = cf_string(attribute)?;
+        let value =
+            unsafe { AXValueCreate(K_AXVALUE_CGPOINT_TYPE, &point as *const _ as *const c_void) };
+        let value = CfOwned::new(value as CFTypeRef)
+            .ok_or_else(|| "AXValueCreate(point) returned null.".to_string())?;
+        set_ax_value(element, attribute.as_ptr() as CFStringRef, value.as_ptr())
+    }
+
+    fn set_ax_size(element: AXUIElementRef, attribute: &str, size: CGSize) -> Result<(), String> {
+        let attribute = cf_string(attribute)?;
+        let value =
+            unsafe { AXValueCreate(K_AXVALUE_CGSIZE_TYPE, &size as *const _ as *const c_void) };
+        let value = CfOwned::new(value as CFTypeRef)
+            .ok_or_else(|| "AXValueCreate(size) returned null.".to_string())?;
+        set_ax_value(element, attribute.as_ptr() as CFStringRef, value.as_ptr())
+    }
+
+    fn set_ax_value(
+        element: AXUIElementRef,
+        attribute: CFStringRef,
+        value: CFTypeRef,
+    ) -> Result<(), String> {
+        let err = unsafe { AXUIElementSetAttributeValue(element, attribute, value) };
+        if err == AX_ERROR_SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("AX set attribute failed with error {err}."))
+        }
+    }
+
+    fn post_mouse_click(point: CGPoint) -> Result<(), String> {
+        let down = unsafe {
+            CGEventCreateMouseEvent(
+                ptr::null(),
+                K_CG_EVENT_LEFT_MOUSE_DOWN,
+                point,
+                K_CG_MOUSE_BUTTON_LEFT,
+            )
+        };
+        let up = unsafe {
+            CGEventCreateMouseEvent(
+                ptr::null(),
+                K_CG_EVENT_LEFT_MOUSE_UP,
+                point,
+                K_CG_MOUSE_BUTTON_LEFT,
+            )
+        };
+        let down = CfOwned::new(down as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateMouseEvent(down) returned null.".to_string())?;
+        let up = CfOwned::new(up as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateMouseEvent(up) returned null.".to_string())?;
+        unsafe {
+            CGEventPost(K_CG_HID_EVENT_TAP, down.as_ptr());
+            CGEventPost(K_CG_HID_EVENT_TAP, up.as_ptr());
+        }
+        Ok(())
+    }
+
+    fn post_hotkey(keys: &[String]) -> Result<(), String> {
+        let mut flags = 0_u64;
+        let mut key_code = None;
+        for key in keys {
+            match key.to_ascii_lowercase().as_str() {
+                "cmd" | "command" | "meta" => flags |= K_CG_EVENT_FLAG_MASK_COMMAND,
+                "shift" => flags |= K_CG_EVENT_FLAG_MASK_SHIFT,
+                "ctrl" | "control" => flags |= K_CG_EVENT_FLAG_MASK_CONTROL,
+                "alt" | "option" => flags |= K_CG_EVENT_FLAG_MASK_ALTERNATE,
+                other => {
+                    key_code = Some(
+                        key_code_for(other)
+                            .ok_or_else(|| format!("Unsupported hotkey key '{other}'."))?,
+                    )
+                }
+            }
+        }
+        let key_code =
+            key_code.ok_or_else(|| "Hotkey requires one non-modifier key.".to_string())?;
+        post_key(key_code, flags)
+    }
+
+    fn post_key(key_code: u16, flags: u64) -> Result<(), String> {
+        let down = unsafe { CGEventCreateKeyboardEvent(ptr::null(), key_code, true) };
+        let up = unsafe { CGEventCreateKeyboardEvent(ptr::null(), key_code, false) };
+        let down = CfOwned::new(down as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateKeyboardEvent(down) returned null.".to_string())?;
+        let up = CfOwned::new(up as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateKeyboardEvent(up) returned null.".to_string())?;
+        unsafe {
+            CGEventSetFlags(down.as_ptr(), flags);
+            CGEventSetFlags(up.as_ptr(), flags);
+            CGEventPost(K_CG_HID_EVENT_TAP, down.as_ptr());
+            CGEventPost(K_CG_HID_EVENT_TAP, up.as_ptr());
+        }
+        Ok(())
+    }
+
+    fn post_scroll(delta_x: f64, delta_y: f64) -> Result<(), String> {
+        let event = unsafe {
+            CGEventCreateScrollWheelEvent(
+                ptr::null(),
+                K_CG_SCROLL_EVENT_UNIT_LINE,
+                2,
+                delta_y.round() as i32,
+                delta_x.round() as i32,
+            )
+        };
+        let event = CfOwned::new(event as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateScrollWheelEvent returned null.".to_string())?;
+        unsafe { CGEventPost(K_CG_HID_EVENT_TAP, event.as_ptr()) };
+        Ok(())
+    }
+
+    fn key_code_for(key: &str) -> Option<u16> {
+        Some(match key {
+            "a" => 0,
+            "s" => 1,
+            "d" => 2,
+            "f" => 3,
+            "h" => 4,
+            "g" => 5,
+            "z" => 6,
+            "x" => 7,
+            "c" => 8,
+            "v" => 9,
+            "b" => 11,
+            "q" => 12,
+            "w" => 13,
+            "e" => 14,
+            "r" => 15,
+            "y" => 16,
+            "t" => 17,
+            "1" => 18,
+            "2" => 19,
+            "3" => 20,
+            "4" => 21,
+            "6" => 22,
+            "5" => 23,
+            "=" | "equal" => 24,
+            "9" => 25,
+            "7" => 26,
+            "-" | "minus" => 27,
+            "8" => 28,
+            "0" => 29,
+            "]" | "rightbracket" => 30,
+            "o" => 31,
+            "u" => 32,
+            "[" | "leftbracket" => 33,
+            "i" => 34,
+            "p" => 35,
+            "l" => 37,
+            "j" => 38,
+            "'" | "quote" => 39,
+            "k" => 40,
+            ";" | "semicolon" => 41,
+            "\\" | "backslash" => 42,
+            "," | "comma" => 43,
+            "/" | "slash" => 44,
+            "n" => 45,
+            "m" => 46,
+            "." | "period" => 47,
+            "tab" => 48,
+            "space" => 49,
+            "enter" | "return" => 36,
+            "escape" | "esc" => 53,
+            "delete" | "backspace" => 51,
+            "left" | "arrowleft" => 123,
+            "right" | "arrowright" => 124,
+            "down" | "arrowdown" => 125,
+            "up" | "arrowup" => 126,
+            _ => return None,
+        })
+    }
+
+    fn menu_children(element: AXUIElementRef, max_depth: usize) -> Vec<MacControlMenuItemSummary> {
+        if max_depth == 0 {
+            return Vec::new();
+        }
+        let Some(children) = copy_attribute(element, "AXChildren")
+            .or_else(|| copy_attribute(element, "AXMenuItems"))
+        else {
+            return Vec::new();
+        };
+        cf_array_values(children.as_ptr())
+            .into_iter()
+            .map(|child| menu_item_summary(child as AXUIElementRef, max_depth - 1))
+            .collect()
+    }
+
+    fn menu_item_summary(element: AXUIElementRef, max_depth: usize) -> MacControlMenuItemSummary {
+        MacControlMenuItemSummary {
+            title: attribute_string(element, "AXTitle"),
+            role: attribute_string(element, "AXRole"),
+            enabled: attribute_bool(element, "AXEnabled"),
+            children: menu_children(element, max_depth),
+        }
+    }
+
+    fn click_menu_path(
+        menu_root: AXUIElementRef,
+        path: &[String],
+    ) -> Result<MacControlMenuItemSummary, String> {
+        let mut current = menu_root;
+        let mut last = None;
+        for part in path {
+            let child = find_menu_child(current, part)
+                .ok_or_else(|| format!("Menu path component '{part}' was not found."))?;
+            perform_ax_action(child.as_ptr() as AXUIElementRef, "AXPress")?;
+            thread::sleep(Duration::from_millis(120));
+            current = child.as_ptr() as AXUIElementRef;
+            last = Some(menu_item_summary(current, 2));
+        }
+        last.ok_or_else(|| "menu.click requires a non-empty path.".to_string())
+    }
+
+    fn find_menu_child(element: AXUIElementRef, title: &str) -> Option<CfOwned> {
+        let children = copy_attribute(element, "AXChildren")
+            .or_else(|| copy_attribute(element, "AXMenuItems"))?;
+        for child_ref in cf_array_values(children.as_ptr()) {
+            let child = child_ref as AXUIElementRef;
+            if contains_ci(attribute_string(child, "AXTitle").as_deref(), Some(title)) {
+                let retained = unsafe { CFRetain(child_ref as CFTypeRef) };
+                return CfOwned::new(retained);
+            }
+        }
+        None
     }
 
     fn fallback_running_app_summaries() -> Vec<MacControlRunningApp> {

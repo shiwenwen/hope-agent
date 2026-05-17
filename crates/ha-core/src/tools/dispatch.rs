@@ -440,7 +440,16 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             actions,
-            vec!["status", "permissions", "snapshot", "wait", "apps"]
+            vec![
+                "status",
+                "permissions",
+                "snapshot",
+                "wait",
+                "apps",
+                "windows",
+                "act",
+                "menu"
+            ]
         );
 
         let f = Fixture::new();

@@ -450,6 +450,18 @@ fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let op = ctx.args.get("op").and_then(|v| v.as_str());
     let label = match (action, op) {
         ("apps", Some("activate")) => "apps.activate",
+        ("apps", Some("launch")) => "apps.launch",
+        ("windows", Some("focus")) => "windows.focus",
+        ("windows", Some("move")) => "windows.move",
+        ("windows", Some("resize")) => "windows.resize",
+        ("windows", Some("minimize")) => "windows.minimize",
+        ("act", Some("click")) => "act.click",
+        ("act", Some("type")) => "act.type",
+        ("act", Some("set_value")) => "act.set_value",
+        ("act", Some("hotkey")) => "act.hotkey",
+        ("act", Some("scroll")) => "act.scroll",
+        ("act", None) => "act.click",
+        ("menu", Some("click")) => "menu.click",
         _ => return None,
     };
     Some(AskReason::MacControlAction {
@@ -715,6 +727,34 @@ mod tests {
         let custom: Vec<String> = vec![];
         let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
         assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn mac_control_phase3_mutations_ask_and_readonly_allows() {
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        for args in [
+            json!({"action": "apps", "op": "launch", "bundleId": "com.apple.TextEdit"}),
+            json!({"action": "windows", "op": "focus", "target": {"windowTitle": "Notes"}}),
+            json!({"action": "act", "op": "click", "target": {"text": "OK"}}),
+            json!({"action": "menu", "op": "click", "path": ["File", "New"]}),
+        ] {
+            let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+            assert!(matches!(
+                resolve(&c),
+                Decision::Ask {
+                    reason: AskReason::MacControlAction { .. }
+                }
+            ));
+        }
+
+        for args in [
+            json!({"action": "windows", "op": "list"}),
+            json!({"action": "menu", "op": "list"}),
+        ] {
+            let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+            assert_eq!(resolve(&c), Decision::Allow);
+        }
     }
 
     #[test]

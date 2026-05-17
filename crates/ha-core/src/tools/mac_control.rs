@@ -41,8 +41,31 @@ pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
                 &crate::mac_control::apps(request).await,
             )?)
         }
+        "windows" => {
+            let request =
+                serde_json::from_value::<crate::mac_control::MacControlWindowsRequest>(
+                    args.clone(),
+                )?;
+            Ok(serde_json::to_string_pretty(
+                &crate::mac_control::windows(request).await,
+            )?)
+        }
+        "act" => {
+            let request =
+                serde_json::from_value::<crate::mac_control::MacControlActRequest>(args.clone())?;
+            Ok(serde_json::to_string_pretty(
+                &crate::mac_control::act(request).await,
+            )?)
+        }
+        "menu" => {
+            let request =
+                serde_json::from_value::<crate::mac_control::MacControlMenuRequest>(args.clone())?;
+            Ok(serde_json::to_string_pretty(
+                &crate::mac_control::menu(request).await,
+            )?)
+        }
         other => bail!(
-            "Unsupported mac_control action '{}'. Supported actions: 'status', 'permissions', 'snapshot', 'wait', 'apps'.",
+            "Unsupported mac_control action '{}'. Supported actions: 'status', 'permissions', 'snapshot', 'wait', 'apps', 'windows', 'act', 'menu'.",
             other
         ),
     }

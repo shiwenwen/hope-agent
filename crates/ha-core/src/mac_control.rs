@@ -1,9 +1,8 @@
 //! macOS desktop control bridge and readiness model.
 //!
-//! Phase 3A exposes status / permissions, read-only Accessibility snapshots,
-//! primary-display screenshot frames, read-only wait/target matching, and
-//! low-risk running-app focus control. Pointer/keyboard/window mutations are
-//! intentionally left for later phases.
+//! Phase 3 exposes status / permissions, Accessibility snapshots, primary-display
+//! screenshot frames, wait/target matching, app focus/launch, window operations,
+//! AX-first element actions, and menu inspection/clicks.
 
 use std::{
     collections::VecDeque,
@@ -48,6 +47,12 @@ pub trait MacControlBridge: Send + Sync {
     ) -> Result<MacControlSnapshot, String>;
     async fn capture_frame(&self) -> Result<MacControlFramePayload, String>;
     async fn apps(&self, request: MacControlAppsRequest) -> Result<MacControlAppsResult, String>;
+    async fn windows(
+        &self,
+        request: MacControlWindowsRequest,
+    ) -> Result<MacControlWindowsResult, String>;
+    async fn act(&self, request: MacControlActRequest) -> Result<MacControlActResult, String>;
+    async fn menu(&self, request: MacControlMenuRequest) -> Result<MacControlMenuResult, String>;
 }
 
 static MAC_CONTROL_BRIDGE: OnceLock<Arc<dyn MacControlBridge>> = OnceLock::new();
@@ -192,6 +197,67 @@ pub struct MacControlAppsResult {
     pub frontmost: Option<MacControlRunningApp>,
     pub apps: Vec<MacControlRunningApp>,
     pub activated: Option<MacControlRunningApp>,
+    pub launched: Option<MacControlRunningApp>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlWindowsResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlWindowsResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlWindowsResult {
+    pub op: MacControlWindowsOp,
+    pub frontmost_app: Option<MacControlAppSummary>,
+    pub windows: Vec<MacControlWindowSummary>,
+    pub acted_window: Option<MacControlWindowSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlActResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlActResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlActResult {
+    pub op: MacControlActOp,
+    pub execution: String,
+    pub target: Option<MacControlElementSummary>,
+    pub snapshot: Option<MacControlSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlMenuResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlMenuResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlMenuResult {
+    pub op: MacControlMenuOp,
+    pub path: Vec<String>,
+    pub items: Vec<MacControlMenuItemSummary>,
+    pub clicked: Option<MacControlMenuItemSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlMenuItemSummary {
+    pub title: Option<String>,
+    pub role: Option<String>,
+    pub enabled: Option<bool>,
+    pub children: Vec<MacControlMenuItemSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -347,6 +413,158 @@ pub enum MacControlAppsOp {
     #[default]
     Frontmost,
     Activate,
+    Launch,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlWindowsRequest {
+    #[serde(default)]
+    pub op: MacControlWindowsOp,
+    #[serde(default)]
+    pub target: MacControlTargetQuery,
+    #[serde(default)]
+    pub window_id: Option<String>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub width: Option<f64>,
+    #[serde(default)]
+    pub height: Option<f64>,
+    #[serde(default = "default_snapshot_max_elements")]
+    pub max_elements: usize,
+    #[serde(default = "default_snapshot_max_depth")]
+    pub max_depth: usize,
+}
+
+impl MacControlWindowsRequest {
+    pub fn clamped(mut self) -> Self {
+        self.target = self.target.normalized();
+        self.window_id = normalize_optional_string(self.window_id);
+        if self.max_elements == 0 {
+            self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
+        }
+        if self.max_depth == 0 {
+            self.max_depth = DEFAULT_SNAPSHOT_MAX_DEPTH;
+        }
+        self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
+        self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlWindowsOp {
+    #[default]
+    List,
+    Focus,
+    Move,
+    Resize,
+    Minimize,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlActRequest {
+    #[serde(default)]
+    pub op: MacControlActOp,
+    #[serde(default)]
+    pub target: MacControlTargetQuery,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub keys: Vec<String>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub delta_x: Option<f64>,
+    #[serde(default)]
+    pub delta_y: Option<f64>,
+    #[serde(default = "default_snapshot_max_elements")]
+    pub max_elements: usize,
+    #[serde(default = "default_snapshot_max_depth")]
+    pub max_depth: usize,
+}
+
+impl MacControlActRequest {
+    pub fn clamped(mut self) -> Self {
+        self.target = self.target.normalized();
+        self.text = normalize_optional_string(self.text);
+        self.value = normalize_optional_string(self.value);
+        self.key = normalize_optional_string(self.key);
+        self.keys = self
+            .keys
+            .into_iter()
+            .filter_map(|value| normalize_optional_string(Some(value)))
+            .collect();
+        if self.max_elements == 0 {
+            self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
+        }
+        if self.max_depth == 0 {
+            self.max_depth = DEFAULT_SNAPSHOT_MAX_DEPTH;
+        }
+        self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
+        self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlActOp {
+    #[default]
+    Click,
+    Type,
+    SetValue,
+    Hotkey,
+    Scroll,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlMenuRequest {
+    #[serde(default)]
+    pub op: MacControlMenuOp,
+    #[serde(default)]
+    pub path: Vec<String>,
+    #[serde(default = "default_menu_max_depth")]
+    pub max_depth: usize,
+}
+
+impl MacControlMenuRequest {
+    pub fn clamped(mut self) -> Self {
+        self.path = self
+            .path
+            .into_iter()
+            .filter_map(|value| normalize_optional_string(Some(value)))
+            .collect();
+        if self.max_depth == 0 {
+            self.max_depth = default_menu_max_depth();
+        }
+        self.max_depth = self.max_depth.min(8);
+        self
+    }
+}
+
+fn default_menu_max_depth() -> usize {
+    3
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlMenuOp {
+    #[default]
+    List,
+    Click,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -673,13 +891,20 @@ pub async fn apps(request: MacControlAppsRequest) -> MacControlAppsResponse {
             error: Some("macOS control is unsupported in this runtime.".to_string()),
         };
     }
-    if request.op == MacControlAppsOp::Activate && !activate_request_has_target(&request) {
+    if request.op == MacControlAppsOp::Activate && !apps_request_has_target(&request) {
         return MacControlAppsResponse {
             status,
             result: None,
             error: Some(
                 "mac_control apps.activate requires one of pid, bundleId, or appName.".to_string(),
             ),
+        };
+    }
+    if request.op == MacControlAppsOp::Launch && !apps_launch_request_has_target(&request) {
+        return MacControlAppsResponse {
+            status,
+            result: None,
+            error: Some("mac_control apps.launch requires bundleId or appName.".to_string()),
         };
     }
 
@@ -690,6 +915,145 @@ pub async fn apps(request: MacControlAppsRequest) -> MacControlAppsResponse {
             error: None,
         },
         Err(error) => MacControlAppsResponse {
+            status,
+            result: None,
+            error: Some(error),
+        },
+    }
+}
+
+pub async fn windows(request: MacControlWindowsRequest) -> MacControlWindowsResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_windows_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlWindowsResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if !permission_granted(&system_permissions, "accessibility") {
+        return MacControlWindowsResponse {
+            status,
+            result: None,
+            error: Some("mac_control windows requires Accessibility permission.".to_string()),
+        };
+    }
+    if request.op != MacControlWindowsOp::List && !windows_request_has_target(&request) {
+        return MacControlWindowsResponse {
+            status,
+            result: None,
+            error: Some(
+                "mac_control windows operation requires windowId or target.windowTitle."
+                    .to_string(),
+            ),
+        };
+    }
+    if let Some(error) = validate_windows_request(&request) {
+        return MacControlWindowsResponse {
+            status,
+            result: None,
+            error: Some(error),
+        };
+    }
+
+    match bridge.windows(request).await {
+        Ok(result) => MacControlWindowsResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => MacControlWindowsResponse {
+            status,
+            result: None,
+            error: Some(error),
+        },
+    }
+}
+
+pub async fn act(request: MacControlActRequest) -> MacControlActResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_act_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlActResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if !permission_granted(&system_permissions, "accessibility") {
+        return MacControlActResponse {
+            status,
+            result: None,
+            error: Some("mac_control act requires Accessibility permission.".to_string()),
+        };
+    }
+    if let Some(error) = validate_act_request(&request) {
+        return MacControlActResponse {
+            status,
+            result: None,
+            error: Some(error),
+        };
+    }
+
+    match bridge.act(request).await {
+        Ok(result) => MacControlActResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => MacControlActResponse {
+            status,
+            result: None,
+            error: Some(error),
+        },
+    }
+}
+
+pub async fn menu(request: MacControlMenuRequest) -> MacControlMenuResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_menu_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlMenuResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if !permission_granted(&system_permissions, "accessibility") {
+        return MacControlMenuResponse {
+            status,
+            result: None,
+            error: Some("mac_control menu requires Accessibility permission.".to_string()),
+        };
+    }
+    if request.op == MacControlMenuOp::Click && request.path.is_empty() {
+        return MacControlMenuResponse {
+            status,
+            result: None,
+            error: Some("mac_control menu.click requires a non-empty path.".to_string()),
+        };
+    }
+
+    match bridge.menu(request).await {
+        Ok(result) => MacControlMenuResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => MacControlMenuResponse {
             status,
             result: None,
             error: Some(error),
@@ -855,6 +1219,30 @@ pub fn unsupported_apps_response(message: &str) -> MacControlAppsResponse {
     }
 }
 
+pub fn unsupported_windows_response(message: &str) -> MacControlWindowsResponse {
+    MacControlWindowsResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
+pub fn unsupported_act_response(message: &str) -> MacControlActResponse {
+    MacControlActResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
+pub fn unsupported_menu_response(message: &str) -> MacControlMenuResponse {
+    MacControlMenuResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
 pub fn unsupported_frame_response(message: &str) -> MacControlFrameResponse {
     MacControlFrameResponse {
         status: unsupported_status(message),
@@ -863,7 +1251,7 @@ pub fn unsupported_frame_response(message: &str) -> MacControlFrameResponse {
     }
 }
 
-fn activate_request_has_target(request: &MacControlAppsRequest) -> bool {
+fn apps_request_has_target(request: &MacControlAppsRequest) -> bool {
     request.pid.is_some()
         || request
             .bundle_id
@@ -873,6 +1261,83 @@ fn activate_request_has_target(request: &MacControlAppsRequest) -> bool {
             .app_name
             .as_deref()
             .is_some_and(|value| !value.is_empty())
+}
+
+fn apps_launch_request_has_target(request: &MacControlAppsRequest) -> bool {
+    request
+        .bundle_id
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+        || request
+            .app_name
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+}
+
+fn windows_request_has_target(request: &MacControlWindowsRequest) -> bool {
+    request
+        .window_id
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+        || request
+            .target
+            .window_title
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+}
+
+fn validate_windows_request(request: &MacControlWindowsRequest) -> Option<String> {
+    match request.op {
+        MacControlWindowsOp::Move => {
+            if request.x.is_none() || request.y.is_none() {
+                return Some("mac_control windows.move requires x and y.".to_string());
+            }
+        }
+        MacControlWindowsOp::Resize => {
+            if request.width.is_none() || request.height.is_none() {
+                return Some("mac_control windows.resize requires width and height.".to_string());
+            }
+        }
+        MacControlWindowsOp::List | MacControlWindowsOp::Focus | MacControlWindowsOp::Minimize => {}
+    }
+    None
+}
+
+fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
+    match request.op {
+        MacControlActOp::Click => {
+            if request.target.is_empty() && (request.x.is_none() || request.y.is_none()) {
+                return Some(
+                    "mac_control act.click requires a target or explicit x/y coordinates."
+                        .to_string(),
+                );
+            }
+        }
+        MacControlActOp::Type => {
+            if request.text.is_none() {
+                return Some("mac_control act.type requires text.".to_string());
+            }
+        }
+        MacControlActOp::SetValue => {
+            if request.value.is_none() {
+                return Some("mac_control act.set_value requires value.".to_string());
+            }
+            if request.target.is_empty() {
+                return Some("mac_control act.set_value requires a target.".to_string());
+            }
+        }
+        MacControlActOp::Hotkey => {
+            if request.key.is_none() && request.keys.is_empty() {
+                return Some("mac_control act.hotkey requires key or keys.".to_string());
+            }
+        }
+        MacControlActOp::Scroll => {
+            if request.delta_x.unwrap_or(0.0) == 0.0 && request.delta_y.unwrap_or(0.0) == 0.0 {
+                return Some("mac_control act.scroll requires deltaX or deltaY.".to_string());
+            }
+        }
+    }
+    None
 }
 
 fn unsupported_system_permissions() -> SystemPermissionsResponse {
@@ -1488,9 +1953,52 @@ mod tests {
         }
         .clamped();
 
-        assert!(!activate_request_has_target(&missing));
-        assert!(activate_request_has_target(&by_name));
-        assert!(activate_request_has_target(&by_bundle));
+        assert!(!apps_request_has_target(&missing));
+        assert!(apps_request_has_target(&by_name));
+        assert!(apps_request_has_target(&by_bundle));
+        assert!(apps_launch_request_has_target(&by_name));
+        assert!(apps_launch_request_has_target(&by_bundle));
+        assert!(!apps_launch_request_has_target(&MacControlAppsRequest {
+            op: MacControlAppsOp::Launch,
+            pid: Some(123),
+            ..Default::default()
+        }));
+    }
+
+    #[test]
+    fn phase3_requests_normalize_and_validate() {
+        let windows = MacControlWindowsRequest {
+            target: MacControlTargetQuery {
+                window_title: Some(" Notes ".to_string()),
+                ..Default::default()
+            },
+            x: Some(10.0),
+            y: Some(20.0),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(windows_request_has_target(&windows));
+        assert_eq!(windows.target.window_title.as_deref(), Some("Notes"));
+
+        let act = MacControlActRequest {
+            op: MacControlActOp::Hotkey,
+            key: Some(" ".to_string()),
+            keys: vec![" cmd ".to_string(), "".to_string(), "n".to_string()],
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(act.key, None);
+        assert_eq!(act.keys, vec!["cmd".to_string(), "n".to_string()]);
+        assert!(validate_act_request(&act).is_none());
+
+        let menu = MacControlMenuRequest {
+            op: MacControlMenuOp::Click,
+            path: vec![" File ".to_string(), "".to_string(), "New".to_string()],
+            max_depth: 100,
+        }
+        .clamped();
+        assert_eq!(menu.path, vec!["File".to_string(), "New".to_string()]);
+        assert_eq!(menu.max_depth, 8);
     }
 
     #[test]
@@ -1527,6 +2035,24 @@ mod tests {
         assert!(!response.status.supported);
         assert!(response.result.is_none());
         assert_eq!(response.error.as_deref(), Some("no apps bridge"));
+    }
+
+    #[test]
+    fn unsupported_phase3_responses_have_consistent_shape() {
+        let windows = unsupported_windows_response("no windows bridge");
+        assert_eq!(windows.status.readiness, MacControlReadiness::Unsupported);
+        assert!(windows.result.is_none());
+        assert_eq!(windows.error.as_deref(), Some("no windows bridge"));
+
+        let act = unsupported_act_response("no act bridge");
+        assert_eq!(act.status.readiness, MacControlReadiness::Unsupported);
+        assert!(act.result.is_none());
+        assert_eq!(act.error.as_deref(), Some("no act bridge"));
+
+        let menu = unsupported_menu_response("no menu bridge");
+        assert_eq!(menu.status.readiness, MacControlReadiness::Unsupported);
+        assert!(menu.result.is_none());
+        assert_eq!(menu.error.as_deref(), Some("no menu bridge"));
     }
 
     #[test]
