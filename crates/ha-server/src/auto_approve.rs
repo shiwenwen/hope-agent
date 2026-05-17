@@ -32,13 +32,15 @@ pub const FLAG: &str = "--auto-approve-tools";
 /// an empty value — leaves it off.
 pub const ENV_VAR: &str = "HA_SERVER_AUTO_APPROVE_TOOLS";
 
-pub fn set_cli_flag(v: bool) {
+pub fn set_active(v: bool) {
     SERVER_AUTO_APPROVE.store(v, Ordering::Relaxed);
 }
 
 /// Snapshot of the current flag. Read by HTTP route handlers when building
-/// `ChatEngineParams.auto_approve_tools`.
-pub fn cli_flag_active() -> bool {
+/// `ChatEngineParams.auto_approve_tools`. Returns true when either the CLI
+/// flag or the env var is set — caller can't tell which (and shouldn't
+/// need to; check `ENV_VAR` / parse argv explicitly if the source matters).
+pub fn is_active() -> bool {
     SERVER_AUTO_APPROVE.load(Ordering::Relaxed)
 }
 

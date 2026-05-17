@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use tokio::sync::Mutex;
 
@@ -16,6 +17,7 @@ use crate::channel::types::{InlineButton, ReplyPayload};
 use crate::tools::approval::{
     submit_approval_response, ApprovalReasonKind, ApprovalReasonPayload, ApprovalResponse,
 };
+use crate::ttl_cache::TtlCache;
 
 use std::sync::Arc;
 
@@ -39,17 +41,35 @@ fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingTex
     TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Throttle for the "you have N pending approvals" hint. One nudge per
-/// (account, chat) per [`HINT_THROTTLE`] so casual chitchat during a
-/// pending approval window doesn't spam the user.
-static HINT_LAST_SENT: OnceLock<Mutex<HashMap<(String, String), std::time::Instant>>> =
-    OnceLock::new();
+/// Throttle for the "you have N pending approvals" hint — one nudge per
+/// (account, chat) per [`HINT_THROTTLE`]. Backed by [`TtlCache`] so stale
+/// entries auto-expire (bounded memory across long-lived IM deployments).
+/// Capacity 1024 is generous for any plausible per-process chat count.
+static HINT_THROTTLE_CACHE: OnceLock<TtlCache<(String, String), ()>> = OnceLock::new();
 
-fn get_hint_throttle() -> &'static Mutex<HashMap<(String, String), std::time::Instant>> {
-    HINT_LAST_SENT.get_or_init(|| Mutex::new(HashMap::new()))
+fn get_hint_throttle() -> &'static TtlCache<(String, String), ()> {
+    HINT_THROTTLE_CACHE.get_or_init(|| TtlCache::new(1024))
 }
 
-const HINT_THROTTLE: std::time::Duration = std::time::Duration::from_secs(60);
+const HINT_THROTTLE: Duration = Duration::from_secs(60);
+
+/// Remove any in-memory pending text-reply state for `request_id`. Called by
+/// the tool execution path when an approval is timed out / cancelled /
+/// otherwise resolved without an IM reply, so stale entries don't
+/// accumulate. Mirrors [`super::ask_user::drop_pending_by_request_id`].
+pub async fn drop_pending_by_request_id(request_id: &str) {
+    let mut map = get_text_pending().lock().await;
+    let mut empty_keys = Vec::new();
+    for (key, list) in map.iter_mut() {
+        list.retain(|p| p.request_id != request_id);
+        if list.is_empty() {
+            empty_keys.push(key.clone());
+        }
+    }
+    for k in empty_keys {
+        map.remove(&k);
+    }
+}
 
 // ── InlineButton helper ──────────────────────────────────────────
 
@@ -116,14 +136,12 @@ fn format_approval_text(command: &str, reason: Option<&ApprovalReasonPayload>) -
 }
 
 /// Short visible tag for a `request_id`, used to disambiguate multiple
-/// pending approvals when the user replies. Taking the first 6 chars of a
-/// UUID-ish id keeps collisions effectively impossible at the per-(account,
-/// chat) scope where it's resolved.
+/// pending approvals when the user replies. Six UTF-8 chars keeps
+/// collisions effectively impossible at the per-(account, chat) scope —
+/// `truncate_utf8` stays safe even if the id generator ever moves off
+/// ASCII UUIDs.
 fn id_tag(request_id: &str) -> &str {
-    let bytes = request_id.as_bytes();
-    let cut = bytes.len().min(6);
-    // request_id is ASCII (UUID simple form), so byte slicing is safe.
-    &request_id[..cut]
+    crate::truncate_utf8(request_id, 6)
 }
 
 /// Format the text-only approval prompt (for channels without buttons).
@@ -186,7 +204,10 @@ fn parse_approval_reply(raw: &str) -> Option<ParsedReply<'_>> {
         }
         None => (trimmed, None),
     };
-    let lower = verb_part.to_lowercase();
+    // Whitelist is pure ASCII + CJK; CJK has no case variants and
+    // `to_ascii_lowercase` is allocation-free for already-lowercase input,
+    // so this is both correct and cheaper than `to_lowercase`.
+    let lower = verb_part.to_ascii_lowercase();
     let response = match lower.as_str() {
         "2" | "a" | "always" | "yes always" | "yesalways" | "总是" | "总是允许" | "永远"
         | "始终" => ApprovalResponse::AllowAlways,
@@ -368,27 +389,45 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
     });
 }
 
-/// Drop the IM-side pending entry for a request that timed out in
-/// `tools::approval`, and tell the user in chat. Best-effort — if the
-/// channel is offline we just log and move on; the tool-side timeout
-/// (deny / proceed per config) has already taken effect.
+/// Wire payload of the `approval_timed_out` EventBus event. Tools side
+/// (`tools::approval::check_and_request_approval` timeout branch) emits
+/// this so the IM channel listener can notify the user — the actual list
+/// cleanup is independently handled by [`drop_pending_by_request_id`]
+/// also called from the tools side, so this listener never has to touch
+/// `TEXT_PENDING`.
+#[derive(serde::Deserialize)]
+struct ApprovalTimedOut {
+    request_id: String,
+    session_id: Option<String>,
+    #[serde(default)]
+    timeout_secs: u64,
+}
+
+/// Tell the IM user the approval prompt expired. Best-effort — if the
+/// channel is offline we just log; the tool-side timeout (deny / proceed
+/// per config) has already taken effect, and the IM-side `TEXT_PENDING`
+/// entry has already been cleared by the tools side calling
+/// [`drop_pending_by_request_id`].
 async fn handle_timeout_event(
     payload: serde_json::Value,
     channel_db: Arc<ChannelDB>,
     registry: Arc<ChannelRegistry>,
 ) {
-    let request_id = match payload.get("request_id").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return,
+    let event: ApprovalTimedOut = match serde_json::from_value(payload) {
+        Ok(e) => e,
+        Err(err) => {
+            app_warn!(
+                "channel",
+                "approval",
+                "Failed to parse approval_timed_out payload: {}",
+                err
+            );
+            return;
+        }
     };
-    let session_id = match payload.get("session_id").and_then(|v| v.as_str()) {
-        Some(s) => s.to_string(),
-        None => return,
+    let Some(session_id) = event.session_id else {
+        return;
     };
-    let timeout_secs = payload
-        .get("timeout_secs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
 
     let conversation = match channel_db.get_conversation_by_session(&session_id) {
         Ok(Some(c)) => c,
@@ -405,34 +444,14 @@ async fn handle_timeout_event(
         }
     };
 
-    // Drop the IM-side bookkeeping entry. If the entry isn't there (e.g.
-    // user already replied right as the timeout fired), nothing else to do.
-    let key = (
-        conversation.account_id.clone(),
-        conversation.chat_id.clone(),
-    );
-    let removed = {
-        let mut pending = get_text_pending().lock().await;
-        let Some(list) = pending.get_mut(&key) else {
-            return;
-        };
-        let Some(idx) = list.iter().position(|e| e.request_id == request_id) else {
-            return;
-        };
-        let entry = list.remove(idx);
-        if list.is_empty() {
-            pending.remove(&key);
-        }
-        entry
-    };
-
     let store = crate::config::cached_config();
     let account_config = match store.channels.find_account(&conversation.account_id) {
         Some(c) => c.clone(),
         None => return,
     };
 
-    let tag = id_tag(&removed.request_id);
+    let tag = id_tag(&event.request_id);
+    let timeout_secs = event.timeout_secs;
     let body = format!(
         "⏱ Tool approval #{tag} timed out after {timeout_secs}s. The tool call has been denied — ask me again if you still want it to run."
     );
@@ -537,16 +556,14 @@ pub async fn maybe_send_pending_hint(
         return;
     }
 
-    // Throttle gate: skip if we already nudged this chat recently.
-    {
-        let mut last = get_hint_throttle().lock().await;
-        if let Some(prev) = last.get(&key) {
-            if prev.elapsed() < HINT_THROTTLE {
-                return;
-            }
-        }
-        last.insert(key.clone(), std::time::Instant::now());
+    // Throttle gate: skip if we already nudged this chat recently. The
+    // `TtlCache` bounds memory (capacity 1024) so long-running IM
+    // deployments don't accumulate one entry per ever-seen (account, chat).
+    let throttle = get_hint_throttle();
+    if throttle.get(&key, HINT_THROTTLE).is_some() {
+        return;
     }
+    throttle.put(key, ());
 
     let store = crate::config::cached_config();
     let Some(account_config) = store.channels.find_account(&msg.account_id).cloned() else {
@@ -761,10 +778,18 @@ mod tests {
         assert!(parse_approval_reply("yes#   ").is_none());
     }
 
+    // The two tests below pin the **list-manipulation primitives** the
+    // dispatcher path relies on (LIFO `pop` for bare verbs, `position +
+    // remove` for `#tag` suffix). They deliberately do NOT call
+    // `try_handle_approval_reply` end-to-end because that requires a live
+    // `tools::approval::PENDING_APPROVALS` entry (which would need a
+    // `pub(crate)` test hook into a private struct). End-to-end routing
+    // coverage is registered as a follow-up in
+    // `docs/plans/review-followups.md`.
+
     #[tokio::test]
-    async fn try_handle_approval_reply_routes_to_lifo_top_without_suffix() {
+    async fn text_pending_list_pop_is_lifo_for_bare_verb() {
         let key = ("acct-lifo".to_string(), "chat-lifo".to_string());
-        // Two pending entries; bare "yes" should pop the most recent.
         {
             let mut pending = get_text_pending().lock().await;
             pending
@@ -780,10 +805,10 @@ mod tests {
                     request_id: "newer-id-bbb".to_string(),
                 });
         }
+        // Bare "yes" parses with no suffix → dispatcher uses `list.pop()`.
         let parsed = parse_approval_reply("yes").unwrap();
         assert!(parsed.id_suffix.is_none());
 
-        // Manually mirror the dispatcher path: pop without suffix.
         let popped = {
             let mut pending = get_text_pending().lock().await;
             let list = pending.get_mut(&key).unwrap();
@@ -795,18 +820,15 @@ mod tests {
         };
         assert_eq!(popped.request_id, "newer-id-bbb");
 
-        // Cleanup the older entry for test isolation.
         let mut pending = get_text_pending().lock().await;
         pending.remove(&key);
     }
 
     #[tokio::test]
-    async fn id_suffix_targets_specific_pending_not_lifo_top() {
+    async fn text_pending_id_tag_position_match_routes_to_non_top() {
         let key = ("acct-suffix".to_string(), "chat-suffix".to_string());
         {
             let mut pending = get_text_pending().lock().await;
-            // Seed two pending with distinct request_ids; the older one's
-            // 6-char tag is what the user will type.
             pending
                 .entry(key.clone())
                 .or_default()
@@ -821,10 +843,11 @@ mod tests {
                 });
         }
 
-        // Parse "yes#aaaaaa" → suffix matches the older (non-top) entry.
         let parsed = parse_approval_reply("yes#aaaaaa").unwrap();
         assert_eq!(parsed.id_suffix, Some("aaaaaa"));
 
+        // Dispatcher path on `#tag` reply: `iter().position(|e|
+        // id_tag(&e.request_id) == target).map(|i| list.remove(i))`.
         let popped = {
             let mut pending = get_text_pending().lock().await;
             let list = pending.get_mut(&key).unwrap();
@@ -839,16 +862,58 @@ mod tests {
             entry
         };
         assert_eq!(popped.request_id, "aaaaaa-older");
-        // Newer entry must still be pending — suffix didn't disturb it.
         let pending = get_text_pending().lock().await;
         let remaining = pending.get(&key).expect("newer entry still queued");
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].request_id, "bbbbbb-newer");
         drop(pending);
 
-        // Cleanup.
         let mut pending = get_text_pending().lock().await;
         pending.remove(&key);
+    }
+
+    #[tokio::test]
+    async fn drop_pending_by_request_id_clears_across_chats() {
+        let key_a = ("acct-drop".to_string(), "chat-a".to_string());
+        let key_b = ("acct-drop".to_string(), "chat-b".to_string());
+        {
+            let mut pending = get_text_pending().lock().await;
+            pending
+                .entry(key_a.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "shared-id-xyz".to_string(),
+                });
+            pending
+                .entry(key_b.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "shared-id-xyz".to_string(),
+                });
+            pending
+                .entry(key_b.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "unrelated-id-pdq".to_string(),
+                });
+        }
+
+        drop_pending_by_request_id("shared-id-xyz").await;
+
+        let pending = get_text_pending().lock().await;
+        assert!(
+            pending.get(&key_a).is_none(),
+            "chat A entry should be cleared and the now-empty list removed",
+        );
+        let remaining_b = pending
+            .get(&key_b)
+            .expect("chat B still has unrelated entry");
+        assert_eq!(remaining_b.len(), 1);
+        assert_eq!(remaining_b[0].request_id, "unrelated-id-pdq");
+        drop(pending);
+
+        let mut pending = get_text_pending().lock().await;
+        pending.remove(&key_b);
     }
 
     #[test]

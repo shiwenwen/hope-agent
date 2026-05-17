@@ -226,6 +226,18 @@ export interface PersonalityConfig {
   communicationStyle?: string | null
 }
 
+/**
+ * Per-agent backgrounding policy for async-capable tools
+ * (`exec` / `web_search` / `image_generate`). Independent of approval.
+ *
+ * - `model-decide` (default): honor `run_in_background:true` from the
+ *   model; otherwise auto-background after `asyncTools.autoBackgroundSecs`.
+ * - `always-background`: every async-capable tool call detaches
+ *   immediately and returns a job id the model can poll with `job_status`.
+ * - `never-background`: disable backgrounding entirely; tools run sync.
+ */
+export type AsyncToolPolicy = "model-decide" | "always-background" | "never-background"
+
 export interface AgentConfig {
   name: string
   description?: string | null
@@ -253,18 +265,8 @@ export interface AgentConfig {
      * `null/undefined` falls back to the global default ("default").
      */
     defaultSessionPermissionMode?: "default" | "smart" | "yolo" | null
-    /**
-     * Per-agent backgrounding policy for async-capable tools
-     * (`exec` / `web_search` / `image_generate`). Independent of approval —
-     * does NOT affect whether the user is prompted.
-     *
-     * - `model-decide` (default): honor `run_in_background:true` from the
-     *   model; otherwise auto-background after `asyncTools.autoBackgroundSecs`.
-     * - `always-background`: every async-capable tool call detaches
-     *   immediately and returns a job id the model can poll with `job_status`.
-     * - `never-background`: disable backgrounding entirely; tools run sync.
-     */
-    asyncToolPolicy?: "model-decide" | "always-background" | "never-background"
+    /** See [`AsyncToolPolicy`] for value semantics. */
+    asyncToolPolicy?: AsyncToolPolicy
   }
   openclawMode: boolean
   notifyOnComplete?: boolean | null

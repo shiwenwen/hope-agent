@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "Asenkron araç arka plana alma",
-    "agentAsyncToolPolicyAlwaysBackground": "Her zaman arka planda",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "Asenkron destekli her çağrı anında arka plana alınır ve bir iş kimliği döner. Model `job_status` ile yoklamalıdır.",
-    "agentAsyncToolPolicyDesc": "Asenkron destekli araçların (exec / web_search / image_generate) ne zaman arka plan işine alınacağı. Onaydan bağımsız — onay istenip istenmemesini etkilemez.",
-    "agentAsyncToolPolicyModelDecide": "Model karar verir (varsayılan)",
-    "agentAsyncToolPolicyModelDecideDesc": "Modelin gönderdiği `run_in_background:true` değerine uy; aksi halde global eşik aşılınca otomatik arka plana al.",
-    "agentAsyncToolPolicyNeverBackground": "Asla arka planda",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "Arka planı tamamen kapat; tüm araçlar senkron çalışır ve tamamlanana kadar engeller.",
+    "agentAsyncToolPolicy": {
+      "title": "Asenkron araç arka plana alma",
+      "desc": "Asenkron destekli araçların (exec / web_search / image_generate) ne zaman arka plan işine alınacağı. Onaydan bağımsız.",
+      "modelDecide": {
+        "label": "Model karar verir (varsayılan)",
+        "desc": "Modelin gönderdiği `run_in_background:true` değerine uy; aksi halde global eşik aşılınca otomatik arka plana al."
+      },
+      "alwaysBackground": {
+        "label": "Her zaman arka planda",
+        "desc": "Asenkron destekli her çağrı anında arka plana alınır ve bir iş kimliği döner. Model `job_status` ile yoklamalıdır."
+      },
+      "neverBackground": {
+        "label": "Asla arka planda",
+        "desc": "Arka planı tamamen kapat; tüm araçlar senkron çalışır ve tamamlanana kadar engeller."
+      }
+    },
     "agentAvatar": "Avatar",
     "agentAvatarPick": "Resim seç",
     "agentBasicInfo": "Temel Bilgiler",

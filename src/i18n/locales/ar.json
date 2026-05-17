@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "نقل الأدوات غير المتزامنة للخلفية",
-    "agentAsyncToolPolicyAlwaysBackground": "دائمًا في الخلفية",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "كل استدعاء قادر على العمل غير المتزامن يُنقل فورًا للخلفية ويعيد معرّف مهمة. يجب على النموذج الاستعلام بواسطة `job_status`.",
-    "agentAsyncToolPolicyDesc": "متى يتم نقل الأدوات القادرة على العمل غير المتزامن (exec / web_search / image_generate) إلى مهام خلفية. مستقل عن الموافقة — لا يغير ما إذا كنت ستُسأل.",
-    "agentAsyncToolPolicyModelDecide": "النموذج يقرر (الافتراضي)",
-    "agentAsyncToolPolicyModelDecideDesc": "احترام `run_in_background:true` المرسل من النموذج؛ خلاف ذلك يتم نقله تلقائيًا للخلفية بعد العتبة العامة.",
-    "agentAsyncToolPolicyNeverBackground": "لا تنقل للخلفية أبدًا",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "تعطيل النقل للخلفية بالكامل؛ تعمل جميع الأدوات بشكل متزامن وتحجب حتى الانتهاء.",
+    "agentAsyncToolPolicy": {
+      "title": "نقل الأدوات غير المتزامنة للخلفية",
+      "desc": "متى يتم نقل الأدوات القادرة على العمل غير المتزامن (exec / web_search / image_generate) إلى مهام خلفية. مستقل عن الموافقة.",
+      "modelDecide": {
+        "label": "النموذج يقرر (الافتراضي)",
+        "desc": "احترام `run_in_background:true` المرسل من النموذج؛ خلاف ذلك يتم نقله تلقائيًا للخلفية بعد العتبة العامة."
+      },
+      "alwaysBackground": {
+        "label": "دائمًا في الخلفية",
+        "desc": "كل استدعاء قادر على العمل غير المتزامن يُنقل فورًا للخلفية ويعيد معرّف مهمة. يجب على النموذج الاستعلام بواسطة `job_status`."
+      },
+      "neverBackground": {
+        "label": "لا تنقل للخلفية أبدًا",
+        "desc": "تعطيل النقل للخلفية بالكامل؛ تعمل جميع الأدوات بشكل متزامن وتحجب حتى الانتهاء."
+      }
+    },
     "agentAvatar": "الصورة الرمزية",
     "agentAvatarPick": "اختر صورة",
     "agentBasicInfo": "معلومات أساسية",

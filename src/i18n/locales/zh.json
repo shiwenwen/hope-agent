@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "审批",
-    "agentAsyncToolPolicy": "异步工具后台化策略",
-    "agentAsyncToolPolicyAlwaysBackground": "总是后台执行",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "每次异步可后台化调用都立即转后台并返回 job id，模型需用 `job_status` 主动 poll。",
-    "agentAsyncToolPolicyDesc": "异步可后台化的工具（exec / web_search / image_generate）何时转后台 job。与审批无关 —— 不影响是否弹审批。",
-    "agentAsyncToolPolicyModelDecide": "由模型决定（默认）",
-    "agentAsyncToolPolicyModelDecideDesc": "尊重模型传的 `run_in_background:true`；模型不传则按全局阈值超时后自动转后台。",
-    "agentAsyncToolPolicyNeverBackground": "禁用后台执行",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "完全禁用后台化，所有异步可后台化工具同步执行，直到完成才返回。",
+    "agentAsyncToolPolicy": {
+      "title": "异步工具后台化策略",
+      "desc": "异步可后台化的工具（exec / web_search / image_generate）何时转后台 job。与审批正交。",
+      "modelDecide": {
+        "label": "由模型决定（默认）",
+        "desc": "尊重模型传的 `run_in_background:true`；模型不传则按全局阈值超时后自动转后台。"
+      },
+      "alwaysBackground": {
+        "label": "总是后台执行",
+        "desc": "每次异步可后台化调用都立即转后台并返回 job id，模型需用 `job_status` 主动 poll。"
+      },
+      "neverBackground": {
+        "label": "禁用后台执行",
+        "desc": "完全禁用后台化，所有异步可后台化工具同步执行，直到完成才返回。"
+      }
+    },
     "agentAvatar": "头像",
     "agentAvatarPick": "选择图片",
     "agentBasicInfo": "基本信息",

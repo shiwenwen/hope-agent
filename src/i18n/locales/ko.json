@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "승인",
-    "agentAsyncToolPolicy": "비동기 도구 백그라운드 처리",
-    "agentAsyncToolPolicyAlwaysBackground": "항상 백그라운드 실행",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "모든 비동기 가능 호출이 즉시 백그라운드로 전환되어 job id를 반환합니다. 모델은 `job_status`로 폴링해야 합니다.",
-    "agentAsyncToolPolicyDesc": "비동기 가능 도구(exec / web_search / image_generate)를 백그라운드 작업으로 전환하는 시점입니다. 승인과는 독립적이며 — 확인 창 표시 여부에 영향을 주지 않습니다.",
-    "agentAsyncToolPolicyModelDecide": "모델이 결정 (기본)",
-    "agentAsyncToolPolicyModelDecideDesc": "모델이 보낸 `run_in_background:true`를 따르며, 보내지 않으면 글로벌 임계값을 넘긴 뒤 자동으로 백그라운드로 전환됩니다.",
-    "agentAsyncToolPolicyNeverBackground": "백그라운드 사용 안 함",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "백그라운드 처리를 완전히 비활성화하여 모든 도구가 동기로 실행되고 완료될 때까지 대기합니다.",
+    "agentAsyncToolPolicy": {
+      "title": "비동기 도구 백그라운드 처리",
+      "desc": "비동기 가능 도구(exec / web_search / image_generate)를 백그라운드 작업으로 전환하는 시점입니다. 승인과 독립적입니다.",
+      "modelDecide": {
+        "label": "모델이 결정 (기본)",
+        "desc": "모델이 보낸 `run_in_background:true`를 따르며, 보내지 않으면 글로벌 임계값을 넘긴 뒤 자동으로 백그라운드로 전환됩니다."
+      },
+      "alwaysBackground": {
+        "label": "항상 백그라운드 실행",
+        "desc": "모든 비동기 가능 호출이 즉시 백그라운드로 전환되어 job id를 반환합니다. 모델은 `job_status`로 폴링해야 합니다."
+      },
+      "neverBackground": {
+        "label": "백그라운드 사용 안 함",
+        "desc": "백그라운드 처리를 완전히 비활성화하여 모든 도구가 동기로 실행되고 완료될 때까지 대기합니다."
+      }
+    },
     "agentAvatar": "아바타",
     "agentAvatarPick": "이미지 선택",
     "agentBasicInfo": "기본 정보",

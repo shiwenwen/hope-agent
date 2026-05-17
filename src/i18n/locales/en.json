@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "Async Tool Backgrounding",
-    "agentAsyncToolPolicyAlwaysBackground": "Always background",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "Every async-capable call detaches immediately and returns a job id. The model must poll with `job_status`.",
-    "agentAsyncToolPolicyDesc": "How async-capable tools (exec / web_search / image_generate) detach to background jobs. Independent of approval — does not change whether you're prompted.",
-    "agentAsyncToolPolicyModelDecide": "Model decides (default)",
-    "agentAsyncToolPolicyModelDecideDesc": "Honor `run_in_background:true` from the model; otherwise auto-background after the global threshold.",
-    "agentAsyncToolPolicyNeverBackground": "Never background",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "Disable backgrounding entirely; all tools run synchronously and block until done.",
+    "agentAsyncToolPolicy": {
+      "title": "Async Tool Backgrounding",
+      "desc": "When async-capable tools (exec / web_search / image_generate) detach to background jobs. Independent of approval.",
+      "modelDecide": {
+        "label": "Model decides (default)",
+        "desc": "Honor `run_in_background:true` from the model; otherwise auto-background after the global threshold."
+      },
+      "alwaysBackground": {
+        "label": "Always background",
+        "desc": "Every async-capable call detaches immediately and returns a job id. The model must poll with `job_status`."
+      },
+      "neverBackground": {
+        "label": "Never background",
+        "desc": "Disable backgrounding entirely; all tools run synchronously and block until done."
+      }
+    },
     "agentAvatar": "Avatar",
     "agentAvatarPick": "Choose image",
     "agentBasicInfo": "Basic Info",

@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "Pelaksanaan latar belakang alat asinkron",
-    "agentAsyncToolPolicyAlwaysBackground": "Sentiasa di latar belakang",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "Setiap panggilan yang menyokong async dialihkan serta-merta ke latar belakang dan mengembalikan id kerja. Model perlu poll dengan `job_status`.",
-    "agentAsyncToolPolicyDesc": "Bila alat yang menyokong async (exec / web_search / image_generate) dialihkan ke kerja latar belakang. Bebas daripada kelulusan — tidak menjejaskan sama ada anda akan ditanya.",
-    "agentAsyncToolPolicyModelDecide": "Model membuat keputusan (lalai)",
-    "agentAsyncToolPolicyModelDecideDesc": "Hormat `run_in_background:true` daripada model; jika tiada, alih ke latar belakang secara automatik selepas ambang global.",
-    "agentAsyncToolPolicyNeverBackground": "Tidak pernah di latar belakang",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "Lumpuhkan latar belakang sepenuhnya; semua alat dijalankan secara segerak dan menyekat sehingga selesai.",
+    "agentAsyncToolPolicy": {
+      "title": "Pelaksanaan latar belakang alat asinkron",
+      "desc": "Bila alat yang menyokong async (exec / web_search / image_generate) dialihkan ke kerja latar belakang. Bebas daripada kelulusan.",
+      "modelDecide": {
+        "label": "Model membuat keputusan (lalai)",
+        "desc": "Hormat `run_in_background:true` daripada model; jika tiada, alih ke latar belakang secara automatik selepas ambang global."
+      },
+      "alwaysBackground": {
+        "label": "Sentiasa di latar belakang",
+        "desc": "Setiap panggilan yang menyokong async dialihkan serta-merta ke latar belakang dan mengembalikan id kerja. Model perlu poll dengan `job_status`."
+      },
+      "neverBackground": {
+        "label": "Tidak pernah di latar belakang",
+        "desc": "Lumpuhkan latar belakang sepenuhnya; semua alat dijalankan secara segerak dan menyekat sehingga selesai."
+      }
+    },
     "agentAvatar": "Avatar",
     "agentAvatarPick": "Pilih gambar",
     "agentBasicInfo": "Info Asas",

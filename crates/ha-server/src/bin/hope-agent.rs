@@ -41,12 +41,16 @@ fn main() {
         .unwrap_or(false);
     let cli_enabled = args.iter().any(|a| a == ha_server::auto_approve::FLAG);
     if env_enabled || cli_enabled {
-        ha_server::auto_approve::set_cli_flag(true);
+        ha_server::auto_approve::set_active(true);
         let source = if cli_enabled { "CLI flag" } else { "env" };
         eprintln!(
             "[!] AUTO-APPROVE MODE ({source}): HTTP chat will auto-approve every tool call \
              (engine gates still enforced; this launch only)"
         );
+        // The stderr banner reaches `docker logs` / journalctl, but it
+        // doesn't reach `~/.hope-agent/logs.db` — the canonical surface
+        // for agent self-diagnosis. Logging here would race with
+        // `init_runtime`; see `run_server` for the post-init log call.
     }
 
     if args.iter().any(|a| a == "--version") {
@@ -166,6 +170,19 @@ fn run_server(args: &[String]) {
     ha_core::init_runtime("server");
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {e}");
+    }
+
+    // Mirror the startup banner into logs.db so agent self-diagnosis (and
+    // any operator grepping `logs.db` after the fact) can see that
+    // auto-approve was active for this launch. The stderr banner above
+    // already reached docker / journalctl; this one persists into the
+    // application log surface.
+    if ha_server::auto_approve::is_active() {
+        ha_core::app_warn!(
+            "permission",
+            "server_startup",
+            "HTTP auto-approve mode active for this launch — every chat tool call will be auto-approved; engine gates (dangerous-commands / protected-paths / plan-mode ask) still enforced"
+        );
     }
 
     // Resolve the effective API key. Precedence (highest first):

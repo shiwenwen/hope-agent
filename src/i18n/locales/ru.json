@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "Фоновый режим для асинхронных инструментов",
-    "agentAsyncToolPolicyAlwaysBackground": "Всегда в фоне",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "Каждый вызов асинхронно-совместимого инструмента сразу переводится в фон и возвращает id задания. Модель должна опрашивать его через `job_status`.",
-    "agentAsyncToolPolicyDesc": "Когда асинхронно-совместимые инструменты (exec / web_search / image_generate) отделяются в фоновые задания. Независимо от одобрения — не влияет на запросы подтверждения.",
-    "agentAsyncToolPolicyModelDecide": "Решает модель (по умолчанию)",
-    "agentAsyncToolPolicyModelDecideDesc": "Учитывать `run_in_background:true` от модели; иначе автоматический переход в фон после глобального порога.",
-    "agentAsyncToolPolicyNeverBackground": "Никогда в фоне",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "Полностью отключить фоновый режим; все инструменты выполняются синхронно и блокируют до завершения.",
+    "agentAsyncToolPolicy": {
+      "title": "Фоновый режим для асинхронных инструментов",
+      "desc": "Когда асинхронно-совместимые инструменты (exec / web_search / image_generate) отделяются в фоновые задания. Независимо от одобрения.",
+      "modelDecide": {
+        "label": "Решает модель (по умолчанию)",
+        "desc": "Учитывать `run_in_background:true` от модели; иначе автоматический переход в фон после глобального порога."
+      },
+      "alwaysBackground": {
+        "label": "Всегда в фоне",
+        "desc": "Каждый вызов асинхронно-совместимого инструмента сразу переводится в фон и возвращает id задания. Модель должна опрашивать его через `job_status`."
+      },
+      "neverBackground": {
+        "label": "Никогда в фоне",
+        "desc": "Полностью отключить фоновый режим; все инструменты выполняются синхронно и блокируют до завершения."
+      }
+    },
     "agentAvatar": "Аватар",
     "agentAvatarPick": "Выбрать изображение",
     "agentBasicInfo": "Основная информация",
