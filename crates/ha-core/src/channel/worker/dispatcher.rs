@@ -227,6 +227,10 @@ async fn handle_inbound_message(
         );
         return Ok(());
     }
+    // 0a. Not an approval reply, but a text-mode approval is still pending in
+    // this chat — nudge the user once per minute so they don't accidentally
+    // start a side conversation while the prompt is still open.
+    super::approval::maybe_send_pending_hint(&msg, registry).await;
 
     // 0b. Check if this message is a text-reply to a pending ask_user_question
     if super::ask_user::try_handle_ask_user_reply(&msg).await {

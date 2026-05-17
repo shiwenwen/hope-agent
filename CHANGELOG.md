@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **IM 文本审批可用性增强（无按钮渠道：WeChat / Signal / iMessage / IRC / WhatsApp）**：审批回复 parsing 从「只接 `1`/`2`/`3`」扩到大小写无关 + 中英自然语言白名单（`yes` / `y` / `ok` / `allow` / `好` / `同意` / `允许` / `2` / `always` / `总是` / `永远` / `3` / `no` / `n` / `deny` / `拒绝` / `取消` 等）；审批 prompt 渲染 `#tag` 6 字符短前缀，多个 pending 时可用 `yes#abc123` 精准定位（不限于 LIFO 栈顶）；超时不再 IM 端静默 —— 走新的 `approval_timed_out` EventBus 事件给 chat 发一条「⏱ approval timed out」通知；pending 期间用户发非审批消息时 1 分钟节流提示一次「你有 N 个待审批，回 1/2/3 或 yes/no」，照常进入新 turn 不绑架用户。
 - **聊天工作台视觉与布局改造**：主界面切成全局 rail + 会话 pane 两层导航，右侧 Browser / Plan / Diff / Canvas / Team 面板统一为共享 shell；空会话时输入框居中加宽并显示品牌 Logo，有消息后回到底部；应用默认窗口尺寸放大到更适合双栏工作台的 1360×860。
 - **macOS 系统权限页 v2**：权限设置切到 macOS 全量权限目录与 v2 数据模型，覆盖辅助功能、屏幕录制、输入监控、媒体/个人数据/文件访问/自动化/通知等类别；可原生检测或请求的权限走 macOS API，无法可靠检测的权限标记为「手动确认」并跳转系统设置。Windows / Linux / HTTP 模式本期显示禁用说明；旧权限命令保留兼容包装，`Info.plist` 补齐本期隐私 usage description。
 - **聊天界面窄栏自适应整理**：输入框工作目录入口改为纯图标 + 「设置工作目录」提示，统一工具条图标尺寸；无痕模式入口移至顶部标题栏；右侧 Browser / Plan / Diff / Canvas / Team 面板打开时自动收起左侧 session 列表，用户仍可手动展开；输入框溢出菜单改为按容器宽度触发，修复右侧面板压缩聊天列时「+」菜单不出现。

@@ -104,7 +104,7 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
 }
 
 /// Approval response from frontend
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub enum ApprovalResponse {
     AllowOnce,
     AllowAlways, // adds command pattern to allowlist
@@ -369,6 +369,19 @@ pub(crate) async fn check_and_request_approval(
                 pending.remove(&request_id);
             }
             emit_pending_interactions_changed(session_id);
+            // Notify subscribers (IM channel listener) so they can drop their
+            // own bookkeeping and tell the user the approval expired. Desktop
+            // UI doesn't need this — the modal has its own countdown ring.
+            if let Some(bus) = crate::globals::get_event_bus() {
+                bus.emit(
+                    "approval_timed_out",
+                    serde_json::json!({
+                        "request_id": request_id,
+                        "session_id": session_id,
+                        "timeout_secs": timeout_secs,
+                    }),
+                );
+            }
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "warn",
