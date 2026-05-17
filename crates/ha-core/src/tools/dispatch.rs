@@ -410,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn mac_control_schema_is_readonly_phase_one_and_main_agent_default() {
+    fn mac_control_schema_is_readonly_and_main_agent_default() {
         let def = all_dispatchable_tools()
             .iter()
             .find(|def| def.name == crate::tools::TOOL_MAC_CONTROL)
@@ -438,7 +438,7 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(actions, vec!["status", "permissions"]);
+        assert_eq!(actions, vec!["status", "permissions", "snapshot"]);
 
         let f = Fixture::new();
         assert_eq!(

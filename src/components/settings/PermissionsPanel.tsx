@@ -328,6 +328,13 @@ export default function PermissionsPanel() {
             }
           : prev,
       )
+      const nextMacStatus = await getTransport()
+        .call<MacControlStatus>("mac_control_status")
+        .catch((e) => {
+          logger.error("settings", "PermissionsPanel::request", "Failed to refresh mac control status", e)
+          return null
+        })
+      setMacStatus(nextMacStatus)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)
     } finally {

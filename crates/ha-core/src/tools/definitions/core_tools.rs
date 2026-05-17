@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect Hope Agent's native macOS desktop-control readiness. Phase 1 is read-only and supports only `status` and `permissions`; screenshots, AX snapshots, clicks, typing, windows, apps, and menus are intentionally unavailable until later phases.".into(),
+            description: "Inspect Hope Agent's native macOS desktop-control readiness and capture a read-only Accessibility snapshot. Phase 2A supports `status`, `permissions`, and `snapshot`; screenshots, clicks, typing, windows, apps, and menus are intentionally unavailable until later phases.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,8 +734,24 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` also includes the underlying macOS system permissions response."
+                        "enum": ["status", "permissions", "snapshot"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` also includes the underlying macOS system permissions response. `snapshot` returns a read-only frontmost-app/window/AX element summary."
+                    },
+                    "includeScreenshot": {
+                        "type": "boolean",
+                        "description": "Reserved for the ScreenCaptureKit follow-up. Phase 2A keeps screenshots disabled and returns screenshot=null."
+                    },
+                    "maxElements": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "description": "Maximum AX elements to return for snapshot. Defaults to 120 and is hard-capped at 500."
+                    },
+                    "maxDepth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 16,
+                        "description": "Maximum AX tree traversal depth for snapshot. Defaults to 8 and is hard-capped at 16."
                     }
                 },
                 "required": ["action"],

@@ -42,6 +42,13 @@ pub async fn mac_control_permissions() -> ha_core::mac_control::MacControlPermis
     ha_core::mac_control::permissions().await
 }
 
+#[tauri::command]
+pub async fn mac_control_snapshot(
+    options: Option<ha_core::mac_control::MacControlSnapshotRequest>,
+) -> ha_core::mac_control::MacControlSnapshotResponse {
+    ha_core::mac_control::snapshot(options.unwrap_or_default()).await
+}
+
 // ── Sandbox ──────────────────────────────────────────────────────
 
 #[tauri::command]

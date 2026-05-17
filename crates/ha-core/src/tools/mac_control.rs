@@ -14,8 +14,17 @@ pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
         "permissions" => Ok(serde_json::to_string_pretty(
             &crate::mac_control::permissions().await,
         )?),
+        "snapshot" => {
+            let request =
+                serde_json::from_value::<crate::mac_control::MacControlSnapshotRequest>(
+                    args.clone(),
+                )?;
+            Ok(serde_json::to_string_pretty(
+                &crate::mac_control::snapshot(request).await,
+            )?)
+        }
         other => bail!(
-            "Unsupported mac_control action '{}'. Phase 1 supports only 'status' and 'permissions'.",
+            "Unsupported mac_control action '{}'. Supported actions: 'status', 'permissions', 'snapshot'.",
             other
         ),
     }
