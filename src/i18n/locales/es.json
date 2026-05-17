@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "Backgrounding de herramientas asíncronas",
-    "agentAsyncToolPolicyAlwaysBackground": "Siempre en segundo plano",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "Cada llamada async-capable se desacopla inmediatamente y devuelve un id de trabajo. El modelo debe consultar con `job_status`.",
-    "agentAsyncToolPolicyDesc": "Cuándo desacoplar a tareas en segundo plano las herramientas async-capable (exec / web_search / image_generate). Independiente de la aprobación — no afecta si se te pide confirmación.",
-    "agentAsyncToolPolicyModelDecide": "Decide el modelo (predeterminado)",
-    "agentAsyncToolPolicyModelDecideDesc": "Respeta `run_in_background:true` del modelo; en caso contrario, pasa automáticamente a segundo plano tras el umbral global.",
-    "agentAsyncToolPolicyNeverBackground": "Nunca en segundo plano",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "Desactiva por completo el segundo plano; todas las herramientas se ejecutan sincrónicamente y bloquean hasta terminar.",
+    "agentAsyncToolPolicy": {
+      "title": "Backgrounding de herramientas asíncronas",
+      "desc": "Cuándo desacoplar a tareas en segundo plano las herramientas async-capable (exec / web_search / image_generate). Independiente de la aprobación.",
+      "modelDecide": {
+        "label": "Decide el modelo (predeterminado)",
+        "desc": "Respeta `run_in_background:true` del modelo; en caso contrario, pasa automáticamente a segundo plano tras el umbral global."
+      },
+      "alwaysBackground": {
+        "label": "Siempre en segundo plano",
+        "desc": "Cada llamada async-capable se desacopla inmediatamente y devuelve un id de trabajo. El modelo debe consultar con `job_status`."
+      },
+      "neverBackground": {
+        "label": "Nunca en segundo plano",
+        "desc": "Desactiva por completo el segundo plano; todas las herramientas se ejecutan sincrónicamente y bloquean hasta terminar."
+      }
+    },
     "agentAvatar": "Avatar",
     "agentAvatarPick": "Elegir imagen",
     "agentBasicInfo": "Info Básica",

@@ -21,21 +21,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { OpenClawHintBanner } from "./CustomTab"
-import type { AgentConfig, SkillSummary } from "../types"
+import type { AgentConfig, AsyncToolPolicy, SkillSummary } from "../types"
 
-type AsyncToolPolicy = NonNullable<AgentConfig["capabilities"]["asyncToolPolicy"]>
-const ASYNC_TOOL_POLICY_DEFAULT: AsyncToolPolicy = "model-decide"
-const ASYNC_TOOL_POLICY_LABEL_KEYS: Record<AsyncToolPolicy, string> = {
-  "model-decide": "settings.agentAsyncToolPolicyModelDecide",
-  "always-background": "settings.agentAsyncToolPolicyAlwaysBackground",
-  "never-background": "settings.agentAsyncToolPolicyNeverBackground",
-}
-const ASYNC_TOOL_POLICY_DESC_KEYS: Record<AsyncToolPolicy, string> = {
-  "model-decide": "settings.agentAsyncToolPolicyModelDecideDesc",
-  "always-background": "settings.agentAsyncToolPolicyAlwaysBackgroundDesc",
-  "never-background": "settings.agentAsyncToolPolicyNeverBackgroundDesc",
-}
-const ASYNC_TOOL_POLICY_VALUES = Object.keys(ASYNC_TOOL_POLICY_LABEL_KEYS) as AsyncToolPolicy[]
+/** Ordered policy options. First entry is the implicit default. The
+ * `i18nKey` segment plugs into `settings.agentAsyncToolPolicy.<key>` —
+ * see [`src/i18n/locales/en.json`](../../../i18n/locales/en.json) for
+ * the mirrored nested structure. */
+const ASYNC_TOOL_POLICIES: ReadonlyArray<{ value: AsyncToolPolicy; i18nKey: string }> = [
+  { value: "model-decide", i18nKey: "modelDecide" },
+  { value: "always-background", i18nKey: "alwaysBackground" },
+  { value: "never-background", i18nKey: "neverBackground" },
+]
+const ASYNC_TOOL_POLICY_DEFAULT = ASYNC_TOOL_POLICIES[0].value
 
 /** Collapsible section wrapper used by every tier block in this tab. */
 function CollapsibleSection({
@@ -236,14 +233,12 @@ export default function CapabilitiesTab({
           </div>
         </div>
 
-        {/* Async tool backgrounding policy */}
+        {/* Async tool backgrounding policy. Title-only — each option carries
+            its own description inside the dropdown, so no leading <p> here. */}
         <div>
           <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
-            {t("settings.agentAsyncToolPolicy")}
+            {t("settings.agentAsyncToolPolicy.title")}
           </div>
-          <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-            {t("settings.agentAsyncToolPolicyDesc")}
-          </p>
           <Select
             value={config.capabilities.asyncToolPolicy ?? ASYNC_TOOL_POLICY_DEFAULT}
             onValueChange={(v) =>
@@ -254,12 +249,12 @@ export default function CapabilitiesTab({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {ASYNC_TOOL_POLICY_VALUES.map((value) => (
+              {ASYNC_TOOL_POLICIES.map(({ value, i18nKey }) => (
                 <SelectItem key={value} value={value}>
                   <div className="flex flex-col gap-0.5 text-left">
-                    <span>{t(ASYNC_TOOL_POLICY_LABEL_KEYS[value])}</span>
+                    <span>{t(`settings.agentAsyncToolPolicy.${i18nKey}.label`)}</span>
                     <span className="text-[11px] text-muted-foreground/70">
-                      {t(ASYNC_TOOL_POLICY_DESC_KEYS[value])}
+                      {t(`settings.agentAsyncToolPolicy.${i18nKey}.desc`)}
                     </span>
                   </div>
                 </SelectItem>

@@ -378,7 +378,7 @@ pub async fn chat(
         // implement an approval handler. Engine gates (dangerous-commands,
         // protected paths, plan-mode ask) still run; this just flips the
         // same switch IM auto-approve accounts use.
-        auto_approve_tools: crate::auto_approve::cli_flag_active(),
+        auto_approve_tools: crate::auto_approve::is_active(),
         follow_global_reasoning_effort: true,
         post_turn_effects: true,
         abort_on_cancel: false,

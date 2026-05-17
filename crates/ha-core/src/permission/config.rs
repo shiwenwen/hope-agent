@@ -9,6 +9,12 @@ pub fn default_approval_timeout_secs() -> u64 {
     300
 }
 
+/// Default throttle for the IM text-mode "you have N pending approvals"
+/// hint. One nudge per (account, chat) per this many seconds.
+pub fn default_im_approval_hint_throttle_secs() -> u64 {
+    60
+}
+
 /// What to do when a tool approval request times out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -48,6 +54,13 @@ pub struct PermissionGlobalConfig {
     /// What to do when an approval times out.
     #[serde(default)]
     pub approval_timeout_action: ApprovalTimeoutAction,
+
+    /// Throttle (seconds) for the IM text-mode "you have N pending
+    /// approvals" hint. Only consumed by button-less channels; one nudge
+    /// per (account, chat) per interval so casual chitchat during a
+    /// pending approval window doesn't spam the user. Default 60s.
+    #[serde(default = "default_im_approval_hint_throttle_secs")]
+    pub im_approval_hint_throttle_secs: u64,
 }
 
 impl Default for PermissionGlobalConfig {
@@ -57,6 +70,7 @@ impl Default for PermissionGlobalConfig {
             smart: SmartModeConfig::default(),
             approval_timeout_secs: default_approval_timeout_secs(),
             approval_timeout_action: ApprovalTimeoutAction::default(),
+            im_approval_hint_throttle_secs: default_im_approval_hint_throttle_secs(),
         }
     }
 }

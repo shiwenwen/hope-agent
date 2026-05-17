@@ -21,34 +21,6 @@ use std::sync::Arc;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // Process-scoped flag — applied before subcommand dispatch so it
-    // wins even if the user puts it after `server`.
-    if args.iter().any(|a| a == "--dangerously-skip-all-approvals") {
-        ha_core::security::dangerous::set_cli_flag(true);
-        eprintln!(
-            "[!] DANGEROUS MODE: all tool approvals will be skipped (CLI flag, this launch only)"
-        );
-    }
-
-    // Headless auto-approve: same effect as ticking "auto approve tools" on
-    // every chat the HTTP route opens — the permission engine still runs
-    // (so dangerous-commands, plan-mode ask, protected paths all stay
-    // enforced), just the `auto_approve_tools` switch goes through. Narrower
-    // than `--dangerously-skip-all-approvals`. Env var lets Docker /
-    // systemd users opt in without rewriting the entrypoint.
-    let env_enabled = std::env::var(ha_server::auto_approve::ENV_VAR)
-        .map(|v| ha_server::auto_approve::env_truthy(&v))
-        .unwrap_or(false);
-    let cli_enabled = args.iter().any(|a| a == ha_server::auto_approve::FLAG);
-    if env_enabled || cli_enabled {
-        ha_server::auto_approve::set_cli_flag(true);
-        let source = if cli_enabled { "CLI flag" } else { "env" };
-        eprintln!(
-            "[!] AUTO-APPROVE MODE ({source}): HTTP chat will auto-approve every tool call \
-             (engine gates still enforced; this launch only)"
-        );
-    }
-
     if args.iter().any(|a| a == "--version") {
         println!("hope-agent {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -56,6 +28,11 @@ fn main() {
 
     // `hope-agent server [sub] [opts...]`
     if args.len() >= 2 && args[1] == "server" {
+        // Flag detection lives inside the `server` branch so plain
+        // `hope-agent --help` (or anything without `server`) never prints
+        // the auto-approve / dangerous-mode banner, even when the
+        // matching env var is exported.
+        apply_server_process_flags(&args);
         let sub = args.get(2).map(|s| s.as_str()).unwrap_or("");
         match sub {
             // No sub or explicit `start` → run the server. Flags either
@@ -91,6 +68,44 @@ fn main() {
     print_top_help();
 }
 
+/// Detect the two process-scoped permission flags
+/// (`--dangerously-skip-all-approvals` / `--auto-approve-tools` +
+/// `HA_SERVER_AUTO_APPROVE_TOOLS`) and emit their stderr banners. Called
+/// only from inside the `server` subcommand branch so plain `--help` /
+/// `--version` invocations stay quiet even if the env var is exported.
+fn apply_server_process_flags(args: &[String]) {
+    if args.iter().any(|a| a == "--dangerously-skip-all-approvals") {
+        ha_core::security::dangerous::set_cli_flag(true);
+        eprintln!(
+            "[!] DANGEROUS MODE: all tool approvals will be skipped (CLI flag, this launch only)"
+        );
+    }
+
+    // Headless auto-approve: same effect as ticking "auto approve tools"
+    // on every IM account — sets `ChatEngineParams.auto_approve_tools=true`
+    // for every chat the HTTP route opens, which bypasses ALL permission
+    // gates including dangerous-commands, protected-paths, and edit-command
+    // audits. `--dangerously-skip-all-approvals` is a strict superset: it
+    // silences dispatcher-level `app_warn!` audit logs too. Env var lets
+    // Docker / systemd users opt in without rewriting the entrypoint.
+    let env_enabled = std::env::var(ha_server::auto_approve::ENV_VAR)
+        .map(|v| ha_server::auto_approve::env_truthy(&v))
+        .unwrap_or(false);
+    let cli_enabled = args.iter().any(|a| a == ha_server::auto_approve::FLAG);
+    if env_enabled || cli_enabled {
+        ha_server::auto_approve::set_active(true);
+        let source = if cli_enabled { "CLI flag" } else { "env" };
+        eprintln!(
+            "[!] AUTO-APPROVE MODE ({source}): every HTTP chat tool call auto-allowed, \
+             including dangerous-commands / protected-paths (this launch only)"
+        );
+        // The stderr banner reaches `docker logs` / journalctl, but it
+        // doesn't reach `~/.hope-agent/logs.db` — the canonical surface
+        // for agent self-diagnosis. Logging here would race with
+        // `init_runtime`; see `run_server` for the post-init log call.
+    }
+}
+
 fn print_top_help() {
     println!("Hope Agent — headless HTTP/WebSocket server");
     println!();
@@ -104,11 +119,10 @@ fn print_top_help() {
     println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
     println!("  --api-key KEY                     Bearer token for HTTP/WS auth");
     println!(
-        "  --auto-approve-tools              Auto-approve every tool call on HTTP chat (engine"
+        "  --auto-approve-tools              Auto-approve every tool call on HTTP chat — including"
     );
-    println!(
-        "                                    gates still enforced; or set HA_SERVER_AUTO_APPROVE_TOOLS=1)"
-    );
+    println!("                                    dangerous-commands / protected-paths (or set");
+    println!("                                    HA_SERVER_AUTO_APPROVE_TOOLS=1)");
     println!("  --dangerously-skip-all-approvals  Skip every tool approval (this launch only)");
     println!("  --version                         Print version and exit");
     println!("  --help, -h                        Print help and exit");
@@ -166,6 +180,19 @@ fn run_server(args: &[String]) {
     ha_core::init_runtime("server");
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {e}");
+    }
+
+    // Mirror the startup banner into logs.db so agent self-diagnosis (and
+    // any operator grepping `logs.db` after the fact) can see that
+    // auto-approve was active for this launch. The stderr banner above
+    // already reached docker / journalctl; this one persists into the
+    // application log surface.
+    if ha_server::auto_approve::is_active() {
+        ha_core::app_warn!(
+            "permission",
+            "server_startup",
+            "HTTP auto-approve mode active for this launch — every chat tool call auto-allowed, including dangerous-commands / protected-paths / edit-command audits (equivalent to an IM account with auto_approve_tools=true)"
+        );
     }
 
     // Resolve the effective API key. Precedence (highest first):

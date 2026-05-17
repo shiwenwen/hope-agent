@@ -231,7 +231,7 @@ fn extract_command_prefix(command: &str) -> String {
         .to_string()
 }
 
-fn approval_timeout_secs() -> u64 {
+pub(crate) fn approval_timeout_secs() -> u64 {
     crate::config::cached_config()
         .permission
         .approval_timeout_secs
@@ -349,6 +349,10 @@ pub(crate) async fn check_and_request_approval(
             Ok(response)
         }
         Err("cancelled") => {
+            // Drop any IM-side pending entry — if this approval was being
+            // surfaced on a channel without buttons, the user would
+            // otherwise see the prompt linger forever.
+            crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "warn",
@@ -369,9 +373,14 @@ pub(crate) async fn check_and_request_approval(
                 pending.remove(&request_id);
             }
             emit_pending_interactions_changed(session_id);
-            // Notify subscribers (IM channel listener) so they can drop their
-            // own bookkeeping and tell the user the approval expired. Desktop
-            // UI doesn't need this — the modal has its own countdown ring.
+            // Drop the IM-side `TEXT_PENDING` entry. The companion
+            // `approval_timed_out` event below only carries the user-facing
+            // "timed out" notification; cleanup is unconditional so cancel-
+            // path and timeout-path stay symmetric.
+            crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
+            // Notify subscribers (IM channel listener) so they can tell the
+            // user the approval expired. Desktop UI doesn't need this — the
+            // modal has its own countdown ring.
             if let Some(bus) = crate::globals::get_event_bus() {
                 bus.emit(
                     "approval_timed_out",
@@ -379,6 +388,7 @@ pub(crate) async fn check_and_request_approval(
                         "request_id": request_id,
                         "session_id": session_id,
                         "timeout_secs": timeout_secs,
+                        "timeout_action": approval_timeout_action(),
                     }),
                 );
             }

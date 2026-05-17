@@ -23,11 +23,13 @@ HTTP 入口的 `ChatEngineParams.auto_approve_tools` 在桌面 Web GUI 客户端
 - **CLI flag** `hope-agent server start --auto-approve-tools`
 - **Env var** `HA_SERVER_AUTO_APPROVE_TOOLS=1`（Docker 友好；接受 `1` / `true` / `yes` / `on` 任一值）
 
-任一启用后，[`ha_server::auto_approve::cli_flag_active()`](../../crates/ha-server/src/auto_approve.rs) 返回 `true`，HTTP chat 路由把 `auto_approve_tools=true` 透传给 chat engine —— 等同于 IM 渠道账号勾上「auto-approve tools」。**只跳过 chat 入口的工具审批**：permission engine 的 dangerous-commands / protected-paths / Plan Mode ask 仍然生效。
+任一启用后，[`ha_server::auto_approve::is_active()`](../../crates/ha-server/src/auto_approve.rs) 返回 `true`，HTTP chat 路由把 `auto_approve_tools=true` 透传给 chat engine —— 等同于 IM 渠道账号勾上「auto-approve tools」。
 
-要更激进地跳过一切（包括 dangerous-commands），用 `--dangerously-skip-all-approvals`（即 global YOLO）。两个 flag 是正交的；常规 headless 推荐 `--auto-approve-tools` 即可。
+**注意：是「全自动放行」，不是「只跳工具确认弹窗」**。`auto_approve_tools=true` 是 IM 账户级语义，会跳过**所有**审批闸门：dangerous-commands 列表、protected-paths 列表、edit-command 审计、Plan Mode ask、Smart 模式 judge —— 全部跳过。LLM 触发的任何 `exec` / `write` / `edit` 都直接执行，没有任何拦截。**不要把这个 flag 用在不可信租户**。
 
-进程态、不持久化，启动时 stderr 打一行红字 banner 提醒。
+[`security::dangerous`](../../crates/ha-core/src/security/dangerous.rs)（`--dangerously-skip-all-approvals`）是更严格的超集：除了上面的全跳，还会让 dispatcher 层的 `app_warn!` 审计日志静默（也就是说 `~/.hope-agent/logs.db` 看不到「这条危险命令被自动放行」的记录）。常规 headless 推荐 `--auto-approve-tools` 即可——保留 dispatcher 层审计便于事后排查。同时启用两个 flag 不会叠加保护，只是两条 banner 都会打。
+
+进程态、不持久化。启动时 stderr 打一行红字 banner，同时 `init_runtime` 后会再写一条 `app_warn!` 进 `~/.hope-agent/logs.db`，便于事后 agent 自主排查时看到此次启动是否开了 auto-approve。
 
 ```mermaid
 flowchart TD

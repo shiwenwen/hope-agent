@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "Approval",
-    "agentAsyncToolPolicy": "Chạy ngầm cho công cụ bất đồng bộ",
-    "agentAsyncToolPolicyAlwaysBackground": "Luôn chạy nền",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "Mỗi lệnh gọi hỗ trợ async sẽ ngay lập tức tách thành tác vụ nền và trả về job id. Mô hình phải dùng `job_status` để hỏi trạng thái.",
-    "agentAsyncToolPolicyDesc": "Khi nào các công cụ hỗ trợ chạy bất đồng bộ (exec / web_search / image_generate) tách ra thành công việc nền. Độc lập với phê duyệt — không ảnh hưởng đến việc bạn có được hỏi hay không.",
-    "agentAsyncToolPolicyModelDecide": "Mô hình quyết định (mặc định)",
-    "agentAsyncToolPolicyModelDecideDesc": "Tôn trọng `run_in_background:true` từ mô hình; nếu không, tự động chuyển sang chạy nền sau ngưỡng toàn cục.",
-    "agentAsyncToolPolicyNeverBackground": "Không chạy nền",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "Vô hiệu hoá hoàn toàn chế độ chạy nền; tất cả công cụ chạy đồng bộ và chặn cho đến khi xong.",
+    "agentAsyncToolPolicy": {
+      "title": "Chạy ngầm cho công cụ bất đồng bộ",
+      "desc": "Khi nào các công cụ hỗ trợ chạy bất đồng bộ (exec / web_search / image_generate) tách ra thành công việc nền. Độc lập với phê duyệt.",
+      "modelDecide": {
+        "label": "Mô hình quyết định (mặc định)",
+        "desc": "Tôn trọng `run_in_background:true` từ mô hình; nếu không, tự động chuyển sang chạy nền sau ngưỡng toàn cục."
+      },
+      "alwaysBackground": {
+        "label": "Luôn chạy nền",
+        "desc": "Mỗi lệnh gọi hỗ trợ async sẽ ngay lập tức tách thành tác vụ nền và trả về job id. Mô hình phải dùng `job_status` để hỏi trạng thái."
+      },
+      "neverBackground": {
+        "label": "Không chạy nền",
+        "desc": "Vô hiệu hoá hoàn toàn chế độ chạy nền; tất cả công cụ chạy đồng bộ và chặn cho đến khi xong."
+      }
+    },
     "agentAvatar": "Avatar",
     "agentAvatarPick": "Chọn ảnh",
     "agentBasicInfo": "Thông tin cơ bản",

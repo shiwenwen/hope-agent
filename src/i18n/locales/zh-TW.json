@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "審批",
-    "agentAsyncToolPolicy": "非同步工具背景化策略",
-    "agentAsyncToolPolicyAlwaysBackground": "總是背景執行",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "每次非同步可背景化呼叫都立即轉背景並回傳 job id，模型需用 `job_status` 主動輪詢。",
-    "agentAsyncToolPolicyDesc": "非同步可背景化的工具（exec / web_search / image_generate）何時轉背景任務。與審批無關 —— 不影響是否彈出審批。",
-    "agentAsyncToolPolicyModelDecide": "由模型決定（預設）",
-    "agentAsyncToolPolicyModelDecideDesc": "遵照模型傳遞的 `run_in_background:true`；模型未傳則按全域閾值超時後自動轉背景。",
-    "agentAsyncToolPolicyNeverBackground": "停用背景執行",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "完全停用背景化，所有非同步可背景化工具同步執行，直到完成才回傳。",
+    "agentAsyncToolPolicy": {
+      "title": "非同步工具背景化策略",
+      "desc": "非同步可背景化的工具（exec / web_search / image_generate）何時轉背景任務。與審批正交。",
+      "modelDecide": {
+        "label": "由模型決定（預設）",
+        "desc": "遵照模型傳遞的 `run_in_background:true`；模型未傳則按全域閾值超時後自動轉背景。"
+      },
+      "alwaysBackground": {
+        "label": "總是背景執行",
+        "desc": "每次非同步可背景化呼叫都立即轉背景並回傳 job id，模型需用 `job_status` 主動輪詢。"
+      },
+      "neverBackground": {
+        "label": "停用背景執行",
+        "desc": "完全停用背景化，所有非同步可背景化工具同步執行，直到完成才回傳。"
+      }
+    },
     "agentAvatar": "頭像",
     "agentAvatarPick": "選擇圖片",
     "agentBasicInfo": "基本信息",

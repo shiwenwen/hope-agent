@@ -2,6 +2,7 @@
 export type {
   AgentSummary,
   AgentConfig,
+  AsyncToolPolicy,
   PersonalityConfig,
   AvailableModel,
   ActiveModelRef,

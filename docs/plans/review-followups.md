@@ -985,8 +985,6 @@
 - **影响面**：tool dispatch hot path 单次 ~纳秒级 future 构造开销 × 高频；正确性无影响。
 - **触发时机建议**：下次动 `tools/execution.rs` 或做 MCP 性能优化时顺手。
 
----
-
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。

@@ -2178,14 +2178,22 @@
       }
     },
     "agentApprovalTab": "承認",
-    "agentAsyncToolPolicy": "非同期ツールのバックグラウンド化",
-    "agentAsyncToolPolicyAlwaysBackground": "常にバックグラウンドで実行",
-    "agentAsyncToolPolicyAlwaysBackgroundDesc": "非同期対応ツールの呼び出しを毎回即座にバックグラウンドへ切り替え、job id を返します。モデルは `job_status` でポーリングする必要があります。",
-    "agentAsyncToolPolicyDesc": "非同期対応ツール（exec / web_search / image_generate）をバックグラウンドジョブに切り替えるタイミング。承認とは独立 —— 確認ダイアログの有無には影響しません。",
-    "agentAsyncToolPolicyModelDecide": "モデルが判断 (デフォルト)",
-    "agentAsyncToolPolicyModelDecideDesc": "モデルが指定する `run_in_background:true` を尊重する。指定がない場合はグローバルしきい値を超えると自動でバックグラウンド化する。",
-    "agentAsyncToolPolicyNeverBackground": "バックグラウンド化しない",
-    "agentAsyncToolPolicyNeverBackgroundDesc": "バックグラウンド化を完全に無効にします。すべてのツールが同期実行となり、完了するまでブロックします。",
+    "agentAsyncToolPolicy": {
+      "title": "非同期ツールのバックグラウンド化",
+      "desc": "非同期対応ツール（exec / web_search / image_generate）をバックグラウンドジョブに切り替えるタイミング。承認とは独立。",
+      "modelDecide": {
+        "label": "モデルが判断 (デフォルト)",
+        "desc": "モデルが指定する `run_in_background:true` を尊重する。指定がない場合はグローバルしきい値を超えると自動でバックグラウンド化する。"
+      },
+      "alwaysBackground": {
+        "label": "常にバックグラウンドで実行",
+        "desc": "非同期対応ツールの呼び出しを毎回即座にバックグラウンドへ切り替え、job id を返します。モデルは `job_status` でポーリングする必要があります。"
+      },
+      "neverBackground": {
+        "label": "バックグラウンド化しない",
+        "desc": "バックグラウンド化を完全に無効にします。すべてのツールが同期実行となり、完了するまでブロックします。"
+      }
+    },
     "agentAvatar": "アバター",
     "agentAvatarPick": "画像を選択",
     "agentBasicInfo": "基本情報",
