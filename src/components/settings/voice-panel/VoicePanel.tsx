@@ -122,6 +122,7 @@ const KIND_OPTIONS: { value: SttProviderKind; label: string }[] = [
   { value: "deepgram-ws", label: "Deepgram (WS)" },
   { value: "assemblyai-ws", label: "AssemblyAI (WS)" },
   { value: "azure-ws", label: "Azure Speech (WS)" },
+  { value: "xunfei-ws", label: "iFlytek IAT (WS)" },
 ]
 
 const blankProvider = (): SttProviderConfig => ({
