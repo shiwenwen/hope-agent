@@ -116,9 +116,12 @@ export default function ChatScreen({
   // Sidebar panel width
   const [panelWidth, setPanelWidth] = useState(() => {
     if (typeof window === "undefined") return CHAT_SIDEBAR_DEFAULT_WIDTH
-    const stored = Number(window.localStorage.getItem(CHAT_SIDEBAR_WIDTH_STORAGE_KEY))
-    return Number.isFinite(stored)
-      ? clampChatSidebarWidth(stored)
+    const stored = window.localStorage.getItem(CHAT_SIDEBAR_WIDTH_STORAGE_KEY)
+    if (!stored) return CHAT_SIDEBAR_DEFAULT_WIDTH
+
+    const storedWidth = Number(stored)
+    return Number.isFinite(storedWidth)
+      ? clampChatSidebarWidth(storedWidth)
       : CHAT_SIDEBAR_DEFAULT_WIDTH
   })
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
