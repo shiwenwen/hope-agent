@@ -62,7 +62,7 @@ pub use definitions::{
     is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
-pub use rejection::ToolRejection;
+pub use rejection::{ToolRejection, TOOL_ERROR_PREFIX};
 
 // ── Tool Name Constants ──────────────────────────────────────────
 

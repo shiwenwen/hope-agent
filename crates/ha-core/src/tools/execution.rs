@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 
 use super::app_update;
 use super::project_read_file;
@@ -113,6 +114,8 @@ fn tool_timeout(ctx: &ToolExecContext) -> Option<Duration> {
     }
 }
 
+const TOOL_TIMEOUT_CLEANUP_GRACE: Duration = Duration::from_secs(5);
+
 // ── Tool Execution Context ────────────────────────────────────────
 
 /// Context passed to tool execution for dynamic behavior.
@@ -148,6 +151,10 @@ pub struct ToolExecContext {
     pub session_working_dir: Option<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
+    /// Provider tool-call id for the currently executing tool. Async jobs
+    /// persist this so completion notifications can point back to the exact
+    /// original call.
+    pub tool_call_id: Option<String>,
     /// Current agent ID
     pub agent_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)
@@ -198,6 +205,16 @@ pub struct ToolExecContext {
     /// global foreground safety net (`toolTimeout`) from shortening long
     /// background work unexpectedly.
     pub suppress_global_tool_timeout: bool,
+    /// Internal flag for async tool jobs. They persist the final result through
+    /// `async_jobs::spawn::persist_result`, so the generic large-result
+    /// preview layer must not wrap the output first and turn the async
+    /// output-file into a pointer to a second file.
+    pub suppress_result_disk_persistence: bool,
+    /// Best-effort cancellation signal for the currently executing tool.
+    /// The chat turn, async-job timeout, or runtime_cancel path can trip this
+    /// token; resource-owning tools such as `exec` use it to clean up process
+    /// trees instead of merely returning a cancelled tool result.
+    pub cancellation_token: Option<CancellationToken>,
     /// Per-dispatch sink for structured tool metadata (e.g. file change
     /// before/after snapshots, line deltas). The orchestrator constructs a
     /// fresh `Arc<Mutex<None>>` for **each** tool dispatch, attaches the same
@@ -597,10 +614,14 @@ pub async fn execute_tool_with_context(
                         app_warn!(
                             "tool",
                             "approval",
-                            "Tool approval check failed for '{}' ({}), proceeding",
+                            "Tool approval check failed for '{}' ({}); blocking execution",
                             name,
                             e
                         );
+                        return Err(super::rejection::ToolRejection::approval_failed(
+                            name,
+                            e.to_string(),
+                        ));
                     }
                 }
             }
@@ -674,10 +695,11 @@ pub async fn execute_tool_with_context(
         inner_ctx.auto_approve_tools = true;
         let raw =
             async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
-        // The auto-bg helper already routed the result through this function
-        // recursively (inner_ctx.bypass_async_dispatch=true) so disk-persist
-        // and logging fired inside that nested call. Return as-is.
-        return Ok(raw);
+        // The inner worker suppresses generic disk persistence so detached jobs
+        // can spool their raw output into the async output-file. If the worker
+        // finished within the foreground budget, persist large inline output at
+        // this outer layer before returning it to the model.
+        return maybe_persist_large_tool_result(name, raw, ctx);
     }
 
     // ── Conditional skill activation (`paths:` frontmatter) ──────
@@ -689,74 +711,103 @@ pub async fn execute_tool_with_context(
         maybe_activate_conditional_skills(name, args, ctx);
     }
 
+    let hard_timeout = tool_timeout(ctx);
+    let timeout_ctx = hard_timeout.map(|_| {
+        let mut timeout_ctx = ctx.clone();
+        let token = ctx
+            .cancellation_token
+            .as_ref()
+            .map(CancellationToken::child_token)
+            .unwrap_or_default();
+        timeout_ctx.cancellation_token = Some(token);
+        timeout_ctx
+    });
+    let dispatch_ctx = timeout_ctx.as_ref().unwrap_or(ctx);
+    let timeout_cancel_token = dispatch_ctx.cancellation_token.clone();
+
     let dispatch = async {
         match name {
-            TOOL_EXEC => exec::tool_exec(args, ctx).await,
+            TOOL_EXEC => exec::tool_exec(args, dispatch_ctx).await,
             TOOL_PROCESS => process::tool_process(args).await,
-            TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
-            TOOL_PROJECT_READ_FILE => project_read_file::tool_project_read_file(args, ctx).await,
-            TOOL_WRITE | "write_file" => write::tool_write_file(args, ctx).await,
-            TOOL_EDIT | "patch_file" => edit::tool_edit(args, ctx).await,
-            TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
-            TOOL_GREP => grep::tool_grep(args, ctx).await,
-            TOOL_FIND => find::tool_find(args, ctx).await,
-            TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args, ctx).await,
+            TOOL_READ | "read_file" => read::tool_read_file(args, dispatch_ctx).await,
+            TOOL_PROJECT_READ_FILE => {
+                project_read_file::tool_project_read_file(args, dispatch_ctx).await
+            }
+            TOOL_WRITE | "write_file" => write::tool_write_file(args, dispatch_ctx).await,
+            TOOL_EDIT | "patch_file" => edit::tool_edit(args, dispatch_ctx).await,
+            TOOL_LS | "list_dir" => ls::tool_ls(args, dispatch_ctx).await,
+            TOOL_GREP => grep::tool_grep(args, dispatch_ctx).await,
+            TOOL_FIND => find::tool_find(args, dispatch_ctx).await,
+            TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args, dispatch_ctx).await,
             TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
             TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
-            TOOL_SAVE_MEMORY => memory::tool_save_memory(args, ctx).await,
+            TOOL_SAVE_MEMORY => memory::tool_save_memory(args, dispatch_ctx).await,
             TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
             TOOL_UPDATE_CORE_MEMORY => {
                 memory::tool_update_core_memory(
                     args,
-                    ctx.agent_id
+                    dispatch_ctx
+                        .agent_id
                         .as_deref()
                         .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID),
                 )
                 .await
             }
-            TOOL_MANAGE_CRON => cron::tool_manage_cron(args, ctx.session_id.as_deref()).await,
-            TOOL_BROWSER => browser::tool_browser(args, ctx.session_id.as_deref()).await,
-            TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
-            TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
-            TOOL_TEAM => team::tool_team(args, ctx).await,
-            TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, ctx).await,
+            TOOL_MANAGE_CRON => {
+                cron::tool_manage_cron(args, dispatch_ctx.session_id.as_deref()).await
+            }
+            TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx.session_id.as_deref()).await,
+            TOOL_SEND_NOTIFICATION => {
+                notification::tool_send_notification(args, dispatch_ctx).await
+            }
+            TOOL_SUBAGENT => subagent::tool_subagent(args, dispatch_ctx).await,
+            TOOL_TEAM => team::tool_team(args, dispatch_ctx).await,
+            TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, dispatch_ctx).await,
             TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
             TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
             TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,
             TOOL_SESSION_STATUS => sessions::tool_session_status(args).await,
             TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
-            TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, ctx)).await,
+            TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, dispatch_ctx)).await,
             TOOL_IMAGE => image::tool_image(args).await,
-            TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args, ctx).await,
+            TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args, dispatch_ctx).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
-            TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
+            TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
             TOOL_ASK_USER_QUESTION => {
-                Ok(ask_user_question::execute(args, ctx.session_id.as_deref()).await)
+                Ok(ask_user_question::execute(args, dispatch_ctx.session_id.as_deref()).await)
             }
             TOOL_ENTER_PLAN_MODE => {
-                Ok(enter_plan_mode::execute(args, ctx.session_id.as_deref()).await)
+                Ok(enter_plan_mode::execute(args, dispatch_ctx.session_id.as_deref()).await)
             }
-            TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
-            TOOL_TASK_CREATE => Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await),
-            TOOL_TASK_UPDATE => Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await),
-            TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),
-            super::TOOL_APP_UPDATE => app_update::tool_app_update(args, ctx).await,
+            TOOL_SUBMIT_PLAN => {
+                Ok(submit_plan::execute(args, dispatch_ctx.session_id.as_deref()).await)
+            }
+            TOOL_TASK_CREATE => {
+                Ok(task::tool_task_create(args, dispatch_ctx.session_id.as_deref()).await)
+            }
+            TOOL_TASK_UPDATE => {
+                Ok(task::tool_task_update(args, dispatch_ctx.session_id.as_deref()).await)
+            }
+            TOOL_TASK_LIST => {
+                Ok(task::tool_task_list(args, dispatch_ctx.session_id.as_deref()).await)
+            }
+            super::TOOL_APP_UPDATE => app_update::tool_app_update(args, dispatch_ctx).await,
             TOOL_JOB_STATUS => job_status::tool_job_status(args).await,
             TOOL_RUNTIME_CANCEL => runtime_cancel::tool_runtime_cancel(args).await,
-            super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,
+            super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, dispatch_ctx).await,
             super::TOOL_PEEK_SESSIONS => {
-                crate::awareness::run_peek_sessions(args, ctx.session_id.as_deref())
+                crate::awareness::run_peek_sessions(args, dispatch_ctx.session_id.as_deref())
                     .map_err(|e| anyhow::anyhow!(e))
             }
             TOOL_GET_SETTINGS => settings::tool_get_settings(args).await,
             TOOL_UPDATE_SETTINGS => settings::tool_update_settings(args).await,
             TOOL_LIST_SETTINGS_BACKUPS => settings::tool_list_settings_backups(args).await,
             TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
-            TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, ctx).await,
-            super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
+            TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, dispatch_ctx).await,
+            super::TOOL_SKILL => skill::tool_skill(args, dispatch_ctx).await,
             super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
             super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
             super::feishu::TOOL_DOCX_CREATE => super::feishu::docx::execute_create(args).await,
@@ -859,16 +910,21 @@ pub async fn execute_tool_with_context(
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {
-                crate::mcp::invoke::call_tool(n, args, ctx).await
+                crate::mcp::invoke::call_tool(n, args, dispatch_ctx).await
             }
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };
 
-    let result = if let Some(hard_timeout) = tool_timeout(ctx) {
-        match timeout(hard_timeout, dispatch).await {
+    let mut dispatch = Box::pin(dispatch);
+    let result = if let Some(hard_timeout) = hard_timeout {
+        match timeout(hard_timeout, &mut dispatch).await {
             Ok(inner) => inner,
             Err(_elapsed) => {
+                if let Some(token) = &timeout_cancel_token {
+                    token.cancel();
+                }
+                let _ = timeout(TOOL_TIMEOUT_CLEANUP_GRACE, &mut dispatch).await;
                 app_error!(
                     "tool",
                     "execution",
@@ -923,47 +979,56 @@ pub async fn execute_tool_with_context(
         }
     }
 
-    // ── Large result disk persistence ────────────────────────────────
-    // If the result exceeds the threshold, write it to disk and return
-    // a preview with a path reference so the model can `read` the full file.
     match result {
-        Ok(output) if should_persist_large_result(&output) => {
-            if crate::tools::image_markers::has_valid_image_markers(&output) {
-                app_info!(
-                    "tool",
-                    "disk_persist",
-                    "Tool '{}' result {}B contains valid image marker; preserving inline for provider vision",
-                    name,
-                    output.len()
-                );
-                return Ok(output);
-            }
-            match persist_large_result(&output, ctx.session_id.as_deref(), name) {
-                Ok(path) => {
-                    app_info!(
-                        "tool",
-                        "disk_persist",
-                        "Tool '{}' result {}B persisted to {}",
-                        name,
-                        output.len(),
-                        path
-                    );
-                    Ok(build_persisted_large_result_preview(&output, &path))
-                }
-                Err(e) => {
-                    // Fall back to returning the full result if persistence fails
-                    app_warn!(
-                        "tool",
-                        "disk_persist",
-                        "Failed to persist large result for '{}': {}",
-                        name,
-                        e
-                    );
-                    Ok(output)
-                }
-            }
-        }
+        Ok(output) => maybe_persist_large_tool_result(name, output, ctx),
         other => other,
+    }
+}
+
+// ── Large result disk persistence ────────────────────────────────
+// If the result exceeds the threshold, write it to disk and return a preview
+// with a path reference so the model can `read` the full file.
+fn maybe_persist_large_tool_result(
+    name: &str,
+    output: String,
+    ctx: &ToolExecContext,
+) -> anyhow::Result<String> {
+    if ctx.suppress_result_disk_persistence || !should_persist_large_result(&output) {
+        return Ok(output);
+    }
+    if crate::tools::image_markers::has_valid_image_markers(&output) {
+        app_info!(
+            "tool",
+            "disk_persist",
+            "Tool '{}' result {}B contains valid image marker; preserving inline for provider vision",
+            name,
+            output.len()
+        );
+        return Ok(output);
+    }
+    match persist_large_result(&output, ctx.session_id.as_deref(), name) {
+        Ok(path) => {
+            app_info!(
+                "tool",
+                "disk_persist",
+                "Tool '{}' result {}B persisted to {}",
+                name,
+                output.len(),
+                path
+            );
+            Ok(build_persisted_large_result_preview(&output, &path))
+        }
+        Err(e) => {
+            // Fall back to returning the full result if persistence fails.
+            app_warn!(
+                "tool",
+                "disk_persist",
+                "Failed to persist large result for '{}': {}",
+                name,
+                e
+            );
+            Ok(output)
+        }
     }
 }
 
@@ -1152,7 +1217,7 @@ fn persist_large_result(
 mod tests {
     use super::{
         build_persisted_large_result_preview, mcp_server_auto_approves_config,
-        needs_permission_engine, ToolExecContext,
+        needs_permission_engine, tool_timeout, ToolExecContext,
     };
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;

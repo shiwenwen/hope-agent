@@ -155,8 +155,10 @@ pub fn replay_pending_jobs() {
                     job.agent_id.clone(),
                     job.job_id.clone(),
                     job.tool_name.clone(),
+                    job.tool_call_id.clone(),
                     job.status,
                     job.result_preview.clone(),
+                    job.result_path.clone(),
                     job.error.clone(),
                 );
             }

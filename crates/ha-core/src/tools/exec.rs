@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::process::Stdio;
 #[cfg(unix)]
 use std::sync::OnceLock;
+use tokio_util::sync::CancellationToken;
 
 use crate::process_registry::{
     create_session_id, get_registry, now_ms, ProcessSession, ProcessStatus,
@@ -249,6 +250,45 @@ async fn spawn_exec_waiter(
     }))
 }
 
+fn spawn_exec_cancel_watcher(session_id: String, token: CancellationToken) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    let pid = {
+                        let mut registry = get_registry().lock().await;
+                        let Some(session) = registry.get_session(&session_id) else {
+                            return;
+                        };
+                        if session.exited {
+                            return;
+                        }
+                        let pid = session.pid;
+                        registry.mark_exited(
+                            &session_id,
+                            None,
+                            Some("cancelled".to_string()),
+                            ProcessStatus::Failed,
+                        );
+                        pid
+                    };
+                    if let Some(pid) = pid {
+                        crate::platform::terminate_process_tree(pid);
+                    }
+                    return;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    let registry = get_registry().lock().await;
+                    match registry.get_session(&session_id) {
+                        Some(session) if !session.exited => {}
+                        _ => return,
+                    }
+                }
+            }
+        }
+    });
+}
+
 pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let command = args
         .get("command")
@@ -363,6 +403,9 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         let mut registry = get_registry().lock().await;
         registry.add_session(session);
     }
+    if let Some(token) = ctx.cancellation_token.clone() {
+        spawn_exec_cancel_watcher(session_id.clone(), token);
+    }
 
     // ── Command approval gate ───────────────────────────────────
     // Run the unified permission engine — it knows about plan mode, YOLO,
@@ -445,12 +488,19 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                                 .await?;
                         }
                         Err(e) => {
+                            let mut registry = get_registry().lock().await;
+                            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
                             app_warn!(
                                 "tool",
                                 "exec",
-                                "Approval check failed ({}), proceeding with execution",
-                                e
+                                "Approval check failed ({}); blocking command execution: {}",
+                                e,
+                                command
                             );
+                            return Err(super::rejection::ToolRejection::approval_failed(
+                                TOOL_EXEC,
+                                e.to_string(),
+                            ));
                         }
                     }
                 }
@@ -476,6 +526,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             let env_owned: Option<serde_json::Map<String, serde_json::Value>> = env_map.cloned();
             let config_owned = sandbox_config.clone();
             let sid = session_id.clone();
+            let cancellation_token = ctx.cancellation_token.clone();
 
             {
                 let mut registry = get_registry().lock().await;
@@ -491,6 +542,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                     env_owned.as_ref(),
                     &config_owned,
                     timeout_secs,
+                    cancellation_token,
                 )
                 .await;
 
@@ -530,6 +582,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             env_map,
             &sandbox_config,
             timeout_secs,
+            ctx.cancellation_token.clone(),
         )
         .await
         {
@@ -957,30 +1010,6 @@ async fn exec_via_pty(
     Ok(result_text)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn exec_timeout_defaults_and_clamps_positive_values() {
-        assert_eq!(
-            parse_exec_timeout_secs(&json!({})),
-            DEFAULT_EXEC_TIMEOUT_SECS
-        );
-        assert_eq!(parse_exec_timeout_secs(&json!({ "timeout": 3600 })), 3600);
-        assert_eq!(
-            parse_exec_timeout_secs(&json!({ "timeout": 99_999 })),
-            MAX_EXEC_TIMEOUT_SECS
-        );
-    }
-
-    #[test]
-    fn exec_timeout_zero_means_unlimited() {
-        assert_eq!(parse_exec_timeout_secs(&json!({ "timeout": 0 })), 0);
-    }
-}
-
 /// Strip ANSI escape sequences from PTY output
 fn strip_ansi_escapes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
@@ -1024,4 +1053,28 @@ fn strip_ansi_escapes(s: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn exec_timeout_defaults_and_clamps_positive_values() {
+        assert_eq!(
+            parse_exec_timeout_secs(&json!({})),
+            DEFAULT_EXEC_TIMEOUT_SECS
+        );
+        assert_eq!(parse_exec_timeout_secs(&json!({ "timeout": 3600 })), 3600);
+        assert_eq!(
+            parse_exec_timeout_secs(&json!({ "timeout": 99_999 })),
+            MAX_EXEC_TIMEOUT_SECS
+        );
+    }
+
+    #[test]
+    fn exec_timeout_zero_means_unlimited() {
+        assert_eq!(parse_exec_timeout_secs(&json!({ "timeout": 0 })), 0);
+    }
 }

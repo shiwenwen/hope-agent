@@ -197,9 +197,9 @@ pub struct AsyncToolsConfig {
     /// Per-call `job_timeout_secs` can only tighten this limit, not extend it.
     #[serde(default = "default_async_max_job_secs")]
     pub max_job_secs: u64,
-    /// Number of result bytes to inline in the synthetic completion notification.
-    /// Larger results are spooled to `~/.hope-agent/async_jobs/<job_id>.txt`
-    /// and only a head/tail preview is injected. Default: 4096.
+    /// Number of result bytes to keep as the SQLite preview. Full completed
+    /// output is spooled to `~/.hope-agent/async_jobs/<job_id>.txt`; larger
+    /// previews use a head/tail shape. Default: 4096.
     #[serde(default = "default_async_inline_result_bytes")]
     pub inline_result_bytes: usize,
     /// Retention period for terminal async job rows + their spool files.
@@ -215,11 +215,11 @@ pub struct AsyncToolsConfig {
     /// started jobs whose DB row hasn't committed yet.
     #[serde(default = "default_async_orphan_grace_secs")]
     pub orphan_grace_secs: u64,
-    /// Absolute ceiling for a single `job_status(block=true)` wait, in
-    /// seconds. Used only when `max_job_secs == 0` (unlimited job runtime);
-    /// when `max_job_secs > 0` the ceiling equals `max_job_secs` so the
-    /// `job_status` cap never exceeds the job's own runtime cap. Default:
-    /// 7200 (2h).
+    /// Legacy ceiling for hidden `job_status(block=true)` waits. The
+    /// model-facing `job_status` schema is snapshot-only, and the tool applies
+    /// an additional short UI-safety cap so status polling cannot block a chat
+    /// turn for minutes. Used only when `max_job_secs == 0`; otherwise the
+    /// runtime ceiling still mirrors `max_job_secs`. Default: 7200 (2h).
     #[serde(default = "default_async_job_status_max_wait_secs")]
     pub job_status_max_wait_secs: u64,
 }
@@ -244,7 +244,8 @@ fn default_async_job_status_max_wait_secs() -> u64 {
 }
 
 impl AsyncToolsConfig {
-    /// Upper bound on a single `job_status(block=true)` wait, in seconds.
+    /// Runtime upper bound on a single hidden `job_status(block=true)` wait,
+    /// in seconds. The tool may apply a smaller UI-safety cap.
     /// Mirrors `max_job_secs` when it's positive; otherwise falls back to
     /// `job_status_max_wait_secs` (clamped to ≥ 1).
     pub fn job_status_ceiling_secs(&self) -> u64 {

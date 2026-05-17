@@ -229,7 +229,7 @@ impl ToolDefinition {
                 "run_in_background".to_string(),
                 json!({
                     "type": "boolean",
-                    "description": "Run in background and return immediately with a job_id. Set to true when: (1) the task is expected to take more than a few seconds (long builds, lengthy web searches, image generation, network-heavy operations), AND (2) you can make progress on other things while it runs, OR (3) the user explicitly asked you to continue working in parallel. Set to false (default) when you need the result to decide your very next step. Results are auto-injected into the conversation when ready; use job_status(job_id) only for a quick snapshot unless the user explicitly asked to wait."
+                    "description": "Run in background and return immediately with a job_id. Set to true when: (1) the task is expected to take more than a few seconds (long builds, lengthy web searches, image generation, network-heavy operations), AND (2) you can make progress on other things while it runs, OR (3) the user explicitly asked you to continue working in parallel. Set to false (default) when you need the result to decide your very next step. Results are auto-injected into the conversation as `<task-notification>` messages when ready; use job_status(job_id) only for a quick non-blocking snapshot."
                 }),
             );
         }

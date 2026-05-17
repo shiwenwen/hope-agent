@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 const DEFAULT_SANDBOX_IMAGE: &str = "debian:bookworm-slim";
 
@@ -274,6 +275,7 @@ pub async fn exec_in_sandbox(
     env: Option<&serde_json::Map<String, serde_json::Value>>,
     config: &SandboxConfig,
     timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
 ) -> Result<SandboxResult> {
     let docker = Docker::connect_with_local_defaults()
         .map_err(|e| anyhow::anyhow!("Cannot connect to Docker: {}. Is Docker running?", e))?;
@@ -431,75 +433,40 @@ pub async fn exec_in_sandbox(
 
     // Wait for container to finish. `timeout_secs = 0` disables the exec-level
     // timeout and lets Docker wait until the container exits naturally.
-    let (exit_code, timed_out) = if timeout_secs == 0 {
-        match wait_for_container(&docker, &container_id).await {
-            Ok(code) => (code, false),
-            Err(e) => {
-                app_warn!("sandbox", "docker", "Container wait error: {}", e);
-                // Try to stop and cleanup
-                if let Err(stop_err) = docker.stop_container(&container_id, None).await {
-                    app_warn!(
-                        "sandbox",
-                        "docker",
-                        "Failed to stop container {}: {}",
-                        crate::truncate_utf8(&container_id, 12),
-                        stop_err
-                    );
-                }
-                if let Err(cleanup_err) = cleanup_container(&docker, &container_id).await {
-                    app_warn!(
-                        "sandbox",
-                        "docker",
-                        "Failed to cleanup container {}: {}",
-                        crate::truncate_utf8(&container_id, 12),
-                        cleanup_err
-                    );
-                }
-                return Err(anyhow::anyhow!("Container execution failed: {}", e));
-            }
+    let (exit_code, timed_out) = match wait_for_container_with_limits(
+        &docker,
+        &container_id,
+        timeout_secs,
+        cancellation_token,
+    )
+    .await
+    {
+        SandboxWaitOutcome::Exited(Ok(code)) => (code, false),
+        SandboxWaitOutcome::Exited(Err(e)) => {
+            app_warn!("sandbox", "docker", "Container wait error: {}", e);
+            stop_and_cleanup_container(&docker, &container_id).await;
+            return Err(anyhow::anyhow!("Container execution failed: {}", e));
         }
-    } else {
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            wait_for_container(&docker, &container_id),
-        )
-        .await
-        {
-            Ok(Ok(code)) => (code, false),
-            Ok(Err(e)) => {
-                app_warn!("sandbox", "docker", "Container wait error: {}", e);
-                // Try to stop and cleanup
-                if let Err(stop_err) = docker.stop_container(&container_id, None).await {
-                    app_warn!(
-                        "sandbox",
-                        "docker",
-                        "Failed to stop container {}: {}",
-                        crate::truncate_utf8(&container_id, 12),
-                        stop_err
-                    );
-                }
-                if let Err(cleanup_err) = cleanup_container(&docker, &container_id).await {
-                    app_warn!(
-                        "sandbox",
-                        "docker",
-                        "Failed to cleanup container {}: {}",
-                        crate::truncate_utf8(&container_id, 12),
-                        cleanup_err
-                    );
-                }
-                return Err(anyhow::anyhow!("Container execution failed: {}", e));
-            }
-            Err(_) => {
-                // Timeout — kill the container
-                app_warn!(
-                    "sandbox",
-                    "docker",
-                    "Sandbox container timed out after {}s, killing...",
-                    timeout_secs
-                );
-                let _ = docker.stop_container(&container_id, None).await;
-                (-1, true)
-            }
+        SandboxWaitOutcome::TimedOut => {
+            app_warn!(
+                "sandbox",
+                "docker",
+                "Sandbox container timed out after {}s, killing...",
+                timeout_secs
+            );
+            let _ = docker.stop_container(&container_id, None).await;
+            (-1, true)
+        }
+        SandboxWaitOutcome::Cancelled => {
+            app_warn!(
+                "sandbox",
+                "docker",
+                "Sandbox container cancelled, killing {}...",
+                crate::truncate_utf8(&container_id, 12)
+            );
+            let _ = docker.stop_container(&container_id, None).await;
+            stop_and_cleanup_container(&docker, &container_id).await;
+            return Err(anyhow::anyhow!("Sandbox execution cancelled"));
         }
     };
 
@@ -539,6 +506,70 @@ async fn wait_for_container(docker: &Docker, container_id: &str) -> Result<i64> 
     }
 
     Err(anyhow::anyhow!("Container wait stream ended unexpectedly"))
+}
+
+enum SandboxWaitOutcome {
+    Exited(Result<i64>),
+    TimedOut,
+    Cancelled,
+}
+
+async fn wait_for_container_with_limits(
+    docker: &Docker,
+    container_id: &str,
+    timeout_secs: u64,
+    cancellation_token: Option<CancellationToken>,
+) -> SandboxWaitOutcome {
+    match (timeout_secs, cancellation_token) {
+        (0, None) => SandboxWaitOutcome::Exited(wait_for_container(docker, container_id).await),
+        (0, Some(token)) => {
+            tokio::select! {
+                result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
+                _ = token.cancelled() => SandboxWaitOutcome::Cancelled,
+            }
+        }
+        (secs, None) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(secs),
+                wait_for_container(docker, container_id),
+            )
+            .await
+            {
+                Ok(result) => SandboxWaitOutcome::Exited(result),
+                Err(_) => SandboxWaitOutcome::TimedOut,
+            }
+        }
+        (secs, Some(token)) => {
+            let timer = tokio::time::sleep(std::time::Duration::from_secs(secs));
+            tokio::pin!(timer);
+            tokio::select! {
+                result = wait_for_container(docker, container_id) => SandboxWaitOutcome::Exited(result),
+                _ = &mut timer => SandboxWaitOutcome::TimedOut,
+                _ = token.cancelled() => SandboxWaitOutcome::Cancelled,
+            }
+        }
+    }
+}
+
+async fn stop_and_cleanup_container(docker: &Docker, container_id: &str) {
+    if let Err(stop_err) = docker.stop_container(container_id, None).await {
+        app_warn!(
+            "sandbox",
+            "docker",
+            "Failed to stop container {}: {}",
+            crate::truncate_utf8(container_id, 12),
+            stop_err
+        );
+    }
+    if let Err(cleanup_err) = cleanup_container(docker, container_id).await {
+        app_warn!(
+            "sandbox",
+            "docker",
+            "Failed to cleanup container {}: {}",
+            crate::truncate_utf8(container_id, 12),
+            cleanup_err
+        );
+    }
 }
 
 /// Collect stdout and stderr logs from a container.

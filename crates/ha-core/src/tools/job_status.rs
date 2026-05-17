@@ -1,10 +1,10 @@
-//! `job_status` tool — snapshot or actively wait on an async tool job.
+//! `job_status` tool — snapshot an async tool job.
 //!
 //! Always available (deferred / discoverable via `tool_search`). Used by the
-//! model to block on a backgrounded tool call instead of waiting for the
-//! auto-injection. See [`crate::async_jobs::wait`] for the wait registry's
-//! invariants and [`crate::config::AsyncToolsConfig::job_status_ceiling_secs`]
-//! for the timeout cap rule.
+//! model for quick status checks while the real completion is delivered by
+//! `<task-notification>` auto-injection. The implementation still accepts a
+//! hidden `block=true` escape hatch for existing callers, but clamps it to a
+//! short wait so a status poll cannot hold the chat UI hostage.
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -14,7 +14,8 @@ use tokio::sync::Notify;
 
 use crate::async_jobs::{self, wait, AsyncJobStatus};
 
-const DEFAULT_WAIT_SECS: u64 = 60;
+const DEFAULT_WAIT_SECS: u64 = 5;
+const MAX_BLOCK_WAIT_SECS: u64 = 10;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
 
@@ -106,11 +107,12 @@ pub async fn tool_job_status(args: &Value) -> Result<String> {
 }
 
 fn compute_effective_timeout(requested_ms: Option<u64>) -> Duration {
-    let ceiling = crate::config::cached_config()
+    let configured_ceiling = crate::config::cached_config()
         .async_tools
         .job_status_ceiling_secs();
+    let ceiling = configured_ceiling.min(MAX_BLOCK_WAIT_SECS).max(1);
     let requested_secs = match requested_ms {
-        Some(ms) => (ms / 1000).max(1),
+        Some(ms) => ms.saturating_add(999).saturating_div(1000).max(1),
         None => DEFAULT_WAIT_SECS.min(ceiling),
     };
     Duration::from_secs(requested_secs.min(ceiling))
@@ -141,7 +143,7 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
                     map.insert("result_path".to_string(), json!(path));
                     map.insert(
                         "hint".to_string(),
-                        json!("Full result spooled to disk; use the read tool with result_path to load."),
+                        json!("Full result is saved on disk; use the read tool with result_path when you need the details."),
                     );
                 }
             }
@@ -156,7 +158,7 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
             AsyncJobStatus::Running => {
                 map.insert(
                     "hint".to_string(),
-                    json!("Job is still running. Continue with other work; the result will be auto-injected when ready. Use block=true only if the user explicitly asked to wait or your next answer depends on this result."),
+                    json!("Job is still running. Continue with other work; a task-notification will be auto-injected when ready."),
                 );
             }
             AsyncJobStatus::Cancelling => {
@@ -177,10 +179,9 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
         name: super::TOOL_JOB_STATUS.into(),
         description: "Inspect an async tool job created by `run_in_background: true` \
             or auto-backgrounded by the runtime. Use after the model received a synthetic \
-            `{job_id, status: \"started\"}` response from another tool. Prefer the default \
-            snapshot mode so the conversation can continue while the job runs. Set `block: true` \
-            only when the user explicitly asked to wait or the result is required for the very \
-            next answer; otherwise rely on auto-injection."
+            `{job_id, status: \"started\"}` response from another tool. This is a non-blocking \
+            snapshot tool; rely on the auto-injected `<task-notification>` for completion. Read \
+            `result_path`/`output-file` only when you need detailed output."
             .into(),
         tier: super::definitions::ToolTier::Core {
             subclass: super::definitions::CoreSubclass::Meta,
@@ -194,15 +195,6 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
                 "job_id": {
                     "type": "string",
                     "description": "The job id returned in the synthetic tool response (e.g. 'job_<uuid>')."
-                },
-                "block": {
-                    "type": "boolean",
-                    "description": "Default false returns a non-blocking snapshot. Set true only if you must wait in this turn; it keeps the chat turn active until completion or timeout_ms."
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "description": "Max milliseconds to wait when block=true. Defaults to 60000ms. Values above the runtime cap are clamped.",
-                    "minimum": 1
                 }
             },
             "required": ["job_id"],
