@@ -21,38 +21,6 @@ use std::sync::Arc;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // Process-scoped flag — applied before subcommand dispatch so it
-    // wins even if the user puts it after `server`.
-    if args.iter().any(|a| a == "--dangerously-skip-all-approvals") {
-        ha_core::security::dangerous::set_cli_flag(true);
-        eprintln!(
-            "[!] DANGEROUS MODE: all tool approvals will be skipped (CLI flag, this launch only)"
-        );
-    }
-
-    // Headless auto-approve: same effect as ticking "auto approve tools" on
-    // every chat the HTTP route opens — the permission engine still runs
-    // (so dangerous-commands, plan-mode ask, protected paths all stay
-    // enforced), just the `auto_approve_tools` switch goes through. Narrower
-    // than `--dangerously-skip-all-approvals`. Env var lets Docker /
-    // systemd users opt in without rewriting the entrypoint.
-    let env_enabled = std::env::var(ha_server::auto_approve::ENV_VAR)
-        .map(|v| ha_server::auto_approve::env_truthy(&v))
-        .unwrap_or(false);
-    let cli_enabled = args.iter().any(|a| a == ha_server::auto_approve::FLAG);
-    if env_enabled || cli_enabled {
-        ha_server::auto_approve::set_active(true);
-        let source = if cli_enabled { "CLI flag" } else { "env" };
-        eprintln!(
-            "[!] AUTO-APPROVE MODE ({source}): HTTP chat will auto-approve every tool call \
-             (engine gates still enforced; this launch only)"
-        );
-        // The stderr banner reaches `docker logs` / journalctl, but it
-        // doesn't reach `~/.hope-agent/logs.db` — the canonical surface
-        // for agent self-diagnosis. Logging here would race with
-        // `init_runtime`; see `run_server` for the post-init log call.
-    }
-
     if args.iter().any(|a| a == "--version") {
         println!("hope-agent {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -60,6 +28,11 @@ fn main() {
 
     // `hope-agent server [sub] [opts...]`
     if args.len() >= 2 && args[1] == "server" {
+        // Flag detection lives inside the `server` branch so plain
+        // `hope-agent --help` (or anything without `server`) never prints
+        // the auto-approve / dangerous-mode banner, even when the
+        // matching env var is exported.
+        apply_server_process_flags(&args);
         let sub = args.get(2).map(|s| s.as_str()).unwrap_or("");
         match sub {
             // No sub or explicit `start` → run the server. Flags either
@@ -93,6 +66,43 @@ fn main() {
     }
 
     print_top_help();
+}
+
+/// Detect the two process-scoped permission flags
+/// (`--dangerously-skip-all-approvals` / `--auto-approve-tools` +
+/// `HA_SERVER_AUTO_APPROVE_TOOLS`) and emit their stderr banners. Called
+/// only from inside the `server` subcommand branch so plain `--help` /
+/// `--version` invocations stay quiet even if the env var is exported.
+fn apply_server_process_flags(args: &[String]) {
+    if args.iter().any(|a| a == "--dangerously-skip-all-approvals") {
+        ha_core::security::dangerous::set_cli_flag(true);
+        eprintln!(
+            "[!] DANGEROUS MODE: all tool approvals will be skipped (CLI flag, this launch only)"
+        );
+    }
+
+    // Headless auto-approve: same effect as ticking "auto approve tools"
+    // on every chat the HTTP route opens — the permission engine still
+    // runs (so dangerous-commands, plan-mode ask, protected paths all
+    // stay enforced), just the `auto_approve_tools` switch goes through.
+    // Narrower than `--dangerously-skip-all-approvals`. Env var lets
+    // Docker / systemd users opt in without rewriting the entrypoint.
+    let env_enabled = std::env::var(ha_server::auto_approve::ENV_VAR)
+        .map(|v| ha_server::auto_approve::env_truthy(&v))
+        .unwrap_or(false);
+    let cli_enabled = args.iter().any(|a| a == ha_server::auto_approve::FLAG);
+    if env_enabled || cli_enabled {
+        ha_server::auto_approve::set_active(true);
+        let source = if cli_enabled { "CLI flag" } else { "env" };
+        eprintln!(
+            "[!] AUTO-APPROVE MODE ({source}): HTTP chat will auto-approve every tool call \
+             (engine gates still enforced; this launch only)"
+        );
+        // The stderr banner reaches `docker logs` / journalctl, but it
+        // doesn't reach `~/.hope-agent/logs.db` — the canonical surface
+        // for agent self-diagnosis. Logging here would race with
+        // `init_runtime`; see `run_server` for the post-init log call.
+    }
 }
 
 fn print_top_help() {

@@ -42,16 +42,23 @@ fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingTex
 }
 
 /// Throttle for the "you have N pending approvals" hint — one nudge per
-/// (account, chat) per [`HINT_THROTTLE`]. Backed by [`TtlCache`] so stale
-/// entries auto-expire (bounded memory across long-lived IM deployments).
-/// Capacity 1024 is generous for any plausible per-process chat count.
+/// (account, chat) per the configured interval (see
+/// `permission.imApprovalHintThrottleSecs`, default 60s). Backed by
+/// [`TtlCache`] so stale entries auto-expire (bounded memory across
+/// long-lived IM deployments). Capacity 1024 is generous for any
+/// plausible per-process chat count.
 static HINT_THROTTLE_CACHE: OnceLock<TtlCache<(String, String), ()>> = OnceLock::new();
 
 fn get_hint_throttle() -> &'static TtlCache<(String, String), ()> {
     HINT_THROTTLE_CACHE.get_or_init(|| TtlCache::new(1024))
 }
 
-const HINT_THROTTLE: Duration = Duration::from_secs(60);
+fn hint_throttle_duration() -> Duration {
+    let secs = crate::config::cached_config()
+        .permission
+        .im_approval_hint_throttle_secs;
+    Duration::from_secs(secs)
+}
 
 /// Remove any in-memory pending text-reply state for `request_id`. Called by
 /// the tool execution path when an approval is timed out / cancelled /
@@ -206,22 +213,47 @@ fn parse_approval_reply(raw: &str) -> Option<ParsedReply<'_>> {
     };
     // Whitelist is pure ASCII + CJK; CJK has no case variants and
     // `to_ascii_lowercase` is allocation-free for already-lowercase input,
-    // so this is both correct and cheaper than `to_lowercase`.
+    // so this is both correct and cheaper than `to_lowercase`. AllowAlways
+    // is checked first so `"yes always"` doesn't get eaten by the
+    // `"yes"` arm in AllowOnce.
     let lower = verb_part.to_ascii_lowercase();
-    let response = match lower.as_str() {
-        "2" | "a" | "always" | "yes always" | "yesalways" | "总是" | "总是允许" | "永远"
-        | "始终" => ApprovalResponse::AllowAlways,
-        "1" | "y" | "yes" | "ok" | "okay" | "allow" | "approve" | "好" | "好的" | "同意"
-        | "允许" | "可以" | "行" => ApprovalResponse::AllowOnce,
-        "3" | "n" | "no" | "deny" | "block" | "stop" | "cancel" | "不" | "不行" | "拒绝" | "否"
-        | "取消" => ApprovalResponse::Deny,
-        _ => return None,
+    let response = if ALLOW_ALWAYS_ALIASES.contains(&lower.as_str()) {
+        ApprovalResponse::AllowAlways
+    } else if ALLOW_ONCE_ALIASES.contains(&lower.as_str()) {
+        ApprovalResponse::AllowOnce
+    } else if DENY_ALIASES.contains(&lower.as_str()) {
+        ApprovalResponse::Deny
+    } else {
+        return None;
     };
     Some(ParsedReply {
         response,
         id_suffix,
     })
 }
+
+/// `AllowAlways` aliases. Matched **before** [`ALLOW_ONCE_ALIASES`] so
+/// `"yes always"` doesn't get eaten by the AllowOnce `"yes"` entry.
+/// Adding a language (jp / ko / es / …) is one line per array.
+const ALLOW_ALWAYS_ALIASES: &[&str] = &[
+    "2",
+    "a",
+    "always",
+    "yes always",
+    "yesalways",
+    "总是",
+    "总是允许",
+    "永远",
+    "始终",
+];
+
+const ALLOW_ONCE_ALIASES: &[&str] = &[
+    "1", "y", "yes", "ok", "okay", "allow", "approve", "好", "好的", "同意", "允许", "可以", "行",
+];
+
+const DENY_ALIASES: &[&str] = &[
+    "3", "n", "no", "deny", "block", "stop", "cancel", "不", "不行", "拒绝", "否", "取消",
+];
 
 // ── Shared callback handler (eliminates boilerplate in channel plugins) ──
 
@@ -488,7 +520,9 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
     };
 
     let key = (msg.account_id.clone(), msg.chat_id.clone());
-    let request_id = {
+    // Snapshot the available tags before popping so we can build a
+    // helpful "did you mean" reply when the suffix doesn't match.
+    let (popped, available_tags) = {
         let mut pending = get_text_pending().lock().await;
         let Some(list) = pending.get_mut(&key) else {
             return false;
@@ -508,16 +542,29 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
                 .map(|idx| list.remove(idx)),
             None => list.pop(),
         };
-        let Some(entry) = popped else {
-            // Suffix provided but no pending entry matched. Treat as a
-            // non-approval message so the user's typo doesn't get eaten.
-            return false;
-        };
+        let tags: Vec<String> = list
+            .iter()
+            .map(|entry| id_tag(&entry.request_id).to_string())
+            .collect();
         if list.is_empty() {
             pending.remove(&key);
         }
-        entry.request_id
+        (popped, tags)
     };
+
+    let Some(entry) = popped else {
+        // Suffix typo: the user clearly tried to reply to an approval
+        // (verb parsed, `#<tag>` provided) but the tag doesn't match any
+        // pending entry. Consume the message and tell them which tags are
+        // valid — falling through to a fresh chat turn would silently
+        // route the typo to the LLM and leave the approval pending.
+        if let Some(target) = parsed.id_suffix {
+            send_suffix_mismatch_notice(msg, target, &available_tags).await;
+            return true;
+        }
+        return false;
+    };
+    let request_id = entry.request_id;
 
     match submit_approval_response(&request_id, parsed.response).await {
         Ok(()) => true,
@@ -534,10 +581,59 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
     }
 }
 
+/// Tell the user their `#<tag>` suffix didn't match any pending approval.
+/// Lists the tags that ARE pending so the typo is fixable in one message.
+async fn send_suffix_mismatch_notice(
+    msg: &crate::channel::types::MsgContext,
+    target: &str,
+    available_tags: &[String],
+) {
+    let store = crate::config::cached_config();
+    let Some(account_config) = store.channels.find_account(&msg.account_id).cloned() else {
+        return;
+    };
+    let body = if available_tags.is_empty() {
+        // Race: pending was popped between parse and our reply. Don't
+        // surface a misleading "available tags: <none>" string.
+        format!("ℹ️ Tag `#{target}` doesn't match any pending approval (it may have just been answered or timed out).")
+    } else {
+        let tag_list = available_tags
+            .iter()
+            .map(|t| format!("`#{t}`"))
+            .collect::<Vec<_>>()
+            .join(" / ");
+        format!(
+            "ℹ️ Tag `#{target}` doesn't match any pending approval. Currently pending: {tag_list}. Reply e.g. `yes#{first}` or `no#{first}`.",
+            first = available_tags[0]
+        )
+    };
+    let registry = match crate::globals::get_channel_registry() {
+        Some(r) => r,
+        None => return,
+    };
+    let payload = ReplyPayload {
+        text: Some(body),
+        thread_id: msg.thread_id.clone(),
+        ..ReplyPayload::text("")
+    };
+    if let Err(e) = registry
+        .send_reply(&account_config, &msg.chat_id, &payload)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "approval",
+            "Failed to send suffix-mismatch notice: {}",
+            e
+        );
+    }
+}
+
 /// Best-effort nudge for users whose chat has pending text-mode approvals
 /// but who sent something that isn't a reply (e.g. a fresh question while
 /// the approval prompt is still up). Sends one line per (account, chat)
-/// per [`HINT_THROTTLE`], not on every non-matching message.
+/// per [`hint_throttle_duration`] (configurable), not on every non-
+/// matching message.
 ///
 /// No-op for accounts on button-capable channels (they never have entries
 /// in `TEXT_PENDING`). Called by the dispatcher after
@@ -560,7 +656,7 @@ pub async fn maybe_send_pending_hint(
     // `TtlCache` bounds memory (capacity 1024) so long-running IM
     // deployments don't accumulate one entry per ever-seen (account, chat).
     let throttle = get_hint_throttle();
-    if throttle.get(&key, HINT_THROTTLE).is_some() {
+    if throttle.get(&key, hint_throttle_duration()).is_some() {
         return;
     }
     throttle.put(key, ());
