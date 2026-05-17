@@ -180,8 +180,28 @@ pub struct ToolExecContext {
     /// for the bundled plan agent so a planning subagent can't run shell
     /// commands without confirmation.
     pub plan_mode_ask_tools: Vec<String>,
-    /// When true, automatically approve all tool calls (IM channel auto-approve mode).
+    /// When true, automatically approve all tool calls — skips BOTH the
+    /// permission-engine gate AND the `exec` command-level gate. Set by the
+    /// IM channel auto-approve account flag and by skill-triggered slash
+    /// commands (the user has out-of-band authorized everything that path
+    /// will run). **Do not** set this for internal re-entries that only mean
+    /// "the engine already ran at the outer dispatch" — use
+    /// [`Self::external_pre_approved`] instead, otherwise `exec` will
+    /// silently bypass its dangerous/edit-command audits.
     pub auto_approve_tools: bool,
+    /// Set by the async-job spawner / auto-bg helper to mark that the
+    /// permission engine gate (see [`needs_permission_engine`]) was already
+    /// satisfied at the outer dispatch. Inner re-entries skip the engine
+    /// gate but **still run command-level gates** (notably `exec`'s
+    /// dangerous/edit-command + AllowAlways audit), because for the `exec`
+    /// tool those gates are intentionally bypassed at the outer engine layer
+    /// (`needs_permission_engine` excludes `TOOL_EXEC`) and `exec` is
+    /// expected to run them itself.
+    ///
+    /// Differs from [`Self::auto_approve_tools`], which means "skip ALL
+    /// approval gates including command-level" and is set only by IM
+    /// auto-approve accounts or slash-skill execution.
+    pub external_pre_approved: bool,
     /// Per-session permission mode (Default / Smart / Yolo). Resolved from the
     /// `sessions.permission_mode` column at agent build time. The engine
     /// consumes this together with `global_yolo` to decide approval behavior.
@@ -231,6 +251,32 @@ pub struct ToolExecContext {
 }
 
 impl ToolExecContext {
+    /// True when either local gate-skip flag is set (`auto_approve_tools`
+    /// from IM auto-approve accounts / slash-skill execution, or
+    /// `external_pre_approved` from async-job re-entry). Callers that need
+    /// the full effective verdict still need to OR in
+    /// `mcp_tool_auto_approves(name).await` — that one is async-only and
+    /// can't fold into a sync method.
+    #[inline]
+    pub fn local_auto_approve(&self) -> bool {
+        self.auto_approve_tools || self.external_pre_approved
+    }
+
+    /// True when `exec` must run its command-level audit (dangerous-commands
+    /// + edit-commands + AllowAlways prefix). Only `auto_approve_tools`
+    /// bypasses this — `external_pre_approved` deliberately does NOT,
+    /// because the outer engine gate excludes `TOOL_EXEC` and this audit is
+    /// `exec`'s only safeguard against dangerous patterns when the call is
+    /// re-dispatched through the async-job spawner / auto-bg helper.
+    ///
+    /// Changing this read site without also updating
+    /// [`Self::auto_approve_tools`] / [`Self::external_pre_approved`] doc
+    /// is a security regression.
+    #[inline]
+    pub fn should_run_exec_command_gate(&self) -> bool {
+        !self.auto_approve_tools
+    }
+
     /// Returns the default path for path-aware tools: session working dir,
     /// then agent home, then ".".
     pub fn default_path(&self) -> &str {
@@ -529,7 +575,12 @@ pub async fn execute_tool_with_context(
     //   - the tool is `exec` (which usually skips the engine for its own
     //     command-level prefix gate; in Plan Mode the engine's
     //     plan-mode-ask path takes precedence).
-    let effective_auto_approve = ctx.auto_approve_tools || mcp_tool_auto_approves(name).await;
+    // `external_pre_approved` only suppresses re-entry into the engine gate —
+    // it does NOT pierce `exec`'s command-level audit (exec.rs reads
+    // `auto_approve_tools` directly via `should_run_exec_command_gate`).
+    // `auto_approve_tools` continues to mean "skip everything" for IM
+    // auto-approve accounts and skill-triggered slash commands.
+    let effective_auto_approve = ctx.local_auto_approve() || mcp_tool_auto_approves(name).await;
     let needs_engine = needs_permission_engine(name, args, ctx, effective_auto_approve);
     if needs_engine {
         let decision =
@@ -691,8 +742,14 @@ pub async fn execute_tool_with_context(
         let mut inner_ctx = ctx.clone();
         inner_ctx.bypass_async_dispatch = true;
         inner_ctx.suppress_global_tool_timeout = true;
-        // Approval already ran at this outer layer — silence the inner re-entry.
-        inner_ctx.auto_approve_tools = true;
+        // The engine gate either ran (for non-exec tools) or was deliberately
+        // skipped (`exec` is always excluded from the outer engine gate and
+        // runs its command-level audit instead). Tell the recursive inner
+        // dispatch "engine already handled" so it doesn't double-prompt the
+        // user — but **do not** flip `auto_approve_tools`, which would also
+        // bypass `exec`'s command-level dangerous/edit audit and let any
+        // shell command run silently as long as it's async-eligible.
+        inner_ctx.external_pre_approved = true;
         let raw =
             async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
         // The inner worker suppresses generic disk persistence so detached jobs
@@ -1368,5 +1425,127 @@ mod tests {
         };
 
         assert!(needs_permission_engine(&tool, &json!({}), &ctx, true));
+    }
+
+    // ── Regression: `external_pre_approved` vs `auto_approve_tools` split ──
+    //
+    // Before the split there was a single `auto_approve_tools` flag used both
+    // by IM auto-approve accounts ("skip ALL gates") and by async-job
+    // re-entry helpers ("engine already ran outside"). For `exec` the
+    // re-entry meaning was wrong — the outer engine gate intentionally
+    // excludes `TOOL_EXEC` (see `needs_permission_engine`), so flipping
+    // `auto_approve_tools=true` on re-entry let `exec` silently bypass its
+    // own command-level dangerous/edit audit. These tests pin the new
+    // contract: `external_pre_approved` only suppresses the engine gate,
+    // never the per-tool command-level gate.
+
+    #[test]
+    fn external_pre_approved_skips_engine_for_non_exec() {
+        let ctx = ToolExecContext {
+            external_pre_approved: true,
+            ..ToolExecContext::default()
+        };
+        assert!(ctx.local_auto_approve());
+        assert!(!needs_permission_engine(
+            "read",
+            &json!({"path": "/tmp/x"}),
+            &ctx,
+            ctx.local_auto_approve()
+        ));
+    }
+
+    #[test]
+    fn external_pre_approved_does_not_pierce_exec_command_gate() {
+        // Core regression: even with `external_pre_approved=true` the
+        // command-level audit (dangerous/edit-commands + AllowAlways prefix)
+        // must still run inside `exec::tool_exec`.
+        let ctx = ToolExecContext {
+            external_pre_approved: true,
+            auto_approve_tools: false,
+            ..ToolExecContext::default()
+        };
+        assert!(
+            ctx.should_run_exec_command_gate(),
+            "external_pre_approved must NOT bypass exec command-level audit"
+        );
+    }
+
+    #[test]
+    fn auto_approve_tools_pierces_exec_command_gate() {
+        // IM auto-approve account / skill-triggered slash command behavior:
+        // `auto_approve_tools=true` legitimately bypasses every gate
+        // including the exec command-level audit.
+        let ctx = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        assert!(
+            !ctx.should_run_exec_command_gate(),
+            "IM auto-approve behavior regression"
+        );
+    }
+
+    #[test]
+    fn plan_mode_ask_tools_pierces_external_pre_approved_for_exec() {
+        // Plan Mode `ask_tools` user-sovereignty contract: even if a recursive
+        // inner dispatch claims "engine already ran outside", Plan Mode forces
+        // the engine to re-prompt because the outer turn's plan agent had
+        // already decided this tool must always ask.
+        let ctx = ToolExecContext {
+            external_pre_approved: true,
+            plan_mode_allowed_tools: vec!["exec".to_string()],
+            plan_mode_ask_tools: vec!["exec".to_string()],
+            ..ToolExecContext::default()
+        };
+        assert!(needs_permission_engine(
+            "exec",
+            &json!({"command": "ls"}),
+            &ctx,
+            ctx.local_auto_approve()
+        ));
+    }
+
+    #[test]
+    fn plan_mode_ask_tools_pierces_auto_approve_tools_for_exec() {
+        let ctx = ToolExecContext {
+            auto_approve_tools: true,
+            plan_mode_allowed_tools: vec!["exec".to_string()],
+            plan_mode_ask_tools: vec!["exec".to_string()],
+            ..ToolExecContext::default()
+        };
+        assert!(needs_permission_engine(
+            "exec",
+            &json!({"command": "ls"}),
+            &ctx,
+            ctx.local_auto_approve()
+        ));
+    }
+
+    #[test]
+    fn async_spawn_keeps_exec_command_gate() {
+        // Pins the spawn.rs / auto-bg helper contract: when re-dispatching
+        // into the OS-thread runtime, only `external_pre_approved` may be
+        // flipped to silence the engine re-entry; `auto_approve_tools` must
+        // stay false so the command-level audit still catches things like
+        // `git push --force` or `rm -rf /`.
+        let inner_ctx = ToolExecContext {
+            bypass_async_dispatch: true,
+            external_pre_approved: true,
+            // auto_approve_tools intentionally NOT touched
+            ..ToolExecContext::default()
+        };
+        assert!(
+            inner_ctx.should_run_exec_command_gate(),
+            "async spawn must NOT flip auto_approve_tools — that was the original CVE-class bug"
+        );
+        // Engine gate skipped on re-entry (exec was already excluded from the
+        // outer engine gate; the load-bearing guarantee is the command-level
+        // audit above still fires).
+        assert!(!needs_permission_engine(
+            "exec",
+            &json!({"command": "rm -rf /"}),
+            &inner_ctx,
+            inner_ctx.local_auto_approve()
+        ));
     }
 }

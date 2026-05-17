@@ -970,6 +970,23 @@
 
 ---
 
+### F-105 `mcp_tool_auto_approves` sync 短路应提到调用点
+
+- **来源**：2026-05-17 `fix-approval-gate-split-field` PR `/simplify` review（efficiency agent）
+- **现象**：[`tools/execution.rs::mcp_tool_auto_approves`](../../crates/ha-core/src/tools/execution.rs) 第一件事就是 `is_mcp_tool_name(name)` 同步早返回，但这个早返回被埋在 `async fn` 里。`execute_tool_with_context` 每次 dispatch 调 `ctx.local_auto_approve() || mcp_tool_auto_approves(name).await`，**当前两个 bool 都 false 时**（desktop Default 模式常态）仍然要构造 future + poll，且 `mcp_tool_auto_approves` 内部连续拿两把 async `RwLock`（`McpManager` + `handle.config`）。
+- **为什么留**：本 PR 主线是修审批 bug，挪 sync 早返回属于独立性能优化；预存量问题（不是 PR 引入）。
+- **改的话要做什么**：把 `is_mcp_tool_name` 这一层 sync 检查提到调用点：
+  ```rust
+  let mcp_aa = crate::mcp::catalog::is_mcp_tool_name(name)
+      && mcp_tool_auto_approves(name).await;
+  let effective_auto_approve = ctx.local_auto_approve() || mcp_aa;
+  ```
+  非 MCP 工具（read/write/edit/exec/grep…，占绝大多数 dispatch）连 future 都不构造。进一步可给 `(server_id → auto_approve_resolved)` 加 `ArcSwap` 缓存避免每次拿 RwLock，但属于另一个 PR。
+- **影响面**：tool dispatch hot path 单次 ~纳秒级 future 构造开销 × 高频；正确性无影响。
+- **触发时机建议**：下次动 `tools/execution.rs` 或做 MCP 性能优化时顺手。
+
+---
+
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
