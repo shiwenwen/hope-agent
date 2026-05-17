@@ -515,12 +515,12 @@ export default function MessageList({
     // effect, the listeners would stay bound to the old (detached) DOM node.
   }, [sessionKey, hasMore, loadingMore, onLoadMore, updateCompactUserAnchor])
 
-  // forceFollow on lastUserKey change (user sent a new message): scroll the
-  // user bubble into view and re-arm follow-bottom so the assistant stream tails.
+  // forceFollow on lastUserKey change (user sent a new message): jump to the
+  // live tail and re-arm follow-bottom so the assistant stream stays visible.
   const lastUserKey = useMemo(() => getLatestUserTurnKey(messages), [messages])
   const lastSeenUserKeyRef = useRef<string | null>(lastUserKey)
   const lastSeenUserSessionRef = useRef(sessionKey)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (lastSeenUserSessionRef.current !== sessionKey) {
       lastSeenUserSessionRef.current = sessionKey
       lastSeenUserKeyRef.current = lastUserKey
@@ -542,17 +542,14 @@ export default function MessageList({
 
     const el = containerRef.current
     if (!el) return
-    // User just sent a message — they want to see the response stream in.
+    // User just sent a message — they want the latest turn, not the historic
+    // scroll position. Use an immediate jump so generated smooth-scroll
+    // events cannot briefly mark us as "not at bottom" and disable tailing.
     // Clear any prior scroll-lock from earlier history reading.
     userScrollLockRef.current = false
     atBottomRef.current = true
     setAtBottom(true)
-    const target = findMessageRowByKey(el, getMessageRowKey(msgs[userIdx], userIdx))
-    if (target) {
-      target.scrollIntoView({ block: "start", behavior: "smooth" })
-    } else {
-      el.scrollTop = el.scrollHeight
-    }
+    el.scrollTop = el.scrollHeight
   }, [lastUserKey, sessionKey])
 
   // Search-result jump: scroll target dbId into view + 2s highlight pulse.

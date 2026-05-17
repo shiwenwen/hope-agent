@@ -35,6 +35,7 @@ import {
 } from "lucide-react"
 import "streamdown/styles.css"
 import i18next from "i18next"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
@@ -108,17 +109,43 @@ const linkSafetyDisabled = { enabled: false as const }
 // HTTP/server 模式 `supportsLocalFileOps()` 为 false 时禁用点击，避免在 server
 // 主机上误开文件。非本地链接走 `openExternalUrl`（含 `window.open` fallback）。
 //
-// 只识别 Unix-style `/` / `~/` 前缀：streamdown 用固定 defaultSchema 的
-// rehype-sanitize，`file://` 和 Windows `C:\` 路径会在 sanitize 阶段被剥
-// href，永远到不了这里，识别它们没意义还会误导读代码的人。
-function isLocalPath(href: string | undefined): href is string {
-  return !!href && (href.startsWith("/") || href.startsWith("~/"))
+// 只承诺 Unix-style `/` / `~/` 前缀：streamdown 用固定 defaultSchema 的
+// rehype-sanitize，Windows `C:\` 路径会在 sanitize 阶段被剥 href，永远
+// 到不了这里。Tauri/WebKit 有时会把 `/Users/...` 暴露成同源绝对 URL
+// (`http://tauri.localhost/Users/...` / dev server origin)，所以点击前统一
+// 还原成本机路径。
+function localPathFromHref(href: string | undefined): string | null {
+  if (!href) return null
+  if (href.startsWith("/") || href.startsWith("~/")) return normalizeLocalPath(href)
+
+  try {
+    const url = new URL(href)
+    const sameOrigin =
+      typeof window !== "undefined" &&
+      window.location?.origin &&
+      url.origin === window.location.origin
+    if ((sameOrigin || url.hostname === "tauri.localhost") && url.pathname.startsWith("/")) {
+      return normalizeLocalPath(`${url.pathname}${url.hash}`)
+    }
+    if (url.protocol === "file:" && url.pathname.startsWith("/")) {
+      return normalizeLocalPath(`${url.pathname}${url.hash}`)
+    }
+  } catch {
+    // Not an absolute URL; fall through to regular link handling.
+  }
+
+  return null
 }
 
 // 剥掉 GitHub 风格 `#L<line>` 锚点。v1 不接 IDE 协议，行号会被丢，至少
 // 保证 `open::that()` 拿到的是干净路径不会失败。
 function normalizeLocalPath(href: string): string {
-  return href.replace(/#L\d+(-L?\d+)?$/, "")
+  const withoutLineAnchor = href.replace(/#L\d+(-L?\d+)?$/, "")
+  try {
+    return decodeURI(withoutLineAnchor)
+  } catch {
+    return withoutLineAnchor
+  }
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -292,9 +319,9 @@ export function MarkdownLink({
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const isIncomplete = href === "streamdown:incomplete-link"
-  const local = isLocalPath(href)
-  const disabledLocal = local && !getTransport().supportsLocalFileOps()
-  const linkIcon = linkIconForHref(href, local)
+  const localPath = localPathFromHref(href)
+  const disabledLocal = localPath !== null && !getTransport().supportsLocalFileOps()
+  const linkIcon = linkIconForHref(href, localPath !== null)
   const LinkIcon = linkIcon?.Icon
   // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百
   // anchor，包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。Markdown
@@ -316,10 +343,13 @@ export function MarkdownLink({
         if (!href || isIncomplete) return
         event.preventDefault()
         if (disabledLocal) return
-        if (local) {
+        if (localPath) {
           void getTransport()
-            .call("open_directory", { path: normalizeLocalPath(href) })
-            .catch(() => {})
+            .call("open_directory", { path: localPath })
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : String(error)
+              toast.error(message)
+            })
         } else {
           openExternalUrl(href)
         }

@@ -807,7 +807,31 @@ mod platform {
         check_item(def.id)
     }
 
+    fn running_from_app_bundle() -> bool {
+        std::env::current_exe()
+            .ok()
+            .is_some_and(|exe| path_is_in_app_bundle(&exe))
+    }
+
+    fn path_is_in_app_bundle(path: &Path) -> bool {
+        path.ancestors().any(|ancestor| {
+            ancestor
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+        })
+    }
+
     fn notification_status() -> SystemPermissionStatus {
+        // `UNUserNotificationCenter.currentNotificationCenter()` raises an
+        // Objective-C NSException when the process is a bare debug binary
+        // (`target/debug/hope-agent`) instead of a real `.app` bundle. Rust
+        // cannot catch that exception, so skip the native query in unbundled
+        // dev/CLI contexts and let the UI present this as a manual check.
+        if !running_from_app_bundle() {
+            return SystemPermissionStatus::ManualCheck;
+        }
+
         let Some(cls) = objc_class(c"UNUserNotificationCenter") else {
             return SystemPermissionStatus::NotApplicable;
         };
@@ -886,6 +910,29 @@ mod platform {
             ),
         };
         let _ = Command::new("open").arg(url).spawn();
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::path_is_in_app_bundle;
+        use std::path::Path;
+
+        #[test]
+        fn detects_executable_inside_app_bundle() {
+            assert!(path_is_in_app_bundle(Path::new(
+                "/Applications/Hope Agent.app/Contents/MacOS/hope-agent"
+            )));
+            assert!(path_is_in_app_bundle(Path::new(
+                "/tmp/target/debug/bundle/macos/Hope Agent.app/Contents/MacOS/hope-agent"
+            )));
+        }
+
+        #[test]
+        fn rejects_bare_debug_executable() {
+            assert!(!path_is_in_app_bundle(Path::new(
+                "/Users/me/Codes/hope-agent/target/debug/hope-agent"
+            )));
+        }
     }
 }
 

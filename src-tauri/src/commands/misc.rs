@@ -1,34 +1,37 @@
 use crate::commands::CmdError;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use std::path::Path;
 use tauri;
+
+fn resolve_user_path(path: String) -> String {
+    if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]).to_string_lossy().to_string();
+        }
+    }
+    path
+}
+
+fn ensure_existing_path(path: &str) -> Result<(), CmdError> {
+    if Path::new(path).exists() {
+        Ok(())
+    } else {
+        Err(CmdError::from(anyhow!("Path does not exist: {}", path)))
+    }
+}
 
 #[tauri::command]
 pub async fn open_directory(path: String) -> Result<(), CmdError> {
-    // Resolve ~ to home directory
-    let resolved = if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            home.join(&path[2..]).to_string_lossy().to_string()
-        } else {
-            path
-        }
-    } else {
-        path
-    };
+    let resolved = resolve_user_path(path);
+    ensure_existing_path(&resolved)?;
     open::that(&resolved).context("Failed to open directory")?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn reveal_in_folder(path: String) -> Result<(), CmdError> {
-    let resolved = if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            home.join(&path[2..]).to_string_lossy().to_string()
-        } else {
-            path
-        }
-    } else {
-        path
-    };
+    let resolved = resolve_user_path(path);
+    ensure_existing_path(&resolved)?;
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
