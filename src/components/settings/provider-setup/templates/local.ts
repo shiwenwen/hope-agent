@@ -15,7 +15,7 @@ export const localTemplates: ProviderTemplate[] = [
       {
         id: "your-model-id",
         name: "Your Model",
-        inputTypes: ["text"],
+        inputTypes: [],
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: false,
@@ -99,7 +99,7 @@ export const localTemplates: ProviderTemplate[] = [
       {
         id: "your-model-id",
         name: "Your Model",
-        inputTypes: ["text"],
+        inputTypes: [],
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: false,
@@ -121,7 +121,7 @@ export const localTemplates: ProviderTemplate[] = [
       {
         id: "your-model-id",
         name: "Your Model",
-        inputTypes: ["text"],
+        inputTypes: [],
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: false,
@@ -143,7 +143,7 @@ export const localTemplates: ProviderTemplate[] = [
       {
         id: "your-model-id",
         name: "Your Model",
-        inputTypes: ["text"],
+        inputTypes: [],
         contextWindow: 128000,
         maxTokens: 8192,
         reasoning: false,

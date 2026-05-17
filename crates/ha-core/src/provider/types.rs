@@ -101,7 +101,12 @@ pub struct ModelConfig {
 }
 
 fn default_input_types() -> Vec<String> {
-    vec!["text".to_string()]
+    // Empty = "unconfigured" — distinct from a deliberate text-only pick,
+    // which is represented by a populated list that lacks `image`. New
+    // model entries default to this so the absence of explicit capability
+    // info doesn't get conflated with `["text"]` (which is now an
+    // intentional opt-out).
+    Vec::new()
 }
 
 fn default_context_window() -> u32 {
@@ -315,26 +320,19 @@ impl ProviderConfig {
 
     /// Whether the given model accepts image input.
     ///
-    /// `["text"]` and the empty list are both ambiguous: they're the
-    /// serde / wizard defaults that get carried over from legacy configs
-    /// where the user never picked a value, so we can't tell them apart
-    /// from a deliberate text-only choice. Treat both as unknown (assume
-    /// vision) and let the API be authoritative — runtime retry in the
-    /// OpenAI Chat adapter catches the rejection and folds the next round
-    /// to text. Only an `input_types` list that's been populated with
-    /// something specific (e.g. `["text", "audio"]`) and still lacks
-    /// `image` counts as an explicit opt-out.
+    /// Catalog-driven, no API round-trip: `input_types.contains("image")`
+    /// means yes; an empty list means "unconfigured" (assume yes — the API
+    /// is the source of truth on first send); any populated list without
+    /// `image` (e.g. `["text"]`, `["text", "audio"]`) is an explicit
+    /// opt-out set by the template author or by the user in ModelEditor.
     pub fn model_supports_vision(&self, model_id: &str) -> bool {
         let Some(m) = self.model_config(model_id) else {
             return true;
         };
-        if m.input_types.iter().any(|t| t == "image") {
-            return true;
-        }
         if m.input_types.is_empty() {
             return true;
         }
-        m.input_types.len() == 1 && m.input_types[0] == "text"
+        m.input_types.iter().any(|t| t == "image")
     }
 
     /// Resolve the effective thinking style for a model.
@@ -562,37 +560,34 @@ mod tests {
     }
 
     #[test]
-    fn model_supports_vision_treats_default_text_list_as_unknown() {
-        // The wizard / serde default is `["text"]`; that shape is
-        // indistinguishable from "user explicitly picked text-only", so
-        // we have to treat it as unknown and let the API decide. A
-        // legacy gpt-4o config that ships with the default must not
-        // silently lose vision because of static catalog inspection.
+    fn model_supports_vision_false_for_explicit_text_only() {
+        // `["text"]` is an explicit opt-out: either the template wrote it
+        // (e.g. DeepSeek V4 Flash in `international.ts`) or the user
+        // populated it via ModelEditor. Trust the catalog.
         let mut cfg = ProviderConfig::new(
             "t".to_string(),
             ApiType::OpenaiChat,
-            "https://api.openai.com".to_string(),
+            "https://api.deepseek.com".to_string(),
             String::new(),
         );
         cfg.models.push(ModelConfig {
-            id: "gpt-4o".to_string(),
-            name: "GPT-4o".to_string(),
+            id: "deepseek-v4-flash".to_string(),
+            name: "DeepSeek V4 Flash".to_string(),
             input_types: vec!["text".to_string()],
             context_window: 128_000,
             max_tokens: 8192,
-            reasoning: false,
+            reasoning: true,
             thinking_style: None,
             cost_input: 0.0,
             cost_output: 0.0,
         });
-        assert!(cfg.model_supports_vision("gpt-4o"));
+        assert!(!cfg.model_supports_vision("deepseek-v4-flash"));
     }
 
     #[test]
     fn model_supports_vision_false_for_explicit_non_image_input_list() {
-        // A non-default list that omits `image` (e.g. `["text", "audio"]`)
-        // is a deliberate opt-out — the user has touched the field with
-        // intent. Skip the round-trip on those.
+        // Any non-empty list lacking `image` (e.g. `["text", "audio"]`)
+        // is a deliberate opt-out. Trust it.
         let mut cfg = ProviderConfig::new(
             "t".to_string(),
             ApiType::OpenaiChat,
@@ -615,6 +610,10 @@ mod tests {
 
     #[test]
     fn model_supports_vision_treats_empty_input_list_as_unknown() {
+        // Empty `input_types` means "unconfigured" (e.g. a config saved
+        // under an older schema where the field was absent). Assume
+        // vision so configs upgrading in won't silently lose it; the
+        // user can lock it down via ModelEditor when needed.
         let mut cfg = ProviderConfig::new(
             "t".to_string(),
             ApiType::OpenaiChat,
