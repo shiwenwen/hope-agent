@@ -432,11 +432,7 @@ describe("MessageList", () => {
     expect(scrollToSpy.mock.calls[0]?.[0]).toMatchObject({ behavior: "smooth" })
   })
 
-  test("forces auto-follow scroll when a new user message arrives", () => {
-    const scrollIntoViewSpy = vi
-      .spyOn(Element.prototype, "scrollIntoView")
-      .mockImplementation(() => {})
-
+  test("forces bottom-follow when a new user message arrives after reading history", () => {
     const { rerender } = render(
       <MessageList
         messages={[baseMessage({ role: "assistant", content: "old", dbId: 1 })]}
@@ -449,7 +445,11 @@ describe("MessageList", () => {
       />,
     )
 
-    scrollIntoViewSpy.mockClear()
+    const el = getScroller()
+    patchScrollMetrics(el, { scrollHeight: 2000, clientHeight: 600, scrollTop: 800 })
+    act(() => {
+      fireEvent.scroll(el)
+    })
 
     rerender(
       <MessageList
@@ -466,11 +466,7 @@ describe("MessageList", () => {
       />,
     )
 
-    expect(scrollIntoViewSpy).toHaveBeenCalled()
-    expect(scrollIntoViewSpy.mock.calls[scrollIntoViewSpy.mock.calls.length - 1]?.[0]).toMatchObject({
-      block: "start",
-      behavior: "smooth",
-    })
+    expect(el.scrollTop).toBe(2000)
   })
 
   test("does not force-scroll to the last user message when switching sessions", () => {
