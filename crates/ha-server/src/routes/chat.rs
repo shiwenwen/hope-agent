@@ -373,7 +373,12 @@ pub async fn chat(
         denied_tools: Vec::new(),
         subagent_depth: 0,
         steer_run_id: None,
-        auto_approve_tools: false,
+        // Honors `--auto-approve-tools` / `HA_SERVER_AUTO_APPROVE_TOOLS=1`
+        // for headless / Docker deployments where the HTTP client doesn't
+        // implement an approval handler. Engine gates (dangerous-commands,
+        // protected paths, plan-mode ask) still run; this just flips the
+        // same switch IM auto-approve accounts use.
+        auto_approve_tools: crate::auto_approve::cli_flag_active(),
         follow_global_reasoning_effort: true,
         post_turn_effects: true,
         abort_on_cancel: false,

@@ -30,6 +30,25 @@ fn main() {
         );
     }
 
+    // Headless auto-approve: same effect as ticking "auto approve tools" on
+    // every chat the HTTP route opens — the permission engine still runs
+    // (so dangerous-commands, plan-mode ask, protected paths all stay
+    // enforced), just the `auto_approve_tools` switch goes through. Narrower
+    // than `--dangerously-skip-all-approvals`. Env var lets Docker /
+    // systemd users opt in without rewriting the entrypoint.
+    let env_enabled = std::env::var(ha_server::auto_approve::ENV_VAR)
+        .map(|v| ha_server::auto_approve::env_truthy(&v))
+        .unwrap_or(false);
+    let cli_enabled = args.iter().any(|a| a == ha_server::auto_approve::FLAG);
+    if env_enabled || cli_enabled {
+        ha_server::auto_approve::set_cli_flag(true);
+        let source = if cli_enabled { "CLI flag" } else { "env" };
+        eprintln!(
+            "[!] AUTO-APPROVE MODE ({source}): HTTP chat will auto-approve every tool call \
+             (engine gates still enforced; this launch only)"
+        );
+    }
+
     if args.iter().any(|a| a == "--version") {
         println!("hope-agent {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -84,6 +103,12 @@ fn print_top_help() {
     println!("Options:");
     println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
     println!("  --api-key KEY                     Bearer token for HTTP/WS auth");
+    println!(
+        "  --auto-approve-tools              Auto-approve every tool call on HTTP chat (engine"
+    );
+    println!(
+        "                                    gates still enforced; or set HA_SERVER_AUTO_APPROVE_TOOLS=1)"
+    );
     println!("  --dangerously-skip-all-approvals  Skip every tool approval (this launch only)");
     println!("  --version                         Print version and exit");
     println!("  --help, -h                        Print help and exit");
@@ -247,6 +272,9 @@ fn parse_server_args(args: &[String]) -> Option<(String, Option<String>)> {
                 api_key = Some(s["--api-key=".len()..].to_string());
             }
             "--dangerously-skip-all-approvals" => {}
+            // Already consumed in `main()`; ignore here so it doesn't fall
+            // through to the unknown-arg branch and stripe the help text.
+            s if s == ha_server::auto_approve::FLAG => {}
             "--version" => {
                 println!("hope-agent {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);

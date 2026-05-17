@@ -14,6 +14,7 @@ use ha_core::event_bus::EventBus;
 use ha_core::project::ProjectDB;
 use ha_core::session::SessionDB;
 
+pub mod auto_approve;
 pub mod banner;
 pub mod config;
 pub mod error;
