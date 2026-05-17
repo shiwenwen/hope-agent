@@ -291,6 +291,8 @@
     "deleteSessionWarning": "この操作により、この会話とすべてのメッセージが完全に削除されます。この操作は元に戻せません。続行しますか？",
     "detachOnDesktopNoop": "デスクトップでは IM チャットへの接続がないため、detach は何もしません。",
     "details": "詳細",
+    "showPlainText": "プレーンテキストを表示",
+    "renderMarkdown": "Markdown をレンダリング",
     "duration": "所要時間",
     "fallbackError": "エラー詳細",
     "fallbackFrom": "元のモデル",

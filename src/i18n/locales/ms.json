@@ -291,6 +291,8 @@
     "deleteSessionWarning": "Tindakan ini akan memadamkan perbualan ini dan semua mesejnya secara kekal. Tindakan ini tidak boleh dibatalkan. Adakah anda pasti?",
     "detachOnDesktopNoop": "Pada desktop tiada ikatan IM chat — detach tidak berkesan di sini.",
     "details": "Butiran",
+    "showPlainText": "Tunjuk teks biasa",
+    "renderMarkdown": "Papar Markdown",
     "duration": "Tempoh",
     "fallbackError": "Butiran Ralat",
     "fallbackFrom": "Model asal",

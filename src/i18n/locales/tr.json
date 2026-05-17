@@ -291,6 +291,8 @@
     "deleteSessionWarning": "Bu işlem bu sohbeti ve tüm mesajlarını kalıcı olarak silecektir. Bu işlem geri alınamaz. Emin misiniz?",
     "detachOnDesktopNoop": "Masaüstünde IM sohbetine bağlama yok — detach burada etkisiz.",
     "details": "Ayrıntılar",
+    "showPlainText": "Düz metni göster",
+    "renderMarkdown": "Markdown olarak işle",
     "duration": "Süre",
     "fallbackError": "Hata Ayrıntıları",
     "fallbackFrom": "Orijinal model",

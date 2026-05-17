@@ -291,6 +291,8 @@
     "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？",
     "detachOnDesktopNoop": "桌面端不绑定 IM chat,detach 在此处无效。",
     "details": "详情",
+    "showPlainText": "显示纯文本",
+    "renderMarkdown": "渲染 Markdown",
     "duration": "耗时",
     "fallbackError": "错误详情",
     "fallbackFrom": "原模型",

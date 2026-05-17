@@ -291,6 +291,8 @@
     "deleteSessionWarning": "Thao tác này sẽ xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn. Không thể hoàn tác. Bạn có chắc chắn không?",
     "detachOnDesktopNoop": "Trên máy tính không có liên kết IM chat — detach không có tác dụng ở đây.",
     "details": "Chi tiết",
+    "showPlainText": "Hiển thị văn bản thuần",
+    "renderMarkdown": "Kết xuất Markdown",
     "duration": "Thời gian",
     "fallbackError": "Chi tiết lỗi",
     "fallbackFrom": "Mô hình gốc",

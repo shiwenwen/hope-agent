@@ -291,6 +291,8 @@
     "deleteSessionWarning": "Это действие навсегда удалит этот разговор и все его сообщения. Отменить невозможно. Вы уверены?",
     "detachOnDesktopNoop": "На рабочем столе нет привязки к IM-чату — detach не имеет эффекта.",
     "details": "Подробности",
+    "showPlainText": "Показать простой текст",
+    "renderMarkdown": "Отобразить Markdown",
     "duration": "Длительность",
     "fallbackError": "Детали ошибки",
     "fallbackFrom": "Исходная модель",

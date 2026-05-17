@@ -291,6 +291,8 @@
     "deleteSessionWarning": "This will permanently delete this conversation and all its messages. This action cannot be undone. Are you sure?",
     "detachOnDesktopNoop": "Detach has no effect on desktop — no IM chat is bound to this session here.",
     "details": "Details",
+    "showPlainText": "Show plain text",
+    "renderMarkdown": "Render Markdown",
     "duration": "Duration",
     "fallbackError": "Error Details",
     "fallbackFrom": "Original",

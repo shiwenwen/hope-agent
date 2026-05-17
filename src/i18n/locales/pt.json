@@ -291,6 +291,8 @@
     "deleteSessionWarning": "Esta ação excluirá permanentemente esta conversa e todas as suas mensagens. Não é possível desfazer. Tem certeza?",
     "detachOnDesktopNoop": "Detach não tem efeito no desktop — nenhum chat de IM vinculado a esta sessão aqui.",
     "details": "Detalhes",
+    "showPlainText": "Mostrar texto simples",
+    "renderMarkdown": "Renderizar Markdown",
     "duration": "Duração",
     "fallbackError": "Detalhes do Erro",
     "fallbackFrom": "Modelo original",

@@ -291,6 +291,8 @@
     "deleteSessionWarning": "이 작업은 이 대화와 모든 메시지를 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
     "detachOnDesktopNoop": "데스크톱은 IM 채팅에 바인딩되지 않으므로 detach는 효과가 없습니다.",
     "details": "상세",
+    "showPlainText": "일반 텍스트 표시",
+    "renderMarkdown": "Markdown 렌더링",
     "duration": "소요 시간",
     "fallbackError": "오류 상세",
     "fallbackFrom": "원래 모델",

@@ -291,6 +291,8 @@
     "deleteSessionWarning": "سيؤدي هذا الإجراء إلى حذف هذه المحادثة وجميع رسائلها نهائيًا. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟",
     "detachOnDesktopNoop": "لا توجد محادثة IM مرتبطة بهذه الجلسة على سطح المكتب — detach لا يفعل شيئًا هنا.",
     "details": "التفاصيل",
+    "showPlainText": "عرض النص العادي",
+    "renderMarkdown": "عرض Markdown",
     "duration": "المدة",
     "fallbackError": "تفاصيل الخطأ",
     "fallbackFrom": "النموذج الأصلي",
