@@ -28,6 +28,28 @@ import AgentSection from "./AgentSection"
 import SessionList from "./SessionList"
 import ProjectSection from "../project/ProjectSection"
 
+const AGENTS_EXPANDED_STORAGE_KEY = "hope.chatSidebarAgentsExpanded"
+const PROJECTS_EXPANDED_STORAGE_KEY = "hope.chatSidebarProjectsExpanded"
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+  try {
+    if (typeof window === "undefined") return fallback
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    return raw === "true"
+  } catch {
+    return fallback
+  }
+}
+
+function writeStoredBoolean(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, String(value))
+  } catch {
+    // localStorage may be unavailable in restricted browser modes.
+  }
+}
+
 export default function ChatSidebar({
   sessions,
   agents,
@@ -55,11 +77,25 @@ export default function ChatSidebar({
   searchFocusSignal,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
-  const [agentsExpanded, setAgentsExpanded] = useState(true)
-  const [projectsExpanded, setProjectsExpanded] = useState(true)
+  const [agentsExpanded, setAgentsExpandedState] = useState(() =>
+    readStoredBoolean(AGENTS_EXPANDED_STORAGE_KEY, true),
+  )
+  const [projectsExpanded, setProjectsExpandedState] = useState(() =>
+    readStoredBoolean(PROJECTS_EXPANDED_STORAGE_KEY, true),
+  )
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
+
+  const setAgentsExpanded = useCallback((expanded: boolean) => {
+    setAgentsExpandedState(expanded)
+    writeStoredBoolean(AGENTS_EXPANDED_STORAGE_KEY, expanded)
+  }, [])
+
+  const setProjectsExpanded = useCallback((expanded: boolean) => {
+    setProjectsExpandedState(expanded)
+    writeStoredBoolean(PROJECTS_EXPANDED_STORAGE_KEY, expanded)
+  }, [])
 
   // Inline rename state
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)

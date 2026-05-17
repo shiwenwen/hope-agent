@@ -10,13 +10,13 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
-  ChevronRight,
   Bot,
   Ghost,
   MessageSquarePlus,
   Settings,
 } from "lucide-react"
 import type { AgentSummaryForSidebar } from "@/types/chat"
+import SidebarSectionHeader from "./SidebarSectionHeader"
 
 interface AgentSectionProps {
   agents: AgentSummaryForSidebar[]
@@ -43,24 +43,13 @@ export default function AgentSection({
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   return (
-    <div className="border-b border-border/50">
-      <div className="flex items-center">
-        <button
-          className="flex items-center gap-1.5 flex-1 px-4 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-          onClick={() => setAgentsExpanded(!agentsExpanded)}
-        >
-          <ChevronRight
-            className={cn(
-              "h-3 w-3 transition-transform duration-200",
-              agentsExpanded && "rotate-90",
-            )}
-          />
-          <span>Agents</span>
-          <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">
-            ({agents.length})
-          </span>
-        </button>
-      </div>
+    <div className="border-b border-border/50 px-3 pt-3 pb-1">
+      <SidebarSectionHeader
+        title={t("settings.agents")}
+        count={agents.length}
+        expanded={agentsExpanded}
+        onToggle={() => setAgentsExpanded(!agentsExpanded)}
+      />
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
@@ -69,7 +58,7 @@ export default function AgentSection({
       >
         <div
           className={cn(
-            "px-2 pb-2 grid gap-1",
+            "pb-2 grid gap-1",
             panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1",
           )}
         >

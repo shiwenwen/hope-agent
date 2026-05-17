@@ -14,7 +14,6 @@
 import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
-  ChevronDown,
   ChevronRight,
   MessageSquarePlus,
   Plus,
@@ -41,6 +40,7 @@ import type {
   SessionMeta,
 } from "@/types/chat"
 import SessionItem from "../sidebar/SessionItem"
+import SidebarSectionHeader from "../sidebar/SidebarSectionHeader"
 import ProjectIcon from "./ProjectIcon"
 
 interface ProjectSectionProps {
@@ -72,6 +72,26 @@ interface ProjectSectionProps {
 }
 
 const EXPANDED_STORAGE_KEY = "ha:project-expanded"
+const ARCHIVED_EXPANDED_STORAGE_KEY = "ha:project-archived-expanded"
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+  try {
+    if (typeof window === "undefined") return fallback
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    return raw === "true"
+  } catch {
+    return fallback
+  }
+}
+
+function writeStoredBoolean(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, String(value))
+  } catch {
+    // localStorage may be unavailable in restricted browser modes.
+  }
+}
 
 function isUnreadChatSession(session: SessionMeta): boolean {
   return !session.channelInfo && !session.parentSessionId && session.unreadCount > 0
@@ -88,7 +108,14 @@ export default function ProjectSection(props: ProjectSectionProps) {
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
-  const [archivedExpanded, setArchivedExpanded] = useState(false)
+  const [archivedExpanded, setArchivedExpandedState] = useState(() =>
+    readStoredBoolean(ARCHIVED_EXPANDED_STORAGE_KEY, false),
+  )
+
+  const setArchivedExpanded = useCallback((expanded: boolean) => {
+    setArchivedExpandedState(expanded)
+    writeStoredBoolean(ARCHIVED_EXPANDED_STORAGE_KEY, expanded)
+  }, [])
 
   // Single localStorage entry for all project expansion states. Loaded once,
   // persisted on toggle. Stale keys for deleted projects are harmless and
@@ -129,22 +156,12 @@ export default function ProjectSection(props: ProjectSectionProps) {
 
   return (
     <div className="px-3 pt-3 pb-1">
-      <div className="flex items-center gap-1 mb-2">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-foreground transition-colors"
-        >
-          {expanded ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
-          {t("project.projects")}
-          {visibleProjects.length > 0 && (
-            <span className="ml-1 text-muted-foreground/60">· {visibleProjects.length}</span>
-          )}
-        </button>
-        <div className="ml-auto">
+      <SidebarSectionHeader
+        title={t("project.projects")}
+        count={visibleProjects.length > 0 ? visibleProjects.length : undefined}
+        expanded={expanded}
+        onToggle={() => setExpanded(!expanded)}
+        action={
           <IconTip label={t("project.newProject")}>
             <button
               onClick={onAddProject}
@@ -153,8 +170,8 @@ export default function ProjectSection(props: ProjectSectionProps) {
               <Plus className="h-3.5 w-3.5" />
             </button>
           </IconTip>
-        </div>
-      </div>
+        }
+      />
 
       {expanded && (
         <div className="space-y-0.5">
@@ -181,14 +198,15 @@ export default function ProjectSection(props: ProjectSectionProps) {
           {archivedProjects.length > 0 && (
             <div className="mt-2 border-t border-border/40 pt-2">
               <button
-                onClick={() => setArchivedExpanded((prev) => !prev)}
-                className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-foreground transition-colors"
+                onClick={() => setArchivedExpanded(!archivedExpanded)}
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-semibold tracking-normal text-muted-foreground/70 hover:text-foreground transition-colors"
               >
-                {archivedExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
+                <ChevronRight
+                  className={cn(
+                    "h-3 w-3 transition-transform duration-200",
+                    archivedExpanded && "rotate-90",
+                  )}
+                />
                 <Archive className="h-3 w-3" />
                 <span className="truncate">{t("project.archivedProjects")}</span>
                 <span className="ml-auto text-muted-foreground/60">
