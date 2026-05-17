@@ -71,6 +71,10 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "Tindakan Mac Control",
+        "body": "Panggilan kawalan macOS ini menukar fokus/keadaan desktop. Sahkan sebelum Hope Agent mengaktifkan app lain."
       }
     },
     "title": "Command Approval Required",

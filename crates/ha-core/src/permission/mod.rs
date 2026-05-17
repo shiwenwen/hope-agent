@@ -61,6 +61,8 @@ pub enum AskReason {
     AgentCustomList,
     /// Smart mode `judge_model` returned `ask`.
     SmartJudge { rationale: String },
+    /// Native macOS control action that mutates desktop focus/state.
+    MacControlAction { action: String },
     /// Plan Mode `ask_tools` list — tool is whitelisted but flagged as
     /// "needs explicit confirmation before each call". The default plan
     /// agent uses this for `exec` so a planning subagent can't quietly run

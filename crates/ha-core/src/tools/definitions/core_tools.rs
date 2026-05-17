@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect Hope Agent's native macOS desktop-control readiness, capture read-only Accessibility snapshots, and wait for a desktop target to appear. Phase 2C supports `status`, `permissions`, `snapshot`, and read-only `wait`; `snapshot.includeScreenshot=true` stores a primary-display JPEG and mirrors it in the right panel. Clicks, typing, windows, apps, and menus are intentionally unavailable until later phases.".into(),
+            description: "Inspect Hope Agent's native macOS desktop-control readiness, capture read-only Accessibility snapshots, wait for a desktop target to appear, and perform low-risk app focus control. Phase 3A supports `status`, `permissions`, `snapshot`, read-only `wait`, and `apps` list/frontmost/activate. `snapshot.includeScreenshot=true` stores a primary-display JPEG and mirrors it in the right panel. Clicks, typing, windows, menus, launch, quit, and hide are intentionally unavailable until later phases.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,8 +734,31 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions", "snapshot", "wait"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` also includes the underlying macOS system permissions response. `snapshot` returns a read-only frontmost-app/window/AX element summary and can include a stored screenshot summary. `wait` polls read-only AX snapshots until a target query matches or times out."
+                        "enum": ["status", "permissions", "snapshot", "wait", "apps"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` also includes the underlying macOS system permissions response. `snapshot` returns a read-only frontmost-app/window/AX element summary and can include a stored screenshot summary. `wait` polls read-only AX snapshots until a target query matches or times out. `apps` supports op=list|frontmost|activate for running apps."
+                    },
+                    "op": {
+                        "type": "string",
+                        "enum": ["list", "frontmost", "activate"],
+                        "description": "Sub-operation for `apps`. `activate` changes desktop focus and requires approval; it targets an already-running app by pid, bundleId, or appName."
+                    },
+                    "appName": {
+                        "type": "string",
+                        "description": "For `apps`: case-insensitive substring match against the running app localized name."
+                    },
+                    "bundleId": {
+                        "type": "string",
+                        "description": "For `apps`: case-insensitive substring match against the running app bundle id."
+                    },
+                    "pid": {
+                        "type": "integer",
+                        "description": "For `apps`: exact process id match."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "For `apps.list`: maximum running apps returned. Defaults to 50 and is hard-capped at 100."
                     },
                     "includeScreenshot": {
                         "type": "boolean",

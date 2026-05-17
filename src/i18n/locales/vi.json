@@ -71,6 +71,10 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "Thao tác Mac Control",
+        "body": "Lệnh điều khiển macOS này thay đổi tiêu điểm/trạng thái màn hình. Hãy xác nhận trước khi Hope Agent kích hoạt ứng dụng khác."
       }
     },
     "title": "Command Approval Required",

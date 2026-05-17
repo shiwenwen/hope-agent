@@ -71,6 +71,10 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "إجراء Mac Control",
+        "body": "سيغيّر استدعاء التحكم في macOS هذا تركيز/حالة سطح المكتب. أكّد قبل أن يفعّل Hope Agent تطبيقًا آخر."
       }
     },
     "title": "Command Approval Required",

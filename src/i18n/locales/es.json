@@ -71,6 +71,10 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "Acción de Mac Control",
+        "body": "Esta llamada de control de macOS cambia el foco o estado del escritorio. Confirma antes de que Hope Agent active otra app."
       }
     },
     "title": "Command Approval Required",

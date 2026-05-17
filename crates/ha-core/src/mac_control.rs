@@ -1,8 +1,9 @@
 //! macOS desktop control bridge and readiness model.
 //!
-//! Phase 2C exposes status / permissions, read-only Accessibility snapshots,
-//! primary-display screenshot frames, and read-only wait/target matching.
-//! Mutating input actions are intentionally left for later phases.
+//! Phase 3A exposes status / permissions, read-only Accessibility snapshots,
+//! primary-display screenshot frames, read-only wait/target matching, and
+//! low-risk running-app focus control. Pointer/keyboard/window mutations are
+//! intentionally left for later phases.
 
 use std::{
     collections::VecDeque,
@@ -46,6 +47,7 @@ pub trait MacControlBridge: Send + Sync {
         request: MacControlSnapshotRequest,
     ) -> Result<MacControlSnapshot, String>;
     async fn capture_frame(&self) -> Result<MacControlFramePayload, String>;
+    async fn apps(&self, request: MacControlAppsRequest) -> Result<MacControlAppsResult, String>;
 }
 
 static MAC_CONTROL_BRIDGE: OnceLock<Arc<dyn MacControlBridge>> = OnceLock::new();
@@ -177,6 +179,23 @@ pub struct MacControlFrameResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MacControlAppsResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlAppsResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlAppsResult {
+    pub op: MacControlAppsOp,
+    pub frontmost: Option<MacControlRunningApp>,
+    pub apps: Vec<MacControlRunningApp>,
+    pub activated: Option<MacControlRunningApp>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MacControlSnapshot {
     pub snapshot_id: String,
     pub created_at: String,
@@ -211,6 +230,17 @@ pub struct MacControlAppSummary {
     pub pid: i32,
     pub bundle_id: Option<String>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlRunningApp {
+    pub pid: i32,
+    pub bundle_id: Option<String>,
+    pub name: Option<String>,
+    pub active: bool,
+    pub hidden: bool,
+    pub activation_policy: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -274,6 +304,44 @@ pub struct MacControlFramePayload {
     pub height_px: u32,
     pub captured_at: i64,
     pub frontmost_app: Option<MacControlAppSummary>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlAppsRequest {
+    #[serde(default)]
+    pub op: MacControlAppsOp,
+    #[serde(default)]
+    pub app_name: Option<String>,
+    #[serde(default)]
+    pub bundle_id: Option<String>,
+    #[serde(default)]
+    pub pid: Option<i32>,
+    #[serde(default = "default_apps_limit")]
+    pub limit: usize,
+}
+
+impl MacControlAppsRequest {
+    pub fn clamped(mut self) -> Self {
+        if self.limit == 0 {
+            self.limit = default_apps_limit();
+        }
+        self.limit = self.limit.min(100);
+        self
+    }
+}
+
+fn default_apps_limit() -> usize {
+    50
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlAppsOp {
+    List,
+    #[default]
+    Frontmost,
+    Activate,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -558,6 +626,44 @@ pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
     }
 }
 
+pub async fn apps(request: MacControlAppsRequest) -> MacControlAppsResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_apps_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlAppsResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if request.op == MacControlAppsOp::Activate && !activate_request_has_target(&request) {
+        return MacControlAppsResponse {
+            status,
+            result: None,
+            error: Some(
+                "mac_control apps.activate requires one of pid, bundleId, or appName.".to_string(),
+            ),
+        };
+    }
+
+    match bridge.apps(request).await {
+        Ok(result) => MacControlAppsResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => MacControlAppsResponse {
+            status,
+            result: None,
+            error: Some(error),
+        },
+    }
+}
+
 pub async fn capture_frame() -> MacControlFrameResponse {
     let Some(bridge) = available_bridge() else {
         return unsupported_frame_response(unsupported_reason());
@@ -708,12 +814,32 @@ pub fn unsupported_wait_response(
     }
 }
 
+pub fn unsupported_apps_response(message: &str) -> MacControlAppsResponse {
+    MacControlAppsResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
 pub fn unsupported_frame_response(message: &str) -> MacControlFrameResponse {
     MacControlFrameResponse {
         status: unsupported_status(message),
         frame: None,
         error: Some(message.to_string()),
     }
+}
+
+fn activate_request_has_target(request: &MacControlAppsRequest) -> bool {
+    request.pid.is_some()
+        || request
+            .bundle_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        || request
+            .app_name
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
 }
 
 fn unsupported_system_permissions() -> SystemPermissionsResponse {
@@ -1265,6 +1391,34 @@ mod tests {
     }
 
     #[test]
+    fn apps_request_clamps_limit() {
+        let request = MacControlAppsRequest {
+            limit: 10_000,
+            ..Default::default()
+        }
+        .clamped();
+
+        assert_eq!(request.limit, 100);
+        assert_eq!(request.op, MacControlAppsOp::Frontmost);
+    }
+
+    #[test]
+    fn activate_request_requires_target() {
+        let missing = MacControlAppsRequest {
+            op: MacControlAppsOp::Activate,
+            ..Default::default()
+        };
+        let by_name = MacControlAppsRequest {
+            op: MacControlAppsOp::Activate,
+            app_name: Some("Finder".to_string()),
+            ..Default::default()
+        };
+
+        assert!(!activate_request_has_target(&missing));
+        assert!(activate_request_has_target(&by_name));
+    }
+
+    #[test]
     fn unsupported_snapshot_response_has_consistent_shape() {
         let response = unsupported_snapshot_response("no desktop bridge");
 
@@ -1288,6 +1442,16 @@ mod tests {
         assert!(!response.matched);
         assert!(response.snapshot.is_none());
         assert_eq!(response.error.as_deref(), Some("no wait bridge"));
+    }
+
+    #[test]
+    fn unsupported_apps_response_has_consistent_shape() {
+        let response = unsupported_apps_response("no apps bridge");
+
+        assert_eq!(response.status.readiness, MacControlReadiness::Unsupported);
+        assert!(!response.status.supported);
+        assert!(response.result.is_none());
+        assert_eq!(response.error.as_deref(), Some("no apps bridge"));
     }
 
     #[test]

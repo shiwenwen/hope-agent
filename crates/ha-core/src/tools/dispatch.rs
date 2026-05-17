@@ -438,7 +438,10 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(actions, vec!["status", "permissions", "snapshot", "wait"]);
+        assert_eq!(
+            actions,
+            vec!["status", "permissions", "snapshot", "wait", "apps"]
+        );
 
         let f = Fixture::new();
         assert_eq!(

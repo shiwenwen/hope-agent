@@ -71,6 +71,10 @@
       "smart_judge": {
         "body": "智慧審批模式下判官模型判定此次呼叫需要人工確認。",
         "title": "智慧審批判官建議"
+      },
+      "mac_control_action": {
+        "title": "Mac 控制操作",
+        "body": "這次 macOS 控制會改變桌面焦點/狀態。Hope Agent 啟用其他 App 前需要你確認。"
       }
     },
     "title": "Command Approval Required",

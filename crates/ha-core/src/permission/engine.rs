@@ -117,6 +117,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         if let Some(reason) = check_dangerous_command(ctx) {
             return Decision::Ask { reason };
         }
+        if let Some(reason) = check_mac_control_action(ctx) {
+            return Decision::Ask { reason };
+        }
         if ctx.plan_mode_ask_tools.iter().any(|t| t == ctx.tool_name) {
             return Decision::Ask {
                 reason: AskReason::PlanModeAsk,
@@ -143,6 +146,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         if let Some(reason) = check_dangerous_command(ctx) {
             log_yolo_warn(ctx, &reason);
         }
+        if let Some(reason) = check_mac_control_action(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
         return Decision::Allow;
     }
 
@@ -150,6 +156,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         return Decision::Ask { reason };
     }
     if let Some(reason) = check_dangerous_command(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Some(reason) = check_mac_control_action(ctx) {
         return Decision::Ask { reason };
     }
 
@@ -433,6 +442,21 @@ fn check_edit_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     })
 }
 
+fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_MAC_CONTROL {
+        return None;
+    }
+    let action = ctx.args.get("action").and_then(|v| v.as_str())?;
+    let op = ctx.args.get("op").and_then(|v| v.as_str());
+    let label = match (action, op) {
+        ("apps", Some("activate")) => "apps.activate",
+        _ => return None,
+    };
+    Some(AskReason::MacControlAction {
+        action: label.to_string(),
+    })
+}
+
 fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
     use AskReason::*;
     let detail = match reason {
@@ -442,6 +466,7 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
         EditTool => "edit-class tool".to_string(),
         AgentCustomList => "agent custom approval".to_string(),
         SmartJudge { rationale } => format!("smart judge: {rationale}"),
+        MacControlAction { action } => format!("macOS control action '{action}'"),
         PlanModeAsk => "plan-mode ask_tools".to_string(),
     };
     app_warn!(
@@ -667,6 +692,29 @@ mod tests {
                 reason: AskReason::AgentCustomList
             }
         ));
+    }
+
+    #[test]
+    fn mac_control_activate_asks_in_default() {
+        let args = json!({"action": "apps", "op": "activate", "appName": "Finder"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::MacControlAction { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn mac_control_readonly_apps_list_allows() {
+        let args = json!({"action": "apps", "op": "list"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
     }
 
     #[test]

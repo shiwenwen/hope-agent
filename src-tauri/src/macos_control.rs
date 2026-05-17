@@ -1,8 +1,8 @@
 //! Desktop macOS control bridge.
 //!
-//! Phase 2B registers the authorized desktop process and exposes a read-only
-//! Accessibility snapshot of the frontmost app plus a primary-display JPEG
-//! frame for the chat-side Mac Control mirror. Mutating input actions are
+//! Phase 3A registers the authorized desktop process and exposes read-only
+//! Accessibility snapshots, primary-display JPEG frames, and low-risk
+//! running-app focus control. Pointer/keyboard/window mutations are
 //! intentionally left for later slices.
 
 #[cfg(target_os = "macos")]
@@ -15,11 +15,16 @@ mod imp {
     use async_trait::async_trait;
     use base64::Engine;
     use ha_core::mac_control::{
-        MacControlAppSummary, MacControlBounds, MacControlBridge, MacControlDisplaySummary,
-        MacControlElementSummary, MacControlFramePayload, MacControlScreenshotSummary,
+        MacControlAppSummary, MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult,
+        MacControlBounds, MacControlBridge, MacControlDisplaySummary, MacControlElementSummary,
+        MacControlFramePayload, MacControlRunningApp, MacControlScreenshotSummary,
         MacControlSnapshot, MacControlSnapshotRequest, MacControlWindowSummary,
     };
     use image::codecs::jpeg::JpegEncoder;
+    use objc2_app_kit::{
+        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication,
+        NSWorkspace,
+    };
     use xcap::Monitor;
 
     struct TauriMacControlBridge;
@@ -43,6 +48,15 @@ mod imp {
             tokio::task::spawn_blocking(capture_desktop_frame)
                 .await
                 .map_err(|e| format!("macOS frame worker failed: {e}"))?
+        }
+
+        async fn apps(
+            &self,
+            request: MacControlAppsRequest,
+        ) -> Result<MacControlAppsResult, String> {
+            tokio::task::spawn_blocking(move || handle_apps(request))
+                .await
+                .map_err(|e| format!("macOS apps worker failed: {e}"))?
         }
     }
 
@@ -230,6 +244,97 @@ mod imp {
             );
         }
         Ok(snapshot)
+    }
+
+    fn handle_apps(request: MacControlAppsRequest) -> Result<MacControlAppsResult, String> {
+        let request = request.clamped();
+        let workspace = NSWorkspace::sharedWorkspace();
+        let frontmost = workspace
+            .frontmostApplication()
+            .as_deref()
+            .map(running_app_summary);
+        let running = workspace.runningApplications().to_vec();
+        let mut apps = running
+            .iter()
+            .map(|app| running_app_summary(app))
+            .filter(|app| app_matches_request(app, &request))
+            .take(request.limit)
+            .collect::<Vec<_>>();
+
+        let activated = if request.op == MacControlAppsOp::Activate {
+            let app = running
+                .iter()
+                .find(|app| app_matches_request(&running_app_summary(app), &request))
+                .ok_or_else(|| "No running macOS app matched the activate request.".to_string())?;
+            let ok = app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
+            if !ok {
+                return Err("macOS refused the app activation request.".to_string());
+            }
+            let summary = running_app_summary(app);
+            if apps.iter().all(|item| item.pid != summary.pid) {
+                apps.insert(0, summary.clone());
+            }
+            Some(summary)
+        } else {
+            None
+        };
+
+        Ok(MacControlAppsResult {
+            op: request.op,
+            frontmost,
+            apps,
+            activated,
+        })
+    }
+
+    fn app_matches_request(app: &MacControlRunningApp, request: &MacControlAppsRequest) -> bool {
+        if request.pid.is_some_and(|pid| app.pid != pid) {
+            return false;
+        }
+        if !contains_ci(app.bundle_id.as_deref(), request.bundle_id.as_deref()) {
+            return false;
+        }
+        if !contains_ci(app.name.as_deref(), request.app_name.as_deref()) {
+            return false;
+        }
+        true
+    }
+
+    fn running_app_summary(app: &NSRunningApplication) -> MacControlRunningApp {
+        MacControlRunningApp {
+            pid: app.processIdentifier(),
+            bundle_id: app.bundleIdentifier().as_deref().map(ToString::to_string),
+            name: app.localizedName().as_deref().map(ToString::to_string),
+            active: app.isActive(),
+            hidden: app.isHidden(),
+            activation_policy: activation_policy_label(app.activationPolicy()).to_string(),
+        }
+    }
+
+    fn activation_policy_label(policy: NSApplicationActivationPolicy) -> &'static str {
+        if policy == NSApplicationActivationPolicy::Regular {
+            "regular"
+        } else if policy == NSApplicationActivationPolicy::Accessory {
+            "accessory"
+        } else if policy == NSApplicationActivationPolicy::Prohibited {
+            "prohibited"
+        } else {
+            "unknown"
+        }
+    }
+
+    fn contains_ci(actual: Option<&str>, query: Option<&str>) -> bool {
+        query
+            .filter(|query| !query.is_empty())
+            .map_or(true, |query| {
+                actual
+                    .map(|actual| {
+                        actual
+                            .to_ascii_lowercase()
+                            .contains(&query.to_ascii_lowercase())
+                    })
+                    .unwrap_or(false)
+            })
     }
 
     fn capture_desktop_frame() -> Result<MacControlFramePayload, String> {
