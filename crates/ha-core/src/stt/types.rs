@@ -28,13 +28,18 @@ pub enum SttProviderKind {
     /// OpenAI `/v1/audio/transcriptions` (multipart upload). Also drives the
     /// `gpt-4o-transcribe` / `gpt-4o-mini-transcribe` SSE stream variants.
     OpenaiTranscriptions,
-    /// Third-party OpenAI-compatible endpoints (Groq, whisper.cpp server,
-    /// faster-whisper-server, FunASR + OpenAI wrapper, sherpa-onnx server,
-    /// DashScope compatible mode, StepFun, SiliconFlow). Same wire format,
-    /// kept as its own kind so the UI can mark these clearly and so the
-    /// SSRF policy can opt into private-network access when the user flips
-    /// `allow_private_network`.
+    /// Third-party OpenAI-compatible endpoints sharing the
+    /// `/v1/audio/transcriptions` multipart wire format (Groq, StepFun,
+    /// SiliconFlow, whisper.cpp server, faster-whisper-server, FunASR +
+    /// OpenAI wrapper, sherpa-onnx server). DashScope is NOT in this set —
+    /// it dispatches ASR through chat-completions; use
+    /// `OpenaiChatCompletionsAsr` for that wire shape.
     OpenaiCompatible,
+    /// OpenAI chat-completions endpoint with `input_audio` content blocks,
+    /// as used by Alibaba DashScope's Qwen3-ASR family. The audio is
+    /// inlined as a base64 data URI; the model returns the transcript as
+    /// the assistant message body.
+    OpenaiChatCompletionsAsr,
     /// Deepgram realtime WebSocket.
     DeepgramWs,
     /// AssemblyAI realtime WebSocket.
@@ -52,6 +57,7 @@ impl SttProviderKind {
         match self {
             SttProviderKind::OpenaiTranscriptions => "https://api.openai.com",
             SttProviderKind::OpenaiCompatible => "http://127.0.0.1:8080",
+            SttProviderKind::OpenaiChatCompletionsAsr => "",
             SttProviderKind::DeepgramWs => "wss://api.deepgram.com",
             SttProviderKind::AssemblyaiWs => "wss://api.assemblyai.com",
             SttProviderKind::AzureWs => "wss://westus.stt.speech.microsoft.com",
@@ -63,13 +69,19 @@ impl SttProviderKind {
     /// Whether the wire protocol supports streaming partial transcripts.
     /// Plain OpenAI Whisper does not; gpt-4o-transcribe does via SSE — but
     /// streaming support is also a per-model capability, so this is just a
-    /// coarse hint for UI gating.
+    /// coarse hint for UI gating. DashScope chat-completions ASR is batch-
+    /// only (no `stream:true` for `input_audio` content blocks yet).
     pub fn supports_streaming(&self) -> bool {
-        !matches!(self, SttProviderKind::OpenaiTranscriptions)
+        !matches!(
+            self,
+            SttProviderKind::OpenaiTranscriptions | SttProviderKind::OpenaiChatCompletionsAsr
+        )
     }
 
     /// Whether the wire protocol uploads the audio as multipart form-data
-    /// (true for OpenAI-style endpoints). False for WebSocket-based providers.
+    /// (true for OpenAI-style transcriptions endpoints). False for
+    /// WebSocket providers AND for DashScope-style chat-completions ASR
+    /// (which sends a JSON body with a base64 data-URI).
     pub fn uses_multipart_upload(&self) -> bool {
         matches!(
             self,
@@ -78,19 +90,24 @@ impl SttProviderKind {
     }
 
     /// Whether `engine::transcribe_with` can fulfil a batch (record-then-
-    /// transcribe) request for this kind. Currently aligned with multipart
-    /// upload — the WS-only kinds reject batch with `Other(...)`. Used to
-    /// gate `active_model` / `im_fallback_model` selectors so users can't
-    /// pin a config that the desktop voice button / IM auto-transcribe
-    /// path would always fail to use.
+    /// transcribe) request for this kind. The WS-only kinds reject batch
+    /// with `Other(...)`. Used to gate `active_model` / `im_fallback_model`
+    /// selectors so users can't pin a config that the desktop voice button
+    /// / IM auto-transcribe path would always fail to use.
     pub fn supports_batch(&self) -> bool {
-        self.uses_multipart_upload()
+        matches!(
+            self,
+            SttProviderKind::OpenaiTranscriptions
+                | SttProviderKind::OpenaiCompatible
+                | SttProviderKind::OpenaiChatCompletionsAsr
+        )
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
             SttProviderKind::OpenaiTranscriptions => "OpenAI Audio Transcriptions",
             SttProviderKind::OpenaiCompatible => "OpenAI-compatible",
+            SttProviderKind::OpenaiChatCompletionsAsr => "Chat Completions ASR (input_audio)",
             SttProviderKind::DeepgramWs => "Deepgram",
             SttProviderKind::AssemblyaiWs => "AssemblyAI",
             SttProviderKind::AzureWs => "Azure Speech",

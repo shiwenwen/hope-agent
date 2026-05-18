@@ -1,14 +1,40 @@
 //! Deepgram realtime WebSocket STT.
 //!
-//! `wss://api.deepgram.com/v1/listen?model=...&interim_results=true&punctuate=true&...`
-//! Auth: `Authorization: Token <api_key>`.
+//! Reference docs (verified against the AsyncAPI 2.6 spec embedded on
+//! the doc pages):
+//! - <https://developers.deepgram.com/reference/speech-to-text-api/listen-streaming>
+//! - <https://developers.deepgram.com/docs/live-streaming-audio>
+//!
+//! Endpoint: `wss://api.deepgram.com/v1/listen` (path-only; query string
+//! configures the recognition).
+//! Auth header: `Authorization: Token <api_key>` (the literal `Token`
+//! prefix is required per docs).
+//!
+//! Query params we set:
+//! - `model`: enum from spec — `nova-3` / `nova-3-general` /
+//!   `nova-3-medical` / `nova-2` / `nova-2-meeting` / … (defaults to
+//!   `nova-3` when the user didn't fill the model picker).
+//! - `encoding=linear16` + `sample_rate=16000`: front-end AudioWorklet
+//!   emits raw little-endian PCM16 mono, with no container header for
+//!   Deepgram to sniff.
+//! - `interim_results=true`: get partial transcripts.
+//! - `smart_format=true`: Deepgram's current recommended formatter —
+//!   superset of `punctuate`, also handles numerals / dates / proper
+//!   nouns. We send it by default unless the user explicitly disables
+//!   `options.punctuation`.
+//! - `diarize=true` when the caller requests speaker labels.
+//! - `language=<iso>` when the caller pins a language.
 //!
 //! Wire shape:
-//! - Upstream: binary frames carrying raw audio bytes (PCM16 / Opus /
-//!   WebM-Opus all accepted — Deepgram auto-detects from the first chunk).
-//! - Downstream: JSON text frames `{ "channel": { "alternatives": [{ "transcript": "...", "confidence": ... }] }, "is_final": bool, ... }`.
-//!   `speech_final` / `is_final` distinguishes a stable utterance edge from
-//!   an interim partial.
+//! - Upstream: raw audio bytes as binary WS frames.
+//! - Downstream: JSON text frames. The `Results` payload carries
+//!   `channel.alternatives[0].transcript`, `is_final` (transcript is
+//!   stable, won't be revised) and `speech_final` (utterance ended via
+//!   VAD endpointing). Other server messages: `Metadata`,
+//!   `UtteranceEnd`, `SpeechStarted` — informational, we ignore them.
+//! - Client control frames: `{"type":"CloseStream"}` to end the
+//!   session, `{"type":"Finalize"}` to force-flush a partial,
+//!   `{"type":"KeepAlive"}` to bump the inactivity timer.
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -37,23 +63,40 @@ pub async fn open_stream(
     options: &TranscriptOptions,
 ) -> SttResult<super::SttStream> {
     let base = provider.resolve_base_url(profile).trim_end_matches('/');
-    let mut url = format!("{}/v1/listen?model={}&interim_results=true", base, model.id);
+    // PCM16 LE 16 kHz mono is the hope-agent worklet contract — declare
+    // it explicitly so Deepgram doesn't try (and fail) to sniff a
+    // container header from raw PCM frames.
+    let sample_rate = options.sample_rate_hz.unwrap_or(16_000);
+    // Empty `model=` is rejected by the server. Fall back to nova-3 (the
+    // currently recommended default per Deepgram's `ListenV1Model`
+    // enum) so a brand-new provider without a selected model still
+    // connects.
+    let model_id = if model.id.trim().is_empty() {
+        "nova-3"
+    } else {
+        model.id.trim()
+    };
+    let mut url = format!(
+        "{}/v1/listen?model={}&encoding=linear16&sample_rate={}&interim_results=true",
+        base,
+        urlencoding::encode(model_id),
+        sample_rate
+    );
     if let Some(lang) = &options.language {
         if !lang.is_empty() {
             url.push_str(&format!("&language={}", urlencoding::encode(lang)));
         }
     }
+    // `smart_format` is the current recommended formatter — supersedes
+    // raw `punctuate` and adds numeral / date / proper-noun handling.
+    // Drive both off the same option toggle; when the user actively
+    // disables punctuation, we also turn smart_format off (otherwise
+    // the server still capitalises and adds periods).
     if options.punctuation.unwrap_or(true) {
-        url.push_str("&punctuate=true");
+        url.push_str("&smart_format=true&punctuate=true");
     }
     if options.diarization.unwrap_or(false) {
         url.push_str("&diarize=true");
-    }
-    if let Some(sr) = options.sample_rate_hz {
-        // Deepgram needs encoding+sample_rate when the audio is raw PCM. For
-        // container-wrapped audio (WebM/Opus, MP3) it autodetects; we forward
-        // sample_rate as a hint either way.
-        url.push_str(&format!("&sample_rate={}", sr));
     }
 
     let https_twin = super::ws_to_https_twin(&url, "Deepgram")?;

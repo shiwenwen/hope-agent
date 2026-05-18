@@ -1,8 +1,17 @@
 //! iFlytek (讯飞) IAT realtime WebSocket transcription.
 //!
-//! `wss://iat-api.xfyun.cn/v2/iat` — URL must carry `host`, `date`, and
-//! HMAC-SHA256 `authorization` query params per the iFlytek auth contract
-//! (Hawk-flavoured signature derived from APIKey + APISecret + `app_id`).
+//! Reference docs:
+//! - <https://www.xfyun.cn/doc/asr/voicedictation/API.html>
+//!
+//! Endpoints (the implementation defaults to the first; the GUI lets a user
+//! override `base_url` if they need the alternate hosts):
+//! - `wss://iat-api.xfyun.cn/v2/iat` (recommended, zh + en)
+//! - `wss://ws-api.xfyun.cn/v2/iat` (alternate)
+//! - `wss://iat-niche-api.xfyun.cn/v2/iat` (minority-language pool)
+//!
+//! URL must carry `host`, `date`, and HMAC-SHA256 `authorization` query
+//! params per the iFlytek auth contract (signature derived from APIKey +
+//! APISecret + `app_id`).
 //!
 //! Auth dance:
 //! 1. Sign `"host: iat-api.xfyun.cn\ndate: <RFC1123>\nGET /v2/iat HTTP/1.1"`
@@ -38,7 +47,7 @@ use crate::stt::types::{SttModelConfig, SttProviderConfig, TranscriptDelta, Tran
 
 pub async fn open_stream(
     provider: &SttProviderConfig,
-    _model: &SttModelConfig,
+    model: &SttModelConfig,
     profile: &AuthProfile,
     options: &TranscriptOptions,
 ) -> SttResult<super::SttStream> {
@@ -68,10 +77,28 @@ pub async fn open_stream(
         .filter(|l| !l.is_empty())
         .unwrap_or("zh_cn")
         .to_string();
+    // iFlytek IAT doesn't have a `model id` concept on the wire — the
+    // capability switch is `business.domain` (iat / iat-niche-chs /
+    // medical / fpa / …). We surface that through the model id so the
+    // existing GUI flow (provider has models → pick one as active) maps
+    // onto something real. `accent` is configurable via `extra.accent`
+    // (defaults to mandarin); `language` flows through `options.language`.
+    let domain = if model.id.trim().is_empty() {
+        "iat".to_string()
+    } else {
+        model.id.trim().to_string()
+    };
+    let accent = provider
+        .extra
+        .get("accent")
+        .map(String::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("mandarin")
+        .to_string();
     let business = json!({
         "language": language,
-        "domain": "iat",
-        "accent": "mandarin",
+        "domain": domain,
+        "accent": accent,
         "vad_eos": 10_000_u32,
     });
 
@@ -130,7 +157,8 @@ pub async fn open_stream(
 
     let session_id = String::new();
     tokio::spawn(async move {
-        let mut accumulated = String::new();
+        let mut accumulated: std::collections::BTreeMap<i64, String> =
+            std::collections::BTreeMap::new();
         while let Some(msg) = ws_stream.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
@@ -212,10 +240,10 @@ fn http_date_rfc1123() -> String {
         .to_string()
 }
 
-/// Parse one server frame. iFlytek can send `pgs=apd` (append text) or
-/// `pgs=rpl` (replace at sn `rg`). We accumulate via `acc` so each emitted
-/// `TranscriptDelta.text` is the full running transcript snapshot, which
-/// matches how the rest of the subsystem renders partials.
+/// Parse one server frame. iFlytek can send `pgs=apd` (append the new
+/// `sn` segment) or `pgs=rpl` with `rg=[start, end]` (replace previously
+/// emitted segments in that sn range). We index by `sn` so a corrective
+/// `rpl` only rewrites the dynamic tail and the stable prefix survives.
 ///
 /// Returns `Err` for non-zero server `code` values (auth failure, quota
 /// exceeded, etc) so the downstream task can surface a useful error
@@ -224,7 +252,7 @@ fn http_date_rfc1123() -> String {
 fn parse_message(
     session_id: &str,
     raw: &str,
-    acc: &mut String,
+    acc: &mut std::collections::BTreeMap<i64, String>,
 ) -> SttResult<Option<TranscriptDelta>> {
     let value: Value = match serde_json::from_str::<Value>(raw) {
         Ok(v) => v,
@@ -248,6 +276,12 @@ fn parse_message(
     let status = data.get("status").and_then(|v| v.as_i64()).unwrap_or(0);
     let is_final = status == 2;
 
+    let sn = data
+        .get("result")
+        .and_then(|r| r.get("sn"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(|| acc.keys().next_back().map(|k| k + 1).unwrap_or(0));
+
     let mut chunk = String::new();
     if let Some(ws) = data
         .get("result")
@@ -269,27 +303,34 @@ fn parse_message(
         .get("result")
         .and_then(|r| r.get("pgs"))
         .and_then(|v| v.as_str());
-    match pgs {
-        Some("rpl") => {
-            // `rg=[start_sn, end_sn]` — for simplicity, on replace we
-            // treat the chunk as the new tail (iFlytek's rpl usually
-            // replaces only the most recent partial, not deep history).
-            // The accumulator already holds the stable prefix from
-            // earlier `apd` frames; this aligns with what the UI shows.
-            *acc = chunk.clone();
-        }
-        _ => {
-            // `apd` (append) or absent — append the new chunk.
-            acc.push_str(&chunk);
-        }
+    if pgs == Some("rpl") {
+        // `rg=[start_sn, end_sn]` — iFlytek's dynamic-correction
+        // contract: drop all segments whose sn falls in that range,
+        // then install the new chunk at the current sn. Falls back to
+        // "replace just this sn" if rg is malformed.
+        let rg = data
+            .get("result")
+            .and_then(|r| r.get("rg"))
+            .and_then(|v| v.as_array());
+        let (start_sn, end_sn) = match rg {
+            Some(arr) if arr.len() == 2 => {
+                (arr[0].as_i64().unwrap_or(sn), arr[1].as_i64().unwrap_or(sn))
+            }
+            _ => (sn, sn),
+        };
+        acc.retain(|k, _| !(start_sn..=end_sn).contains(k));
+    }
+    if !chunk.is_empty() {
+        acc.insert(sn, chunk);
     }
 
     if acc.is_empty() && !is_final {
         return Ok(None);
     }
+    let text: String = acc.values().cloned().collect();
     Ok(Some(TranscriptDelta {
         session_id: session_id.to_string(),
-        text: acc.clone(),
+        text,
         is_final,
         start_ms: None,
         end_ms: None,
@@ -340,35 +381,44 @@ mod tests {
         assert!(url.contains("host="));
     }
 
+    fn new_acc() -> std::collections::BTreeMap<i64, String> {
+        std::collections::BTreeMap::new()
+    }
+
     #[test]
     fn parse_append_accumulates_partials() {
-        let mut acc = String::new();
-        let frame =
-            r#"{"code":0,"data":{"status":1,"result":{"ws":[{"cw":[{"w":"你"}]}],"pgs":"apd"}}}"#;
+        let mut acc = new_acc();
+        let frame = r#"{"code":0,"data":{"status":1,"result":{"sn":0,"ws":[{"cw":[{"w":"你"}]}],"pgs":"apd"}}}"#;
         let d = parse_message("s", frame, &mut acc).unwrap().unwrap();
         assert_eq!(d.text, "你");
-        let frame2 =
-            r#"{"code":0,"data":{"status":1,"result":{"ws":[{"cw":[{"w":"好"}]}],"pgs":"apd"}}}"#;
+        let frame2 = r#"{"code":0,"data":{"status":1,"result":{"sn":1,"ws":[{"cw":[{"w":"好"}]}],"pgs":"apd"}}}"#;
         let d2 = parse_message("s", frame2, &mut acc).unwrap().unwrap();
         assert_eq!(d2.text, "你好");
         assert!(!d2.is_final);
     }
 
     #[test]
-    fn parse_replace_resets_accumulator() {
-        let mut acc = String::from("旧");
-        let frame =
-            r#"{"code":0,"data":{"status":1,"result":{"ws":[{"cw":[{"w":"新"}]}],"pgs":"rpl"}}}"#;
-        let d = parse_message("s", frame, &mut acc).unwrap().unwrap();
-        assert_eq!(d.text, "新");
-        assert_eq!(acc, "新");
+    fn parse_replace_preserves_stable_prefix_outside_rg() {
+        // Build a 3-segment history then dynamic-correct only sn=2.
+        // Earlier bug wiped the entire accumulator on any `rpl` —
+        // stable prefix at sn=0/1 must survive.
+        let mut acc = new_acc();
+        let p0 = r#"{"code":0,"data":{"status":1,"result":{"sn":0,"ws":[{"cw":[{"w":"稳"}]}],"pgs":"apd"}}}"#;
+        parse_message("s", p0, &mut acc).unwrap();
+        let p1 = r#"{"code":0,"data":{"status":1,"result":{"sn":1,"ws":[{"cw":[{"w":"定"}]}],"pgs":"apd"}}}"#;
+        parse_message("s", p1, &mut acc).unwrap();
+        let p2 = r#"{"code":0,"data":{"status":1,"result":{"sn":2,"ws":[{"cw":[{"w":"旧"}]}],"pgs":"apd"}}}"#;
+        parse_message("s", p2, &mut acc).unwrap();
+        let correction = r#"{"code":0,"data":{"status":1,"result":{"sn":2,"rg":[2,2],"ws":[{"cw":[{"w":"新"}]}],"pgs":"rpl"}}}"#;
+        let d = parse_message("s", correction, &mut acc).unwrap().unwrap();
+        assert_eq!(d.text, "稳定新");
     }
 
     #[test]
     fn parse_status_two_marks_final() {
-        let mut acc = String::from("hello");
-        let frame =
-            r#"{"code":0,"data":{"status":2,"result":{"ws":[{"cw":[{"w":""}]}],"pgs":"apd"}}}"#;
+        let mut acc = new_acc();
+        acc.insert(0, "hello".into());
+        let frame = r#"{"code":0,"data":{"status":2,"result":{"sn":1,"ws":[{"cw":[{"w":""}]}],"pgs":"apd"}}}"#;
         let d = parse_message("s", frame, &mut acc).unwrap().unwrap();
         assert!(d.is_final);
         assert_eq!(d.text, "hello");
@@ -376,7 +426,7 @@ mod tests {
 
     #[test]
     fn parse_non_zero_code_returns_auth_error() {
-        let mut acc = String::new();
+        let mut acc = new_acc();
         let frame = r#"{"code":10005,"message":"invalid appid","sid":"sid-abc"}"#;
         let err = parse_message("s", frame, &mut acc).unwrap_err();
         match err {
@@ -391,7 +441,7 @@ mod tests {
 
     #[test]
     fn parse_unknown_code_falls_through_to_other() {
-        let mut acc = String::new();
+        let mut acc = new_acc();
         let frame = r#"{"code":99999,"message":"weird"}"#;
         let err = parse_message("s", frame, &mut acc).unwrap_err();
         assert!(matches!(err, SttError::Other(_)));

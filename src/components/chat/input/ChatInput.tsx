@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import {
   Send,
   Square,
@@ -41,6 +42,7 @@ import AwarenessToggle from "./AwarenessToggle"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
 import { VoiceRecordButton } from "./VoiceRecordButton"
 import { useVoiceInput } from "./useVoiceInput"
+import { RecordingBar } from "./RecordingBar"
 import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
 import {
   shouldShowTaskProgressPanel,
@@ -162,14 +164,150 @@ export default function ChatInput({
   useEffect(() => {
     inputRef.current = input
   }, [input])
+
+  /**
+   * Caret anchor captured at `voice.start()` time. While recording, the
+   * transcript (streaming partial OR batch final) is spliced INTO the
+   * textarea at this position rather than appended to the end. Cleared
+   * after stop / cancel.
+   */
+  const voiceAnchorRef = useRef<{ prefix: string; suffix: string } | null>(null)
+
+  const startVoice = useCallback(async () => {
+    const ta = textareaRef.current
+    const current = inputRef.current
+    const selStart = ta?.selectionStart ?? current.length
+    const selEnd = ta?.selectionEnd ?? current.length
+    voiceAnchorRef.current = {
+      prefix: current.slice(0, selStart),
+      suffix: current.slice(selEnd),
+    }
+    await voice.start()
+  }, [voice])
+
   const handleVoiceStop = useCallback(async () => {
     const text = await voice.stopAndTranscribe()
-    if (text) {
-      const current = inputRef.current
-      const sep = current.length > 0 && !current.endsWith(" ") ? " " : ""
-      onInputChange(current + sep + text)
+    const anchor = voiceAnchorRef.current
+    voiceAnchorRef.current = null
+    if (!text) {
+      // Failed / empty transcript — restore the surrounding text in case
+      // streaming partials had already written something.
+      if (anchor) onInputChange(anchor.prefix + anchor.suffix)
+      return
     }
+    const prefix = anchor?.prefix ?? inputRef.current
+    const suffix = anchor?.suffix ?? ""
+    onInputChange(prefix + text + suffix)
+    // Restore caret to the end of the inserted transcript on the next
+    // tick (after React commits the new value to the textarea).
+    const caret = prefix.length + text.length
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(caret, caret)
+    })
   }, [voice, onInputChange])
+
+  const handleVoiceCancel = useCallback(() => {
+    const anchor = voiceAnchorRef.current
+    voiceAnchorRef.current = null
+    voice.cancel()
+    // Strip any streaming partial that already landed in the textarea.
+    if (anchor) onInputChange(anchor.prefix + anchor.suffix)
+  }, [voice, onInputChange])
+
+  // Streaming partials arrive at 10-30 Hz from WS providers. Writing
+  // them straight into `input` triggers urlPreview / mention / slash
+  // re-derivation on every frame, which thrashes the input area.
+  // Coalesce to one commit per animation frame: hold the latest partial
+  // in a ref, schedule a single rAF, splice once.
+  const pendingPartialRef = useRef<string | null>(null)
+  const partialRafRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (voice.state !== "recording") return
+    const anchor = voiceAnchorRef.current
+    if (!anchor) return
+    const partial = voice.partialText
+    if (!partial) return
+    pendingPartialRef.current = partial
+    if (partialRafRef.current !== null) return
+    partialRafRef.current = requestAnimationFrame(() => {
+      partialRafRef.current = null
+      const p = pendingPartialRef.current
+      pendingPartialRef.current = null
+      if (p == null) return
+      const a = voiceAnchorRef.current
+      if (!a) return
+      onInputChange(a.prefix + p + a.suffix)
+    })
+  }, [voice.partialText, voice.state, onInputChange])
+  useEffect(
+    () => () => {
+      if (partialRafRef.current !== null) cancelAnimationFrame(partialRafRef.current)
+      partialRafRef.current = null
+      pendingPartialRef.current = null
+    },
+    [],
+  )
+
+  // Press-to-talk: hold Ctrl+Shift+H anywhere on the page to dictate.
+  // Mirrors the inline tooltip on `VoiceRecordButton`. Click-toggle still
+  // works via the button itself; this is the keyboard-only path.
+  const pttActiveRef = useRef(false)
+  const voiceRef = useRef(voice)
+  voiceRef.current = voice
+  const handleVoiceStopRef = useRef(handleVoiceStop)
+  handleVoiceStopRef.current = handleVoiceStop
+  const handleVoiceCancelRef = useRef(handleVoiceCancel)
+  handleVoiceCancelRef.current = handleVoiceCancel
+  const startVoiceRef = useRef(startVoice)
+  startVoiceRef.current = startVoice
+  useEffect(() => {
+    const isPttCombo = (e: KeyboardEvent) =>
+      e.code === "KeyH" && e.shiftKey && e.ctrlKey && !e.altKey && !e.metaKey
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isPttCombo(e)) return
+      // OS sends repeats while the key is held — only the first edge matters.
+      if (e.repeat) return
+      e.preventDefault()
+      if (pttActiveRef.current) return
+      const s = voiceRef.current.state
+      if (s !== "idle" && s !== "ready" && s !== "stopped" && s !== "error") return
+      pttActiveRef.current = true
+      logger.info("voice", "ChatInput::ptt", "start recording (ptt down)")
+      void startVoiceRef.current()
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isPttCombo(e)) return
+      if (!pttActiveRef.current) return
+      pttActiveRef.current = false
+      e.preventDefault()
+      if (voiceRef.current.state === "recording") {
+        logger.info("voice", "ChatInput::ptt", "stop recording (ptt up)")
+        void handleVoiceStopRef.current()
+      }
+    }
+    // Switching apps or alt-tabbing can swallow the keyup — fall back to
+    // cancel so half-captured audio doesn't ride into the next session.
+    const onBlur = () => {
+      if (!pttActiveRef.current) return
+      pttActiveRef.current = false
+      if (voiceRef.current.state === "recording") {
+        logger.warn("voice", "ChatInput::ptt", "blur during ptt: cancel recording")
+        handleVoiceCancelRef.current()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    window.addEventListener("blur", onBlur)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+      window.removeEventListener("blur", onBlur)
+    }
+  }, [])
 
   // File mention `@` popper — only meaningful when a working dir is set.
   const mention = useFileMention(input, onInputChange, textareaRef, workingDir ?? null)
@@ -500,6 +638,10 @@ export default function ChatInput({
             onClick={() => mention.recheckTrigger()}
             onScroll={(e) => setMirrorScrollTop(e.currentTarget.scrollTop)}
             rows={hero ? 2 : 1}
+            // Lock input while recording — the waveform bar replaces
+            // direct typing, and the anchor-splice depends on the prefix
+            // / suffix captured at start time remaining stable.
+            readOnly={voice.state === "recording" || voice.state === "transcribing"}
             className={cn(
               "relative border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm leading-[1.5] text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[42px] max-h-[40vh] overflow-y-auto break-words",
               hero && "min-h-[72px] pt-4 pb-2",
@@ -523,7 +665,18 @@ export default function ChatInput({
           </div>
         )}
 
-        {/* Toolbar */}
+        {/* Toolbar — replaced by RecordingBar while voice capture / STT
+            is in flight, since the normal toolbar buttons are
+            unreachable during recording anyway. */}
+        {voice.state === "recording" || voice.state === "transcribing" ? (
+          <RecordingBar
+            transcribing={voice.state === "transcribing"}
+            durationMs={voice.durationMs}
+            levels={voice.levels}
+            onCancel={handleVoiceCancel}
+            onStop={() => void handleVoiceStop()}
+          />
+        ) : (
         <div className="flex items-end justify-between gap-2 px-2 pb-2">
           <div className="flex items-center gap-1 flex-wrap min-w-0">
             <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
@@ -622,9 +775,9 @@ export default function ChatInput({
               durationMs={voice.durationMs}
               audioLevel={voice.audioLevel}
               disabled={loading && !!pendingMessage}
-              onStart={() => void voice.start()}
+              onStart={() => void startVoice()}
               onStop={() => void handleVoiceStop()}
-              onCancel={voice.cancel}
+              onCancel={handleVoiceCancel}
             />
             {voice.errorMessage && (
               <span
@@ -664,6 +817,7 @@ export default function ChatInput({
             </IconTip>
           </div>
         </div>
+        )}
       </div>
     </div>
   )

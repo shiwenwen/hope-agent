@@ -76,9 +76,12 @@ pub fn add_stt_provider(
     config: SttProviderConfig,
     source: &'static str,
 ) -> SttWriteResult<SttProviderConfig> {
+    // Returns the stored provider unmasked. Callers that hand the value
+    // to a non-trusted boundary (HTTP responses) must call `.masked()`
+    // themselves — matches the LLM `provider::add_provider` convention.
     mutate_config(("stt.add", source), move |store| {
         let provider = add_stt_provider_in_config(store, config);
-        Ok(provider.masked())
+        Ok(provider)
     })
     .map_err(map_config_error)
 }
@@ -304,16 +307,12 @@ pub(crate) fn set_active_stt_model_in_config(
             model_id: model_id.to_string(),
         });
     }
-    // `active_model` feeds both `stt_transcribe_blob` (desktop) and
-    // `failover_transcribe_batch` (IM auto-transcribe). WS-only kinds reject
-    // batch in `engine::transcribe_with`, so accepting one here would let
-    // the user pin a config that always fails downstream.
-    if !provider.kind.supports_batch() {
-        return Err(SttWriteError::IncapableForBatch {
-            provider_id: provider_id.to_string(),
-            kind: provider.kind,
-        });
-    }
+    // `active_model` now feeds two paths: the desktop voice button picks
+    // streaming (`stt_start_session`) or batch (`stt_transcribe_blob`) at
+    // dispatch time based on `kind`, so streaming-only kinds are valid
+    // selections here. `check_batch_capable` (used by `set_stt_fallback_models`
+    // and `set_im_fallback_stt_model`) still rejects WS kinds because the
+    // IM auto-transcribe path is batch-only.
     store.stt.active_model = Some(ActiveSttModel {
         provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
@@ -499,11 +498,12 @@ mod tests {
     }
 
     #[test]
-    fn set_active_rejects_ws_only_provider_kind() {
-        // Active model feeds both desktop blob path and IM auto-transcribe;
-        // both go through `engine::transcribe_with` which rejects WS-only
-        // kinds. The setter must refuse the selection upfront so users
-        // can't pin a config that always fails downstream.
+    fn set_active_accepts_ws_streaming_provider_kind() {
+        // The desktop voice button dispatches to either streaming session
+        // (`stt_start_session`) or batch (`stt_transcribe_blob`) based on
+        // `provider.kind`, so a WS-only kind is a valid active selection
+        // — `check_batch_capable` still gates `fallback_models` and
+        // `im_fallback_model` because those paths are batch-only.
         let mut cfg = AppConfig::default();
         let mut p = SttProviderConfig::new(
             "Deepgram",
@@ -514,9 +514,9 @@ mod tests {
         p.models.push(SttModelConfig::new("nova-3", "Nova 3"));
         let pid = p.id.clone();
         cfg.stt.providers.push(p);
-        let err = set_active_stt_model_in_config(&mut cfg, &pid, "nova-3").unwrap_err();
-        assert!(matches!(err, SttWriteError::IncapableForBatch { .. }));
-        assert!(cfg.stt.active_model.is_none());
+        let provider = set_active_stt_model_in_config(&mut cfg, &pid, "nova-3").unwrap();
+        assert_eq!(provider.id, pid);
+        assert_eq!(cfg.stt.active_model.as_ref().unwrap().model_id, "nova-3");
     }
 
     #[test]

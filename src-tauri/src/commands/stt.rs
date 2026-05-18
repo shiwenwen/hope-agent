@@ -27,12 +27,13 @@ use tauri::State;
 pub async fn get_stt_providers(
     _state: State<'_, AppState>,
 ) -> Result<Vec<SttProviderConfig>, CmdError> {
-    Ok(ha_core::config::cached_config()
-        .stt
-        .providers
-        .iter()
-        .map(|p| p.masked())
-        .collect())
+    // Desktop webview is in the same trust domain as the local user; the
+    // edit dialog needs the actual values back so users can verify what
+    // they stored (api_key, app_key, resource_id, app_id, region, …).
+    // Matches LLM `provider::get_providers` which is also unmasked.
+    // HTTP routes (ha-server) keep masking on — remote API clients
+    // shouldn't see secrets in list responses.
+    Ok(ha_core::config::cached_config().stt.providers.to_vec())
 }
 
 #[tauri::command]
@@ -83,7 +84,7 @@ pub async fn set_active_stt_model(
     _state: State<'_, AppState>,
 ) -> Result<SttProviderConfig, CmdError> {
     let provider = ha_core::stt::set_active_stt_model(provider_id, model_id, "ui")?;
-    Ok(provider.masked())
+    Ok(provider)
 }
 
 #[tauri::command]
@@ -233,15 +234,33 @@ pub async fn stt_start_session(
         .map_err(|e| CmdError::msg(e.to_string()))
 }
 
+/// Hard per-chunk cap — mirrors `MAX_PUSH_CHUNK_BYTES` in ha-server.
+/// Streaming PCM chunks are ~3 KB at 100 ms / 16 kHz; anything close
+/// to 1 MiB is a misbehaving renderer or an outright DoS attempt.
+const MAX_PUSH_CHUNK_BYTES: usize = 1024 * 1024;
+
 #[tauri::command]
 pub async fn stt_push_chunk(
     session_id: String,
     base64: String,
     _state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
+    let max_base64_len = (MAX_PUSH_CHUNK_BYTES.saturating_mul(4) / 3).saturating_add(4);
+    if base64.len() > max_base64_len {
+        return Err(CmdError::msg(format!(
+            "Audio chunk exceeds {} KB cap",
+            MAX_PUSH_CHUNK_BYTES / 1024
+        )));
+    }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&base64)
         .map_err(|e| CmdError::msg(format!("Invalid base64 chunk: {e}")))?;
+    if bytes.len() > MAX_PUSH_CHUNK_BYTES {
+        return Err(CmdError::msg(format!(
+            "Audio chunk exceeds {} KB cap",
+            MAX_PUSH_CHUNK_BYTES / 1024
+        )));
+    }
     SttSessionManager::global()
         .push_chunk(&session_id, bytes)
         .map_err(|e| CmdError::msg(e.to_string()))

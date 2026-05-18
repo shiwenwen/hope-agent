@@ -1,16 +1,40 @@
 //! AssemblyAI Universal Streaming (v3) WebSocket transcription.
 //!
-//! `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true`
-//! Auth header: `Authorization: <api_key>` (raw key, no `Bearer` / `Token`).
+//! Reference docs (AsyncAPI 2.6 spec embedded on these pages):
+//! - <https://www.assemblyai.com/docs/speech-to-text/universal-streaming>
+//! - <https://assemblyai.com/docs/api-reference/streaming-api/streaming-api>
+//!
+//! Endpoint: `wss://streaming.assemblyai.com/v3/ws`
+//! Auth header: `Authorization: <api_key>` (raw key, NO `Bearer` / `Token`
+//! prefix; per AsyncAPI `channels./v3/ws.bindings.ws.headers`).
+//!
+//! Query params per the spec (any not listed are server-defaulted):
+//! - `speech_model`: `universal-streaming-english` (default) /
+//!   `universal-streaming-multilingual` / `whisper-rt`. This is the
+//!   real "model id" surface — we wire the GUI's `model.id` here.
+//! - `encoding`: `pcm_s16le` (default) / `pcm_mulaw`.
+//! - `format_turns`: string `"true"` / `"false"` (default `"false"`).
+//!   When true, formatted final transcripts come on `end_of_turn=true`.
+//! - `sample_rate`: integer (default 16000).
+//! - `language`: ISO code, only meaningful with `speech_model=whisper-rt`.
+//! - `language_detection`: `"true"` / `"false"`, only meaningful with
+//!   `speech_model=universal-streaming-multilingual`.
+//!
+//! There is NO `language_code` query param — that name exists only on
+//! the server-side `Turn` response payload. Sending it on the URL is
+//! silently ignored (pre-fix bug).
 //!
 //! Wire shape:
-//! - Upstream: raw PCM16 LE mono frames (16 kHz default) as binary WS
-//!   frames. Caller is responsible for resampling — front-end ships a
-//!   16 kHz PCM16 AudioWorklet when the configured provider needs it.
+//! - Upstream: raw PCM16 LE mono frames as binary WS messages (audio
+//!   chunks 50-1000 ms per the spec — front-end ships 100 ms frames).
 //! - Downstream: JSON text frames:
-//!   - `{"type":"Begin","id":"...","expires_at":...}` (session bootstrap)
-//!   - `{"type":"Turn","turn_order":N,"transcript":"...","end_of_turn":bool,"transcript_confidence":...}`
-//!   - `{"type":"Termination",...}`
+//!   - `{"type":"Begin","id":"...","expires_at":...}` — session bootstrap
+//!   - `{"type":"Turn", turn_order, turn_is_formatted, end_of_turn,
+//!      transcript, utterance, language_code?, language_confidence?,
+//!      speaker_label?, end_of_turn_confidence, words[]}`
+//!   - `{"type":"Termination", audio_duration_seconds,
+//!      session_duration_seconds}`
+//! - Client end-of-stream: `{"type":"Terminate"}` text frame.
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -27,7 +51,7 @@ const DEFAULT_SAMPLE_RATE_HZ: u32 = 16_000;
 
 pub async fn open_stream(
     provider: &SttProviderConfig,
-    _model: &SttModelConfig,
+    model: &SttModelConfig,
     profile: &AuthProfile,
     options: &TranscriptOptions,
 ) -> SttResult<super::SttStream> {
@@ -36,14 +60,41 @@ pub async fn open_stream(
         .sample_rate_hz
         .filter(|hz| *hz > 0)
         .unwrap_or(DEFAULT_SAMPLE_RATE_HZ);
-    let mut url = format!("{}/v3/ws?sample_rate={}", base, sample_rate);
-    // Universal Streaming `format_turns=true` returns a single text per
-    // turn (vs per-word partials); we still get `end_of_turn` so partial
-    // vs final classification is preserved.
+    // `speech_model` is the real model selector — drives English-only
+    // vs multilingual vs Whisper-RT engine. Fall back to the English
+    // default rather than emitting an empty value (server rejects empty
+    // enum values).
+    let speech_model = if model.id.trim().is_empty() {
+        "universal-streaming-english"
+    } else {
+        model.id.trim()
+    };
+    let mut url = format!(
+        "{}/v3/ws?sample_rate={}&speech_model={}",
+        base,
+        sample_rate,
+        urlencoding::encode(speech_model),
+    );
+    // `format_turns=true` returns one formatted text per turn (vs
+    // per-word partials). `end_of_turn` still distinguishes partial vs
+    // final. Server expects this as the string "true", not the JSON bool.
     url.push_str("&format_turns=true");
-    if let Some(lang) = &options.language {
-        if !lang.is_empty() {
-            url.push_str(&format!("&language_code={}", urlencoding::encode(lang)));
+    // Language handling is model-conditional per the AsyncAPI spec:
+    // - whisper-rt: pass `language=<iso>` to pin to a specific language.
+    // - universal-streaming-multilingual: enable auto-detection so
+    //   `language_code` flows out on Turn payloads; the user-supplied
+    //   `options.language` is informational here (no pinning param).
+    // - universal-streaming-english: language is fixed; ignore input.
+    if let Some(lang) = options
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if speech_model == "whisper-rt" {
+            url.push_str(&format!("&language={}", urlencoding::encode(lang)));
+        } else if speech_model == "universal-streaming-multilingual" {
+            url.push_str("&language_detection=true");
         }
     }
 
@@ -131,10 +182,23 @@ fn parse_message(session_id: &str, raw: &str) -> Option<TranscriptDelta> {
         .get("end_of_turn")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // Per the AsyncAPI spec, `Turn` carries `end_of_turn_confidence`
+    // (probability that this marks the end of an utterance), NOT
+    // `transcript_confidence`. The pre-fix code looked for the latter
+    // and silently returned None. The end-of-turn score is the closest
+    // available signal — surface it through `confidence` so consumers
+    // get something rather than nothing.
     let confidence = value
-        .get("transcript_confidence")
+        .get("end_of_turn_confidence")
         .and_then(|v| v.as_f64())
         .map(|c| c as f32);
+    // Multilingual / Whisper-RT runs populate `language_code` on each
+    // Turn so downstream UI can pin the language label to what the
+    // server detected.
+    let language = value
+        .get("language_code")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     Some(TranscriptDelta {
         session_id: session_id.to_string(),
         text: text.to_string(),
@@ -142,7 +206,7 @@ fn parse_message(session_id: &str, raw: &str) -> Option<TranscriptDelta> {
         start_ms: None,
         end_ms: None,
         confidence,
-        language: None,
+        language,
         accumulated: None,
     })
 }
@@ -158,19 +222,30 @@ mod tests {
             "turn_order":1,
             "transcript":"hello world",
             "end_of_turn":false,
-            "transcript_confidence":0.92
+            "end_of_turn_confidence":0.12
         }"#;
         let d = parse_message("sess-x", raw).expect("Turn should parse");
         assert_eq!(d.text, "hello world");
         assert!(!d.is_final);
-        assert!(d.confidence.unwrap() > 0.9);
+        // end_of_turn_confidence ~0.12 is low — that's correct for a
+        // partial. We pipe it through as `confidence` for any UI that
+        // wants it.
+        assert!(d.confidence.unwrap() > 0.0);
     }
 
     #[test]
     fn parse_marks_final_on_end_of_turn() {
-        let raw = r#"{"type":"Turn","transcript":"done","end_of_turn":true}"#;
+        let raw = r#"{"type":"Turn","transcript":"done","end_of_turn":true,"end_of_turn_confidence":0.95}"#;
         let d = parse_message("s", raw).unwrap();
         assert!(d.is_final);
+        assert!(d.confidence.unwrap() > 0.9);
+    }
+
+    #[test]
+    fn parse_extracts_language_code_for_multilingual() {
+        let raw = r#"{"type":"Turn","transcript":"hola","end_of_turn":true,"language_code":"es"}"#;
+        let d = parse_message("s", raw).unwrap();
+        assert_eq!(d.language.as_deref(), Some("es"));
     }
 
     #[test]

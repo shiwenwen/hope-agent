@@ -122,7 +122,9 @@ impl SttSessionManager {
             SttProviderKind::XunfeiWs => {
                 xunfei::open_stream(&provider, &model, &profile, &options).await?
             }
-            SttProviderKind::OpenaiTranscriptions | SttProviderKind::OpenaiCompatible => {
+            SttProviderKind::OpenaiTranscriptions
+            | SttProviderKind::OpenaiCompatible
+            | SttProviderKind::OpenaiChatCompletionsAsr => {
                 return Err(SttError::Other(format!(
                     "Streaming transcription for {:?} requires a streaming-capable provider (use the batch endpoint)",
                     provider.kind
@@ -358,6 +360,9 @@ mod tests {
 
     #[tokio::test]
     async fn start_without_any_model_returns_no_active_model() {
+        // Don't inherit the developer's on-disk config — it can carry a
+        // real `active_model` that would defeat the "no model" assertion.
+        crate::config::replace_cache_for_test(AppConfig::default());
         let manager = SttSessionManager::new();
         let err = manager
             .start(None, None, TranscriptOptions::default())

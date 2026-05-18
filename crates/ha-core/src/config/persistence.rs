@@ -46,6 +46,16 @@ pub fn cached_config() -> Arc<AppConfig> {
     cache().load_full()
 }
 
+/// Test-only: replace the in-memory cache without touching disk. Lets unit
+/// tests that read `cached_config()` start from a known empty state instead
+/// of inheriting the developer's `~/.hope-agent/config.json` (which would
+/// otherwise leak provider lists, active models, etc. into tests on the
+/// developer machine).
+#[cfg(test)]
+pub fn replace_cache_for_test(config: AppConfig) {
+    cache().store(Arc::new(config));
+}
+
 /// Load an owned copy of the app config. Clones the cached snapshot;
 /// use when you need to mutate and then call [`save_config`]. Read-only
 /// callers should use [`cached_config`] instead.

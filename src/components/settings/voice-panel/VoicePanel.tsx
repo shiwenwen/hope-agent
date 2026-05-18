@@ -21,6 +21,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { IconTip } from "@/components/ui/tooltip"
+import { SecretInput } from "@/components/ui/secret-input"
+import ProviderIcon from "@/components/common/ProviderIcon"
 
 function Card({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -63,27 +65,16 @@ function Badge({
 }
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
-
-// ── Types mirrored from ha-core ──────────────────────────────────
-
-type SttProviderKind =
-  | "openai-transcriptions"
-  | "openai-compatible"
-  | "deepgram-ws"
-  | "assemblyai-ws"
-  | "azure-ws"
-  | "volcengine-ws"
-  | "xunfei-ws"
-
-// Mirrors `SttProviderKind::supports_batch()` in ha-core: the WS kinds reject
-// `engine::transcribe_with`, so they can't power the desktop voice button
-// (`stt_transcribe_blob`) or IM auto-transcribe (`failover_transcribe_batch`).
-// Keep the selectors limited to batch-capable kinds so users can't pin a
-// config that always fails downstream.
-const BATCH_CAPABLE_KINDS: ReadonlySet<SttProviderKind> = new Set([
-  "openai-transcriptions",
-  "openai-compatible",
-])
+// Shared kind type / batch-vs-streaming sets from src/lib/stt.ts so the
+// active-model picker, the kind dropdown, and the desktop voice hook agree
+// on the dispatch rules.
+import {
+  BATCH_CAPABLE_KINDS,
+  STREAMING_KINDS,
+  unwrapActiveSttModel,
+  type ActiveSttModel,
+  type SttProviderKind,
+} from "@/lib/stt"
 
 interface SttModelConfig {
   id: string
@@ -108,11 +99,6 @@ interface SttProviderConfig {
   extra?: Record<string, string>
 }
 
-interface ActiveSttModel {
-  providerId: string
-  modelId: string
-}
-
 interface KnownLocalSttBackend {
   key: string
   name: string
@@ -126,28 +112,24 @@ interface KnownLocalSttBackend {
   installUrl: string
 }
 
-const KIND_OPTIONS: { value: SttProviderKind; label: string }[] = [
-  { value: "openai-transcriptions", label: "OpenAI Audio Transcriptions" },
-  { value: "openai-compatible", label: "OpenAI-compatible" },
-  { value: "deepgram-ws", label: "Deepgram (WS)" },
-  { value: "assemblyai-ws", label: "AssemblyAI (WS)" },
-  { value: "azure-ws", label: "Azure Speech (WS)" },
-  { value: "xunfei-ws", label: "iFlytek IAT (WS)" },
-  { value: "volcengine-ws", label: "Volcengine / Doubao (WS)" },
-]
+import { STT_PRESETS, findPreset, presetSlugFromProvider, type SttKindPreset } from "./presets"
 
-/// Per-kind default `baseUrl` so the user doesn't have to memorise each
-/// vendor's host. Empty string = no default (user must paste their own
-/// region/subdomain — e.g. Azure requires a region prefix).
-const KIND_DEFAULT_BASE_URL: Record<SttProviderKind, string> = {
-  "openai-transcriptions": "https://api.openai.com",
-  "openai-compatible": "",
-  "deepgram-ws": "wss://api.deepgram.com",
-  "assemblyai-ws": "wss://streaming.assemblyai.com",
-  "azure-ws": "",
-  "xunfei-ws": "wss://iat-api.xfyun.cn",
-  "volcengine-ws": "wss://openspeech.bytedance.com",
+/** Shared label markup for the API-type dropdown — same row appears in
+ * the SelectTrigger value and every SelectItem, so factor it out. */
+function renderPresetLabel(p: SttKindPreset | undefined, fallback: string) {
+  if (!p) return fallback
+  return (
+    <span className="flex items-center gap-2">
+      <ProviderIcon providerKey={p.iconKey} size={16} color className="shrink-0" />
+      <span className="truncate">
+        {p.chineseName ? `${p.chineseName} · ${p.brand}` : p.brand}
+        {p.protocol ? ` (${p.protocol})` : ""}
+      </span>
+    </span>
+  )
 }
+
+// Dead block — replaced by ./presets. Below kept until next edit removes it.
 
 interface ExtraField {
   key: string
@@ -164,24 +146,70 @@ interface ExtraField {
 const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
   "openai-transcriptions": [],
   "openai-compatible": [],
+  "openai-chat-completions-asr": [],
   "deepgram-ws": [],
   "assemblyai-ws": [],
-  "azure-ws": [],
+  "azure-ws": [
+    {
+      key: "region",
+      label: "Region",
+      type: "text",
+      required: true,
+      hint: "e.g. eastus, westus, southeastasia — matches your Azure Speech resource region",
+    },
+  ],
   "xunfei-ws": [
-    { key: "api_secret", label: "APISecret", type: "password", required: true },
-    { key: "app_id", label: "APPID", type: "text", required: true },
+    {
+      key: "api_secret",
+      label: "APISecret",
+      type: "password",
+      required: true,
+      hint: "讯飞控制台 → 我的应用 → 该应用的 APISecret",
+    },
+    {
+      key: "app_id",
+      label: "APPID",
+      type: "text",
+      required: true,
+      hint: "讯飞控制台 → 我的应用 → 该应用的 APPID",
+    },
+    {
+      key: "accent",
+      label: "Accent",
+      type: "text",
+      required: false,
+      hint: "口音：mandarin (普通话，默认) / 其它方言代码见讯飞文档",
+    },
   ],
   "volcengine-ws": [
-    { key: "app_key", label: "AppKey", type: "text", required: true },
+    {
+      key: "app_key",
+      label: "APP ID",
+      type: "text",
+      required: true,
+      hint: "火山引擎控制台 → 服务接口认证信息 → APP ID (数字)",
+    },
     {
       key: "resource_id",
       label: "ResourceId",
       type: "text",
       required: false,
-      hint: "Defaults to volc.bigasr.sauc.duration",
+      hint: "1.0 (BigASR) 留空即用默认 volc.bigasr.sauc.duration；2.0 (Seed，实例 ID 含 Speech_Recognition_Seed_streaming) 填 volc.seedasr.sauc.duration",
     },
   ],
 }
+
+/**
+ * Per-kind hint for the API Key input — surfaces what the upstream
+ * console actually calls this secret (Access Token, Subscription Key,
+ * APIKey, …) so users don't paste the wrong field.
+ */
+const KIND_API_KEY_HINT: Partial<Record<SttProviderKind, string>> = {
+  "azure-ws": "Subscription Key (Azure 资源 → 密钥与终结点)",
+  "volcengine-ws": "Access Token —— 不是 Secret Key",
+  "xunfei-ws": "APIKey",
+}
+
 
 const blankProvider = (): SttProviderConfig => ({
   id: "",
@@ -217,28 +245,13 @@ export default function VoicePanel() {
       const transport = getTransport()
       const [list, active, im, cat] = await Promise.all([
         transport.call<SttProviderConfig[]>("get_stt_providers", {}),
-        transport.call<ActiveSttModel | { activeModel?: ActiveSttModel } | null>(
-          "get_active_stt_model",
-          {},
-        ),
-        transport.call<ActiveSttModel | { imFallbackModel?: ActiveSttModel } | null>(
-          "get_im_fallback_stt_model",
-          {},
-        ),
+        transport.call<unknown>("get_active_stt_model", {}),
+        transport.call<unknown>("get_im_fallback_stt_model", {}),
         transport.call<KnownLocalSttBackend[]>("list_known_local_stt_backends", {}),
       ])
       setProviders(list ?? [])
-      // Tauri returns plain Option<T>; HTTP returns `{ activeModel: ... }`.
-      const normActive =
-        active && typeof active === "object" && "activeModel" in active
-          ? (active as { activeModel?: ActiveSttModel | null }).activeModel ?? null
-          : (active as ActiveSttModel | null)
-      const normIm =
-        im && typeof im === "object" && "imFallbackModel" in im
-          ? (im as { imFallbackModel?: ActiveSttModel | null }).imFallbackModel ?? null
-          : (im as ActiveSttModel | null)
-      setActiveModel(normActive ?? null)
-      setImFallback(normIm ?? null)
+      setActiveModel(unwrapActiveSttModel(active, "activeModel"))
+      setImFallback(unwrapActiveSttModel(im, "imFallbackModel"))
       setBackends(cat ?? [])
     } catch (e) {
       setError(String(e))
@@ -340,15 +353,26 @@ export default function VoicePanel() {
   )
 
   const allAvailable = useMemo(() => {
-    const out: { providerId: string; modelId: string; label: string }[] = []
+    const out: {
+      providerId: string
+      modelId: string
+      label: string
+      streaming: boolean
+    }[] = []
     for (const p of providers) {
       if (!p.enabled) continue
-      if (!BATCH_CAPABLE_KINDS.has(p.kind)) continue
+      // Either path is now wired in `useVoiceInput`: batch via
+      // `stt_transcribe_blob`, streaming via `stt_start_session` +
+      // PCM16 worklet. Surface both — `streaming: true` lets the
+      // selector tag the realtime providers in the dropdown label.
+      if (!BATCH_CAPABLE_KINDS.has(p.kind) && !STREAMING_KINDS.has(p.kind)) continue
+      const streaming = STREAMING_KINDS.has(p.kind)
       for (const m of p.models) {
         out.push({
           providerId: p.id,
           modelId: m.id,
-          label: `${p.name} · ${m.name || m.id}`,
+          label: `${p.name} · ${m.name || m.id}${streaming ? " · streaming" : ""}`,
+          streaming,
         })
       }
     }
@@ -363,7 +387,7 @@ export default function VoicePanel() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex-1 overflow-y-auto p-6 flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("voice.processing")}
       </div>
@@ -371,7 +395,7 @@ export default function VoicePanel() {
   }
 
   return (
-    <div className="space-y-6 p-4 max-w-4xl">
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
       <header className="flex items-center gap-2">
         <Mic className="h-5 w-5" />
         <div>
@@ -446,11 +470,16 @@ export default function VoicePanel() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">{t("voice.settings.imFallbackEmpty")}</SelectItem>
-                {allAvailable.map((m) => (
-                  <SelectItem key={`im-${m.providerId}::${m.modelId}`} value={`${m.providerId}::${m.modelId}`}>
-                    {m.label}
-                  </SelectItem>
-                ))}
+                {/* IM auto-transcription is a batch operation (one audio blob
+                    per message). Streaming-only providers reject this path
+                    server-side, so don't surface them in the picker. */}
+                {allAvailable
+                  .filter((m) => !m.streaming)
+                  .map((m) => (
+                    <SelectItem key={`im-${m.providerId}::${m.modelId}`} value={`${m.providerId}::${m.modelId}`}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
@@ -478,12 +507,22 @@ export default function VoicePanel() {
               {t("voice.settings.noProviders")}
             </p>
           )}
-          {providers.map((p) => (
+          {providers.map((p) => {
+            const preset = findPreset(presetSlugFromProvider(p.kind, p.baseUrl))
+            return (
             <div
               key={p.id}
               className="flex items-start justify-between gap-3 rounded-md border p-3"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex items-start gap-3">
+                <ProviderIcon
+                  providerKey={preset?.iconKey}
+                  providerName={preset?.brand ?? p.name}
+                  size={24}
+                  color
+                  className="shrink-0 mt-0.5"
+                />
+                <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm truncate">{p.name}</span>
                   <Badge variant="outline" className="text-[10px]">
@@ -501,6 +540,7 @@ export default function VoicePanel() {
                     {p.models.map((m) => m.id).join(" · ")}
                   </p>
                 )}
+                </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button size="sm" variant="ghost" onClick={() => setDialogProvider(p)}>
@@ -519,7 +559,8 @@ export default function VoicePanel() {
                 </IconTip>
               </div>
             </div>
-          ))}
+            )
+          })}
         </CardContent>
       </Card>
 
@@ -609,7 +650,10 @@ function ProviderDialog({
   const isNew = !provider.id
 
   const [name, setName] = useState(provider.name)
-  const [kind, setKind] = useState<SttProviderKind>(provider.kind)
+  const [presetSlug, setPresetSlug] = useState<string>(() =>
+    presetSlugFromProvider(provider.kind, provider.baseUrl),
+  )
+  const kind: SttProviderKind = findPreset(presetSlug)?.kind ?? provider.kind
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const [apiKey, setApiKey] = useState(provider.apiKey ?? "")
   const [enabled, setEnabled] = useState(provider.enabled)
@@ -617,50 +661,120 @@ function ProviderDialog({
   const [extraValues, setExtraValues] = useState<Record<string, string>>(
     () => ({ ...(provider.extra ?? {}) }),
   )
-  const [modelsText, setModelsText] = useState(
-    provider.models.map((m) => `${m.id}\t${m.name || m.id}`).join("\n"),
-  )
+  const [models, setModels] = useState<SttModelConfig[]>(() => {
+    // For brand-new providers whose preset has seed models (iFlytek,
+    // Volcengine, DashScope), seed the list so the activation flow has
+    // something to pick. Existing providers keep their saved models.
+    if (!provider.id && provider.models.length === 0) {
+      const preset = findPreset(presetSlugFromProvider(provider.kind, provider.baseUrl))
+      if (preset && preset.defaultModels.length > 0) {
+        return preset.defaultModels.map((p) => ({ ...p }))
+      }
+    }
+    return provider.models.map((m) => ({ ...m }))
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const extraSchema = useMemo(() => KIND_EXTRA_SCHEMA[kind] ?? [], [kind])
 
-  const onKindChange = useCallback(
-    (next: SttProviderKind) => {
-      setKind(next)
-      // Prefill the default baseUrl on kind switch when the user hasn't
-      // started typing one (or is on the previous kind's default).
-      const currentDefault = KIND_DEFAULT_BASE_URL[kind] ?? ""
-      const nextDefault = KIND_DEFAULT_BASE_URL[next] ?? ""
-      if (!baseUrl.trim() || baseUrl.trim() === currentDefault) {
-        setBaseUrl(nextDefault)
+  const onPresetChange = useCallback(
+    (nextSlug: string) => {
+      const next = findPreset(nextSlug)
+      const prev = findPreset(presetSlug)
+      if (!next) return
+      setPresetSlug(nextSlug)
+      // Prefill the default baseUrl on preset switch when the user
+      // hasn't customised one (or is still on the previous default).
+      const prevDefault = prev?.defaultBaseUrl ?? ""
+      if (!baseUrl.trim() || baseUrl.trim() === prevDefault) {
+        setBaseUrl(next.defaultBaseUrl)
       }
+      // Models that are still the previous preset's defaults are leftover
+      // UI noise — swap them for the new preset's defaults so users
+      // don't see a wrong-vendor list of seeded entries. Models the user
+      // typed or edited (not matching the previous defaults) survive.
+      setModels((current) => {
+        const prevDefaults = prev?.defaultModels ?? []
+        const isResidual =
+          prevDefaults.length > 0 &&
+          current.length === prevDefaults.length &&
+          current.every(
+            (m, i) =>
+              m.id === prevDefaults[i].id && (m.name || m.id) === prevDefaults[i].name,
+          )
+        if (isResidual) {
+          return next.defaultModels.map((p) => ({ ...p }))
+        }
+        if (current.length === 0 && next.defaultModels.length > 0) {
+          return next.defaultModels.map((p) => ({ ...p }))
+        }
+        return current
+      })
     },
-    [baseUrl, kind],
+    [baseUrl, presetSlug],
   )
 
   const save = useCallback(async () => {
     setSaving(true)
     setError(null)
     try {
-      // Validate required `extra` fields before sending so the user sees
-      // the missing-credential message in the dialog instead of a
-      // cryptic backend error on first stream attempt.
+      // Provider name is the only cross-vendor required field on the
+      // top-level form — without it the row in the list looks empty.
+      if (!name.trim()) {
+        setError(t("voice.settings.errProviderNameRequired"))
+        setSaving(false)
+        return
+      }
+      // Mismatched schemes silently fail at connect time, so block them
+      // up front. Transport + requirements come from the preset registry.
+      const preset = findPreset(presetSlug)
+      const trimmedBase = baseUrl.trim()
+      if (trimmedBase) {
+        const lower = trimmedBase.toLowerCase()
+        if (preset?.transport === "ws") {
+          if (!lower.startsWith("ws://") && !lower.startsWith("wss://")) {
+            setError(t("voice.settings.errBaseUrlMustBeWs"))
+            setSaving(false)
+            return
+          }
+        } else if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+          setError(t("voice.settings.errBaseUrlMustBeHttp"))
+          setSaving(false)
+          return
+        }
+      } else if (preset?.requiresBaseUrl) {
+        setError(t("voice.settings.errBaseUrlRequired"))
+        setSaving(false)
+        return
+      }
+      // Local OpenAI-compatible servers bound to private networks may
+      // legitimately have no API key. When editing an existing provider,
+      // an empty input means "keep the stored key" (the backend merge
+      // logic preserves redacted ones).
+      const apiKeyTrim = apiKey.trim()
+      const requiresApiKey = !(kind === "openai-compatible" && allowPrivate)
+      if (isNew && requiresApiKey && !apiKeyTrim) {
+        setError(t("voice.settings.errApiKeyRequired"))
+        setSaving(false)
+        return
+      }
+      // Required `extra` fields per kind — surface vendor-specific
+      // missing credentials in the dialog rather than a cryptic backend
+      // error on first stream attempt.
       for (const field of extraSchema) {
         if (field.required && !extraValues[field.key]?.trim()) {
-          setError(`Missing required field: ${field.label}`)
+          setError(
+            t("voice.settings.errExtraFieldRequired", { field: field.label }),
+          )
           setSaving(false)
           return
         }
       }
-      const models: SttModelConfig[] = modelsText
-        .split("\n")
-        .map((row) => row.trim())
-        .filter(Boolean)
-        .map((row) => {
-          const [id, ...rest] = row.split("\t")
-          return { id: id.trim(), name: rest.join("\t").trim() || id.trim() }
-        })
+      const trimmedModels: SttModelConfig[] = models
+        .map((m) => ({ ...m, id: m.id.trim(), name: (m.name || "").trim() }))
+        .filter((m) => m.id)
+        .map((m) => ({ ...m, name: m.name || m.id }))
       // Strip empty extra values so they don't override redacted-but-set
       // values on round-trip and don't get sent as `""`.
       const trimmedExtra: Record<string, string> = {}
@@ -673,7 +787,7 @@ function ProviderDialog({
         kind,
         baseUrl: baseUrl.trim(),
         apiKey,
-        models,
+        models: trimmedModels,
         enabled,
         allowPrivateNetwork: allowPrivate,
         extra: trimmedExtra,
@@ -703,10 +817,12 @@ function ProviderDialog({
     extraValues,
     isNew,
     kind,
-    modelsText,
+    models,
     name,
     onSaved,
+    presetSlug,
     provider,
+    t,
   ])
 
   return (
@@ -724,14 +840,14 @@ function ProviderDialog({
           </div>
           <div className="space-y-1.5">
             <Label>{t("voice.settings.providerKind")}</Label>
-            <Select value={kind} onValueChange={(v) => onKindChange(v as SttProviderKind)}>
+            <Select value={presetSlug} onValueChange={onPresetChange}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue>{renderPresetLabel(findPreset(presetSlug), presetSlug)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {KIND_OPTIONS.map((k) => (
-                  <SelectItem key={k.value} value={k.value}>
-                    {k.label}
+                {STT_PRESETS.map((p) => (
+                  <SelectItem key={p.slug} value={p.slug}>
+                    {renderPresetLabel(p, p.slug)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -742,11 +858,17 @@ function ProviderDialog({
             <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label>{t("voice.settings.apiKey")}</Label>
-            <Input
-              type="password"
+            <Label>
+              {t("voice.settings.apiKey")}
+              {KIND_API_KEY_HINT[kind] && (
+                <span className="ml-1.5 text-xs text-muted-foreground font-normal">
+                  · {KIND_API_KEY_HINT[kind]}
+                </span>
+              )}
+            </Label>
+            <SecretInput
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={setApiKey}
               placeholder={isNew ? "" : t("voice.settings.apiKeyMasked")}
             />
           </div>
@@ -756,30 +878,73 @@ function ProviderDialog({
                 {field.label}
                 {field.required && <span className="text-destructive ml-0.5">*</span>}
               </Label>
-              <Input
-                type={field.type === "password" ? "password" : "text"}
-                value={extraValues[field.key] ?? ""}
-                onChange={(e) =>
-                  setExtraValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                }
-              />
+              {field.type === "password" ? (
+                <SecretInput
+                  value={extraValues[field.key] ?? ""}
+                  onChange={(next) =>
+                    setExtraValues((prev) => ({ ...prev, [field.key]: next }))
+                  }
+                />
+              ) : (
+                <Input
+                  type="text"
+                  value={extraValues[field.key] ?? ""}
+                  onChange={(e) =>
+                    setExtraValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                  }
+                />
+              )}
               {field.hint && (
                 <p className="text-xs text-muted-foreground">{field.hint}</p>
               )}
             </div>
           ))}
           <div className="space-y-1.5">
-            <Label>{t("voice.settings.models")}</Label>
-            <textarea
-              value={modelsText}
-              onChange={(e) => setModelsText(e.target.value)}
-              rows={5}
-              className="w-full font-mono text-xs rounded-md border px-2 py-1.5 bg-background"
-              placeholder={t("voice.settings.modelsPlaceholder")}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("voice.settings.modelsHint")}
-            </p>
+            <Label>{t("model.modelList")}</Label>
+            <div className="space-y-2">
+              {models.map((m, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    value={m.id}
+                    placeholder={t("model.modelId")}
+                    onChange={(e) =>
+                      setModels((prev) =>
+                        prev.map((row, j) => (j === i ? { ...row, id: e.target.value } : row)),
+                      )
+                    }
+                    className="flex-1 font-mono text-xs h-8"
+                  />
+                  <Input
+                    value={m.name ?? ""}
+                    placeholder={t("model.displayName")}
+                    onChange={(e) =>
+                      setModels((prev) =>
+                        prev.map((row, j) => (j === i ? { ...row, name: e.target.value } : row)),
+                      )
+                    }
+                    className="flex-1 text-xs h-8"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => setModels((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label={t("common.delete")}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setModels((prev) => [...prev, { id: "", name: "" }])}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              {t("model.addModel")}
+            </Button>
           </div>
           <div className="flex items-center justify-between">
             <Label>{t("voice.settings.enabled")}</Label>

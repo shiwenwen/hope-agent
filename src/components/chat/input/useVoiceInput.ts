@@ -1,14 +1,36 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { getTransport } from "@/lib/transport-provider"
 import { useAudioRecorder } from "@/hooks/useAudioRecorder"
 import type { RecorderState } from "@/hooks/useAudioRecorder"
+import { usePcm16Streamer, pcm16ToBase64 } from "@/hooks/usePcm16Streamer"
+import { logger } from "@/lib/logger"
+import {
+  fetchActiveProviderKind,
+  STREAMING_KINDS,
+  unwrapSessionId,
+  type SttProviderKind,
+} from "@/lib/stt"
 
 interface Transcript {
   text: string
   language?: string | null
   durationMs?: number | null
+}
+
+interface TranscriptDeltaPayload {
+  sessionId: string
+  text: string
+  isFinal: boolean
+  accumulated?: string | null
+  language?: string | null
+}
+
+interface SessionErrorPayload {
+  sessionId: string
+  code: string
+  message: string
 }
 
 export type VoiceInputState =
@@ -20,6 +42,10 @@ export interface UseVoiceInputResult {
   state: VoiceInputState
   durationMs: number
   audioLevel: number
+  /** Rolling RMS history for the waveform UI (48 bins, ~50 ms each). */
+  levels: number[]
+  /** Live partial transcript while streaming. Empty in batch mode. */
+  partialText: string
   /** Human-readable last error (already localized). `null` when idle / OK. */
   errorMessage: string | null
   /** Begin recording. */
@@ -58,30 +84,258 @@ function deriveFilename(mimeType: string): string {
 }
 
 /**
- * Composite hook: drives MediaRecorder + posts the final blob to
- * `stt_transcribe_blob`. Phase 4 ships the batch path (record-then-
- * transcribe); the streaming session API from Phase 2 is wired into
- * the hook in a later iteration.
+ * Voice input composite hook. Selects between two paths at `start()`
+ * time based on the active provider's wire protocol:
+ *
+ * - **Batch** (`/v1/audio/transcriptions` or `/v1/chat/completions` with
+ *   `input_audio`): record via `MediaRecorder` into a webm/opus blob and
+ *   hand the whole thing to `stt_transcribe_blob` on `stop()`.
+ * - **Streaming** (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek
+ *   WebSocket): capture 16 kHz PCM16 frames via `usePcm16Streamer`,
+ *   open a session with `stt_start_session`, push each frame through
+ *   `stt_push_chunk`, subscribe `stt:transcript_partial/final/session_error`
+ *   for live partial preview, and `stt_finalize_session` on `stop()`.
+ *
+ * The picked path is opaque to the caller (`ChatInput`); the only new
+ * surface is `partialText` for showing live preview while streaming.
  */
 export function useVoiceInput(): UseVoiceInputResult {
   const { t } = useTranslation()
   const recorder = useAudioRecorder()
+  const streamer = usePcm16Streamer()
   const [transcribing, setTranscribing] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [partialText, setPartialText] = useState("")
+  const [mode, setMode] = useState<"batch" | "streaming" | null>(null)
 
-  const start = useCallback(async () => {
-    setErrorMessage(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const finalAccumulatorRef = useRef<string>("")
+  /** Chain head for serialised `stt_push_chunk` calls — Tauri / HTTP
+   * transports don't guarantee in-order delivery for concurrent
+   * invocations, so we await the previous push before sending the
+   * next. Audio frames mis-ordered server-side produce garbled
+   * partials and dropped tail audio. */
+  const pushChainRef = useRef<Promise<void>>(Promise.resolve())
+  const sessionErrorRef = useRef<string | null>(null)
+  const unsubsRef = useRef<Array<() => void>>([])
+
+  const teardownSession = useCallback(() => {
+    for (const off of unsubsRef.current) {
+      try {
+        off()
+      } catch {
+        // ignore
+      }
+    }
+    unsubsRef.current = []
+    sessionIdRef.current = null
+    finalAccumulatorRef.current = ""
+    sessionErrorRef.current = null
+    pushChainRef.current = Promise.resolve()
+    setPartialText("")
+  }, [])
+
+  const subscribeSessionEvents = useCallback((sessionId: string) => {
+    const transport = getTransport()
+    const onPartial = (payload: unknown) => {
+      const p = payload as TranscriptDeltaPayload | null
+      if (!p || p.sessionId !== sessionId) return
+      // `accumulated` is the cumulative buffer some providers emit
+      // (Deepgram / AssemblyAI); when absent, `text` is the latest delta.
+      const preview = (p.accumulated ?? "").trim() || p.text || ""
+      setPartialText(preview)
+    }
+    const onFinal = (payload: unknown) => {
+      const p = payload as TranscriptDeltaPayload | null
+      if (!p || p.sessionId !== sessionId) return
+      finalAccumulatorRef.current += p.text
+      // Show the running tally so the user sees stable text accumulating.
+      setPartialText(finalAccumulatorRef.current)
+    }
+    const onError = (payload: unknown) => {
+      const p = payload as SessionErrorPayload | null
+      if (!p || p.sessionId !== sessionId) return
+      sessionErrorRef.current = p.message || p.code
+      logger.error(
+        "voice",
+        "useVoiceInput::session",
+        `session error code=${p.code} raw=${p.message}`,
+      )
+    }
+    unsubsRef.current = [
+      transport.listen("stt:transcript_partial", onPartial),
+      transport.listen("stt:transcript_final", onFinal),
+      transport.listen("stt:session_error", onError),
+    ]
+  }, [])
+
+  const startBatch = useCallback(async () => {
+    setMode("batch")
     try {
       await recorder.start()
-    } catch {
-      // recorder.error fills in
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e)
+      const n = e instanceof Error ? e.name : "?"
+      logger.error(
+        "voice",
+        "useVoiceInput::start",
+        `recorder.start failed name=${n} raw=${m}`,
+      )
     }
   }, [recorder])
 
-  const stopAndTranscribe = useCallback(async (): Promise<string> => {
+  const startStreaming = useCallback(
+    async (providerId: string, modelId: string, kind: SttProviderKind) => {
+      setMode("streaming")
+      try {
+        const raw = await getTransport().call<unknown>("stt_start_session", {
+          providerId,
+          modelId,
+          options: { sampleRateHz: 16000 },
+        })
+        const sessionId = unwrapSessionId(raw)
+        sessionIdRef.current = sessionId
+        finalAccumulatorRef.current = ""
+        sessionErrorRef.current = null
+        subscribeSessionEvents(sessionId)
+        logger.info(
+          "voice",
+          "useVoiceInput::start",
+          `streaming session opened sessionId=${sessionId} kind=${kind}`,
+        )
+        await streamer.start((chunk) => {
+          const id = sessionIdRef.current
+          if (!id) return
+          const base64 = pcm16ToBase64(chunk)
+          // Serialise by chaining onto the previous push. Errors are
+          // logged but the chain continues so a single failure doesn't
+          // wedge subsequent frames.
+          pushChainRef.current = pushChainRef.current.then(async () => {
+            try {
+              await getTransport().call("stt_push_chunk", { sessionId: id, base64 })
+            } catch (e) {
+              logger.warn(
+                "voice",
+                "useVoiceInput::streamer",
+                `push_chunk failed raw=${e instanceof Error ? e.message : String(e)}`,
+              )
+            }
+          })
+        })
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e)
+        logger.error(
+          "voice",
+          "useVoiceInput::start",
+          `streaming start failed raw=${m}`,
+        )
+        teardownSession()
+        setMode(null)
+        setErrorMessage(t("voice.failed"))
+      }
+    },
+    [streamer, subscribeSessionEvents, teardownSession, t],
+  )
+
+  const start = useCallback(async () => {
+    setErrorMessage(null)
+    setPartialText("")
+    // Pre-flight the active STT model + its provider kind so we can pick
+    // the right path (batch vs streaming) without burning a mic-permission
+    // prompt only to fail at transcribe time.
+    let kind: SttProviderKind | null = null
+    let active: { providerId: string; modelId: string } | null = null
+    try {
+      const meta = await fetchActiveProviderKind()
+      active = meta.active
+      kind = meta.kind
+      if (!active) {
+        logger.warn(
+          "voice",
+          "useVoiceInput::start",
+          "preflight: no active STT model configured",
+        )
+        setErrorMessage(t("voice.noProvider"))
+        return
+      }
+      logger.info(
+        "voice",
+        "useVoiceInput::start",
+        `preflight ok: provider=${active.providerId} model=${active.modelId} kind=${kind ?? "?"}`,
+      )
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e)
+      logger.warn("voice", "useVoiceInput::start", `preflight call failed raw=${m}`)
+    }
+    if (active && kind && STREAMING_KINDS.has(kind)) {
+      await startStreaming(active.providerId, active.modelId, kind)
+    } else {
+      await startBatch()
+    }
+  }, [t, startStreaming, startBatch])
+
+  const finalizeStreaming = useCallback(async (): Promise<string> => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return ""
+    setTranscribing(true)
+    try {
+      streamer.stop()
+      // Drain pending pushes before finalize so the tail audio frames
+      // actually land on the server side. Errors already swallowed
+      // inside the chain — settling is the only guarantee we need.
+      await pushChainRef.current
+      const transcript = await getTransport().call<Transcript>(
+        "stt_finalize_session",
+        { sessionId },
+      )
+      setTranscribing(false)
+      logger.info(
+        "voice",
+        "useVoiceInput::stopAndTranscribe",
+        `streaming finalize ok: chars=${transcript?.text?.length ?? 0}`,
+      )
+      teardownSession()
+      setMode(null)
+      const text = (transcript?.text ?? "").trim()
+      if (!text) {
+        setErrorMessage(t("voice.empty"))
+        return ""
+      }
+      return text
+    } catch (e) {
+      setTranscribing(false)
+      const msg = e instanceof Error ? e.message : String(e)
+      const code = msg.match(/stt:([a-z_]+):/)?.[1]
+      logger.error(
+        "voice",
+        "useVoiceInput::stopAndTranscribe",
+        `streaming finalize failed code=${code ?? "?"} raw=${msg}`,
+      )
+      teardownSession()
+      setMode(null)
+      if (code === "no_active_model") {
+        setErrorMessage(t("voice.noProvider"))
+      } else {
+        setErrorMessage(t("voice.failed"))
+      }
+      return ""
+    }
+  }, [streamer, teardownSession, t])
+
+  const stopAndTranscribeBatch = useCallback(async (): Promise<string> => {
     try {
       const { blob, mimeType } = await recorder.stop()
+      logger.info(
+        "voice",
+        "useVoiceInput::stopAndTranscribe",
+        `recorder stopped: bytes=${blob.size} mime=${mimeType}`,
+      )
       if (!blob.size) {
+        logger.warn(
+          "voice",
+          "useVoiceInput::stopAndTranscribe",
+          "empty blob from recorder.stop — likely cancelled or zero-duration",
+        )
         setErrorMessage(t("voice.failed"))
         return ""
       }
@@ -94,6 +348,11 @@ export function useVoiceInput(): UseVoiceInputResult {
         options: {},
       })
       setTranscribing(false)
+      logger.info(
+        "voice",
+        "useVoiceInput::stopAndTranscribe",
+        `transcribe ok: chars=${transcript?.text?.length ?? 0} lang=${transcript?.language ?? "?"} duration=${transcript?.durationMs ?? "?"}`,
+      )
       if (!transcript || !transcript.text || !transcript.text.trim()) {
         setErrorMessage(t("voice.empty"))
         return ""
@@ -102,10 +361,13 @@ export function useVoiceInput(): UseVoiceInputResult {
     } catch (e) {
       setTranscribing(false)
       const msg = e instanceof Error ? e.message : String(e)
-      // Backend `SttError::Display` always emits `stt:<code>: <body>`.
-      // HTTP transport may wrap that inside `[HttpTransport] POST ... 400:
-      // {"error":"stt:..."}` so scan anywhere in the message, not anchored.
+      const name = e instanceof Error ? e.name : "?"
       const code = msg.match(/stt:([a-z_]+):/)?.[1]
+      logger.error(
+        "voice",
+        "useVoiceInput::stopAndTranscribe",
+        `transcribe failed code=${code ?? "?"} name=${name} raw=${msg}`,
+      )
       if (code === "no_active_model") {
         setErrorMessage(t("voice.noProvider"))
       } else if (msg.toLowerCase().includes("permission")) {
@@ -114,27 +376,68 @@ export function useVoiceInput(): UseVoiceInputResult {
         setErrorMessage(t("voice.failed"))
       }
       return ""
+    } finally {
+      setMode(null)
     }
   }, [recorder, t])
 
+  const stopAndTranscribe = useCallback(async (): Promise<string> => {
+    if (mode === "streaming") return finalizeStreaming()
+    return stopAndTranscribeBatch()
+  }, [mode, finalizeStreaming, stopAndTranscribeBatch])
+
   const cancel = useCallback(() => {
     setErrorMessage(null)
-    recorder.cancel()
-  }, [recorder])
+    setPartialText("")
+    if (mode === "streaming") {
+      const sessionId = sessionIdRef.current
+      streamer.cancel()
+      if (sessionId) {
+        void getTransport()
+          .call("stt_cancel_session", { sessionId })
+          .catch(() => {
+            // best-effort; backend GC will reap idle sessions anyway
+          })
+      }
+      teardownSession()
+      setMode(null)
+    } else {
+      recorder.cancel()
+      setMode(null)
+    }
+  }, [mode, streamer, recorder, teardownSession])
 
   const clearError = useCallback(() => setErrorMessage(null), [])
 
+  // Map child-hook state back to the original `VoiceInputState` union so
+  // VoiceRecordButton's existing switch keeps working unchanged.
+  const baseState: RecorderState =
+    mode === "streaming"
+      ? streamer.state === "streaming"
+        ? "recording"
+        : streamer.state === "stopped"
+          ? "stopped"
+          : streamer.state === "requesting-permission"
+            ? "requesting-permission"
+            : streamer.state === "error"
+              ? "error"
+              : "idle"
+      : recorder.state
   const state: VoiceInputState = transcribing
     ? "transcribing"
-    : recorder.state === "stopped"
+    : baseState === "stopped"
       ? "ready"
-      : recorder.state
+      : baseState
 
   // Surface getUserMedia denial via i18n.
-  const surfacedRecorderError =
-    recorder.error && !errorMessage
+  const surfacedError =
+    mode === "streaming"
+      ? streamer.error
+      : recorder.error
+  const surfacedErrorMessage =
+    surfacedError && !errorMessage
       ? (() => {
-          const name = (recorder.error as DOMException | Error).name ?? ""
+          const name = (surfacedError as DOMException | Error).name ?? ""
           if (name === "NotAllowedError" || name === "SecurityError") {
             return t("voice.permissionDenied")
           }
@@ -142,11 +445,25 @@ export function useVoiceInput(): UseVoiceInputResult {
         })()
       : null
 
+  // Always tear down the live session on unmount so a stale subscription
+  // doesn't keep firing into a dead component.
+  useEffect(() => {
+    return () => {
+      teardownSession()
+    }
+  }, [teardownSession])
+
+  const durationMs = mode === "streaming" ? streamer.durationMs : recorder.durationMs
+  const audioLevel = mode === "streaming" ? streamer.audioLevel : recorder.audioLevel
+  const levels = mode === "streaming" ? streamer.levels : recorder.levels
+
   return {
     state,
-    durationMs: recorder.durationMs,
-    audioLevel: recorder.audioLevel,
-    errorMessage: errorMessage ?? surfacedRecorderError,
+    durationMs,
+    audioLevel,
+    levels,
+    partialText,
+    errorMessage: errorMessage ?? surfacedErrorMessage,
     start,
     stopAndTranscribe,
     cancel,
