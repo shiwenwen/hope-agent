@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "إجراء Mac Control",
         "body": "سيغيّر استدعاء التحكم في macOS هذا تركيز/حالة سطح المكتب. أكّد قبل أن يفعّل Hope Agent تطبيقًا آخر."
+      },
+      "mac_control_dangerous_action": {
+        "title": "إجراء Mac Control خطير",
+        "body": "قد يؤدي استدعاء التحكم في macOS هذا إلى إغلاق النوافذ أو إنهاء التطبيقات أو تأكيد مربعات الحوار أو تشغيل قوائم مدمرة. يلزم التأكيد في كل مرة؛ خيار السماح دائمًا غير متاح."
       }
     },
     "title": "Command Approval Required",

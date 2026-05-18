@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Phase 3 supports `status`, `permissions`, `snapshot`, `wait`, `apps` list/frontmost/activate/launch, `windows` list/focus/move/resize/minimize, `act` click/type/set_value/hotkey/scroll, and `menu` list/click. Prefer snapshot/wait before mutation. Destructive quit/close/delete actions remain unavailable.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot`, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,17 +734,22 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions", "snapshot", "wait", "apps", "windows", "act", "menu"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional screenshot. `wait` polls snapshots until a target query matches. `apps`, `windows`, `act`, and `menu` perform Phase 3 desktop operations."
+                        "enum": ["status", "permissions", "snapshot", "wait", "apps", "windows", "act", "menu", "dialog"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional screenshot. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, and `dialog` perform desktop operations."
                     },
                     "op": {
                         "type": "string",
-                        "enum": ["list", "frontmost", "activate", "launch", "focus", "move", "resize", "minimize", "click", "type", "set_value", "hotkey", "scroll"],
-                        "description": "Sub-operation. For `apps`: list|frontmost|activate|launch. For `windows`: list|focus|move|resize|minimize. For `act`: click|type|set_value|hotkey|scroll. For `menu`: list|click."
+                        "enum": ["present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "click", "click_point", "double_click", "right_click", "type", "set_value", "hotkey", "scroll", "drag", "inspect", "accept", "dismiss"],
+                        "description": "Sub-operation. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `dialog`: inspect|accept|dismiss."
                     },
                     "appName": {
                         "type": "string",
-                        "description": "For `apps`: case-insensitive substring match against the running app localized name."
+                        "description": "For `apps`: app name query. By default this is an exact match against localized name, bundle id suffix, .app name, or executable name. If launch/activate by name is ambiguous or fails, call apps.search/installed and retry with bundleId."
+                    },
+                    "appNameMatch": {
+                        "type": "string",
+                        "enum": ["exact", "contains"],
+                        "description": "For `apps` appName matching. Defaults to exact. Use contains only for read-only discovery such as apps.search/installed; prefer bundleId for mutations."
                     },
                     "bundleId": {
                         "type": "string",
@@ -766,11 +771,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "x": {
                         "type": "number",
-                        "description": "For `windows.move` or coordinate click: x position in macOS screen points."
+                        "description": "For `windows.move` or `act.click_point`: x position in macOS screen points. For `act.drag`: destination x point; the source is target center."
                     },
                     "y": {
                         "type": "number",
-                        "description": "For `windows.move` or coordinate click: y position in macOS screen points."
+                        "description": "For `windows.move` or `act.click_point`: y position in macOS screen points. For `act.drag`: destination y point; the source is target center."
                     },
                     "width": {
                         "type": "number",
@@ -809,6 +814,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "array",
                         "items": { "type": "string" },
                         "description": "For `menu.click`: menu title path, e.g. [\"File\", \"New Window\"]."
+                    },
+                    "buttonText": {
+                        "type": "string",
+                        "description": "For `dialog.accept` or `dialog.dismiss`: preferred button label. If omitted, accept/dismiss use conservative built-in label lists such as OK/Save/Open or Cancel/Close/Don't Save."
                     },
                     "includeScreenshot": {
                         "type": "boolean",
@@ -852,7 +861,12 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             },
                             "windowTitle": {
                                 "type": "string",
-                                "description": "Case-insensitive substring match against window title. When element filters are present, restricts matching elements to that window."
+                                "description": "Window title query. Defaults to exact matching; when element filters are present, restricts matching elements to that window."
+                            },
+                            "windowTitleMatch": {
+                                "type": "string",
+                                "enum": ["exact", "contains"],
+                                "description": "Matching strategy for windowTitle. Defaults to exact. Use contains only after listing windows or when a partial title is intentional."
                             },
                             "elementId": {
                                 "type": "string",

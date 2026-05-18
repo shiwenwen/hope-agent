@@ -1,5 +1,6 @@
 // Hope Agent Core — zero Tauri dependency
 // All business logic lives here.
+#![recursion_limit = "256"]
 
 // ── Macros must come first ────────────────────────────────────────
 #[macro_use]

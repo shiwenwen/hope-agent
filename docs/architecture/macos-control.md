@@ -2,562 +2,431 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 状态：Phase 3 安全动作 MVP 已落地
+> 状态：桌面 bridge、权限 readiness、snapshot/wait、apps/windows/act/menu/dialog、截图镜像与审批分类已接入
 
-本文定义 Hope Agent 原生 macOS 控制能力的目标架构。目标不是依赖 Peekaboo，而是吸收它的工程经验：**先看屏幕与 AX 树，再按稳定元素行动；优先使用 Accessibility 原生 action，必要时才回落到合成键鼠事件**。
+本文是 Hope Agent 原生 macOS 桌面控制能力的技术契约。它描述当前系统的运行边界、模块职责、工具接口、权限审批、事件与前端集成方式。
 
-## 目标
+## 能力边界
 
-macOS 桌面版应提供一套一等的本机 GUI 自动化能力，让 Agent 能在用户授权后完成跨 App 工作流：
+macOS 控制能力只在桌面 Tauri 运行模式下真实可用。授权主体必须是 Hope Agent `.app` 进程，所有读取屏幕、读取 Accessibility 树、合成输入和 App/窗口操作都通过该进程执行。
 
-- 读取当前桌面、显示器、前台 App、窗口列表和 UI 元素树
-- 截图并把元素引用、坐标、可用 action 绑定到同一个 snapshot
-- 按元素 ID、文本查询、菜单路径或坐标执行点击、输入、滚动、快捷键、拖拽
-- 激活、启动、隐藏、退出 App，聚焦、移动、缩放、最小化、关闭窗口
-- 发现和点击菜单栏、菜单项、系统 dialog
-- 在聊天右侧实时镜像 Agent 正在看的 macOS 画面
-- 全程接入现有 `permission::engine`、Plan Mode、Agent tool allow/deny、EventBus、日志与 Transport 契约
+当前支持：
 
-非目标：
+- 查询控制状态、权限 readiness 和系统权限摘要
+- 读取前台 App、显示器、窗口、Accessibility 元素树
+- 采集主显示器截图帧，并把截图引用与 snapshot 绑定
+- 等待 app/window/element 出现或消失
+- 枚举、搜索、激活、启动、退出 App
+- 枚举、聚焦、移动、缩放、最小化、关闭窗口
+- 执行 AX 优先的点击、文本输入、设置值、快捷键、滚动、拖拽、右键、双击
+- 枚举和点击菜单栏路径
+- 检查并处理前台 dialog/sheet
+- 通过 EventBus 打开聊天右侧 Mac Control 镜像面板
+- 接入统一 `permission::engine`、Plan Mode、Agent tool allow/deny、Transport Tauri/HTTP 双实现和日志
 
-- 不复用 Peekaboo 的 agent loop、Provider、MCP runtime 或 CLI 进程
-- 不让 `node`、`zsh`、`Terminal`、临时 dev binary 成为长期授权主体
-- 不把 macOS 控制能力暴露给 headless server 模式作为假可用能力
-- 不用纯坐标点击作为主路径
-- 不绕过用户审批去执行输入、点击、菜单、窗口关闭、App 退出等突变操作
+当前不支持：
 
-## 核心判断
+- headless server / ACP 直接控制本机桌面
+- 把 Terminal、shell、临时 dev binary 或脚本解释器作为长期授权主体
+- 在没有 Accessibility 权限时读取或控制 AX 树
+- 在没有 Screen Recording 权限时返回截图帧
+- 读取密码字段真实值、记录剪贴板原文或把截图 base64 写入上下文
+- 用 AX 后台接口控制 Hope Agent 自己的窗口；自身窗口如需控制，必须走专用 main-thread AppKit bridge
 
-Hope Agent 是签名的 macOS `.app`，这是我们做本机控制的关键优势。Screen Recording / Accessibility / Automation 等 TCC 权限应尽量归属到 **Hope Agent app bundle**，而不是外部 CLI 或脚本解释器。真正调用 AX、ScreenCaptureKit、CGEvent 的进程必须是获得授权的进程。
-
-因此架构采用：
+## 架构
 
 ```mermaid
 graph TD
     Agent["Chat Engine / Tool Loop"]
     Tool["ha-core::tools::mac_control"]
-    Bridge["ha-core::mac_control::MacControlBridge"]
-    Desktop["src-tauri macOS bridge<br/>authorized app process"]
-    Native["AX / ScreenCaptureKit / NSWorkspace / CGEvent"]
-    UI["Settings Permissions / Mac Panel"]
+    Core["ha-core::mac_control"]
+    Bridge["MacControlBridge trait<br/>OnceLock registry"]
+    Desktop["src-tauri macOS bridge<br/>authorized .app process"]
+    Native["Accessibility / CoreGraphics / NSWorkspace / CGEvent / Apple Events"]
+    EventBus["EventBus<br/>mac_control:frame"]
+    Frontend["PermissionsPanel / MacControlPanel / Transport"]
 
     Agent --> Tool
-    Tool --> Bridge
+    Tool --> Core
+    Core --> Bridge
     Bridge --> Desktop
     Desktop --> Native
-    Desktop --> UI
+    Core --> EventBus
+    EventBus --> Frontend
+    Frontend --> Core
 ```
 
-- `ha-core` 持有工具 schema、类型、权限分类、结果模型、EventBus 事件和 bridge trait
-- `src-tauri` 在 `setup.rs` 注册 macOS bridge 实现
-- 桌面运行模式通过 bridge 真实执行；server / ACP / 非 macOS 没有 bridge 时返回 `unsupported`
-- 前端权限页和实时面板走 Transport 调用 Tauri/HTTP 对齐接口；HTTP server 模式返回同形状的不可用状态
+分层规则：
 
-这和 `updater::UpdaterBridge` 的方向一致：核心层定义契约，Tauri 壳注入平台实现，避免 `ha-core` 依赖 Tauri。
+- `ha-core` 定义公共类型、工具分发、权限风险分类、snapshot cache、错误统计、EventBus 事件和 bridge trait；不依赖 Tauri。
+- `src-tauri` 在 setup 期间注册 `Arc<dyn MacControlBridge>`，并在 macOS `.app` 进程内调用原生 API。
+- `ha-server` 只提供同形状 HTTP 路由；server/headless 没有 bridge，所有结果明确返回 `supported=false`。
+- 前端只通过 `Transport` 调用 Tauri/HTTP 命令，不直接调用原生 AX 或系统 API。
 
-## 模块布局
+## 模块职责
 
-建议文件结构：
+| 路径 | 职责 |
+| --- | --- |
+| `crates/ha-core/src/mac_control.rs` | 公共类型、bridge 注册、status/permissions/snapshot/wait/apps/windows/act/menu/dialog/capture_frame 入口、snapshot cache、截图文件 LRU、错误统计 |
+| `crates/ha-core/src/tools/mac_control.rs` | builtin tool 的 `action` 分发，把模型参数映射到 `ha_core::mac_control::*` 请求 |
+| `crates/ha-core/src/tools/definitions/core_tools.rs` | `mac_control` tool schema、deferred/tool fate 元数据 |
+| `crates/ha-core/src/permission/engine.rs` | `mac_control` 只读、普通突变、高风险突变的审批分类 |
+| `crates/ha-core/src/tools/approval.rs` | `MacControlAction` / `MacControlDangerousAction` 审批 payload |
+| `src-tauri/src/macos_control.rs` | macOS bridge 实现，封装 AX、截图、NSWorkspace、CGEvent、菜单、dialog、Apple Events fallback |
+| `src-tauri/src/tauri_wrappers.rs` | Tauri command wrapper |
+| `crates/ha-server/src/lib.rs` | HTTP `/api/mac-control/*` 路由 |
+| `src/lib/transport-http.ts` | HTTP command 映射，保持和 Tauri invoke 同名 |
+| `src/components/settings/PermissionsPanel.tsx` | Settings → Permissions 顶部 readiness 摘要 |
+| `src/components/chat/MacControlPanel.tsx` | 聊天右侧截图镜像面板 |
+| `skills/ha-mac-control/SKILL.md` | 模型使用 `mac_control` 的标准 loop 和恢复策略 |
 
-```text
-crates/ha-core/src/mac_control/
-  mod.rs              # 公共类型、Bridge trait、OnceLock 注册入口
-  types.rs            # Status / Snapshot / Element / Action / Result
-  permissions.rs      # 所需系统权限与 readiness 计算
-  risk.rs             # tool args -> MacControlRisk 分类
-  snapshot_cache.rs   # snapshot 元数据结构；真实图片可由 bridge 存盘
+## 运行模式
 
-crates/ha-core/src/tools/mac_control.rs
-  # builtin tool dispatch；所有 action 进入单一入口
+| 运行模式 | bridge | 结果 |
+| --- | --- | --- |
+| macOS Tauri desktop | 已注册 | 真实查询和执行桌面控制 |
+| macOS Tauri desktop 但缺权限 | 已注册 | 返回 `supported=true`，`readiness=blocked/limited`，具体 action 按权限失败 |
+| HTTP/server/headless | 未注册 | 返回同形状结果，`supported=false` |
+| 非 macOS | 未注册 | 返回同形状结果，`supported=false` |
 
-src-tauri/src/macos_control.rs
-  # Phase 1 注册 bridge；后续可拆成 src-tauri/src/macos_control/：
-  # bridge.rs / screen.rs / ax.rs / input.rs / apps.rs / windows.rs / menu.rs / dialog.rs
+`MacControlStatus` 中几个字段的语义：
 
-src/components/chat/MacControlPanel.tsx
-src/components/settings/PermissionsPanel.tsx
-```
-
-如果 Rust/`objc2` 绑定在 ScreenCaptureKit 或 AX 边界上成本过高，第二阶段可把 `src-tauri/src/macos_control/*` 替换为签名 Swift helper。对 `ha-core` 来说仍是同一个 bridge，工具表面不变。
+- `platform`：当前平台字符串。
+- `supported`：当前运行模式是否可以真实控制本机 macOS 桌面。
+- `desktop`：是否桌面运行模式。
+- `bridgeRegistered`：是否已注册 `MacControlBridge`。
+- `readiness`：`ready | limited | blocked | unsupported`。
+- `coreReady`：Accessibility + Screen Recording 两个核心权限是否已满足。
+- `requiredPermissions` / `optionalPermissions`：权限摘要，来自系统权限 catalog。
+- `stats`：snapshot cache、截图文件上限、最近错误统计。
 
 ## 权限模型
 
-macOS 控制的最小可用权限分三层：
+macOS TCC 权限按进程和 bundle 身份绑定。Hope Agent 的桌面控制能力要求真正调用系统 API 的进程就是已授权的 Hope Agent `.app`。
 
-| 层级 | 权限 | 用途 | 是否 MVP 必需 |
-| --- | --- | --- | --- |
-| 看屏幕 | Screen Recording | 截图、实时面板、视觉定位 | 是 |
-| 读/控 UI | Accessibility | 读取 AX 树、AXPress、AXSetValue、窗口和菜单控制 | 是 |
-| App 自动化 | Automation: System Events / per-app | Apple Events fallback、部分菜单/系统流程 | 可选 |
-| 输入监听 | Input Monitoring | 未来录制用户操作、全局热键学习 | 非 MVP |
-| 系统音频 | System Audio Capture | 未来音频理解 | 非 MVP |
+| 权限 | 用途 | 是否核心 |
+| --- | --- | --- |
+| Accessibility | 读取 AX 树、AXPress、AXSetValue、窗口操作、菜单和 dialog 控制 | 是 |
+| Screen Recording | 截图、右侧镜像面板、视觉定位 | 是 |
+| Automation: System Events / per-app | Apple Events fallback，例如部分 close/quit 流程 | 可选 |
+| Input Monitoring | 当前未接入；预留给操作录制或全局输入学习 | 可选 |
+| System Audio Capture | 当前未接入；预留给音频理解 | 可选 |
 
-现有权限页已经重构为 `check_system_permissions` / `request_system_permission`，并把 `accessibility`、`screen_recording`、`input_monitoring`、`automation_system_events` 等放在 `control_capture` 组。macOS 控制功能应复用这套 catalog，并在设置页增加一个 readiness 区块：
+readiness 计算规则：
 
-- `Ready`：Screen Recording + Accessibility 已授权
-- `Limited`：只缺 Automation / Input Monitoring 等可选项
-- `Blocked`：缺 Screen Recording 或 Accessibility
-- `Unsupported`：非 macOS、HTTP/server mode、没有 bridge、未运行在 `.app` 授权主体里
+- `ready`：Accessibility 和 Screen Recording 均已授权，且没有可选权限待处理。
+- `limited`：核心权限已授权，但可选权限缺失或需手动确认。
+- `blocked`：缺 Accessibility 或 Screen Recording。
+- `unsupported`：非 macOS、非桌面模式、没有 bridge 或系统权限 catalog 不支持。
 
-工具执行时也要做运行时防御：
+运行时防御：
 
-- `snapshot` 读取 AX 树需要 Accessibility；`includeScreenshot=true` 额外需要 Screen Recording。截图失败时返回 AX snapshot + warning，不把整个只读结果打掉
-- `mac_control_capture_frame` 只读镜像帧只需要 Screen Recording；HTTP/server mode 仍返回 `supported=false`
-- `act` / `windows` / `menu` 需要 Accessibility
-- Apple Events fallback 需要对应 Automation consent
-- `server` / `acp` 模式没有已注册 bridge 时，工具返回结构化 `unsupported`，不伪装成功
+- `snapshot` 读取 AX 树需要 Accessibility；`includeScreenshot=true` 额外需要 Screen Recording。截图失败时返回 AX-only snapshot 并附 warning。
+- `capture_frame` 只需要 Screen Recording；失败时不伪造 frame。
+- `act` / `windows` / `menu` / `dialog` 需要 Accessibility。
+- Apple Events fallback 只在系统允许 Automation 时可用；失败结果必须结构化返回。
 
-## Tool 表面
+## Transport 接口
 
-新增 builtin tool：`mac_control`。
+前端 Transport 层提供四个 macOS Control command。Tauri 与 HTTP 必须同名、同形状。
 
-工具分层建议：
+| Tauri Command | HTTP | 说明 |
+| --- | --- | --- |
+| `mac_control_status` | `GET /api/mac-control/status` | readiness、权限摘要、bridge 状态、运行时统计 |
+| `mac_control_permissions` | `GET /api/mac-control/permissions` | `MacControlStatus` + 完整系统权限 catalog |
+| `mac_control_snapshot` | `POST /api/mac-control/snapshot` | AX snapshot，可选截图 |
+| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | 主显示器截图帧，并 emit `mac_control:frame` |
 
-- `ToolTier::Standard`
-- `default_for_main=true`
-- `default_for_others=false`
-- `default_deferred=true`
-- `internal=false`
-- `concurrent_safe=false`
-- `async_capable=false`
+这些接口供设置页和右侧镜像面板使用。聊天模型执行桌面动作时不直接调用这些 Tauri command，而是调用 builtin tool `mac_control`。
 
-原因：
+## Builtin Tool
 
-- 这是用户可关闭的桌面能力，不属于 Core
-- 默认只给主 Agent，避免 subagent 意外操作电脑
-- schema 较大且风险高，适合 deferred tool loading
-- 所有突变操作必须进入审批系统
-- 同一轮内多个 GUI 操作不可并行，避免焦点和坐标竞争
+`mac_control` 是 Standard 工具：
 
-### 8-action 表面
+| 属性 | 值 |
+| --- | --- |
+| `ToolTier` | `Standard` |
+| `default_for_main` | `true` |
+| `default_for_others` | `false` |
+| `default_deferred` | `true` |
+| `internal` | `false` |
+| `concurrent_safe` | `false` |
+| `async_capable` | `false` |
 
-保持和 `browser` 子系统类似的高层动作表面，降低模型负担：
+设计含义：
 
-```text
-status      # bridge / platform / permission readiness / frontmost app
-permissions # macOS 控制相关权限状态与请求提示
-apps        # list | frontmost | activate | launch | hide | unhide | quit
-windows     # list | focus | move | resize | minimize | close | fullscreen
-snapshot    # screenshot + AX tree + element refs
-act         # click | double_click | right_click | hover | type | set_value | press | hotkey | scroll | drag
-menu        # list | click
-wait        # wait_for_app | wait_for_window | wait_for_element | wait_until_gone
-```
+- 主 Agent 默认可发现和使用；其它 Agent 默认关闭，避免子 Agent 意外操作电脑。
+- schema 较大，默认走 deferred tool loading。
+- GUI 操作依赖焦点、前台 App 和坐标状态，不允许并发执行。
+- 只读动作可直接放行，突变动作进入审批系统。
 
-`snapshot` 是 loop 的核心入口。Agent 标准流程应是：
+## Tool 参数契约
 
-```text
-status -> snapshot -> act/menu/windows -> snapshot -> 必要时继续
-```
+`mac_control` 是单工具多 action/op 形态。执行层必须按当前 `action/op` 解释参数；共享 schema 中的其它字段不能改变当前 op 的语义。
 
-### Snapshot 模型
+| action / op | 必填参数 | 语义 |
+| --- | --- | --- |
+| `status` | - | 只读 readiness/status |
+| `permissions` | - | 只读系统权限摘要 |
+| `snapshot` | - | 只读 AX 树和可选截图 |
+| `wait/present` | `target` 至少一个字段 | 轮询直到 app/window/element 命中 |
+| `wait/gone` | `target` 至少一个字段 | 轮询直到 app/window/element 消失；若当前已不存在则立即成功 |
+| `apps.list` | - | 只读运行中 App 列表 |
+| `apps.frontmost` | - | 只读前台 App |
+| `apps.installed` | - | 只读已安装 App 列表 |
+| `apps.search` | `appName` 可选 | 只读已安装 App 检索 |
+| `apps.activate` | `pid` / `bundleId` / `appName` 之一 | 激活已运行 App |
+| `apps.launch` | `bundleId` / `appName` 之一 | 启动已安装 App |
+| `apps.quit` | `pid` / `bundleId` / `appName` 之一 | 请求目标 App 正常退出；高风险 |
+| `windows.list` | - | 只读当前前台 App 窗口 |
+| `windows.focus` | `windowId` / `target.windowTitle` 之一 | 聚焦窗口 |
+| `windows.move` | `windowId` / `target.windowTitle` 之一，`x`，`y` | 移动窗口到 macOS point 坐标 |
+| `windows.resize` | `windowId` / `target.windowTitle` 之一，`width`，`height` | 调整窗口大小 |
+| `windows.minimize` | `windowId` / `target.windowTitle` 之一 | 最小化窗口 |
+| `windows.close` | `windowId` / `target.windowTitle` 之一 | 关闭窗口；高风险 |
+| `act.click` | `target` | AX 元素点击；不消费裸 `x/y` |
+| `act.click_point` | `x`，`y`，且不能带 `target` | 裸坐标点击，允许 `(0, 0)` |
+| `act.double_click` | `target` | 对目标元素中心执行双击 |
+| `act.right_click` | `target` | 对目标元素中心执行右键点击 |
+| `act.type` | `text`，可选文本 target | 输入文本，优先 AX 文本控件 |
+| `act.set_value` | `target`，`value` | 对明确 AX 元素设置值 |
+| `act.hotkey` | `key` 或 `keys` | 合成快捷键 |
+| `act.scroll` | `deltaX` / `deltaY` 之一非零 | 合成滚动 |
+| `act.drag` | `target`，`x`，`y` | 从目标元素中心拖拽到目标坐标 |
+| `menu.list` | - | 只读菜单树 |
+| `menu.click` | `path` 非空 | 按菜单标题路径逐级点击 |
+| `dialog.inspect` | - | 返回当前前台 App dialog/sheet 摘要、文本和按钮 |
+| `dialog.accept` | `buttonText` / `target` 可选 | 点击 accept 类按钮；高风险 |
+| `dialog.dismiss` | `buttonText` / `target` 可选 | 点击 cancel/close 类按钮 |
 
-`snapshot` 返回一份短生命周期引用表：
+参数归一化规则：
+
+- 空字符串按缺省处理。
+- `pid <= 0` 按缺省处理。
+- `enabled=false` / `focused=false` 在 target 中按缺省处理，避免 provider 自动补齐布尔值导致误筛选。
+- `appNameMatch` 默认为 `exact`；只有显式传 `contains` 才允许包含匹配。
+- `target.windowTitleMatch` 默认为 `exact`；只有显式传 `contains` 才允许包含匹配。
+- 合法坐标 `0` 不能被全局吞掉；裸坐标点击只能通过 `act.click_point` 表达。
+
+有副作用的 App 操作优先使用 `bundleId` 或 `pid`。当名称匹配失败时，模型应先调用 `apps.search` 或 `apps.installed` 找候选，再用明确标识执行 `activate/launch/quit`。
+
+## Snapshot 与 Frame
+
+`snapshot` 返回短生命周期桌面状态，主要字段：
 
 ```jsonc
 {
-  "snapshotId": "macsnap_01J...",
-  "createdAt": "2026-05-17T...",
-  "frontmostApp": {
-    "pid": 1234,
-    "bundleId": "com.apple.finder",
-    "name": "Finder"
-  },
-  "displays": [
-    {
-      "id": 1,
-      "framePoints": { "x": 0, "y": 0, "width": 1512, "height": 982 },
-      "scale": 2
-    }
-  ],
-  "windows": [
-    {
-      "id": "win_1",
-      "appPid": 1234,
-      "title": "Downloads",
-      "focused": true,
-      "boundsPoints": { "x": 80, "y": 90, "width": 900, "height": 680 }
-    }
-  ],
-  "elements": [
-    {
-      "id": "el_7",
-      "windowId": "win_1",
-      "role": "AXButton",
-      "label": "Open",
-      "value": null,
-      "enabled": true,
-      "focused": false,
-      "boundsPoints": { "x": 824, "y": 710, "width": 70, "height": 28 },
-      "actions": ["AXPress"]
-    }
-  ],
-  "screenshot": {
-    "mediaId": "macsnap_01J.jpg",
-    "path": "~/.hope-agent/mac-control/snapshots/macsnap_01J.jpg",
-    "widthPx": 3024,
-    "heightPx": 1964
-  }
+  "snapshotId": "macsnap_...",
+  "createdAt": "2026-05-18T...",
+  "frontmostApp": { "pid": 1234, "bundleId": "com.apple.finder", "name": "Finder" },
+  "displays": [{ "id": 1, "framePoints": { "x": 0, "y": 0, "width": 1512, "height": 982 }, "scale": 2 }],
+  "windows": [{ "id": "win_1", "title": "Downloads", "focused": true, "boundsPoints": { "x": 80, "y": 90, "width": 900, "height": 680 } }],
+  "elements": [{ "id": "el_7", "windowId": "win_1", "role": "AXButton", "label": "Open", "enabled": true, "boundsPoints": { "x": 824, "y": 710, "width": 70, "height": 28 }, "actions": ["AXPress"] }],
+  "screenshot": { "mediaId": "macsnap_....jpg", "path": "~/.hope-agent/mac-control/snapshots/macsnap_....jpg", "widthPx": 3024, "heightPx": 1964 },
+  "warnings": []
 }
 ```
 
 约束：
 
-- `element.id` 只保证在当前 snapshot 或短 TTL 内有效
-- 结果必须同时说明坐标空间：AX / CGWindow 使用 point，截图使用 pixel，桥接层负责 scale 转换
-- 元素树默认截断，优先返回可交互元素、文本框、菜单项、按钮、链接、表格行、dialog 控件
-- 大截图落盘并通过 EventBus 给右侧镜像面板；工具结果只返回 `screenshot` 摘要，不把 base64 塞进上下文
-- snapshot 文件落在 `~/.hope-agent/mac-control/snapshots/`，Phase 2B 按数量 LRU 清理，默认最多保留 100 个 JPEG
+- `element.id` 和 `window.id` 只在当前 snapshot 或短 TTL cache 内可靠。
+- macOS API 中 AX / CGWindow 使用 point；截图使用 pixel；bridge 负责 scale 转换。
+- 元素树默认 `maxElements=120`、`maxDepth=8`，硬上限分别为 `500` 和 `16`。
+- snapshot cache 进程内最多保留 20 份。
+- 截图文件写入 `~/.hope-agent/mac-control/snapshots/`，最多保留 100 个 JPEG。
+- 工具结果只返回截图摘要和路径，不把 base64 放进上下文。
+- `capture_frame` 成功后 emit `mac_control:frame`，用于打开或刷新右侧面板。
 
-### Target 解析
+## Target 查询与匹配
 
-突变 action 支持四类 target：
+目标查询结构：
 
 ```jsonc
 {
+  "appName": "Finder",
+  "bundleId": "com.apple.finder",
+  "windowTitle": "Downloads",
+  "windowTitleMatch": "exact",
   "elementId": "el_7",
-  "snapshotId": "macsnap_01J...",
-  "query": { "text": "Open", "role": "AXButton", "app": "Finder" },
-  "point": { "displayId": 1, "x": 812, "y": 724 }
+  "text": "Open",
+  "role": "AXButton",
+  "enabled": true,
+  "focused": true
 }
 ```
 
-优先级：
+匹配原则：
 
-1. `elementId + snapshotId`
-2. `query` 在最新 AX 树中查找
-3. `point`
+- `bundleId` / `pid` / `elementId` 优先于名称和文本。
+- 名称和窗口标题默认精确匹配；包含匹配必须显式声明。
+- 对多个相似目标，执行层必须返回歧义错误或选择最高置信候选，不应静默随机选择。
+- mutation 前会刷新 snapshot 并按 target 重新解析，降低 stale element 引用风险。
+- action target 必须符合当前前台 App 约束；跨 App 误点要被拒绝或要求先激活目标 App。
 
-`elementId` 失败时做一次 stale-ref 自恢复：
+`wait` 是只读能力，默认 `timeoutMs=10000`、`pollMs=500`；硬上限 `timeoutMs=60000`，`pollMs` 限制在 `100..=5000`。`wait/gone` 在目标当前已不存在时立即成功。
 
-1. 用旧 snapshot 记录的 `role + label + value + window title + bounds`
-2. 刷新 AX 树
-3. 精确匹配或高置信模糊匹配
-4. 重试一次
+## 动作执行模型
 
-返回文本要明确标注是否发生过 auto-recovery，避免模型误判环境稳定性。
+执行优先级：
 
-## 动作执行策略
+1. Accessibility 原生 action：`AXPress`、菜单项 press、dialog 按钮 press。
+2. Accessibility attribute 设置：`AXValue`、`AXFocused`、`AXPosition`、`AXSize`。
+3. AppKit / NSWorkspace：运行中 App 枚举、激活、启动、正常退出。
+4. CGEvent fallback：点击、右键、双击、拖拽、滚动、快捷键。
+5. Apple Events fallback：AX close / NSRunningApplication quit 失败后的受控回退路径。
 
-动作优先级必须是 action-first：
+坐标动作规则：
 
-1. AX 原生 action：`AXPress`、`AXConfirm`、`AXCancel`、`AXShowMenu`
-2. AX attribute 设置：`AXValue`、`AXFocused`、`AXPosition`、`AXSize`
-3. AppKit / NSWorkspace：启动、激活、隐藏、frontmost app
-4. 菜单栏 AX 遍历和菜单项 `AXPress`
-5. CGEvent fallback：鼠标移动、点击、拖拽、滚动、键盘、快捷键
-6. Apple Events fallback：仅用于明确需要 System Events / per-app Automation 的流程
+- `act.click` 只能点击 AX target，不读取 `x/y`。
+- 裸坐标点击必须使用 `act.click_point`。
+- `act.drag` 的起点来自 AX target 中心，终点来自 `x/y`。
+- 每次坐标动作之后应重新 snapshot 验证结果。
 
-禁止一开始就猜坐标。只有当 AX action 不存在、目标是 canvas/自绘 UI、或用户明确要求坐标动作时，才使用 CGEvent。
+文本输入规则：
 
-### 输入文本
+- 文本控件优先走 `AXValue`。
+- 需要焦点输入时先解析和聚焦目标。
+- 长文本可通过 pasteboard fallback，但不得记录旧剪贴板内容；工具结果只报告恢复是否成功。
+- 密码字段不得回读真实值。
 
-文本输入采用三档：
+窗口操作规则：
 
-1. 对 AX text field 直接 `AXSetValue`
-2. 聚焦目标后用 pasteboard 粘贴长文本，操作前后恢复剪贴板
-3. 短文本用 key events fallback
+- `windows.move/resize/minimize/close` 只作用于外部 App 窗口。
+- 命中 Hope Agent 自己的窗口时拒绝，避免在非主线程触发 AppKit 崩溃。
+- `windows.close` 属于高风险动作，审批中禁用 AllowAlways。
 
-默认不读取或泄露用户剪贴板内容。需要临时使用 pasteboard 时，工具结果只报告是否恢复成功，不把旧剪贴板内容写日志。
+菜单和 dialog 规则：
 
-### 菜单
+- `menu.list` 只读返回前台 App 菜单树，可按深度截断。
+- `menu.click` 按标题 path 逐级解析并点击。
+- 命中危险菜单词的 `menu.click` 属于高风险动作。
+- `dialog.inspect` 只读返回 dialog/sheet 文本和按钮摘要。
+- `dialog.accept` 高风险；`dialog.dismiss` 普通突变。
 
-`menu.list` 返回当前前台 App 的菜单树，可按 `maxDepth` 截断。`menu.click` 支持路径：
+## 审批与风险分类
 
-```jsonc
-{ "action": "menu", "op": "click", "app": "Finder", "path": ["File", "New Finder Window"] }
-```
+`permission::engine` 对 `mac_control` 做 tool-specific 风险分类，不依赖 Agent 自定义审批清单。
 
-危险菜单项，如 `Delete`、`Move to Trash`、`Empty Trash`、`Erase`、`Reset`、`Quit`、`Force Quit`、`Remove`，进入高风险审批。
+| 分类 | action/op | 决策 |
+| --- | --- | --- |
+| 只读 | `status`、`permissions`、`snapshot`、`wait`、`apps.list/frontmost/installed/search`、`windows.list`、`menu.list`、`dialog.inspect` | Allow |
+| 普通突变 | `apps.activate/launch`、`windows.focus/move/resize/minimize`、`act.*`、普通 `menu.click`、`dialog.dismiss` | Ask，可 AllowAlways |
+| 高风险突变 | `apps.quit`、`windows.close`、`dialog.accept`、命中危险词的 `menu.click` | Ask，`forbids_allow_always=true` |
 
-## 审批与安全
+权限模式交互：
 
-`mac_control` 不是普通工具。需要扩展 `permission::engine` 的 tool-specific 风险分类，而不是只靠 Agent 自定义审批列表。
+- Default：普通突变和高风险突变均弹审批。
+- Smart：只读直接放行；普通突变仍可被 smart 策略处理；高风险突变保持严格审批。
+- YOLO：除 Plan Mode 外放行，但风险命中写 `app_warn!` 审计日志。
+- Plan Mode：不在 plan allowlist 的 `mac_control` 调用会被拒绝；即使 YOLO 也不能绕过。
 
-新增内部分类：
+审批 payload：
 
-```rust
-pub enum MacControlRisk {
-    ReadOnly,        // status, permissions, snapshot, wait, list
-    FocusOnly,       // activate app, focus window, hover
-    Input,           // type, set_value, hotkey, press
-    Pointer,         // click, drag, scroll
-    WindowMutation,  // move, resize, minimize, close, fullscreen
-    AppMutation,     // launch, quit, hide, unhide
-    Dangerous,       // destructive menu/hotkey/dialog/app/window action
-}
-```
+- `mac_control_action`：普通突变。
+- `mac_control_dangerous_action`：高风险突变，前端显示 strict 样式并禁用 AllowAlways。
 
-Default 模式：
+审批弹窗应展示 action/op、目标 App、窗口、元素 label、菜单 path、hotkey 或输入摘要。文本输入需要截断和脱敏，不能展示密码字段值。
 
-| 风险 | 决策 |
-| --- | --- |
-| `ReadOnly` | Allow |
-| `FocusOnly` | Ask，允许 AllowAlways |
-| `Input` / `Pointer` / `WindowMutation` / `AppMutation` | Ask，允许按 action/app/project/session scope 记住 |
-| `Dangerous` | Ask，`forbids_allow_always=true` |
+## EventBus 与前端面板
 
-Smart 模式：
+事件：
 
-- `ReadOnly` 直接 Allow
-- `FocusOnly` 可被 `_confidence=high` 或 judge_model 放行
-- `Input` / `Pointer` / `WindowMutation` / `AppMutation` 默认仍有 edit-layer floor，除非后续单独做桌面专用 AllowAlways
-- `Dangerous` 永远 Ask
+| 事件 | payload | 说明 |
+| --- | --- | --- |
+| `mac_control:frame` | `MacControlFramePayload` | 最新截图帧，来自 `snapshot(includeScreenshot=true)` 或 `capture_frame` |
 
-Yolo 模式：
+前端行为：
 
-- 遵循现有语义，除 Plan Mode 外全部 Allow
-- `Dangerous` 仍写 `app_warn!` 审计日志
+- Settings → Permissions 调 `mac_control_status`，在权限列表顶部展示 readiness。
+- `MacControlPanel` 打开期间轮询 `mac_control_capture_frame`。
+- 聊天页监听 `mac_control:frame`，首次收到 frame 时打开右侧 Mac Control 面板。
+- Mac Control 面板与 PlanPanel / DiffPanel / CanvasPanel / BrowserPanel 视觉互斥。
 
-Plan Mode：
+## 存储、日志和错误统计
 
-- 默认不把 `mac_control` 加入 planning agent 工具白名单
-- 执行期如果 plan 明确包含桌面操作，后续可在 approve plan 时把具体 `mac_control` action 加入执行 allowlist
-- Planning / Review 中途进入兜底要拒绝突变 action，避免模型在计划尚未批准时操作电脑
+存储：
 
-审批弹窗需要展示：
-
-- action 类型和风险等级
-- 目标 App / 窗口 / 元素 label
-- 旧 snapshot 缩略图上的目标框
-- 文本输入预览，长文本折叠
-- hotkey / menu path
-- AllowAlways 按钮是否可用及作用域
-
-## 配置
-
-Phase 1 不新增 `AppConfig.mac_control`，避免为未落地的截图 / AX / 输入能力提前暴露配置面。后续从 Phase 2 开始再按实际能力增加：
-
-```jsonc
-{
-  "macControl": {
-    "enabled": true,
-    "panelAutoOpen": true,
-    "snapshotTtlSecs": 300,
-    "snapshotMaxFiles": 100,
-    "maxElements": 600,
-    "includeOffscreenWindows": false,
-    "allowCgEventFallback": true,
-    "dangerousMenuPatterns": [
-      "delete",
-      "move to trash",
-      "empty trash",
-      "erase",
-      "format",
-      "reset",
-      "force quit"
-    ]
-  }
-}
-```
-
-设置 UI：
-
-- Settings → Permissions：顶部展示 Mac Control readiness
-- Settings → Tools 或单独 Mac Control panel：后续再提供启用开关、snapshot retention、CGEvent fallback、危险菜单 pattern
-- Agent 设置：通过既有 `capabilities.tools.allow/deny` 控制 `mac_control`
-
-配置写入必须走 `mutate_config(("mac_control.<op>", source), ...)`。
-
-## EventBus 与前端
-
-新增事件：
-
-| 事件 | 说明 |
-| --- | --- |
-| `mac_control:frame` | snapshot 或 action 后的最新截图帧，供右侧面板显示 |
-| `mac_control:status_changed` | bridge / permission readiness 变化 |
-| `mac_control:action` | 操作审计摘要，不含敏感输入全文 |
-
-右侧 `MacControlPanel` 行为参考 `BrowserPanel`：
-
-- 第一次 `mac_control:frame` 到来自动打开
-- 与 PlanPanel / DiffPanel / CanvasPanel / BrowserPanel 互斥
-- 用户手动关闭后本轮保持关闭
-- 打开期间 1s 兜底轮询 `mac_control_capture_frame`
-
-Transport 对齐：
-
-- Phase 1 Tauri / HTTP: `mac_control_status`, `mac_control_permissions`
-- Phase 2A Tauri / HTTP: `mac_control_snapshot`（HTTP/server 仍返回 `supported=false`）
-- Phase 2B+ Tauri / HTTP: `mac_control_capture_frame` 等截图与实时面板接口
-- HTTP: 同名 REST endpoint，server/headless 返回 `supported=false` 或 `501` 风格的结构化错误
-- 前端永远不直接调用原生 AX，只通过 Transport
-
-## Tool 结果与日志
-
-工具结果要可读、短、结构化：
-
-- `status` 返回 readiness、缺失权限、下一步建议
-- `snapshot` 返回元素摘要、图片引用、被截断数量
-- `wait` 返回是否命中、尝试次数、命中的 app/window/element 和最后一份 snapshot
-- `apps` 返回 running app 列表、frontmost app；`apps.activate` 返回激活请求结果
-- `act` 返回实际执行路径：`AXPress` / `AXSetValue` / `CGEventFallback`
-- `menu` 返回菜单路径匹配结果
-- 失败返回可恢复原因：缺权限、App 不存在、元素 stale、目标不可见、窗口不在当前 Space、AX action 不支持
+- 截图目录：`~/.hope-agent/mac-control/snapshots/`
+- 文件格式：JPEG
+- 保留策略：最多 100 个截图文件，写入新截图后做 LRU 清理
+- 进程内 snapshot cache：最多 20 份
 
 日志原则：
 
-- 不记录完整截图 base64
-- 不记录用户剪贴板内容
-- 文本输入日志默认截断到 128 字符并脱敏
-- 审批日志记录 action/app/window/element label/risk，不记录密码字段值
-- snapshot 文件按 LRU 清理，删除失败只 warn
+- 不记录截图 base64。
+- 不记录旧剪贴板内容。
+- 文本输入默认截断并脱敏。
+- 审批日志记录 action/op、目标 App、窗口、元素 label 和风险类型。
+- 原生错误按 operation 聚合到 `MacControlRuntimeStats.recentErrors`，用于 `status` 返回和排查。
 
-## 实现阶段
+失败结果必须结构化返回，常见错误包括：
 
-### Phase 0：架构与权限就绪
+- 当前运行模式 unsupported
+- 缺 Accessibility 或 Screen Recording
+- 目标 App 未运行或未安装
+- 名称匹配歧义
+- 元素 stale 或不可见
+- AX action 不支持
+- 窗口位于其它 Space 或系统限制导致无法操作
+- Apple Events fallback 未获授权
 
-- 新增本文档并挂到文档索引
-- 确认最新 main 的权限页 v2 已包含控制类权限
-- 在方案中约定 bridge trait 和 `mac_control` tool 表面
+## 模型使用约束
 
-### Phase 1：Bridge 骨架与状态
+内置 skill：`skills/ha-mac-control/SKILL.md`。
 
-- 新增 `ha-core::mac_control` 类型和 `MacControlBridge` trait
-- `src-tauri` 注册 bridge，实现 `status` / `permissions`
-- 新增 `mac_control` tool，仅支持 `status` / `permissions`
-- 新增 HTTP/Tauri 对齐命令
-- 设置页 `PermissionsPanel` 顶部显示 Mac Control readiness
+模型应遵循：
 
-验证：
+```text
+status -> snapshot/wait -> apps/windows/act/menu/dialog -> snapshot 验证
+```
 
-- `cargo check -p ha-core`
-- `pnpm typecheck`
+关键规则：
 
-### Phase 2：Snapshot
-
-Phase 2A 先落地后端只读切片：
-
-- `mac_control(action=snapshot)` 返回前台 App、窗口和 Accessibility 元素摘要
-- Tauri bridge 直接在已授权 `.app` 进程内读取 AX 树
-- HTTP/server transport 仍返回 `supported=false`，不复用桌面 bridge
-- 截图、显示器列表、snapshot cache、EventBus frame 和右侧面板留给 Phase 2B
-
-Phase 2B 再补齐完整 snapshot：
-
-- 实现 primary-display 截图镜像（当前走 xcap/CoreGraphics；ScreenCaptureKit / 多显示器完整帧留后续）
-- 实现 AX 树采集、元素筛选、ID 分配、snapshot cache
-- `snapshot` action 返回图片引用和元素表
-- EventBus 发 `mac_control:frame`
-- 右侧 `MacControlPanel` 显示最新帧
-
-Phase 2C 铺只读 target 查询和等待能力：
-
-- `mac_control(action=wait)` 轮询只读 AX snapshot，直到 app/window/element query 命中或超时
-- target query 支持 `appName`、`bundleId`、`windowTitle`、`elementId`、`text`、`role`、`enabled`、`focused`
-- `wait` 不截图、不执行点击/输入、不触发审批；它只为后续 `act` 的 target 解析和 stale recovery 打基础
-- 命中时返回匹配列表和当次 snapshot；未命中时返回最后一次 snapshot 方便模型解释阻塞点
-
-Phase 3A 先落地低风险 App 焦点控制：
-
-- `mac_control(action=apps, op=list|frontmost|activate)` 基于 `NSWorkspace` 枚举 running apps
-- `apps.activate` 仅支持已经运行的 App，target 为 `pid` / `bundleId` / `appName`
-- `apps.activate` 进入审批系统，属于 `FocusOnly` 风险；不支持 launch / quit / hide / unhide
-- activation 只请求 macOS 切换焦点，返回系统是否接受请求，不假设目标 App 已立即完成激活
-
-Phase 3B 补齐安全动作 MVP：
-
-- `apps.launch` 支持按 `bundleId` 或 `appName` 启动已安装 App，并返回 launch/activate 结果
-- `windows(action=windows, op=list|focus|move|resize|minimize)` 基于当前前台 App 的 AXWindows；突变操作需要 `windowId` 或 `target.windowTitle`
-- `act(action=act, op=click|type|set_value|hotkey|scroll)` 优先走 AX 原生动作：`click` 优先 `AXPress`，无 AXPress 且有 bounds 时回落 CGEvent；`type` / `set_value` 走 `AXValue`；`hotkey` / `scroll` 走 CGEvent
-- `menu(action=menu, op=list|click)` 基于前台 App 的 `AXMenuBar`；`menu.click` 按标题 path 逐级 `AXPress`
-- `permission::engine` 对 `apps.launch`、窗口突变、`act.*`、`menu.click` 进入审批；`windows.list` / `menu.list` 仍为只读放行
-- Phase 3 暂不支持 close/quit/hide/unhide/delete/force quit 等破坏性动作
-
-验证场景：
-
-- Finder / System Settings / Notes / Safari 非网页区域
-- 多显示器坐标
-- Retina 1x/2x 缩放
-- 屏幕录制未授权的错误路径
-- 等待前台 App / 窗口标题 / 按钮文本出现和超时路径
-- running app list / frontmost / 激活 Finder 或 Notes 的审批与结果路径
-
-### Phase 3：安全动作 MVP
-
-- [x] `apps.launch`
-- [x] `windows.list/focus/move/resize/minimize`
-- [x] `act.click/type/set_value/hotkey/scroll`
-- [x] `menu.list/click`
-- [x] 集成 `permission::engine` 风险分类和审批弹窗 payload
-- [x] stale-ref 一次自恢复（通过 action 前 fresh snapshot + element id 重新解析）
-
-验证场景：
-
-- 打开 Notes，新建笔记并输入文本
-- Finder 创建窗口、切换视图、选择文件但不删除
-- System Settings 搜索并打开指定页面
-- 菜单项点击路径
-
-### Phase 4：高阶动作与稳定性
-
-- dialog inspect/accept/dismiss
-- drag/drop、right click、double click
-- close window / quit app / dangerous menu patterns
-- Apple Events fallback
-- wait_until_gone 和更强的 target ranking
-- snapshot LRU 清理和错误统计
-
-### Phase 5：产品化
-
-- 完整 i18n
-- notarized app bundle 下的权限回归测试
-- 若需要，把 bridge 实现迁移到签名 Swift helper
-- 增加 `ha-mac-control` skill，教模型标准 loop 和阻塞场景
-- 文档补充到 `api-reference.md`、`tool-system.md`、`permission-system.md`
+- 不要一开始猜坐标。
+- 有副作用操作前尽量先确认前台 App 和目标窗口。
+- App 名称找不到时先用 `apps.search` / `apps.installed` 查候选。
+- 名称匹配不稳定时改用 `bundleId`、`pid`、`windowId` 或 `elementId`。
+- 点击 AX 元素用 `act.click`；点击屏幕坐标用 `act.click_point`。
+- 操作后用 snapshot 或 wait 验证结果。
 
 ## 测试矩阵
 
-单元测试：
+轻量检查：
 
-- tool schema JSON
-- `MacControlRisk` 分类
-- dangerous menu pattern 匹配
+- `cargo check -p ha-core --tests`
+- `cargo check -p hope-agent`
+- `pnpm typecheck`
+- `git diff --check`
+
+单元测试关注：
+
+- tool schema action/op 覆盖
+- request normalization：空字符串、`pid=0`、`enabled=false`、坐标 `0`
+- readiness 计算
+- `mac_control` 权限风险分类
+- dangerous menu pattern
 - target query ranking
 - point/pixel scale 转换
-- snapshot LRU
-
-集成测试：
-
-- `cargo check -p ha-core`
-- `cargo check -p src-tauri` 或 `cargo check --workspace` 在 macOS 本机自查
-- `pnpm typecheck`
-- 权限未授权、半授权、全授权三种状态
-- `.app` bundle 与 bare debug binary 两种宿主
+- snapshot LRU 和错误统计
 
 手工 QA：
 
-- 首次授权引导
-- App 重启后权限仍生效
-- 多显示器、不同 scale、窗口跨屏
-- Mission Control / Space 不同导致目标不可见
-- 系统 dialog / 文件选择器 / 菜单栏 popover
-- 输入密码字段时不泄露文本
+- 首次授权、半授权、全授权状态
+- HTTP/server 模式返回 `supported=false`
+- Finder、Notes、System Settings、Safari 非网页区域
+- App search → bundleId → launch/activate
+- 窗口 focus/move/resize/minimize/close
+- 菜单 list/click 与危险菜单审批
+- dialog inspect/accept/dismiss
+- 右侧 Mac Control 面板自动打开和轮询刷新
+- 多显示器、Retina scale、窗口跨屏
+- Mission Control / Space 导致目标不可见
 
-## 风险与边界
+## 已知系统边界
 
-- TCC 权限按进程和 bundle 身份绑定，开发期 bare binary 与正式 `.app` 的权限不是一回事
-- AX 树对 Electron、SwiftUI、自绘 canvas、游戏等 App 质量不稳定，需要截图和坐标 fallback
-- CGEvent fallback 依赖当前焦点和坐标，必须在 action 之后重新 snapshot 校验
-- Mission Control / Spaces 对后台窗口控制有系统限制，不保证跨 Space 操作稳定
-- ScreenCaptureKit API 和权限行为随 macOS 版本变化，需要在 release notes 标清最低支持版本
-- server/headless 模式不应承诺本地桌面控制；除非未来有一个签名、已授权、常驻的本机 helper
-
-## 与 Peekaboo 的关系
-
-Peekaboo 可以作为公开实现参考，尤其是 snapshot-first、AX action-first、stale ref recovery、菜单/窗口/多屏处理和权限 UX。但 Hope Agent 的实现应保持自有边界：
-
-- 不调用 Peekaboo CLI
-- 不依赖它的 MCP server
-- 不复用它的 agent loop
-- 可以在 MIT License 允许范围内参考算法和实现细节；若直接移植代码片段，必须保留版权与许可证声明
-
-## 决策摘要
-
-1. 公共工具名用 `mac_control`，内部子系统命名 `mac_control`
-2. `ha-core` 定义 bridge trait，`src-tauri` 注册 macOS 实现
-3. 桌面 `.app` 是授权主体，server/headless 明确 unsupported
-4. 能力先 `status/snapshot`，再逐步开放 `act/menu/windows/apps`
-5. Default 模式下突变 GUI 操作必须审批；危险菜单/关闭/删除类操作禁止 AllowAlways
-6. 先做 Rust bridge MVP；若 ScreenCaptureKit / AX 绑定成本过高，再迁移到签名 Swift helper
+- TCC 权限绑定到 bundle 身份；开发期二进制和正式 `.app` 的授权不是同一份。
+- Accessibility 树质量取决于目标 App。Electron、SwiftUI、自绘 canvas、游戏或网页 canvas 可能需要截图和坐标 fallback。
+- CGEvent fallback 依赖当前焦点和坐标，必须在操作后重新读取状态验证。
+- macOS Spaces / Mission Control 会影响后台窗口可见性和可操作性。
+- Screen capture、AX 行为和 Automation consent 会随 macOS 版本变化，需要在发版说明中标清最低支持版本和已验证版本。
+- server/headless 模式不会承诺本机桌面控制；除非另有签名、已授权、常驻的本机 helper 作为 bridge 主体。

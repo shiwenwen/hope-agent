@@ -269,6 +269,17 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
+### macOS Control
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `mac_control_status` | `GET /api/mac-control/status` | ✅ |
+| `mac_control_permissions` | `GET /api/mac-control/permissions` | ✅ |
+| `mac_control_snapshot` | `POST /api/mac-control/snapshot` | ✅ |
+| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | ✅ |
+
+这些是前端 Transport 层的桌面状态 / 权限 / 画面镜像入口；聊天里的 builtin tool 统一叫 `mac_control`，其 `wait/apps/windows/act/menu/dialog` 等动作在 ha-core 工具执行层分发，不按每个 op 增加 Tauri / HTTP command。HTTP/server 模式保持同形状响应，但本机桌面控制返回 `supported=false`。
+
 ### Providers
 
 | Tauri Command | HTTP | 状态 |

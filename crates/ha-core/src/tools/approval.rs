@@ -65,6 +65,7 @@ pub enum ApprovalReasonKind {
     AgentCustomList,
     SmartJudge,
     MacControlAction,
+    MacControlDangerousAction,
     PlanModeAsk,
 }
 
@@ -98,6 +99,10 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
             },
             MacControlAction { action } => Self {
                 kind: ApprovalReasonKind::MacControlAction,
+                detail: Some(action.clone()),
+            },
+            MacControlDangerousAction { action } => Self {
+                kind: ApprovalReasonKind::MacControlDangerousAction,
                 detail: Some(action.clone()),
             },
             PlanModeAsk => Self {

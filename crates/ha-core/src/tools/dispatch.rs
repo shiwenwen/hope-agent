@@ -448,9 +448,29 @@ mod tests {
                 "apps",
                 "windows",
                 "act",
-                "menu"
+                "menu",
+                "dialog"
             ]
         );
+        let ops = def
+            .parameters
+            .pointer("/properties/op/enum")
+            .and_then(|v| v.as_array())
+            .expect("op enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert!(ops.contains(&"click"));
+        assert!(ops.contains(&"click_point"));
+        assert!(ops.contains(&"quit"));
+        assert!(ops.contains(&"close"));
+        assert!(ops.contains(&"double_click"));
+        assert!(ops.contains(&"right_click"));
+        assert!(ops.contains(&"type"));
+        assert!(ops.contains(&"drag"));
+        assert!(ops.contains(&"inspect"));
+        assert!(ops.contains(&"accept"));
+        assert!(ops.contains(&"dismiss"));
 
         let f = Fixture::new();
         assert_eq!(

@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "Mac Control işlemi",
         "body": "Bu macOS kontrol çağrısı masaüstü odağını/durumunu değiştirir. Hope Agent başka bir uygulamayı etkinleştirmeden önce onaylayın."
+      },
+      "mac_control_dangerous_action": {
+        "title": "Tehlikeli Mac Control eylemi",
+        "body": "Bu macOS kontrol çağrısı pencereleri kapatabilir, uygulamalardan çıkabilir, iletişim kutularını onaylayabilir veya yıkıcı menüleri tetikleyebilir. Her çağrı için onay gerekir; Her zaman izin ver kullanılamaz."
       }
     },
     "title": "Command Approval Required",

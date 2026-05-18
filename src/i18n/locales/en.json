@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "Mac Control action",
         "body": "This macOS control call changes desktop focus/state. Confirm before Hope Agent activates another app."
+      },
+      "mac_control_dangerous_action": {
+        "title": "Dangerous Mac Control action",
+        "body": "This macOS control call may close windows, quit apps, confirm dialogs, or trigger destructive menus. Per-call confirmation required; AllowAlways unavailable."
       }
     },
     "title": "Command Approval Required",

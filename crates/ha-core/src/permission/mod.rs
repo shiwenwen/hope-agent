@@ -63,6 +63,8 @@ pub enum AskReason {
     SmartJudge { rationale: String },
     /// Native macOS control action that mutates desktop focus/state.
     MacControlAction { action: String },
+    /// Native macOS control action with destructive potential.
+    MacControlDangerousAction { action: String },
     /// Plan Mode `ask_tools` list — tool is whitelisted but flagged as
     /// "needs explicit confirmation before each call". The default plan
     /// agent uses this for `exec` so a planning subagent can't quietly run
@@ -76,7 +78,9 @@ impl AskReason {
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
             self,
-            AskReason::ProtectedPath { .. } | AskReason::DangerousCommand { .. }
+            AskReason::ProtectedPath { .. }
+                | AskReason::DangerousCommand { .. }
+                | AskReason::MacControlDangerousAction { .. }
         )
     }
 }

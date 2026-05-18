@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "Mac 控制操作",
         "body": "這次 macOS 控制會改變桌面焦點/狀態。Hope Agent 啟用其他 App 前需要你確認。"
+      },
+      "mac_control_dangerous_action": {
+        "title": "危險 Mac 控制動作",
+        "body": "這次 macOS 控制呼叫可能關閉視窗、結束應用程式、確認對話框或觸發破壞性選單。必須逐次確認，不能使用永遠允許。"
       }
     },
     "title": "Command Approval Required",

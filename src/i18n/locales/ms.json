@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "Tindakan Mac Control",
         "body": "Panggilan kawalan macOS ini menukar fokus/keadaan desktop. Sahkan sebelum Hope Agent mengaktifkan app lain."
+      },
+      "mac_control_dangerous_action": {
+        "title": "Tindakan Mac Control berbahaya",
+        "body": "Panggilan kawalan macOS ini boleh menutup tetingkap, keluar daripada aplikasi, mengesahkan dialog atau mencetuskan menu yang memusnahkan. Pengesahan diperlukan setiap kali; Benarkan Sentiasa tidak tersedia."
       }
     },
     "title": "Command Approval Required",

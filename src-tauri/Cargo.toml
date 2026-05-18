@@ -88,7 +88,7 @@ rpassword = "7"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor", "NSWorkspace", "NSRunningApplication", "libc"] }
-objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSError", "NSObject", "NSRunLoop", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSError", "NSBundle", "NSObject", "NSRunLoop", "NSString", "NSURL"] }
 xcap = "0.9"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

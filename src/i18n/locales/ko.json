@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "Mac 제어 작업",
         "body": "이 macOS 제어 호출은 데스크톱 포커스/상태를 변경합니다. Hope Agent가 다른 앱을 활성화하기 전에 확인해 주세요."
+      },
+      "mac_control_dangerous_action": {
+        "title": "위험한 Mac 제어 동작",
+        "body": "이 macOS 제어 호출은 창을 닫거나, 앱을 종료하거나, 대화상자를 확인하거나, 파괴적인 메뉴를 실행할 수 있습니다. 매번 확인이 필요하며 항상 허용은 사용할 수 없습니다."
       }
     },
     "title": "Command Approval Required",

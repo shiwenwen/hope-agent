@@ -75,6 +75,10 @@
       "mac_control_action": {
         "title": "Ação do Mac Control",
         "body": "Esta chamada de controle do macOS altera o foco/estado da área de trabalho. Confirme antes que o Hope Agent ative outro app."
+      },
+      "mac_control_dangerous_action": {
+        "title": "Ação perigosa do Mac Control",
+        "body": "Esta chamada de controle do macOS pode fechar janelas, encerrar apps, confirmar diálogos ou acionar menus destrutivos. É necessária confirmação a cada chamada; Permitir sempre não está disponível."
       }
     },
     "title": "Command Approval Required",
