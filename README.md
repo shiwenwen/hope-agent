@@ -27,7 +27,7 @@
 
 ---
 
-**Hope Agent** 想把 AI 助手做得更简单、更稳定，也更省维护。同一份会话能在你的设备和聊天之间随手交接，并在日复一日的使用里自己变好——跨会话记忆持续累积、空闲时自己整理、做过的事沉淀成可复用的技能。一个原生安装包，主流大模型 GUI 模板内置齐全，填完 API Key 就能开聊；同时它也能以服务形态常驻 NAS / 自家服务器 / 云主机，在 IM 渠道里随叫随到。
+**Hope Agent** 想把 AI 助手做得更简单、更稳定，也更省维护。同一份会话能在你的设备和聊天之间随手交接，并在日复一日的使用里自己变好——跨会话记忆持续累积、空闲时自己整理、做过的事沉淀成可复用的技能。一个原生安装包，主流大模型 GUI 模板内置齐全，填完 API Key 就能开聊；桌面端还能在你授权后观察并控制本机电脑（暂时仅 macOS）；同时它也能以服务形态常驻 NAS / 自家服务器 / 云主机，在 IM 渠道里随叫随到。
 
 ## 目录
 
@@ -84,11 +84,12 @@
 <table>
 <tr><td width="220"><b>📋 Plan Mode 计划执行</b></td><td>面对复杂任务先出一份可修改 / 可承接的计划书，5 态状态机管理执行进度，计划文件按 agent / session 物理隔离不会跨会话串戏。计划可跨会话存档，下次继续只要一句"继续上次的计划"。侧栏 <b>Plans 历史查看器</b>支持跨会话只读浏览所有 Plan（含已 <code>/plan exit</code> 归档），按 Agent / 状态筛选、版本切换、一键跳转所属会话；详情面板可一键以 <code>@plan:&lt;short_id&gt;:v&lt;version&gt;</code> 形式注入到当前对话。执行期间严格按白名单工具操作，避免模型跑飞。</td></tr>
 <tr><td><b>📁 Project 项目容器</b></td><td>把相关会话归到同一项目下，继承项目级记忆 / 项目指令 / 共享文件。上传的文件自动文本抽取并三层注入（目录清单 / 小文件自动内联 / 大文件按需读取），不用手动 @ 文件也不怕吃爆上下文。</td></tr>
+<tr><td><b>🖱️ 电脑控制</b></td><td>暂时仅支持 macOS。Agent 可以借助已授权的辅助功能与屏幕录制权限观察当前桌面、识别 AX 元素与窗口，并执行打开 / 切换 App、点击、输入、滚动、拖拽、菜单、对话框、窗口移动 / 缩放 / 关闭等操作。右侧 Mac Control 面板实时镜像桌面状态；所有有副作用的动作都接入统一工具审批。</td></tr>
 <tr><td><b>👥 Agent Team 多 Agent 协作</b></td><td>在设置里预置团队模板（成员角色、绑定 Agent、默认任务模板），模型按需一句话就能组建专家团。成员间可互发消息、协同推进，完成后自动把 transcript 汇总回主对话。</td></tr>
 <tr><td><b>🗓 自然语言定时任务</b></td><td>"每天早 8 点给我写日报"、"每周一整理上周待办"、"工作日每小时扫一次邮箱"——到点自动跑，结果可选投递到任一 IM 渠道。Cron 在守护进程 / 桌面 GUI 下都能稳定运行。</td></tr>
 <tr><td><b>📊 Dashboard + Recap 复盘</b></td><td>内置数据大盘：成本 / Token / 活跃度热力图 / 健康度四维可视化，新增 <b>Plan 子板</b>（状态分布、完成率、按 Agent / Project 分组、30 天创建趋势、平均执行时长）。<code>/recap</code> 深度复盘一键跑过去 N 天会话，生成 11 个 AI 章节报告（含 Agent 工具优化建议、记忆与技能推荐、成本优化等），可导出独立 HTML 分享。</td></tr>
 <tr><td><b>🔌 MCP 客户端（OAuth 2.1）</b></td><td>内置 Model Context Protocol 客户端，四种 transport 全支持：stdio / Streamable HTTP / SSE / WebSocket。完整 OAuth 2.1 + PKCE 流程（自动 discovery、RFC 7591 动态注册、loopback 回调），凭据 0600 原子写落盘，Notion / Linear 等标准 OAuth server 可一键授权；所有出站 URL 硬过 SSRF 策略。GUI 里一键从 <code>claude_desktop_config.json</code> 导入，工具自动以 <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> 接入主对话；另配 <code>mcp_resource</code> / <code>mcp_prompt</code> 工具访问被动数据，长跑工具自动后台化。</td></tr>
-<tr><td><b>🔧 工具箱</b></td><td>可控浏览器（8-action 高层表面，<b>chat 右侧实时镜像面板</b>所见即所得，Chrome 自动跟随 agent 操作；CDP 直连 chromiumoxide，零运行时依赖）、Canvas 画布、AI 画图（7 个 Provider）、Web 搜索（8 个 Provider failover）、bash 执行（可选 Docker 沙箱隔离）、文件读写 / grep / find、URL 预览、崩溃日志、自诊断。</td></tr>
+<tr><td><b>🔧 工具箱</b></td><td>电脑控制（暂时仅 macOS）、可控浏览器（8-action 高层表面，<b>chat 右侧实时镜像面板</b>所见即所得，Chrome 自动跟随 agent 操作；CDP 直连 chromiumoxide，零运行时依赖）、Canvas 画布、AI 画图（7 个 Provider）、Web 搜索（8 个 Provider failover）、bash 执行（可选 Docker 沙箱隔离）、文件读写 / grep / find、URL 预览、崩溃日志、自诊断。</td></tr>
 <tr><td><b>📑 飞书工作空间深度集成</b></td><td>40 个 <code>feishu_*</code> tool 覆盖 docx 云文档（建/读/改）、bitable 多维表格（CRUD + view + dashboard）、drive 云盘（上下传 ≤20MB，本地路径走 protected-path 审批）、wiki 知识库链接解析、approval 审批（创建/查询/撤销）、calendar 日历（建会/邀人/改/删）、contact 联系人（查用户/部门）、hire 招聘（岗位/人才库/投递）。复用已配的飞书 IM channel 凭据，配套 <code>skills/feishu</code> 技能教模型 OKR 周报 / 排会议 / 撤审批等典型工作流。</td></tr>
 <tr><td><b>⚡ 后台跑长任务</b></td><td>耗时的 shell 命令 / Web 搜索 / AI 画图可以让 Agent "丢到后台跑"，立即返回 <code>job_id</code> 继续对话不阻塞。后台完成后结果自动注入回主对话，也可以让模型主动 <code>job_status</code> poll 结果。再长的任务都不会卡住你的聊天窗。</td></tr>
 </table>
