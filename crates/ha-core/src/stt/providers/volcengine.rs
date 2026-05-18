@@ -5,8 +5,9 @@
 //! - <https://www.volcengine.com/docs/6561/1354869> (大模型流式语音识别 API)
 //! - <https://www.volcengine.com/docs/6561/1096680> (豆包语音 API 接口文档)
 //!
-//! Auth headers on the WS upgrade (old-console flow — new-console exposes
-//! a single `X-Api-Key` instead of the App-Key + Access-Key pair):
+//! WS upgrade headers (matches the volcengine-asr-ha reference impl —
+//! these names are what the BigModel server actually accepts; the public
+//! docs are inconsistent about the exact name of the last one):
 //! - `X-Api-App-Key: <app_key>` — `extra.app_key` (the "APP ID" digit
 //!   string in the Volcengine console)
 //! - `X-Api-Access-Key: <access_key>` — `provider.api_key` (the
@@ -15,9 +16,14 @@
 //!   resource `volc.bigasr.sauc.duration`. For the 2.0 "Seed" tier
 //!   (instances whose id contains `Speech_Recognition_Seed_streaming…`),
 //!   override `extra.resource_id` to `volc.seedasr.sauc.duration`.
-//! - `X-Api-Request-Id: <UUID>` — fresh per session
-//! - `X-Api-Sequence: -1` — fixed sentinel required on the upgrade
-//!   (Volcengine refuses the connection silently if missing)
+//! - `X-Api-Connect-Id: <UUID>` — fresh per session. **Not**
+//!   `X-Api-Request-Id` (the latter applies to the async REST submit/
+//!   query family, not the WS upgrade).
+//!
+//! Sequence number — placed in each binary frame body (see
+//! `FLAG_SEQUENCE` + the `seq` counter below), NOT in an HTTP header.
+//! Frame 0x1 (config) carries no sequence; audio frames carry positive
+//! seq; the terminal audio frame uses `FLAG_NEGATIVE` to mark EOS.
 //!
 //! Binary framing (BigModel protocol, all frames):
 //! ```text
@@ -125,16 +131,32 @@ pub async fn open_stream(
             .parse()
             .map_err(|e| SttError::Other(format!("Bad X-Api-Resource-Id value: {e}")))?,
     );
+    // Volcengine names this header `X-Api-Connect-Id` on the WS upgrade
+    // (per the official SDK and reference implementations). Earlier
+    // versions of this file used `X-Api-Request-Id`, which the server
+    // silently rejected as a malformed upgrade → 400 Bad Request.
+    // `X-Api-Sequence` is NOT a WS upgrade header — the sequence number
+    // travels in the binary frame body (see FLAG_SEQUENCE / `seq` below).
     headers.insert(
-        "X-Api-Request-Id",
+        "X-Api-Connect-Id",
         request_id
             .parse()
-            .map_err(|e| SttError::Other(format!("Bad X-Api-Request-Id value: {e}")))?,
+            .map_err(|e| SttError::Other(format!("Bad X-Api-Connect-Id value: {e}")))?,
     );
-    // Documented as a mandatory header on the WS upgrade (both new- and
-    // old-console flows). Volcengine treats absence as a malformed
-    // request → connection refused, not a clear 4xx.
-    headers.insert("X-Api-Sequence", "-1".parse().expect("static header value"));
+
+    // Pre-connect diagnostic: ResourceId mismatch (BigASR 1.0 vs Seed 2.0)
+    // is the #1 cause of an opaque 400 here. Logging the resolved values
+    // (sans keys) makes the failure self-diagnosable from the log file.
+    crate::app_info!(
+        "stt",
+        "volcengine::open_stream",
+        "WS connect url={} resource_id={} app_key_len={} access_key_len={} connect_id={}",
+        url,
+        resource_id,
+        app_key.len(),
+        profile.api_key.len(),
+        request_id
+    );
 
     let ws = super::ws_connect_with_caps(request, "Volcengine").await?;
     let (mut ws_sink, mut ws_stream) = ws.split();
