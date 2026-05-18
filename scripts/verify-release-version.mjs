@@ -11,6 +11,9 @@ const cargoLockPath = path.join(rootDir, "Cargo.lock")
 // CARGO_PKG_VERSION must move with the desktop version (see
 // scripts/sync-version.mjs).
 const haServerCargoTomlPath = path.join(rootDir, "crates", "ha-server", "Cargo.toml")
+// ha-core is the shared business-logic crate. Not user-facing, but kept
+// in lockstep so the whole workspace reports one coherent version.
+const haCoreCargoTomlPath = path.join(rootDir, "crates", "ha-core", "Cargo.toml")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -39,9 +42,17 @@ if (!haServerVersionMatch) {
   process.exit(1)
 }
 
+const haCoreCargoToml = readFileSync(haCoreCargoTomlPath, "utf8")
+const haCoreVersionMatch = haCoreCargoToml.match(/^version = "(.*)"$/m)
+if (!haCoreVersionMatch) {
+  console.error("[release:verify] could not read crates/ha-core/Cargo.toml version")
+  process.exit(1)
+}
+
 const cargoLock = readFileSync(cargoLockPath, "utf8")
 const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\r?\nversion = "(.*)"/)
 const cargoLockHaServerMatch = cargoLock.match(/name = "ha-server"\r?\nversion = "(.*)"/)
+const cargoLockHaCoreMatch = cargoLock.match(/name = "ha-core"\r?\nversion = "(.*)"/)
 
 if (!cargoLockHopeAgentMatch) {
   console.error("[release:verify] could not find hope-agent version in Cargo.lock")
@@ -51,6 +62,10 @@ if (!cargoLockHaServerMatch) {
   console.error("[release:verify] could not find ha-server version in Cargo.lock")
   process.exit(1)
 }
+if (!cargoLockHaCoreMatch) {
+  console.error("[release:verify] could not find ha-core version in Cargo.lock")
+  process.exit(1)
+}
 
 const packageVersion = packageJson.version
 const tauriVersion = tauriConfig.version
@@ -58,6 +73,8 @@ const cargoVersion = cargoVersionMatch[1]
 const cargoLockVersion = cargoLockHopeAgentMatch[1]
 const haServerVersion = haServerVersionMatch[1]
 const haServerLockVersion = cargoLockHaServerMatch[1]
+const haCoreVersion = haCoreVersionMatch[1]
+const haCoreLockVersion = cargoLockHaCoreMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
@@ -66,6 +83,8 @@ const mismatches = [
   ["Cargo.lock (hope-agent)", cargoLockVersion],
   ["crates/ha-server/Cargo.toml", haServerVersion],
   ["Cargo.lock (ha-server)", haServerLockVersion],
+  ["crates/ha-core/Cargo.toml", haCoreVersion],
+  ["Cargo.lock (ha-core)", haCoreLockVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {
@@ -76,6 +95,8 @@ if (mismatches.length > 0) {
   console.error(`  Cargo.lock (hope-agent): ${cargoLockVersion}`)
   console.error(`  crates/ha-server/Cargo.toml: ${haServerVersion}`)
   console.error(`  Cargo.lock (ha-server): ${haServerLockVersion}`)
+  console.error(`  crates/ha-core/Cargo.toml: ${haCoreVersion}`)
+  console.error(`  Cargo.lock (ha-core): ${haCoreLockVersion}`)
   process.exit(1)
 }
 

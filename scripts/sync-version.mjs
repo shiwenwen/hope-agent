@@ -12,6 +12,10 @@ const tauriConfigPath = path.join(rootDir, "src-tauri", "tauri.conf.json")
 // the version must move in lockstep with the desktop binary or
 // `--version` / `app_update` will report the wrong number in containers.
 const haServerCargoTomlPath = path.join(rootDir, "crates", "ha-server", "Cargo.toml")
+// ha-core is the shared business-logic crate. Not published to crates.io
+// and not a user-facing binary, but kept in lockstep so all crates in
+// the workspace report one coherent product version.
+const haCoreCargoTomlPath = path.join(rootDir, "crates", "ha-core", "Cargo.toml")
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"))
 const version = packageJson.version
@@ -37,19 +41,21 @@ function bumpCargoTomlVersion(filePath, label) {
 
 bumpCargoTomlVersion(tauriCargoTomlPath, "src-tauri/Cargo.toml")
 bumpCargoTomlVersion(haServerCargoTomlPath, "crates/ha-server/Cargo.toml")
+bumpCargoTomlVersion(haCoreCargoTomlPath, "crates/ha-core/Cargo.toml")
 
-// hope-agent / ha-server are workspace packages; cargo update only bumps
-// the Cargo.lock entries to match the new manifest version. `--offline`
-// keeps the script working with no network. Skipping any of these would
-// make CI's `cargo clippy --locked` reject the version-bump commit.
+// hope-agent / ha-server / ha-core are workspace packages; cargo update
+// only bumps the Cargo.lock entries to match the new manifest version.
+// `--offline` keeps the script working with no network. Skipping any of
+// these would make CI's `cargo clippy --locked` reject the version-bump
+// commit.
 try {
-  execSync("cargo update -p hope-agent -p ha-server --offline --quiet", {
+  execSync("cargo update -p hope-agent -p ha-server -p ha-core --offline --quiet", {
     cwd: rootDir,
     stdio: "inherit",
   })
 } catch {
   console.error(
-    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent -p ha-server` manually",
+    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent -p ha-server -p ha-core` manually",
   )
   process.exit(1)
 }
@@ -61,7 +67,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml Cargo.lock",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json crates/ha-server/Cargo.toml crates/ha-core/Cargo.toml Cargo.lock",
       {
         cwd: rootDir,
         stdio: "ignore",
@@ -74,5 +80,5 @@ if (process.env.npm_lifecycle_event === "version") {
 
 console.log(`[sync-version] synced desktop version to ${version}`)
 console.log(
-  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, Cargo.lock",
+  "[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, crates/ha-server/Cargo.toml, crates/ha-core/Cargo.toml, Cargo.lock",
 )
