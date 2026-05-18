@@ -3,9 +3,15 @@
 //! Drives both `SttProviderKind::OpenaiTranscriptions` (api.openai.com) and
 //! `SttProviderKind::OpenaiCompatible` (Groq, whisper.cpp server,
 //! faster-whisper-server, FunASR + OpenAI wrapper, sherpa-onnx server,
-//! DashScope compatible mode, StepFun, SiliconFlow) — they share an
-//! identical wire shape, only `base_url` and auth differ. Streaming
-//! transcripts (`gpt-4o-transcribe` SSE) are Phase 2.
+//! StepFun, SiliconFlow) — they share an identical wire shape, only
+//! `base_url` and auth differ. Streaming transcripts (`gpt-4o-transcribe`
+//! SSE) are Phase 2.
+//!
+//! NOTE: DashScope is NOT routed here despite advertising "OpenAI
+//! compatibility" — Alibaba dispatches its Qwen3-ASR family through
+//! `chat/completions` with `input_audio` content blocks, not the
+//! multipart transcriptions endpoint. See
+//! [`super::chat_completions_asr`].
 
 use std::time::Duration;
 
@@ -15,8 +21,10 @@ use crate::security::ssrf::{check_url, SsrfPolicy};
 use crate::stt::errors::{SttError, SttResult};
 use crate::stt::types::{
     AudioPayload, SttModelConfig, SttProviderConfig, SttProviderKind, Transcript,
-    TranscriptOptions, TranscriptSegment, MAX_BATCH_AUDIO_BYTES,
+    TranscriptOptions, TranscriptSegment,
 };
+
+use super::{classify_http_status, classify_reqwest_error, load_batch_audio};
 
 /// HTTP request timeout for one-shot batch transcription. Whisper requests
 /// commonly take 5-30s depending on audio length / model size; 120s gives
@@ -81,9 +89,8 @@ pub async fn transcribe_batch(
         .post(&url)
         .header("Authorization", format!("Bearer {}", profile.api_key))
         .multipart(form);
-    // Some OpenAI-compatible servers (DashScope) accept the optional
-    // `X-DashScope-SSE: disable` hint — but we send nothing extra here; the
-    // default response is non-streaming JSON which is what we want.
+    // Force JSON response shape for compatible servers that may otherwise
+    // negotiate to text/event-stream.
     if matches!(provider.kind, SttProviderKind::OpenaiCompatible) {
         request = request.header("Accept", "application/json");
     }
@@ -91,7 +98,7 @@ pub async fn transcribe_batch(
     let response = request
         .send()
         .await
-        .map_err(|e| classify_request_error(&e))?;
+        .map_err(|e| classify_reqwest_error(&e))?;
     let status = response.status();
     if status.is_redirection() {
         let location = response
@@ -121,44 +128,7 @@ async fn build_multipart_form(
     audio: AudioPayload,
     options: &TranscriptOptions,
 ) -> SttResult<reqwest::multipart::Form> {
-    let (bytes, mime_type, filename) = match audio {
-        AudioPayload::Bytes {
-            bytes,
-            mime_type,
-            filename,
-        } => {
-            if bytes.len() > MAX_BATCH_AUDIO_BYTES {
-                return Err(SttError::UnsupportedAudio(format!(
-                    "Audio payload {} bytes exceeds {} MiB batch limit",
-                    bytes.len(),
-                    MAX_BATCH_AUDIO_BYTES / (1024 * 1024)
-                )));
-            }
-            (bytes, mime_type, filename)
-        }
-        AudioPayload::File { path, mime_type } => {
-            // IM auto-transcribe and skill paths construct `File` payloads
-            // from inbound media that can easily exceed the 25 MiB Whisper
-            // limit (long voice notes, podcasts forwarded as audio
-            // attachments). Stat first so we never alloc the giant Vec.
-            let meta = tokio::fs::metadata(&path).await?;
-            if meta.len() > MAX_BATCH_AUDIO_BYTES as u64 {
-                return Err(SttError::UnsupportedAudio(format!(
-                    "Audio file {} ({} bytes) exceeds {} MiB batch limit",
-                    path.display(),
-                    meta.len(),
-                    MAX_BATCH_AUDIO_BYTES / (1024 * 1024)
-                )));
-            }
-            let bytes = tokio::fs::read(&path).await?;
-            let filename = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("audio.bin")
-                .to_string();
-            (bytes, mime_type, filename)
-        }
-    };
+    let (bytes, mime_type, filename) = load_batch_audio(audio).await?;
 
     let part = reqwest::multipart::Part::bytes(bytes)
         .file_name(filename)
@@ -250,30 +220,6 @@ fn parse_segment(value: &serde_json::Value) -> Option<TranscriptSegment> {
     })
 }
 
-fn classify_request_error(e: &reqwest::Error) -> SttError {
-    if e.is_timeout() {
-        SttError::Network(format!("Request timed out: {e}"))
-    } else if e.is_connect() {
-        SttError::Network(format!("Connect failed: {e}"))
-    } else {
-        SttError::Network(e.to_string())
-    }
-}
-
-fn classify_http_status(status: reqwest::StatusCode, body: &str) -> SttError {
-    // Truncate provider error body to keep API keys / request payloads out
-    // of logs even on the unlikely path where the provider echoes them.
-    let snippet = body.chars().take(256).collect::<String>();
-    match status.as_u16() {
-        401 | 403 => SttError::Auth(format!("HTTP {status}: {snippet}")),
-        413 => SttError::UnsupportedAudio(format!("HTTP {status}: payload too large")),
-        415 => SttError::UnsupportedAudio(format!("HTTP {status}: unsupported codec")),
-        429 => SttError::RateLimit(format!("HTTP {status}: {snippet}")),
-        500..=599 => SttError::ProviderUnavailable(format!("HTTP {status}: {snippet}")),
-        _ => SttError::Other(format!("HTTP {status}: {snippet}")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,31 +289,4 @@ mod tests {
         assert_eq!(err.code(), "other");
     }
 
-    #[test]
-    fn classify_http_status_maps_to_error_kinds() {
-        assert_eq!(
-            classify_http_status(reqwest::StatusCode::UNAUTHORIZED, "bad key").code(),
-            "auth"
-        );
-        assert_eq!(
-            classify_http_status(reqwest::StatusCode::PAYLOAD_TOO_LARGE, "").code(),
-            "unsupported_audio"
-        );
-        assert_eq!(
-            classify_http_status(reqwest::StatusCode::TOO_MANY_REQUESTS, "").code(),
-            "rate_limit"
-        );
-        assert_eq!(
-            classify_http_status(reqwest::StatusCode::BAD_GATEWAY, "").code(),
-            "provider_unavailable"
-        );
-    }
-
-    #[test]
-    fn classify_http_status_truncates_long_bodies() {
-        let body = "a".repeat(2_000);
-        let err =
-            classify_http_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR, &body).to_string();
-        assert!(err.len() < 400);
-    }
 }

@@ -63,12 +63,14 @@ function Badge({
 }
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
+import { unwrapActiveSttModel, type ActiveSttModel } from "@/lib/stt"
 
 // ── Types mirrored from ha-core ──────────────────────────────────
 
 type SttProviderKind =
   | "openai-transcriptions"
   | "openai-compatible"
+  | "openai-chat-completions-asr"
   | "deepgram-ws"
   | "assemblyai-ws"
   | "azure-ws"
@@ -83,6 +85,7 @@ type SttProviderKind =
 const BATCH_CAPABLE_KINDS: ReadonlySet<SttProviderKind> = new Set([
   "openai-transcriptions",
   "openai-compatible",
+  "openai-chat-completions-asr",
 ])
 
 interface SttModelConfig {
@@ -108,11 +111,6 @@ interface SttProviderConfig {
   extra?: Record<string, string>
 }
 
-interface ActiveSttModel {
-  providerId: string
-  modelId: string
-}
-
 interface KnownLocalSttBackend {
   key: string
   name: string
@@ -129,6 +127,10 @@ interface KnownLocalSttBackend {
 const KIND_OPTIONS: { value: SttProviderKind; label: string }[] = [
   { value: "openai-transcriptions", label: "OpenAI Audio Transcriptions" },
   { value: "openai-compatible", label: "OpenAI-compatible" },
+  {
+    value: "openai-chat-completions-asr",
+    label: "Chat Completions ASR (input_audio)",
+  },
   { value: "deepgram-ws", label: "Deepgram (WS)" },
   { value: "assemblyai-ws", label: "AssemblyAI (WS)" },
   { value: "azure-ws", label: "Azure Speech (WS)" },
@@ -142,6 +144,7 @@ const KIND_OPTIONS: { value: SttProviderKind; label: string }[] = [
 const KIND_DEFAULT_BASE_URL: Record<SttProviderKind, string> = {
   "openai-transcriptions": "https://api.openai.com",
   "openai-compatible": "",
+  "openai-chat-completions-asr": "",
   "deepgram-ws": "wss://api.deepgram.com",
   "assemblyai-ws": "wss://streaming.assemblyai.com",
   "azure-ws": "",
@@ -164,6 +167,7 @@ interface ExtraField {
 const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
   "openai-transcriptions": [],
   "openai-compatible": [],
+  "openai-chat-completions-asr": [],
   "deepgram-ws": [],
   "assemblyai-ws": [],
   "azure-ws": [],
@@ -217,28 +221,13 @@ export default function VoicePanel() {
       const transport = getTransport()
       const [list, active, im, cat] = await Promise.all([
         transport.call<SttProviderConfig[]>("get_stt_providers", {}),
-        transport.call<ActiveSttModel | { activeModel?: ActiveSttModel } | null>(
-          "get_active_stt_model",
-          {},
-        ),
-        transport.call<ActiveSttModel | { imFallbackModel?: ActiveSttModel } | null>(
-          "get_im_fallback_stt_model",
-          {},
-        ),
+        transport.call<unknown>("get_active_stt_model", {}),
+        transport.call<unknown>("get_im_fallback_stt_model", {}),
         transport.call<KnownLocalSttBackend[]>("list_known_local_stt_backends", {}),
       ])
       setProviders(list ?? [])
-      // Tauri returns plain Option<T>; HTTP returns `{ activeModel: ... }`.
-      const normActive =
-        active && typeof active === "object" && "activeModel" in active
-          ? (active as { activeModel?: ActiveSttModel | null }).activeModel ?? null
-          : (active as ActiveSttModel | null)
-      const normIm =
-        im && typeof im === "object" && "imFallbackModel" in im
-          ? (im as { imFallbackModel?: ActiveSttModel | null }).imFallbackModel ?? null
-          : (im as ActiveSttModel | null)
-      setActiveModel(normActive ?? null)
-      setImFallback(normIm ?? null)
+      setActiveModel(unwrapActiveSttModel(active, "activeModel"))
+      setImFallback(unwrapActiveSttModel(im, "imFallbackModel"))
       setBackends(cat ?? [])
     } catch (e) {
       setError(String(e))
@@ -363,7 +352,7 @@ export default function VoicePanel() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex-1 overflow-y-auto p-6 flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("voice.processing")}
       </div>
@@ -371,7 +360,7 @@ export default function VoicePanel() {
   }
 
   return (
-    <div className="space-y-6 p-4 max-w-4xl">
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
       <header className="flex items-center gap-2">
         <Mic className="h-5 w-5" />
         <div>
@@ -617,8 +606,8 @@ function ProviderDialog({
   const [extraValues, setExtraValues] = useState<Record<string, string>>(
     () => ({ ...(provider.extra ?? {}) }),
   )
-  const [modelsText, setModelsText] = useState(
-    provider.models.map((m) => `${m.id}\t${m.name || m.id}`).join("\n"),
+  const [models, setModels] = useState<SttModelConfig[]>(() =>
+    provider.models.map((m) => ({ ...m })),
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -653,14 +642,10 @@ function ProviderDialog({
           return
         }
       }
-      const models: SttModelConfig[] = modelsText
-        .split("\n")
-        .map((row) => row.trim())
-        .filter(Boolean)
-        .map((row) => {
-          const [id, ...rest] = row.split("\t")
-          return { id: id.trim(), name: rest.join("\t").trim() || id.trim() }
-        })
+      const trimmedModels: SttModelConfig[] = models
+        .map((m) => ({ ...m, id: m.id.trim(), name: (m.name || "").trim() }))
+        .filter((m) => m.id)
+        .map((m) => ({ ...m, name: m.name || m.id }))
       // Strip empty extra values so they don't override redacted-but-set
       // values on round-trip and don't get sent as `""`.
       const trimmedExtra: Record<string, string> = {}
@@ -673,7 +658,7 @@ function ProviderDialog({
         kind,
         baseUrl: baseUrl.trim(),
         apiKey,
-        models,
+        models: trimmedModels,
         enabled,
         allowPrivateNetwork: allowPrivate,
         extra: trimmedExtra,
@@ -703,7 +688,7 @@ function ProviderDialog({
     extraValues,
     isNew,
     kind,
-    modelsText,
+    models,
     name,
     onSaved,
     provider,
@@ -769,17 +754,51 @@ function ProviderDialog({
             </div>
           ))}
           <div className="space-y-1.5">
-            <Label>{t("voice.settings.models")}</Label>
-            <textarea
-              value={modelsText}
-              onChange={(e) => setModelsText(e.target.value)}
-              rows={5}
-              className="w-full font-mono text-xs rounded-md border px-2 py-1.5 bg-background"
-              placeholder={t("voice.settings.modelsPlaceholder")}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("voice.settings.modelsHint")}
-            </p>
+            <Label>{t("model.modelList")}</Label>
+            <div className="space-y-2">
+              {models.map((m, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    value={m.id}
+                    placeholder={t("model.modelId")}
+                    onChange={(e) =>
+                      setModels((prev) =>
+                        prev.map((row, j) => (j === i ? { ...row, id: e.target.value } : row)),
+                      )
+                    }
+                    className="flex-1 font-mono text-xs h-8"
+                  />
+                  <Input
+                    value={m.name ?? ""}
+                    placeholder={t("model.displayName")}
+                    onChange={(e) =>
+                      setModels((prev) =>
+                        prev.map((row, j) => (j === i ? { ...row, name: e.target.value } : row)),
+                      )
+                    }
+                    className="flex-1 text-xs h-8"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => setModels((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label={t("common.delete")}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setModels((prev) => [...prev, { id: "", name: "" }])}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              {t("model.addModel")}
+            </Button>
           </div>
           <div className="flex items-center justify-between">
             <Label>{t("voice.settings.enabled")}</Label>

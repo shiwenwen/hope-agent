@@ -31,6 +31,12 @@ pub async fn transcribe_with(
         SttProviderKind::OpenaiTranscriptions | SttProviderKind::OpenaiCompatible => {
             providers::openai::transcribe_batch(provider, model, profile, audio, options).await
         }
+        SttProviderKind::OpenaiChatCompletionsAsr => {
+            providers::chat_completions_asr::transcribe_batch(
+                provider, model, profile, audio, options,
+            )
+            .await
+        }
         SttProviderKind::DeepgramWs
         | SttProviderKind::AssemblyaiWs
         | SttProviderKind::AzureWs

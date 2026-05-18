@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import {
   Send,
   Square,
@@ -170,6 +171,60 @@ export default function ChatInput({
       onInputChange(current + sep + text)
     }
   }, [voice, onInputChange])
+
+  // Press-to-talk: hold Ctrl+Shift+H anywhere on the page to dictate.
+  // Mirrors the inline tooltip on `VoiceRecordButton`. Click-toggle still
+  // works via the button itself; this is the keyboard-only path.
+  const pttActiveRef = useRef(false)
+  const voiceRef = useRef(voice)
+  voiceRef.current = voice
+  const handleVoiceStopRef = useRef(handleVoiceStop)
+  handleVoiceStopRef.current = handleVoiceStop
+  useEffect(() => {
+    const isPttCombo = (e: KeyboardEvent) =>
+      e.code === "KeyH" && e.shiftKey && e.ctrlKey && !e.altKey && !e.metaKey
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isPttCombo(e)) return
+      // OS sends repeats while the key is held — only the first edge matters.
+      if (e.repeat) return
+      e.preventDefault()
+      if (pttActiveRef.current) return
+      const s = voiceRef.current.state
+      if (s !== "idle" && s !== "ready" && s !== "stopped" && s !== "error") return
+      pttActiveRef.current = true
+      logger.info("voice", "ChatInput::ptt", "start recording (ptt down)")
+      void voiceRef.current.start()
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isPttCombo(e)) return
+      if (!pttActiveRef.current) return
+      pttActiveRef.current = false
+      e.preventDefault()
+      if (voiceRef.current.state === "recording") {
+        logger.info("voice", "ChatInput::ptt", "stop recording (ptt up)")
+        void handleVoiceStopRef.current()
+      }
+    }
+    // Switching apps or alt-tabbing can swallow the keyup — fall back to
+    // cancel so half-captured audio doesn't ride into the next session.
+    const onBlur = () => {
+      if (!pttActiveRef.current) return
+      pttActiveRef.current = false
+      if (voiceRef.current.state === "recording") {
+        logger.warn("voice", "ChatInput::ptt", "blur during ptt: cancel recording")
+        voiceRef.current.cancel()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    window.addEventListener("blur", onBlur)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+      window.removeEventListener("blur", onBlur)
+    }
+  }, [])
 
   // File mention `@` popper — only meaningful when a working dir is set.
   const mention = useFileMention(input, onInputChange, textareaRef, workingDir ?? null)

@@ -6,6 +6,11 @@ import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import type { VoiceInputState } from "./useVoiceInput"
 
+const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
+// Press-to-talk hint surfaced in the idle tooltip; actual keydown / keyup
+// wiring lives in ChatInput so the listener has access to start/stop.
+const VOICE_PTT_SHORTCUT_LABEL = isMac ? "⌃⇧H" : "Ctrl+Shift+H"
+
 interface VoiceRecordButtonProps {
   state: VoiceInputState
   durationMs: number
@@ -103,7 +108,7 @@ export function VoiceRecordButton({
 
   // idle / stopped / ready / error → ready-to-record state.
   return (
-    <IconTip label={t("voice.record")}>
+    <IconTip label={t("voice.recordTip", { shortcut: VOICE_PTT_SHORTCUT_LABEL })}>
       <Button
         size="icon"
         variant="ghost"
