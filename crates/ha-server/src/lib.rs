@@ -1356,6 +1356,17 @@ fn build_router_with_cors(
             "/permission/global-yolo",
             get(routes::permission::get_global_yolo_status),
         )
+        // macOS control readiness (server/headless returns supported=false)
+        .route("/mac-control/status", get(routes::mac_control::status))
+        .route(
+            "/mac-control/permissions",
+            get(routes::mac_control::permissions),
+        )
+        .route("/mac-control/snapshot", post(routes::mac_control::snapshot))
+        .route(
+            "/mac-control/capture-frame",
+            post(routes::mac_control::capture_frame),
+        )
         // Local LLM assistant
         .route("/local-llm/hardware", get(routes::local_llm::get_hardware))
         .route(

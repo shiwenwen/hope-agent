@@ -44,9 +44,7 @@ libc = "0.2"
 portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
-# arboard / xcap come in transitively via ha-core's `desktop-tools` feature
-# (enabled in this crate's ha-core dep). src-tauri itself never imports
-# them directly.
+# arboard comes in transitively via ha-core's `desktop-tools` feature.
 regex = "1.12.3"
 ignore = "0.4.25"
 glob = "0.3.3"
@@ -89,8 +87,9 @@ rpassword = "7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }
-objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor"] }
-objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSError", "NSObject", "NSRunLoop", "NSString"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor", "NSWorkspace", "NSRunningApplication", "libc"] }
+objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSError", "NSBundle", "NSObject", "NSRunLoop", "NSString", "NSURL"] }
+xcap = "0.9"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"

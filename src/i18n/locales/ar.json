@@ -71,6 +71,14 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "إجراء Mac Control",
+        "body": "سيغيّر استدعاء التحكم في macOS هذا تركيز/حالة سطح المكتب. أكّد قبل أن يفعّل Hope Agent تطبيقًا آخر."
+      },
+      "mac_control_dangerous_action": {
+        "title": "إجراء Mac Control خطير",
+        "body": "قد يؤدي استدعاء التحكم في macOS هذا إلى إغلاق النوافذ أو إنهاء التطبيقات أو تأكيد مربعات الحوار أو تشغيل قوائم مدمرة. يلزم التأكيد في كل مرة؛ خيار السماح دائمًا غير متاح."
       }
     },
     "title": "Command Approval Required",
@@ -3294,6 +3302,23 @@
     "permUnknown": "تحقق يدوياً",
     "permUnsupportedDesc": "This page currently supports the macOS desktop app only. Windows, Linux, and HTTP/server mode will get their own permissions implementation later.",
     "permUnsupportedTitle": "System permissions are macOS-only for now",
+    "macControl": {
+      "missingRequired": "مطلوب: {{items}}",
+      "messages": {
+        "blocked": "يحتاج التحكم في macOS إلى إذني تسهيلات الاستخدام وتسجيل الشاشة.",
+        "limited": "التحكم الأساسي في macOS جاهز؛ ما زالت الأذونات الاختيارية معلقة.",
+        "ready": "التحكم في macOS جاهز.",
+        "unsupported": "التحكم في macOS غير متاح في بيئة التشغيل هذه."
+      },
+      "optionalPending": "اختياري معلق: {{items}}",
+      "readiness": {
+        "blocked": "محظور",
+        "limited": "النواة جاهزة",
+        "ready": "جاهز",
+        "unsupported": "غير مدعوم"
+      },
+      "title": "التحكم في Mac"
+    },
     "permissionGroups": {
       "controlCapture": "Control & Capture",
       "deviceNetwork": "Devices & Network",

@@ -71,6 +71,14 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "Acción de Mac Control",
+        "body": "Esta llamada de control de macOS cambia el foco o estado del escritorio. Confirma antes de que Hope Agent active otra app."
+      },
+      "mac_control_dangerous_action": {
+        "title": "Acción peligrosa de Mac Control",
+        "body": "Esta llamada de control de macOS puede cerrar ventanas, salir de apps, confirmar diálogos o activar menús destructivos. Requiere confirmación en cada llamada; Permitir siempre no está disponible."
       }
     },
     "title": "Command Approval Required",
@@ -3294,6 +3302,23 @@
     "permUnknown": "Verificar manualmente",
     "permUnsupportedDesc": "This page currently supports the macOS desktop app only. Windows, Linux, and HTTP/server mode will get their own permissions implementation later.",
     "permUnsupportedTitle": "System permissions are macOS-only for now",
+    "macControl": {
+      "missingRequired": "Necesita: {{items}}",
+      "messages": {
+        "blocked": "El control de macOS necesita los permisos de Accesibilidad y Grabación de pantalla.",
+        "limited": "El control básico de macOS está listo; aún faltan permisos opcionales.",
+        "ready": "El control de macOS está listo.",
+        "unsupported": "El control de macOS no está disponible en este entorno."
+      },
+      "optionalPending": "Opcional pendiente: {{items}}",
+      "readiness": {
+        "blocked": "Bloqueado",
+        "limited": "Núcleo listo",
+        "ready": "Listo",
+        "unsupported": "No compatible"
+      },
+      "title": "Control de Mac"
+    },
     "permissionGroups": {
       "controlCapture": "Control & Capture",
       "deviceNetwork": "Devices & Network",

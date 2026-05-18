@@ -23,6 +23,8 @@ export interface ApprovalRequest {
       | "protected_path"
       | "agent_custom_list"
       | "smart_judge"
+      | "mac_control_action"
+      | "mac_control_dangerous_action"
       | "plan_mode_ask"
     /** Pattern / path / rationale text to display. */
     detail?: string
@@ -94,7 +96,10 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
 
   const total = requests.length
   const reason = current.reason
-  const isStrict = reason?.kind === "protected_path" || reason?.kind === "dangerous_command"
+  const isStrict =
+    reason?.kind === "protected_path" ||
+    reason?.kind === "dangerous_command" ||
+    reason?.kind === "mac_control_dangerous_action"
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -251,7 +256,10 @@ function ReasonBanner({
   detail?: string
   t: ReturnType<typeof useTranslation>["t"]
 }) {
-  const isStrict = kind === "protected_path" || kind === "dangerous_command"
+  const isStrict =
+    kind === "protected_path" ||
+    kind === "dangerous_command" ||
+    kind === "mac_control_dangerous_action"
   const palette = isStrict
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : "border-amber-200/40 bg-amber-50/40 dark:bg-amber-950/10 text-amber-700 dark:text-amber-400"

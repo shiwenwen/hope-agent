@@ -3,10 +3,10 @@ use serde_json::json;
 use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE,
-    TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
-    TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
-    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY,
-    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL,
+    TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
+    TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL,
     TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
@@ -719,6 +719,181 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["action"]
+            }),
+        },
+        // ── macOS Control ──────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_MAC_CONTROL.into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot`, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
+            internal: false,
+            concurrent_safe: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "permissions", "snapshot", "wait", "apps", "windows", "act", "menu", "dialog"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional screenshot. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, and `dialog` perform desktop operations."
+                    },
+                    "op": {
+                        "type": "string",
+                        "enum": ["present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "click", "click_point", "double_click", "right_click", "type", "set_value", "hotkey", "scroll", "drag", "inspect", "accept", "dismiss"],
+                        "description": "Sub-operation. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `dialog`: inspect|accept|dismiss."
+                    },
+                    "appName": {
+                        "type": "string",
+                        "description": "For `apps`: app name query. By default this is an exact match against localized name, bundle id suffix, .app name, or executable name. If launch/activate by name is ambiguous or fails, call apps.search/installed and retry with bundleId."
+                    },
+                    "appNameMatch": {
+                        "type": "string",
+                        "enum": ["exact", "contains"],
+                        "description": "For `apps` appName matching. Defaults to exact. Use contains only for read-only discovery such as apps.search/installed; prefer bundleId for mutations."
+                    },
+                    "bundleId": {
+                        "type": "string",
+                        "description": "For `apps`: case-insensitive substring match against the running app bundle id."
+                    },
+                    "pid": {
+                        "type": "integer",
+                        "description": "For `apps`: exact process id match."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "For `apps.list`: maximum running apps returned. Defaults to 50 and is hard-capped at 100."
+                    },
+                    "windowId": {
+                        "type": "string",
+                        "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1. Prefer target.windowTitle when possible."
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "For `windows.move` or `act.click_point`: x position in macOS screen points. For `act.drag`: destination x point; the source is target center."
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "For `windows.move` or `act.click_point`: y position in macOS screen points. For `act.drag`: destination y point; the source is target center."
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "For `windows.resize`: target width in macOS screen points."
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "For `windows.resize`: target height in macOS screen points."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "For `act.type`: text to set/type. For target matching, use target.text."
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "For `act.set_value`: value to set via Accessibility."
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "For `act.hotkey`: single key name, e.g. n, Enter, Escape, Tab."
+                    },
+                    "keys": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "For `act.hotkey`: ordered keys/modifiers, e.g. [\"cmd\",\"n\"] or [\"cmd\",\"shift\",\"g\"]."
+                    },
+                    "deltaX": {
+                        "type": "number",
+                        "description": "For `act.scroll`: horizontal scroll delta."
+                    },
+                    "deltaY": {
+                        "type": "number",
+                        "description": "For `act.scroll`: vertical scroll delta."
+                    },
+                    "path": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "For `menu.click`: menu title path, e.g. [\"File\", \"New Window\"]."
+                    },
+                    "buttonText": {
+                        "type": "string",
+                        "description": "For `dialog.accept` or `dialog.dismiss`: preferred button label. If omitted, accept/dismiss use conservative built-in label lists such as OK/Save/Open or Cancel/Close/Don't Save."
+                    },
+                    "includeScreenshot": {
+                        "type": "boolean",
+                        "description": "For `snapshot`: capture the primary display as a JPEG, store it under ~/.hope-agent/mac-control/snapshots/, and emit a Mac Control mirror frame. Requires Screen Recording permission."
+                    },
+                    "maxElements": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "description": "Maximum AX elements to return for snapshot. Defaults to 120 and is hard-capped at 500."
+                    },
+                    "maxDepth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 16,
+                        "description": "Maximum AX tree traversal depth for `snapshot` or `wait`. Defaults to 8 and is hard-capped at 16."
+                    },
+                    "timeoutMs": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 60000,
+                        "description": "For `wait`: total polling timeout in milliseconds. Defaults to 10000 and is hard-capped at 60000."
+                    },
+                    "pollMs": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 5000,
+                        "description": "For `wait`: polling interval in milliseconds. Defaults to 500 and is clamped to 100..5000."
+                    },
+                    "target": {
+                        "type": "object",
+                        "description": "Target query for `wait`, `windows`, and `act`. App/window filters combine with element filters when provided.",
+                        "properties": {
+                            "appName": {
+                                "type": "string",
+                                "description": "Case-insensitive substring match against the frontmost app name."
+                            },
+                            "bundleId": {
+                                "type": "string",
+                                "description": "Case-insensitive substring match against the frontmost app bundle id when available."
+                            },
+                            "windowTitle": {
+                                "type": "string",
+                                "description": "Window title query. Defaults to exact matching; when element filters are present, restricts matching elements to that window."
+                            },
+                            "windowTitleMatch": {
+                                "type": "string",
+                                "enum": ["exact", "contains"],
+                                "description": "Matching strategy for windowTitle. Defaults to exact. Use contains only after listing windows or when a partial title is intentional."
+                            },
+                            "elementId": {
+                                "type": "string",
+                                "description": "Exact element id match within the freshly captured snapshot."
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "Case-insensitive substring match against element label or value."
+                            },
+                            "role": {
+                                "type": "string",
+                                "description": "Case-insensitive substring match against AX role, for example AXButton or text."
+                            },
+                            "enabled": {
+                                "type": "boolean",
+                                "description": "Set true to require an enabled element. Omit for no filter; false is treated as omitted to tolerate provider-filled defaults."
+                            },
+                            "focused": {
+                                "type": "boolean",
+                                "description": "Set true to require a focused element. Omit for no filter; false is treated as omitted to tolerate provider-filled defaults."
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
             }),
         },
         // ── Memory Get ──────────────────────────────────────────

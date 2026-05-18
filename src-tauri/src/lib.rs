@@ -4,6 +4,7 @@ pub mod cli_auth;
 pub mod cli_onboarding;
 mod commands;
 mod globals;
+mod macos_control;
 mod menu_labels;
 mod setup;
 mod shortcuts;
@@ -36,6 +37,7 @@ pub use ha_core::file_extract;
 pub use ha_core::guardian;
 pub use ha_core::local_embedding;
 pub use ha_core::logging;
+pub use ha_core::mac_control;
 pub use ha_core::memory;
 pub use ha_core::memory_extract;
 pub use ha_core::oauth;
@@ -471,6 +473,10 @@ pub fn run() {
             tauri_wrappers::check_permission,
             tauri_wrappers::request_permission,
             tauri_wrappers::request_system_permission,
+            tauri_wrappers::mac_control_status,
+            tauri_wrappers::mac_control_permissions,
+            tauri_wrappers::mac_control_snapshot,
+            tauri_wrappers::mac_control_capture_frame,
             // Session management
             commands::session::create_session_cmd,
             commands::session::list_sessions_cmd,

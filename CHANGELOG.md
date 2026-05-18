@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docker 镜像内置 Chromium**：`Dockerfile` 加 `chromium` + 字体 / nss / libgbm / libxss 共享库，让 `profile.op=launch headless=true` 在服务器 / CI / 容器内开箱即用。镜像体积增加约 250 MB；不需要浏览器自动化的部署可 fork 移除。
 - **Doctor 段升级显示浏览器运行时状态**：settings → Browser 面板的健康行根据本机情况显示「✓ {brand} detected」/「✓ Chromium runtime ready (rev X)」/「⚠ No browser binary — [Install Chromium runtime]」三态，缺 binary 时直接按钮触发 runtime 下载，避免用户卡在 chromiumoxide 英文报错上。
 - **缺 binary 错误带引导**：之前 chromiumoxide 自己 detect 失败的 raw error 透传给模型；现在 `build_launch_config` 提前拦截并改写为带三条解决方案（装系统 Chrome / 运行 install_runtime / 设 executable_path）的中文友好错误，模型能直接照着选下一步。
+- **macOS Control 原生桌面控制能力**：新增内置 `mac_control` 工具与 `ha-mac-control` skill，支持权限 readiness、应用/窗口发现与激活、AX snapshot / wait、点击/输入、菜单、对话框、窗口移动/缩放/关闭等桌面操作；工具接入统一审批引擎，右侧 Mac Control 面板实时展示桌面状态，HTTP/server 模式保持 unsupported 形状返回。
 
 ### Changed
 

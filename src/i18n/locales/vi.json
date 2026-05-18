@@ -71,6 +71,14 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "Thao tác Mac Control",
+        "body": "Lệnh điều khiển macOS này thay đổi tiêu điểm/trạng thái màn hình. Hãy xác nhận trước khi Hope Agent kích hoạt ứng dụng khác."
+      },
+      "mac_control_dangerous_action": {
+        "title": "Tác vụ Mac Control nguy hiểm",
+        "body": "Lệnh điều khiển macOS này có thể đóng cửa sổ, thoát ứng dụng, xác nhận hộp thoại hoặc kích hoạt menu phá hủy. Cần xác nhận từng lần; không thể dùng Luôn cho phép."
       }
     },
     "title": "Command Approval Required",
@@ -3294,6 +3302,23 @@
     "permUnknown": "Xác minh thủ công",
     "permUnsupportedDesc": "This page currently supports the macOS desktop app only. Windows, Linux, and HTTP/server mode will get their own permissions implementation later.",
     "permUnsupportedTitle": "System permissions are macOS-only for now",
+    "macControl": {
+      "missingRequired": "Cần: {{items}}",
+      "messages": {
+        "blocked": "Điều khiển macOS cần quyền Trợ năng và Ghi màn hình.",
+        "limited": "Điều khiển macOS cốt lõi đã sẵn sàng; các quyền tùy chọn vẫn đang chờ.",
+        "ready": "Điều khiển macOS đã sẵn sàng.",
+        "unsupported": "Điều khiển macOS không khả dụng trong môi trường chạy này."
+      },
+      "optionalPending": "Tùy chọn đang chờ: {{items}}",
+      "readiness": {
+        "blocked": "Bị chặn",
+        "limited": "Lõi sẵn sàng",
+        "ready": "Sẵn sàng",
+        "unsupported": "Không hỗ trợ"
+      },
+      "title": "Điều khiển Mac"
+    },
     "permissionGroups": {
       "controlCapture": "Control & Capture",
       "deviceNetwork": "Devices & Network",

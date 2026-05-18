@@ -57,6 +57,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         crate::commands::update_bridge::register(app.handle().clone());
     }
 
+    crate::macos_control::register();
+
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]
     {

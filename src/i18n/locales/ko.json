@@ -71,6 +71,14 @@
       "smart_judge": {
         "body": "The Smart-mode judge model decided this call needs human confirmation.",
         "title": "Smart-mode judge"
+      },
+      "mac_control_action": {
+        "title": "Mac 제어 작업",
+        "body": "이 macOS 제어 호출은 데스크톱 포커스/상태를 변경합니다. Hope Agent가 다른 앱을 활성화하기 전에 확인해 주세요."
+      },
+      "mac_control_dangerous_action": {
+        "title": "위험한 Mac 제어 동작",
+        "body": "이 macOS 제어 호출은 창을 닫거나, 앱을 종료하거나, 대화상자를 확인하거나, 파괴적인 메뉴를 실행할 수 있습니다. 매번 확인이 필요하며 항상 허용은 사용할 수 없습니다."
       }
     },
     "title": "Command Approval Required",
@@ -3294,6 +3302,23 @@
     "permUnknown": "수동 확인",
     "permUnsupportedDesc": "This page currently supports the macOS desktop app only. Windows, Linux, and HTTP/server mode will get their own permissions implementation later.",
     "permUnsupportedTitle": "System permissions are macOS-only for now",
+    "macControl": {
+      "missingRequired": "필요: {{items}}",
+      "messages": {
+        "blocked": "macOS 제어에는 손쉬운 사용 및 화면 기록 권한이 필요합니다.",
+        "limited": "핵심 macOS 제어는 준비되었지만 선택 권한이 아직 대기 중입니다.",
+        "ready": "macOS 제어가 준비되었습니다.",
+        "unsupported": "현재 실행 환경에서는 macOS 제어를 사용할 수 없습니다."
+      },
+      "optionalPending": "선택 권한 대기 중: {{items}}",
+      "readiness": {
+        "blocked": "차단됨",
+        "limited": "핵심 준비됨",
+        "ready": "준비됨",
+        "unsupported": "지원 안 함"
+      },
+      "title": "Mac 제어"
+    },
     "permissionGroups": {
       "controlCapture": "Control & Capture",
       "deviceNetwork": "Devices & Network",

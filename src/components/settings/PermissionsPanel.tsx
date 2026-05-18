@@ -50,6 +50,8 @@ type PermissionStatus =
 
 type PermissionRequestMode = "native_prompt" | "open_settings" | "trigger_probe" | "none"
 
+type MacControlReadiness = "ready" | "limited" | "blocked" | "unsupported"
+
 type PermissionGroup =
   | "control_capture"
   | "file_access"
@@ -71,6 +73,18 @@ interface SystemPermissionsResponse {
   platform: string
   supported: boolean
   items: SystemPermissionItem[]
+}
+
+interface MacControlStatus {
+  platform: string
+  supported: boolean
+  desktop: boolean
+  bridgeRegistered: boolean
+  readiness: MacControlReadiness
+  coreReady: boolean
+  missingRequired: string[]
+  optionalPending: string[]
+  message: string
 }
 
 const GROUP_ORDER: PermissionGroup[] = [
@@ -160,6 +174,13 @@ const STATUS_FALLBACKS: Record<PermissionStatus, string> = {
   not_used: "Not used",
 }
 
+const MAC_READINESS_FALLBACKS: Record<MacControlReadiness, string> = {
+  ready: "Ready",
+  limited: "Core ready",
+  blocked: "Blocked",
+  unsupported: "Unsupported",
+}
+
 function stateBorder(state: PermissionStatus) {
   if (state === "granted") return "border-green-500/20 bg-green-500/5"
   if (state === "manual_check") return "border-sky-500/20 bg-sky-500/5"
@@ -178,6 +199,27 @@ function stateBadgeClass(state: PermissionStatus) {
   if (state === "granted") return "bg-green-500/15 text-green-600 dark:text-green-400"
   if (state === "manual_check") return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
   if (state === "not_applicable" || state === "not_used") return "bg-muted text-muted-foreground"
+  return "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+}
+
+function macReadinessBorder(readiness: MacControlReadiness) {
+  if (readiness === "ready") return "border-green-500/20 bg-green-500/5"
+  if (readiness === "limited") return "border-sky-500/20 bg-sky-500/5"
+  if (readiness === "unsupported") return "border-muted-foreground/15 bg-muted/20"
+  return "border-amber-500/20 bg-amber-500/5"
+}
+
+function macReadinessIconColor(readiness: MacControlReadiness) {
+  if (readiness === "ready") return "text-green-500"
+  if (readiness === "limited") return "text-sky-500"
+  if (readiness === "unsupported") return "text-muted-foreground"
+  return "text-amber-500"
+}
+
+function macReadinessBadgeClass(readiness: MacControlReadiness) {
+  if (readiness === "ready") return "bg-green-500/15 text-green-600 dark:text-green-400"
+  if (readiness === "limited") return "bg-sky-500/15 text-sky-600 dark:text-sky-400"
+  if (readiness === "unsupported") return "bg-muted text-muted-foreground"
   return "bg-amber-500/15 text-amber-600 dark:text-amber-400"
 }
 
@@ -232,6 +274,7 @@ function DisabledPermissionsPage() {
 export default function PermissionsPanel() {
   const { t } = useTranslation()
   const [response, setResponse] = useState<SystemPermissionsResponse | null>(null)
+  const [macStatus, setMacStatus] = useState<MacControlStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [requesting, setRequesting] = useState<string | null>(null)
 
@@ -243,11 +286,21 @@ export default function PermissionsPanel() {
 
     try {
       setLoading(true)
-      const result = await getTransport().call<SystemPermissionsResponse>("check_system_permissions")
-      setResponse(result)
+      const [permissionsResult, macStatusResult] = await Promise.all([
+        getTransport().call<SystemPermissionsResponse>("check_system_permissions"),
+        getTransport()
+          .call<MacControlStatus>("mac_control_status")
+          .catch((e) => {
+            logger.error("settings", "PermissionsPanel::fetch", "Failed to check mac control status", e)
+            return null
+          }),
+      ])
+      setResponse(permissionsResult)
+      setMacStatus(macStatusResult)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::fetch", "Failed to check permissions", e)
       setResponse({ platform: "unknown", supported: false, items: [] })
+      setMacStatus(null)
     } finally {
       setLoading(false)
     }
@@ -275,6 +328,13 @@ export default function PermissionsPanel() {
             }
           : prev,
       )
+      const nextMacStatus = await getTransport()
+        .call<MacControlStatus>("mac_control_status")
+        .catch((e) => {
+          logger.error("settings", "PermissionsPanel::request", "Failed to refresh mac control status", e)
+          return null
+        })
+      setMacStatus(nextMacStatus)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)
     } finally {
@@ -303,6 +363,9 @@ export default function PermissionsPanel() {
     inactive: items.filter((item) => item.status === "not_applicable" || item.status === "not_used").length,
   }
   const allClear = items.length > 0 && summary.needsAction === 0 && summary.manual === 0
+  const macMissing = macStatus?.missingRequired.map((id) => t(itemTextKey(id, "label"), fallbackLabel(id))) ?? []
+  const macOptional =
+    macStatus?.optionalPending.map((id) => t(itemTextKey(id, "label"), fallbackLabel(id))) ?? []
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -330,6 +393,58 @@ export default function PermissionsPanel() {
               inactive: summary.inactive,
             })}
       </p>
+
+      {macStatus && (
+        <div className={cn("mb-6 rounded-lg border px-4 py-4", macReadinessBorder(macStatus.readiness))}>
+          <div className="flex items-start gap-4">
+            <span className={cn("mt-0.5 shrink-0", macReadinessIconColor(macStatus.readiness))}>
+              <Monitor className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-foreground">
+                  {t("settings.macControl.title", "Mac Control")}
+                </span>
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                    macReadinessBadgeClass(macStatus.readiness),
+                  )}
+                >
+                  {t(
+                    `settings.macControl.readiness.${macStatus.readiness}`,
+                    MAC_READINESS_FALLBACKS[macStatus.readiness],
+                  )}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                {t(`settings.macControl.messages.${macStatus.readiness}`, macStatus.message)}
+              </p>
+              {macMissing.length > 0 && (
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                  {t("settings.macControl.missingRequired", {
+                    defaultValue: "Needs: {{items}}",
+                    items: macMissing.join(", "),
+                  })}
+                </p>
+              )}
+              {macMissing.length === 0 && macOptional.length > 0 && (
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                  {t("settings.macControl.optionalPending", {
+                    defaultValue: "Optional pending: {{items}}",
+                    items: macOptional.join(", "),
+                  })}
+                </p>
+              )}
+            </div>
+            {macStatus.coreReady ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+            ) : (
+              <ShieldAlert className="h-4 w-4 shrink-0 text-amber-500" />
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-6">
         {groups.map(({ group, items: groupItems }) => {

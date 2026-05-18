@@ -1,5 +1,6 @@
 // Hope Agent Core — zero Tauri dependency
 // All business logic lives here.
+#![recursion_limit = "256"]
 
 // ── Macros must come first ────────────────────────────────────────
 #[macro_use]
@@ -48,6 +49,7 @@ pub mod guardian;
 pub mod local_embedding;
 pub mod local_llm;
 pub mod local_model_jobs;
+pub mod mac_control;
 
 pub mod mcp;
 pub mod memory;

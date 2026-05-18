@@ -30,6 +30,7 @@
 | [提示词系统](architecture/prompt-system.md)         | System Prompt 多段组装、工具描述、行为指导                        | `system_prompt/`                               |
 | [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
 | [浏览器自动化](architecture/browser.md)            | 8-action 表面、CDP / chrome-devtools-mcp 双 backend、stale-ref 自恢复、BrowserPanel 实时镜像、SSRF 守卫 | `browser/`, `tools/browser/`, `browser_state.rs`, `components/chat/BrowserPanel.tsx` |
+| [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 自动化方案：ScreenCaptureKit + AX snapshot、8-action 工具表面、权限归属、审批与分阶段落地 | `mac_control/`, `tools/mac_control.rs`, `src-tauri/src/macos_control.rs` |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、后压缩文件恢复                     | `context_compact/`                             |
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
 | [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/文件/指令、Bound Channel + 5 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |

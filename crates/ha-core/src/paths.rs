@@ -118,6 +118,14 @@ pub fn attachments_dir(session_id: &str) -> Result<PathBuf> {
     Ok(root_dir()?.join("attachments").join(session_id))
 }
 
+// ── macOS Control ─────────────────────────────────────────────────
+
+/// macOS control snapshot image directory:
+/// ~/.hope-agent/mac-control/snapshots/
+pub fn mac_control_snapshots_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("mac-control").join("snapshots"))
+}
+
 // ── Avatars ──────────────────────────────────────────────────────
 
 /// Avatars directory: ~/.hope-agent/avatars/

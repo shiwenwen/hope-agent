@@ -117,6 +117,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         if let Some(reason) = check_dangerous_command(ctx) {
             return Decision::Ask { reason };
         }
+        if let Some(reason) = check_mac_control_action(ctx) {
+            return Decision::Ask { reason };
+        }
         if ctx.plan_mode_ask_tools.iter().any(|t| t == ctx.tool_name) {
             return Decision::Ask {
                 reason: AskReason::PlanModeAsk,
@@ -143,6 +146,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         if let Some(reason) = check_dangerous_command(ctx) {
             log_yolo_warn(ctx, &reason);
         }
+        if let Some(reason) = check_mac_control_action(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
         return Decision::Allow;
     }
 
@@ -150,6 +156,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         return Decision::Ask { reason };
     }
     if let Some(reason) = check_dangerous_command(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Some(reason) = check_mac_control_action(ctx) {
         return Decision::Ask { reason };
     }
 
@@ -433,6 +442,96 @@ fn check_edit_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     })
 }
 
+fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_MAC_CONTROL {
+        return None;
+    }
+    let action = ctx.args.get("action").and_then(|v| v.as_str())?;
+    let op = ctx.args.get("op").and_then(|v| v.as_str());
+    if let Some(label) = mac_control_dangerous_label(action, op, ctx.args) {
+        return Some(AskReason::MacControlDangerousAction {
+            action: label.to_string(),
+        });
+    }
+    let label = match (action, op) {
+        ("apps", Some("activate")) => "apps.activate",
+        ("apps", Some("launch")) => "apps.launch",
+        ("windows", Some("focus")) => "windows.focus",
+        ("windows", Some("move")) => "windows.move",
+        ("windows", Some("resize")) => "windows.resize",
+        ("windows", Some("minimize")) => "windows.minimize",
+        ("act", Some("click")) => "act.click",
+        ("act", Some("click_point")) => "act.click_point",
+        ("act", Some("double_click")) => "act.double_click",
+        ("act", Some("right_click")) => "act.right_click",
+        ("act", Some("type")) => "act.type",
+        ("act", Some("set_value")) => "act.set_value",
+        ("act", Some("hotkey")) => "act.hotkey",
+        ("act", Some("scroll")) => "act.scroll",
+        ("act", Some("drag")) => "act.drag",
+        ("act", None) => "act.click",
+        ("dialog", Some("dismiss")) => "dialog.dismiss",
+        ("menu", Some("click")) => "menu.click",
+        _ => return None,
+    };
+    Some(AskReason::MacControlAction {
+        action: label.to_string(),
+    })
+}
+
+fn mac_control_dangerous_label(
+    action: &str,
+    op: Option<&str>,
+    args: &Value,
+) -> Option<&'static str> {
+    match (action, op) {
+        ("apps", Some("quit")) => Some("apps.quit"),
+        ("windows", Some("close")) => Some("windows.close"),
+        ("dialog", Some("accept")) => Some("dialog.accept"),
+        ("menu", Some("click")) if mac_control_menu_path_is_dangerous(args) => {
+            Some("menu.click.dangerous")
+        }
+        _ => None,
+    }
+}
+
+fn mac_control_menu_path_is_dangerous(args: &Value) -> bool {
+    let Some(path) = args.get("path").and_then(|value| value.as_array()) else {
+        return false;
+    };
+    path.iter()
+        .filter_map(|value| value.as_str())
+        .any(mac_control_text_is_dangerous)
+}
+
+fn mac_control_text_is_dangerous(value: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    [
+        "delete",
+        "move to trash",
+        "empty trash",
+        "erase",
+        "reset",
+        "quit",
+        "force quit",
+        "remove",
+        "discard",
+        "don't save",
+        "dont save",
+        "删除",
+        "移到废纸篓",
+        "清倒废纸篓",
+        "抹掉",
+        "重置",
+        "退出",
+        "强制退出",
+        "移除",
+        "不保存",
+    ]
+    .iter()
+    .any(|pattern| value.contains(pattern))
+}
+
 fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
     use AskReason::*;
     let detail = match reason {
@@ -442,6 +541,10 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
         EditTool => "edit-class tool".to_string(),
         AgentCustomList => "agent custom approval".to_string(),
         SmartJudge { rationale } => format!("smart judge: {rationale}"),
+        MacControlAction { action } => format!("macOS control action '{action}'"),
+        MacControlDangerousAction { action } => {
+            format!("dangerous macOS control action '{action}'")
+        }
         PlanModeAsk => "plan-mode ask_tools".to_string(),
     };
     app_warn!(
@@ -667,6 +770,86 @@ mod tests {
                 reason: AskReason::AgentCustomList
             }
         ));
+    }
+
+    #[test]
+    fn mac_control_activate_asks_in_default() {
+        let args = json!({"action": "apps", "op": "activate", "appName": "Finder"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::MacControlAction { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn mac_control_readonly_apps_list_allows() {
+        let args = json!({"action": "apps", "op": "list"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn mac_control_phase3_mutations_ask_and_readonly_allows() {
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        for args in [
+            json!({"action": "apps", "op": "launch", "bundleId": "com.apple.TextEdit"}),
+            json!({"action": "windows", "op": "focus", "target": {"windowTitle": "Notes"}}),
+            json!({"action": "act", "op": "click", "target": {"text": "OK"}}),
+            json!({"action": "act", "op": "click_point", "x": 0, "y": 0}),
+            json!({"action": "act", "op": "double_click", "target": {"text": "Open"}}),
+            json!({"action": "act", "op": "right_click", "target": {"text": "Open"}}),
+            json!({"action": "act", "op": "drag", "target": {"text": "Open"}, "x": 200, "y": 200}),
+            json!({"action": "dialog", "op": "dismiss"}),
+            json!({"action": "menu", "op": "click", "path": ["File", "New"]}),
+        ] {
+            let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+            assert!(matches!(
+                resolve(&c),
+                Decision::Ask {
+                    reason: AskReason::MacControlAction { .. }
+                }
+            ));
+        }
+
+        for args in [
+            json!({"action": "windows", "op": "list"}),
+            json!({"action": "menu", "op": "list"}),
+            json!({"action": "dialog", "op": "inspect"}),
+        ] {
+            let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+            assert_eq!(resolve(&c), Decision::Allow);
+        }
+    }
+
+    #[test]
+    fn mac_control_dangerous_actions_are_strict() {
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        for args in [
+            json!({"action": "apps", "op": "quit", "bundleId": "com.apple.TextEdit"}),
+            json!({"action": "windows", "op": "close", "target": {"windowTitle": "Untitled"}}),
+            json!({"action": "dialog", "op": "accept"}),
+            json!({"action": "menu", "op": "click", "path": ["File", "Move to Trash"]}),
+        ] {
+            let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
+            assert!(matches!(
+                resolve(&c),
+                Decision::Ask {
+                    reason: AskReason::MacControlDangerousAction { .. }
+                }
+            ));
+            if let Decision::Ask { reason } = resolve(&c) {
+                assert!(reason.forbids_allow_always());
+            }
+        }
     }
 
     #[test]

@@ -410,6 +410,80 @@ mod tests {
     }
 
     #[test]
+    fn mac_control_schema_is_readonly_and_main_agent_default() {
+        let def = all_dispatchable_tools()
+            .iter()
+            .find(|def| def.name == crate::tools::TOOL_MAC_CONTROL)
+            .expect("mac_control tool is registered");
+        let ToolTier::Standard {
+            default_for_main,
+            default_for_others,
+            default_deferred,
+        } = &def.tier
+        else {
+            panic!("mac_control should be a Standard tool");
+        };
+        assert!(*default_for_main);
+        assert!(!*default_for_others);
+        assert!(*default_deferred);
+        assert!(!def.internal);
+        assert!(!def.concurrent_safe);
+        assert!(!def.async_capable);
+
+        let actions = def
+            .parameters
+            .pointer("/properties/action/enum")
+            .and_then(|v| v.as_array())
+            .expect("action enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actions,
+            vec![
+                "status",
+                "permissions",
+                "snapshot",
+                "wait",
+                "apps",
+                "windows",
+                "act",
+                "menu",
+                "dialog"
+            ]
+        );
+        let ops = def
+            .parameters
+            .pointer("/properties/op/enum")
+            .and_then(|v| v.as_array())
+            .expect("op enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert!(ops.contains(&"click"));
+        assert!(ops.contains(&"click_point"));
+        assert!(ops.contains(&"quit"));
+        assert!(ops.contains(&"close"));
+        assert!(ops.contains(&"double_click"));
+        assert!(ops.contains(&"right_click"));
+        assert!(ops.contains(&"type"));
+        assert!(ops.contains(&"drag"));
+        assert!(ops.contains(&"inspect"));
+        assert!(ops.contains(&"accept"));
+        assert!(ops.contains(&"dismiss"));
+
+        let f = Fixture::new();
+        assert_eq!(
+            resolve_tool_fate(def, &f.ctx(DEFAULT_AGENT_ID)),
+            ToolFate::InjectEager
+        );
+        assert_eq!(
+            resolve_tool_fate(def, &f.ctx("translator")),
+            ToolFate::Hidden
+        );
+    }
+
+    #[test]
     fn tier_standard_user_deny_hides() {
         let mut f = Fixture::new();
         f.filter.deny.push("browser".into());

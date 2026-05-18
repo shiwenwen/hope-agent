@@ -10,8 +10,8 @@ use super::project_read_file;
 use super::send_attachment;
 use super::skill;
 use super::{
-    acp_spawn, browser, cron, memory, notification, settings, subagent, team, weather, web_fetch,
-    web_search,
+    acp_spawn, browser, cron, mac_control, memory, notification, settings, subagent, team, weather,
+    web_fetch, web_search,
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
@@ -22,8 +22,8 @@ use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
     TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
-    TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
-    TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON,
+    TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
     TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
     TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
@@ -816,6 +816,7 @@ pub async fn execute_tool_with_context(
                 cron::tool_manage_cron(args, dispatch_ctx.session_id.as_deref()).await
             }
             TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx.session_id.as_deref()).await,
+            TOOL_MAC_CONTROL => mac_control::tool_mac_control(args).await,
             TOOL_SEND_NOTIFICATION => {
                 notification::tool_send_notification(args, dispatch_ctx).await
             }

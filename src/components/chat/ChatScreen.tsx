@@ -25,6 +25,7 @@ import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
 import BrowserPanel from "@/components/chat/BrowserPanel"
+import MacControlPanel from "@/components/chat/MacControlPanel"
 import { TeamPanel } from "@/components/team/TeamPanel"
 import TeamMiniIndicator from "@/components/team/TeamMiniIndicator"
 import { useActiveTeam } from "@/components/team/useTeam"
@@ -181,6 +182,7 @@ export default function ChatScreen({
   const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
   const [canvasPanelOpen, setCanvasPanelOpen] = useState(false)
   const [browserPanelWidth, setBrowserPanelWidth] = useState(480)
+  const [macControlPanelWidth, setMacControlPanelWidth] = useState(480)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
@@ -191,6 +193,8 @@ export default function ChatScreen({
   // tracks the dismissal until a session switch resets it.
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
+  const [showMacControlPanel, setShowMacControlPanel] = useState(false)
+  const macControlPanelDismissedRef = useRef(false)
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
@@ -1312,11 +1316,13 @@ export default function ChatScreen({
         ? "plan"
         : showBrowserPanel
           ? "browser"
-          : canvasPanelOpen
-            ? "canvas"
-            : activeTeamId && showTeamPanel
-              ? "team"
-              : null
+          : showMacControlPanel
+            ? "mac-control"
+            : canvasPanelOpen
+              ? "canvas"
+              : activeTeamId && showTeamPanel
+                ? "team"
+                : null
   const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
 
   useEffect(() => {
@@ -1326,14 +1332,14 @@ export default function ChatScreen({
     lastRightPanelKeyRef.current = rightPanelKey
   }, [rightPanelKey])
 
-  // Right-side panels (PlanPanel / CanvasPanel / DiffPanel / BrowserPanel)
-  // are mutually exclusive at the visual level — opening one closes the
-  // others but keeps their internal state so re-toggling restores the prior
-  // view.
+  // Right-side panels (Plan / Diff / Browser / Mac Control / Canvas) are
+  // mutually exclusive at the visual level — opening one closes the others
+  // but keeps their internal state so re-toggling restores the prior view.
   useEffect(() => {
     if (diffPanel.showPanel) {
       planMode.setShowPanel(false)
       setShowBrowserPanel(false)
+      setShowMacControlPanel(false)
     }
   }, [diffPanel.showPanel, planMode])
 
@@ -1341,6 +1347,7 @@ export default function ChatScreen({
     if (showBrowserPanel) {
       planMode.setShowPanel(false)
       diffPanel.closeDiff?.()
+      setShowMacControlPanel(false)
       // CanvasPanel owns its own `canvas` state — fire a window event so it
       // can clear itself. Keeps the mutex contract this whole effect block
       // is documenting.
@@ -1349,11 +1356,23 @@ export default function ChatScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showBrowserPanel])
 
-  // Reset the dismissal flag (and any open panel state) on session switch —
-  // each session gets a fresh chance to auto-open the BrowserPanel.
+  useEffect(() => {
+    if (showMacControlPanel) {
+      planMode.setShowPanel(false)
+      diffPanel.closeDiff?.()
+      setShowBrowserPanel(false)
+      window.dispatchEvent(new CustomEvent("hope-agent:close-canvas"))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMacControlPanel])
+
+  // Reset dismissal flags (and any open panel state) on session switch so each
+  // session gets a fresh chance to auto-open live mirror panels.
   useEffect(() => {
     browserPanelDismissedRef.current = false
+    macControlPanelDismissedRef.current = false
     setShowBrowserPanel(false)
+    setShowMacControlPanel(false)
   }, [session.currentSessionId])
 
   // Auto-open the BrowserPanel only on the first `browser:frame` of a session
@@ -1362,6 +1381,20 @@ export default function ChatScreen({
     const unlisten = getTransport().listen("browser:frame", () => {
       if (browserPanelDismissedRef.current) return
       setShowBrowserPanel((prev) => (prev ? prev : true))
+    })
+    return () => {
+      try {
+        unlisten?.()
+      } catch {
+        // ignore
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const unlisten = getTransport().listen("mac_control:frame", () => {
+      if (macControlPanelDismissedRef.current) return
+      setShowMacControlPanel((prev) => (prev ? prev : true))
     })
     return () => {
       try {
@@ -1760,6 +1793,20 @@ export default function ChatScreen({
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
+              }}
+            />
+          )}
+
+          {/* Mac Control live-mirror panel — open on first `mac_control:frame`
+              push. The panel remains read-only while `wait`/target matching
+              lands in Phase 2C. */}
+          {showMacControlPanel && (
+            <MacControlPanel
+              panelWidth={macControlPanelWidth}
+              onPanelWidthChange={setMacControlPanelWidth}
+              onClose={() => {
+                macControlPanelDismissedRef.current = true
+                setShowMacControlPanel(false)
               }}
             />
           )}

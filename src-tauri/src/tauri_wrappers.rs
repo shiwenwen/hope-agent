@@ -30,6 +30,30 @@ pub async fn request_system_permission(id: String) -> ha_core::permissions::Syst
     ha_core::permissions::request_system_permission(id).await
 }
 
+// ── macOS Control ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn mac_control_status() -> ha_core::mac_control::MacControlStatus {
+    ha_core::mac_control::status().await
+}
+
+#[tauri::command]
+pub async fn mac_control_permissions() -> ha_core::mac_control::MacControlPermissionsResponse {
+    ha_core::mac_control::permissions().await
+}
+
+#[tauri::command]
+pub async fn mac_control_snapshot(
+    options: Option<ha_core::mac_control::MacControlSnapshotRequest>,
+) -> ha_core::mac_control::MacControlSnapshotResponse {
+    ha_core::mac_control::snapshot(options.unwrap_or_default()).await
+}
+
+#[tauri::command]
+pub async fn mac_control_capture_frame() -> ha_core::mac_control::MacControlFrameResponse {
+    ha_core::mac_control::capture_frame().await
+}
+
 // ── Sandbox ──────────────────────────────────────────────────────
 
 #[tauri::command]
