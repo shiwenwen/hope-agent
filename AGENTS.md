@@ -115,7 +115,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **三 Crate 架构**：业务逻辑全进 `ha-core`（**零 Tauri 依赖**），`ha-server` 与 `src-tauri` 只做适配薄壳
 - **EventBus + CoreState**：核心层用 `ha-core::EventBus` 替代 Tauri `APP_HANDLE`；状态走 `CoreState`，Tauri 用 `State<AppState>`，server 用 axum `Extension`
 - **Transport 抽象**：前端走 [`src/lib/transport.ts`](src/lib/transport.ts)，**新 invoke 必须同时实现 Tauri + HTTP 两套适配**
-- **桌面 release 单一来源**：`package.json`，`pnpm version` 钩子（[`scripts/sync-version.mjs`](scripts/sync-version.mjs)）同步 `src-tauri/Cargo.toml` / `tauri.conf.json` / `crates/ha-server/Cargo.toml`（后者承载 Docker headless bin `hope-agent-server` 的 `CARGO_PKG_VERSION`，必须随桌面版本同步 —— `--version` 与 `app_update` `current_version` 都读它）；CI tag 构建前跑 `pnpm release:verify -- --tag vX.Y.Z` 校验全部上面四个来源 + `Cargo.lock` 一致。Updater 私钥严禁入仓
+- **桌面 release 单一来源**：`package.json`，`pnpm version` 钩子（[`scripts/sync-version.mjs`](scripts/sync-version.mjs)）同步 `src-tauri/Cargo.toml` / `tauri.conf.json` / `crates/ha-server/Cargo.toml` / `crates/ha-core/Cargo.toml`。`ha-server` 承载 Docker headless bin `hope-agent-server` 的 `CARGO_PKG_VERSION`，必须随桌面版本同步——`--version` 与 `app_update` `current_version` 都读它；`ha-core` 不发布也不是 user-facing binary，但作为 workspace 共享 crate 跟着 bump 让整个产品版本一致。CI tag 构建前跑 `pnpm release:verify -- --tag vX.Y.Z` 校验上面五个来源 + `Cargo.lock` 一致。Updater 私钥严禁入仓
 - **API Key 鉴权**：HTTP/WS 走 Bearer Token（[`ha-server/middleware.rs`](crates/ha-server/src/middleware.rs)），`/api/health` 免鉴权；浏览器 WS 用 `?token=` 兼容
 - **运行模式 getter**：`ha_core::runtime_role()` / `is_desktop()`，避免给共享函数加 mode 参数
 

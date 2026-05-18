@@ -5,7 +5,7 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-05-19
 
 ### Removed
 
@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **语音识别（STT）子系统**：新增独立的「语音识别」一级设置面板，覆盖云端 Provider（OpenAI Whisper / gpt-4o-transcribe、Groq、DashScope Qwen3-ASR、StepFun、SiliconFlow、Deepgram、AssemblyAI、Azure Speech、火山豆包 BigModel、讯飞 IAT）和 4 个本地 OpenAI 兼容后端（whisper.cpp / faster-whisper / FunASR / sherpa-onnx，一键探活 + 一键 upsert）。ChatInput 右下角麦克风按钮录音后自动转录塞入输入框；IM Channel 账号开 `autoTranscribeVoice` 后入站语音消息自动转录（12 语言本地化 `[语音转录]` 前缀，原音频附件保留）。macOS bundle 同 PR 加入 `NSMicrophoneUsageDescription` + `com.apple.security.device.audio-input`。`ha-settings` 技能登记 `stt_providers` / `active_stt_model` / `stt_fallback_models` 为只读 category（凭据 redact），`im_auto_transcribe` 为 medium 风险写入。详见 [`docs/architecture/stt.md`](docs/architecture/stt.md)。
+- **STT 全 provider 协议核验 + 录音 UX 打磨**：在 STT 子系统首版基础上把所有 streaming provider（OpenAI / Azure / Volcengine 豆包 BigModel / Xunfei 讯飞 IAT / Deepgram / AssemblyAI）按 vendor SDK 原文重新核验信令、握手与帧格式；新增 OpenAI 系 Chat Completions ASR 通用适配。ChatInput 录音 UX 整体重写：新增 RecordingBar / Waveform 实时波形 / PCM16 streamer，VoicePanel 配置表面整理 + provider preset 一键填，新增通用 SecretInput 组件；12 语言文案齐全。 (#227)
 - **Agent 编辑器：异步工具后台化策略三选**：`asyncToolPolicy` 字段（`model-decide` / `always-background` / `never-background`）此前只能手编 `agents/<id>/agent.json`，现在加到「能力」标签页的工具区，与 `maxToolRounds` / `sandbox` 同列。控制 async-capable 工具（`exec` / `web_search` / `image_generate`）何时 detach 到后台 —— 跟审批正交，不影响弹窗。12 语言齐全。
 - **IM 文本审批可用性增强（无按钮渠道：WeChat / Signal / iMessage / IRC / WhatsApp）**：审批回复 parsing 从「只接 `1`/`2`/`3`」扩到大小写无关 + 中英自然语言白名单（`yes` / `y` / `ok` / `allow` / `好` / `同意` / `允许` / `2` / `always` / `总是` / `永远` / `3` / `no` / `n` / `deny` / `拒绝` / `取消` 等）；审批 prompt 渲染 `#tag` 6 字符短前缀，多个 pending 时可用 `yes#abc123` 精准定位（不限于 LIFO 栈顶）；超时不再 IM 端静默 —— 走新的 `approval_timed_out` EventBus 事件给 chat 发一条「⏱ approval timed out」通知；pending 期间用户发非审批消息时 1 分钟节流提示一次「你有 N 个待审批，回 1/2/3 或 yes/no」，照常进入新 turn 不绑架用户。
 - **`hope-agent server` 新增 `--auto-approve-tools` flag / `HA_SERVER_AUTO_APPROVE_TOOLS=1` env**：headless 部署（CI / Docker / pipeline）下 HTTP 客户端通常不接审批 UI，所有工具调用会等满 5 分钟超时再被 deny。新开关让 HTTP 入口的 chat 全部按「自动批准工具」处理（permission engine 的 dangerous-commands / protected-paths / Plan Mode ask 仍执行），等同桌面 IM 渠道账号勾「auto-approve tools」。进程态、不持久化、启动 stderr 红字 banner 提醒。比 `--dangerously-skip-all-approvals` 更窄；常规 headless 推荐用这个。
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Agent 工具开关语义收敛**：`capabilities.tools.allow/deny` 现在只表示非 Core 内置工具的显式开 / 关覆盖；Core 工具始终可用，Standard / Configured 工具缺省走代码里的 tier 默认值，deferred 只决定已开启工具的 schema 加载方式。移除独立 `capabilityToggles` / `toolOverrides` 分支，OpenClaw 导入不再映射两边语义不同的工具权限；飞书业务工具仍默认关闭，需在 Agent 设置里显式开启，UI 列表补充中文语义化名称与说明。
 - **浏览器工具 27 → 8 action 收敛**：原来散乱的 `connect / launch / navigate / take_snapshot / click / fill / fill_form / hover / drag / press_key / upload_file / evaluate / wait_for / handle_dialog / resize / scroll / list_profiles / save_pdf` 等 27 个 action 全部下沉到 8 个高层 action（`status / profile / tabs / navigate / snapshot / act / observe / control`）。工具默认进 deferred 池（`tool_search` 按需暴露），常态不占 system prompt。配套新 [`ha-browser` bundled skill](skills/ha-browser/SKILL.md) 教模型标准 `status → tabs → snapshot → act` loop、stale-ref 自恢复、登录/2FA/captcha 阻塞情形清单。
+- **异步工具后台化语义硬化**：`run_in_background` / 新增的 `async_job_timeout_secs` 等 async-job 控制参数在进入工具实现前由外层框架统一 strip，工具自己不再看见；后台完成后注入的提示词从 `<tool-job-result>` 重命名为 `<task-notification>`（与磁盘溢出的 `output-file` 配对），并在文案里明确「`job_status` 只用于拿快照，不要再用来 block」。背景任务接入新的 cancel token + 5s cleanup grace，stop / 会话切换时能干净地停掉孤儿进程；`exec` 等长跑工具内部新增 `suppress_global_tool_timeout` / `suppress_result_disk_persistence` 旁路，避免外层超时与后台任务自身的 deadline 互相打架。 (#215)
 
 ### Added
 
@@ -45,8 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **浏览器 act.upload 路径安全闸门**：上传文件前 `canonicalize` 路径并按 `permission::protected_paths` 检查（默认覆盖 `~/.ssh/`、`~/.aws/`、`*.pem`、`*.key`、`*secret*` 等），拒绝 prompt injection 把本机敏感文件塞进网页 file input 的攻击面。
 - **浏览器 control.evaluate 走 ask_user_question 审批**：任意 JS 执行是浏览器工具最危险的出站口，每次调用前都弹模态确认（脚本预览 280 字），用户取消 = 工具失败；YOLO / `permission.global_yolo` 模式按用户已知风险跳过；非交互上下文（缺 session_id）默认 deny。SSRF 字面量 regex 仍保留为 best-effort 第一道闸门。
 - **官方 Docker 镜像 + docker-compose 部署**：新增多架构容器镜像 `ghcr.io/shiwenwen/hope-agent`（覆盖 `linux/amd64` / `linux/arm64`），随每次 Release Tag 自动构建发布；浏览器访问容器暴露端口即得完整 Web GUI 与桌面端等价。默认 loopback + 浏览器 token 输入对话框 + `?token=` URL 一次性 bootstrap；`app_update` 工具在容器内检测后引导 `docker pull` 升级而非 binary swap。 (#171)
+- **侧边栏 section 折叠状态持久化**：左侧栏「项目」/「Agent」/「会话」等分组的展开/折叠状态现在按 section 独立写入 `localStorage`，刷新或重启 App 后保留上次布局；通用 `SidebarSectionHeader` 抽出一份，复用同一交互与样式。 (#216)
 
 ### Fixed
+
+- **按下「停止」时真正取消 provider 等待**：以前 stop 按钮只在 streaming 帧之间起作用，如果正在等 Anthropic / OpenAI Chat / OpenAI Responses / Codex 的首个 byte（连接 + headers + 第一帧），stop 要等 provider 自然返回才生效，用户体验是「按了没反应」。本期 4 个 adapter 统一接入新的 `cancel` helper：`tokio::select!` 同时监听 `cancel_token` 与 reqwest 流，stop 命中立即 abort HTTP 连接、丢已缓冲字节，回到引擎走统一 turn 终止管线。 (#224)
+- **桌面端 markdown 路径链接稳健性 + 聊天流末尾不再被截**：(1) MarkdownRenderer 对绝对路径链接的判定收紧到 OS 真实根（macOS / Linux `/`，Windows 盘符），不再误把以 `/` 开头的相对 URL 当本地路径；点击走 `open_directory` 前在 Rust 侧用 `canonicalize` + 用户家目录范围校验，拒绝越界路径。(2) 修复流式输出底部 follow 的边界：MessageList 在用户已经滚到底时 delta 到达自动跟随到最后一行，途中用户主动上拉则不再被强行拽回底部，回到底再继续 auto-follow。 (#214)
 
 - **#218 / #219 / #220 post-merge `/simplify` + `/codex:review` 反馈整体修复**：(1) IM 审批 `TEXT_PENDING` 在 cancel-path / timeout-path 都通过新的 `drop_pending_by_request_id` helper 清理，修复长跑 IM 部署的 stale entry 泄漏；(2) 节流 map 换用 `TtlCache` 限容；(3) `id_tag` 改走 `truncate_utf8` 对齐红线；(4) `approval_timed_out` event payload 走 derived struct；(5) `parse_approval_reply` 用 `to_ascii_lowercase` + alias 表抽 const arrays（便于加日 / 韩 / 西等语言）；(6) `permission.imApprovalHintThrottleSecs` 暴露为 config（默认 60s）；(7) `#tag` 后缀拼错时不再 fall-through 走新 turn，而是消费消息 + 明确列出可用 tags（消除「你有 N 个 pending」+「当作新对话」的语义冲突）；(8) `hope-agent server` 启用 auto-approve 时在 `init_runtime` 后写一条 `app_warn!` 入 `logs.db`；banner 解析挪到 `server` 子命令分支内，`hope-agent --version` 不再因 env 启用而附带 banner；CLI helper rename `cli_flag_active` → `is_active`。(9) Agent 编辑器 `asyncToolPolicy` 三选 i18n 重构为嵌套对象结构（与 `permissionMode` / `asyncToolJobNames` 对齐），`AsyncToolPolicy` type 显式 export，多个 const 合并为单一数组。(10) `--auto-approve-tools` 的文档 / banner / help / `app_warn!` 全面修正：原本误称「engine gates（dangerous-commands / protected-paths）仍执行」，实际上 `ChatEngineParams.auto_approve_tools=true` 是「全自动放行」语义，与 IM 账户级 `auto_approve_tools=true` 等价 —— 危险命令也直接执行。现已明确标注「不要用于不可信租户」。(11) IM 文本审批超时通知按 `permission.approval_timeout_action` 渲染：`deny` 仍显示「tool call has been denied」，`proceed` 改为「tool call continued anyway — any side effects have already happened」，避免在 tool 实际执行后误告用户「已拒绝」。(12) IM 文本审批 prompt 不再写死「Reply within 5 min」，按 `permission.approval_timeout_secs` 渲染实际时限（300→「5 min」/ 120→「2 min」/ 90→「90s」/ 0→「no time limit」），跟用户的实际等待时间一致。
 - **修复异步后台化路径下 `exec` 工具静默跳过审批的安全 bug**：原先任何会进 auto-background 或 `run_in_background:true` 路径的 shell 命令都会完全绕过审批（含 `git push --force` / `rm -rf` 这类 dangerous-commands），本版起按权限模式正常审计。**操作影响**：之前依赖 IM 账号未勾「自动批准工具」也不弹审批的部署，从这版起每条 `exec` 都会按规则弹审批；想保持静默执行请显式勾选账号「自动批准工具」。
