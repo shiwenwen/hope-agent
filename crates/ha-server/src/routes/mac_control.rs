@@ -17,8 +17,10 @@ pub async fn status() -> Result<Json<ha_core::mac_control::MacControlStatus>, Ap
     )))
 }
 
-pub async fn permissions(
-) -> Result<Json<ha_core::mac_control::MacControlPermissionsResponse>, AppError> {
+pub async fn permissions() -> Result<
+    Json<ha_core::mac_control::MacControlPermissionsResponse>,
+    AppError,
+> {
     Ok(Json(
         ha_core::mac_control::unsupported_permissions_response(HTTP_UNSUPPORTED_MESSAGE),
     ))
@@ -31,9 +33,9 @@ pub struct SnapshotBody {
 }
 
 pub async fn snapshot(
-    Json(body): Json<SnapshotBody>,
+    body: Option<Json<SnapshotBody>>,
 ) -> Result<Json<ha_core::mac_control::MacControlSnapshotResponse>, AppError> {
-    let _requested = body.options.unwrap_or_default();
+    let _requested = body.and_then(|Json(body)| body.options).unwrap_or_default();
     Ok(Json(ha_core::mac_control::unsupported_snapshot_response(
         HTTP_UNSUPPORTED_MESSAGE,
     )))

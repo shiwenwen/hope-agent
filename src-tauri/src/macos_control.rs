@@ -757,7 +757,7 @@ mod imp {
                 )
             })?;
             let element =
-                resolve_element_by_id(&button.id, request.max_elements, request.max_depth)?;
+                resolve_element_by_summary(&button, request.max_elements, request.max_depth)?;
             press_dialog_button(element.as_ptr() as AXUIElementRef, &button)?;
             acted_button = Some(button);
             execution = Some("AXPressOrCGEvent".to_string());
@@ -1754,7 +1754,7 @@ mod imp {
             .max_by_key(|element| element_target_score(element, target))
             .cloned()
             .ok_or_else(|| "No AX element matched the act target.".to_string())?;
-        let element = resolve_element_by_id(&summary.id, max_elements, max_depth)?;
+        let element = resolve_element_by_summary(&summary, max_elements, max_depth)?;
         Ok((element, summary, snapshot))
     }
 
@@ -1778,7 +1778,7 @@ mod imp {
             .max_by_key(|element| type_target_score(element, target))
             .cloned()
             .ok_or_else(|| "No text input element matched the act.type target.".to_string())?;
-        let element = resolve_element_by_id(&summary.id, max_elements, max_depth)?;
+        let element = resolve_element_by_summary(&summary, max_elements, max_depth)?;
         Ok((element, summary, snapshot))
     }
 
@@ -1792,8 +1792,12 @@ mod imp {
         if !contains_ci(app.name.as_deref(), target.app_name.as_deref()) {
             return false;
         }
-        if target.bundle_id.is_some() && app.bundle_id.is_some() {
-            return contains_ci(app.bundle_id.as_deref(), target.bundle_id.as_deref());
+        if let Some(bundle_id) = target
+            .bundle_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            return contains_ci(app.bundle_id.as_deref(), Some(bundle_id));
         }
         true
     }
@@ -1802,8 +1806,12 @@ mod imp {
         if !contains_ci(app.name.as_deref(), target.app_name.as_deref()) {
             return false;
         }
-        if target.bundle_id.is_some() && app.bundle_id.is_some() {
-            return contains_ci(app.bundle_id.as_deref(), target.bundle_id.as_deref());
+        if let Some(bundle_id) = target
+            .bundle_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            return contains_ci(app.bundle_id.as_deref(), Some(bundle_id));
         }
         true
     }
@@ -1921,8 +1929,8 @@ mod imp {
             || role.contains("combobox")
     }
 
-    fn resolve_element_by_id(
-        element_id: &str,
+    fn resolve_element_by_summary(
+        expected: &MacControlElementSummary,
         max_elements: usize,
         max_depth: usize,
     ) -> Result<CfOwned, String> {
@@ -1937,71 +1945,109 @@ mod imp {
         if let Some(windows) = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows") {
             for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
                 let window_id = format!("win_{}", idx + 1);
-                if let Some(element) = find_element_by_generated_id(
+                if let Some(element) = find_element_by_generated_summary(
                     window_ref as AXUIElementRef,
                     0,
                     Some(&window_id),
                     &mut state,
-                    element_id,
-                ) {
+                    expected,
+                )? {
                     return Ok(element);
                 }
             }
         }
-        find_element_by_generated_id(
+        find_element_by_generated_summary(
             app.as_ptr() as AXUIElementRef,
             0,
             None,
             &mut state,
-            element_id,
+            expected,
         )
-        .ok_or_else(|| "Matched AX element became stale before action.".to_string())
+        .and_then(|element| {
+            element.ok_or_else(|| "Matched AX element became stale before action.".to_string())
+        })
     }
 
-    fn find_element_by_generated_id(
+    fn find_element_by_generated_summary(
         element: AXUIElementRef,
         depth: usize,
         window_id: Option<&str>,
         state: &mut CaptureState,
-        target_id: &str,
-    ) -> Option<CfOwned> {
+        expected: &MacControlElementSummary,
+    ) -> Result<Option<CfOwned>, String> {
         if state.elements.len() >= state.max_elements {
             state.truncated = true;
-            return None;
+            return Ok(None);
         }
         let summary = element_summary(element, window_id, state.next_element_id);
         if should_include_element(&summary) {
             state.next_element_id += 1;
             state.elements.push(summary.clone());
-            if summary.id == target_id {
+            if summary.id == expected.id {
+                ensure_element_fingerprint_matches(&summary, expected)?;
                 let retained = unsafe { CFRetain(element as CFTypeRef) };
-                return CfOwned::new(retained);
+                return Ok(CfOwned::new(retained));
             }
             if state.elements.len() >= state.max_elements {
                 state.truncated = true;
-                return None;
+                return Ok(None);
             }
         }
         if depth >= state.max_depth {
-            return None;
+            return Ok(None);
         }
         let children = copy_attribute(element, "AXChildren")
-            .or_else(|| copy_attribute(element, "AXVisibleChildren"))?;
+            .or_else(|| copy_attribute(element, "AXVisibleChildren"));
+        let Some(children) = children else {
+            return Ok(None);
+        };
         for child_ref in cf_array_values(children.as_ptr()) {
-            if let Some(found) = find_element_by_generated_id(
+            if let Some(found) = find_element_by_generated_summary(
                 child_ref as AXUIElementRef,
                 depth + 1,
                 window_id,
                 state,
-                target_id,
-            ) {
-                return Some(found);
+                expected,
+            )? {
+                return Ok(Some(found));
             }
             if state.truncated {
-                return None;
+                return Ok(None);
             }
         }
-        None
+        Ok(None)
+    }
+
+    fn ensure_element_fingerprint_matches(
+        actual: &MacControlElementSummary,
+        expected: &MacControlElementSummary,
+    ) -> Result<(), String> {
+        if actual.window_id != expected.window_id
+            || actual.role != expected.role
+            || actual.label != expected.label
+            || actual.value != expected.value
+            || !bounds_match(actual.bounds_points, expected.bounds_points)
+        {
+            return Err(
+                "Matched AX element id now points to different UI state; retry with a fresh snapshot."
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn bounds_match(actual: Option<MacControlBounds>, expected: Option<MacControlBounds>) -> bool {
+        match (actual, expected) {
+            (None, None) => true,
+            (Some(actual), Some(expected)) => {
+                let tolerance = 4.0;
+                (actual.x - expected.x).abs() <= tolerance
+                    && (actual.y - expected.y).abs() <= tolerance
+                    && (actual.width - expected.width).abs() <= tolerance
+                    && (actual.height - expected.height).abs() <= tolerance
+            }
+            _ => false,
+        }
     }
 
     fn element_matches_query(
