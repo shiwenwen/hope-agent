@@ -413,6 +413,10 @@ impl AssistantAgent {
             last_round_thinking = outcome.thinking.clone();
             total_usage.accumulate_round(&outcome.usage);
 
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
+
             if adapter.loop_should_exit(&outcome) {
                 natural_exit = true;
                 break;

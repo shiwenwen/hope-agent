@@ -11,7 +11,7 @@
 //! The SSE parser ([`parse_openai_sse`]) is shared with the Codex adapter
 //! since they speak the same protocol — only auth header and endpoint differ.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -601,11 +601,16 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
             http_req = http_req.header("Authorization", format!("Bearer {}", self.api_key));
         }
         let request_start = std::time::Instant::now();
-        let resp = http_req
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("OpenAI Responses API request failed: {}", e))?;
+        let resp = match super::cancel::send_with_cancel(http_req.json(&request), cancel).await {
+            Ok(Some(resp)) => resp,
+            Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "OpenAI Responses API request failed: {}",
+                    e
+                ))
+            }
+        };
 
         if let Some(logger) = crate::get_logger() {
             let status = resp.status().as_u16();
@@ -655,7 +660,11 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
+                Ok(Some(text)) => text,
+                Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                Err(_) => String::new(),
+            };
             if let Some(logger) = crate::get_logger() {
                 let error_preview = if error_text.len() > 500 {
                     format!("{}...", crate::truncate_utf8(&error_text, 500))
@@ -793,8 +802,6 @@ pub(in crate::agent) async fn parse_openai_sse(
     String,
     Option<u64>,
 )> {
-    use futures_util::StreamExt;
-
     let request_id = sse_request_id(&resp);
     let mut collected_text = String::new();
     let mut collected_thinking = String::new();
@@ -808,10 +815,7 @@ pub(in crate::agent) async fn parse_openai_sse(
     let mut buffer = String::new();
     let mut saw_stream_error = false;
 
-    while let Some(chunk) = stream.next().await {
-        if cancel.load(Ordering::SeqCst) {
-            break;
-        }
+    while let Some(chunk) = super::cancel::next_chunk_or_cancel_flag(&mut stream, cancel).await {
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(err) => {
@@ -885,7 +889,8 @@ pub(in crate::agent) async fn parse_openai_sse(
         }
     }
 
-    if !buffer.trim().is_empty() {
+    let cancelled = cancel.load(std::sync::atomic::Ordering::SeqCst);
+    if !cancelled && !buffer.trim().is_empty() {
         handle_openai_sse_event_block(
             &request_id,
             buffer.trim(),
@@ -901,8 +906,15 @@ pub(in crate::agent) async fn parse_openai_sse(
     }
 
     // Drain remaining pending calls.
-    let dropped_pending_calls =
-        finalize_pending_tool_calls(pending_calls, &mut tool_calls, saw_stream_error);
+    if cancelled {
+        pending_calls.clear();
+        tool_calls.clear();
+    }
+    let dropped_pending_calls = finalize_pending_tool_calls(
+        pending_calls,
+        &mut tool_calls,
+        saw_stream_error || cancelled,
+    );
     if dropped_pending_calls > 0 {
         if let Some(logger) = crate::get_logger() {
             logger.log(

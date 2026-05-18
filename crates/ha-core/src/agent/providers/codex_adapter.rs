@@ -183,10 +183,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 self.account_id,
                 codex_user_agent(),
             );
-            let response = builder.body(body_json.clone()).send().await;
+            let response =
+                super::cancel::send_with_cancel(builder.body(body_json.clone()), cancel).await;
 
             match response {
-                Ok(resp) => {
+                Ok(Some(resp)) => {
                     if resp.status().is_success() {
                         if let Some(logger) = crate::get_logger() {
                             let ttfb_ms = request_start.elapsed().as_millis() as u64;
@@ -222,7 +223,12 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                     }
 
                     let status = resp.status().as_u16();
-                    let error_text = resp.text().await.unwrap_or_default();
+                    let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await
+                    {
+                        Ok(Some(text)) => text,
+                        Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                        Err(_) => String::new(),
+                    };
 
                     if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
                         let delay = BASE_DELAY_MS * 2u64.pow(attempt);
@@ -241,7 +247,14 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                                 Some(json!({"status": status, "attempt": attempt + 1, "delay_ms": delay, "error": &error_text}).to_string()),
                                 None, None);
                         }
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        if super::cancel::sleep_or_cancel(
+                            std::time::Duration::from_millis(delay),
+                            cancel,
+                        )
+                        .await
+                        {
+                            return Ok(super::cancel::cancelled_round_outcome());
+                        }
                         last_error = Some(error_text);
                         continue;
                     }
@@ -268,6 +281,9 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                     let friendly = parse_error_response(status, &error_text);
                     return Err(anyhow::anyhow!("{}", friendly));
                 }
+                Ok(None) => {
+                    return Ok(super::cancel::cancelled_round_outcome());
+                }
                 Err(e) => {
                     if attempt < MAX_RETRIES {
                         let delay = BASE_DELAY_MS * 2u64.pow(attempt);
@@ -286,7 +302,14 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                                 Some(json!({"attempt": attempt + 1, "delay_ms": delay, "error": e.to_string()}).to_string()),
                                 None, None);
                         }
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        if super::cancel::sleep_or_cancel(
+                            std::time::Duration::from_millis(delay),
+                            cancel,
+                        )
+                        .await
+                        {
+                            return Ok(super::cancel::cancelled_round_outcome());
+                        }
                         last_error = Some(e.to_string());
                         continue;
                     }

@@ -7,7 +7,7 @@
 //! Phase 2 of the LLM call unification — the public tool loop lives in
 //! [`super::super::streaming_loop`]. See `docs/architecture/side-query.md`.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -170,15 +170,17 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
 
         // ── Send.
         let request_start = std::time::Instant::now();
-        let resp = client
+        let request = client
             .post(&api_url)
             .header("x-api-key", self.api_key)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
             .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Anthropic API request failed: {}", e))?;
+            .json(&body);
+        let resp = match super::cancel::send_with_cancel(request, cancel).await {
+            Ok(Some(resp)) => resp,
+            Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+            Err(e) => return Err(anyhow::anyhow!("Anthropic API request failed: {}", e)),
+        };
 
         // ── Log response status with rate-limit headers for debugging.
         if let Some(logger) = crate::get_logger() {
@@ -227,7 +229,11 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
+                Ok(Some(text)) => text,
+                Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                Err(_) => String::new(),
+            };
             if let Some(logger) = crate::get_logger() {
                 let error_preview = if error_text.len() > 500 {
                     format!("{}...", crate::truncate_utf8(&error_text, 500))
@@ -403,8 +409,6 @@ async fn parse_anthropic_sse(
     String,
     Option<u64>,
 )> {
-    use futures_util::StreamExt;
-
     let mut collected_text = String::new();
     let mut collected_thinking = String::new();
     let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
@@ -419,11 +423,7 @@ async fn parse_anthropic_sse(
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
 
-    while let Some(chunk) = stream.next().await {
-        if cancel.load(Ordering::SeqCst) {
-            stop_reason = Some("cancelled".to_string());
-            break;
-        }
+    while let Some(chunk) = super::cancel::next_chunk_or_cancel(&mut stream, cancel).await {
         let chunk = chunk?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -553,6 +553,12 @@ async fn parse_anthropic_sse(
                 }
             }
         }
+    }
+
+    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        stop_reason = Some("cancelled".to_string());
+        let _ = current_tool.take();
+        tool_calls.clear();
     }
 
     if let Some(logger) = crate::get_logger() {

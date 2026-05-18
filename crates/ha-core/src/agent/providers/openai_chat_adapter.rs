@@ -5,7 +5,7 @@
 //! `tool_calls[]` index accumulation + `<think>` tag filtering), and history
 //! persistence in Chat Completions' `tool_calls` + `role=tool` shape.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -372,7 +372,8 @@ async fn send_chat_request(
     api_key: &str,
     body: &Value,
     round: u32,
-) -> Result<reqwest::Response> {
+    cancel: &Arc<AtomicBool>,
+) -> Result<Option<reqwest::Response>> {
     let mut http_req = client
         .post(api_url)
         .header("Content-Type", "application/json");
@@ -380,13 +381,14 @@ async fn send_chat_request(
         http_req = http_req.header("Authorization", format!("Bearer {}", api_key));
     }
     let request_start = std::time::Instant::now();
-    let resp = http_req
-        .json(body)
-        .send()
+    let Some(resp) = super::cancel::send_with_cancel(http_req.json(body), cancel)
         .await
-        .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?
+    else {
+        return Ok(None);
+    };
     log_openai_chat_response(&resp, request_start, round);
-    Ok(resp)
+    Ok(Some(resp))
 }
 
 #[async_trait]
@@ -426,11 +428,19 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             &body,
         );
         let mut request_start = std::time::Instant::now();
-        let mut resp = send_chat_request(client, &api_url, self.api_key, &body, req.round).await?;
+        let Some(mut resp) =
+            send_chat_request(client, &api_url, self.api_key, &body, req.round, cancel).await?
+        else {
+            return Ok(super::cancel::cancelled_round_outcome());
+        };
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = match super::cancel::read_text_with_cancel(resp, cancel).await {
+                Ok(Some(text)) => text,
+                Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                Err(_) => String::new(),
+            };
             log_openai_chat_error(status, &error_text, req.round);
 
             if let Some(autofix) = maybe_auto_disable_thinking(
@@ -453,11 +463,27 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                     &retry_body,
                 );
                 request_start = std::time::Instant::now();
-                resp = send_chat_request(client, &api_url, self.api_key, &retry_body, req.round)
-                    .await?;
+                let Some(retry_resp) = send_chat_request(
+                    client,
+                    &api_url,
+                    self.api_key,
+                    &retry_body,
+                    req.round,
+                    cancel,
+                )
+                .await?
+                else {
+                    return Ok(super::cancel::cancelled_round_outcome());
+                };
+                resp = retry_resp;
                 if !resp.status().is_success() {
                     let retry_status = resp.status().as_u16();
-                    let retry_error = resp.text().await.unwrap_or_default();
+                    let retry_error = match super::cancel::read_text_with_cancel(resp, cancel).await
+                    {
+                        Ok(Some(text)) => text,
+                        Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                        Err(_) => String::new(),
+                    };
                     log_openai_chat_error(retry_status, &retry_error, req.round);
                     return Err(anyhow::anyhow!(
                         "OpenAI Chat API error ({}): {}",
@@ -492,11 +518,27 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                     &retry_body,
                 );
                 request_start = std::time::Instant::now();
-                resp = send_chat_request(client, &api_url, self.api_key, &retry_body, req.round)
-                    .await?;
+                let Some(retry_resp) = send_chat_request(
+                    client,
+                    &api_url,
+                    self.api_key,
+                    &retry_body,
+                    req.round,
+                    cancel,
+                )
+                .await?
+                else {
+                    return Ok(super::cancel::cancelled_round_outcome());
+                };
+                resp = retry_resp;
                 if !resp.status().is_success() {
                     let retry_status = resp.status().as_u16();
-                    let retry_error = resp.text().await.unwrap_or_default();
+                    let retry_error = match super::cancel::read_text_with_cancel(resp, cancel).await
+                    {
+                        Ok(Some(text)) => text,
+                        Ok(None) => return Ok(super::cancel::cancelled_round_outcome()),
+                        Err(_) => String::new(),
+                    };
                     log_openai_chat_error(retry_status, &retry_error, req.round);
                     return Err(anyhow::anyhow!(
                         "OpenAI Chat API error ({}): {}",
@@ -637,8 +679,6 @@ async fn parse_chat_completions_sse(
     String,
     Option<u64>,
 )> {
-    use futures_util::StreamExt;
-
     let mut collected_text = String::new();
     let mut collected_thinking = String::new();
     let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
@@ -651,10 +691,7 @@ async fn parse_chat_completions_sse(
     let mut stream = resp.bytes_stream();
     let mut buffer = String::new();
 
-    while let Some(chunk) = stream.next().await {
-        if cancel.load(Ordering::SeqCst) {
-            break;
-        }
+    while let Some(chunk) = super::cancel::next_chunk_or_cancel(&mut stream, cancel).await {
         let chunk = chunk?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -788,12 +825,17 @@ async fn parse_chat_completions_sse(
         }
     }
 
-    // Move pending calls to final list, ordered by index.
-    let mut sorted_keys: Vec<usize> = pending_calls.keys().cloned().collect();
-    sorted_keys.sort();
-    for key in sorted_keys {
-        if let Some(tc) = pending_calls.remove(&key) {
-            tool_calls.push(tc);
+    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        pending_calls.clear();
+        tool_calls.clear();
+    } else {
+        // Move pending calls to final list, ordered by index.
+        let mut sorted_keys: Vec<usize> = pending_calls.keys().cloned().collect();
+        sorted_keys.sort();
+        for key in sorted_keys {
+            if let Some(tc) = pending_calls.remove(&key) {
+                tool_calls.push(tc);
+            }
         }
     }
 
