@@ -4462,8 +4462,8 @@
       "subtitle": "إدخال صوتي للسطح المكتب + تفريغ تلقائي لقنوات الرسائل الفورية. أدر مزودي STT السحابيين والخوادم المحلية المتوافقة مع OpenAI.",
       "activeModel": "النموذج النشط",
       "activeModelLabel": "نموذج الإدخال الصوتي للسطح المكتب",
-      "batchOnlyHint": "تظهر هنا جميع المزودين المُفعَّلين. المزودون التدفقيون (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) يعرضون نسخًا جزئية أثناء التحدث.",
       "noModel": "غير مهيّأ",
+      "batchOnlyHint": "تظهر هنا جميع المزودين المُفعَّلين. المزودون التدفقيون (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) يعرضون نسخًا جزئية أثناء التحدث.",
       "imFallback": "نموذج تفريغ رسائل IM",
       "imFallbackHint": "يُستخدم بواسطة حسابات IM التي مكنت «تفريغ الرسائل الصوتية تلقائياً». عند غيابه يعود إلى نموذج سطح المكتب.",
       "imFallbackEmpty": "استخدم نموذج سطح المكتب النشط",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "اتركه فارغًا للاحتفاظ بالمفتاح الحالي",
       "enabled": "مفعّل",
       "allowPrivate": "السماح بالشبكة المحلية / loopback",
-      "allowPrivateHint": "ضروري للخوادم المحلية على 127.0.0.1 / LAN."
+      "allowPrivateHint": "ضروري للخوادم المحلية على 127.0.0.1 / LAN.",
+      "errProviderNameRequired": "اسم المزود مطلوب",
+      "errBaseUrlRequired": "حقل Base URL مطلوب",
+      "errBaseUrlMustBeWs": "هذا المزود يستخدم WebSocket — يجب أن يبدأ Base URL بـ ws:// أو wss://",
+      "errBaseUrlMustBeHttp": "هذا المزود يستخدم HTTP — يجب أن يبدأ Base URL بـ http:// أو https://",
+      "errApiKeyRequired": "مفتاح API مطلوب",
+      "errExtraFieldRequired": "الحقل المطلوب مفقود: {{field}}"
     }
   }
 }

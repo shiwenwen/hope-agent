@@ -4462,8 +4462,8 @@
       "subtitle": "Đầu vào giọng nói trên máy tính + tự động phiên âm kênh IM. Quản lý nhà cung cấp STT đám mây và backend tương thích OpenAI tự host.",
       "activeModel": "Mô hình đang hoạt động",
       "activeModelLabel": "Mô hình đầu vào giọng nói (máy tính)",
-      "batchOnlyHint": "Tất cả nhà cung cấp đã bật xuất hiện ở đây. Nhà cung cấp luồng (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) hiển thị bản phiên âm từng phần khi bạn nói.",
       "noModel": "Chưa cấu hình",
+      "batchOnlyHint": "Tất cả nhà cung cấp đã bật xuất hiện ở đây. Nhà cung cấp luồng (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) hiển thị bản phiên âm từng phần khi bạn nói.",
       "imFallback": "Mô hình phiên âm IM",
       "imFallbackHint": "Dùng cho tài khoản IM bật «Tự động phiên âm tin nhắn thoại». Nếu trống sẽ dùng mô hình máy tính.",
       "imFallbackEmpty": "Dùng mô hình máy tính đang hoạt động",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "Để trống để giữ khoá hiện tại",
       "enabled": "Bật",
       "allowPrivate": "Cho phép loopback / mạng riêng",
-      "allowPrivateHint": "Cần cho server tự host trên 127.0.0.1 / LAN."
+      "allowPrivateHint": "Cần cho server tự host trên 127.0.0.1 / LAN.",
+      "errProviderNameRequired": "Tên nhà cung cấp là bắt buộc",
+      "errBaseUrlRequired": "Base URL là bắt buộc",
+      "errBaseUrlMustBeWs": "Nhà cung cấp này dùng WebSocket — Base URL phải bắt đầu bằng ws:// hoặc wss://",
+      "errBaseUrlMustBeHttp": "Nhà cung cấp này dùng HTTP — Base URL phải bắt đầu bằng http:// hoặc https://",
+      "errApiKeyRequired": "API Key là bắt buộc",
+      "errExtraFieldRequired": "Thiếu trường bắt buộc: {{field}}"
     }
   }
 }

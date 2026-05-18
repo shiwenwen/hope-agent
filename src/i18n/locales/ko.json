@@ -4462,8 +4462,8 @@
       "subtitle": "데스크톱 음성 입력 + IM 채널 자동 전사. 클라우드 STT 공급자와 셀프 호스트 OpenAI 호환 백엔드 관리.",
       "activeModel": "활성 모델",
       "activeModelLabel": "데스크톱 음성 입력 모델",
-      "batchOnlyHint": "활성화된 모든 공급자가 여기에 표시됩니다. 스트리밍 공급자(Deepgram / AssemblyAI / Azure / Volcengine / iFlytek)는 말하는 동안 부분 전사를 표시합니다.",
       "noModel": "미설정",
+      "batchOnlyHint": "활성화된 모든 공급자가 여기에 표시됩니다. 스트리밍 공급자(Deepgram / AssemblyAI / Azure / Volcengine / iFlytek)는 말하는 동안 부분 전사를 표시합니다.",
       "imFallback": "IM 자동 전사 모델",
       "imFallbackHint": "「음성 메시지 자동 전사」가 켜진 IM 계정에서 사용. 미설정 시 데스크톱 모델로 폴백.",
       "imFallbackEmpty": "데스크톱 활성 모델 사용",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "비워두면 기존 키 유지",
       "enabled": "활성",
       "allowPrivate": "loopback / 사설 네트워크 허용",
-      "allowPrivateHint": "127.0.0.1 / LAN 셀프 호스트 서버에 필요."
+      "allowPrivateHint": "127.0.0.1 / LAN 셀프 호스트 서버에 필요.",
+      "errProviderNameRequired": "공급자 이름은 필수입니다",
+      "errBaseUrlRequired": "Base URL은 필수입니다",
+      "errBaseUrlMustBeWs": "이 공급자는 WebSocket을 사용합니다 — Base URL은 ws:// 또는 wss://로 시작해야 합니다",
+      "errBaseUrlMustBeHttp": "이 공급자는 HTTP를 사용합니다 — Base URL은 http:// 또는 https://로 시작해야 합니다",
+      "errApiKeyRequired": "API Key는 필수입니다",
+      "errExtraFieldRequired": "필수 항목이 누락되었습니다: {{field}}"
     }
   }
 }

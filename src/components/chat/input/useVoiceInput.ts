@@ -42,6 +42,8 @@ export interface UseVoiceInputResult {
   state: VoiceInputState
   durationMs: number
   audioLevel: number
+  /** Rolling RMS history for the waveform UI (48 bins, ~50 ms each). */
+  levels: number[]
   /** Live partial transcript while streaming. Empty in batch mode. */
   partialText: string
   /** Human-readable last error (already localized). `null` when idle / OK. */
@@ -108,6 +110,12 @@ export function useVoiceInput(): UseVoiceInputResult {
 
   const sessionIdRef = useRef<string | null>(null)
   const finalAccumulatorRef = useRef<string>("")
+  /** Chain head for serialised `stt_push_chunk` calls — Tauri / HTTP
+   * transports don't guarantee in-order delivery for concurrent
+   * invocations, so we await the previous push before sending the
+   * next. Audio frames mis-ordered server-side produce garbled
+   * partials and dropped tail audio. */
+  const pushChainRef = useRef<Promise<void>>(Promise.resolve())
   const sessionErrorRef = useRef<string | null>(null)
   const unsubsRef = useRef<Array<() => void>>([])
 
@@ -123,6 +131,7 @@ export function useVoiceInput(): UseVoiceInputResult {
     sessionIdRef.current = null
     finalAccumulatorRef.current = ""
     sessionErrorRef.current = null
+    pushChainRef.current = Promise.resolve()
     setPartialText("")
   }, [])
 
@@ -198,17 +207,20 @@ export function useVoiceInput(): UseVoiceInputResult {
           const id = sessionIdRef.current
           if (!id) return
           const base64 = pcm16ToBase64(chunk)
-          // Fire-and-forget — chunk volume is high (~10/s) and individual
-          // failures are surfaced via the EventBus session_error stream.
-          void getTransport()
-            .call("stt_push_chunk", { sessionId: id, base64 })
-            .catch((e) => {
+          // Serialise by chaining onto the previous push. Errors are
+          // logged but the chain continues so a single failure doesn't
+          // wedge subsequent frames.
+          pushChainRef.current = pushChainRef.current.then(async () => {
+            try {
+              await getTransport().call("stt_push_chunk", { sessionId: id, base64 })
+            } catch (e) {
               logger.warn(
                 "voice",
                 "useVoiceInput::streamer",
                 `push_chunk failed raw=${e instanceof Error ? e.message : String(e)}`,
               )
-            })
+            }
+          })
         })
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e)
@@ -268,6 +280,10 @@ export function useVoiceInput(): UseVoiceInputResult {
     setTranscribing(true)
     try {
       streamer.stop()
+      // Drain pending pushes before finalize so the tail audio frames
+      // actually land on the server side. Errors already swallowed
+      // inside the chain — settling is the only guarantee we need.
+      await pushChainRef.current
       const transcript = await getTransport().call<Transcript>(
         "stt_finalize_session",
         { sessionId },
@@ -439,11 +455,13 @@ export function useVoiceInput(): UseVoiceInputResult {
 
   const durationMs = mode === "streaming" ? streamer.durationMs : recorder.durationMs
   const audioLevel = mode === "streaming" ? streamer.audioLevel : recorder.audioLevel
+  const levels = mode === "streaming" ? streamer.levels : recorder.levels
 
   return {
     state,
     durationMs,
     audioLevel,
+    levels,
     partialText,
     errorMessage: errorMessage ?? surfacedErrorMessage,
     start,

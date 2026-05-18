@@ -49,8 +49,8 @@ pub struct ProviderBody {
 pub async fn add_stt_provider(
     Json(body): Json<ProviderBody>,
 ) -> Result<Json<SttProviderConfig>, AppError> {
-    let masked = stt::add_stt_provider(body.provider, "http").map_err(stt_write_error)?;
-    Ok(Json(masked))
+    let provider = stt::add_stt_provider(body.provider, "http").map_err(stt_write_error)?;
+    Ok(Json(provider.masked()))
 }
 
 /// `PUT /api/stt/providers/{providerId}` — body wrapped in `{ provider }`.

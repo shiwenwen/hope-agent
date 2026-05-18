@@ -21,6 +21,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { IconTip } from "@/components/ui/tooltip"
+import { SecretInput } from "@/components/ui/secret-input"
+import ProviderIcon from "@/components/common/ProviderIcon"
 
 function Card({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -110,33 +112,24 @@ interface KnownLocalSttBackend {
   installUrl: string
 }
 
-const KIND_OPTIONS: { value: SttProviderKind; label: string }[] = [
-  { value: "openai-transcriptions", label: "OpenAI Audio Transcriptions" },
-  { value: "openai-compatible", label: "OpenAI-compatible" },
-  {
-    value: "openai-chat-completions-asr",
-    label: "Chat Completions ASR (input_audio)",
-  },
-  { value: "deepgram-ws", label: "Deepgram (WS)" },
-  { value: "assemblyai-ws", label: "AssemblyAI (WS)" },
-  { value: "azure-ws", label: "Azure Speech (WS)" },
-  { value: "xunfei-ws", label: "iFlytek IAT (WS)" },
-  { value: "volcengine-ws", label: "Volcengine / Doubao (WS)" },
-]
+import { STT_PRESETS, findPreset, presetSlugFromProvider, type SttKindPreset } from "./presets"
 
-/// Per-kind default `baseUrl` so the user doesn't have to memorise each
-/// vendor's host. Empty string = no default (user must paste their own
-/// region/subdomain — e.g. Azure requires a region prefix).
-const KIND_DEFAULT_BASE_URL: Record<SttProviderKind, string> = {
-  "openai-transcriptions": "https://api.openai.com",
-  "openai-compatible": "",
-  "openai-chat-completions-asr": "",
-  "deepgram-ws": "wss://api.deepgram.com",
-  "assemblyai-ws": "wss://streaming.assemblyai.com",
-  "azure-ws": "",
-  "xunfei-ws": "wss://iat-api.xfyun.cn",
-  "volcengine-ws": "wss://openspeech.bytedance.com",
+/** Shared label markup for the API-type dropdown — same row appears in
+ * the SelectTrigger value and every SelectItem, so factor it out. */
+function renderPresetLabel(p: SttKindPreset | undefined, fallback: string) {
+  if (!p) return fallback
+  return (
+    <span className="flex items-center gap-2">
+      <ProviderIcon providerKey={p.iconKey} size={16} color className="shrink-0" />
+      <span className="truncate">
+        {p.chineseName ? `${p.chineseName} · ${p.brand}` : p.brand}
+        {p.protocol ? ` (${p.protocol})` : ""}
+      </span>
+    </span>
+  )
 }
+
+// Dead block — replaced by ./presets. Below kept until next edit removes it.
 
 interface ExtraField {
   key: string
@@ -180,6 +173,13 @@ const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
       required: true,
       hint: "讯飞控制台 → 我的应用 → 该应用的 APPID",
     },
+    {
+      key: "accent",
+      label: "Accent",
+      type: "text",
+      required: false,
+      hint: "口音：mandarin (普通话，默认) / 其它方言代码见讯飞文档",
+    },
   ],
   "volcengine-ws": [
     {
@@ -209,6 +209,7 @@ const KIND_API_KEY_HINT: Partial<Record<SttProviderKind, string>> = {
   "volcengine-ws": "Access Token —— 不是 Secret Key",
   "xunfei-ws": "APIKey",
 }
+
 
 const blankProvider = (): SttProviderConfig => ({
   id: "",
@@ -469,11 +470,16 @@ export default function VoicePanel() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">{t("voice.settings.imFallbackEmpty")}</SelectItem>
-                {allAvailable.map((m) => (
-                  <SelectItem key={`im-${m.providerId}::${m.modelId}`} value={`${m.providerId}::${m.modelId}`}>
-                    {m.label}
-                  </SelectItem>
-                ))}
+                {/* IM auto-transcription is a batch operation (one audio blob
+                    per message). Streaming-only providers reject this path
+                    server-side, so don't surface them in the picker. */}
+                {allAvailable
+                  .filter((m) => !m.streaming)
+                  .map((m) => (
+                    <SelectItem key={`im-${m.providerId}::${m.modelId}`} value={`${m.providerId}::${m.modelId}`}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
@@ -501,12 +507,22 @@ export default function VoicePanel() {
               {t("voice.settings.noProviders")}
             </p>
           )}
-          {providers.map((p) => (
+          {providers.map((p) => {
+            const preset = findPreset(presetSlugFromProvider(p.kind, p.baseUrl))
+            return (
             <div
               key={p.id}
               className="flex items-start justify-between gap-3 rounded-md border p-3"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex items-start gap-3">
+                <ProviderIcon
+                  providerKey={preset?.iconKey}
+                  providerName={preset?.brand ?? p.name}
+                  size={24}
+                  color
+                  className="shrink-0 mt-0.5"
+                />
+                <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm truncate">{p.name}</span>
                   <Badge variant="outline" className="text-[10px]">
@@ -524,6 +540,7 @@ export default function VoicePanel() {
                     {p.models.map((m) => m.id).join(" · ")}
                   </p>
                 )}
+                </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button size="sm" variant="ghost" onClick={() => setDialogProvider(p)}>
@@ -542,7 +559,8 @@ export default function VoicePanel() {
                 </IconTip>
               </div>
             </div>
-          ))}
+            )
+          })}
         </CardContent>
       </Card>
 
@@ -632,7 +650,10 @@ function ProviderDialog({
   const isNew = !provider.id
 
   const [name, setName] = useState(provider.name)
-  const [kind, setKind] = useState<SttProviderKind>(provider.kind)
+  const [presetSlug, setPresetSlug] = useState<string>(() =>
+    presetSlugFromProvider(provider.kind, provider.baseUrl),
+  )
+  const kind: SttProviderKind = findPreset(presetSlug)?.kind ?? provider.kind
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const [apiKey, setApiKey] = useState(provider.apiKey ?? "")
   const [enabled, setEnabled] = useState(provider.enabled)
@@ -640,38 +661,112 @@ function ProviderDialog({
   const [extraValues, setExtraValues] = useState<Record<string, string>>(
     () => ({ ...(provider.extra ?? {}) }),
   )
-  const [models, setModels] = useState<SttModelConfig[]>(() =>
-    provider.models.map((m) => ({ ...m })),
-  )
+  const [models, setModels] = useState<SttModelConfig[]>(() => {
+    // For brand-new providers whose preset has seed models (iFlytek,
+    // Volcengine, DashScope), seed the list so the activation flow has
+    // something to pick. Existing providers keep their saved models.
+    if (!provider.id && provider.models.length === 0) {
+      const preset = findPreset(presetSlugFromProvider(provider.kind, provider.baseUrl))
+      if (preset && preset.defaultModels.length > 0) {
+        return preset.defaultModels.map((p) => ({ ...p }))
+      }
+    }
+    return provider.models.map((m) => ({ ...m }))
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const extraSchema = useMemo(() => KIND_EXTRA_SCHEMA[kind] ?? [], [kind])
 
-  const onKindChange = useCallback(
-    (next: SttProviderKind) => {
-      setKind(next)
-      // Prefill the default baseUrl on kind switch when the user hasn't
-      // started typing one (or is on the previous kind's default).
-      const currentDefault = KIND_DEFAULT_BASE_URL[kind] ?? ""
-      const nextDefault = KIND_DEFAULT_BASE_URL[next] ?? ""
-      if (!baseUrl.trim() || baseUrl.trim() === currentDefault) {
-        setBaseUrl(nextDefault)
+  const onPresetChange = useCallback(
+    (nextSlug: string) => {
+      const next = findPreset(nextSlug)
+      const prev = findPreset(presetSlug)
+      if (!next) return
+      setPresetSlug(nextSlug)
+      // Prefill the default baseUrl on preset switch when the user
+      // hasn't customised one (or is still on the previous default).
+      const prevDefault = prev?.defaultBaseUrl ?? ""
+      if (!baseUrl.trim() || baseUrl.trim() === prevDefault) {
+        setBaseUrl(next.defaultBaseUrl)
       }
+      // Models that are still the previous preset's defaults are leftover
+      // UI noise — swap them for the new preset's defaults so users
+      // don't see a wrong-vendor list of seeded entries. Models the user
+      // typed or edited (not matching the previous defaults) survive.
+      setModels((current) => {
+        const prevDefaults = prev?.defaultModels ?? []
+        const isResidual =
+          prevDefaults.length > 0 &&
+          current.length === prevDefaults.length &&
+          current.every(
+            (m, i) =>
+              m.id === prevDefaults[i].id && (m.name || m.id) === prevDefaults[i].name,
+          )
+        if (isResidual) {
+          return next.defaultModels.map((p) => ({ ...p }))
+        }
+        if (current.length === 0 && next.defaultModels.length > 0) {
+          return next.defaultModels.map((p) => ({ ...p }))
+        }
+        return current
+      })
     },
-    [baseUrl, kind],
+    [baseUrl, presetSlug],
   )
 
   const save = useCallback(async () => {
     setSaving(true)
     setError(null)
     try {
-      // Validate required `extra` fields before sending so the user sees
-      // the missing-credential message in the dialog instead of a
-      // cryptic backend error on first stream attempt.
+      // Provider name is the only cross-vendor required field on the
+      // top-level form — without it the row in the list looks empty.
+      if (!name.trim()) {
+        setError(t("voice.settings.errProviderNameRequired"))
+        setSaving(false)
+        return
+      }
+      // Mismatched schemes silently fail at connect time, so block them
+      // up front. Transport + requirements come from the preset registry.
+      const preset = findPreset(presetSlug)
+      const trimmedBase = baseUrl.trim()
+      if (trimmedBase) {
+        const lower = trimmedBase.toLowerCase()
+        if (preset?.transport === "ws") {
+          if (!lower.startsWith("ws://") && !lower.startsWith("wss://")) {
+            setError(t("voice.settings.errBaseUrlMustBeWs"))
+            setSaving(false)
+            return
+          }
+        } else if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+          setError(t("voice.settings.errBaseUrlMustBeHttp"))
+          setSaving(false)
+          return
+        }
+      } else if (preset?.requiresBaseUrl) {
+        setError(t("voice.settings.errBaseUrlRequired"))
+        setSaving(false)
+        return
+      }
+      // Local OpenAI-compatible servers bound to private networks may
+      // legitimately have no API key. When editing an existing provider,
+      // an empty input means "keep the stored key" (the backend merge
+      // logic preserves redacted ones).
+      const apiKeyTrim = apiKey.trim()
+      const requiresApiKey = !(kind === "openai-compatible" && allowPrivate)
+      if (isNew && requiresApiKey && !apiKeyTrim) {
+        setError(t("voice.settings.errApiKeyRequired"))
+        setSaving(false)
+        return
+      }
+      // Required `extra` fields per kind — surface vendor-specific
+      // missing credentials in the dialog rather than a cryptic backend
+      // error on first stream attempt.
       for (const field of extraSchema) {
         if (field.required && !extraValues[field.key]?.trim()) {
-          setError(`Missing required field: ${field.label}`)
+          setError(
+            t("voice.settings.errExtraFieldRequired", { field: field.label }),
+          )
           setSaving(false)
           return
         }
@@ -725,7 +820,9 @@ function ProviderDialog({
     models,
     name,
     onSaved,
+    presetSlug,
     provider,
+    t,
   ])
 
   return (
@@ -743,14 +840,14 @@ function ProviderDialog({
           </div>
           <div className="space-y-1.5">
             <Label>{t("voice.settings.providerKind")}</Label>
-            <Select value={kind} onValueChange={(v) => onKindChange(v as SttProviderKind)}>
+            <Select value={presetSlug} onValueChange={onPresetChange}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue>{renderPresetLabel(findPreset(presetSlug), presetSlug)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {KIND_OPTIONS.map((k) => (
-                  <SelectItem key={k.value} value={k.value}>
-                    {k.label}
+                {STT_PRESETS.map((p) => (
+                  <SelectItem key={p.slug} value={p.slug}>
+                    {renderPresetLabel(p, p.slug)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -769,10 +866,9 @@ function ProviderDialog({
                 </span>
               )}
             </Label>
-            <Input
-              type="password"
+            <SecretInput
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={setApiKey}
               placeholder={isNew ? "" : t("voice.settings.apiKeyMasked")}
             />
           </div>
@@ -782,13 +878,22 @@ function ProviderDialog({
                 {field.label}
                 {field.required && <span className="text-destructive ml-0.5">*</span>}
               </Label>
-              <Input
-                type={field.type === "password" ? "password" : "text"}
-                value={extraValues[field.key] ?? ""}
-                onChange={(e) =>
-                  setExtraValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                }
-              />
+              {field.type === "password" ? (
+                <SecretInput
+                  value={extraValues[field.key] ?? ""}
+                  onChange={(next) =>
+                    setExtraValues((prev) => ({ ...prev, [field.key]: next }))
+                  }
+                />
+              ) : (
+                <Input
+                  type="text"
+                  value={extraValues[field.key] ?? ""}
+                  onChange={(e) =>
+                    setExtraValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                  }
+                />
+              )}
               {field.hint && (
                 <p className="text-xs text-muted-foreground">{field.hint}</p>
               )}

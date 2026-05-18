@@ -4462,8 +4462,8 @@
       "subtitle": "Entrada de voz no desktop + transcrição automática em canais IM. Gerencie provedores STT em nuvem e backends OpenAI-compatíveis auto-hospedados.",
       "activeModel": "Modelo ativo",
       "activeModelLabel": "Modelo de entrada de voz (desktop)",
-      "batchOnlyHint": "Todos os provedores habilitados aparecem aqui. Provedores de streaming (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) mostram transcrições parciais enquanto você fala.",
       "noModel": "Não configurado",
+      "batchOnlyHint": "Todos os provedores habilitados aparecem aqui. Provedores de streaming (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) mostram transcrições parciais enquanto você fala.",
       "imFallback": "Modelo de transcrição IM",
       "imFallbackHint": "Usado por contas IM com «Transcrever mensagens de voz automaticamente» ligado. Sem valor, usa o modelo do desktop.",
       "imFallbackEmpty": "Usar modelo ativo do desktop",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "Vazio para manter a chave existente",
       "enabled": "Habilitado",
       "allowPrivate": "Permitir loopback / rede privada",
-      "allowPrivateHint": "Necessário para servidores locais em 127.0.0.1 / LAN."
+      "allowPrivateHint": "Necessário para servidores locais em 127.0.0.1 / LAN.",
+      "errProviderNameRequired": "O nome do provedor é obrigatório",
+      "errBaseUrlRequired": "A Base URL é obrigatória",
+      "errBaseUrlMustBeWs": "Este provedor usa WebSocket — a Base URL deve começar com ws:// ou wss://",
+      "errBaseUrlMustBeHttp": "Este provedor usa HTTP — a Base URL deve começar com http:// ou https://",
+      "errApiKeyRequired": "A API Key é obrigatória",
+      "errExtraFieldRequired": "Campo obrigatório ausente: {{field}}"
     }
   }
 }

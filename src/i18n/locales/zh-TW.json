@@ -4462,8 +4462,8 @@
       "subtitle": "桌面語音輸入與 IM 頻道自動轉錄。管理雲端 STT 服務商與本地 OpenAI 相容後端。",
       "activeModel": "預設模型",
       "activeModelLabel": "桌面語音輸入模型",
-      "batchOnlyHint": "已啟用的服務商都會出現在這裡。流式服務商（Deepgram / AssemblyAI / Azure / 火山豆包 / 訊飛）會在你說話時即時顯示中間識別文字。",
       "noModel": "未設定",
+      "batchOnlyHint": "已啟用的服務商都會出現在這裡。流式服務商（Deepgram / AssemblyAI / Azure / 火山豆包 / 訊飛）會在你說話時即時顯示中間識別文字。",
       "imFallback": "IM 自動轉錄模型",
       "imFallbackHint": "用於開啟「自動轉錄語音訊息」的 IM 帳號;未設定時回退到桌面預設模型。",
       "imFallbackEmpty": "使用桌面預設模型",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "留空以保留原 key",
       "enabled": "啟用",
       "allowPrivate": "允許 loopback / 內網",
-      "allowPrivateHint": "本地 127.0.0.1 / 區網後端必須開啟。"
+      "allowPrivateHint": "本地 127.0.0.1 / 區網後端必須開啟。",
+      "errProviderNameRequired": "請填寫服務商名稱",
+      "errBaseUrlRequired": "請填寫 Base URL",
+      "errBaseUrlMustBeWs": "該服務商是 WebSocket 協定，Base URL 必須以 ws:// 或 wss:// 開頭",
+      "errBaseUrlMustBeHttp": "該服務商是 HTTP 協定，Base URL 必須以 http:// 或 https:// 開頭",
+      "errApiKeyRequired": "請填寫 API Key",
+      "errExtraFieldRequired": "請填寫必填欄位：{{field}}"
     }
   }
 }

@@ -22,8 +22,11 @@ import {
   Vllm,
   LmStudio,
   Codex,
+  AssemblyAI,
+  Azure,
+  IFlyTekCloud,
 } from "@lobehub/icons"
-import { Settings2 } from "lucide-react"
+import { Mic, Settings2 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -66,6 +69,17 @@ const ICON_MAP: Record<string, IconEntry> = {
   vllm: { mono: Vllm, color: Vllm.Color },
   "lm-studio": { mono: LmStudio, colorPrimary: "#4338CA" },
   codex: { mono: Codex, color: Codex.Color },
+  // ── STT (voice input) providers ───────────────────────────────────
+  assemblyai: { mono: AssemblyAI, color: AssemblyAI.Color },
+  azure: { mono: Azure, color: Azure.Color },
+  iflytek: { mono: IFlyTekCloud, color: IFlyTekCloud.Color },
+  /** LobeHub doesn't ship a Deepgram brand mark; use a generic mic. */
+  deepgram: { mono: Mic, colorPrimary: "#13EF93" },
+  /** Alias for the OpenAI ASR endpoints. */
+  "openai-whisper": { mono: OpenAI },
+  /** DashScope (Bailian) is Alibaba Cloud's model gateway — Qwen mark
+   * is the appropriate brand since Qwen3-ASR is the actual model. */
+  dashscope: { mono: Qwen, color: Qwen.Color },
 }
 
 // ── Name → Key 模糊匹配（用于已持久化的 Provider） ────────────────

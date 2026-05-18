@@ -4462,8 +4462,8 @@
       "subtitle": "Entrada de voz en escritorio + transcripción automática en canales IM. Gestiona proveedores STT en la nube y backends OpenAI-compatibles autohospedados.",
       "activeModel": "Modelo activo",
       "activeModelLabel": "Modelo de entrada de voz (escritorio)",
-      "batchOnlyHint": "Aquí aparecen todos los proveedores habilitados. Los proveedores de streaming (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) muestran transcripciones parciales mientras hablas.",
       "noModel": "Sin configurar",
+      "batchOnlyHint": "Aquí aparecen todos los proveedores habilitados. Los proveedores de streaming (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) muestran transcripciones parciales mientras hablas.",
       "imFallback": "Modelo de transcripción IM",
       "imFallbackHint": "Usado por cuentas IM con «Transcribir mensajes de voz automáticamente» activado. Si está vacío, usa el modelo de escritorio.",
       "imFallbackEmpty": "Usar modelo activo de escritorio",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "Vacío para conservar la clave existente",
       "enabled": "Habilitado",
       "allowPrivate": "Permitir loopback / red privada",
-      "allowPrivateHint": "Necesario para servidores locales en 127.0.0.1 / LAN."
+      "allowPrivateHint": "Necesario para servidores locales en 127.0.0.1 / LAN.",
+      "errProviderNameRequired": "El nombre del proveedor es obligatorio",
+      "errBaseUrlRequired": "La Base URL es obligatoria",
+      "errBaseUrlMustBeWs": "Este proveedor usa WebSocket — la Base URL debe empezar por ws:// o wss://",
+      "errBaseUrlMustBeHttp": "Este proveedor usa HTTP — la Base URL debe empezar por http:// o https://",
+      "errApiKeyRequired": "La API Key es obligatoria",
+      "errExtraFieldRequired": "Falta un campo obligatorio: {{field}}"
     }
   }
 }

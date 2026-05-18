@@ -45,8 +45,7 @@ use crate::provider::{apply_proxy, AuthProfile};
 
 use crate::stt::errors::{SttError, SttResult};
 use crate::stt::types::{
-    AudioPayload, SttModelConfig, SttProviderConfig, SttProviderKind, Transcript,
-    TranscriptOptions,
+    AudioPayload, SttModelConfig, SttProviderConfig, SttProviderKind, Transcript, TranscriptOptions,
 };
 
 use super::{classify_http_status, classify_reqwest_error, load_batch_audio};
@@ -305,9 +304,8 @@ mod tests {
             "https://dashscope.aliyuncs.com/compatible-mode",
         );
         let model = SttModelConfig::new("qwen3-asr-flash", "Qwen3-ASR Flash");
-        let err = parse_chat_completions_transcript(&provider, &model, r#"{"choices":[]}"#)
-            .unwrap_err();
+        let err =
+            parse_chat_completions_transcript(&provider, &model, r#"{"choices":[]}"#).unwrap_err();
         assert_eq!(err.code(), "other");
     }
-
 }

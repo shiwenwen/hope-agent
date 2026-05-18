@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { useAnalyserLevels } from "./useAnalyserLevels"
+
 /**
  * Streaming audio capture hook for the STT WS providers.
  *
@@ -27,6 +29,9 @@ export interface UsePcm16StreamerResult {
   state: Pcm16StreamerState
   durationMs: number
   audioLevel: number
+  /** Rolling RMS history (48 bins, ~50 ms each) for the waveform UI.
+   * Oldest first; newest at the end. Zero-padded when not streaming. */
+  levels: number[]
   error: Error | null
   /** Begin streaming. `onChunk` receives each 100 ms PCM16 frame. */
   start: (onChunk: (chunk: Int16Array) => void) => Promise<void>
@@ -35,6 +40,7 @@ export interface UsePcm16StreamerResult {
   /** Same as `stop` but signals "discard the session" semantically. */
   cancel: () => void
 }
+
 
 // 16 kHz target rate / 1600 sample-per-frame contract is hard-coded into
 // the worklet processor (sample rates are immutable once the AudioContext
@@ -81,7 +87,6 @@ registerProcessor("pcm16-downsampler", Pcm16Downsampler)
 export function usePcm16Streamer(): UsePcm16StreamerResult {
   const [state, setState] = useState<Pcm16StreamerState>("idle")
   const [durationMs, setDurationMs] = useState(0)
-  const [audioLevel, setAudioLevel] = useState(0)
   const [error, setError] = useState<Error | null>(null)
 
   const streamRef = useRef<MediaStream | null>(null)
@@ -89,17 +94,16 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const workletRef = useRef<AudioWorkletNode | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const rafRef = useRef<number | null>(null)
+  const { audioLevel, levels, start: startLevels, stop: stopLevels } =
+    useAnalyserLevels(analyserRef)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startedAtRef = useRef<number>(0)
-  const lastEmittedLevelRef = useRef<number>(0)
   const workletBlobUrlRef = useRef<string | null>(null)
 
   const cleanup = useCallback(() => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-    rafRef.current = null
     if (intervalRef.current !== null) clearInterval(intervalRef.current)
     intervalRef.current = null
+    stopLevels()
     try {
       workletRef.current?.disconnect()
       workletRef.current?.port.close()
@@ -129,30 +133,7 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
       URL.revokeObjectURL(workletBlobUrlRef.current)
       workletBlobUrlRef.current = null
     }
-    setAudioLevel(0)
-  }, [])
-
-  const startLevelLoop = useCallback(() => {
-    const loop = () => {
-      const analyser = analyserRef.current
-      if (!analyser) return
-      const buf = new Uint8Array(analyser.frequencyBinCount)
-      analyser.getByteTimeDomainData(buf)
-      let sum = 0
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128
-        sum += v * v
-      }
-      const rms = Math.sqrt(sum / buf.length)
-      const next = Math.min(1, rms * 2.5)
-      if (Math.abs(next - lastEmittedLevelRef.current) >= 0.02) {
-        lastEmittedLevelRef.current = next
-        setAudioLevel(next)
-      }
-      rafRef.current = requestAnimationFrame(loop)
-    }
-    loop()
-  }, [])
+  }, [stopLevels])
 
   const start = useCallback(
     async (onChunk: (chunk: Int16Array) => void) => {
@@ -208,18 +189,17 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
           const elapsed = Date.now() - startedAtRef.current
           setDurationMs(elapsed)
           if (elapsed >= MAX_RECORD_MS) {
-            // Safety watchdog mirrors useAudioRecorder.
-            try {
-              workletRef.current?.disconnect()
-            } catch {
-              // ignore
-            }
-            // Caller can observe via durationMs/state but we don't auto-stop
-            // here — the worklet stops emitting once disconnected; downstream
-            // session cleanup is the caller's responsibility.
+            // Hard cap: tear everything down. Earlier behaviour only
+            // disconnected the worklet, leaving the mic track, audio
+            // context, analyser interval, and `state === "streaming"`
+            // alive — UI stayed in recording mode while the upstream
+            // STT session leaked. Caller observes the state flip and
+            // is expected to finalize / cancel its session.
+            cleanup()
+            setState("stopped")
           }
         }, 100)
-        startLevelLoop()
+        startLevels()
         setState("streaming")
       } catch (e) {
         cleanup()
@@ -227,7 +207,7 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
         setState("error")
       }
     },
-    [state, cleanup, startLevelLoop],
+    [state, cleanup, startLevels],
   )
 
   const stop = useCallback(() => {
@@ -246,7 +226,7 @@ export function usePcm16Streamer(): UsePcm16StreamerResult {
     }
   }, [cleanup])
 
-  return { state, durationMs, audioLevel, error, start, stop, cancel }
+  return { state, durationMs, audioLevel, levels, error, start, stop, cancel }
 }
 
 /** Pack an `Int16Array` PCM16 frame into a base64 string for transport. */

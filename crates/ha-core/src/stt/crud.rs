@@ -76,9 +76,12 @@ pub fn add_stt_provider(
     config: SttProviderConfig,
     source: &'static str,
 ) -> SttWriteResult<SttProviderConfig> {
+    // Returns the stored provider unmasked. Callers that hand the value
+    // to a non-trusted boundary (HTTP responses) must call `.masked()`
+    // themselves — matches the LLM `provider::add_provider` convention.
     mutate_config(("stt.add", source), move |store| {
         let provider = add_stt_provider_in_config(store, config);
-        Ok(provider.masked())
+        Ok(provider)
     })
     .map_err(map_config_error)
 }

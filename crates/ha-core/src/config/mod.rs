@@ -9,11 +9,11 @@
 
 mod persistence;
 
+#[cfg(test)]
+pub use persistence::replace_cache_for_test;
 pub use persistence::{
     cached_config, load_config, mutate_config, reload_cache_from_disk, save_config,
 };
-#[cfg(test)]
-pub use persistence::replace_cache_for_test;
 
 use serde::{Deserialize, Serialize};
 

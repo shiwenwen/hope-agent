@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "留空以保留原 key",
       "enabled": "启用",
       "allowPrivate": "允许 loopback / 内网",
-      "allowPrivateHint": "本地 127.0.0.1 / 局域网后端必须开启。"
+      "allowPrivateHint": "本地 127.0.0.1 / 局域网后端必须开启。",
+      "errProviderNameRequired": "请填写服务商名称",
+      "errBaseUrlRequired": "请填写 Base URL",
+      "errBaseUrlMustBeWs": "该服务商是 WebSocket 协议，Base URL 必须以 ws:// 或 wss:// 开头",
+      "errBaseUrlMustBeHttp": "该服务商是 HTTP 协议，Base URL 必须以 http:// 或 https:// 开头",
+      "errApiKeyRequired": "请填写 API Key",
+      "errExtraFieldRequired": "请填写必填字段：{{field}}"
     }
   }
 }

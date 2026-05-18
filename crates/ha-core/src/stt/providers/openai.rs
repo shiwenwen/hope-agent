@@ -292,5 +292,4 @@ mod tests {
         let err = parse_transcript(&provider, &model, r#"{"error":"oops"}"#).unwrap_err();
         assert_eq!(err.code(), "other");
     }
-
 }

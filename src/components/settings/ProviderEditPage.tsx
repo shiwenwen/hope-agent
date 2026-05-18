@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
+import { SecretInput } from "@/components/ui/secret-input"
 import {
   Select,
   SelectContent,
@@ -37,8 +38,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Eye,
-  EyeOff,
   Globe,
   Key,
   Loader2,
@@ -107,7 +106,6 @@ export default function ProviderEditPage({
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testLoading, setTestLoading] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [error, setError] = useState("")
 
@@ -271,27 +269,11 @@ export default function ProviderEditPage({
                   <Key className="h-3 w-3" />
                   API Key
                 </label>
-                <div className="relative">
-                  <Input
-                    type={showApiKey ? "text" : "password"}
-                    value={editApiKey}
-                    onChange={(e) => setEditApiKey(e.target.value)}
-                    className="bg-background font-mono text-xs pr-8"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
-                  >
-                    {showApiKey ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </div>
+                <SecretInput
+                  value={editApiKey}
+                  onChange={setEditApiKey}
+                  className="bg-background"
+                />
               </div>
 
               <div className="space-y-1.5">

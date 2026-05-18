@@ -4462,8 +4462,8 @@
       "subtitle": "Masaüstü ses girişi + IM kanalı otomatik yazıya dökme. Bulut STT sağlayıcılarını ve kendi barındırdığınız OpenAI uyumlu arka uçları yönetin.",
       "activeModel": "Etkin model",
       "activeModelLabel": "Masaüstü ses girişi modeli",
-      "batchOnlyHint": "Etkin tüm sağlayıcılar burada görünür. Akış sağlayıcıları (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) konuşurken kısmi yazıya dökme gösterir.",
       "noModel": "Ayarlı değil",
+      "batchOnlyHint": "Etkin tüm sağlayıcılar burada görünür. Akış sağlayıcıları (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) konuşurken kısmi yazıya dökme gösterir.",
       "imFallback": "IM otomatik yazıya dökme modeli",
       "imFallbackHint": "«Sesli mesajları otomatik yazıya dök» etkin IM hesapları için. Boşsa masaüstü modeli kullanılır.",
       "imFallbackEmpty": "Masaüstü etkin modelini kullan",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "Mevcut anahtarı korumak için boş bırakın",
       "enabled": "Etkin",
       "allowPrivate": "loopback / özel ağa izin ver",
-      "allowPrivateHint": "127.0.0.1 / LAN'daki kendi barındırılan sunucular için gerekli."
+      "allowPrivateHint": "127.0.0.1 / LAN'daki kendi barındırılan sunucular için gerekli.",
+      "errProviderNameRequired": "Sağlayıcı adı gerekli",
+      "errBaseUrlRequired": "Base URL gerekli",
+      "errBaseUrlMustBeWs": "Bu sağlayıcı WebSocket kullanır — Base URL ws:// veya wss:// ile başlamalı",
+      "errBaseUrlMustBeHttp": "Bu sağlayıcı HTTP kullanır — Base URL http:// veya https:// ile başlamalı",
+      "errApiKeyRequired": "API Key gerekli",
+      "errExtraFieldRequired": "Zorunlu alan eksik: {{field}}"
     }
   }
 }

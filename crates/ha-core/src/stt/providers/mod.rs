@@ -96,9 +96,7 @@ pub(super) async fn ws_connect_with_caps<R: IntoClientRequest + Unpin>(
 /// `File` payloads before reading so we never alloc the giant Vec). The
 /// returned filename is best-effort — `Bytes` payloads carry their own
 /// hint, `File` payloads fall back to `"audio.bin"`.
-pub(super) async fn load_batch_audio(
-    audio: AudioPayload,
-) -> SttResult<(Vec<u8>, String, String)> {
+pub(super) async fn load_batch_audio(audio: AudioPayload) -> SttResult<(Vec<u8>, String, String)> {
     match audio {
         AudioPayload::Bytes {
             bytes,

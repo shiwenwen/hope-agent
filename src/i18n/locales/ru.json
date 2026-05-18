@@ -4462,8 +4462,8 @@
       "subtitle": "Голосовой ввод на десктопе + автоматическая расшифровка в IM-каналах. Управление облачными STT-провайдерами и самохостинговыми OpenAI-совместимыми бэкендами.",
       "activeModel": "Активная модель",
       "activeModelLabel": "Модель голосового ввода (десктоп)",
-      "batchOnlyHint": "Все включённые провайдеры показаны здесь. Потоковые провайдеры (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) показывают частичные расшифровки во время речи.",
       "noModel": "Не настроено",
+      "batchOnlyHint": "Все включённые провайдеры показаны здесь. Потоковые провайдеры (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) показывают частичные расшифровки во время речи.",
       "imFallback": "Модель IM-расшифровки",
       "imFallbackHint": "Используется аккаунтами IM с включённой опцией «Автоматически расшифровывать голосовые». Если не задано, используется модель десктопа.",
       "imFallbackEmpty": "Использовать активную модель десктопа",
@@ -4483,7 +4483,13 @@
       "apiKeyMasked": "Оставьте пустым, чтобы сохранить текущий ключ",
       "enabled": "Включено",
       "allowPrivate": "Разрешить loopback / приватную сеть",
-      "allowPrivateHint": "Необходимо для self-hosted серверов на 127.0.0.1 / LAN."
+      "allowPrivateHint": "Необходимо для self-hosted серверов на 127.0.0.1 / LAN.",
+      "errProviderNameRequired": "Требуется имя провайдера",
+      "errBaseUrlRequired": "Требуется Base URL",
+      "errBaseUrlMustBeWs": "Этот провайдер использует WebSocket — Base URL должен начинаться с ws:// или wss://",
+      "errBaseUrlMustBeHttp": "Этот провайдер использует HTTP — Base URL должен начинаться с http:// или https://",
+      "errApiKeyRequired": "Требуется API Key",
+      "errExtraFieldRequired": "Не заполнено обязательное поле: {{field}}"
     }
   }
 }

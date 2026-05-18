@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { useAnalyserLevels } from "./useAnalyserLevels"
+
 /**
  * Audio recorder hook backed by MediaRecorder + AnalyserNode.
  *
@@ -19,6 +21,9 @@ export interface UseAudioRecorderResult {
   state: RecorderState
   durationMs: number
   audioLevel: number
+  /** Rolling RMS history (48 bins, ~50 ms each) for the waveform UI.
+   * Oldest first; newest at the end. Zero-padded when not recording. */
+  levels: number[]
   error: Error | null
   /** Begin a new recording. Throws via `error` state if permission is denied. */
   start: () => Promise<void>
@@ -51,7 +56,6 @@ function pickMimeType(): string {
 export function useAudioRecorder(): UseAudioRecorderResult {
   const [state, setState] = useState<RecorderState>("idle")
   const [durationMs, setDurationMs] = useState(0)
-  const [audioLevel, setAudioLevel] = useState(0)
   const [error, setError] = useState<Error | null>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -59,8 +63,8 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const rafRef = useRef<number | null>(null)
-  const lastEmittedLevelRef = useRef<number>(0)
+  const { audioLevel, levels, start: startLevels, stop: stopLevels } =
+    useAnalyserLevels(analyserRef)
   const startedAtRef = useRef<number>(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cancelledRef = useRef<boolean>(false)
@@ -78,10 +82,9 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   } | null>(null)
 
   const cleanup = useCallback(() => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-    rafRef.current = null
     if (intervalRef.current !== null) clearInterval(intervalRef.current)
     intervalRef.current = null
+    stopLevels()
     try {
       analyserRef.current?.disconnect()
     } catch {
@@ -95,32 +98,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     recorderRef.current = null
-    setAudioLevel(0)
-  }, [])
-
-  const startLevelLoop = useCallback(() => {
-    const loop = () => {
-      const analyser = analyserRef.current
-      if (!analyser) return
-      const buf = new Uint8Array(analyser.frequencyBinCount)
-      analyser.getByteTimeDomainData(buf)
-      let sum = 0
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128
-        sum += v * v
-      }
-      const rms = Math.sqrt(sum / buf.length)
-      const next = Math.min(1, rms * 2.5)
-      // Skip near-no-op updates: at 60Hz a tiny delta would render the
-      // consuming tree every frame for ~0 visible change.
-      if (Math.abs(next - lastEmittedLevelRef.current) >= 0.02) {
-        lastEmittedLevelRef.current = next
-        setAudioLevel(next)
-      }
-      rafRef.current = requestAnimationFrame(loop)
-    }
-    loop()
-  }, [])
+  }, [stopLevels])
 
   const start = useCallback(async () => {
     if (state === "recording" || state === "requesting-permission") return
@@ -186,7 +164,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         analyser.fftSize = 1024
         source.connect(analyser)
         analyserRef.current = analyser
-        startLevelLoop()
+        startLevels()
       }
 
       recorder.start(1000)
@@ -205,7 +183,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       setError(e instanceof Error ? e : new Error(String(e)))
       setState("error")
     }
-  }, [state, cleanup, startLevelLoop])
+  }, [state, cleanup, startLevels])
 
   const stop = useCallback(() => {
     return new Promise<{ blob: Blob; mimeType: string; durationMs: number }>(
@@ -251,5 +229,5 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     }
   }, [cleanup])
 
-  return { state, durationMs, audioLevel, error, start, stop, cancel }
+  return { state, durationMs, audioLevel, levels, error, start, stop, cancel }
 }
