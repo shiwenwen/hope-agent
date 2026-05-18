@@ -4462,7 +4462,7 @@
       "subtitle": "Input suara desktop + transkripsi automatik saluran IM. Urus pembekal STT awan dan backend serasi OpenAI yang dihos sendiri.",
       "activeModel": "Model aktif",
       "activeModelLabel": "Model input suara desktop",
-      "batchOnlyHint": "Hanya pembekal serasi OpenAI yang disenaraikan — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek hanya WS masa nyata dan belum boleh menyajikan aliran rakam-kemudian-transkrip.",
+      "batchOnlyHint": "Semua pembekal yang diaktifkan muncul di sini. Pembekal penstriman (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) menunjukkan transkripsi separa semasa anda bercakap.",
       "noModel": "Tidak dikonfigurasi",
       "imFallback": "Model transkripsi IM",
       "imFallbackHint": "Digunakan oleh akaun IM dengan «Transkripsi mesej suara secara automatik» dihidupkan. Jika kosong, fallback ke model desktop.",

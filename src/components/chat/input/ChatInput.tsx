@@ -681,6 +681,17 @@ export default function ChatInput({
               onStop={() => void handleVoiceStop()}
               onCancel={voice.cancel}
             />
+            {voice.partialText &&
+              (voice.state === "recording" || voice.state === "transcribing") && (
+                <span
+                  className="text-xs text-muted-foreground italic max-w-[280px] overflow-hidden whitespace-nowrap"
+                  title={voice.partialText}
+                >
+                  {voice.partialText.length > 50
+                    ? "…" + voice.partialText.slice(-50)
+                    : voice.partialText}
+                </span>
+              )}
             {voice.errorMessage && (
               <span
                 className="text-xs text-destructive truncate max-w-[180px]"

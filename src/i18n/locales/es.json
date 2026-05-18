@@ -4462,7 +4462,7 @@
       "subtitle": "Entrada de voz en escritorio + transcripción automática en canales IM. Gestiona proveedores STT en la nube y backends OpenAI-compatibles autohospedados.",
       "activeModel": "Modelo activo",
       "activeModelLabel": "Modelo de entrada de voz (escritorio)",
-      "batchOnlyHint": "Solo se muestran proveedores compatibles con OpenAI — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek son solo WS en tiempo real y todavía no admiten el flujo \"grabar y luego transcribir\".",
+      "batchOnlyHint": "Aquí aparecen todos los proveedores habilitados. Los proveedores de streaming (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) muestran transcripciones parciales mientras hablas.",
       "noModel": "Sin configurar",
       "imFallback": "Modelo de transcripción IM",
       "imFallbackHint": "Usado por cuentas IM con «Transcribir mensajes de voz automáticamente» activado. Si está vacío, usa el modelo de escritorio.",

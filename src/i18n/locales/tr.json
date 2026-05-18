@@ -4462,7 +4462,7 @@
       "subtitle": "Masaüstü ses girişi + IM kanalı otomatik yazıya dökme. Bulut STT sağlayıcılarını ve kendi barındırdığınız OpenAI uyumlu arka uçları yönetin.",
       "activeModel": "Etkin model",
       "activeModelLabel": "Masaüstü ses girişi modeli",
-      "batchOnlyHint": "Yalnızca OpenAI uyumlu sağlayıcılar listelenir — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek yalnızca gerçek zamanlı WS olduğundan henüz \"önce kaydet sonra yazıya dök\" akışını sunamaz.",
+      "batchOnlyHint": "Etkin tüm sağlayıcılar burada görünür. Akış sağlayıcıları (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) konuşurken kısmi yazıya dökme gösterir.",
       "noModel": "Ayarlı değil",
       "imFallback": "IM otomatik yazıya dökme modeli",
       "imFallbackHint": "«Sesli mesajları otomatik yazıya dök» etkin IM hesapları için. Boşsa masaüstü modeli kullanılır.",

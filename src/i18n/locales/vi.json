@@ -4462,7 +4462,7 @@
       "subtitle": "Đầu vào giọng nói trên máy tính + tự động phiên âm kênh IM. Quản lý nhà cung cấp STT đám mây và backend tương thích OpenAI tự host.",
       "activeModel": "Mô hình đang hoạt động",
       "activeModelLabel": "Mô hình đầu vào giọng nói (máy tính)",
-      "batchOnlyHint": "Chỉ liệt kê các nhà cung cấp tương thích OpenAI — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek chỉ hỗ trợ WS thời gian thực và hiện chưa phục vụ luồng \"ghi xong rồi phiên âm\".",
+      "batchOnlyHint": "Tất cả nhà cung cấp đã bật xuất hiện ở đây. Nhà cung cấp luồng (Deepgram / AssemblyAI / Azure / Volcengine / iFlytek) hiển thị bản phiên âm từng phần khi bạn nói.",
       "noModel": "Chưa cấu hình",
       "imFallback": "Mô hình phiên âm IM",
       "imFallbackHint": "Dùng cho tài khoản IM bật «Tự động phiên âm tin nhắn thoại». Nếu trống sẽ dùng mô hình máy tính.",

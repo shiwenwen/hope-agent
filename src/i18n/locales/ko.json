@@ -4462,7 +4462,7 @@
       "subtitle": "데스크톱 음성 입력 + IM 채널 자동 전사. 클라우드 STT 공급자와 셀프 호스트 OpenAI 호환 백엔드 관리.",
       "activeModel": "활성 모델",
       "activeModelLabel": "데스크톱 음성 입력 모델",
-      "batchOnlyHint": "OpenAI 호환 공급자만 나열됩니다 — Deepgram / AssemblyAI / Azure / Volcengine / iFlytek는 실시간 WS 전용이며 아직 \"녹음 후 전사\" 흐름에는 사용할 수 없습니다.",
+      "batchOnlyHint": "활성화된 모든 공급자가 여기에 표시됩니다. 스트리밍 공급자(Deepgram / AssemblyAI / Azure / Volcengine / iFlytek)는 말하는 동안 부분 전사를 표시합니다.",
       "noModel": "미설정",
       "imFallback": "IM 자동 전사 모델",
       "imFallbackHint": "「음성 메시지 자동 전사」가 켜진 IM 계정에서 사용. 미설정 시 데스크톱 모델로 폴백.",

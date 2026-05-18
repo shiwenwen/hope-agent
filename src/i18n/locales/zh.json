@@ -4463,7 +4463,7 @@
       "activeModel": "默认模型",
       "activeModelLabel": "桌面语音输入模型",
       "noModel": "未配置",
-      "batchOnlyHint": "仅列出 OpenAI 兼容的服务商 —— Deepgram / AssemblyAI / Azure / 火山豆包 / 讯飞 当前仅支持实时 WS，无法用于「先录音再转录」的批量流程。",
+      "batchOnlyHint": "已启用的服务商都会出现在这里。流式服务商（Deepgram / AssemblyAI / Azure / 火山豆包 / 讯飞）在你说话时实时显示中间识别文字。",
       "imFallback": "IM 自动转录模型",
       "imFallbackHint": "用于开启「自动转录语音消息」的 IM 账号；未设置时回退到桌面默认模型。",
       "imFallbackEmpty": "使用桌面默认模型",

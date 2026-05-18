@@ -63,30 +63,16 @@ function Badge({
 }
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
-import { unwrapActiveSttModel, type ActiveSttModel } from "@/lib/stt"
-
-// ── Types mirrored from ha-core ──────────────────────────────────
-
-type SttProviderKind =
-  | "openai-transcriptions"
-  | "openai-compatible"
-  | "openai-chat-completions-asr"
-  | "deepgram-ws"
-  | "assemblyai-ws"
-  | "azure-ws"
-  | "volcengine-ws"
-  | "xunfei-ws"
-
-// Mirrors `SttProviderKind::supports_batch()` in ha-core: the WS kinds reject
-// `engine::transcribe_with`, so they can't power the desktop voice button
-// (`stt_transcribe_blob`) or IM auto-transcribe (`failover_transcribe_batch`).
-// Keep the selectors limited to batch-capable kinds so users can't pin a
-// config that always fails downstream.
-const BATCH_CAPABLE_KINDS: ReadonlySet<SttProviderKind> = new Set([
-  "openai-transcriptions",
-  "openai-compatible",
-  "openai-chat-completions-asr",
-])
+// Shared kind type / batch-vs-streaming sets from src/lib/stt.ts so the
+// active-model picker, the kind dropdown, and the desktop voice hook agree
+// on the dispatch rules.
+import {
+  BATCH_CAPABLE_KINDS,
+  STREAMING_KINDS,
+  unwrapActiveSttModel,
+  type ActiveSttModel,
+  type SttProviderKind,
+} from "@/lib/stt"
 
 interface SttModelConfig {
   id: string
@@ -329,15 +315,26 @@ export default function VoicePanel() {
   )
 
   const allAvailable = useMemo(() => {
-    const out: { providerId: string; modelId: string; label: string }[] = []
+    const out: {
+      providerId: string
+      modelId: string
+      label: string
+      streaming: boolean
+    }[] = []
     for (const p of providers) {
       if (!p.enabled) continue
-      if (!BATCH_CAPABLE_KINDS.has(p.kind)) continue
+      // Either path is now wired in `useVoiceInput`: batch via
+      // `stt_transcribe_blob`, streaming via `stt_start_session` +
+      // PCM16 worklet. Surface both — `streaming: true` lets the
+      // selector tag the realtime providers in the dropdown label.
+      if (!BATCH_CAPABLE_KINDS.has(p.kind) && !STREAMING_KINDS.has(p.kind)) continue
+      const streaming = STREAMING_KINDS.has(p.kind)
       for (const m of p.models) {
         out.push({
           providerId: p.id,
           modelId: m.id,
-          label: `${p.name} · ${m.name || m.id}`,
+          label: `${p.name} · ${m.name || m.id}${streaming ? " · streaming" : ""}`,
+          streaming,
         })
       }
     }
