@@ -145,6 +145,23 @@ export async function initFocusTracking(): Promise<void> {
  * when the window is up front.
  */
 export async function notifyIfBackground(title: string, body: string): Promise<void> {
+  if (!focusTrackingStarted) {
+    try {
+      await initFocusTracking()
+    } catch {
+      // Fall back to the best synchronous signal below. Notification delivery
+      // should be best-effort, not blocked by a focus-listener setup failure.
+    }
+  }
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+    await notify(title, body)
+    return
+  }
+  if (!focusTrackingStarted && typeof document !== "undefined") {
+    if (document.hasFocus()) return
+    await notify(title, body)
+    return
+  }
   if (isWindowFocused) return
   await notify(title, body)
 }

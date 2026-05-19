@@ -3,7 +3,12 @@ import { getTransport } from "@/lib/transport-provider"
 import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
-import { loadNotificationConfig, isAgentNotifyEnabled, notify } from "@/lib/notifications"
+import {
+  loadNotificationConfig,
+  isAgentNotifyEnabled,
+  notify,
+  notifyIfBackground,
+} from "@/lib/notifications"
 import type {
   Message,
   ActiveModel,
@@ -520,6 +525,7 @@ export function useChatStream({
     })
 
     let targetSessionId = currentSessionId
+    let chatResolved = false
     let keepExistingStreamLoading = false
 
     try {
@@ -671,6 +677,7 @@ export function useChatStream({
         },
         onEvent,
       )
+      chatResolved = true
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       if (isActiveStreamError(e) && sid !== "__pending__") {
@@ -792,16 +799,23 @@ export function useChatStream({
           setLoading(false)
         }
       }
-      // Notify on completion for non-current sessions
-      if (
-        !keepExistingStreamLoading &&
-        targetSessionId &&
-        currentSessionIdRef.current !== targetSessionId
-      ) {
+      // Notify on completion. Existing behavior: always notify for a
+      // different session. For the active session, only surface an OS
+      // notification when the app window is no longer foregrounded.
+      if (!keepExistingStreamLoading && chatResolved && targetSessionId) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+          const status = lastTurnStatusBySessionRef.current.get(targetSessionId)?.status
+          const completed =
+            status !== "failed" &&
+            status !== "interrupted" &&
+            status !== "cancelling"
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
-          notify(t("notification.chatCompleted"), sessionTitle)
+          if (completed && currentSessionIdRef.current !== targetSessionId) {
+            void notify(t("notification.chatCompleted"), sessionTitle)
+          } else if (completed) {
+            void notifyIfBackground(t("notification.chatCompleted"), sessionTitle)
+          }
         }
       }
       // Mark current session as read so unread count stays 0 for active session
