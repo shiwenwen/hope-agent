@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。
 - **macOS Control 剪贴板文本**：`mac_control.clipboard` 新增 `get/set/clear` 三个文本操作；`get` 支持 `maxChars` 截断，`set` 不在结果中回显写入内容，三者均作为隐私/副作用动作走审批，避免模型静默读取或改写用户剪贴板。
 - **macOS Control 粘贴输入**：`mac_control.act` 新增 `op=paste`，用于长文本或 `AXValue` 不稳定的输入场景；执行时临时写入 pasteboard、触发系统粘贴，并尽量恢复旧 UTF-8 文本剪贴板，结果只报告恢复状态、不回显旧剪贴板或待粘贴文本。
+- **macOS Control 目标消歧**：`mac_control.act` 在 AX 元素候选最高分并列时不再默认操作第一个匹配项，而是返回带候选提示的歧义错误，要求模型用 `elementId`、窗口标题、role 或更具体文本重试，降低点错相似按钮/输入框的风险。
 
 ## [0.3.0] - 2026-05-19
 

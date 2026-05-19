@@ -690,8 +690,12 @@ mod imp {
                             .to_string(),
                     );
                 }
-                let (element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.click",
+                )?;
                 let element_ref = element.as_ptr() as AXUIElementRef;
                 target = Some(summary.clone());
                 if summary.actions.iter().any(|action| action == "AXPress") {
@@ -720,8 +724,12 @@ mod imp {
                 if target_query_is_empty(&request.target) {
                     return Err("act.double_click requires a target.".to_string());
                 }
-                let (_element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.double_click",
+                )?;
                 let point = point_for_element(&summary, "act.double_click target")?;
                 post_double_click(point)?;
                 target = Some(summary);
@@ -731,8 +739,12 @@ mod imp {
                 if target_query_is_empty(&request.target) {
                     return Err("act.right_click requires a target.".to_string());
                 }
-                let (_element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.right_click",
+                )?;
                 let point = point_for_element(&summary, "act.right_click target")?;
                 post_mouse_click(point, MouseButton::Right)?;
                 target = Some(summary);
@@ -752,6 +764,7 @@ mod imp {
                         &request.target,
                         request.max_elements,
                         request.max_depth,
+                        "act.type",
                     )?;
                     (element, summary)
                 };
@@ -771,6 +784,7 @@ mod imp {
                         &request.target,
                         request.max_elements,
                         request.max_depth,
+                        "act.paste",
                     )?;
                     focus_text_element_for_paste(element.as_ptr() as AXUIElementRef, &summary)?;
                     target = Some(summary);
@@ -782,8 +796,12 @@ mod imp {
                     .value
                     .as_deref()
                     .ok_or_else(|| "act.set_value requires value.".to_string())?;
-                let (element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.set_value",
+                )?;
                 set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", value)?;
                 target = Some(summary);
                 "AXSetValue".to_string()
@@ -811,8 +829,12 @@ mod imp {
                 let (Some(x), Some(y)) = (request.x, request.y) else {
                     return Err("act.drag requires destination x and y.".to_string());
                 };
-                let (_element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.drag",
+                )?;
                 let from = point_for_element(&summary, "act.drag source target")?;
                 let to = screen_point(x, y, "act.drag destination")?;
                 post_mouse_drag(from, to)?;
@@ -2103,6 +2125,7 @@ mod imp {
         target: &MacControlTargetQuery,
         max_elements: usize,
         max_depth: usize,
+        op_label: &str,
     ) -> Result<(CfOwned, MacControlElementSummary, MacControlSnapshot), String> {
         let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
             include_screenshot: false,
@@ -2111,15 +2134,20 @@ mod imp {
             ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, target) {
-            return Err("Frontmost app did not match the act target.".to_string());
+            return Err(format!(
+                "Frontmost app did not match the {op_label} target."
+            ));
         }
-        let summary = snapshot
+        let candidates = snapshot
             .elements
             .iter()
             .filter(|element| element_matches_query(element, target, &snapshot))
-            .max_by_key(|element| element_target_score(element, target))
-            .cloned()
-            .ok_or_else(|| "No AX element matched the act target.".to_string())?;
+            .map(|element| ScoredElementMatch {
+                score: element_target_score(element, target),
+                summary: element.clone(),
+            })
+            .collect();
+        let summary = select_element_match(candidates, target, op_label, "AX element")?;
         let element = resolve_element_by_summary(&summary, max_elements, max_depth)?;
         Ok((element, summary, snapshot))
     }
@@ -2128,6 +2156,7 @@ mod imp {
         target: &MacControlTargetQuery,
         max_elements: usize,
         max_depth: usize,
+        op_label: &str,
     ) -> Result<(CfOwned, MacControlElementSummary, MacControlSnapshot), String> {
         let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
             include_screenshot: false,
@@ -2136,17 +2165,97 @@ mod imp {
             ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, target) {
-            return Err("Frontmost app did not match the act.type target.".to_string());
+            return Err(format!(
+                "Frontmost app did not match the {op_label} target."
+            ));
         }
-        let summary = snapshot
+        let candidates = snapshot
             .elements
             .iter()
             .filter(|element| text_element_matches_query(element, target, &snapshot))
-            .max_by_key(|element| type_target_score(element, target))
-            .cloned()
-            .ok_or_else(|| "No text input element matched the act.type target.".to_string())?;
+            .map(|element| ScoredElementMatch {
+                score: type_target_score(element, target),
+                summary: element.clone(),
+            })
+            .collect();
+        let summary = select_element_match(candidates, target, op_label, "text input element")?;
         let element = resolve_element_by_summary(&summary, max_elements, max_depth)?;
         Ok((element, summary, snapshot))
+    }
+
+    #[derive(Clone)]
+    struct ScoredElementMatch {
+        score: u8,
+        summary: MacControlElementSummary,
+    }
+
+    fn select_element_match(
+        mut candidates: Vec<ScoredElementMatch>,
+        target: &MacControlTargetQuery,
+        op_label: &str,
+        target_label: &str,
+    ) -> Result<MacControlElementSummary, String> {
+        if candidates.is_empty() {
+            return Err(format!("No {target_label} matched the {op_label} target."));
+        }
+        if target
+            .element_id
+            .as_deref()
+            .is_some_and(|element_id| !element_id.is_empty())
+        {
+            return Ok(candidates.remove(0).summary);
+        }
+        candidates.sort_by(|left, right| right.score.cmp(&left.score));
+        let top_score = candidates[0].score;
+        let equal_top_count = candidates
+            .iter()
+            .take_while(|candidate| candidate.score == top_score)
+            .count();
+        if equal_top_count > 1 {
+            let preview = candidates
+                .iter()
+                .take(equal_top_count.min(5))
+                .map(|candidate| element_candidate_hint(&candidate.summary))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(format!(
+                "{equal_top_count} {target_label}s matched the {op_label} target equally; retry with elementId from snapshot, target.windowTitle, target.role, or more specific target.text. Candidates: {preview}"
+            ));
+        }
+        Ok(candidates.remove(0).summary)
+    }
+
+    fn element_candidate_hint(element: &MacControlElementSummary) -> String {
+        let mut parts = vec![element.id.clone()];
+        if let Some(role) = element.role.as_deref().filter(|value| !value.is_empty()) {
+            parts.push(format!("role={role}"));
+        }
+        if let Some(label) = element.label.as_deref().filter(|value| !value.is_empty()) {
+            parts.push(format!("label=\"{}\"", truncate_for_error(label, 48)));
+        }
+        if let Some(window_id) = element
+            .window_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            parts.push(format!("windowId={window_id}"));
+        }
+        parts.join(" ")
+    }
+
+    fn truncate_for_error(value: &str, max_chars: usize) -> String {
+        let mut chars = value.chars();
+        let mut truncated = String::new();
+        for _ in 0..max_chars {
+            let Some(ch) = chars.next() else {
+                return value.to_string();
+            };
+            truncated.push(ch);
+        }
+        if chars.next().is_some() {
+            truncated.push_str("...");
+        }
+        truncated
     }
 
     fn frontmost_app_matches_act_target(

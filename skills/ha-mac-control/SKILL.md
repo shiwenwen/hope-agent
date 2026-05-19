@@ -41,7 +41,8 @@ wait or snapshot                       # verify the expected change
 - Prefer `windowId` from the latest `windows.list` or `snapshot` for window mutations.
 - `target.windowTitleMatch` defaults to `exact`. Use `contains` only after listing windows and confirming a partial title is intentional.
 - Prefer `elementId` from the latest `snapshot` for precise clicks and set-value actions.
-- If two windows, dialogs, or buttons match, do not guess. Use a more specific target or ask the user.
+- If two windows, dialogs, text fields, or buttons match, do not guess. Use a more specific target or ask the user.
+- Element mutations reject equally ranked AX candidates instead of choosing the first match. When this happens, take a fresh `snapshot` and retry with `elementId`, `target.windowTitle`, `target.role`, or more specific `target.text`.
 
 ## Actions
 
