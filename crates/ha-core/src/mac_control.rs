@@ -318,6 +318,7 @@ pub struct MacControlDialogResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MacControlMenuResult {
     pub op: MacControlMenuOp,
+    pub scope: MacControlMenuScope,
     pub path: Vec<String>,
     pub items: Vec<MacControlMenuItemSummary>,
     pub clicked: Option<MacControlMenuItemSummary>,
@@ -327,8 +328,11 @@ pub struct MacControlMenuResult {
 #[serde(rename_all = "camelCase")]
 pub struct MacControlMenuItemSummary {
     pub title: Option<String>,
+    pub description: Option<String>,
+    pub value: Option<String>,
     pub role: Option<String>,
     pub enabled: Option<bool>,
+    pub actions: Vec<String>,
     pub children: Vec<MacControlMenuItemSummary>,
 }
 
@@ -665,6 +669,8 @@ pub struct MacControlMenuRequest {
     #[serde(default)]
     pub op: MacControlMenuOp,
     #[serde(default)]
+    pub scope: MacControlMenuScope,
+    #[serde(default)]
     pub path: Vec<String>,
     #[serde(default = "default_menu_max_depth")]
     pub max_depth: usize,
@@ -695,6 +701,14 @@ pub enum MacControlMenuOp {
     #[default]
     List,
     Click,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlMenuScope {
+    #[default]
+    App,
+    System,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -2570,12 +2584,19 @@ mod tests {
 
         let menu = MacControlMenuRequest {
             op: MacControlMenuOp::Click,
+            scope: MacControlMenuScope::System,
             path: vec![" File ".to_string(), "".to_string(), "New".to_string()],
             max_depth: 100,
         }
         .clamped();
+        assert_eq!(menu.scope, MacControlMenuScope::System);
         assert_eq!(menu.path, vec!["File".to_string(), "New".to_string()]);
         assert_eq!(menu.max_depth, 8);
+
+        assert_eq!(
+            MacControlMenuRequest::default().scope,
+            MacControlMenuScope::App
+        );
 
         let dialog = MacControlDialogRequest {
             op: MacControlDialogOp::Accept,

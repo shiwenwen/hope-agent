@@ -26,9 +26,9 @@ mod imp {
         MacControlDialogResult, MacControlDialogSummary, MacControlDisplaySummary,
         MacControlElementSummary, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
-        MacControlRunningApp, MacControlScreenshotSummary, MacControlScreenshotTarget,
-        MacControlSnapshot, MacControlSnapshotRequest, MacControlStringMatch,
-        MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
+        MacControlMenuScope, MacControlRunningApp, MacControlScreenshotSummary,
+        MacControlScreenshotTarget, MacControlSnapshot, MacControlSnapshotRequest,
+        MacControlStringMatch, MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
         MacControlWindowsRequest, MacControlWindowsResult,
     };
     use image::codecs::jpeg::JpegEncoder;
@@ -716,25 +716,41 @@ mod imp {
 
     fn handle_menu(request: MacControlMenuRequest) -> Result<MacControlMenuResult, String> {
         let request = request.clamped();
-        let app = focused_app_element()?;
-        let menu_bar = copy_attribute(app.as_ptr() as AXUIElementRef, "AXMenuBar")
-            .ok_or_else(|| "Focused app does not expose an AXMenuBar.".to_string())?;
-        let items = menu_children(menu_bar.as_ptr() as AXUIElementRef, request.max_depth);
+        let menu_bar = menu_root_for_scope(request.scope)?;
+        let menu_bar_ref = menu_bar.as_ptr() as AXUIElementRef;
+        let items = menu_children(menu_bar_ref, request.max_depth);
         let clicked = if request.op == MacControlMenuOp::Click {
-            Some(click_menu_path(
-                menu_bar.as_ptr() as AXUIElementRef,
-                &request.path,
-            )?)
+            Some(click_menu_path(menu_bar_ref, &request.path)?)
         } else {
             None
         };
 
         Ok(MacControlMenuResult {
             op: request.op,
+            scope: request.scope,
             path: request.path,
             items,
             clicked,
         })
+    }
+
+    fn menu_root_for_scope(scope: MacControlMenuScope) -> Result<CfOwned, String> {
+        match scope {
+            MacControlMenuScope::App => {
+                let app = focused_app_element()?;
+                copy_attribute(app.as_ptr() as AXUIElementRef, "AXMenuBar")
+                    .ok_or_else(|| "Focused app does not expose an AXMenuBar.".to_string())
+            }
+            MacControlMenuScope::System => {
+                let system = unsafe { AXUIElementCreateSystemWide() };
+                let system = CfOwned::new(system as CFTypeRef).ok_or_else(|| {
+                    "Unable to create the system Accessibility element.".to_string()
+                })?;
+                copy_attribute(system.as_ptr() as AXUIElementRef, "AXExtrasMenuBar").ok_or_else(
+                    || "System menu bar extras are unavailable through Accessibility.".to_string(),
+                )
+            }
+        }
     }
 
     fn handle_dialog(request: MacControlDialogRequest) -> Result<MacControlDialogResult, String> {
@@ -2608,8 +2624,11 @@ mod imp {
     fn menu_item_summary(element: AXUIElementRef, max_depth: usize) -> MacControlMenuItemSummary {
         MacControlMenuItemSummary {
             title: attribute_string(element, "AXTitle"),
+            description: attribute_string(element, "AXDescription"),
+            value: attribute_string(element, "AXValue"),
             role: attribute_string(element, "AXRole"),
             enabled: attribute_bool(element, "AXEnabled"),
+            actions: action_names(element),
             children: menu_children(element, max_depth),
         }
     }
@@ -2643,7 +2662,14 @@ mod imp {
         let child_refs = cf_array_values(children.as_ptr());
         for child_ref in &child_refs {
             let child = *child_ref as AXUIElementRef;
-            if contains_ci(attribute_string(child, "AXTitle").as_deref(), Some(title)) {
+            if menu_item_matches_exact(child, title) {
+                let retained = unsafe { CFRetain(*child_ref as CFTypeRef) };
+                return CfOwned::new(retained);
+            }
+        }
+        for child_ref in &child_refs {
+            let child = *child_ref as AXUIElementRef;
+            if menu_item_matches_contains(child, title) {
                 let retained = unsafe { CFRetain(*child_ref as CFTypeRef) };
                 return CfOwned::new(retained);
             }
@@ -2657,6 +2683,26 @@ mod imp {
             }
         }
         None
+    }
+
+    fn menu_item_matches_exact(element: AXUIElementRef, query: &str) -> bool {
+        menu_item_match_strings(element)
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case(query))
+    }
+
+    fn menu_item_matches_contains(element: AXUIElementRef, query: &str) -> bool {
+        menu_item_match_strings(element)
+            .iter()
+            .any(|value| contains_ci(Some(value.as_str()), Some(query)))
+    }
+
+    fn menu_item_match_strings(element: AXUIElementRef) -> Vec<String> {
+        ["AXTitle", "AXDescription", "AXValue"]
+            .into_iter()
+            .filter_map(|attribute| attribute_string(element, attribute))
+            .filter(|value| !value.trim().is_empty())
+            .collect()
     }
 
     fn is_transparent_menu_container(element: AXUIElementRef) -> bool {

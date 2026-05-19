@@ -75,7 +75,9 @@ wait or snapshot                       # verify the expected change
 ### Menus
 
 - Prefer `menu.click` over hotkeys for app commands.
-- If a menu path fails, call `menu.list` and check the localized titles of the current frontmost app.
+- `menu.scope` defaults to `app`, which targets the current frontmost app menu bar.
+- Use `menu.list scope="system"` before operating macOS menu bar extras/status items. System menu entries may expose useful `description`, `value`, and `actions` even when `title` is empty.
+- If a menu path fails, call `menu.list` with the same `scope` and check the localized titles/descriptions of the current menu surface.
 - If the user says "do not use shortcuts", never call `act.hotkey`. Use menus or AX actions.
 
 ### Dialogs and Sheets

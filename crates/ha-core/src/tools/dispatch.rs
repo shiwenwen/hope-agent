@@ -471,6 +471,15 @@ mod tests {
         assert!(ops.contains(&"inspect"));
         assert!(ops.contains(&"accept"));
         assert!(ops.contains(&"dismiss"));
+        let menu_scopes = def
+            .parameters
+            .pointer("/properties/scope/enum")
+            .and_then(|v| v.as_array())
+            .expect("menu scope enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(menu_scopes, vec!["app", "system"]);
 
         let f = Fixture::new();
         assert_eq!(

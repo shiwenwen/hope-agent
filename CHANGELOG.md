@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。
+- **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。
 
 ## [0.3.0] - 2026-05-19
 

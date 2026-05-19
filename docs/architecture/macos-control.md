@@ -193,8 +193,8 @@ readiness 计算规则：
 | `act.hotkey` | `key` 或 `keys` | 合成快捷键 |
 | `act.scroll` | `deltaX` / `deltaY` 之一非零 | 合成滚动 |
 | `act.drag` | `target`，`x`，`y` | 从目标元素中心拖拽到目标坐标 |
-| `menu.list` | - | 只读菜单树 |
-| `menu.click` | `path` 非空 | 按菜单标题路径逐级点击 |
+| `menu.list` | - | 只读菜单树；`scope=app` 为前台 App 菜单，`scope=system` 为 macOS 菜单栏 extras |
+| `menu.click` | `path` 非空 | 按菜单路径逐级点击；App 菜单匹配标题，system extras 可匹配 title/description/value |
 | `dialog.inspect` | - | 返回当前前台 App dialog/sheet 摘要、文本和按钮 |
 | `dialog.accept` | `buttonText` / `target` 可选 | 点击 accept 类按钮；高风险 |
 | `dialog.dismiss` | `buttonText` / `target` 可选 | 点击 cancel/close 类按钮 |
@@ -207,6 +207,7 @@ readiness 计算规则：
 - `appNameMatch` 默认为 `exact`；只有显式传 `contains` 才允许包含匹配。
 - `target.windowTitleMatch` 默认为 `exact`；只有显式传 `contains` 才允许包含匹配。
 - `snapshot.includeScreenshot=true` 时，`screenshotTarget` 默认为 `display`；传 `displayId` 可指定 `snapshot.displays[].id`；传 `screenshotTarget="window"` 可截图当前前台窗口，传 `windowId` 可指定当前 snapshot 中的窗口。
+- `menu.scope` 默认为 `app`；`system` 只访问 macOS 菜单栏 extras/status items，不回退到前台 App 菜单。
 - 合法坐标 `0` 不能被全局吞掉；裸坐标点击只能通过 `act.click_point` 表达。
 
 有副作用的 App 操作优先使用 `bundleId` 或 `pid`。当名称匹配失败时，模型应先调用 `apps.search` 或 `apps.installed` 找候选，再用明确标识执行 `activate/launch/quit`。
@@ -299,8 +300,8 @@ readiness 计算规则：
 
 菜单和 dialog 规则：
 
-- `menu.list` 只读返回前台 App 菜单树，可按深度截断。
-- `menu.click` 按标题 path 逐级解析并点击。
+- `menu.list` 默认返回前台 App 菜单树，可按深度截断；传 `scope=system` 返回系统菜单栏 extras/status items。
+- `menu.click` 按 path 逐级解析并点击。App 菜单按 title 匹配；system extras 可按 title、description 或 value 匹配，且优先精确匹配再包含匹配。
 - 命中危险菜单词的 `menu.click` 属于高风险动作。
 - `dialog.inspect` 只读返回 dialog/sheet 文本和按钮摘要。
 - `dialog.accept` 高风险；`dialog.dismiss` 普通突变。

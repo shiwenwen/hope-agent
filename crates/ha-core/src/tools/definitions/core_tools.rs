@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -741,6 +741,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "enum": ["present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "click", "click_point", "double_click", "right_click", "type", "set_value", "hotkey", "scroll", "drag", "inspect", "accept", "dismiss"],
                         "description": "Sub-operation. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `dialog`: inspect|accept|dismiss."
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["app", "system"],
+                        "description": "For `menu`: menu surface to inspect/click. Defaults to `app` for the frontmost app menu bar. Use `system` for macOS menu bar extras/status items."
                     },
                     "appName": {
                         "type": "string",
@@ -813,7 +818,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "path": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "For `menu.click`: menu title path, e.g. [\"File\", \"New Window\"]."
+                        "description": "For `menu.click`: menu path. App menus match titles, e.g. [\"File\", \"New Window\"]; system menu bar extras may match title, description, or value from `menu.list`."
                     },
                     "buttonText": {
                         "type": "string",
