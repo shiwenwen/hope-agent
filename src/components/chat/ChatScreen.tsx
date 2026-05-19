@@ -86,6 +86,10 @@ function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
 }
 
+function isSessionMode(value: unknown): value is SessionMode {
+  return value === "default" || value === "smart" || value === "yolo"
+}
+
 export default function ChatScreen({
   onOpenAgentSettings,
   onCodexReauth,
@@ -868,6 +872,23 @@ export default function ChatScreen({
     incognitoEnabled,
     draftWorkingDir,
   })
+
+  useEffect(() => {
+    return getTransport().listen("permission:mode_changed", (payload) => {
+      const data = payload as { sessionId?: unknown; mode?: unknown }
+      if (typeof data.sessionId !== "string" || !isSessionMode(data.mode)) return
+      const sessionId = data.sessionId
+      const mode = data.mode
+
+      updateSessionMeta(sessionId, (prev) =>
+        prev.permissionMode === mode ? prev : { ...prev, permissionMode: mode },
+      )
+      if (sessionId === currentSessionId) {
+        stream.setPermissionMode(mode)
+      }
+      void reloadSessions()
+    })
+  }, [currentSessionId, reloadSessions, stream.setPermissionMode, updateSessionMeta])
 
   // Restore the per-session permission mode on session switch. The ref
   // guards against re-applying when `sessions` later reloads with the same

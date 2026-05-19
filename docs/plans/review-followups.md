@@ -130,18 +130,6 @@
 - **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
 - **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
 
-### F-026 IM 端 `permission:mode_changed` 事件订阅方未补齐
-
-- **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR
-- **现象**：`/permission yolo` 在 IM 渠道执行后，[`channel/worker/slash.rs::SetToolPermission`](../../crates/ha-core/src/channel/worker/slash.rs) 已经调用 `SessionDB::update_session_permission_mode` 写入 SQLite 并 emit `permission:mode_changed`，但桌面端 `PermissionModeSwitcher` 没订阅该事件——用户在 IM 改完后回到桌面端打开同一会话，dropdown 显示的还是改前的值，必须切走再切回来才会重新读 DB
-- **为什么留**：本期 PR 主题是命令对齐 + IM 写入闭环 + Smart 判官说明可见，事件订阅是桌面端的纯 UX 改进，没有数据正确性问题（DB 已经是新值，下一条工具调用按新模式判定）。补全订阅链路涉及前端 hooks（useChatStream / useSession），属于独立 frontend 改动
-- **改的话要做什么**：
-  1. 前端某个 hook（`useChatStream` 或新建 `usePermissionModeSync`）订阅 EventBus 事件 `permission:mode_changed`，过滤当前 sessionId 命中后更新 stream 本地的 `permissionMode` 状态
-  2. Tauri 侧 `EventBus` 转发到前端事件需在 `src-tauri/src/lib.rs::run` 的 EventBus 订阅器里把 `permission:mode_changed` 加进 forward list（参考 `slash:plan_changed` 的模式）；HTTP 模式 axum WS 端走 `crates/ha-server/` 同样加白名单
-  3. 顺便看下 IM 端 `slash:plan_changed` / `slash:effort_changed` / `slash:model_switched` 是否都已正确转发——`/permission` 这条事件名加进来时一起统一
-- **影响面**：纯 UX。改前用户切走再切回触发 `get_session` 重读即可纠正，没有持续不一致或安全问题
-- **触发时机建议**：下次做 IM ↔ 桌面端会话状态同步类工作时（cron 改动、project / agent 切换事件等）顺手补；或者独立 "EventBus → 前端事件转发完整性" 小 PR
-
 ### F-025 IM 工具审批仅渲染 SmartJudge，其它 AskReason kind 待补
 
 - **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR
