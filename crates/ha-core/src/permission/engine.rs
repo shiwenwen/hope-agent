@@ -472,6 +472,10 @@ fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
         ("act", None) => "act.click",
         ("dialog", Some("dismiss")) => "dialog.dismiss",
         ("menu", Some("click")) => "menu.click",
+        ("clipboard", Some("get")) => "clipboard.get",
+        ("clipboard", Some("set")) => "clipboard.set",
+        ("clipboard", Some("clear")) => "clipboard.clear",
+        ("clipboard", None) => "clipboard.get",
         _ => return None,
     };
     Some(AskReason::MacControlAction {
@@ -809,6 +813,9 @@ mod tests {
             json!({"action": "act", "op": "drag", "target": {"text": "Open"}, "x": 200, "y": 200}),
             json!({"action": "dialog", "op": "dismiss"}),
             json!({"action": "menu", "op": "click", "path": ["File", "New"]}),
+            json!({"action": "clipboard", "op": "get"}),
+            json!({"action": "clipboard", "op": "set", "text": "hello"}),
+            json!({"action": "clipboard", "op": "clear"}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert!(matches!(

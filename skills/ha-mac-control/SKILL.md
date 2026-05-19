@@ -1,6 +1,6 @@
 ---
 name: ha-mac-control
-description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / snapshot / windows / menu / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, click/type/menu/window/dialog, automate Finder/TextEdit/System Settings, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, 关闭窗口, 菜单点击."
+description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / snapshot / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, 关闭窗口, 菜单点击."
 version: 1.0.0
 author: Hope Agent
 license: MIT
@@ -30,7 +30,7 @@ For a concrete app workflow:
 apps.launch bundleId=...
 apps.frontmost                         # verify focus if the next step depends on menus/input
 snapshot or windows.list               # get fresh window/element ids
-act/menu/windows/dialog                # one action burst
+act/menu/windows/clipboard/dialog      # one action burst
 wait or snapshot                       # verify the expected change
 ```
 
@@ -82,6 +82,12 @@ wait or snapshot                       # verify the expected change
 - If a menu path fails, call `menu.list` with the same `scope` and check the localized titles/descriptions of the current menu surface.
 - If the user says "do not use shortcuts", never call `act.hotkey`. Use menus or AX actions.
 
+### Clipboard
+
+- `clipboard.get` reads user clipboard text and may expose secrets. Use it only when the user asked for clipboard content or it is clearly necessary, and keep `maxChars` tight.
+- `clipboard.set` is useful before a deliberate paste workflow. It does not echo the written text in the result; verify by pasting into the intended target, not by reading the clipboard back unless needed.
+- Use `clipboard.clear` only when the user asked to clear the clipboard or after a sensitive paste workflow.
+
 ### Dialogs and Sheets
 
 - Use `dialog.inspect` before `dialog.accept` or `dialog.dismiss`.
@@ -106,6 +112,7 @@ Treat these as higher risk and be extra explicit about the target:
 - `windows.close`
 - `apps.quit`
 - `menu.click` on destructive menu items
+- `clipboard.get` / `clipboard.set` / `clipboard.clear`
 - `dialog.accept` / explicit discard buttons
 - raw coordinate clicks and drags
 

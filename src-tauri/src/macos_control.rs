@@ -22,7 +22,8 @@ mod imp {
     use ha_core::mac_control::{
         MacControlActOp, MacControlActRequest, MacControlActResult, MacControlAppNameMatch,
         MacControlAppSummary, MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult,
-        MacControlBounds, MacControlBridge, MacControlDialogOp, MacControlDialogRequest,
+        MacControlBounds, MacControlBridge, MacControlClipboardOp, MacControlClipboardRequest,
+        MacControlClipboardResult, MacControlDialogOp, MacControlDialogRequest,
         MacControlDialogResult, MacControlDialogSummary, MacControlDisplaySummary,
         MacControlElementSummary, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
@@ -94,6 +95,15 @@ mod imp {
             tokio::task::spawn_blocking(move || handle_menu(request))
                 .await
                 .map_err(|e| format!("macOS menu worker failed: {e}"))?
+        }
+
+        async fn clipboard(
+            &self,
+            request: MacControlClipboardRequest,
+        ) -> Result<MacControlClipboardResult, String> {
+            tokio::task::spawn_blocking(move || handle_clipboard(request))
+                .await
+                .map_err(|e| format!("macOS clipboard worker failed: {e}"))?
         }
 
         async fn dialog(
@@ -844,6 +854,65 @@ mod imp {
                 )
             }
         }
+    }
+
+    fn handle_clipboard(
+        request: MacControlClipboardRequest,
+    ) -> Result<MacControlClipboardResult, String> {
+        let request = request.clamped();
+        let mut clipboard =
+            arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
+        match request.op {
+            MacControlClipboardOp::Get => {
+                let text = clipboard
+                    .get_text()
+                    .map_err(|e| format!("Clipboard does not contain UTF-8 text: {e}"))?;
+                let (text, text_len, truncated) = truncate_clipboard_text(text, request.max_chars);
+                Ok(MacControlClipboardResult {
+                    op: request.op,
+                    text: Some(text),
+                    text_len,
+                    truncated,
+                    changed: false,
+                })
+            }
+            MacControlClipboardOp::Set => {
+                let text = request
+                    .text
+                    .ok_or_else(|| "clipboard.set requires text.".to_string())?;
+                let text_len = text.chars().count();
+                clipboard
+                    .set_text(text)
+                    .map_err(|e| format!("Failed to set clipboard text: {e}"))?;
+                Ok(MacControlClipboardResult {
+                    op: request.op,
+                    text: None,
+                    text_len,
+                    truncated: false,
+                    changed: true,
+                })
+            }
+            MacControlClipboardOp::Clear => {
+                clipboard
+                    .clear()
+                    .map_err(|e| format!("Failed to clear clipboard: {e}"))?;
+                Ok(MacControlClipboardResult {
+                    op: request.op,
+                    text: None,
+                    text_len: 0,
+                    truncated: false,
+                    changed: true,
+                })
+            }
+        }
+    }
+
+    fn truncate_clipboard_text(text: String, max_chars: usize) -> (String, usize, bool) {
+        let text_len = text.chars().count();
+        if text_len <= max_chars {
+            return (text, text_len, false);
+        }
+        (text.chars().take(max_chars).collect(), text_len, true)
     }
 
     fn handle_dialog(request: MacControlDialogRequest) -> Result<MacControlDialogResult, String> {

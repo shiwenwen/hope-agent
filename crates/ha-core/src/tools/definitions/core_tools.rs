@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,13 +734,13 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions", "snapshot", "wait", "apps", "windows", "act", "menu", "dialog"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, and `dialog` perform desktop operations."
+                        "enum": ["status", "permissions", "snapshot", "wait", "apps", "windows", "act", "menu", "clipboard", "dialog"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
                     },
                     "op": {
                         "type": "string",
-                        "enum": ["present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "click", "click_point", "double_click", "right_click", "type", "set_value", "hotkey", "scroll", "drag", "inspect", "accept", "dismiss"],
-                        "description": "Sub-operation. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `dialog`: inspect|accept|dismiss."
+                        "enum": ["present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "click", "click_point", "double_click", "right_click", "type", "set_value", "hotkey", "scroll", "drag", "get", "set", "clear", "inspect", "accept", "dismiss"],
+                        "description": "Sub-operation. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: inspect|accept|dismiss."
                     },
                     "scope": {
                         "type": "string",
@@ -797,7 +797,13 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "text": {
                         "type": "string",
-                        "description": "For `act.type`: text to set/type. For target matching, use target.text."
+                        "description": "For `act.type`: text to set/type. For `clipboard.set`: text to place on the clipboard; the result does not echo it back. For target matching, use target.text."
+                    },
+                    "maxChars": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20000,
+                        "description": "For `clipboard.get`: maximum returned UTF-8 characters. Defaults to 4000 and is hard-capped at 20000."
                     },
                     "value": {
                         "type": "string",

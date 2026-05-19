@@ -44,7 +44,7 @@ libc = "0.2"
 portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
-# arboard comes in transitively via ha-core's `desktop-tools` feature.
+arboard = "3"
 regex = "1.12.3"
 ignore = "0.4.25"
 glob = "0.3.3"

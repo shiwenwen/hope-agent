@@ -2,7 +2,7 @@
 //!
 //! Exposes status / permissions, Accessibility snapshots, display/window
 //! screenshot frames, wait/target matching, app focus/launch, window operations,
-//! AX-first element actions, dialogs, and menu inspection/clicks.
+//! AX-first element actions, clipboard text, dialogs, and menu inspection/clicks.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -37,6 +37,9 @@ const DEFAULT_WAIT_POLL_MS: u64 = 500;
 const HARD_WAIT_TIMEOUT_MS: u64 = 60_000;
 const MIN_WAIT_POLL_MS: u64 = 100;
 const HARD_WAIT_POLL_MS: u64 = 5_000;
+const DEFAULT_CLIPBOARD_MAX_CHARS: usize = 4_000;
+const HARD_CLIPBOARD_MAX_CHARS: usize = 20_000;
+const HARD_CLIPBOARD_SET_CHARS: usize = 200_000;
 pub const EVENT_MAC_CONTROL_FRAME: &str = "mac_control:frame";
 
 #[async_trait]
@@ -54,6 +57,10 @@ pub trait MacControlBridge: Send + Sync {
     ) -> Result<MacControlWindowsResult, String>;
     async fn act(&self, request: MacControlActRequest) -> Result<MacControlActResult, String>;
     async fn menu(&self, request: MacControlMenuRequest) -> Result<MacControlMenuResult, String>;
+    async fn clipboard(
+        &self,
+        request: MacControlClipboardRequest,
+    ) -> Result<MacControlClipboardResult, String>;
     async fn dialog(
         &self,
         request: MacControlDialogRequest,
@@ -309,6 +316,14 @@ pub struct MacControlMenuResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MacControlClipboardResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlClipboardResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MacControlDialogResponse {
     pub status: MacControlStatus,
     pub result: Option<MacControlDialogResult>,
@@ -335,6 +350,16 @@ pub struct MacControlMenuItemSummary {
     pub enabled: Option<bool>,
     pub actions: Vec<String>,
     pub children: Vec<MacControlMenuItemSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlClipboardResult {
+    pub op: MacControlClipboardOp,
+    pub text: Option<String>,
+    pub text_len: usize,
+    pub truncated: bool,
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -720,6 +745,45 @@ pub enum MacControlMenuScope {
     #[default]
     App,
     System,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlClipboardRequest {
+    #[serde(default)]
+    pub op: MacControlClipboardOp,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default = "default_clipboard_max_chars")]
+    pub max_chars: usize,
+}
+
+impl MacControlClipboardRequest {
+    pub fn clamped(mut self) -> Self {
+        if self.max_chars == 0 {
+            self.max_chars = DEFAULT_CLIPBOARD_MAX_CHARS;
+        }
+        self.max_chars = self.max_chars.min(HARD_CLIPBOARD_MAX_CHARS);
+        if let Some(text) = self.text.as_mut() {
+            if text.chars().count() > HARD_CLIPBOARD_SET_CHARS {
+                *text = text.chars().take(HARD_CLIPBOARD_SET_CHARS).collect();
+            }
+        }
+        self
+    }
+}
+
+fn default_clipboard_max_chars() -> usize {
+    DEFAULT_CLIPBOARD_MAX_CHARS
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlClipboardOp {
+    #[default]
+    Get,
+    Set,
+    Clear,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -1294,6 +1358,45 @@ pub async fn menu(request: MacControlMenuRequest) -> MacControlMenuResponse {
     }
 }
 
+pub async fn clipboard(request: MacControlClipboardRequest) -> MacControlClipboardResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_clipboard_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlClipboardResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if let Some(error) = validate_clipboard_request(&request) {
+        return MacControlClipboardResponse {
+            status,
+            result: None,
+            error: Some(error),
+        };
+    }
+
+    match bridge.clipboard(request).await {
+        Ok(result) => MacControlClipboardResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => {
+            record_error("clipboard", &error);
+            MacControlClipboardResponse {
+                status,
+                result: None,
+                error: Some(error),
+            }
+        }
+    }
+}
+
 pub async fn dialog(request: MacControlDialogRequest) -> MacControlDialogResponse {
     let request = request.clamped();
     let Some(bridge) = available_bridge() else {
@@ -1527,6 +1630,14 @@ pub fn unsupported_menu_response(message: &str) -> MacControlMenuResponse {
     }
 }
 
+pub fn unsupported_clipboard_response(message: &str) -> MacControlClipboardResponse {
+    MacControlClipboardResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
 pub fn unsupported_dialog_response(message: &str) -> MacControlDialogResponse {
     MacControlDialogResponse {
         status: unsupported_status(message),
@@ -1606,6 +1717,13 @@ fn validate_windows_request(request: &MacControlWindowsRequest) -> Option<String
         | MacControlWindowsOp::Focus
         | MacControlWindowsOp::Minimize
         | MacControlWindowsOp::Close => {}
+    }
+    None
+}
+
+fn validate_clipboard_request(request: &MacControlClipboardRequest) -> Option<String> {
+    if request.op == MacControlClipboardOp::Set && request.text.is_none() {
+        return Some("mac_control clipboard.set requires text.".to_string());
     }
     None
 }
@@ -2615,6 +2733,27 @@ mod tests {
             MacControlMenuScope::App
         );
 
+        let clipboard = MacControlClipboardRequest {
+            op: MacControlClipboardOp::Get,
+            max_chars: 0,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(clipboard.max_chars, DEFAULT_CLIPBOARD_MAX_CHARS);
+
+        let big_clipboard = MacControlClipboardRequest {
+            op: MacControlClipboardOp::Get,
+            max_chars: 1_000_000,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(big_clipboard.max_chars, HARD_CLIPBOARD_MAX_CHARS);
+        assert!(validate_clipboard_request(&MacControlClipboardRequest {
+            op: MacControlClipboardOp::Set,
+            ..Default::default()
+        })
+        .is_some());
+
         let dialog = MacControlDialogRequest {
             op: MacControlDialogOp::Accept,
             button_text: Some(" OK ".to_string()),
@@ -2681,6 +2820,11 @@ mod tests {
         assert_eq!(menu.status.readiness, MacControlReadiness::Unsupported);
         assert!(menu.result.is_none());
         assert_eq!(menu.error.as_deref(), Some("no menu bridge"));
+
+        let clipboard = unsupported_clipboard_response("no clipboard bridge");
+        assert_eq!(clipboard.status.readiness, MacControlReadiness::Unsupported);
+        assert!(clipboard.result.is_none());
+        assert_eq!(clipboard.error.as_deref(), Some("no clipboard bridge"));
 
         let dialog = unsupported_dialog_response("no dialog bridge");
         assert_eq!(dialog.status.readiness, MacControlReadiness::Unsupported);
