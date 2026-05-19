@@ -1,6 +1,6 @@
 //! macOS desktop control bridge and readiness model.
 //!
-//! Phase 4 exposes status / permissions, Accessibility snapshots, primary-display
+//! Exposes status / permissions, Accessibility snapshots, display/window
 //! screenshot frames, wait/target matching, app focus/launch, window operations,
 //! AX-first element actions, dialogs, and menu inspection/clicks.
 
@@ -140,6 +140,12 @@ pub struct MacControlPermissionsResponse {
 pub struct MacControlSnapshotRequest {
     #[serde(default)]
     pub include_screenshot: bool,
+    #[serde(default)]
+    pub screenshot_target: MacControlScreenshotTarget,
+    #[serde(default)]
+    pub display_id: Option<u32>,
+    #[serde(default)]
+    pub window_id: Option<String>,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
     #[serde(default = "default_snapshot_max_depth")]
@@ -150,6 +156,9 @@ impl Default for MacControlSnapshotRequest {
     fn default() -> Self {
         Self {
             include_screenshot: false,
+            screenshot_target: MacControlScreenshotTarget::Display,
+            display_id: None,
+            window_id: None,
             max_elements: DEFAULT_SNAPSHOT_MAX_ELEMENTS,
             max_depth: DEFAULT_SNAPSHOT_MAX_DEPTH,
         }
@@ -158,6 +167,7 @@ impl Default for MacControlSnapshotRequest {
 
 impl MacControlSnapshotRequest {
     pub fn clamped(mut self) -> Self {
+        self.window_id = normalize_optional_string(self.window_id);
         if self.max_elements == 0 {
             self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
         }
@@ -168,6 +178,16 @@ impl MacControlSnapshotRequest {
         self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
         self
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlScreenshotTarget {
+    #[serde(alias = "screen")]
+    #[default]
+    Display,
+    #[serde(alias = "frontmost_window")]
+    Window,
 }
 
 fn default_snapshot_max_elements() -> usize {
@@ -429,6 +449,12 @@ pub struct MacControlScreenshotSummary {
     pub path: String,
     pub width_px: u32,
     pub height_px: u32,
+    pub target: MacControlScreenshotTarget,
+    pub display_id: Option<u32>,
+    pub window_id: Option<String>,
+    pub window_title: Option<String>,
+    pub bounds_points: Option<MacControlBounds>,
+    pub scale: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -440,6 +466,12 @@ pub struct MacControlFramePayload {
     pub jpeg_base64: String,
     pub width_px: u32,
     pub height_px: u32,
+    pub target: MacControlScreenshotTarget,
+    pub display_id: Option<u32>,
+    pub window_id: Option<String>,
+    pub window_title: Option<String>,
+    pub bounds_points: Option<MacControlBounds>,
+    pub scale: Option<f64>,
     pub captured_at: i64,
     pub frontmost_app: Option<MacControlAppSummary>,
 }
@@ -984,6 +1016,7 @@ pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
                 include_screenshot: false,
                 max_elements: request.max_elements,
                 max_depth: request.max_depth,
+                ..Default::default()
             })
             .await
         {
@@ -1347,6 +1380,12 @@ pub fn store_screenshot_jpeg(
         path: path.display().to_string(),
         width_px,
         height_px,
+        target: MacControlScreenshotTarget::Display,
+        display_id: None,
+        window_id: None,
+        window_title: None,
+        bounds_points: None,
+        scale: None,
     })
 }
 
@@ -2249,12 +2288,53 @@ mod tests {
             include_screenshot: true,
             max_elements: 10_000,
             max_depth: 100,
+            ..Default::default()
         }
         .clamped();
 
         assert!(request.include_screenshot);
         assert_eq!(request.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(request.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
+    }
+
+    #[test]
+    fn snapshot_request_normalizes_screenshot_target_fields() {
+        let request = MacControlSnapshotRequest {
+            include_screenshot: true,
+            screenshot_target: MacControlScreenshotTarget::Window,
+            window_id: Some(" win_2 ".to_string()),
+            display_id: Some(42),
+            ..Default::default()
+        }
+        .clamped();
+
+        assert!(request.include_screenshot);
+        assert_eq!(
+            request.screenshot_target,
+            MacControlScreenshotTarget::Window
+        );
+        assert_eq!(request.window_id.as_deref(), Some("win_2"));
+        assert_eq!(request.display_id, Some(42));
+    }
+
+    #[test]
+    fn snapshot_request_accepts_screenshot_target_aliases() {
+        let screen: MacControlSnapshotRequest = serde_json::from_value(serde_json::json!({
+            "includeScreenshot": true,
+            "screenshotTarget": "screen"
+        }))
+        .unwrap();
+        let window: MacControlSnapshotRequest = serde_json::from_value(serde_json::json!({
+            "includeScreenshot": true,
+            "screenshotTarget": "frontmost_window"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            screen.screenshot_target,
+            MacControlScreenshotTarget::Display
+        );
+        assert_eq!(window.screenshot_target, MacControlScreenshotTarget::Window);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Desktop macOS control bridge.
 //!
-//! Phase 4 registers the authorized desktop process and exposes Accessibility
-//! snapshots, primary-display JPEG frames, app launch/focus, window operations,
+//! Registers the authorized desktop process and exposes Accessibility
+//! snapshots, display/window JPEG frames, app launch/focus, window operations,
 //! AX-first element actions, dialogs, and menu inspection/clicks.
 
 #[cfg(target_os = "macos")]
@@ -26,10 +26,10 @@ mod imp {
         MacControlDialogResult, MacControlDialogSummary, MacControlDisplaySummary,
         MacControlElementSummary, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
-        MacControlRunningApp, MacControlScreenshotSummary, MacControlSnapshot,
-        MacControlSnapshotRequest, MacControlStringMatch, MacControlTargetQuery,
-        MacControlWindowSummary, MacControlWindowsOp, MacControlWindowsRequest,
-        MacControlWindowsResult,
+        MacControlRunningApp, MacControlScreenshotSummary, MacControlScreenshotTarget,
+        MacControlSnapshot, MacControlSnapshotRequest, MacControlStringMatch,
+        MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
+        MacControlWindowsRequest, MacControlWindowsResult,
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
@@ -38,7 +38,7 @@ mod imp {
         NSWorkspace,
     };
     use objc2_foundation::{NSBundle, NSString};
-    use xcap::Monitor;
+    use xcap::{Monitor, Window};
 
     struct TauriMacControlBridge;
 
@@ -273,6 +273,12 @@ mod imp {
         jpeg: Vec<u8>,
         width_px: u32,
         height_px: u32,
+        target: MacControlScreenshotTarget,
+        display_id: Option<u32>,
+        window_id: Option<String>,
+        window_title: Option<String>,
+        bounds_points: Option<MacControlBounds>,
+        scale: Option<f64>,
     }
 
     fn capture_ax_snapshot(
@@ -293,20 +299,6 @@ mod imp {
         match display_summaries() {
             Ok(displays) => snapshot.displays = displays,
             Err(error) => snapshot.warnings.push(error),
-        }
-        if request.include_screenshot {
-            match capture_desktop_frame_with_id(
-                &snapshot.snapshot_id,
-                snapshot.frontmost_app.clone(),
-            ) {
-                Ok((frame, screenshot)) => {
-                    snapshot.screenshot = Some(screenshot);
-                    ha_core::mac_control::emit_frame(&frame);
-                }
-                Err(error) => snapshot.warnings.push(format!(
-                    "Screenshot capture failed; returning AX-only snapshot: {error}"
-                )),
-            }
         }
 
         let mut state = CaptureState {
@@ -340,6 +332,17 @@ mod imp {
                 "AX snapshot was truncated; increase maxElements/maxDepth for more context."
                     .to_string(),
             );
+        }
+        if request.include_screenshot {
+            match capture_desktop_frame_with_id(&snapshot, &request) {
+                Ok((frame, screenshot)) => {
+                    snapshot.screenshot = Some(screenshot);
+                    ha_core::mac_control::emit_frame(&frame);
+                }
+                Err(error) => snapshot.warnings.push(format!(
+                    "Screenshot capture failed; returning AX-only snapshot: {error}"
+                )),
+            }
         }
         Ok(snapshot)
     }
@@ -468,6 +471,7 @@ mod imp {
             include_screenshot: false,
             max_elements: request.max_elements,
             max_depth: request.max_depth,
+            ..Default::default()
         })?;
         let mut windows = snapshot.windows.clone();
         let mut execution = None;
@@ -699,6 +703,7 @@ mod imp {
             include_screenshot: false,
             max_elements: request.max_elements,
             max_depth: request.max_depth,
+            ..Default::default()
         })
         .ok();
         Ok(MacControlActResult {
@@ -738,6 +743,7 @@ mod imp {
             include_screenshot: false,
             max_elements: request.max_elements,
             max_depth: request.max_depth,
+            ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, &request.target) {
             return Err("Frontmost app did not match the dialog target.".to_string());
@@ -1743,6 +1749,7 @@ mod imp {
             include_screenshot: false,
             max_elements,
             max_depth,
+            ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, target) {
             return Err("Frontmost app did not match the act target.".to_string());
@@ -1767,6 +1774,7 @@ mod imp {
             include_screenshot: false,
             max_elements,
             max_depth,
+            ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, target) {
             return Err("Frontmost app did not match the act.type target.".to_string());
@@ -2778,7 +2786,7 @@ mod imp {
     fn capture_desktop_frame() -> Result<MacControlFramePayload, String> {
         let snapshot_id = ha_core::mac_control::new_snapshot_id();
         let frontmost_app = focused_app_summary();
-        let captured = capture_desktop_frame_bytes()?;
+        let captured = capture_display_frame_bytes(None)?;
         Ok(build_frame_payload(
             &snapshot_id,
             frontmost_app,
@@ -2788,30 +2796,106 @@ mod imp {
     }
 
     fn capture_desktop_frame_with_id(
-        snapshot_id: &str,
-        frontmost_app: Option<MacControlAppSummary>,
+        snapshot: &MacControlSnapshot,
+        request: &MacControlSnapshotRequest,
     ) -> Result<(MacControlFramePayload, MacControlScreenshotSummary), String> {
-        let captured = capture_desktop_frame_bytes()?;
-        let screenshot = ha_core::mac_control::store_screenshot_jpeg(
-            snapshot_id,
+        let captured = match request.screenshot_target {
+            MacControlScreenshotTarget::Display => capture_display_frame_bytes(request.display_id)?,
+            MacControlScreenshotTarget::Window => {
+                capture_window_frame_bytes(request.window_id.as_deref(), snapshot)?
+            }
+        };
+        let mut screenshot = ha_core::mac_control::store_screenshot_jpeg(
+            &snapshot.snapshot_id,
             &captured.jpeg,
             captured.width_px,
             captured.height_px,
         )?;
-        let frame = build_frame_payload(snapshot_id, frontmost_app, &captured, Some(&screenshot));
+        apply_capture_metadata_to_screenshot(&mut screenshot, &captured);
+        let frame = build_frame_payload(
+            &snapshot.snapshot_id,
+            snapshot.frontmost_app.clone(),
+            &captured,
+            Some(&screenshot),
+        );
         Ok((frame, screenshot))
     }
 
-    fn capture_desktop_frame_bytes() -> Result<CapturedDesktopFrame, String> {
+    fn capture_display_frame_bytes(
+        display_id: Option<u32>,
+    ) -> Result<CapturedDesktopFrame, String> {
         let monitors = Monitor::all().map_err(|e| format!("Failed to list macOS displays: {e}"))?;
-        let monitor = monitors
-            .iter()
-            .find(|monitor| monitor.is_primary().unwrap_or(false))
-            .or_else(|| monitors.first())
-            .ok_or_else(|| "No macOS displays detected.".to_string())?;
+        let monitor = if let Some(display_id) = display_id {
+            monitors
+                .iter()
+                .find(|monitor| monitor.id().ok() == Some(display_id))
+                .ok_or_else(|| format!("Display id {display_id} was not found."))?
+        } else {
+            monitors
+                .iter()
+                .find(|monitor| monitor.is_primary().unwrap_or(false))
+                .or_else(|| monitors.first())
+                .ok_or_else(|| "No macOS displays detected.".to_string())?
+        };
+        let display = monitor_display_summary(monitor);
         let rgba_image = monitor.capture_image().map_err(|e| {
             format!("Desktop capture failed; Screen Recording permission may be missing: {e}")
         })?;
+        let (jpeg, width_px, height_px) = encode_rgba_as_jpeg(rgba_image, "macOS display frame")?;
+        Ok(CapturedDesktopFrame {
+            jpeg,
+            width_px,
+            height_px,
+            target: MacControlScreenshotTarget::Display,
+            display_id: display.as_ref().map(|display| display.id),
+            window_id: None,
+            window_title: None,
+            bounds_points: display.as_ref().map(|display| display.frame_points),
+            scale: display.as_ref().map(|display| display.scale),
+        })
+    }
+
+    fn capture_window_frame_bytes(
+        window_id: Option<&str>,
+        snapshot: &MacControlSnapshot,
+    ) -> Result<CapturedDesktopFrame, String> {
+        let summary = select_snapshot_window_for_capture(window_id, snapshot)?;
+        let window = find_xcap_window_for_summary(summary)?;
+        let display = display_for_window(summary, snapshot).or_else(|| {
+            window
+                .current_monitor()
+                .ok()
+                .and_then(|monitor| monitor_display_summary(&monitor))
+        });
+        let rgba_image = window.capture_image().map_err(|e| {
+            format!(
+                "Window capture failed for {}{}; Screen Recording permission may be missing: {e}",
+                summary.id,
+                summary
+                    .title
+                    .as_deref()
+                    .map(|title| format!(" ({title})"))
+                    .unwrap_or_default()
+            )
+        })?;
+        let (jpeg, width_px, height_px) = encode_rgba_as_jpeg(rgba_image, "macOS window frame")?;
+        Ok(CapturedDesktopFrame {
+            jpeg,
+            width_px,
+            height_px,
+            target: MacControlScreenshotTarget::Window,
+            display_id: display.as_ref().map(|display| display.id),
+            window_id: Some(summary.id.clone()),
+            window_title: summary.title.clone(),
+            bounds_points: summary.bounds_points,
+            scale: display.as_ref().map(|display| display.scale),
+        })
+    }
+
+    fn encode_rgba_as_jpeg(
+        rgba_image: image::RgbaImage,
+        label: &str,
+    ) -> Result<(Vec<u8>, u32, u32), String> {
         let width_px = rgba_image.width();
         let height_px = rgba_image.height();
         let rgb_image = image::DynamicImage::ImageRgba8(rgba_image).to_rgb8();
@@ -2819,13 +2903,9 @@ mod imp {
         let mut encoder = JpegEncoder::new_with_quality(&mut jpeg, 70);
         encoder
             .encode_image(&rgb_image)
-            .map_err(|e| format!("Failed to encode macOS frame as JPEG: {e}"))?;
+            .map_err(|e| format!("Failed to encode {label} as JPEG: {e}"))?;
 
-        Ok(CapturedDesktopFrame {
-            jpeg,
-            width_px,
-            height_px,
-        })
+        Ok((jpeg, width_px, height_px))
     }
 
     fn build_frame_payload(
@@ -2843,9 +2923,175 @@ mod imp {
             jpeg_base64,
             width_px: captured.width_px,
             height_px: captured.height_px,
+            target: captured.target,
+            display_id: captured.display_id,
+            window_id: captured.window_id.clone(),
+            window_title: captured.window_title.clone(),
+            bounds_points: captured.bounds_points,
+            scale: captured.scale,
             captured_at: chrono::Utc::now().timestamp_millis(),
             frontmost_app,
         }
+    }
+
+    fn apply_capture_metadata_to_screenshot(
+        screenshot: &mut MacControlScreenshotSummary,
+        captured: &CapturedDesktopFrame,
+    ) {
+        screenshot.target = captured.target;
+        screenshot.display_id = captured.display_id;
+        screenshot.window_id = captured.window_id.clone();
+        screenshot.window_title = captured.window_title.clone();
+        screenshot.bounds_points = captured.bounds_points;
+        screenshot.scale = captured.scale;
+    }
+
+    fn select_snapshot_window_for_capture<'a>(
+        window_id: Option<&str>,
+        snapshot: &'a MacControlSnapshot,
+    ) -> Result<&'a MacControlWindowSummary, String> {
+        if let Some(window_id) = window_id {
+            return snapshot
+                .windows
+                .iter()
+                .find(|window| window.id == window_id)
+                .ok_or_else(|| {
+                    format!(
+                        "Snapshot window id '{window_id}' was not found; retry with a fresh snapshot."
+                    )
+                });
+        }
+        snapshot
+            .windows
+            .iter()
+            .find(|window| window.focused)
+            .or_else(|| {
+                snapshot
+                    .windows
+                    .iter()
+                    .find(|window| window.bounds_points.is_some())
+            })
+            .ok_or_else(|| {
+                "No frontmost window is available for window screenshot capture.".to_string()
+            })
+    }
+
+    fn find_xcap_window_for_summary(summary: &MacControlWindowSummary) -> Result<Window, String> {
+        let windows =
+            Window::all().map_err(|e| format!("Failed to list capturable windows: {e}"))?;
+        let mut best: Option<(i64, Window)> = None;
+        for window in windows {
+            let Some(score) = xcap_window_score(&window, summary) else {
+                continue;
+            };
+            if best
+                .as_ref()
+                .is_none_or(|(best_score, _)| score > *best_score)
+            {
+                best = Some((score, window));
+            }
+        }
+        best.map(|(_, window)| window).ok_or_else(|| {
+            format!(
+                "Unable to match AX window '{}'{} to a capturable macOS window.",
+                summary.id,
+                summary
+                    .title
+                    .as_deref()
+                    .map(|title| format!(" ({title})"))
+                    .unwrap_or_default()
+            )
+        })
+    }
+
+    fn xcap_window_score(window: &Window, summary: &MacControlWindowSummary) -> Option<i64> {
+        let mut score = 0_i64;
+        if let Some(pid) = summary.app_pid {
+            let window_pid = window.pid().ok()?;
+            if window_pid != pid as u32 {
+                return None;
+            }
+            score += 1_000;
+        }
+
+        let window_title = window.title().unwrap_or_default();
+        if let Some(expected_title) = summary.title.as_deref().filter(|title| !title.is_empty()) {
+            if window_title.eq_ignore_ascii_case(expected_title) {
+                score += 300;
+            } else if !window_title.is_empty()
+                && (contains_ci(Some(&window_title), Some(expected_title))
+                    || contains_ci(Some(expected_title), Some(&window_title)))
+            {
+                score += 120;
+            } else if summary.app_pid.is_none() {
+                return None;
+            }
+        }
+
+        if let Some(expected_bounds) = summary.bounds_points {
+            if let Some(actual_bounds) = xcap_window_bounds(window) {
+                let distance = bounds_distance(expected_bounds, actual_bounds).round() as i64;
+                if distance <= 12 {
+                    score += 240;
+                } else if distance <= 80 {
+                    score += 120_i64.saturating_sub(distance);
+                } else if summary.app_pid.is_none()
+                    && summary.title.as_deref().is_none_or(str::is_empty)
+                {
+                    return None;
+                }
+            }
+        }
+
+        (score > 0).then_some(score)
+    }
+
+    fn xcap_window_bounds(window: &Window) -> Option<MacControlBounds> {
+        Some(MacControlBounds {
+            x: f64::from(window.x().ok()?),
+            y: f64::from(window.y().ok()?),
+            width: f64::from(window.width().ok()?),
+            height: f64::from(window.height().ok()?),
+        })
+    }
+
+    fn bounds_distance(a: MacControlBounds, b: MacControlBounds) -> f64 {
+        (a.x - b.x).abs()
+            + (a.y - b.y).abs()
+            + (a.width - b.width).abs()
+            + (a.height - b.height).abs()
+    }
+
+    fn display_for_window(
+        window: &MacControlWindowSummary,
+        snapshot: &MacControlSnapshot,
+    ) -> Option<MacControlDisplaySummary> {
+        let bounds = window.bounds_points?;
+        let center_x = bounds.x + bounds.width / 2.0;
+        let center_y = bounds.y + bounds.height / 2.0;
+        snapshot
+            .displays
+            .iter()
+            .find(|display| point_in_bounds(center_x, center_y, display.frame_points))
+            .cloned()
+            .or_else(|| {
+                snapshot
+                    .displays
+                    .iter()
+                    .find(|display| bounds_intersect(bounds, display.frame_points))
+                    .cloned()
+            })
+    }
+
+    fn point_in_bounds(x: f64, y: f64, bounds: MacControlBounds) -> bool {
+        x >= bounds.x
+            && y >= bounds.y
+            && x <= bounds.x + bounds.width
+            && y <= bounds.y + bounds.height
+    }
+
+    fn bounds_intersect(a: MacControlBounds, b: MacControlBounds) -> bool {
+        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
     }
 
     fn display_summaries() -> Result<Vec<MacControlDisplaySummary>, String> {

@@ -14,6 +14,13 @@ interface MacControlAppSummary {
   name?: string | null
 }
 
+interface MacControlBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface MacControlFramePayload {
   snapshotId: string
   mediaId?: string | null
@@ -21,6 +28,12 @@ interface MacControlFramePayload {
   jpegBase64: string
   widthPx: number
   heightPx: number
+  target?: "display" | "window"
+  displayId?: number | null
+  windowId?: string | null
+  windowTitle?: string | null
+  boundsPoints?: MacControlBounds | null
+  scale?: number | null
   capturedAt: number
   frontmostApp?: MacControlAppSummary | null
 }

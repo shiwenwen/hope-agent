@@ -58,6 +58,13 @@ wait or snapshot                       # verify the expected change
 - For `windows.close`, avoid generic titles like `Untitled` / `未命名` when multiple similar windows exist. Use `windowId`.
 - Hope Agent's own window cannot be mutated through the Accessibility worker; if the target is Hope Agent itself, explain the limitation.
 
+### Screenshots
+
+- Use `snapshot includeScreenshot=true` when visual context matters.
+- Default screenshots capture the primary display. Use `displayId` from `snapshot.displays` when the user points at a specific monitor.
+- For a focused-window image, use `snapshot includeScreenshot=true screenshotTarget="window"`. Pass `windowId` from the latest snapshot/list when several windows are possible.
+- Window screenshot matching uses the current AX window state; if it fails, take a fresh snapshot and retry with a precise `windowId`.
+
 ### Elements and Text
 
 - `act.click` is for AX targets only. It requires `target` and should not consume raw `x/y`.
