@@ -275,6 +275,7 @@ pub struct MacControlWindowsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MacControlWindowsResult {
     pub op: MacControlWindowsOp,
+    pub window_scope: MacControlWindowsScope,
     pub frontmost_app: Option<MacControlAppSummary>,
     pub windows: Vec<MacControlWindowSummary>,
     pub acted_window: Option<MacControlWindowSummary>,
@@ -551,6 +552,8 @@ pub struct MacControlWindowsRequest {
     #[serde(default)]
     pub op: MacControlWindowsOp,
     #[serde(default)]
+    pub window_scope: MacControlWindowsScope,
+    #[serde(default)]
     pub target: MacControlTargetQuery,
     #[serde(default)]
     pub window_id: Option<String>,
@@ -594,6 +597,14 @@ pub enum MacControlWindowsOp {
     Resize,
     Minimize,
     Close,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlWindowsScope {
+    #[default]
+    Frontmost,
+    All,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -2464,6 +2475,7 @@ mod tests {
     #[test]
     fn phase3_requests_normalize_and_validate() {
         let windows = MacControlWindowsRequest {
+            window_scope: MacControlWindowsScope::All,
             target: MacControlTargetQuery {
                 window_title: Some(" Notes ".to_string()),
                 ..Default::default()
@@ -2474,7 +2486,12 @@ mod tests {
         }
         .clamped();
         assert!(windows_request_has_target(&windows));
+        assert_eq!(windows.window_scope, MacControlWindowsScope::All);
         assert_eq!(windows.target.window_title.as_deref(), Some("Notes"));
+        assert_eq!(
+            MacControlWindowsRequest::default().window_scope,
+            MacControlWindowsScope::Frontmost
+        );
         let close_window = MacControlWindowsRequest {
             op: MacControlWindowsOp::Close,
             target: MacControlTargetQuery {

@@ -55,6 +55,8 @@ wait or snapshot                       # verify the expected change
 ### Windows
 
 - Use `windows.list` before `windows.close`, `move`, `resize`, or `minimize` unless the user supplied an exact `windowId`.
+- `windowScope` defaults to `frontmost`. Use `windows.list windowScope="all"` to discover background app windows before activating or focusing them.
+- Prefer all-scope ids like `win_<pid>_<index>` for cross-app window mutations; they are safer than generic titles.
 - For `windows.close`, avoid generic titles like `Untitled` / `未命名` when multiple similar windows exist. Use `windowId`.
 - Hope Agent's own window cannot be mutated through the Accessibility worker; if the target is Hope Agent itself, explain the limitation.
 

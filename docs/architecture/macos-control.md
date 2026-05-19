@@ -178,7 +178,7 @@ readiness 计算规则：
 | `apps.activate` | `pid` / `bundleId` / `appName` 之一 | 激活已运行 App |
 | `apps.launch` | `bundleId` / `appName` 之一 | 启动已安装 App |
 | `apps.quit` | `pid` / `bundleId` / `appName` 之一 | 请求目标 App 正常退出；高风险 |
-| `windows.list` | - | 只读当前前台 App 窗口 |
+| `windows.list` | - | 只读窗口列表；`windowScope=frontmost` 为前台 App，`windowScope=all` 为所有运行中 App |
 | `windows.focus` | `windowId` / `target.windowTitle` 之一 | 聚焦窗口 |
 | `windows.move` | `windowId` / `target.windowTitle` 之一，`x`，`y` | 移动窗口到 macOS point 坐标 |
 | `windows.resize` | `windowId` / `target.windowTitle` 之一，`width`，`height` | 调整窗口大小 |
@@ -207,6 +207,7 @@ readiness 计算规则：
 - `appNameMatch` 默认为 `exact`；只有显式传 `contains` 才允许包含匹配。
 - `target.windowTitleMatch` 默认为 `exact`；只有显式传 `contains` 才允许包含匹配。
 - `snapshot.includeScreenshot=true` 时，`screenshotTarget` 默认为 `display`；传 `displayId` 可指定 `snapshot.displays[].id`；传 `screenshotTarget="window"` 可截图当前前台窗口，传 `windowId` 可指定当前 snapshot 中的窗口。
+- `windows.windowScope` 默认为 `frontmost`；传 `all` 会返回所有运行中 App 的窗口，并生成 `win_<pid>_<index>` 形式的跨 App window id。
 - `menu.scope` 默认为 `app`；`system` 只访问 macOS 菜单栏 extras/status items，不回退到前台 App 菜单。
 - 合法坐标 `0` 不能被全局吞掉；裸坐标点击只能通过 `act.click_point` 表达。
 
@@ -294,6 +295,8 @@ readiness 计算规则：
 
 窗口操作规则：
 
+- `windows.list` 默认只列前台 App；需要发现后台窗口时传 `windowScope=all`，可再结合 `target.appName` / `target.bundleId` / `target.windowTitle` 过滤。
+- `windowScope=all` 返回的 `win_<pid>_<index>` 可直接用于 `windows.focus/move/resize/minimize/close`。
 - `windows.move/resize/minimize/close` 只作用于外部 App 窗口。
 - 命中 Hope Agent 自己的窗口时拒绝，避免在非主线程触发 AppKit 崩溃。
 - `windows.close` 属于高风险动作，审批中禁用 AllowAlways。

@@ -480,6 +480,15 @@ mod tests {
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
         assert_eq!(menu_scopes, vec!["app", "system"]);
+        let window_scopes = def
+            .parameters
+            .pointer("/properties/windowScope/enum")
+            .and_then(|v| v.as_array())
+            .expect("window scope enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(window_scopes, vec!["frontmost", "all"]);
 
         let f = Fixture::new();
         assert_eq!(

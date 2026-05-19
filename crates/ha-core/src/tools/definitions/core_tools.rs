@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` click/click_point/double_click/right_click/type/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, and `dialog` inspect/accept/dismiss. Prefer snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -746,6 +746,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "enum": ["app", "system"],
                         "description": "For `menu`: menu surface to inspect/click. Defaults to `app` for the frontmost app menu bar. Use `system` for macOS menu bar extras/status items."
+                    },
+                    "windowScope": {
+                        "type": "string",
+                        "enum": ["frontmost", "all"],
+                        "description": "For `windows.list` and window resolution. Defaults to `frontmost`. Use `all` to list windows from all running apps; all-scope window ids have the form win_<pid>_<index> and can be reused for window mutations."
                     },
                     "appName": {
                         "type": "string",
@@ -772,7 +777,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "windowId": {
                         "type": "string",
-                        "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1. Prefer target.windowTitle when possible. For `snapshot` window screenshots: capture this AX window id; omit to capture the focused/frontmost window."
+                        "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1 or all-scope win_<pid>_<index>. Prefer all-scope ids when operating background app windows. For `snapshot` window screenshots: capture this AX window id; omit to capture the focused/frontmost window."
                     },
                     "x": {
                         "type": "number",

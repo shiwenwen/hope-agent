@@ -29,7 +29,7 @@ mod imp {
         MacControlMenuScope, MacControlRunningApp, MacControlScreenshotSummary,
         MacControlScreenshotTarget, MacControlSnapshot, MacControlSnapshotRequest,
         MacControlStringMatch, MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
-        MacControlWindowsRequest, MacControlWindowsResult,
+        MacControlWindowsRequest, MacControlWindowsResult, MacControlWindowsScope,
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
@@ -173,6 +173,7 @@ mod imp {
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+        fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
         fn AXUIElementCopyAttributeValue(
             element: AXUIElementRef,
             attribute: CFStringRef,
@@ -467,13 +468,8 @@ mod imp {
         request: MacControlWindowsRequest,
     ) -> Result<MacControlWindowsResult, String> {
         let request = request.clamped();
-        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
-            include_screenshot: false,
-            max_elements: request.max_elements,
-            max_depth: request.max_depth,
-            ..Default::default()
-        })?;
-        let mut windows = snapshot.windows.clone();
+        let frontmost_app = focused_app_summary();
+        let mut windows = list_windows_for_request(&request)?;
         let mut execution = None;
         let acted_window = if request.op == MacControlWindowsOp::List {
             None
@@ -516,6 +512,12 @@ mod imp {
                     set_ax_bool(window.as_ptr() as AXUIElementRef, "AXMinimized", true)?;
                 }
                 MacControlWindowsOp::Close => {
+                    let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+                        include_screenshot: false,
+                        max_elements: request.max_elements,
+                        max_depth: request.max_depth,
+                        ..Default::default()
+                    })?;
                     execution = Some(close_window(
                         window.as_ptr() as AXUIElementRef,
                         &summary,
@@ -538,11 +540,102 @@ mod imp {
         }
         Ok(MacControlWindowsResult {
             op: request.op,
-            frontmost_app: snapshot.frontmost_app,
+            window_scope: request.window_scope,
+            frontmost_app,
             windows,
             acted_window,
             execution,
         })
+    }
+
+    fn list_windows_for_request(
+        request: &MacControlWindowsRequest,
+    ) -> Result<Vec<MacControlWindowSummary>, String> {
+        let windows = match request.window_scope {
+            MacControlWindowsScope::Frontmost => frontmost_window_summaries()?,
+            MacControlWindowsScope::All => all_window_summaries(&request.target)?,
+        };
+        if request
+            .window_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            || request
+                .target
+                .window_title
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
+        {
+            Ok(windows
+                .into_iter()
+                .filter(|window| window_matches_request(window, request))
+                .collect())
+        } else {
+            Ok(windows)
+        }
+    }
+
+    fn frontmost_window_summaries() -> Result<Vec<MacControlWindowSummary>, String> {
+        let app = focused_app_element()?;
+        let pid = ax_pid(app.as_ptr() as AXUIElementRef);
+        let windows = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows")
+            .ok_or_else(|| "Focused app does not expose AXWindows.".to_string())?;
+        Ok(cf_array_values(windows.as_ptr())
+            .into_iter()
+            .enumerate()
+            .map(|(idx, window_ref)| {
+                window_summary_for_app(
+                    window_ref as AXUIElementRef,
+                    &format!("win_{}", idx + 1),
+                    pid,
+                )
+            })
+            .collect())
+    }
+
+    fn all_window_summaries(
+        target: &MacControlTargetQuery,
+    ) -> Result<Vec<MacControlWindowSummary>, String> {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let mut running = workspace.runningApplications().to_vec();
+        if let Some(frontmost) = workspace.frontmostApplication() {
+            if running
+                .iter()
+                .all(|app| app.processIdentifier() != frontmost.processIdentifier())
+            {
+                running.insert(0, frontmost);
+            }
+        }
+
+        let mut seen = BTreeSet::new();
+        let mut windows = Vec::new();
+        for app in running {
+            let summary = running_app_summary(&app);
+            if !seen.insert(summary.pid) {
+                continue;
+            }
+            if target_has_app_filter(target)
+                && !running_app_summary_matches_target(&summary, target)
+            {
+                continue;
+            }
+            let Some(app_element) = app_element_for_pid(summary.pid) else {
+                continue;
+            };
+            let Some(ax_windows) =
+                copy_attribute(app_element.as_ptr() as AXUIElementRef, "AXWindows")
+            else {
+                continue;
+            };
+            for (idx, window_ref) in cf_array_values(ax_windows.as_ptr()).into_iter().enumerate() {
+                let id = format!("win_{}_{}", summary.pid, idx + 1);
+                windows.push(window_summary_for_app(
+                    window_ref as AXUIElementRef,
+                    &id,
+                    Some(summary.pid),
+                ));
+            }
+        }
+        Ok(windows)
     }
 
     fn ensure_external_window_mutation(
@@ -1721,24 +1814,106 @@ mod imp {
     fn resolve_window(
         request: &MacControlWindowsRequest,
     ) -> Result<(CfOwned, MacControlWindowSummary), String> {
+        let candidates = window_candidate_apps(request)?;
+        let mut matches = Vec::new();
+        for candidate in candidates {
+            let Some(windows) =
+                copy_attribute(candidate.element.as_ptr() as AXUIElementRef, "AXWindows")
+            else {
+                continue;
+            };
+            for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
+                let id = if candidate.all_scope_ids {
+                    format!("win_{}_{}", candidate.pid, idx + 1)
+                } else {
+                    format!("win_{}", idx + 1)
+                };
+                let summary =
+                    window_summary_for_app(window_ref as AXUIElementRef, &id, Some(candidate.pid));
+                if window_matches_request(&summary, request) {
+                    let retained = unsafe { CFRetain(window_ref as CFTypeRef) };
+                    let window = CfOwned::new(retained)
+                        .ok_or_else(|| "Unable to retain matched AX window.".to_string())?;
+                    matches.push((window, summary));
+                }
+            }
+        }
+        match matches.len() {
+            0 => Err("No macOS window matched the request.".to_string()),
+            1 => Ok(matches.remove(0)),
+            count => Err(format!(
+                "{count} macOS windows matched the request; retry with a precise windowId or app target."
+            )),
+        }
+    }
+
+    struct WindowCandidateApp {
+        element: CfOwned,
+        pid: i32,
+        all_scope_ids: bool,
+    }
+
+    fn window_candidate_apps(
+        request: &MacControlWindowsRequest,
+    ) -> Result<Vec<WindowCandidateApp>, String> {
+        if let Some(pid) = window_id_all_scope_pid(request.window_id.as_deref()) {
+            let element = app_element_for_pid(pid).ok_or_else(|| {
+                format!("Unable to create Accessibility app element for pid {pid}.")
+            })?;
+            return Ok(vec![WindowCandidateApp {
+                element,
+                pid,
+                all_scope_ids: true,
+            }]);
+        }
+
+        if request.window_scope == MacControlWindowsScope::All
+            || target_has_app_filter(&request.target)
+        {
+            return all_window_candidate_apps(&request.target);
+        }
+
         let app = focused_app_element()?;
         let summary = app_summary(app.as_ptr() as AXUIElementRef);
         if !app_matches_target(&summary, &request.target) {
             return Err("Frontmost app did not match the windows target.".to_string());
         }
-        let windows = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows")
-            .ok_or_else(|| "Focused app does not expose AXWindows.".to_string())?;
-        for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
-            let id = format!("win_{}", idx + 1);
-            let summary = window_summary(window_ref as AXUIElementRef, &id);
-            if window_matches_request(&summary, request) {
-                let retained = unsafe { CFRetain(window_ref as CFTypeRef) };
-                let window = CfOwned::new(retained)
-                    .ok_or_else(|| "Unable to retain matched AX window.".to_string())?;
-                return Ok((window, summary));
+        Ok(vec![WindowCandidateApp {
+            element: app,
+            pid: summary.pid,
+            all_scope_ids: false,
+        }])
+    }
+
+    fn all_window_candidate_apps(
+        target: &MacControlTargetQuery,
+    ) -> Result<Vec<WindowCandidateApp>, String> {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let mut seen = BTreeSet::new();
+        let mut candidates = Vec::new();
+        for app in workspace.runningApplications().to_vec() {
+            let summary = running_app_summary(&app);
+            if !seen.insert(summary.pid) {
+                continue;
+            }
+            if target_has_app_filter(target)
+                && !running_app_summary_matches_target(&summary, target)
+            {
+                continue;
+            }
+            if let Some(element) = app_element_for_pid(summary.pid) {
+                candidates.push(WindowCandidateApp {
+                    element,
+                    pid: summary.pid,
+                    all_scope_ids: true,
+                });
             }
         }
-        Err("No frontmost-app window matched the request.".to_string())
+        if candidates.is_empty() {
+            Err("No running macOS app matched the windows target.".to_string())
+        } else {
+            Ok(candidates)
+        }
     }
 
     fn window_matches_request(
@@ -1749,11 +1924,43 @@ mod imp {
             .window_id
             .as_deref()
             .filter(|query| !query.is_empty())
-            .is_some_and(|query| query != window.id)
+            .is_some_and(|query| !window_id_matches(query, &window.id))
         {
             return false;
         }
         window_title_matches(window.title.as_deref(), &request.target)
+    }
+
+    fn window_id_matches(query: &str, actual: &str) -> bool {
+        if query == actual {
+            return true;
+        }
+        let Some(query_idx) = legacy_window_id_index(query) else {
+            return false;
+        };
+        all_scope_window_id_parts(actual).is_some_and(|(_, actual_idx)| actual_idx == query_idx)
+    }
+
+    fn legacy_window_id_index(value: &str) -> Option<usize> {
+        let mut parts = value.split('_');
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some("win"), Some(idx), None) => idx.parse::<usize>().ok(),
+            _ => None,
+        }
+    }
+
+    fn window_id_all_scope_pid(value: Option<&str>) -> Option<i32> {
+        value.and_then(|value| all_scope_window_id_parts(value).map(|(pid, _)| pid))
+    }
+
+    fn all_scope_window_id_parts(value: &str) -> Option<(i32, usize)> {
+        let mut parts = value.split('_');
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some("win"), Some(pid), Some(idx), None) => {
+                Some((pid.parse::<i32>().ok()?, idx.parse::<usize>().ok()?))
+            }
+            _ => None,
+        }
     }
 
     fn resolve_element(
@@ -1838,6 +2045,29 @@ mod imp {
             return contains_ci(app.bundle_id.as_deref(), Some(bundle_id));
         }
         true
+    }
+
+    fn running_app_summary_matches_target(
+        app: &MacControlRunningApp,
+        target: &MacControlTargetQuery,
+    ) -> bool {
+        let app = MacControlAppSummary {
+            pid: app.pid,
+            bundle_id: app.bundle_id.clone(),
+            name: app.name.clone(),
+        };
+        app_matches_target(&app, target)
+    }
+
+    fn target_has_app_filter(target: &MacControlTargetQuery) -> bool {
+        target
+            .app_name
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            || target
+                .bundle_id
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
     }
 
     fn text_element_matches_query(
@@ -2262,9 +2492,13 @@ mod imp {
         if let Ok(method) = press_window_close_button(window, summary) {
             return Ok(method);
         }
-        let Some(app) = snapshot.frontmost_app.as_ref() else {
+        let app = summary
+            .app_pid
+            .and_then(app_summary_for_pid)
+            .or_else(|| snapshot.frontmost_app.clone());
+        let Some(app) = app.as_ref() else {
             return Err(
-                "AXClose and close-button fallback failed; no frontmost app was available for Apple Events fallback."
+                "AXClose and close-button fallback failed; no app target was available for Apple Events fallback."
                     .to_string(),
             );
         };
@@ -3169,6 +3403,24 @@ mod imp {
         Some(app_summary(app.as_ptr() as AXUIElementRef))
     }
 
+    fn app_summary_for_pid(pid: i32) -> Option<MacControlAppSummary> {
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
+        let summary = running_app_summary(&app);
+        Some(MacControlAppSummary {
+            pid: summary.pid,
+            bundle_id: summary.bundle_id,
+            name: summary.name,
+        })
+    }
+
+    fn app_element_for_pid(pid: i32) -> Option<CfOwned> {
+        if pid <= 0 {
+            return None;
+        }
+        let app = unsafe { AXUIElementCreateApplication(pid) };
+        CfOwned::new(app as CFTypeRef)
+    }
+
     fn app_summary(app: AXUIElementRef) -> MacControlAppSummary {
         let pid = ax_pid(app).unwrap_or_default();
         let running_app = if pid > 0 {
@@ -3202,6 +3454,18 @@ mod imp {
             focused: attribute_bool(window, "AXFocused").unwrap_or(false),
             bounds_points: element_bounds(window),
         }
+    }
+
+    fn window_summary_for_app(
+        window: AXUIElementRef,
+        id: &str,
+        app_pid: Option<i32>,
+    ) -> MacControlWindowSummary {
+        let mut summary = window_summary(window, id);
+        if summary.app_pid.is_none() {
+            summary.app_pid = app_pid;
+        }
+        summary
     }
 
     fn traverse_element(
