@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use crate::channel::traits::ChannelPlugin;
 use crate::channel::types::*;
 
-use self::api::{QqBotApi, QqChatScope};
+use self::api::{QqBotApi, QqChatScope, QQBOT_API_BASE_URL, QQBOT_SANDBOX_API_BASE_URL};
 use self::auth::QqBotAuth;
 
 /// Running account state for a single QQ Bot.
@@ -77,6 +77,18 @@ impl QqBotPlugin {
             .map(|a| a.api.clone())
             .ok_or_else(|| anyhow::anyhow!("QQ Bot account '{}' is not running", account_id))
     }
+
+    fn api_base_url(settings: &serde_json::Value) -> &'static str {
+        if settings
+            .get("sandbox")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            QQBOT_SANDBOX_API_BASE_URL
+        } else {
+            QQBOT_API_BASE_URL
+        }
+    }
 }
 
 #[async_trait]
@@ -123,17 +135,27 @@ impl ChannelPlugin for QqBotPlugin {
         let (app_id, client_secret) = Self::extract_credentials(&account.credentials)?;
 
         let auth = Arc::new(QqBotAuth::new(&app_id, &client_secret));
-        let api = Arc::new(QqBotApi::new(auth));
+        let api = Arc::new(QqBotApi::new_with_base_url(
+            auth,
+            Self::api_base_url(&account.settings),
+        ));
 
         // Validate by getting access token
         api.auth.get_token().await?;
+        let gateway_info = api.get_gateway_bot_info().await?;
+        let shard_count = gateway::normalize_shard_count(gateway_info.shards);
+        let max_concurrency =
+            gateway::normalize_max_concurrency(gateway_info.session_start_limit.max_concurrency);
 
         app_info!(
             "channel",
             "qqbot",
-            "Bot authenticated with appId={} for account '{}'",
+            "Bot authenticated with appId={} for account '{}' (sandbox={}, shards={}, identify_max_concurrency={})",
             app_id,
-            account.id
+            account.id,
+            Self::api_base_url(&account.settings) == QQBOT_SANDBOX_API_BASE_URL,
+            shard_count,
+            max_concurrency
         );
 
         // Store running account state (bot_id/bot_name will be populated from READY event)
@@ -149,9 +171,26 @@ impl ChannelPlugin for QqBotPlugin {
             );
         }
 
-        // Spawn the gateway event loop
+        // Spawn gateway shard loops. QQ's `/gateway/bot` response gives the
+        // recommended shard count and identify concurrency window.
         let account_id = account.id.clone();
-        tokio::spawn(gateway::run_qq_gateway(api, account_id, inbound_tx, cancel));
+        for shard_id in 0..shard_count {
+            let api = api.clone();
+            let account_id = account_id.clone();
+            let inbound_tx = inbound_tx.clone();
+            let cancel = cancel.clone();
+            let delay = gateway::identify_start_delay(shard_id, max_concurrency);
+            tokio::spawn(async move {
+                if !delay.is_zero() {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return,
+                        _ = tokio::time::sleep(delay) => {}
+                    }
+                }
+                gateway::run_qq_gateway(api, account_id, inbound_tx, cancel, shard_id, shard_count)
+                    .await;
+            });
+        }
 
         Ok(())
     }
@@ -220,8 +259,9 @@ impl ChannelPlugin for QqBotPlugin {
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
         let (app_id, client_secret) = Self::extract_credentials(&account.credentials)?;
         let auth = Arc::new(QqBotAuth::new(&app_id, &client_secret));
+        let api = QqBotApi::new_with_base_url(auth, Self::api_base_url(&account.settings));
 
-        match auth.get_token().await {
+        match api.auth.get_token().await {
             Ok(_) => Ok(ChannelHealth {
                 is_running: false,
                 last_probe: Some(chrono::Utc::now().to_rfc3339()),

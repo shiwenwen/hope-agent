@@ -36,19 +36,57 @@ struct SessionFile {
     seq: u64,
 }
 
+pub fn normalize_shard_count(shards: u64) -> u64 {
+    shards.max(1)
+}
+
+pub fn normalize_max_concurrency(max_concurrency: u64) -> u64 {
+    max_concurrency.max(1)
+}
+
+pub fn identify_start_delay(shard_id: u64, max_concurrency: u64) -> std::time::Duration {
+    let max_concurrency = normalize_max_concurrency(max_concurrency);
+    std::time::Duration::from_secs((shard_id / max_concurrency) * 5)
+}
+
+fn session_file_stem(account_id: &str, shard_id: u64, shard_count: u64) -> String {
+    if shard_count <= 1 {
+        account_id.to_string()
+    } else {
+        format!("{}.shard-{}-of-{}", account_id, shard_id, shard_count)
+    }
+}
+
+fn identify_payload(token: &str, shard_id: u64, shard_count: u64) -> serde_json::Value {
+    serde_json::json!({
+        "op": opcode::IDENTIFY,
+        "d": {
+            "token": format_auth_value(token),
+            "intents": GATEWAY_INTENTS,
+            "shard": [shard_id, normalize_shard_count(shard_count)]
+        }
+    })
+}
+
 /// Load saved session from disk for resume.
-fn load_session(account_id: &str) -> Option<SessionFile> {
+fn load_session(account_id: &str, shard_id: u64, shard_count: u64) -> Option<SessionFile> {
     let dir = crate::paths::channel_dir("qqbot").ok()?;
-    let path = dir.join(format!("{}.session.json", account_id));
+    let path = dir.join(format!(
+        "{}.session.json",
+        session_file_stem(account_id, shard_id, shard_count)
+    ));
     let data = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
 /// Save session to disk for resume.
-fn save_session(account_id: &str, session_id: &str, seq: u64) {
+fn save_session(account_id: &str, shard_id: u64, shard_count: u64, session_id: &str, seq: u64) {
     if let Ok(dir) = crate::paths::channel_dir("qqbot") {
         let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join(format!("{}.session.json", account_id));
+        let path = dir.join(format!(
+            "{}.session.json",
+            session_file_stem(account_id, shard_id, shard_count)
+        ));
         let session = SessionFile {
             session_id: session_id.to_string(),
             seq,
@@ -63,9 +101,12 @@ fn save_session(account_id: &str, session_id: &str, seq: u64) {
 /// (not resumable) — leaving the stale session_id on disk would put the
 /// account into an infinite "RESUME → INVALID_SESSION → reconnect" loop after
 /// process restart.
-async fn remove_session_file(account_id: &str) {
+async fn remove_session_file(account_id: &str, shard_id: u64, shard_count: u64) {
     if let Ok(dir) = crate::paths::channel_dir("qqbot") {
-        let path = dir.join(format!("{}.session.json", account_id));
+        let path = dir.join(format!(
+            "{}.session.json",
+            session_file_stem(account_id, shard_id, shard_count)
+        ));
         let _ = tokio::fs::remove_file(&path).await;
     }
 }
@@ -84,12 +125,17 @@ pub async fn run_qq_gateway(
     account_id: String,
     inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
+    shard_id: u64,
+    shard_count: u64,
 ) {
+    let shard_count = normalize_shard_count(shard_count);
     app_info!(
         "channel",
         "qqbot::gateway",
-        "Gateway loop started for account '{}'",
-        account_id
+        "Gateway loop started for account '{}' shard {}/{}",
+        account_id,
+        shard_id,
+        shard_count
     );
 
     let mut reconnect_attempt: usize = 0;
@@ -97,14 +143,16 @@ pub async fn run_qq_gateway(
     let mut last_seq: u64 = 0;
 
     // Try to load saved session for resume
-    if let Some(session) = load_session(&account_id) {
+    if let Some(session) = load_session(&account_id, shard_id, shard_count) {
         saved_session_id = Some(session.session_id);
         last_seq = session.seq;
         app_info!(
             "channel",
             "qqbot::gateway",
-            "Loaded saved session for account '{}' (seq={})",
+            "Loaded saved session for account '{}' shard {}/{} (seq={})",
             account_id,
+            shard_id,
+            shard_count,
             last_seq
         );
     }
@@ -143,9 +191,11 @@ pub async fn run_qq_gateway(
             }
         };
 
-        // 2. Get gateway URL
-        let gateway_url = match api.get_gateway_url().await {
-            Ok(url) => url,
+        // 2. Get gateway URL. `/gateway/bot` also returns shard metadata; the
+        // supervisor fixes shard_count for this account run, but reconnects
+        // still fetch a fresh URL.
+        let gateway_url = match api.get_gateway_bot_info().await {
+            Ok(info) => info.url,
             Err(e) => {
                 app_error!(
                     "channel",
@@ -169,8 +219,10 @@ pub async fn run_qq_gateway(
         app_info!(
             "channel",
             "qqbot::gateway",
-            "Connecting to gateway for account '{}'",
-            account_id
+            "Connecting to gateway for account '{}' shard {}/{}",
+            account_id,
+            shard_id,
+            shard_count
         );
 
         // 3. Connect via WebSocket
@@ -249,15 +301,7 @@ pub async fn run_qq_gateway(
         }
 
         if !use_resume {
-            let identify_payload = serde_json::json!({
-                "op": opcode::IDENTIFY,
-                "d": {
-                    "token": format_auth_value(&token),
-                    "intents": GATEWAY_INTENTS,
-                    "shard": [0, 1],
-                    "properties": {}
-                }
-            });
+            let identify_payload = identify_payload(&token, shard_id, shard_count);
             if let Err(e) = ws.send_json(&identify_payload).await {
                 app_error!(
                     "channel",
@@ -304,7 +348,7 @@ pub async fn run_qq_gateway(
                     // Save session before exit
                     if let Some(ref sid) = saved_session_id {
                         let seq = *seq_holder.lock().await;
-                        save_session(&account_id, sid, seq);
+                        save_session(&account_id, shard_id, shard_count, sid, seq);
                     }
                     return;
                 }
@@ -346,7 +390,7 @@ pub async fn run_qq_gateway(
                                     // load_session 会读到过期的 session_id 又触发
                                     // RESUME → INVALID_SESSION → reconnect 死循环
                                     // 直到撞 MAX_RECONNECT_ATTEMPTS 才退出。
-                                    remove_session_file(&account_id).await;
+                                    remove_session_file(&account_id, shard_id, shard_count).await;
                                     // Reset the sequence so the outer-loop resume check
                                     // (`saved_session_id.is_some() && last_seq > 0`) sees
                                     // a fresh-session state on the next iteration.
@@ -377,7 +421,7 @@ pub async fn run_qq_gateway(
             let seq = *seq_holder.lock().await;
             last_seq = seq;
             if let Some(ref sid) = saved_session_id {
-                save_session(&account_id, sid, seq);
+                save_session(&account_id, shard_id, shard_count, sid, seq);
             }
         }
 
@@ -402,8 +446,10 @@ pub async fn run_qq_gateway(
     app_info!(
         "channel",
         "qqbot::gateway",
-        "Gateway loop ended for account '{}'",
-        account_id
+        "Gateway loop ended for account '{}' shard {}/{}",
+        account_id,
+        shard_id,
+        shard_count
     );
 }
 
@@ -476,6 +522,7 @@ async fn handle_gateway_message(
         opcode::DISPATCH => {
             let event_type = msg.get("t").and_then(|v| v.as_str()).unwrap_or("");
             let data = msg.get("d");
+            let event_id = msg.get("id").and_then(|v| v.as_str());
 
             match event_type {
                 "READY" => {
@@ -516,7 +563,9 @@ async fn handle_gateway_message(
                 }
                 "C2C_MESSAGE_CREATE" => {
                     if let Some(d) = data {
-                        if let Some(msg_ctx) = convert_c2c_message(d, account_id) {
+                        if let Some(msg_ctx) = convert_c2c_message(d, account_id, event_id) {
+                            api.remember_message_reply_context(&msg_ctx.message_id, event_id)
+                                .await;
                             if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
@@ -530,7 +579,9 @@ async fn handle_gateway_message(
                 }
                 "GROUP_AT_MESSAGE_CREATE" => {
                     if let Some(d) = data {
-                        if let Some(msg_ctx) = convert_group_message(d, account_id) {
+                        if let Some(msg_ctx) = convert_group_message(d, account_id, event_id) {
+                            api.remember_message_reply_context(&msg_ctx.message_id, event_id)
+                                .await;
                             if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
@@ -544,7 +595,9 @@ async fn handle_gateway_message(
                 }
                 "AT_MESSAGE_CREATE" => {
                     if let Some(d) = data {
-                        if let Some(msg_ctx) = convert_channel_message(d, account_id) {
+                        if let Some(msg_ctx) = convert_channel_message(d, account_id, event_id) {
+                            api.remember_message_reply_context(&msg_ctx.message_id, event_id)
+                                .await;
                             if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
@@ -558,7 +611,9 @@ async fn handle_gateway_message(
                 }
                 "DIRECT_MESSAGE_CREATE" => {
                     if let Some(d) = data {
-                        if let Some(msg_ctx) = convert_dms_message(d, account_id) {
+                        if let Some(msg_ctx) = convert_dms_message(d, account_id, event_id) {
+                            api.remember_message_reply_context(&msg_ctx.message_id, event_id)
+                                .await;
                             if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
@@ -576,6 +631,8 @@ async fn handle_gateway_message(
                         // gateway considers the click failed and may resend
                         // the same INTERACTION_CREATE).
                         if let Some(interaction_id) = d.get("id").and_then(|v| v.as_str()) {
+                            api.remember_event_reply_context(interaction_id, event_id)
+                                .await;
                             let api_clone = api.clone();
                             let interaction_id = interaction_id.to_string();
                             tokio::spawn(async move {
@@ -762,8 +819,20 @@ fn strip_mention_tags(content: &str) -> String {
     result.trim().to_string()
 }
 
+fn raw_with_event_id(d: &serde_json::Value, event_id: Option<&str>) -> serde_json::Value {
+    let mut raw = d.clone();
+    if let Some(event_id) = event_id.filter(|id| !id.is_empty()) {
+        raw["event_id"] = serde_json::Value::String(event_id.to_string());
+    }
+    raw
+}
+
 /// Convert a C2C_MESSAGE_CREATE event to MsgContext.
-fn convert_c2c_message(d: &serde_json::Value, account_id: &str) -> Option<MsgContext> {
+fn convert_c2c_message(
+    d: &serde_json::Value,
+    account_id: &str,
+    event_id: Option<&str>,
+) -> Option<MsgContext> {
     let message_id = d.get("id").and_then(|v| v.as_str())?.to_string();
     let user_openid = d
         .get("author")
@@ -801,7 +870,7 @@ fn convert_c2c_message(d: &serde_json::Value, account_id: &str) -> Option<MsgCon
         timestamp,
         was_mentioned: false,
         raw: {
-            let mut r = d.clone();
+            let mut r = raw_with_event_id(d, event_id);
             crate::channel::inbound_media_common::embed_pending_refs(
                 &mut r,
                 super::inbound_media::parse_message_attachments(d),
@@ -812,7 +881,11 @@ fn convert_c2c_message(d: &serde_json::Value, account_id: &str) -> Option<MsgCon
 }
 
 /// Convert a GROUP_AT_MESSAGE_CREATE event to MsgContext.
-fn convert_group_message(d: &serde_json::Value, account_id: &str) -> Option<MsgContext> {
+fn convert_group_message(
+    d: &serde_json::Value,
+    account_id: &str,
+    event_id: Option<&str>,
+) -> Option<MsgContext> {
     let message_id = d.get("id").and_then(|v| v.as_str())?.to_string();
     let group_openid = d.get("group_openid").and_then(|v| v.as_str())?.to_string();
 
@@ -853,7 +926,7 @@ fn convert_group_message(d: &serde_json::Value, account_id: &str) -> Option<MsgC
         timestamp,
         was_mentioned: true, // GROUP_AT means bot was @mentioned
         raw: {
-            let mut r = d.clone();
+            let mut r = raw_with_event_id(d, event_id);
             crate::channel::inbound_media_common::embed_pending_refs(
                 &mut r,
                 super::inbound_media::parse_message_attachments(d),
@@ -864,7 +937,11 @@ fn convert_group_message(d: &serde_json::Value, account_id: &str) -> Option<MsgC
 }
 
 /// Convert an AT_MESSAGE_CREATE event to MsgContext (guild channel).
-fn convert_channel_message(d: &serde_json::Value, account_id: &str) -> Option<MsgContext> {
+fn convert_channel_message(
+    d: &serde_json::Value,
+    account_id: &str,
+    event_id: Option<&str>,
+) -> Option<MsgContext> {
     let message_id = d.get("id").and_then(|v| v.as_str())?.to_string();
     let channel_id_str = d.get("channel_id").and_then(|v| v.as_str())?.to_string();
 
@@ -911,7 +988,7 @@ fn convert_channel_message(d: &serde_json::Value, account_id: &str) -> Option<Ms
         timestamp,
         was_mentioned: true, // AT_MESSAGE means bot was @mentioned
         raw: {
-            let mut r = d.clone();
+            let mut r = raw_with_event_id(d, event_id);
             crate::channel::inbound_media_common::embed_pending_refs(
                 &mut r,
                 super::inbound_media::parse_message_attachments(d),
@@ -922,7 +999,11 @@ fn convert_channel_message(d: &serde_json::Value, account_id: &str) -> Option<Ms
 }
 
 /// Convert a DIRECT_MESSAGE_CREATE event to MsgContext (guild DM).
-fn convert_dms_message(d: &serde_json::Value, account_id: &str) -> Option<MsgContext> {
+fn convert_dms_message(
+    d: &serde_json::Value,
+    account_id: &str,
+    event_id: Option<&str>,
+) -> Option<MsgContext> {
     let message_id = d.get("id").and_then(|v| v.as_str())?.to_string();
     let guild_id = d.get("guild_id").and_then(|v| v.as_str())?.to_string();
 
@@ -969,7 +1050,7 @@ fn convert_dms_message(d: &serde_json::Value, account_id: &str) -> Option<MsgCon
         timestamp,
         was_mentioned: false,
         raw: {
-            let mut r = d.clone();
+            let mut r = raw_with_event_id(d, event_id);
             crate::channel::inbound_media_common::embed_pending_refs(
                 &mut r,
                 super::inbound_media::parse_message_attachments(d),
@@ -1022,5 +1103,44 @@ mod tests {
     fn test_parse_qq_timestamp_none() {
         assert!(parse_qq_timestamp(None).is_none());
         assert!(parse_qq_timestamp(Some("invalid")).is_none());
+    }
+
+    #[test]
+    fn identify_payload_uses_gateway_shard_count_without_properties() {
+        let payload = identify_payload("token-1", 2, 4);
+
+        assert_eq!(payload["op"], opcode::IDENTIFY);
+        assert_eq!(payload["d"]["token"], "QQBot token-1");
+        assert_eq!(payload["d"]["intents"], GATEWAY_INTENTS);
+        assert_eq!(payload["d"]["shard"], serde_json::json!([2, 4]));
+        assert!(payload["d"].get("properties").is_none());
+    }
+
+    #[test]
+    fn identify_start_delay_respects_concurrency_window() {
+        assert_eq!(
+            identify_start_delay(0, 2),
+            std::time::Duration::from_secs(0)
+        );
+        assert_eq!(
+            identify_start_delay(1, 2),
+            std::time::Duration::from_secs(0)
+        );
+        assert_eq!(
+            identify_start_delay(2, 2),
+            std::time::Duration::from_secs(5)
+        );
+        assert_eq!(
+            identify_start_delay(3, 2),
+            std::time::Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn raw_with_event_id_preserves_gateway_event_id() {
+        let raw = raw_with_event_id(&serde_json::json!({"id": "msg-1"}), Some("event-1"));
+
+        assert_eq!(raw["id"], "msg-1");
+        assert_eq!(raw["event_id"], "event-1");
     }
 }

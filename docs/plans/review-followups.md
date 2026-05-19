@@ -53,14 +53,14 @@
 
 - **来源**：2026-05-05 IM channel 全量审计
 - **现象**：协议层补完短板：
-  - **QQ Bot** shard `[0,1]` 写死、IDENTIFY `properties` 空；sandbox endpoint 切换；event_id 主动/被动消息区分
   - **Signal** SSE `data:` 多空格剥取不一致；daemon readiness 主动 poll `/api/v1/check` 而非 sleep 2s
   - **IRC** IRCv3 `CAP LS 302` + SASL PLAIN 协商（不接 SASL 在 Libera 等主流网络可能强踢）；IRCv3 message-tags 解析（`@key=value` 前缀）；channel name 用户输入自动补 `#`
   - **iMessage** RPC 方法名（`chats.list` / `watch.subscribe` / `sendTyping`）需对照 [`steipete/imsg`](https://github.com/steipete/imsg) 实际 RPC 暴露面；`is_group` 完全信赖字段而非 participants.len() fallback
 - **2026-05-19 已处理**：Discord Gateway 首个 heartbeat 已加官方要求的 `heartbeat_interval * jitter`；IDENTIFY `properties.os` 改为 `std::env::consts::OS`；并维护 channel/thread cache，让 `MESSAGE_CREATE` 能把 thread 消息映射为 `chat_id=parent_id` + `thread_id=thread_channel_id`，forum/media parent 映射 `ChatType::Forum`
 - **2026-05-19 已处理**：Slack Socket Mode 收到 `disconnect` 信封后会关闭当前 websocket 并回到外层循环重新 `apps.connections.open` 获取新 URL；Block Kit `action_id` 发送和接收侧都按官方 255 字符上限校验
+- **2026-05-19 已处理**：QQ Bot Gateway 改用官方 SDK 同款 `/gateway/bot` 获取 `url` / `shards` / `session_start_limit`，按推荐 shard_count 启动分片并按 max_concurrency 错峰 IDENTIFY；IDENTIFY 删除多余空 `properties` 字段；`settings.sandbox=true` 切到 `https://sandbox.api.sgroup.qq.com`；普通消息被动回复缓存并带上 gateway 顶层 `event_id`，交互事件回复只带 `event_id`，主动消息继续不注入被动字段
 - **为什么留**：单实例不可见，规模化或边界场景才暴露；IRCv3 SASL 是单 channel 50-100 行重写，独立 PR 更清楚
-- **改的话要做什么**：QQ shard 字段从 capabilities 推断；tungstenite Message::Close.code 路由模板已在 Discord 落地，可参考迁移 QQ；IRCv3 见 <https://ircv3.net/specs/extensions/sasl-3.1.html>
+- **改的话要做什么**：IRCv3 见 <https://ircv3.net/specs/extensions/sasl-3.1.html>；Signal readiness / SSE 细节和 iMessage RPC 面仍需逐项对照各自实现
 - **影响面**：稳定性 / 服务端可观测性 / 现代 IRCd 兼容性
 - **触发时机建议**：单 channel 大流量场景报"频繁断线"时；接 Libera/OFTC 网络的 IRC 用户报告"被踢"时
 

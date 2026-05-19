@@ -68,28 +68,72 @@ pub struct QqBotApi {
     pub auth: Arc<QqBotAuth>,
     base_url: String,
     msg_seq_map: Mutex<LruCache<String, u32>>,
+    passive_reply_contexts: Mutex<LruCache<String, PassiveReplyContext>>,
 }
 
-/// Response from GET /gateway.
-#[derive(Debug, serde::Deserialize)]
-struct GatewayResponse {
-    url: String,
+pub const QQBOT_API_BASE_URL: &str = "https://api.sgroup.qq.com";
+pub const QQBOT_SANDBOX_API_BASE_URL: &str = "https://sandbox.api.sgroup.qq.com";
+
+/// Response from GET /gateway/bot.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GatewayBotInfo {
+    pub url: String,
+    #[serde(default = "default_gateway_shards")]
+    pub shards: u64,
+    #[serde(default)]
+    pub session_start_limit: GatewaySessionStartLimit,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct GatewaySessionStartLimit {
+    #[serde(default)]
+    pub total: u64,
+    #[serde(default)]
+    pub remaining: u64,
+    #[serde(default)]
+    pub reset_after: u64,
+    #[serde(default)]
+    pub max_concurrency: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PassiveReplyContext {
+    Message {
+        msg_id: String,
+        event_id: Option<String>,
+    },
+    Event {
+        event_id: String,
+    },
+}
+
+fn default_gateway_shards() -> u64 {
+    1
 }
 
 impl QqBotApi {
     /// Create a new QQ Bot API client.
     pub fn new(auth: Arc<QqBotAuth>) -> Self {
+        Self::new_with_base_url(auth, QQBOT_API_BASE_URL)
+    }
+
+    /// Create a new QQ Bot API client with an explicit production/sandbox base URL.
+    pub fn new_with_base_url(auth: Arc<QqBotAuth>, base_url: impl Into<String>) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
+        let base_url = base_url.into().trim_end_matches('/').to_string();
 
         Self {
             client,
             auth,
-            base_url: "https://api.sgroup.qq.com".to_string(),
+            base_url,
             msg_seq_map: Mutex::new(LruCache::new(
+                NonZeroUsize::new(1024).expect("1024 is non-zero"),
+            )),
+            passive_reply_contexts: Mutex::new(LruCache::new(
                 NonZeroUsize::new(1024).expect("1024 is non-zero"),
             )),
         }
@@ -109,6 +153,45 @@ impl QqBotApi {
             map.put(msg_id.to_string(), 1);
             1
         }
+    }
+
+    pub async fn remember_message_reply_context(&self, msg_id: &str, event_id: Option<&str>) {
+        if msg_id.is_empty() {
+            return;
+        }
+        let event_id = event_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let mut contexts = self.passive_reply_contexts.lock().await;
+        contexts.put(
+            msg_id.to_string(),
+            PassiveReplyContext::Message {
+                msg_id: msg_id.to_string(),
+                event_id,
+            },
+        );
+    }
+
+    pub async fn remember_event_reply_context(&self, key: &str, event_id: Option<&str>) {
+        let Some(event_id) = event_id.map(str::trim).filter(|s| !s.is_empty()) else {
+            return;
+        };
+        if key.is_empty() {
+            return;
+        }
+        let mut contexts = self.passive_reply_contexts.lock().await;
+        contexts.put(
+            key.to_string(),
+            PassiveReplyContext::Event {
+                event_id: event_id.to_string(),
+            },
+        );
+    }
+
+    async fn passive_reply_context(&self, reply_to_id: &str) -> Option<PassiveReplyContext> {
+        let mut contexts = self.passive_reply_contexts.lock().await;
+        contexts.get(reply_to_id).cloned()
     }
 
     /// Make a request to the QQ Bot API with automatic auth.
@@ -160,24 +243,45 @@ impl QqBotApi {
         })
     }
 
-    /// Get the WebSocket gateway URL.
+    /// Get the WebSocket gateway URL and sharding/session-start metadata.
     ///
-    /// GET /gateway -> { "url": "wss://..." }
-    pub async fn get_gateway_url(&self) -> Result<String> {
-        let resp: GatewayResponse = self
-            .qq_request(reqwest::Method::GET, "/gateway", None)
-            .await?;
-        Ok(resp.url)
+    /// GET /gateway/bot -> { "url": "wss://...", "shards": 1, ... }
+    pub async fn get_gateway_bot_info(&self) -> Result<GatewayBotInfo> {
+        self.qq_request(reqwest::Method::GET, "/gateway/bot", None)
+            .await
     }
 
-    /// 在 body 上注入 `msg_id` + 自增 `msg_seq`（per-msg_id 单调递增）。
-    /// 主动消息（msg_id=None）不注入 seq——主动消息无 msg_id 关联，QQ
-    /// 服务端不要求 seq；空 msg_id 也用同款逻辑（产生 seq=1 的兜底）。
-    async fn inject_passive_reply_meta(&self, body: &mut serde_json::Value, msg_id: Option<&str>) {
-        if let Some(id) = msg_id {
-            body["msg_id"] = serde_json::Value::String(id.to_string());
-            let seq = self.next_msg_seq(id).await;
-            body["msg_seq"] = serde_json::Value::Number(seq.into());
+    /// 在 body 上注入被动回复上下文。
+    ///
+    /// 普通消息回复使用 `msg_id` + 自增 `msg_seq`（per-msg_id 单调递增），
+    /// 并在 gateway 顶层 `id` 可用时同时带 `event_id`；按钮等事件回调
+    /// 只带 `event_id`。主动消息（reply_to_id=None）不注入任何被动字段。
+    async fn inject_passive_reply_meta(
+        &self,
+        body: &mut serde_json::Value,
+        reply_to_id: Option<&str>,
+    ) {
+        let Some(reply_to_id) = reply_to_id.filter(|id| !id.is_empty()) else {
+            return;
+        };
+
+        match self.passive_reply_context(reply_to_id).await {
+            Some(PassiveReplyContext::Message { msg_id, event_id }) => {
+                body["msg_id"] = serde_json::Value::String(msg_id.clone());
+                let seq = self.next_msg_seq(&msg_id).await;
+                body["msg_seq"] = serde_json::Value::Number(seq.into());
+                if let Some(event_id) = event_id {
+                    body["event_id"] = serde_json::Value::String(event_id);
+                }
+            }
+            Some(PassiveReplyContext::Event { event_id }) => {
+                body["event_id"] = serde_json::Value::String(event_id);
+            }
+            None => {
+                body["msg_id"] = serde_json::Value::String(reply_to_id.to_string());
+                let seq = self.next_msg_seq(reply_to_id).await;
+                body["msg_seq"] = serde_json::Value::Number(seq.into());
+            }
         }
     }
 
@@ -462,5 +566,51 @@ mod tests {
         assert_eq!(api.next_msg_seq("msg-2").await, 1);
         assert_eq!(api.next_msg_seq("msg-2").await, 2);
         assert_eq!(api.next_msg_seq("msg-1").await, 4);
+    }
+
+    #[tokio::test]
+    async fn passive_reply_meta_uses_message_context_event_id() {
+        let auth = Arc::new(QqBotAuth::new("appid", "secret"));
+        let api = QqBotApi::new(auth);
+        api.remember_message_reply_context("msg-1", Some("event-1"))
+            .await;
+
+        let mut body = serde_json::json!({"content": "hello"});
+        api.inject_passive_reply_meta(&mut body, Some("msg-1"))
+            .await;
+
+        assert_eq!(body["msg_id"], "msg-1");
+        assert_eq!(body["msg_seq"], 1);
+        assert_eq!(body["event_id"], "event-1");
+    }
+
+    #[tokio::test]
+    async fn passive_reply_meta_uses_event_context_without_msg_seq() {
+        let auth = Arc::new(QqBotAuth::new("appid", "secret"));
+        let api = QqBotApi::new(auth);
+        api.remember_event_reply_context("interaction-1", Some("event-1"))
+            .await;
+
+        let mut body = serde_json::json!({"content": "hello"});
+        api.inject_passive_reply_meta(&mut body, Some("interaction-1"))
+            .await;
+
+        assert_eq!(body["event_id"], "event-1");
+        assert!(body.get("msg_id").is_none());
+        assert!(body.get("msg_seq").is_none());
+    }
+
+    #[tokio::test]
+    async fn passive_reply_meta_falls_back_to_msg_id() {
+        let auth = Arc::new(QqBotAuth::new("appid", "secret"));
+        let api = QqBotApi::new(auth);
+
+        let mut body = serde_json::json!({"content": "hello"});
+        api.inject_passive_reply_meta(&mut body, Some("msg-1"))
+            .await;
+
+        assert_eq!(body["msg_id"], "msg-1");
+        assert_eq!(body["msg_seq"], 1);
+        assert!(body.get("event_id").is_none());
     }
 }
