@@ -37,14 +37,14 @@
   - **2026-05-06 已回退**：QQ Bot + LINE `supports_media` 重新设为空，恢复 dispatcher 的链接文本兜底。两套两步上传 helper（`post_*_files` / `send_*_media` / `dispatch_media`、LINE message-object 构造）保留备用，等本地附件中转基建就绪再开
 - **剩余 channel 状态**：均降级为下载链接文本：
   - Google Chat — 已核对官方文档：`media.upload` 需要 user authentication 的 `chat.messages.create` / `chat.messages` scope；当前插件是 service account app-auth `chat.bot`，不是 Drive scope 问题，不能直接打开 `supports_media`
-  - iMessage — imsg `send_attachment` 子命令（待 stdio 协议字段）
   - WhatsApp — bridge `media` 字段
   - LINE / QQ Bot — 待本地附件中转 + 公网 HTTPS 暴露基建（hope-agent 自托管端点 / 用户配置 `public_base_url` 转发缓存附件）
   - QQ Bot — channel/dms 端点 V2 不开放原生媒体上传，仍要走链接
 - **2026-05-19 已处理**：Signal 出站附件已接上 signal-cli JSON-RPC `send.attachments`，支持本地 `FilePath`，并把 `Url` / `Bytes` 物化到 `channels/signal/outbound-temp/` 后发送
 - **2026-05-19 已处理**：Slack 出站附件已接上官方 files v2 流程（`files.getUploadURLExternal` → POST `upload_url` → `files.completeUploadExternal`），需要 bot token 具备 `files:write`
+- **2026-05-19 已处理**：iMessage 出站附件已接上 imsg JSON-RPC `send` 的 `file` 参数，支持本地 `FilePath`，并把 `Url` / `Bytes` 物化到 `channels/imessage/outbound-temp/` 后发送；官方当前不是单独 `send_attachment` RPC
 - **为什么留**：Google Chat 还缺 user OAuth credential mode；LINE / QQ Bot 核心是缺"本地缓存附件 → 公网 HTTPS URL"的中转基建；其他 channel 按各自协议补原生发送路径即可。富媒体不阻塞首发文本
-- **改的话要做什么**：参照 [`channel/worker/dispatcher.rs::partition_media_by_channel`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 已有的能力声明驱动下，逐 channel 补 `*/media.rs` 模块；Google Chat 先补 user OAuth 认证模式或等官方支持 app-auth 上传，协议改造按 iMessage / WhatsApp 优先级排队
+- **改的话要做什么**：参照 [`channel/worker/dispatcher.rs::partition_media_by_channel`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 已有的能力声明驱动下，逐 channel 补 `*/media.rs` 模块；Google Chat 先补 user OAuth 认证模式或等官方支持 app-auth 上传，协议改造下一项是 WhatsApp
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 

@@ -92,12 +92,12 @@ IM Channel 系统是 Hope Agent 的多渠道即时通讯接入层，允许用户
 | **WeChat** | ✅ 已实现 | Photo, Video, Document, Voice | iLink `getUploadUrl` + AES-128-ECB CDN 上传 + `sendMessage` | 自建加密通道，单文件 100 MB 上限 |
 | **Discord** | ✅ 已实现（本次新增） | Photo, Video, Audio, Document | `POST /channels/{id}/messages` multipart `payload_json` + `files[N]` | 单条 25 MiB 硬上限，超限退化链接 |
 | **飞书 / Lark** | ✅ 已实现（本次新增） | Photo, Video, Audio, Document | 两步：`im/v1/images` 或 `im/v1/files` 上传换 key → `im/v1/messages` `msg_type=image\|file` | image/file 不带 caption，文本由 dispatcher 单发 |
-| **Slack** | ⏳ 待补 | — | `files.getUploadURLExternal` + `files.completeUploadExternal`（v2） | Slack v1 `files.upload` 已弃用，需走两步上传 + initial_comment |
+| **Slack** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | `files.getUploadURLExternal` + `files.completeUploadExternal`（v2） | Slack v1 `files.upload` 已弃用；需要 bot token `files:write` |
 | **QQ Bot** | ⏳ 待补 | — | `POST /v2/groups/{group_openid}/files` 拿 `file_info` 再发 `media` 消息 | 群消息富媒体走"上传换 file_info"两步 |
-| **Signal** | ⏳ 待补 | — | signal-cli `--attachment <path>` | 通过外部 signal-cli 进程传文件路径 |
-| **iMessage** | ⏳ 待补 | — | imsg CLI `send_attachment` 子命令（待新增 stdio 协议字段） | macOS 本地路径 + Apple Messages.app 协议 |
+| **Signal** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | signal-cli JSON-RPC `send.attachments` | 本地路径直传；URL / bytes 先物化到临时文件 |
+| **iMessage** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | imsg JSON-RPC `send` + `file` 参数 | 本地路径直传；URL / bytes 先物化到临时文件；`imsg` 自行 stage 到 Messages 附件目录 |
 | **WhatsApp** | ⏳ 待补 | — | 桥接服务（与 WeChat iLink 同源协议）`media` 字段 | 桥接侧已具备能力，待 plugin 端补封装 |
-| **Google Chat** | ⏳ 待补 | — | `spaces.messages.create` + `attachment` 数组（先 `media.upload` 拿 resourceName） | 需要 Service Account 拓展 Drive scope |
+| **Google Chat** | ⏳ 认证模型阻塞 | — | `spaces.messages.create` + `attachment` 数组（先 `media.upload` 拿 `attachmentDataRef`） | 官方 `media.upload` 需要 user auth `chat.messages.create` / `chat.messages`；当前插件是 app-auth `chat.bot` |
 | **LINE** | ⏳ 待补 | — | Reply/Push API 的 `image` / `video` / `audio` / `file` message object | 必须公网 HTTPS URL，本地附件需自带文件中转 |
 | **IRC** | ❌ 协议限制 | — | （IRC 纯文本协议） | 无原生二进制传输，永久走链接兜底；可选未来接 DCC SEND 但实用性低 |
 

@@ -371,14 +371,19 @@ impl IMessageClient {
         text: &str,
         reply_to: Option<&str>,
     ) -> Result<Value> {
-        let mut params = serde_json::json!({
-            "to": chat_id,
-            "text": text,
-            "service": "auto",
-        });
-        if let Some(reply_id) = reply_to {
-            params["reply_to"] = Value::String(reply_id.to_string());
-        }
+        let params = build_send_params(chat_id, Some(text), None, reply_to);
+        self.rpc_call("send", params).await
+    }
+
+    /// Send a file attachment, optionally with adjacent text.
+    pub async fn send_file(
+        &self,
+        chat_id: &str,
+        text: Option<&str>,
+        file: &str,
+        reply_to: Option<&str>,
+    ) -> Result<Value> {
+        let params = build_send_params(chat_id, text, Some(file), reply_to);
         self.rpc_call("send", params).await
     }
 
@@ -538,5 +543,69 @@ impl IMessageClient {
             was_mentioned: false, // iMessage doesn't have @mentions
             raw: message_val.clone(),
         })
+    }
+}
+
+fn build_send_params(
+    target: &str,
+    text: Option<&str>,
+    file: Option<&str>,
+    reply_to: Option<&str>,
+) -> Value {
+    let mut params = serde_json::Map::new();
+    let trimmed_target = target.trim();
+
+    if let Ok(chat_id) = trimmed_target.parse::<i64>() {
+        params.insert("chat_id".to_string(), Value::Number(chat_id.into()));
+    } else if trimmed_target.starts_with("iMessage;") || trimmed_target.starts_with("SMS;") {
+        params.insert(
+            "chat_guid".to_string(),
+            Value::String(trimmed_target.to_string()),
+        );
+    } else {
+        params.insert("to".to_string(), Value::String(trimmed_target.to_string()));
+        params.insert("service".to_string(), Value::String("auto".to_string()));
+    }
+
+    if let Some(text) = text.map(str::trim).filter(|s| !s.is_empty()) {
+        params.insert("text".to_string(), Value::String(text.to_string()));
+    }
+    if let Some(file) = file.map(str::trim).filter(|s| !s.is_empty()) {
+        params.insert("file".to_string(), Value::String(file.to_string()));
+    }
+    if let Some(reply_id) = reply_to.map(str::trim).filter(|s| !s.is_empty()) {
+        params.insert("reply_to".to_string(), Value::String(reply_id.to_string()));
+    }
+
+    Value::Object(params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_send_params;
+
+    #[test]
+    fn build_send_params_uses_chat_id_for_numeric_targets() {
+        let params = build_send_params("42", Some("hi"), Some("/tmp/a.png"), None);
+        assert_eq!(params["chat_id"].as_i64(), Some(42));
+        assert_eq!(params["text"].as_str(), Some("hi"));
+        assert_eq!(params["file"].as_str(), Some("/tmp/a.png"));
+        assert!(params.get("service").is_none());
+    }
+
+    #[test]
+    fn build_send_params_uses_chat_guid_for_messages_handles() {
+        let params = build_send_params("iMessage;+;chat123", None, Some("/tmp/a.png"), None);
+        assert_eq!(params["chat_guid"].as_str(), Some("iMessage;+;chat123"));
+        assert!(params.get("to").is_none());
+        assert!(params.get("service").is_none());
+    }
+
+    #[test]
+    fn build_send_params_uses_direct_target_with_service_auto() {
+        let params = build_send_params("+14155551212", Some("hi"), None, Some("GUID"));
+        assert_eq!(params["to"].as_str(), Some("+14155551212"));
+        assert_eq!(params["service"].as_str(), Some("auto"));
+        assert_eq!(params["reply_to"].as_str(), Some("GUID"));
     }
 }
