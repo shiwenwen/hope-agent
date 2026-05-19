@@ -93,12 +93,12 @@ IM Channel 系统是 Hope Agent 的多渠道即时通讯接入层，允许用户
 | **Discord** | ✅ 已实现（本次新增） | Photo, Video, Audio, Document | `POST /channels/{id}/messages` multipart `payload_json` + `files[N]` | 单条 25 MiB 硬上限，超限退化链接 |
 | **飞书 / Lark** | ✅ 已实现（本次新增） | Photo, Video, Audio, Document | 两步：`im/v1/images` 或 `im/v1/files` 上传换 key → `im/v1/messages` `msg_type=image\|file` | image/file 不带 caption，文本由 dispatcher 单发 |
 | **Slack** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | `files.getUploadURLExternal` + `files.completeUploadExternal`（v2） | Slack v1 `files.upload` 已弃用；需要 bot token `files:write` |
-| **QQ Bot** | ⏳ 待补 | — | `POST /v2/groups/{group_openid}/files` 拿 `file_info` 再发 `media` 消息 | 群消息富媒体走"上传换 file_info"两步 |
+| **QQ Bot** | ✅ c2c/group 条件实现 | Photo, Video, Audio, Voice, Animation | `POST /v2/{users|groups}/{openid}/files` 拿 `file_info` 再发 `media` 消息 | 需要 `server.publicBaseUrl=https://...`；channel/dms 端点仍走链接 |
 | **Signal** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | signal-cli JSON-RPC `send.attachments` | 本地路径直传；URL / bytes 先物化到临时文件 |
 | **iMessage** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | imsg JSON-RPC `send` + `file` 参数 | 本地路径直传；URL / bytes 先物化到临时文件；`imsg` 自行 stage 到 Messages 附件目录 |
 | **WhatsApp** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | bridge `POST /api/media`，`media=data:<mime>;name=<filename>;base64,...` | 同时发送旧 `data` alias；bridge 负责上传到 Cloud API / whatsmeow / Baileys |
 | **Google Chat** | ⏳ 认证模型阻塞 | — | `spaces.messages.create` + `attachment` 数组（先 `media.upload` 拿 `attachmentDataRef`） | 官方 `media.upload` 需要 user auth `chat.messages.create` / `chat.messages`；当前插件是 app-auth `chat.bot` |
-| **LINE** | ⏳ 待补 | — | Reply/Push API 的 `image` / `video` / `audio` / `file` message object | 必须公网 HTTPS URL，本地附件需自带文件中转 |
+| **LINE** | ✅ 条件实现 | Photo, Audio, Voice | Reply/Push API 的 `image` / `audio` message object | 需要 `server.publicBaseUrl=https://...`；video 还缺独立 `previewImageUrl` 缩略图，走链接 |
 | **IRC** | ❌ 协议限制 | — | （IRC 纯文本协议） | 无原生二进制传输，永久走链接兜底；可选未来接 DCC SEND 但实用性低 |
 
 补齐参考实现：Telegram 走 SDK 内置 `InputFile`（[telegram/media.rs](../../crates/ha-core/src/channel/telegram/media.rs)），Discord 走单 POST multipart（[discord/media.rs](../../crates/ha-core/src/channel/discord/media.rs)），飞书走"上传 → 引用 key 发消息"两步（[feishu/media.rs](../../crates/ha-core/src/channel/feishu/media.rs)），WeChat 走"获取 CDN 上传 URL → AES 加密上传 → 引用消息项"自建加密链路（[wechat/media.rs](../../crates/ha-core/src/channel/wechat/media.rs)）。新增渠道时按平台 API 形态选最接近的范本套用 — 大多数 IM 平台属于 Discord 或飞书两类。

@@ -37,14 +37,15 @@
   - **2026-05-06 已回退**：QQ Bot + LINE `supports_media` 重新设为空，恢复 dispatcher 的链接文本兜底。两套两步上传 helper（`post_*_files` / `send_*_media` / `dispatch_media`、LINE message-object 构造）保留备用，等本地附件中转基建就绪再开
 - **剩余 channel 状态**：均降级为下载链接文本：
   - Google Chat — 已核对官方文档：`media.upload` 需要 user authentication 的 `chat.messages.create` / `chat.messages` scope；当前插件是 service account app-auth `chat.bot`，不是 Drive scope 问题，不能直接打开 `supports_media`
-  - LINE / QQ Bot — 待本地附件中转 + 公网 HTTPS 暴露基建（hope-agent 自托管端点 / 用户配置 `public_base_url` 转发缓存附件）
-  - QQ Bot — channel/dms 端点 V2 不开放原生媒体上传，仍要走链接
+  - LINE video — 官方 video message 需要单独 HTTPS `previewImageUrl` 图片；当前没有缩略图 URL 元数据，继续走下载链接文本
+  - QQ Bot — channel/dms 端点 V2 不开放原生媒体上传，仍走下载链接文本
 - **2026-05-19 已处理**：Signal 出站附件已接上 signal-cli JSON-RPC `send.attachments`，支持本地 `FilePath`，并把 `Url` / `Bytes` 物化到 `channels/signal/outbound-temp/` 后发送
 - **2026-05-19 已处理**：Slack 出站附件已接上官方 files v2 流程（`files.getUploadURLExternal` → POST `upload_url` → `files.completeUploadExternal`），需要 bot token 具备 `files:write`
 - **2026-05-19 已处理**：iMessage 出站附件已接上 imsg JSON-RPC `send` 的 `file` 参数，支持本地 `FilePath`，并把 `Url` / `Bytes` 物化到 `channels/imessage/outbound-temp/` 后发送；官方当前不是单独 `send_attachment` RPC
 - **2026-05-19 已处理**：WhatsApp 出站附件已接上 bridge `POST /api/media`，`media` 字段使用 self-contained data URL（同时带旧 `data` alias），避免 bridge 访问 Hope Agent 本机路径或公网附件 URL
-- **为什么留**：Google Chat 还缺 user OAuth credential mode；LINE / QQ Bot 核心是缺"本地缓存附件 → 公网 HTTPS URL"的中转基建；其他 channel 按各自协议补原生发送路径即可。富媒体不阻塞首发文本
-- **改的话要做什么**：参照 [`channel/worker/dispatcher.rs::partition_media_by_channel`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 已有的能力声明驱动下，逐 channel 补 `*/media.rs` 模块；Google Chat 先补 user OAuth 认证模式或等官方支持 app-auth 上传；LINE / QQ Bot 先补公网附件中转基建
+- **2026-05-19 已处理**：LINE / QQ Bot c2c/group 出站媒体已接上 `server.publicBaseUrl`：dispatcher 对 URL-only 渠道只在可生成 HTTPS 公网附件 URL 时走原生媒体，否则继续发送下载链接文本；LINE 支持 image/audio，QQ Bot c2c/group 支持 image/video/voice
+- **为什么留**：Google Chat 还缺 user OAuth credential mode；LINE video 还缺独立缩略图 URL；QQ Bot channel/dms 端点本身不支持原生媒体，只能继续链接兜底。富媒体不阻塞首发文本
+- **改的话要做什么**：Google Chat 先补 user OAuth 认证模式或等官方支持 app-auth 上传；LINE video 先补 `previewImageUrl` 生成/传递；QQ Bot channel/dms 若官方开放媒体端点再补原生发送
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
