@@ -444,6 +444,7 @@ mod tests {
                 "status",
                 "permissions",
                 "snapshot",
+                "elements",
                 "wait",
                 "apps",
                 "windows",
@@ -461,6 +462,7 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
+        assert!(ops.contains(&"find"));
         assert!(ops.contains(&"click"));
         assert!(ops.contains(&"click_point"));
         assert!(ops.contains(&"quit"));

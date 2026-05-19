@@ -1,8 +1,9 @@
 //! Desktop macOS control bridge.
 //!
 //! Registers the authorized desktop process and exposes Accessibility
-//! snapshots, display/window JPEG frames, app launch/focus, window operations,
-//! AX-first element actions, dialogs, and menu inspection/clicks.
+//! snapshots, scored element search, display/window JPEG frames, app
+//! launch/focus, window operations, AX-first element actions, dialogs, and menu
+//! inspection/clicks.
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -25,7 +26,8 @@ mod imp {
         MacControlBounds, MacControlBridge, MacControlClipboardOp, MacControlClipboardRequest,
         MacControlClipboardResult, MacControlDialogOp, MacControlDialogRequest,
         MacControlDialogResult, MacControlDialogSummary, MacControlDisplaySummary,
-        MacControlElementSummary, MacControlFramePayload, MacControlInstalledApp,
+        MacControlElementCandidate, MacControlElementSummary, MacControlElementsRequest,
+        MacControlElementsResult, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
         MacControlMenuScope, MacControlRunningApp, MacControlScreenshotSummary,
         MacControlScreenshotTarget, MacControlSnapshot, MacControlSnapshotRequest,
@@ -56,6 +58,15 @@ mod imp {
             tokio::task::spawn_blocking(move || capture_ax_snapshot(request))
                 .await
                 .map_err(|e| format!("macOS snapshot worker failed: {e}"))?
+        }
+
+        async fn elements(
+            &self,
+            request: MacControlElementsRequest,
+        ) -> Result<MacControlElementsResult, String> {
+            tokio::task::spawn_blocking(move || handle_elements(request))
+                .await
+                .map_err(|e| format!("macOS elements worker failed: {e}"))?
         }
 
         async fn capture_frame(&self) -> Result<MacControlFramePayload, String> {
@@ -556,6 +567,141 @@ mod imp {
             acted_window,
             execution,
         })
+    }
+
+    fn handle_elements(
+        request: MacControlElementsRequest,
+    ) -> Result<MacControlElementsResult, String> {
+        let request = request.clamped();
+        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+            include_screenshot: false,
+            max_elements: request.max_elements,
+            max_depth: request.max_depth,
+            ..Default::default()
+        })?;
+        let mut warnings = snapshot.warnings.clone();
+        let (total_matches, elements) = if frontmost_app_matches_act_target(
+            &snapshot,
+            &request.target,
+        ) {
+            let mut candidates = snapshot
+                .elements
+                .iter()
+                .filter(|element| element_matches_query(element, &request.target, &snapshot))
+                .map(|element| element_candidate(element, &request.target, &snapshot))
+                .collect::<Vec<_>>();
+            candidates.sort_by(|left, right| {
+                right
+                    .score
+                    .cmp(&left.score)
+                    .then_with(|| left.element.id.cmp(&right.element.id))
+            });
+            let total_matches = candidates.len();
+            if total_matches > request.limit {
+                warnings.push(format!(
+                    "elements.find matched {total_matches} candidates; returning top {}.",
+                    request.limit
+                ));
+            }
+            candidates.truncate(request.limit);
+            (total_matches, candidates)
+        } else {
+            warnings.push(
+                "Frontmost app did not match the elements.find target; activate the target app first."
+                    .to_string(),
+            );
+            (0, Vec::new())
+        };
+
+        Ok(MacControlElementsResult {
+            op: request.op,
+            target: request.target,
+            snapshot_id: snapshot.snapshot_id,
+            created_at: snapshot.created_at,
+            frontmost_app: snapshot.frontmost_app,
+            total_matches,
+            elements,
+            truncated: snapshot.truncated,
+            warnings,
+        })
+    }
+
+    fn element_candidate(
+        element: &MacControlElementSummary,
+        target: &MacControlTargetQuery,
+        snapshot: &MacControlSnapshot,
+    ) -> MacControlElementCandidate {
+        let window = element
+            .window_id
+            .as_deref()
+            .and_then(|window_id| {
+                snapshot
+                    .windows
+                    .iter()
+                    .find(|window| window.id == window_id)
+            })
+            .cloned();
+        MacControlElementCandidate {
+            element: element.clone(),
+            window: window.clone(),
+            score: element_target_score(element, target),
+            reasons: element_candidate_reasons(element, target, window.as_ref()),
+        }
+    }
+
+    fn element_candidate_reasons(
+        element: &MacControlElementSummary,
+        target: &MacControlTargetQuery,
+        window: Option<&MacControlWindowSummary>,
+    ) -> Vec<String> {
+        let mut reasons = Vec::new();
+        if target
+            .element_id
+            .as_deref()
+            .is_some_and(|query| !query.is_empty() && query == element.id)
+        {
+            reasons.push("elementId".to_string());
+        }
+        if let Some(query) = target.text.as_deref().filter(|query| !query.is_empty()) {
+            if optional_eq_ci(element.label.as_deref(), query)
+                || optional_eq_ci(element.value.as_deref(), query)
+            {
+                reasons.push("text:exact".to_string());
+            } else {
+                reasons.push("text:contains".to_string());
+            }
+        }
+        if target
+            .role
+            .as_deref()
+            .is_some_and(|query| !query.is_empty())
+        {
+            reasons.push("role".to_string());
+        }
+        if target
+            .window_title
+            .as_deref()
+            .is_some_and(|query| !query.is_empty())
+            && window.is_some()
+        {
+            reasons.push("windowTitle".to_string());
+        }
+        if element.focused {
+            reasons.push("focused".to_string());
+        }
+        if element.enabled == Some(true) {
+            reasons.push("enabled".to_string());
+        }
+        if element.actions.iter().any(|action| action == "AXPress") {
+            reasons.push("pressable".to_string());
+        }
+        if element.bounds_points.is_some() {
+            reasons.push("hasBounds".to_string());
+        }
+        if reasons.is_empty() {
+            reasons.push("snapshot".to_string());
+        }
+        reasons
     }
 
     fn list_windows_for_request(

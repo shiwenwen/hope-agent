@@ -1,8 +1,9 @@
 //! macOS desktop control bridge and readiness model.
 //!
-//! Exposes status / permissions, Accessibility snapshots, display/window
-//! screenshot frames, wait/target matching, app focus/launch, window operations,
-//! AX-first element actions, clipboard text, dialogs, and menu inspection/clicks.
+//! Exposes status / permissions, Accessibility snapshots, scored element
+//! search, display/window screenshot frames, wait/target matching, app
+//! focus/launch, window operations, AX-first element actions, clipboard text,
+//! dialogs, and menu inspection/clicks.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -32,6 +33,8 @@ const HARD_SNAPSHOT_MAX_DEPTH: usize = 16;
 const MAX_SNAPSHOT_CACHE: usize = 20;
 const MAX_SCREENSHOT_FILES: usize = 100;
 const MAX_ERROR_STATS: usize = 20;
+const DEFAULT_ELEMENTS_LIMIT: usize = 20;
+const HARD_ELEMENTS_LIMIT: usize = 100;
 const DEFAULT_WAIT_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_WAIT_POLL_MS: u64 = 500;
 const HARD_WAIT_TIMEOUT_MS: u64 = 60_000;
@@ -49,6 +52,10 @@ pub trait MacControlBridge: Send + Sync {
         &self,
         request: MacControlSnapshotRequest,
     ) -> Result<MacControlSnapshot, String>;
+    async fn elements(
+        &self,
+        request: MacControlElementsRequest,
+    ) -> Result<MacControlElementsResult, String>;
     async fn capture_frame(&self) -> Result<MacControlFramePayload, String>;
     async fn apps(&self, request: MacControlAppsRequest) -> Result<MacControlAppsResult, String>;
     async fn windows(
@@ -205,12 +212,88 @@ fn default_snapshot_max_depth() -> usize {
     DEFAULT_SNAPSHOT_MAX_DEPTH
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementsRequest {
+    #[serde(default)]
+    pub op: MacControlElementsOp,
+    #[serde(default)]
+    pub target: MacControlTargetQuery,
+    #[serde(default = "default_elements_limit")]
+    pub limit: usize,
+    #[serde(default = "default_snapshot_max_elements")]
+    pub max_elements: usize,
+    #[serde(default = "default_snapshot_max_depth")]
+    pub max_depth: usize,
+}
+
+impl MacControlElementsRequest {
+    pub fn clamped(mut self) -> Self {
+        self.target = self.target.normalized();
+        if self.limit == 0 {
+            self.limit = DEFAULT_ELEMENTS_LIMIT;
+        }
+        if self.max_elements == 0 {
+            self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
+        }
+        if self.max_depth == 0 {
+            self.max_depth = DEFAULT_SNAPSHOT_MAX_DEPTH;
+        }
+        self.limit = self.limit.min(HARD_ELEMENTS_LIMIT);
+        self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
+        self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
+        self
+    }
+}
+
+fn default_elements_limit() -> usize {
+    DEFAULT_ELEMENTS_LIMIT
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlElementsOp {
+    #[default]
+    Find,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlSnapshotResponse {
     pub status: MacControlStatus,
     pub snapshot: Option<MacControlSnapshot>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementsResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlElementsResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementsResult {
+    pub op: MacControlElementsOp,
+    pub target: MacControlTargetQuery,
+    pub snapshot_id: String,
+    pub created_at: String,
+    pub frontmost_app: Option<MacControlAppSummary>,
+    pub total_matches: usize,
+    pub elements: Vec<MacControlElementCandidate>,
+    pub truncated: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementCandidate {
+    pub element: MacControlElementSummary,
+    pub window: Option<MacControlWindowSummary>,
+    pub score: u8,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1042,6 +1125,45 @@ pub async fn snapshot(request: MacControlSnapshotRequest) -> MacControlSnapshotR
     }
 }
 
+pub async fn elements(request: MacControlElementsRequest) -> MacControlElementsResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_elements_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlElementsResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if !permission_granted(&system_permissions, "accessibility") {
+        return MacControlElementsResponse {
+            status,
+            result: None,
+            error: Some("mac_control elements.find requires Accessibility permission.".to_string()),
+        };
+    }
+
+    match bridge.elements(request).await {
+        Ok(result) => MacControlElementsResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => {
+            record_error("elements", &error);
+            MacControlElementsResponse {
+                status,
+                result: None,
+                error: Some(error),
+            }
+        }
+    }
+}
+
 pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
     let request = request.clamped();
     let target = request.target.clone();
@@ -1577,6 +1699,14 @@ pub fn unsupported_snapshot_response(message: &str) -> MacControlSnapshotRespons
     MacControlSnapshotResponse {
         status: unsupported_status(message),
         snapshot: None,
+        error: Some(message.to_string()),
+    }
+}
+
+pub fn unsupported_elements_response(message: &str) -> MacControlElementsResponse {
+    MacControlElementsResponse {
+        status: unsupported_status(message),
+        result: None,
         error: Some(message.to_string()),
     }
 }
@@ -2780,6 +2910,25 @@ mod tests {
         assert_eq!(dialog.button_text.as_deref(), Some("OK"));
         assert_eq!(dialog.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(dialog.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
+
+        let elements = MacControlElementsRequest {
+            target: MacControlTargetQuery {
+                text: Some(" Search ".to_string()),
+                enabled: Some(false),
+                ..Default::default()
+            },
+            limit: 10_000,
+            max_elements: 10_000,
+            max_depth: 100,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(elements.op, MacControlElementsOp::Find);
+        assert_eq!(elements.target.text.as_deref(), Some("Search"));
+        assert_eq!(elements.target.enabled, None);
+        assert_eq!(elements.limit, HARD_ELEMENTS_LIMIT);
+        assert_eq!(elements.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
+        assert_eq!(elements.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
     }
 
     #[test]
@@ -2830,6 +2979,11 @@ mod tests {
         assert_eq!(act.status.readiness, MacControlReadiness::Unsupported);
         assert!(act.result.is_none());
         assert_eq!(act.error.as_deref(), Some("no act bridge"));
+
+        let elements = unsupported_elements_response("no elements bridge");
+        assert_eq!(elements.status.readiness, MacControlReadiness::Unsupported);
+        assert!(elements.result.is_none());
+        assert_eq!(elements.error.as_deref(), Some("no elements bridge"));
 
         let menu = unsupported_menu_response("no menu bridge");
         assert_eq!(menu.status.readiness, MacControlReadiness::Unsupported);

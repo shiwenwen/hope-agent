@@ -19,7 +19,7 @@ Use this loop unless the user explicitly asks for a single read-only query:
 ```
 1. mac_control(action="status")
 2. mac_control(action="apps", op="frontmost" | "search" | "installed")
-3. observe: snapshot / windows.list / menu.list / dialog.inspect
+3. observe: snapshot / elements.find / windows.list / menu.list / dialog.inspect
 4. act: apps.activate/launch, windows.*, act.*, menu.click, dialog.*
 5. verify: wait, snapshot, windows.list, or dialog.inspect
 ```
@@ -29,7 +29,7 @@ For a concrete app workflow:
 ```
 apps.launch bundleId=...
 apps.frontmost                         # verify focus if the next step depends on menus/input
-snapshot or windows.list               # get fresh window/element ids
+snapshot, elements.find, or windows.list # get fresh window/element ids
 act/menu/windows/clipboard/dialog      # one action burst
 wait or snapshot                       # verify the expected change
 ```
@@ -41,6 +41,7 @@ wait or snapshot                       # verify the expected change
 - Prefer `windowId` from the latest `windows.list` or `snapshot` for window mutations.
 - `target.windowTitleMatch` defaults to `exact`. Use `contains` only after listing windows and confirming a partial title is intentional.
 - Prefer `elementId` from the latest `snapshot` for precise clicks and set-value actions.
+- Use `elements.find` when a full snapshot is too noisy or when an action target is ambiguous. It is read-only and returns scored candidates with reasons; retry mutations with `target.elementId` from the chosen candidate.
 - If two windows, dialogs, text fields, or buttons match, do not guess. Use a more specific target or ask the user.
 - Element mutations reject equally ranked AX candidates instead of choosing the first match. When this happens, take a fresh `snapshot` and retry with `elementId`, `target.windowTitle`, `target.role`, or more specific `target.text`.
 
@@ -70,6 +71,8 @@ wait or snapshot                       # verify the expected change
 
 ### Elements and Text
 
+- Use `elements.find op="find"` before clicking or typing into ambiguous UI. Useful examples: `target.role="AXButton"`, `target.text="Save"`, `target.windowTitle="Untitled"`.
+- `elements.find` returns `totalMatches` plus candidate `score`, `reasons`, `element`, and `window`. Prefer high-score candidates whose reasons include the user's intended text/role/window.
 - `act.click` is for AX targets only. It requires `target` and should not consume raw `x/y`.
 - Use `act.click_point` only when the user explicitly wants a coordinate click or AX cannot represent the target. This includes valid coordinates like `(0, 0)`.
 - `act.type` and `act.set_value` should target text input roles (`AXTextArea`, `AXTextField`, `AXSearchField`, etc.).
