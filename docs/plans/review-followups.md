@@ -130,19 +130,6 @@
 - **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
 - **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
 
-### F-025 IM 工具审批仅渲染 SmartJudge，其它 AskReason kind 待补
-
-- **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR
-- **现象**：[`channel/worker/approval.rs::format_approval_text` / `format_text_approval`](../../crates/ha-core/src/channel/worker/approval.rs) 当前只渲染 `ApprovalReasonKind::SmartJudge` 一种 reason 的 detail；`EditCommand`（命中 edit-commands 模式）/ `DangerousCommand`（命中危险命令）/ `ProtectedPath`（命中保护路径）/ `EditTool` / `AgentCustomList` / `PlanModeAsk` 全部不在 IM 端渲染说明文字，IM 用户只看到 command preview + 三个按钮/数字回复，无法判断弹审批的具体原因
-- **为什么留**：本期对齐范围是「命令切换 + Smart 判官说明」。其它 AskReason 的 detail 文案需要逐一过 i18n、决定哪些适合在 IM 暴露（保护路径 detail 可能泄露用户隐私目录如 `~/.ssh/id_rsa` 给群成员看）、Smart fallback=Ask 时 `reason=None` 也希望加一句"Smart 未决, fallback=ask"提示——铺得有点宽
-- **改的话要做什么**：
-  1. 在 `smart_judge_line` 旁新增 `reason_line(reason: Option<&ApprovalReasonPayload>) -> String`，按 kind 分支返回对应 prefix（`💭 Smart Judge:` / `🛡 Protected Path:` / `⚠ Dangerous Command:` / `✏ Edit Command:` / 等）
-  2. 决定 `ProtectedPath` / `DangerousCommand` 的 detail 是直接 expose 还是脱敏（保护路径有可能是 `/home/user/.ssh/id_rsa` 之类敏感）
-  3. Smart 模式 + `SmartFallback::Ask` + judge 失败导致没有 rationale 的场景，渲染 "Smart Judge timed out — falling back to Ask" 之类提示
-  4. 同步加单元测试覆盖每种 kind 的渲染分支
-- **影响面**：UX 完整性。当前不影响功能正确性，IM 用户审批决策时少了上下文
-- **触发时机建议**：下一次动 IM 审批 UX（按钮文案 / 自动审批 / AllowAlways 多作用域）时一并做；或者独立 "IM AskReason renderer" 小 PR
-
 ### F-023 SkillsPanel 三个 Switch handler 失败处理风格不一致
 
 - **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）

@@ -111,25 +111,67 @@ pub(crate) fn build_approval_buttons(request_id: &str) -> Vec<Vec<InlineButton>>
     ]]
 }
 
-/// Render the Smart-mode judge rationale as a one-line suffix, or empty for
-/// other AskReason kinds. Other kinds (protected path, dangerous command, …)
-/// are intentionally not surfaced to IM users yet — see review-followups.
-fn smart_judge_line(reason: Option<&ApprovalReasonPayload>) -> String {
+/// Render the approval reason as a one-line suffix for IM prompts.
+///
+/// Protected path details are intentionally redacted: IM approvals can happen
+/// in shared chats, and echoing a configured path such as an SSH key location
+/// would leak more than the command preview itself.
+fn reason_line(reason: Option<&ApprovalReasonPayload>) -> String {
     let Some(r) = reason else {
         return String::new();
     };
-    if r.kind != ApprovalReasonKind::SmartJudge {
-        return String::new();
-    }
-    let Some(detail) = r.detail.as_deref() else {
-        return String::new();
+    let label = match r.kind {
+        ApprovalReasonKind::EditTool => "✏ Edit Tool",
+        ApprovalReasonKind::EditCommand => "✏ Edit Command",
+        ApprovalReasonKind::DangerousCommand => "⚠ Dangerous Command",
+        ApprovalReasonKind::ProtectedPath => "🛡 Protected Path",
+        ApprovalReasonKind::AgentCustomList => "⚙ Agent Policy",
+        ApprovalReasonKind::SmartJudge => "💭 Smart Judge",
+        ApprovalReasonKind::MacControlAction => "🖥 Mac Control",
+        ApprovalReasonKind::MacControlDangerousAction => "⚠ Mac Control",
+        ApprovalReasonKind::PlanModeAsk => "🧭 Plan Mode",
     };
-    let trimmed = detail.trim();
-    if trimmed.is_empty() {
-        return String::new();
+    let detail = match r.kind {
+        ApprovalReasonKind::EditTool => Some("tool can modify files".to_string()),
+        ApprovalReasonKind::EditCommand => prefixed_detail("matched edit-command rule", &r.detail),
+        ApprovalReasonKind::DangerousCommand => {
+            prefixed_detail("matched dangerous-command rule", &r.detail)
+        }
+        ApprovalReasonKind::ProtectedPath => {
+            Some("matched a configured protected path".to_string())
+        }
+        ApprovalReasonKind::AgentCustomList => {
+            Some("agent policy requires approval for this tool".to_string())
+        }
+        ApprovalReasonKind::SmartJudge => snippet_detail(&r.detail)
+            .map(ToOwned::to_owned)
+            .or_else(|| Some("no rationale returned; asking for approval".to_string())),
+        ApprovalReasonKind::MacControlAction => prefixed_detail("action", &r.detail),
+        ApprovalReasonKind::MacControlDangerousAction => {
+            prefixed_detail("potentially dangerous action", &r.detail)
+        }
+        ApprovalReasonKind::PlanModeAsk => {
+            Some("plan mode requires asking before this tool".to_string())
+        }
+    };
+
+    match detail {
+        Some(detail) => format!("\n{label}: {detail}"),
+        None => format!("\n{label}"),
     }
-    let snippet = crate::truncate_utf8(trimmed, 280);
-    format!("\n💭 Smart Judge: {}", snippet)
+}
+
+fn snippet_detail(detail: &Option<String>) -> Option<&str> {
+    let trimmed = detail.as_deref()?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(crate::truncate_utf8(trimmed, 280))
+}
+
+fn prefixed_detail(prefix: &str, detail: &Option<String>) -> Option<String> {
+    let snippet = snippet_detail(detail)?;
+    Some(format!("{prefix}: {snippet}"))
 }
 
 /// Format the approval prompt text (plain text, no HTML — works across all channels).
@@ -138,7 +180,7 @@ fn format_approval_text(command: &str, reason: Option<&ApprovalReasonPayload>) -
     format!(
         "🔐 Tool approval required\n\n{}{}",
         preview,
-        smart_judge_line(reason)
+        reason_line(reason)
     )
 }
 
@@ -181,7 +223,7 @@ fn format_text_approval(
     let reply_header = timeout_reply_header(timeout_secs);
     format!(
         "🔐 Tool approval required #{tag}:\n{preview}{smart}\n\n{reply_header}\n  1 / yes / ok — Allow once\n  2 / always   — Always allow\n  3 / no / deny — Deny\n(中文也可: 同意 / 总是 / 拒绝){stack_hint}",
-        smart = smart_judge_line(reason)
+        smart = reason_line(reason)
     )
 }
 
@@ -763,48 +805,119 @@ mod tests {
     use super::*;
 
     fn smart(detail: Option<&str>) -> ApprovalReasonPayload {
+        reason(ApprovalReasonKind::SmartJudge, detail)
+    }
+
+    fn reason(kind: ApprovalReasonKind, detail: Option<&str>) -> ApprovalReasonPayload {
         ApprovalReasonPayload {
-            kind: ApprovalReasonKind::SmartJudge,
+            kind,
             detail: detail.map(|s| s.to_string()),
         }
     }
 
     fn other_reason() -> ApprovalReasonPayload {
-        ApprovalReasonPayload {
-            kind: ApprovalReasonKind::DangerousCommand,
-            detail: Some("rm -rf".to_string()),
-        }
+        reason(ApprovalReasonKind::DangerousCommand, Some("rm -rf"))
     }
 
     #[test]
-    fn smart_judge_line_renders_for_smart_only() {
-        assert_eq!(smart_judge_line(None), "");
-        assert_eq!(smart_judge_line(Some(&other_reason())), "");
-        assert_eq!(smart_judge_line(Some(&smart(None))), "");
-        assert_eq!(smart_judge_line(Some(&smart(Some("   ")))), "");
-        let line = smart_judge_line(Some(&smart(Some("looks risky"))));
+    fn reason_line_renders_smart_judge() {
+        assert_eq!(reason_line(None), "");
+        assert_eq!(
+            reason_line(Some(&smart(None))),
+            "\n💭 Smart Judge: no rationale returned; asking for approval"
+        );
+        assert_eq!(
+            reason_line(Some(&smart(Some("   ")))),
+            "\n💭 Smart Judge: no rationale returned; asking for approval"
+        );
+        let line = reason_line(Some(&smart(Some("looks risky"))));
         assert_eq!(line, "\n💭 Smart Judge: looks risky");
     }
 
     #[test]
-    fn smart_judge_line_truncates_long_detail() {
+    fn reason_line_renders_all_known_reason_kinds() {
+        let cases = [
+            (
+                ApprovalReasonKind::EditTool,
+                None,
+                "\n✏ Edit Tool: tool can modify files",
+            ),
+            (
+                ApprovalReasonKind::EditCommand,
+                Some("apply_patch"),
+                "\n✏ Edit Command: matched edit-command rule: apply_patch",
+            ),
+            (
+                ApprovalReasonKind::DangerousCommand,
+                Some("rm -rf"),
+                "\n⚠ Dangerous Command: matched dangerous-command rule: rm -rf",
+            ),
+            (
+                ApprovalReasonKind::AgentCustomList,
+                None,
+                "\n⚙ Agent Policy: agent policy requires approval for this tool",
+            ),
+            (
+                ApprovalReasonKind::MacControlAction,
+                Some("click"),
+                "\n🖥 Mac Control: action: click",
+            ),
+            (
+                ApprovalReasonKind::MacControlDangerousAction,
+                Some("delete file"),
+                "\n⚠ Mac Control: potentially dangerous action: delete file",
+            ),
+            (
+                ApprovalReasonKind::PlanModeAsk,
+                None,
+                "\n🧭 Plan Mode: plan mode requires asking before this tool",
+            ),
+        ];
+
+        for (kind, detail, expected) in cases {
+            assert_eq!(
+                reason_line(Some(&reason(kind, detail))),
+                expected,
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reason_line_redacts_protected_path_detail() {
+        let line = reason_line(Some(&reason(
+            ApprovalReasonKind::ProtectedPath,
+            Some("/Users/alice/.ssh/id_rsa"),
+        )));
+        assert_eq!(
+            line,
+            "\n🛡 Protected Path: matched a configured protected path"
+        );
+        assert!(!line.contains(".ssh"));
+        assert!(!line.contains("id_rsa"));
+    }
+
+    #[test]
+    fn reason_line_truncates_long_detail() {
         let long = "x".repeat(1000);
-        let line = smart_judge_line(Some(&smart(Some(&long))));
+        let line = reason_line(Some(&smart(Some(&long))));
         assert!(line.starts_with("\n💭 Smart Judge: "));
         assert!(line.len() <= 320, "got len {}", line.len());
     }
 
     #[test]
-    fn format_approval_text_includes_smart_judge_line() {
+    fn format_approval_text_includes_reason_line_for_smart_judge() {
         let txt = format_approval_text("exec ls", Some(&smart(Some("trusted dir"))));
         assert!(txt.starts_with("🔐 Tool approval required\n\nexec ls"));
         assert!(txt.contains("💭 Smart Judge: trusted dir"));
     }
 
     #[test]
-    fn format_approval_text_omits_line_when_no_smart_reason() {
+    fn format_approval_text_omits_line_when_no_reason() {
         assert!(!format_approval_text("exec ls", None).contains("Smart Judge"));
-        assert!(!format_approval_text("exec ls", Some(&other_reason())).contains("Smart Judge"));
+        assert!(
+            format_approval_text("exec ls", Some(&other_reason())).contains("Dangerous Command")
+        );
     }
 
     #[test]
