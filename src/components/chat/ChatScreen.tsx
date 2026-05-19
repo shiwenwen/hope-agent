@@ -122,6 +122,8 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   team: Users,
 }
 
+const DEFAULT_RIGHT_PANEL_WIDTH = 520
+
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
 }
@@ -221,12 +223,9 @@ export default function ChatScreen({
     }
   }, [])
 
-  // Right panel widths (resizable)
-  const [planPanelWidth, setPlanPanelWidth] = useState(520)
-  const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
+  // Right panel width (shared by all switchable right panels)
+  const [rightPanelWidth, setRightPanelWidth] = useState(DEFAULT_RIGHT_PANEL_WIDTH)
   const [canvasPanelOpen, setCanvasPanelOpen] = useState(false)
-  const [browserPanelWidth, setBrowserPanelWidth] = useState(480)
-  const [macControlPanelWidth, setMacControlPanelWidth] = useState(480)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
@@ -448,7 +447,6 @@ export default function ChatScreen({
   // ── Team ──────────────────────────────────────────────────
   const activeTeamId = useActiveTeam(currentSessionId ?? null)
   const [showTeamPanel, setShowTeamPanel] = useState(false)
-  const [teamPanelWidth, setTeamPanelWidth] = useState(420)
 
   const refreshRuntimeModelState = useCallback(async () => {
     try {
@@ -1862,8 +1860,8 @@ export default function ChatScreen({
           {/* Diff panel (right side, selected from the shared panel rail) */}
           {renderedExclusiveRightPanel === "diff" && (
             <RightPanelShell
-              width={diffPanel.panelWidth}
-              onWidthChange={diffPanel.setPanelWidth}
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
               resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
               maxWidth={860}
             >
@@ -1880,8 +1878,8 @@ export default function ChatScreen({
           {/* Plan workspace (right side, integrated under the shared title bar) */}
           {renderedExclusiveRightPanel === "plan" && (
             <RightPanelShell
-              width={planPanelWidth}
-              onWidthChange={setPlanPanelWidth}
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
               resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
               maxWidth={860}
             >
@@ -1902,8 +1900,8 @@ export default function ChatScreen({
 
           {/* Canvas Preview Panel */}
           <CanvasPanel
-            panelWidth={canvasPanelWidth}
-            onPanelWidthChange={setCanvasPanelWidth}
+            panelWidth={rightPanelWidth}
+            onPanelWidthChange={setRightPanelWidth}
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
             visible={renderedExclusiveRightPanel === "canvas"}
@@ -1913,8 +1911,8 @@ export default function ChatScreen({
               close-only by user, then switchable from the shared panel rail. */}
           {renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
-              panelWidth={browserPanelWidth}
-              onPanelWidthChange={setBrowserPanelWidth}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
@@ -1927,8 +1925,8 @@ export default function ChatScreen({
               lands in Phase 2C. */}
           {renderedExclusiveRightPanel === "mac-control" && (
             <MacControlPanel
-              panelWidth={macControlPanelWidth}
-              onPanelWidthChange={setMacControlPanelWidth}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
@@ -1940,8 +1938,8 @@ export default function ChatScreen({
           {renderedExclusiveRightPanel === "team" && activeTeamId && (
             <TeamPanel
               teamId={activeTeamId}
-              panelWidth={teamPanelWidth}
-              onPanelWidthChange={setTeamPanelWidth}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
               onClose={() => setShowTeamPanel(false)}
               onSwitchSession={session.handleSwitchSession}
             />
