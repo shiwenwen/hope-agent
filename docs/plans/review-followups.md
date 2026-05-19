@@ -97,15 +97,6 @@
 - **影响面**：用户体验 / 调试体验 / 极端边界 + LINE postback 是潜在安全洞
 - **触发时机建议**：下一次动到对应 channel 文件时顺手收
 
-### F-065 `/sessions` 消息内容 FTS 搜索还有重复显示问题（GUI）
-
-- **来源**：2026-05-07 `/sessions` 搜索能力 PR
-- **现象**：[`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) 的 `case "showSessionPicker"` 把 `result.content`（Rust 端组装好的 markdown body）push 一遍，再用 `action.sessions` 自己拼一遍 markdown push 第二遍 —— 用户看到两条几乎一样的 event 消息。`showProjectPicker` 同款问题（pre-existing）
-- **为什么留**：本期是搜索功能 PR，重构事件渲染契约不在主题
-- **改的话要做什么**：要么 `result.content` 在 picker action 时不 push；要么 action handler 不再自拼 markdown（直接信任 `result.content`）。后者更彻底但要 i18n 在 server 端做
-- **影响面**：UX 视觉冗余，但不影响功能
-- **触发时机建议**：做 picker UI / event 消息系统重构时一并处理
-
 ### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
 
 - **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）

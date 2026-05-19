@@ -984,6 +984,9 @@ export default function ChatScreen({
         action?.type !== "switchAgent" &&
         action?.type !== "passThrough" &&
         !result._isSkillPassThrough
+      const actionRendersResult =
+        action?.type === "showProjectPicker" || action?.type === "showSessionPicker"
+      const shouldAppendResultContent = result.content && !actionRendersResult
       const slashHistoryMessages: Message[] = []
       if (shouldShowSlashHistory && result._slashCommandText) {
         const now = new Date().toISOString()
@@ -993,7 +996,7 @@ export default function ChatScreen({
           timestamp: now,
           slashEvent: { kind: "command", displayAs: "user" },
         })
-        if (result.content) {
+        if (shouldAppendResultContent) {
           slashHistoryMessages.push({
             role: "event",
             content: result.content,
@@ -1001,7 +1004,7 @@ export default function ChatScreen({
             slashEvent: { kind: "result", command: result._slashCommandText },
           })
         }
-      } else if (result.content && shouldShowSlashHistory) {
+      } else if (shouldAppendResultContent && shouldShowSlashHistory) {
         slashHistoryMessages.push({
           role: "event",
           content: result.content,
