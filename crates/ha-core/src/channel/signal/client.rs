@@ -110,29 +110,19 @@ impl SignalClient {
     pub async fn send_message(
         &self,
         recipient: &str,
-        message: &str,
-        _attachments: &[String],
+        message: Option<&str>,
+        attachments: &[String],
         quote_timestamp: Option<i64>,
         quote_author: Option<&str>,
     ) -> Result<Value> {
-        let mut params = serde_json::json!({
-            "account": self.account,
-            "message": message,
-        });
-
-        // Determine if this is a group or DM
-        if is_group_id(recipient) {
-            params["groupId"] = Value::String(recipient.to_string());
-        } else {
-            params["recipient"] = serde_json::json!([recipient]);
-        }
-
-        // signal-cli quote 必须有 timestamp + author 才生效
-        if let (Some(ts), Some(author)) = (quote_timestamp, quote_author) {
-            params["quoteTimestamp"] = Value::Number(serde_json::Number::from(ts));
-            params["quoteAuthor"] = Value::String(author.to_string());
-        }
-
+        let params = build_send_params(
+            &self.account,
+            recipient,
+            message,
+            attachments,
+            quote_timestamp,
+            quote_author,
+        );
         self.rpc("send", params).await
     }
 
@@ -473,6 +463,46 @@ impl SignalClient {
     }
 }
 
+fn build_send_params(
+    account: &str,
+    recipient: &str,
+    message: Option<&str>,
+    attachments: &[String],
+    quote_timestamp: Option<i64>,
+    quote_author: Option<&str>,
+) -> Value {
+    let mut params = serde_json::json!({
+        "account": account,
+    });
+
+    if let Some(message) = message.filter(|s| !s.is_empty()) {
+        params["message"] = Value::String(message.to_string());
+    }
+
+    if !attachments.is_empty() {
+        params["attachments"] = Value::Array(
+            attachments
+                .iter()
+                .map(|path| Value::String(path.clone()))
+                .collect(),
+        );
+    }
+
+    if is_group_id(recipient) {
+        params["groupId"] = Value::String(recipient.to_string());
+    } else {
+        params["recipient"] = serde_json::json!([recipient]);
+    }
+
+    // signal-cli quote 必须有 timestamp + author 才生效
+    if let (Some(ts), Some(author)) = (quote_timestamp, quote_author) {
+        params["quoteTimestamp"] = Value::Number(serde_json::Number::from(ts));
+        params["quoteAuthor"] = Value::String(author.to_string());
+    }
+
+    params
+}
+
 /// 判断 recipient 是否是 Signal 群组 ID。
 ///
 /// Signal recipient 形态：
@@ -540,5 +570,53 @@ mod tests {
     fn is_group_id_rejects_random_strings() {
         // 短而不像 group id
         assert!(!is_group_id("short"));
+    }
+
+    #[test]
+    fn send_params_include_attachments_without_blank_message() {
+        let params = build_send_params(
+            "+10000000000",
+            "+15551234567",
+            None,
+            &["/tmp/a.png".to_string(), "/tmp/b.pdf".to_string()],
+            None,
+            None,
+        );
+
+        assert_eq!(params["account"], "+10000000000");
+        assert_eq!(params["recipient"], serde_json::json!(["+15551234567"]));
+        assert_eq!(
+            params["attachments"],
+            serde_json::json!(["/tmp/a.png", "/tmp/b.pdf"])
+        );
+        assert!(params.get("message").is_none());
+    }
+
+    #[test]
+    fn send_params_include_quote_only_when_complete() {
+        let params = build_send_params(
+            "+10000000000",
+            "group.AbCdEfGh1234567890==",
+            Some("hello"),
+            &[],
+            Some(1_234),
+            Some("+15551234567"),
+        );
+
+        assert_eq!(params["groupId"], "group.AbCdEfGh1234567890==");
+        assert_eq!(params["message"], "hello");
+        assert_eq!(params["quoteTimestamp"], 1_234);
+        assert_eq!(params["quoteAuthor"], "+15551234567");
+
+        let incomplete = build_send_params(
+            "+10000000000",
+            "+15551234567",
+            Some("hello"),
+            &[],
+            Some(1_234),
+            None,
+        );
+        assert!(incomplete.get("quoteTimestamp").is_none());
+        assert!(incomplete.get("quoteAuthor").is_none());
     }
 }

@@ -11,6 +11,7 @@ pub mod client;
 pub mod daemon;
 pub mod format;
 pub mod inbound_media;
+pub mod media;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -111,10 +112,14 @@ impl ChannelPlugin for SignalPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: false,
-            // TODO: native Signal media (signal-cli `--attachment`)
-            // not yet implemented. Dispatcher falls back to a download-link
-            // text for now.
-            supports_media: Vec::new(),
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+                MediaType::Voice,
+                MediaType::Animation,
+            ],
             supports_typing: true,
             supports_buttons: false,
             streaming_preview_max_bytes: None,
@@ -231,38 +236,52 @@ impl ChannelPlugin for SignalPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let client = self.get_client(account_id).await?;
+        let prepared = match media::prepare_signal_attachments(&payload.media).await {
+            Ok(prepared) => prepared,
+            Err(e) => return Ok(DeliveryResult::err(e.to_string())),
+        };
 
-        if let Some(ref text) = payload.text {
-            if text.is_empty() {
-                return Ok(DeliveryResult::ok("empty"));
+        let text = payload
+            .text
+            .as_deref()
+            .or_else(|| payload.media.iter().find_map(|m| m.caption.as_deref()))
+            .filter(|s| !s.is_empty());
+
+        if text.is_none() && prepared.paths().is_empty() {
+            return Ok(DeliveryResult::ok("no_content"));
+        }
+
+        // signal-cli reply 必须 timestamp + author 配对，缺一即不发 quote
+        let (quote_ts, quote_author) = match payload.reply_to_message_id.as_deref() {
+            Some(reply_id) => (
+                reply_id.parse::<i64>().ok(),
+                client.quote_author_for(reply_id).await,
+            ),
+            None => (None, None),
+        };
+
+        let result = client
+            .send_message(
+                chat_id,
+                text,
+                prepared.paths(),
+                quote_ts,
+                quote_author.as_deref(),
+            )
+            .await;
+        prepared.cleanup().await;
+
+        match result {
+            Ok(result) => {
+                // signal-cli send returns the timestamp as message ID
+                let msg_id = result
+                    .get("timestamp")
+                    .and_then(|v| v.as_i64())
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "sent".to_string());
+                Ok(DeliveryResult::ok(msg_id))
             }
-
-            // signal-cli reply 必须 timestamp + author 配对，缺一即不发 quote
-            let (quote_ts, quote_author) = match payload.reply_to_message_id.as_deref() {
-                Some(reply_id) => (
-                    reply_id.parse::<i64>().ok(),
-                    client.quote_author_for(reply_id).await,
-                ),
-                None => (None, None),
-            };
-
-            match client
-                .send_message(chat_id, text, &[], quote_ts, quote_author.as_deref())
-                .await
-            {
-                Ok(result) => {
-                    // signal-cli send returns the timestamp as message ID
-                    let msg_id = result
-                        .get("timestamp")
-                        .and_then(|v| v.as_i64())
-                        .map(|ts| ts.to_string())
-                        .unwrap_or_else(|| "sent".to_string());
-                    Ok(DeliveryResult::ok(msg_id))
-                }
-                Err(e) => Ok(DeliveryResult::err(e.to_string())),
-            }
-        } else {
-            Ok(DeliveryResult::ok("no_content"))
+            Err(e) => Ok(DeliveryResult::err(e.to_string())),
         }
     }
 
