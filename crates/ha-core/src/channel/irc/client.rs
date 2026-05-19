@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use base64::Engine as _;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -65,7 +66,52 @@ pub struct IrcCredentials {
     pub realname: String,
     pub password: Option<String>,
     pub nickserv_password: Option<String>,
+    pub sasl_username: Option<String>,
+    pub sasl_password: Option<String>,
     pub channels: Vec<String>,
+}
+
+impl IrcCredentials {
+    fn sasl_plain_credentials(&self) -> Option<(&str, &str)> {
+        let password = self.sasl_password.as_deref()?;
+        let username = self.sasl_username.as_deref().unwrap_or(self.nick.as_str());
+        Some((username, password))
+    }
+}
+
+struct RegistrationResult {
+    nick: String,
+    sasl_authenticated: bool,
+}
+
+struct Capability {
+    name: String,
+    value: Option<String>,
+}
+
+fn parse_capabilities(lines: &[String]) -> Vec<Capability> {
+    lines
+        .iter()
+        .flat_map(|line| line.split_whitespace())
+        .map(|token| {
+            let (name, value) = token
+                .split_once('=')
+                .map(|(name, value)| (name, Some(value)))
+                .unwrap_or((token, None));
+            Capability {
+                name: name.to_string(),
+                value: value.map(str::to_string),
+            }
+        })
+        .collect()
+}
+
+fn parse_cap_names(line: &str) -> Vec<String> {
+    line.split_whitespace()
+        .map(|token| token.trim_start_matches('-'))
+        .map(|token| token.split_once('=').map(|(name, _)| name).unwrap_or(token))
+        .map(str::to_string)
+        .collect()
 }
 
 impl IrcClient {
@@ -118,6 +164,55 @@ impl IrcClient {
         Self::send_raw_with(&self.writer, line).await
     }
 
+    async fn register_connection(
+        writer: &Mutex<IrcWriter>,
+        reader: &mut IrcReader,
+        creds: &IrcCredentials,
+    ) -> Result<RegistrationResult> {
+        if let Some(ref pass) = creds.password {
+            if !pass.is_empty() {
+                Self::send_raw_with(writer, &format!("PASS {}", pass)).await?;
+            }
+        }
+
+        Self::send_raw_with(writer, "CAP LS 302").await?;
+        Self::send_raw_with(writer, &format!("NICK {}", creds.nick)).await?;
+        Self::send_raw_with(
+            writer,
+            &format!("USER {} 0 * :{}", creds.username, creds.realname),
+        )
+        .await?;
+
+        Self::wait_for_registration(writer, reader, creds).await
+    }
+
+    async fn send_sasl_plain(
+        writer: &Mutex<IrcWriter>,
+        username: &str,
+        password: &str,
+    ) -> Result<()> {
+        let mut payload = Vec::with_capacity(username.len() * 2 + password.len() + 2);
+        payload.extend_from_slice(username.as_bytes());
+        payload.push(0);
+        payload.extend_from_slice(username.as_bytes());
+        payload.push(0);
+        payload.extend_from_slice(password.as_bytes());
+
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload);
+
+        // IRCv3 SASL caps each AUTHENTICATE parameter at 400 bytes. A final
+        // exactly-400-byte chunk must be followed by AUTHENTICATE +.
+        for chunk in encoded.as_bytes().chunks(400) {
+            let chunk = std::str::from_utf8(chunk)?;
+            Self::send_raw_with(writer, &format!("AUTHENTICATE {}", chunk)).await?;
+        }
+        if encoded.len() % 400 == 0 {
+            Self::send_raw_with(writer, "AUTHENTICATE +").await?;
+        }
+
+        Ok(())
+    }
+
     /// Send PRIVMSG to a target (channel or nick).
     pub async fn send_privmsg(&self, target: &str, text: &str) -> Result<()> {
         // RFC 2812 整行 ≤ 512 字节（含 CRLF）。服务端附加的 prefix
@@ -160,27 +255,19 @@ impl IrcClient {
     ) -> Result<Self> {
         let (writer, mut reader) = Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
 
-        // Register with the server
-        if let Some(ref pass) = creds.password {
-            if !pass.is_empty() {
-                Self::send_raw_with(&writer, &format!("PASS {}", pass)).await?;
-            }
-        }
-        Self::send_raw_with(&writer, &format!("NICK {}", creds.nick)).await?;
-        Self::send_raw_with(
-            &writer,
-            &format!("USER {} 0 * :{}", creds.username, creds.realname),
-        )
-        .await?;
+        let registration = Self::register_connection(&writer, &mut reader, &creds).await?;
+        let confirmed_nick = registration.nick;
 
-        // Wait for RPL_WELCOME (001) or error
-        let confirmed_nick = Self::wait_for_welcome(&writer, &mut reader, &creds.nick).await?;
-
-        // NickServ identification
-        if let Some(ref ns_pass) = creds.nickserv_password {
-            if !ns_pass.is_empty() {
-                Self::send_raw_with(&writer, &format!("PRIVMSG NickServ :IDENTIFY {}", ns_pass))
+        // NickServ fallback for networks without SASL support.
+        if !registration.sasl_authenticated {
+            if let Some(ref ns_pass) = creds.nickserv_password {
+                if !ns_pass.is_empty() {
+                    Self::send_raw_with(
+                        &writer,
+                        &format!("PRIVMSG NickServ :IDENTIFY {}", ns_pass),
+                    )
                     .await?;
+                }
             }
         }
 
@@ -222,13 +309,16 @@ impl IrcClient {
         })
     }
 
-    /// Wait for RPL_WELCOME (001) from the server.
-    async fn wait_for_welcome(
+    /// Wait for CAP negotiation, optional SASL, and RPL_WELCOME (001).
+    async fn wait_for_registration(
         writer: &Mutex<IrcWriter>,
         reader: &mut IrcReader,
-        desired_nick: &str,
-    ) -> Result<String> {
-        let mut nick = desired_nick.to_string();
+        creds: &IrcCredentials,
+    ) -> Result<RegistrationResult> {
+        let mut nick = creds.nick.clone();
+        let mut cap_ls = Vec::new();
+        let mut requested_sasl = false;
+        let mut sasl_authenticated = false;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
 
         loop {
@@ -265,9 +355,98 @@ impl IrcClient {
             };
 
             match msg.command.as_str() {
+                "CAP" => {
+                    let Some(subcommand) = msg.params.get(1).map(|s| s.to_uppercase()) else {
+                        continue;
+                    };
+                    let is_continuation = msg.params.get(2).is_some_and(|param| param == "*");
+                    let payload_idx = if is_continuation { 3 } else { 2 };
+                    let payload = msg
+                        .params
+                        .get(payload_idx)
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+
+                    match subcommand.as_str() {
+                        "LS" => {
+                            cap_ls.push(payload.to_string());
+                            if is_continuation {
+                                continue;
+                            }
+
+                            let requested_caps = Self::desired_capabilities(&cap_ls, creds);
+                            requested_sasl = requested_caps.iter().any(|cap| cap == "sasl");
+
+                            if requested_caps.is_empty() {
+                                let _ = Self::send_raw_with(writer, "CAP END").await;
+                            } else {
+                                let cap_list = requested_caps.join(" ");
+                                let _ =
+                                    Self::send_raw_with(writer, &format!("CAP REQ :{}", cap_list))
+                                        .await;
+                            }
+                        }
+                        "ACK" => {
+                            let acked_caps = parse_cap_names(payload);
+                            if requested_sasl && acked_caps.iter().any(|cap| cap == "sasl") {
+                                let _ = Self::send_raw_with(writer, "AUTHENTICATE PLAIN").await;
+                            } else {
+                                let _ = Self::send_raw_with(writer, "CAP END").await;
+                            }
+                        }
+                        "NAK" => {
+                            let _ = Self::send_raw_with(writer, "CAP END").await;
+                            if requested_sasl {
+                                return Err(anyhow!("IRC server rejected SASL capability request"));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                "AUTHENTICATE" => {
+                    if !requested_sasl {
+                        continue;
+                    }
+                    let challenge = msg.params.first().map(|s| s.as_str()).unwrap_or("");
+                    if challenge != "+" {
+                        let _ = Self::send_raw_with(writer, "AUTHENTICATE *").await;
+                        let _ = Self::send_raw_with(writer, "CAP END").await;
+                        return Err(anyhow!("IRC server sent unexpected SASL PLAIN challenge"));
+                    }
+
+                    if let Some((username, password)) = creds.sasl_plain_credentials() {
+                        Self::send_sasl_plain(writer, username, password).await?;
+                    } else {
+                        let _ = Self::send_raw_with(writer, "AUTHENTICATE *").await;
+                        let _ = Self::send_raw_with(writer, "CAP END").await;
+                        return Err(anyhow!("IRC SASL requested without credentials"));
+                    }
+                }
                 "PING" => {
                     let payload = msg.params.first().map(|s| s.as_str()).unwrap_or("");
                     let _ = Self::send_raw_with(writer, &format!("PONG :{}", payload)).await;
+                }
+                // RPL_LOGGEDIN
+                "900" => {}
+                // RPL_SASLSUCCESS
+                "903" => {
+                    sasl_authenticated = true;
+                    let _ = Self::send_raw_with(writer, "CAP END").await;
+                }
+                // ERR_NICKLOCKED, ERR_SASLFAIL, ERR_SASLTOOLONG, ERR_SASLABORTED
+                "902" | "904" | "905" | "906" => {
+                    let detail = msg
+                        .params
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| "SASL authentication failed".to_string());
+                    let _ = Self::send_raw_with(writer, "CAP END").await;
+                    return Err(anyhow!("IRC SASL failed ({}): {}", msg.command, detail));
+                }
+                // ERR_SASLALREADY: treat as authenticated and continue registration.
+                "907" => {
+                    sasl_authenticated = true;
+                    let _ = Self::send_raw_with(writer, "CAP END").await;
                 }
                 // RPL_WELCOME
                 "001" => {
@@ -277,7 +456,10 @@ impl IrcClient {
                             nick = param.to_string();
                         }
                     }
-                    return Ok(nick);
+                    return Ok(RegistrationResult {
+                        nick,
+                        sasl_authenticated,
+                    });
                 }
                 // ERR_ERRONEUSNICKNAME, ERR_PASSWDMISMATCH, ERR_YOUREBANNEDCREEP
                 "432" | "464" | "465" => {
@@ -307,6 +489,31 @@ impl IrcClient {
                 }
             }
         }
+    }
+
+    fn desired_capabilities(cap_lines: &[String], creds: &IrcCredentials) -> Vec<String> {
+        let mut caps = Vec::new();
+        let available = parse_capabilities(cap_lines);
+
+        if available.iter().any(|cap| cap.name == "message-tags") {
+            caps.push("message-tags".to_string());
+        }
+
+        if creds.sasl_plain_credentials().is_some()
+            && available.iter().any(|cap| {
+                cap.name == "sasl"
+                    && match cap.value.as_deref() {
+                        Some(value) => value
+                            .split(',')
+                            .any(|mechanism| mechanism.eq_ignore_ascii_case("PLAIN")),
+                        None => true,
+                    }
+            })
+        {
+            caps.push("sasl".to_string());
+        }
+
+        caps
     }
 
     /// Main event loop: reads IRC lines, handles PING, dispatches PRIVMSG.
@@ -379,35 +586,22 @@ impl IrcClient {
             // Attempt reconnection
             match Self::connect_raw(&creds.server, creds.port, creds.tls).await {
                 Ok((new_writer, new_reader)) => {
-                    // Re-register
-                    if let Some(ref pass) = creds.password {
-                        if !pass.is_empty() {
-                            let _ =
-                                Self::send_raw_with(&new_writer, &format!("PASS {}", pass)).await;
-                        }
-                    }
-                    let _ = Self::send_raw_with(&new_writer, &format!("NICK {}", creds.nick)).await;
-                    let _ = Self::send_raw_with(
-                        &new_writer,
-                        &format!("USER {} 0 * :{}", creds.username, creds.realname),
-                    )
-                    .await;
-
                     reader = new_reader;
 
-                    // Wait for welcome on new connection
-                    match Self::wait_for_welcome(&new_writer, &mut reader, &creds.nick).await {
-                        Ok(nick) => {
-                            current_nick = nick;
+                    match Self::register_connection(&new_writer, &mut reader, &creds).await {
+                        Ok(registration) => {
+                            current_nick = registration.nick;
 
-                            // NickServ re-identify
-                            if let Some(ref ns_pass) = creds.nickserv_password {
-                                if !ns_pass.is_empty() {
-                                    let _ = Self::send_raw_with(
-                                        &new_writer,
-                                        &format!("PRIVMSG NickServ :IDENTIFY {}", ns_pass),
-                                    )
-                                    .await;
+                            // NickServ fallback for networks without SASL support.
+                            if !registration.sasl_authenticated {
+                                if let Some(ref ns_pass) = creds.nickserv_password {
+                                    if !ns_pass.is_empty() {
+                                        let _ = Self::send_raw_with(
+                                            &new_writer,
+                                            &format!("PRIVMSG NickServ :IDENTIFY {}", ns_pass),
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
 
@@ -540,6 +734,13 @@ impl IrcClient {
 
                     // Check if bot was mentioned
                     let was_mentioned = text.to_lowercase().contains(&current_nick.to_lowercase());
+                    let timestamp = msg
+                        .tags
+                        .get("time")
+                        .and_then(|value| value.as_deref())
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .map(|value| value.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(chrono::Utc::now);
 
                     let msg_ctx = MsgContext {
                         channel_id: ChannelId::Irc,
@@ -559,9 +760,9 @@ impl IrcClient {
                         text: Some(text.to_string()),
                         media: Vec::new(),
                         reply_to_message_id: None,
-                        timestamp: chrono::Utc::now(),
+                        timestamp,
                         was_mentioned,
-                        raw: serde_json::json!({ "line": line }),
+                        raw: serde_json::json!({ "line": line, "tags": msg.tags }),
                     };
 
                     if inbound_tx
@@ -640,23 +841,68 @@ impl IrcClient {
     pub async fn probe(creds: &IrcCredentials) -> Result<String> {
         let (writer, mut reader) = Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
 
-        if let Some(ref pass) = creds.password {
-            if !pass.is_empty() {
-                Self::send_raw_with(&writer, &format!("PASS {}", pass)).await?;
-            }
-        }
-        Self::send_raw_with(&writer, &format!("NICK {}", creds.nick)).await?;
-        Self::send_raw_with(
-            &writer,
-            &format!("USER {} 0 * :{}", creds.username, creds.realname),
-        )
-        .await?;
-
-        let nick = Self::wait_for_welcome(&writer, &mut reader, &creds.nick).await?;
+        let registration = Self::register_connection(&writer, &mut reader, creds).await?;
+        let nick = registration.nick;
 
         // Send QUIT
         let _ = Self::send_raw_with(&writer, "QUIT :probe").await;
 
         Ok(nick)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn creds_with_sasl() -> IrcCredentials {
+        IrcCredentials {
+            server: "irc.example.test".to_string(),
+            port: 6697,
+            tls: true,
+            nick: "hopebot".to_string(),
+            username: "hopebot".to_string(),
+            realname: "Hope Bot".to_string(),
+            password: None,
+            nickserv_password: Some("secret".to_string()),
+            sasl_username: None,
+            sasl_password: Some("secret".to_string()),
+            channels: vec!["#hope".to_string()],
+        }
+    }
+
+    #[test]
+    fn desired_capabilities_request_tags_and_sasl_plain() {
+        let caps = IrcClient::desired_capabilities(
+            &[String::from(
+                "multi-prefix message-tags sasl=PLAIN,EXTERNAL",
+            )],
+            &creds_with_sasl(),
+        );
+
+        assert_eq!(caps, vec!["message-tags", "sasl"]);
+    }
+
+    #[test]
+    fn desired_capabilities_skip_sasl_without_plain() {
+        let caps = IrcClient::desired_capabilities(
+            &[String::from("message-tags sasl=EXTERNAL")],
+            &creds_with_sasl(),
+        );
+
+        assert_eq!(caps, vec!["message-tags"]);
+    }
+
+    #[test]
+    fn parse_capabilities_handles_values_and_multiline() {
+        let caps = parse_capabilities(&[
+            String::from("multi-prefix sasl=PLAIN,EXTERNAL"),
+            String::from("message-tags"),
+        ]);
+
+        assert!(caps
+            .iter()
+            .any(|cap| cap.name == "sasl" && cap.value.as_deref() == Some("PLAIN,EXTERNAL")));
+        assert!(caps.iter().any(|cap| cap.name == "message-tags"));
     }
 }

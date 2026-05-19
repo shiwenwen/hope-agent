@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
+
 /// Parsed IRC message.
 #[derive(Debug, Clone)]
 pub struct IrcMessage {
+    pub tags: BTreeMap<String, Option<String>>,
     pub prefix: Option<String>,
     pub command: String,
     pub params: Vec<String>,
@@ -22,7 +25,15 @@ pub fn parse_irc_line(line: &str) -> Option<IrcMessage> {
     }
 
     let mut cursor = raw;
+    let mut tags = BTreeMap::new();
     let mut prefix: Option<String> = None;
+
+    // Parse IRCv3 message tags.
+    if let Some(rest) = cursor.strip_prefix('@') {
+        let idx = rest.find(' ')?;
+        tags = parse_message_tags(&rest[..idx]);
+        cursor = rest[idx + 1..].trim_start();
+    }
 
     // Parse optional prefix
     if cursor.starts_with(':') {
@@ -76,10 +87,57 @@ pub fn parse_irc_line(line: &str) -> Option<IrcMessage> {
     }
 
     Some(IrcMessage {
+        tags,
         prefix,
         command,
         params,
     })
+}
+
+fn parse_message_tags(raw: &str) -> BTreeMap<String, Option<String>> {
+    let mut tags = BTreeMap::new();
+
+    for tag in raw.split(';') {
+        if tag.is_empty() {
+            continue;
+        }
+        let (key, value) = tag.split_once('=').unwrap_or((tag, ""));
+        if key.is_empty() {
+            continue;
+        }
+        let value = if value.is_empty() {
+            None
+        } else {
+            Some(unescape_tag_value(value))
+        };
+        tags.insert(key.to_string(), value);
+    }
+
+    tags
+}
+
+fn unescape_tag_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some(':') => out.push(';'),
+            Some('s') => out.push(' '),
+            Some('\\') => out.push('\\'),
+            Some('r') => out.push('\r'),
+            Some('n') => out.push('\n'),
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+
+    out
 }
 
 /// Extract the nick from an IRC prefix like `nick!user@host`.
@@ -103,6 +161,7 @@ mod tests {
     #[test]
     fn test_parse_privmsg() {
         let msg = parse_irc_line(":nick!user@host PRIVMSG #channel :Hello world").unwrap();
+        assert!(msg.tags.is_empty());
         assert_eq!(msg.prefix.as_deref(), Some("nick!user@host"));
         assert_eq!(msg.command, "PRIVMSG");
         assert_eq!(msg.params, vec!["#channel", "Hello world"]);
@@ -170,5 +229,36 @@ mod tests {
         let msg = parse_irc_line(":alice!alice@host PRIVMSG mybot :hi there").unwrap();
         assert_eq!(msg.command, "PRIVMSG");
         assert_eq!(msg.params, vec!["mybot", "hi there"]);
+    }
+
+    #[test]
+    fn test_parse_ircv3_message_tags() {
+        let msg = parse_irc_line(
+            "@time=2026-05-19T09:00:00.000Z;account=alice;foo :alice!u@h PRIVMSG #chan :hi",
+        )
+        .unwrap();
+
+        assert_eq!(
+            msg.tags.get("time").and_then(|v| v.as_deref()),
+            Some("2026-05-19T09:00:00.000Z")
+        );
+        assert_eq!(
+            msg.tags.get("account").and_then(|v| v.as_deref()),
+            Some("alice")
+        );
+        assert_eq!(msg.tags.get("foo"), Some(&None));
+        assert_eq!(msg.prefix.as_deref(), Some("alice!u@h"));
+        assert_eq!(msg.command, "PRIVMSG");
+    }
+
+    #[test]
+    fn test_parse_ircv3_message_tag_escaping_and_duplicates() {
+        let msg =
+            parse_irc_line("@tag=old;tag=semi\\:space\\spath\\\\drop\\b :s NOTICE * :ok").unwrap();
+
+        assert_eq!(
+            msg.tags.get("tag").and_then(|v| v.as_deref()),
+            Some("semi;space path\\dropb")
+        );
     }
 }
