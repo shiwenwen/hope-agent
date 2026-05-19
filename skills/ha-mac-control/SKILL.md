@@ -72,6 +72,7 @@ wait or snapshot                       # verify the expected change
 - `act.click` is for AX targets only. It requires `target` and should not consume raw `x/y`.
 - Use `act.click_point` only when the user explicitly wants a coordinate click or AX cannot represent the target. This includes valid coordinates like `(0, 0)`.
 - `act.type` and `act.set_value` should target text input roles (`AXTextArea`, `AXTextField`, `AXSearchField`, etc.).
+- Use `act.paste` for long text or apps that do not accept `AXValue` reliably. It stages text on the pasteboard, invokes paste, and reports only clipboard restore status.
 - Do not type passwords, OTPs, or private credentials unless the user explicitly supplied them in the current flow.
 
 ### Menus
@@ -86,6 +87,7 @@ wait or snapshot                       # verify the expected change
 
 - `clipboard.get` reads user clipboard text and may expose secrets. Use it only when the user asked for clipboard content or it is clearly necessary, and keep `maxChars` tight.
 - `clipboard.set` is useful before a deliberate paste workflow. It does not echo the written text in the result; verify by pasting into the intended target, not by reading the clipboard back unless needed.
+- Prefer `act.paste` over separate `clipboard.set` + `act.hotkey` for text insertion; it tries to restore the previous UTF-8 text clipboard.
 - Use `clipboard.clear` only when the user asked to clear the clipboard or after a sensitive paste workflow.
 
 ### Dialogs and Sheets

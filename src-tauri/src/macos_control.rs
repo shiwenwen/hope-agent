@@ -759,6 +759,24 @@ mod imp {
                 target = Some(summary);
                 "AXSetValue".to_string()
             }
+            MacControlActOp::Paste => {
+                let text = request
+                    .text
+                    .as_deref()
+                    .ok_or_else(|| "act.paste requires text.".to_string())?;
+                if target_query_is_empty(&request.target) {
+                    target = focused_element().map(|(_, summary)| summary);
+                } else {
+                    let (element, summary, _) = resolve_type_element(
+                        &request.target,
+                        request.max_elements,
+                        request.max_depth,
+                    )?;
+                    focus_text_element_for_paste(element.as_ptr() as AXUIElementRef, &summary)?;
+                    target = Some(summary);
+                }
+                paste_text_via_clipboard(text)?
+            }
             MacControlActOp::SetValue => {
                 let value = request
                     .value
@@ -913,6 +931,55 @@ mod imp {
             return (text, text_len, false);
         }
         (text.chars().take(max_chars).collect(), text_len, true)
+    }
+
+    fn focus_text_element_for_paste(
+        element: AXUIElementRef,
+        summary: &MacControlElementSummary,
+    ) -> Result<(), String> {
+        if set_ax_bool(element, "AXFocused", true).is_ok() {
+            thread::sleep(Duration::from_millis(40));
+            return Ok(());
+        }
+        let point = point_for_element(summary, "act.paste target")?;
+        post_mouse_click(point, MouseButton::Left)?;
+        thread::sleep(Duration::from_millis(80));
+        Ok(())
+    }
+
+    fn paste_text_via_clipboard(text: &str) -> Result<String, String> {
+        let mut clipboard =
+            arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
+        let previous_text = clipboard.get_text().ok();
+        clipboard
+            .set_text(text.to_string())
+            .map_err(|e| format!("Failed to stage paste text on clipboard: {e}"))?;
+
+        let paste_result = post_hotkey(&["cmd".to_string(), "v".to_string()]);
+        thread::sleep(Duration::from_millis(120));
+        let restore_status = restore_text_clipboard(&mut clipboard, previous_text);
+
+        match paste_result {
+            Ok(()) => Ok(format!(
+                "PasteboardCommandV(clipboard_restore={restore_status})"
+            )),
+            Err(error) => Err(format!(
+                "Paste hotkey failed after clipboard staging ({restore_status}): {error}"
+            )),
+        }
+    }
+
+    fn restore_text_clipboard(
+        clipboard: &mut arboard::Clipboard,
+        previous_text: Option<String>,
+    ) -> &'static str {
+        let Some(previous_text) = previous_text else {
+            return "not_restored_no_prior_utf8_text";
+        };
+        match clipboard.set_text(previous_text) {
+            Ok(()) => "restored_utf8_text",
+            Err(_) => "restore_failed",
+        }
     }
 
     fn handle_dialog(request: MacControlDialogRequest) -> Result<MacControlDialogResult, String> {

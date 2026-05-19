@@ -190,6 +190,7 @@ readiness 计算规则：
 | `act.double_click` | `target` | 对目标元素中心执行双击 |
 | `act.right_click` | `target` | 对目标元素中心执行右键点击 |
 | `act.type` | `text`，可选文本 target | 输入文本，优先 AX 文本控件 |
+| `act.paste` | `text`，可选文本 target | 通过 pasteboard + 系统粘贴输入文本；不回显 text |
 | `act.set_value` | `target`，`value` | 对明确 AX 元素设置值 |
 | `act.hotkey` | `key` 或 `keys` | 合成快捷键 |
 | `act.scroll` | `deltaX` / `deltaY` 之一非零 | 合成滚动 |
@@ -295,7 +296,8 @@ readiness 计算规则：
 
 - 文本控件优先走 `AXValue`。
 - 需要焦点输入时先解析和聚焦目标。
-- 长文本可通过 pasteboard fallback，但不得记录旧剪贴板内容；工具结果只报告恢复是否成功。
+- 长文本可通过 `act.paste` pasteboard fallback；不得记录旧剪贴板内容，工具结果只报告恢复是否成功。
+- `act.paste` 会尽量恢复旧 UTF-8 文本剪贴板；若旧剪贴板不是 UTF-8 文本，无法完整恢复原类型，结果会标记 `clipboard_restore=not_restored_no_prior_utf8_text`。
 - 密码字段不得回读真实值。
 
 窗口操作规则：
@@ -312,7 +314,7 @@ readiness 计算规则：
 - `menu.click` 按 path 逐级解析并点击。App 菜单按 title 匹配；system extras 可按 title、description 或 value 匹配，且优先精确匹配再包含匹配。
 - 命中危险菜单词的 `menu.click` 属于高风险动作。
 - `clipboard.get/set/clear` 均走普通审批；`clipboard.get` 是隐私敏感读取，不作为只读动作自动放行。
-- `clipboard.set` 和长文本 pasteboard fallback 都不得在结果里回显写入文本；只报告长度、是否截断和是否改变。
+- `clipboard.set` 和 `act.paste` 都不得在结果里回显写入文本；只报告长度、是否截断、是否改变或剪贴板恢复状态。
 - `dialog.inspect` 只读返回 dialog/sheet 文本和按钮摘要。
 - `dialog.accept` 高风险；`dialog.dismiss` 普通突变。
 

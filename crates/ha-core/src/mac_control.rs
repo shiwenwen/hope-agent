@@ -693,6 +693,7 @@ pub enum MacControlActOp {
     DoubleClick,
     RightClick,
     Type,
+    Paste,
     SetValue,
     Hotkey,
     Scroll,
@@ -1754,9 +1755,12 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                 ));
             }
         }
-        MacControlActOp::Type => {
+        MacControlActOp::Type | MacControlActOp::Paste => {
             if request.text.is_none() {
-                return Some("mac_control act.type requires text.".to_string());
+                return Some(format!(
+                    "mac_control act.{} requires text.",
+                    act_op_name(request.op)
+                ));
             }
         }
         MacControlActOp::SetValue => {
@@ -1802,6 +1806,7 @@ fn act_op_name(op: MacControlActOp) -> &'static str {
         MacControlActOp::DoubleClick => "double_click",
         MacControlActOp::RightClick => "right_click",
         MacControlActOp::Type => "type",
+        MacControlActOp::Paste => "paste",
         MacControlActOp::SetValue => "set_value",
         MacControlActOp::Hotkey => "hotkey",
         MacControlActOp::Scroll => "scroll",
@@ -2632,6 +2637,16 @@ mod tests {
         assert_eq!(act.key, None);
         assert_eq!(act.keys, vec!["cmd".to_string(), "n".to_string()]);
         assert!(validate_act_request(&act).is_none());
+
+        let paste_without_text = MacControlActRequest {
+            op: MacControlActOp::Paste,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(
+            validate_act_request(&paste_without_text).as_deref(),
+            Some("mac_control act.paste requires text.")
+        );
 
         let default_origin_click = MacControlActRequest {
             op: MacControlActOp::Click,

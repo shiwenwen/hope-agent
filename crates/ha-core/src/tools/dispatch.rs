@@ -468,6 +468,7 @@ mod tests {
         assert!(ops.contains(&"double_click"));
         assert!(ops.contains(&"right_click"));
         assert!(ops.contains(&"type"));
+        assert!(ops.contains(&"paste"));
         assert!(ops.contains(&"drag"));
         assert!(ops.contains(&"get"));
         assert!(ops.contains(&"set"));
