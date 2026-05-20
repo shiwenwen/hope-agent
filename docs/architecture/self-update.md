@@ -103,7 +103,7 @@ binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/u
 
 成功 ≈ 1-2s 不可用窗口。已注册 service 时由 OS 重启；未注册时返回 best-effort 提示让用户手动重启。
 
-桌面 GUI 进程的"重启"是用户手动操作——`update_bridge.rs` 故意不调 `app.restart()`，避免升级中切断用户正在打的字。
+桌面 GUI 进程的"重启"是用户手动操作——`update_bridge.rs` 故意不调 `app.restart()`，避免升级中切断用户正在打的字。前端 updater 安装完成后的按钮路径调用 `@tauri-apps/plugin-process` 的 `relaunch()`；在 Tauri 2.10 / plugin-process 2.3.1 中它映射到 `AppHandle::request_restart()`，Tauri 会先发 `RunEvent::Exit` 给插件，`tauri-plugin-single-instance` 在这个事件里释放 mutex / socket，随后才由 Tauri `process::restart()` 拉起新进程。
 
 ## Backup / rollback
 

@@ -49,15 +49,6 @@
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
-### F-076 plugin-process `relaunch()` 与 single-instance 锁的潜在 race
-
-- **来源**：2026-05-10 updater 菜单 / release 自测
-- **现象**：[`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) 注册了 `tauri_plugin_single_instance`；前端 updater 完成后 [`desktopUpdater.ts::relaunch`](../../src/lib/desktopUpdater.ts) 直接调用 plugin-process `relaunch()`。理论 race 是新进程先启动但老进程还没释放 single-instance 锁，新进程被回调到老进程后退出，老进程随后也退出，最终没有进程在跑。
-- **为什么留**：当前只是发布路径的潜在可靠性风险，实测未复现；前端已有手动重启兜底文案。真正修要决定是 fork/配置 single-instance、主动释放锁，还是改成 spawn-with-delay，超出当期修复范围。
-- **改的话要做什么**：复现或用户反馈"更新后没重启"时，优先评估三条路：让 single-instance 识别 relaunch 二次启动、在 `relaunch()` 前释放锁、或不用 plugin-process relaunch 而改成 detached delayed spawn。
-- **影响面**：平台 / 发布风险。命中时用户看到更新安装完成但 app 没自动重新打开。
-- **触发时机建议**：下一次动 updater / single-instance / process relaunch 集成时处理；若 release 测试复现则提高优先级。
-
 ### F-089 后端 `ask_user_question` payload 仍是字面量英文，未走前端 i18n
 
 - **来源**：2026-05-15 browser / updater 审查
