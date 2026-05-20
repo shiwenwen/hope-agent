@@ -49,22 +49,6 @@
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
-### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
-
-- **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）
-- **现象**：本期 PR 只修了"主路径在非 macOS / 非 Tauri 直接走不通"的两个硬伤（Skills 目录选择 + Ollama 失败 UX）。仓库里仍有大量 `#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]` 散落在业务代码而非 `crates/ha-core/src/platform/` 门面下，违反 AGENTS.md「优先用 `#[cfg(unix)]` / `#[cfg(windows)]`，少写 `target_os = "linux"`；新增跨平台原语统一放 `crates/ha-core/src/platform/`」规则。重灾区：
-  - [`crates/ha-core/src/service_install.rs`](../../crates/ha-core/src/service_install.rs)：~30 处 `target_os = "macos"` / `"linux"` 分支硬编码（launchd plist / systemd unit 业务逻辑应进 `platform::service` 子模块）
-- **2026-05-20 已处理**：系统代理探测已收敛到 [`platform::detect_system_proxy`](../../crates/ha-core/src/platform/mod.rs)：macOS 走 `scutil --proxy`，Linux / BSD 走 env → GNOME `gsettings` → KDE `kreadconfig6/5`，provider / Docker 不再各自维护 `scutil` 分支
-- **2026-05-20 已处理**：天气自动定位已改走 [`platform::current_location`](../../crates/ha-core/src/platform/mod.rs)，[`weather.rs`](../../crates/ha-core/src/weather.rs) 不再直接带 macOS CoreLocation cfg；非 macOS 仍按原行为降级 IP 定位
-- **2026-05-20 已处理**：PDFium fallback 动态库候选路径已改走 [`platform::pdfium_library_candidates`](../../crates/ha-core/src/platform/mod.rs)，[`file_extract.rs`](../../crates/ha-core/src/file_extract.rs) 不再直接带 OS cfg；原条目里提到的 Office `textutil` / `libreoffice` 分支已不存在，当前 Office 提取是纯 Rust 路径
-- **2026-05-20 已处理**：系统权限原生实现已迁到 [`platform/system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs)，[`permissions.rs`](../../crates/ha-core/src/permissions.rs) 只保留权限目录、响应 shaping 与 legacy 映射；非 macOS 仍按原行为返回 unsupported / NotApplicable
-- **为什么留**：`service_install.rs` 是最大块，launchd / systemd 文本、安装/卸载/状态查询耦合在一个业务文件里，需要单独拆 `platform::service`，不适合和其它小门面迁移混在一起
-- **改的话要做什么**：
-  1. `service_install.rs` 拆成 `platform::service::{install,uninstall,status}` + 各 OS 实现文件
-  2. 保留 public API 不变，让 CLI / updater service control 继续调同一入口
-- **影响面**：全是"已经能跑但不够 OS-native"——非 macOS 用户拿到的是降级体验或不支持提示。无安全 / 数据正确性问题，但跨平台口碑会被这些细节拖累
-- **触发时机建议**：最后拆 `service_install`；或者下次有 Windows / Linux 用户报服务安装/状态查询不能用时，趁势把对应那块迁到 platform 门面
-
 ### F-027 9 个语言 `settings.approvalPanel` block 是英文 verbatim fallback
 
 - **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse agent）

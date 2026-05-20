@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md) | 关联：[安全子系统](security.md) · [MCP 客户端](mcp.md) · [进程与并发模型](process-model.md)
 
-[`platform/`](../../crates/ha-core/src/platform/) 是 ha-core 内部的 OS 适配层，所有"在 Unix 与 Windows 行为不同"的原语统一收敛于此。门面 [`mod.rs`](../../crates/ha-core/src/platform/mod.rs) 定义跨平台单一签名，[`unix.rs`](../../crates/ha-core/src/platform/unix.rs) / [`windows.rs`](../../crates/ha-core/src/platform/windows.rs) 各自给具体实现，调用方一律 `crate::platform::xxx()` 入口，**业务代码零 `#[cfg]` 分支**。
+[`platform/`](../../crates/ha-core/src/platform/) 是 ha-core 内部的 OS 适配层，所有"在 Unix 与 Windows 行为不同"的原语统一收敛于此。门面 [`mod.rs`](../../crates/ha-core/src/platform/mod.rs) 定义跨平台单一签名，[`unix.rs`](../../crates/ha-core/src/platform/unix.rs) / [`windows.rs`](../../crates/ha-core/src/platform/windows.rs) 各自给具体实现；较大的 OS 领域可以放到子模块（例如 [`service.rs`](../../crates/ha-core/src/platform/service.rs)、[`system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs)）。调用方一律走 `crate::platform::xxx()` 或稳定兼容 wrapper，**业务代码零 `#[cfg]` 分支**。
 
 ## 硬规则
 
@@ -21,6 +21,7 @@
 | `current_location() -> Option<(f64, f64)>` | macOS 走 CoreLocation；其他 Unix 返回 `None`，业务层继续 IP 定位降级 | 返回 `None`，业务层继续 IP 定位降级 |
 | `pdfium_library_candidates() -> &'static [&'static str]` | macOS 返回 Homebrew / `/usr/local` dylib 候选；其他 Unix 返回常见 `.so` 候选 | 返回 `pdfium.dll` |
 | `system_permissions_*` | macOS 走 TCC / framework 原生检查与授权触发；非 macOS 返回 unsupported / NotApplicable | 返回 unsupported / NotApplicable |
+| `service::{install_service, uninstall_service, service_status, stop_server}` | macOS 写 LaunchAgent plist 并通过 `launchctl` 管理；Linux 写 user systemd unit 并通过 `systemctl --user` 管理；`stop_server` 读 `server.pid` 后发 SIGTERM | 通过 Task Scheduler 创建/删除/查询 per-user 登录任务；`stop_server` 读 `server.pid` 后走 `send_graceful_stop` |
 | `default_shell_command(cmdline) -> std::process::Command` | `Command::new("sh").arg("-c").arg(cmdline)` | `Command::new("cmd").raw_arg("/C").raw_arg(cmdline)` —— `raw_arg` 跳过 std 自动加引号，保留 `/C` 后续整段命令的原始语义 |
 | `default_shell_command_tokio(cmdline)` | 同上 std 版，返回 `tokio::process::Command` | 同上 std 版，返回 `tokio::process::Command` |
 | `os_version_string() -> String` | macOS 优先 `sw_vers -productVersion` → `"macOS 14.2.1"` 形态；其他 Unix 走 `sysinfo::System::long_os_version()` 兜底；都失败时 `"unknown"` | `sysinfo::long_os_version()` + `kernel_version()` 拼成 `"Windows 11 (26100)"` 形态；都缺失时 `"Windows (unknown build)"` |
@@ -70,6 +71,7 @@
 | `current_location` | [`weather.rs`](../../crates/ha-core/src/weather.rs) 天气自动定位：系统精确定位失败后降级 IP 定位 |
 | `pdfium_library_candidates` | [`file_extract.rs`](../../crates/ha-core/src/file_extract.rs) PDF 渲染 fallback 动态库查找 |
 | `system_permissions_*` | [`permissions.rs`](../../crates/ha-core/src/permissions.rs) v2 系统权限目录的 OS 原生检查 / 请求入口 |
+| `service::{install_service, uninstall_service, service_status, stop_server}` | [`service_install.rs`](../../crates/ha-core/src/service_install.rs) 保持历史 public API，CLI / updater / Tauri 继续从该 wrapper 进入系统服务管理 |
 | `default_shell_command_tokio` | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) 工具 shell 命令执行 |
 | `os_version_string` | [`agent/errors.rs`](../../crates/ha-core/src/agent/errors.rs) 错误报告 / 诊断；`self_diagnosis` 日志 |
 | `write_secure_file` | [`mcp/credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) MCP OAuth token 凭据 0600 原子落盘（**当前唯一调用方**）。注意：主 LLM OAuth `oauth.rs::save_token()` 当前直接用 `std::fs::write` 写 `~/.hope-agent/credentials/auth.json`，**未走** `write_secure_file`——见下文「已知缺口」 |
@@ -91,3 +93,4 @@
 | [`crates/ha-core/src/platform/unix.rs`](../../crates/ha-core/src/platform/unix.rs) | Unix 实现：`libc::kill` / `sh -c` / `OpenOptions::mode(0o600)` / `sw_vers` 兜底 / `chromiumoxide` 走自己的 which |
 | [`crates/ha-core/src/platform/windows.rs`](../../crates/ha-core/src/platform/windows.rs) | Windows 实现：`taskkill /F /T` / `cmd /C raw_arg` / NTFS DACL 继承 / winreg 读 Internet Settings + `OnceLock` 缓存 / `%ProgramFiles%` 三路扫 Chrome |
 | [`crates/ha-core/src/platform/system_permissions.rs`](../../crates/ha-core/src/platform/system_permissions.rs) | 系统权限 OS 实现：macOS TCC / framework 原生权限检查与 prompt；非 macOS 明确 unsupported |
+| [`crates/ha-core/src/platform/service.rs`](../../crates/ha-core/src/platform/service.rs) | 用户级后台服务 OS 实现：macOS LaunchAgent / Linux user systemd / Windows Task Scheduler；[`service_install.rs`](../../crates/ha-core/src/service_install.rs) 只保留兼容 wrapper |
