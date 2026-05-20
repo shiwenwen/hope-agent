@@ -843,6 +843,10 @@ pub struct MacControlClipboardRequest {
     pub text: Option<String>,
     #[serde(default = "default_clipboard_max_chars")]
     pub max_chars: usize,
+    #[serde(skip)]
+    pub text_original_len: Option<usize>,
+    #[serde(skip)]
+    pub text_truncated: bool,
 }
 
 impl MacControlClipboardRequest {
@@ -852,7 +856,12 @@ impl MacControlClipboardRequest {
         }
         self.max_chars = self.max_chars.min(HARD_CLIPBOARD_MAX_CHARS);
         if let Some(text) = self.text.as_mut() {
-            if text.chars().count() > HARD_CLIPBOARD_SET_CHARS {
+            if self.text_original_len.is_none() {
+                let original_len = text.chars().count();
+                self.text_original_len = Some(original_len);
+                self.text_truncated = original_len > HARD_CLIPBOARD_SET_CHARS;
+            }
+            if self.text_truncated {
                 *text = text.chars().take(HARD_CLIPBOARD_SET_CHARS).collect();
             }
         }
@@ -2947,6 +2956,30 @@ mod tests {
         }
         .clamped();
         assert_eq!(big_clipboard.max_chars, HARD_CLIPBOARD_MAX_CHARS);
+
+        let oversized_set = MacControlClipboardRequest {
+            op: MacControlClipboardOp::Set,
+            text: Some("x".repeat(HARD_CLIPBOARD_SET_CHARS + 1)),
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(
+            oversized_set.text_original_len,
+            Some(HARD_CLIPBOARD_SET_CHARS + 1)
+        );
+        assert!(oversized_set.text_truncated);
+        assert_eq!(
+            oversized_set.text.as_deref().map(str::len),
+            Some(HARD_CLIPBOARD_SET_CHARS)
+        );
+
+        let reclamped_set = oversized_set.clamped();
+        assert_eq!(
+            reclamped_set.text_original_len,
+            Some(HARD_CLIPBOARD_SET_CHARS + 1)
+        );
+        assert!(reclamped_set.text_truncated);
+
         assert!(validate_clipboard_request(&MacControlClipboardRequest {
             op: MacControlClipboardOp::Set,
             ..Default::default()

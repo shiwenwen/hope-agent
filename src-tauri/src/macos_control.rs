@@ -36,11 +36,12 @@ mod imp {
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
     use objc2_app_kit::{
-        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication,
-        NSWorkspace,
+        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSPasteboard,
+        NSPasteboardItem, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
     };
-    use objc2_foundation::{NSBundle, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSString};
     use xcap::{Monitor, Window};
 
     struct TauriMacControlBridge;
@@ -1083,7 +1084,10 @@ mod imp {
                 let text = request
                     .text
                     .ok_or_else(|| "clipboard.set requires text.".to_string())?;
-                let text_len = text.chars().count();
+                let text_len = request
+                    .text_original_len
+                    .unwrap_or_else(|| text.chars().count());
+                let truncated = request.text_truncated;
                 clipboard
                     .set_text(text)
                     .map_err(|e| format!("Failed to set clipboard text: {e}"))?;
@@ -1091,7 +1095,7 @@ mod imp {
                     op: request.op,
                     text: None,
                     text_len,
-                    truncated: false,
+                    truncated,
                     changed: true,
                 })
             }
@@ -1133,16 +1137,18 @@ mod imp {
     }
 
     fn paste_text_via_clipboard(text: &str) -> Result<String, String> {
-        let mut clipboard =
-            arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
-        let previous_text = clipboard.get_text().ok();
-        clipboard
-            .set_text(text.to_string())
-            .map_err(|e| format!("Failed to stage paste text on clipboard: {e}"))?;
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let previous_items = copy_pasteboard_items(&pasteboard)?;
+        if let Err(error) = stage_text_on_pasteboard(&pasteboard, text) {
+            let restore_status = restore_pasteboard_items(&pasteboard, &previous_items);
+            return Err(format!(
+                "Failed to stage paste text on clipboard ({restore_status}): {error}"
+            ));
+        }
 
         let paste_result = post_hotkey(&["cmd".to_string(), "v".to_string()]);
         thread::sleep(Duration::from_millis(120));
-        let restore_status = restore_text_clipboard(&mut clipboard, previous_text);
+        let restore_status = restore_pasteboard_items(&pasteboard, &previous_items);
 
         match paste_result {
             Ok(()) => Ok(format!(
@@ -1154,17 +1160,78 @@ mod imp {
         }
     }
 
-    fn restore_text_clipboard(
-        clipboard: &mut arboard::Clipboard,
-        previous_text: Option<String>,
-    ) -> &'static str {
-        let Some(previous_text) = previous_text else {
-            return "not_restored_no_prior_utf8_text";
+    fn copy_pasteboard_items(
+        pasteboard: &NSPasteboard,
+    ) -> Result<Vec<Retained<NSPasteboardItem>>, String> {
+        let Some(items) = pasteboard.pasteboardItems() else {
+            return Ok(Vec::new());
         };
-        match clipboard.set_text(previous_text) {
-            Ok(()) => "restored_utf8_text",
-            Err(_) => "restore_failed",
+        let mut copies = Vec::new();
+        for item in items.to_vec() {
+            let copy = NSPasteboardItem::new();
+            let types = item.types().to_vec();
+            if types.is_empty() {
+                return Err(
+                    "act.paste cannot safely preserve a pasteboard item with no declared types."
+                        .to_string(),
+                );
+            }
+            for pasteboard_type in types {
+                let data = item.dataForType(&pasteboard_type).ok_or_else(|| {
+                    "act.paste cannot safely preserve the current pasteboard item data.".to_string()
+                })?;
+                if !copy.setData_forType(&data, &pasteboard_type) {
+                    return Err(
+                        "act.paste failed to copy current pasteboard item data.".to_string()
+                    );
+                }
+            }
+            copies.push(copy);
         }
+        Ok(copies)
+    }
+
+    fn stage_text_on_pasteboard(pasteboard: &NSPasteboard, text: &str) -> Result<(), String> {
+        let item = NSPasteboardItem::new();
+        let text = NSString::from_str(text);
+        let string_type = NSString::from_str("public.utf8-plain-text");
+        if !item.setString_forType(&text, &string_type) {
+            return Err("NSPasteboardItem refused the staged UTF-8 text.".to_string());
+        }
+        pasteboard.clearContents();
+        let items = vec![item];
+        if write_pasteboard_items(pasteboard, &items) {
+            Ok(())
+        } else {
+            Err("NSPasteboard refused the staged UTF-8 text item.".to_string())
+        }
+    }
+
+    fn restore_pasteboard_items(
+        pasteboard: &NSPasteboard,
+        items: &[Retained<NSPasteboardItem>],
+    ) -> &'static str {
+        pasteboard.clearContents();
+        if items.is_empty() {
+            return "restored_empty";
+        }
+        if write_pasteboard_items(pasteboard, items) {
+            "restored_items"
+        } else {
+            "restore_failed"
+        }
+    }
+
+    fn write_pasteboard_items(
+        pasteboard: &NSPasteboard,
+        items: &[Retained<NSPasteboardItem>],
+    ) -> bool {
+        let writing_items = items
+            .iter()
+            .map(|item| ProtocolObject::<dyn NSPasteboardWriting>::from_ref(&**item))
+            .collect::<Vec<_>>();
+        let objects = NSArray::from_slice(&writing_items);
+        pasteboard.writeObjects(&objects)
     }
 
     fn handle_dialog(request: MacControlDialogRequest) -> Result<MacControlDialogResult, String> {

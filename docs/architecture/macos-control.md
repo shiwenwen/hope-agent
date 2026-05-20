@@ -408,7 +408,7 @@ Transport 结果类型：
 - 文本控件优先走 `AXValue`。
 - 需要焦点输入时先解析和聚焦目标。
 - 长文本可通过 `act.paste` pasteboard fallback；不得记录旧剪贴板内容，工具结果只报告恢复是否成功。
-- `act.paste` 会尽量恢复旧 UTF-8 文本剪贴板；若旧剪贴板不是 UTF-8 文本，无法完整恢复原类型，结果会标记 `clipboard_restore=not_restored_no_prior_utf8_text`。
+- `act.paste` 会备份并恢复原 pasteboard items，包括文本、图片、文件、富文本等非纯文本内容；若恢复失败，结果会标记 `clipboard_restore=restore_failed`。
 - 密码字段不得回读真实值。
 
 窗口操作规则：
