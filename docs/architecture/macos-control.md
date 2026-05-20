@@ -129,15 +129,31 @@ readiness 计算规则：
 
 ## Transport 接口
 
-前端 Transport 层提供五个 macOS Control command。Tauri 与 HTTP 必须同名、同形状。
+前端 Transport 层提供五个 macOS Control command。Tauri 与 HTTP 必须同名、同形状；HTTP/server 模式不控制本机桌面，返回同形状 `supported=false` 结果。
 
-| Tauri Command | HTTP | 说明 |
-| --- | --- | --- |
-| `mac_control_status` | `GET /api/mac-control/status` | readiness、权限摘要、bridge 状态、运行时统计 |
-| `mac_control_permissions` | `GET /api/mac-control/permissions` | `MacControlStatus` + 完整系统权限 catalog |
-| `mac_control_snapshot` | `POST /api/mac-control/snapshot` | AX snapshot，可选 display/window 截图 |
-| `mac_control_elements` | `POST /api/mac-control/elements` | 只读 AX 元素候选检索 |
-| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | 主显示器截图帧，并 emit `mac_control:frame` |
+| Tauri Command | HTTP | 入参 | 出参 |
+| --- | --- | --- | --- |
+| `mac_control_status` | `GET /api/mac-control/status` | 无 | `MacControlStatus`：readiness、权限摘要、bridge 状态、运行时统计 |
+| `mac_control_permissions` | `GET /api/mac-control/permissions` | 无 | `MacControlPermissionsResponse`：`status` + `systemPermissions` 完整系统权限 catalog |
+| `mac_control_snapshot` | `POST /api/mac-control/snapshot` | `{ options?: MacControlSnapshotRequest }`；Tauri command 直接接收 `options` | `MacControlSnapshotResponse`：`status`、`snapshot?`、`error?` |
+| `mac_control_elements` | `POST /api/mac-control/elements` | `{ options?: MacControlElementsRequest }`；Tauri command 直接接收 `options` | `MacControlElementsResponse`：`status`、`result?`、`error?` |
+| `mac_control_capture_frame` | `POST /api/mac-control/capture-frame` | 无 | `MacControlFrameResponse`：`status`、`frame?`、`error?` |
+
+Transport 请求类型：
+
+| 类型 | 字段 |
+| --- | --- |
+| `MacControlSnapshotRequest` | `includeScreenshot?: boolean`、`screenshotTarget?: "display" \| "window"`、`displayId?: number`、`windowId?: string`、`maxElements?: number`、`maxDepth?: number` |
+| `MacControlElementsRequest` | `op?: "find"`、`target?: MacControlTargetQuery`、`limit?: number`、`maxElements?: number`、`maxDepth?: number` |
+
+Transport 结果类型：
+
+| 类型 | 字段 |
+| --- | --- |
+| `MacControlSnapshotResponse` | `status: MacControlStatus`、`snapshot?: MacControlSnapshot`、`error?: string` |
+| `MacControlElementsResponse` | `status: MacControlStatus`、`result?: MacControlElementsResult`、`error?: string` |
+| `MacControlFrameResponse` | `status: MacControlStatus`、`frame?: MacControlFramePayload`、`error?: string` |
+| `MacControlFramePayload` | `snapshotId`、`mediaId?`、`path?`、`jpegBase64`、`widthPx`、`heightPx`、`target`、`displayId?`、`windowId?`、`windowTitle?`、`boundsPoints?`、`scale?`、`capturedAt`、`frontmostApp?` |
 
 这些接口供设置页和右侧镜像面板使用。聊天模型执行桌面动作时不直接调用这些 Tauri command，而是调用 builtin tool `mac_control`。
 
@@ -162,50 +178,134 @@ readiness 计算规则：
 - GUI 操作依赖焦点、前台 App 和坐标状态，不允许并发执行。
 - 只读动作可直接放行，突变动作进入审批系统。
 
-## Tool 参数契约
+## Builtin Tool API
 
 `mac_control` 是单工具多 action/op 形态。执行层必须按当前 `action/op` 解释参数；共享 schema 中的其它字段不能改变当前 op 的语义。
 
-| action / op | 必填参数 | 语义 |
+通用输入字段：
+
+| 字段 | 类型 | 用途 |
 | --- | --- | --- |
-| `status` | - | 只读 readiness/status |
-| `permissions` | - | 只读系统权限摘要 |
-| `snapshot` | - | 只读 AX 树和可选 display/window 截图 |
-| `elements.find` | - | 只读 AX 元素检索；按 `target` 过滤并返回排序候选、score 和 reasons |
-| `wait/present` | `target` 至少一个字段 | 轮询直到 app/window/element 命中 |
-| `wait/gone` | `target` 至少一个字段 | 轮询直到 app/window/element 消失；若当前已不存在则立即成功 |
-| `apps.list` | - | 只读运行中 App 列表 |
-| `apps.frontmost` | - | 只读前台 App |
-| `apps.installed` | - | 只读已安装 App 列表 |
-| `apps.search` | `appName` 可选 | 只读已安装 App 检索 |
-| `apps.activate` | `pid` / `bundleId` / `appName` 之一 | 激活已运行 App |
-| `apps.launch` | `bundleId` / `appName` 之一 | 启动已安装 App |
-| `apps.quit` | `pid` / `bundleId` / `appName` 之一 | 请求目标 App 正常退出；高风险 |
-| `windows.list` | - | 只读窗口列表；`windowScope=frontmost` 为前台 App，`windowScope=all` 为所有运行中 App |
-| `windows.focus` | `windowId` / `target.windowTitle` 之一 | 聚焦窗口 |
-| `windows.move` | `windowId` / `target.windowTitle` 之一，`x`，`y` | 移动窗口到 macOS point 坐标 |
-| `windows.resize` | `windowId` / `target.windowTitle` 之一，`width`，`height` | 调整窗口大小 |
-| `windows.minimize` | `windowId` / `target.windowTitle` 之一 | 最小化窗口 |
-| `windows.close` | `windowId` / `target.windowTitle` 之一 | 关闭窗口；高风险 |
-| `act.dry_run` | `target` | 只读解析 AX 元素目标；返回将被命中的元素，不返回完整 snapshot，不执行操作 |
-| `act.click` | `target` | AX 元素点击；不消费裸 `x/y` |
-| `act.click_point` | `x`，`y`，且不能带 `target` | 裸坐标点击，允许 `(0, 0)` |
-| `act.double_click` | `target` | 对目标元素中心执行双击 |
-| `act.right_click` | `target` | 对目标元素中心执行右键点击 |
-| `act.type` | `text`，可选文本 target | 输入文本，优先 AX 文本控件 |
-| `act.paste` | `text`，可选文本 target | 通过 pasteboard + 系统粘贴输入文本；不回显 text |
-| `act.set_value` | `target`，`value` | 对明确 AX 元素设置值 |
-| `act.hotkey` | `key` 或 `keys` | 合成快捷键 |
-| `act.scroll` | `deltaX` / `deltaY` 之一非零 | 合成滚动 |
-| `act.drag` | `target`，`x`，`y` | 从目标元素中心拖拽到目标坐标 |
-| `menu.list` | - | 只读菜单树；`scope=app` 为前台 App 菜单，`scope=system` 为 macOS 菜单栏 extras |
-| `menu.click` | `path` 非空 | 按菜单路径逐级点击；App 菜单匹配标题，system extras 可匹配 title/description/value |
-| `clipboard.get` | - | 读取 UTF-8 文本剪贴板；隐私敏感，需审批 |
-| `clipboard.set` | `text` | 写入 UTF-8 文本剪贴板；结果不回显原文 |
-| `clipboard.clear` | - | 清空剪贴板 |
-| `dialog.inspect` | - | 返回当前前台 App dialog/sheet 摘要、文本和按钮 |
-| `dialog.accept` | `buttonText` / `target` 可选 | 点击 accept 类按钮；高风险 |
-| `dialog.dismiss` | `buttonText` / `target` 可选 | 点击 cancel/close 类按钮 |
+| `action` | string | 必填。`status`、`permissions`、`snapshot`、`elements`、`wait`、`apps`、`windows`、`act`、`menu`、`clipboard`、`dialog` |
+| `op` | string | 子操作。按 `action` 解释；未传时使用该 request 类型的默认 op |
+| `target` | `MacControlTargetQuery` | app/window/element 目标过滤，用于 `wait`、`windows`、`act`、`dialog` |
+| `appName` | string | App 名称查询，用于 `apps.*` |
+| `appNameMatch` | `"exact" \| "contains"` | App 名称匹配策略，默认 `exact` |
+| `bundleId` | string | App bundle id 查询，用于 `apps.*` |
+| `pid` | number | App 进程 id 查询，用于 `apps.*` |
+| `limit` | number | `apps.list/installed/search` 和 `elements.find` 返回条数上限 |
+| `windowScope` | `"frontmost" \| "all"` | `windows.list` 和窗口解析范围，默认 `frontmost` |
+| `windowId` | string | 窗口 id，用于 `windows.*` 或 `snapshot` window 截图 |
+| `x` / `y` | number | `windows.move` 目标位置、`act.click_point` 点击位置、`act.drag` 终点 |
+| `width` / `height` | number | `windows.resize` 目标尺寸 |
+| `text` | string | `act.type` / `act.paste` 输入文本、`clipboard.set` 写入文本；目标文本匹配放在 `target.text` |
+| `value` | string | `act.set_value` 写入值 |
+| `key` / `keys` | string / string[] | `act.hotkey` 单键或组合键 |
+| `deltaX` / `deltaY` | number | `act.scroll` 滚动增量 |
+| `path` | string[] | `menu.click` 菜单路径 |
+| `buttonText` | string | `dialog.accept/dismiss` 指定按钮文案 |
+| `scope` | `"app" \| "system"` | `menu.list/click` 菜单范围，默认 `app` |
+| `includeScreenshot` | boolean | `snapshot` 是否采集 JPEG |
+| `screenshotTarget` | `"display" \| "window"` | `snapshot.includeScreenshot=true` 时选择显示器或窗口 |
+| `displayId` | number | `snapshot` display 截图目标显示器 |
+| `includeSnapshot` | boolean | `act`、`wait`、`dialog` 是否在结果中带完整 AX snapshot，默认 `false` |
+| `maxElements` / `maxDepth` | number | AX 树遍历上限 |
+| `timeoutMs` / `pollMs` | number | `wait` 总超时和轮询间隔 |
+| `maxChars` | number | `clipboard.get` 返回文本上限 |
+
+通用输出形状：
+
+| action | 输出形状 |
+| --- | --- |
+| `status` | `MacControlStatus` |
+| `permissions` | `{ status: MacControlStatus, systemPermissions: SystemPermissionsResponse }` |
+| `snapshot` | `{ status: MacControlStatus, snapshot?: MacControlSnapshot, error?: string }` |
+| `wait` | `{ status, op, matched, elapsedMs, attempts, target, matches, snapshot?, error? }` |
+| 其它 action | `{ status: MacControlStatus, result?: <ActionResult>, error?: string }` |
+
+### status / permissions / snapshot / elements / wait
+
+| action / op | 入参 | 出参 | 说明 |
+| --- | --- | --- | --- |
+| `status` | `action="status"` | `MacControlStatus` | 只读 readiness/status；不会触发系统权限请求 |
+| `permissions` | `action="permissions"` | `status`、`systemPermissions` | 只读系统权限 catalog |
+| `snapshot` | `action="snapshot"`；可选 `includeScreenshot`、`screenshotTarget`、`displayId`、`windowId`、`maxElements`、`maxDepth` | `snapshot?: MacControlSnapshot`、`error?` | 返回 AX 树；`includeScreenshot=true` 时写 JPEG 文件并返回 `snapshot.screenshot` |
+| `elements.find` | `action="elements"`、`op="find"`；可选 `target`、`limit`、`maxElements`、`maxDepth` | `result.op`、`target`、`snapshotId`、`createdAt`、`frontmostApp?`、`totalMatches`、`elements[]`、`truncated`、`warnings[]` | `elements[]` 是排序候选，每项含 `element`、`window?`、`score`、`reasons[]` |
+| `wait.present` | `action="wait"`、`op="present"`、`target` 至少一个字段；可选 `timeoutMs`、`pollMs`、`includeSnapshot`、`maxElements`、`maxDepth` | `matched`、`elapsedMs`、`attempts`、`target`、`matches`、`snapshot?`、`error?` | 轮询直到目标出现；默认不返回完整 snapshot |
+| `wait.gone` | `action="wait"`、`op="gone"`、`target` 至少一个字段；可选同上 | 同 `wait.present` | 轮询直到目标消失；若当前已不存在则立即成功 |
+
+### apps
+
+| action / op | 入参 | 出参 `result` | 说明 |
+| --- | --- | --- | --- |
+| `apps.list` | `action="apps"`、`op="list"`；可选 `limit` | `op`、`frontmost?`、`apps[]`、`installedApps=[]`、`activated?=null`、`launched?=null`、`quit?=null`、`execution?` | 只读运行中 App 列表 |
+| `apps.frontmost` | `action="apps"`、`op="frontmost"` | `frontmost?`、`apps=[]` | 只读前台 App |
+| `apps.installed` | `action="apps"`、`op="installed"`；可选 `appName`、`appNameMatch`、`bundleId`、`limit` | `installedApps[]`，并标注 `running`、`pid?`、`active`、`hidden` | 已安装 App 列表/过滤 |
+| `apps.search` | `action="apps"`、`op="search"`；可选 `appName`、`appNameMatch`、`bundleId`、`limit` | `installedApps[]` | 已安装 App 检索；名称不确定时先用它找 `bundleId` |
+| `apps.activate` | `action="apps"`、`op="activate"`；`pid` / `bundleId` / `appName` 之一 | `activated?`、`execution="NSRunningApplication.activate"` | 激活已运行 App |
+| `apps.launch` | `action="apps"`、`op="launch"`；`bundleId` / `appName` 之一 | `launched?`、`execution="NSWorkspace.openApplication"` | 启动已安装 App |
+| `apps.quit` | `action="apps"`、`op="quit"`；`pid` / `bundleId` / `appName` 之一 | `quit?`、`execution` | 请求 App 正常退出；高风险 |
+
+### windows
+
+| action / op | 入参 | 出参 `result` | 说明 |
+| --- | --- | --- | --- |
+| `windows.list` | `action="windows"`、`op="list"`；可选 `windowScope`、`target`、`maxElements`、`maxDepth` | `op`、`windowScope`、`frontmostApp?`、`windows[]`、`actedWindow?=null`、`execution?` | `windowScope="all"` 返回所有运行中 App 窗口，id 为 `win_<pid>_<index>` |
+| `windows.focus` | `action="windows"`、`op="focus"`；`windowId` / `target.windowTitle` 之一 | `actedWindow?`、`execution="AXRaise/AXFocused"` | 聚焦窗口 |
+| `windows.move` | `action="windows"`、`op="move"`；`windowId` / `target.windowTitle` 之一；`x`、`y` | `actedWindow?`、`execution="AXSetPosition"` | 移动窗口到 macOS point 坐标 |
+| `windows.resize` | `action="windows"`、`op="resize"`；`windowId` / `target.windowTitle` 之一；`width`、`height` | `actedWindow?`、`execution="AXSetSize"` | 调整窗口大小 |
+| `windows.minimize` | `action="windows"`、`op="minimize"`；`windowId` / `target.windowTitle` 之一 | `actedWindow?`、`execution="AXSetMinimized"` | 最小化窗口 |
+| `windows.close` | `action="windows"`、`op="close"`；`windowId` / `target.windowTitle` 之一 | `actedWindow?`、`execution` | 关闭窗口；高风险 |
+
+### act
+
+| action / op | 入参 | 出参 `result` | 说明 |
+| --- | --- | --- | --- |
+| `act.dry_run` | `action="act"`、`op="dry_run"`、`target` | `op`、`execution="DryRun"`、`target?`、`snapshot=null` | 只解析目标，不执行 UI 操作 |
+| `act.click` | `action="act"`、`op="click"`、`target` | `execution="AXPress"` 或 `"CGEventFallback"`、`target?`、`snapshot?` | AX target 点击；不消费裸 `x/y` |
+| `act.click_point` | `action="act"`、`op="click_point"`、`x`、`y`，且不能带 `target` | `execution="CGEventClick"`、`target=null`、`snapshot?` | 裸坐标点击，允许 `(0, 0)` |
+| `act.double_click` | `action="act"`、`op="double_click"`、`target` | `execution="CGEventDoubleClick"`、`target?`、`snapshot?` | 对目标元素中心双击 |
+| `act.right_click` | `action="act"`、`op="right_click"`、`target` | `execution="CGEventRightClick"`、`target?`、`snapshot?` | 对目标元素中心右键 |
+| `act.type` | `action="act"`、`op="type"`、`text`；可选 `target` | `execution="AXSetValue"`、`target?`、`snapshot?` | 对文本控件设置文本；未给 target 时使用当前 focused text element |
+| `act.paste` | `action="act"`、`op="paste"`、`text`；可选 `target` | `execution` 为 pasteboard 恢复状态、`target?`、`snapshot?` | 临时写 pasteboard 后触发系统粘贴；不回显 text |
+| `act.set_value` | `action="act"`、`op="set_value"`、`target`、`value` | `execution="AXSetValue"`、`target?`、`snapshot?` | 对明确 AX 元素设置值 |
+| `act.hotkey` | `action="act"`、`op="hotkey"`；`key` 或 `keys` | `execution="CGEventHotkey"`、`target=null`、`snapshot?` | 合成快捷键 |
+| `act.scroll` | `action="act"`、`op="scroll"`；`deltaX` / `deltaY` 之一非零 | `execution="CGEventScroll"`、`target=null`、`snapshot?` | 合成滚动 |
+| `act.drag` | `action="act"`、`op="drag"`、`target`、`x`、`y` | `execution="CGEventDrag"`、`target?`、`snapshot?` | 从目标元素中心拖拽到目标坐标 |
+
+`act` 默认 `snapshot=null`；显式 `includeSnapshot=true` 时，除 `dry_run` 外会返回完整后置 `snapshot`。
+
+### menu / clipboard / dialog
+
+| action / op | 入参 | 出参 `result` | 说明 |
+| --- | --- | --- | --- |
+| `menu.list` | `action="menu"`、`op="list"`；可选 `scope`、`maxDepth` | `op`、`scope`、`path=[]`、`items[]`、`clicked=null` | 只读菜单树；`scope="app"` 是前台 App 菜单，`system` 是菜单栏 extras/status items |
+| `menu.click` | `action="menu"`、`op="click"`、`path[]` 非空；可选 `scope`、`maxDepth` | `op`、`scope`、`path`、`items[]`、`clicked?` | 按 path 逐级点击菜单项；危险菜单词走高风险审批 |
+| `clipboard.get` | `action="clipboard"`、`op="get"`；可选 `maxChars` | `op`、`text?`、`textLen`、`truncated`、`changed=false` | 读取 UTF-8 文本剪贴板；隐私敏感，需审批 |
+| `clipboard.set` | `action="clipboard"`、`op="set"`、`text` | `op`、`text=null`、`textLen`、`truncated`、`changed=true` | 写入 UTF-8 文本；结果不回显原文 |
+| `clipboard.clear` | `action="clipboard"`、`op="clear"` | `op`、`text=null`、`textLen=0`、`truncated=false`、`changed=true` | 清空剪贴板 |
+| `dialog.inspect` | `action="dialog"`、`op="inspect"`；可选 `target`、`includeSnapshot`、`maxElements`、`maxDepth` | `op`、`dialogs[]`、`actedButton=null`、`snapshot?`、`execution=null` | 返回当前前台 App dialog/sheet 摘要、文本和按钮 |
+| `dialog.accept` | `action="dialog"`、`op="accept"`；可选 `buttonText` / `target.text`、`target`、`includeSnapshot` | `op`、`dialogs[]`、`actedButton?`、`snapshot?`、`execution="AXPressOrCGEvent"` | 点击 accept 类按钮；高风险 |
+| `dialog.dismiss` | `action="dialog"`、`op="dismiss"`；可选 `buttonText` / `target.text`、`target`、`includeSnapshot` | 同 `dialog.accept` | 点击 cancel/close 类按钮 |
+
+`dialog` 默认 `snapshot=null`；需要完整 AX 树时传 `includeSnapshot=true`。
+
+核心输出类型字段：
+
+| 类型 | 字段 |
+| --- | --- |
+| `MacControlAppSummary` | `pid`、`bundleId?`、`name?` |
+| `MacControlRunningApp` | `pid`、`bundleId?`、`name?`、`active`、`hidden`、`activationPolicy` |
+| `MacControlInstalledApp` | `name?`、`bundleId?`、`path?`、`executablePath?`、`running`、`pid?`、`active`、`hidden`、`activationPolicy?` |
+| `MacControlDisplaySummary` | `id`、`framePoints`、`scale` |
+| `MacControlWindowSummary` | `id`、`appPid?`、`role?`、`subrole?`、`title?`、`focused`、`boundsPoints?` |
+| `MacControlElementSummary` | `id`、`windowId?`、`role?`、`label?`、`value?`、`enabled?`、`focused`、`boundsPoints?`、`actions[]` |
+| `MacControlElementCandidate` | `element`、`window?`、`score`、`reasons[]` |
+| `MacControlTargetMatches` | `app?`、`windows[]`、`elements[]` |
+| `MacControlMenuItemSummary` | `title?`、`description?`、`value?`、`role?`、`enabled?`、`actions[]`、`children[]` |
+| `MacControlClipboardResult` | `op`、`text?`、`textLen`、`truncated`、`changed` |
+| `MacControlDialogSummary` | `window`、`text[]`、`buttons[]` |
+| `MacControlBounds` | `x`、`y`、`width`、`height`，单位是 macOS point |
 
 参数归一化规则：
 
