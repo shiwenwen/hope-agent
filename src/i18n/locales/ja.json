@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "このツールはエージェントのカスタム承認リストに含まれています（Default モードのみ）。",
+        "title": "エージェントのカスタム承認リスト"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "危険コマンドのパターンリストに一致しました。呼び出しごとの確認が必要で、常に許可は使えません。",
+        "title": "⚠️ 危険なコマンド"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "編集コマンドのパターンリストに一致しました。Default モードでは確認が必要で、常に許可するとコマンド接頭辞が保存されます。",
+        "title": "編集系 exec コマンド"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "Default モードでは、ファイルを書き込むツール（write/edit/apply_patch）に確認が必要です。",
+        "title": "編集系ツール"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "Plan Mode でこのツールは毎回確認の対象です。許可リスト内でも、呼び出しごとに承認が必要です。",
+        "title": "Plan Mode の確認"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "保護パスのリストに一致しました。呼び出しごとの確認が必要で、常に許可は使えません。",
+        "title": "⚠️ 保護パス"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "Smart モードの判定モデルが、この呼び出しには人の確認が必要だと判断しました。",
+        "title": "Smart モード判定"
       },
       "mac_control_action": {
         "title": "Mac 制御操作",
@@ -2120,15 +2120,15 @@
       "defaultModeDesc": "新しいセッションの初期権限モード。既存セッションには影響しません。",
       "defaultModeTitle": "既定セッション権限モード",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "ブラウザ",
+        "crossSession": "セッション横断の読み取り",
+        "network": "ネットワークアクセス",
+        "outbound": "外部送信",
+        "paid": "有料 API",
+        "settings": "設定変更",
+        "settingsRead": "設定照会",
+        "shell": "シェルとプロセス",
+        "spawn": "外部サブプロセス"
       },
       "modes": {
         "default": {
@@ -2145,46 +2145,46 @@
         },
         "yolo": {
           "desc": "すべてのツールが承認なしで実行（保護パスは監査ログ）",
-          "label": "YOLO"
+          "label": "YOLO モード"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "外部 ACP サブエージェントプロセスを起動",
+        "agents_list": "設定済みエージェントをすべて一覧表示",
+        "browser": "CDP 経由でブラウザを操作し UI を自動化",
+        "get_settings": "アプリケーション設定を読み取り",
+        "image_generate": "有料 API で画像を生成",
+        "list_settings_backups": "設定バックアップ履歴を一覧表示",
+        "peek_sessions": "他のセッションのライブ活動を確認",
+        "process": "exec のバックグラウンドセッションを管理（kill/write/clear/remove）",
+        "restore_settings_backup": "過去の設定バックアップへロールバック",
+        "send_attachment": "IM チャンネルへファイル添付を送信",
+        "session_status": "セッションの現在状態を照会",
+        "sessions_history": "他のセッションのメッセージ履歴を読み取り",
+        "sessions_list": "すべてのセッションのメタデータを一覧表示",
+        "sessions_send": "別セッションへメッセージを送り作業を起動",
+        "update_settings": "AppConfig 設定を変更",
+        "web_fetch": "URL を取得して読みやすい本文を抽出",
+        "web_search": "検索エンジンで検索"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "ACP サブエージェント",
+        "agents_list": "エージェント一覧",
+        "browser": "ブラウザ制御",
+        "get_settings": "設定読み取り",
+        "image_generate": "画像生成",
+        "list_settings_backups": "設定バックアップ一覧",
+        "peek_sessions": "セッション確認",
+        "process": "バックグラウンドプロセス",
+        "restore_settings_backup": "設定バックアップ復元",
+        "send_attachment": "添付ファイル送信",
+        "session_status": "セッション状態",
+        "sessions_history": "セッション履歴",
+        "sessions_list": "セッション一覧",
+        "sessions_send": "セッション横断送信",
+        "update_settings": "設定更新",
+        "web_fetch": "Web 取得",
+        "web_search": "Web 検索"
       }
     },
     "agentApprovalTab": "承認",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "AIエージェントを定義・管理します。各エージェントは異なるアイデンティティ、能力、振る舞いを持てます。",
     "appearance": "外観",
     "appearanceDesc": "テーマの外観モードを選択",
-    "approvalNav": "Permission",
+    "approvalNav": "権限",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "承認を強制し、常に許可にはできません。YOLO モードでは迂回されますが、監査ログは記録されます。",
+      "dangerousCommandsPlaceholder": "例: rm -rf /、git push --force",
+      "dangerousCommandsTitle": "危険なコマンド",
+      "editCommandsDesc": "Default モードでは、これらのパターンに一致する exec 呼び出しに承認が必要です（大文字小文字を区別しない部分一致）。常に許可も利用できます。",
+      "editCommandsPlaceholder": "例: rm 、git commit、npm install",
+      "editCommandsTitle": "編集コマンド",
+      "empty": "項目がありません。パターンを追加すると有効になります。",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "強制的に許可",
+        "ask": "強制的に確認",
+        "default": "Default モードへフォールバック"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "グローバル YOLO 切り替え、保護パス / 編集コマンド / 危険コマンドのパターンリスト、Smart 承認モードの設定です。",
+      "judgeExtraPromptPlaceholder": "任意: 判定モデルへの追加指示（パスの許可リスト、信頼済みコマンドなど）",
+      "judgeModelPlaceholder": "モデル（例: claude-haiku-4-5）",
+      "judgeModelTitle": "判定モデル設定",
+      "judgeProviderPlaceholder": "Provider ID（例: anthropic-1）",
+      "protectedPathsDesc": "これらのパスに触れるツール呼び出しは承認を強制され、常に許可にはできません。~/ 展開、ディレクトリ接頭辞（末尾 /）、*.pattern の glob に対応します。",
+      "protectedPathsPlaceholder": "例: ~/.ssh/、.env、*.pem",
+      "protectedPathsTitle": "保護パス",
+      "restoreDefaults": "既定に戻す",
+      "restoredDefaults": "既定に戻しました",
+      "smartDesc": "Smart セッションモードでは、モデルの自己信頼度タグまたは独立した判定モデルが承認を決定します。",
+      "smartFallback": "利用できない場合のフォールバック",
+      "smartStrategy": "決定戦略",
+      "smartTitle": "Smart 承認モード",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "判定モデル優先、自己タグでフォールバック",
+        "judge_model": "判定モデル",
+        "self_confidence": "モデルの自己タグ"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "タイムアウト時の動作",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "実行をブロック",
+        "proceed": "続行"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "この秒数以内にユーザーが応答しない場合、下の動作へフォールバックします。0 = 永久に待機。",
+      "timeoutHint": "0 = 永久に待機",
+      "timeoutSeconds": "タイムアウト秒数",
+      "timeoutTitle": "承認ダイアログのタイムアウト",
+      "title": "権限",
+      "yoloCliActive": "⚠️ CLI フラグ --dangerously-skip-all-approvals が有効で、GUI からは無効にできません。",
+      "yoloDesc": "オンにすると、すべてのツールが承認なしで実行されます。Plan Mode だけは引き続きブロックできます。保護パス / 危険コマンドに一致した場合は警告ログを残して実行します。",
+      "yoloDisabled": "グローバル YOLO 無効",
+      "yoloEnabled": "グローバル YOLO 有効",
+      "yoloTitle": "グローバル YOLO（すべての承認をスキップ）"
     },
     "approvalTimeout": "ツール承認待機タイムアウト",
     "approvalTimeoutAction": "承認タイムアウト時の動作",
@@ -3320,150 +3320,150 @@
       "title": "Mac 制御"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "制御とキャプチャ",
+      "deviceNetwork": "デバイスとネットワーク",
+      "fileAccess": "ファイルアクセス",
+      "personalData": "個人データ",
+      "systemServices": "システムサービス"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "アクセシビリティ",
+        "usage": "マウス、キーボード、他のアプリケーションウィンドウを操作します。"
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "アプリ管理",
+        "note": "macOS はアプリごとの状態を確実に取得できる公開 API を提供していません。",
+        "usage": "ツールが明示的に必要とする場合のみ、他のアプリケーションを管理または更新します。"
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "オートメーション: メッセージ",
+        "note": "オートメーションの同意は対象アプリごとに保存されます。システム設定が最も信頼できる情報源です。",
+        "usage": "メッセージングのワークフローで必要な場合、Apple Events によるメッセージの自動操作を許可します。"
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "オートメーション: System Events",
+        "note": "オートメーションの同意は対象アプリごとに保存されます。システム設定が最も信頼できる情報源です。",
+        "usage": "Apple Events による System Events の自動操作を許可します。"
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Bluetooth デバイス",
+        "usage": "ワークフローで必要な場合に Bluetooth デバイスを検出して接続します。"
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "カレンダー",
+        "usage": "スケジュール関連のワークフローで必要な場合にカレンダーイベントを読み書きします。"
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "カメラ",
+        "usage": "明示的に要求された場合のみ、視覚入力にカメラを使用します。"
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "連絡先",
+        "usage": "ユーザーのワークフローが明示的に求めた場合のみ連絡先を読み取ります。"
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "デスクトップフォルダ",
+        "note": "macOS では「ファイルとフォルダ」経由で公開され、状態はプローブで確認します。",
+        "usage": "ユーザーに要求された場合にデスクトップ上のファイルを読み書きします。"
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "開発者ツール",
+        "note": "macOS はアプリごとの状態を確実に取得できる公開 API を提供していません。",
+        "usage": "macOS が開発者ツールの同意で保護する開発用ツールを使用します。"
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "書類フォルダ",
+        "note": "macOS では「ファイルとフォルダ」経由で公開され、状態はプローブで確認します。",
+        "usage": "ユーザーに要求された場合に「書類」内のファイルを読み書きします。"
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "ダウンロードフォルダ",
+        "note": "macOS では「ファイルとフォルダ」経由で公開され、状態はプローブで確認します。",
+        "usage": "ユーザーに要求された場合に「ダウンロード」内のファイルを読み書きします。"
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "集中モードの状態",
+        "note": "macOS はアプリごとの状態を確実に取得できる公開 API を提供していません。",
+        "usage": "通知や割り込みを調整するワークフローでのみ集中モードの状態を読み取ります。"
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "フルディスクアクセス",
+        "note": "保守的なファイルシステムプローブで検出します。未検出の場合は手動確認として表示します。",
+        "usage": "通常の「ファイルとフォルダ」同意ではカバーされない保護ファイルを読み取ります。"
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit（ホーム）",
+        "note": "Hope Agent は現在 HomeKit ワークフローを使用していません。",
+        "usage": "将来 HomeKit ワークフローが有効になった場合のみホームデータへアクセスします。"
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "入力監視",
+        "usage": "デスクトップ自動化に必要なキーボードとポインタイベントを監視します。"
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "ローカルネットワーク",
+        "note": "macOS のローカルネットワークプライバシーには、信頼できる公開状態 API がありません。",
+        "usage": "ローカルネットワーク上のデバイスを検出して接続します。"
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "位置情報サービス",
+        "usage": "ローカル天気や位置情報に応じたワークフローにデバイスの位置情報を使用します。"
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "メディアライブラリ",
+        "note": "このアプリ領域には信頼できる公開状態 API がありません。",
+        "usage": "メディアワークフローで明示的に必要な場合のみメディアライブラリへアクセスします。"
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "マイク",
+        "usage": "明示的に要求された場合のみ、音声入力にマイクを使用します。"
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "ネットワークボリューム",
+        "note": "ボリュームごとの信頼できる公開状態 API はありません。",
+        "usage": "ユーザーがそこで作業するよう依頼した場合に、マウント済みネットワークボリュームへアクセスします。"
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "通知",
+        "note": "通知設定は通知設定ページで管理します。",
+        "usage": "システム通知を表示します。"
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "写真",
+        "usage": "ユーザーが写真ワークフローを依頼した場合のみ写真ライブラリへアクセスします。"
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "リマインダー",
+        "usage": "計画ワークフローで必要な場合にリマインダーを読み書きします。"
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "リムーバブルボリューム",
+        "note": "ボリュームごとの信頼できる公開状態 API はありません。",
+        "usage": "ユーザーがそこで作業するよう依頼した場合にリムーバブルドライブへアクセスします。"
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "画面収録",
+        "usage": "視覚理解と UI 自動化のために画面内容をキャプチャします。"
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "音声認識",
+        "usage": "音声ワークフローが文字起こしを求めた場合に音声認識を使用します。"
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "システム音声キャプチャ",
+        "note": "macOS はこの権限に対する信頼できる公開 preflight API を提供していません。",
+        "usage": "将来のワークフローで明示的に必要な場合にシステム音声をキャプチャします。"
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "許可済み",
+      "manualCheck": "手動確認",
+      "notApplicable": "該当なし",
+      "notDetermined": "未判定",
+      "notGranted": "未許可",
+      "notUsed": "未使用",
+      "restricted": "制限中"
     },
     "permissions": "システム権限",
     "personaModeDesc": "構造化フィールドに入力するか、SOUL.md マークダウンを直接書き込みます。SOUL.md ファイルは openclaw 互換モードと共有されます。",

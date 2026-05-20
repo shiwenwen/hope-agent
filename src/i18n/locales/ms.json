@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "Alat ini berada dalam senarai kelulusan tersuai ejen (mod Default sahaja).",
+        "title": "Senarai kelulusan tersuai ejen"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "Sepadan dengan senarai corak arahan berbahaya. Pengesahan setiap panggilan diperlukan; Sentiasa Benarkan tidak tersedia.",
+        "title": "⚠️ Arahan berbahaya"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "Sepadan dengan senarai corak arahan suntingan. Mod Default akan bertanya; Sentiasa Benarkan menyimpan awalan arahan.",
+        "title": "Arahan exec bercorak suntingan"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "Mod Default memerlukan pengesahan untuk alat yang menulis fail (write/edit/apply_patch).",
+        "title": "Alat kelas suntingan"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "Plan Mode menyenaraikan alat ini sebagai perlu bertanya sebelum setiap panggilan; walaupun dibenarkan, setiap penggunaan masih memerlukan kelulusan anda.",
+        "title": "Pengesahan Plan Mode"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "Sepadan dengan senarai laluan dilindungi. Pengesahan setiap panggilan diperlukan; Sentiasa Benarkan tidak tersedia.",
+        "title": "⚠️ Laluan dilindungi"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "Model hakim mod Smart memutuskan panggilan ini memerlukan pengesahan manusia.",
+        "title": "Hakim mod Smart"
       },
       "mac_control_action": {
         "title": "Tindakan Mac Control",
@@ -2114,80 +2114,80 @@
     "agentAgentsMd": "AGENTS.md",
     "agentAgentsMdDesc": "Peraturan workspace, garis merah, panduan ingatan dan arahan tingkah laku",
     "agentApproval": {
-      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
-      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
-      "customApprovalTitle": "Custom Tool Approval",
-      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
-      "defaultModeTitle": "Default Session Permission Mode",
+      "customApprovalDesc": "Dalam mod Default, turut minta kelulusan untuk alat yang anda tandakan di bawah.",
+      "customApprovalHint": "Nota: hanya berkuat kuasa dalam mod Default; mod Smart dan YOLO mengabaikan senarai ini.",
+      "customApprovalTitle": "Kelulusan Alat Tersuai",
+      "defaultModeDesc": "Mod kebenaran awal untuk sesi baharu; sesi sedia ada tidak terjejas.",
+      "defaultModeTitle": "Mod Kebenaran Sesi Lalai",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "Pelayar",
+        "crossSession": "Bacaan Merentas Sesi",
+        "network": "Akses Rangkaian",
+        "outbound": "Keluar",
+        "paid": "API Berbayar",
+        "settings": "Perubahan Tetapan",
+        "settingsRead": "Pertanyaan Tetapan",
+        "shell": "Shell & Proses",
+        "spawn": "Subproses Luaran"
       },
       "modes": {
         "default": {
-          "desc": "Edit-class tools and high-risk commands need approval",
-          "label": "Default"
+          "desc": "Alat kelas suntingan dan arahan berisiko tinggi memerlukan kelulusan",
+          "label": "Lalai"
         },
         "inherit": {
-          "desc": "Follow the global default (currently \"Default\" mode)",
-          "label": "Inherit Global"
+          "desc": "Ikut lalai global (kini mod \"Default\")",
+          "label": "Warisi Global"
         },
         "smart": {
-          "desc": "Judge model or model self-confidence decides approvals",
-          "label": "Smart Approval"
+          "desc": "Model hakim atau keyakinan kendiri model menentukan kelulusan",
+          "label": "Kelulusan Pintar"
         },
         "yolo": {
-          "desc": "All tools run without approval (protected paths still audit-log)",
-          "label": "YOLO"
+          "desc": "Semua alat berjalan tanpa kelulusan (laluan dilindungi masih direkod audit)",
+          "label": "Mod YOLO"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "Lancarkan proses subejen ACP luaran",
+        "agents_list": "Senaraikan semua ejen yang dikonfigurasi",
+        "browser": "Kawal pelayar melalui CDP untuk automasi UI",
+        "get_settings": "Baca tetapan aplikasi",
+        "image_generate": "Jana imej melalui API berbayar",
+        "list_settings_backups": "Senaraikan sejarah sandaran tetapan",
+        "peek_sessions": "Lihat aktiviti langsung dalam sesi lain",
+        "process": "Urus sesi exec latar belakang (kill/write/clear/remove)",
+        "restore_settings_backup": "Kembali kepada sandaran tetapan terdahulu",
+        "send_attachment": "Hantar lampiran fail ke saluran IM",
+        "session_status": "Tanya keadaan semasa sesi",
+        "sessions_history": "Baca sejarah mesej daripada sesi lain",
+        "sessions_list": "Senaraikan metadata semua sesi",
+        "sessions_send": "Hantar mesej ke sesi lain untuk mencetuskan kerja",
+        "update_settings": "Ubah tetapan AppConfig",
+        "web_fetch": "Ambil URL dan ekstrak kandungan boleh dibaca",
+        "web_search": "Buat carian melalui enjin carian"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "Subejen ACP",
+        "agents_list": "Senarai Ejen",
+        "browser": "Kawalan Pelayar",
+        "get_settings": "Baca Tetapan",
+        "image_generate": "Penjanaan Imej",
+        "list_settings_backups": "Sandaran Tetapan",
+        "peek_sessions": "Intai Sesi",
+        "process": "Proses Latar Belakang",
+        "restore_settings_backup": "Pulihkan Sandaran Tetapan",
+        "send_attachment": "Hantar Lampiran",
+        "session_status": "Status Sesi",
+        "sessions_history": "Sejarah Sesi",
+        "sessions_list": "Senarai Sesi",
+        "sessions_send": "Hantar Merentas Sesi",
+        "update_settings": "Kemas Kini Tetapan",
+        "web_fetch": "Ambil Web",
+        "web_search": "Carian Web"
       }
     },
-    "agentApprovalTab": "Approval",
+    "agentApprovalTab": "Kelulusan",
     "agentAsyncToolPolicy": {
       "title": "Pelaksanaan latar belakang alat asinkron",
       "desc": "Bila alat yang menyokong async (exec / web_search / image_generate) dialihkan ke kerja latar belakang. Bebas daripada kelulusan.",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "Tentukan dan urus Ejen AI. Setiap Ejen boleh mempunyai identiti, keupayaan dan tingkah laku yang berbeza.",
     "appearance": "Penampilan",
     "appearanceDesc": "Pilih mod penampilan tema",
-    "approvalNav": "Permission",
+    "approvalNav": "Kebenaran",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "Paksa kelulusan dan tidak boleh dijadikan Sentiasa Benarkan. Mod YOLO memintasnya tetapi masih menulis log audit.",
+      "dangerousCommandsPlaceholder": "cth. rm -rf /, git push --force",
+      "dangerousCommandsTitle": "Arahan Berbahaya",
+      "editCommandsDesc": "Dalam mod Default, panggilan exec yang sepadan dengan corak ini memerlukan kelulusan (subrentetan tanpa kira huruf besar/kecil); Sentiasa Benarkan tersedia.",
+      "editCommandsPlaceholder": "cth. rm , git commit, npm install",
+      "editCommandsTitle": "Arahan Suntingan",
+      "empty": "Tiada entri — tambah corak untuk mengaktifkan",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "Paksa benarkan",
+        "ask": "Paksa tanya",
+        "default": "Kembali ke mod Default"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "Togol YOLO global, senarai corak laluan dilindungi / arahan suntingan / arahan berbahaya, dan konfigurasi mod kelulusan pintar.",
+      "judgeExtraPromptPlaceholder": "Pilihan: arahan tambahan untuk hakim (senarai putih laluan, arahan dipercayai...)",
+      "judgeModelPlaceholder": "Model (cth. claude-haiku-4-5)",
+      "judgeModelTitle": "Konfigurasi Model Hakim",
+      "judgeProviderPlaceholder": "ID Provider (cth. anthropic-1)",
+      "protectedPathsDesc": "Panggilan alat yang mengenai laluan ini memaksa kelulusan dan tidak boleh dijadikan Sentiasa Benarkan. Menyokong pengembangan ~/, awalan direktori (diakhiri /), dan glob *.pattern.",
+      "protectedPathsPlaceholder": "cth. ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "Laluan Dilindungi",
+      "restoreDefaults": "Pulihkan Lalai",
+      "restoredDefaults": "Dipulihkan kepada lalai",
+      "smartDesc": "Dalam mod sesi Smart, tag keyakinan kendiri model atau model hakim bebas menentukan kelulusan.",
+      "smartFallback": "Sandaran Apabila Tidak Tersedia",
+      "smartStrategy": "Strategi Keputusan",
+      "smartTitle": "Mod Kelulusan Pintar",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "Hakim dahulu, tag kendiri sebagai sandaran",
+        "judge_model": "Model Hakim",
+        "self_confidence": "Tag Kendiri Model"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "Tindakan Tamat Masa",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "Sekat pelaksanaan",
+        "proceed": "Teruskan"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "Apabila pengguna tidak menjawab dalam bilangan saat ini, gunakan tindakan di bawah. 0 = tunggu selamanya.",
+      "timeoutHint": "0 = tunggu selamanya",
+      "timeoutSeconds": "Saat Tamat Masa",
+      "timeoutTitle": "Tamat Masa Dialog Kelulusan",
+      "title": "Kebenaran",
+      "yoloCliActive": "⚠️ Bendera CLI --dangerously-skip-all-approvals sedang aktif dan tidak boleh dimatikan daripada GUI.",
+      "yoloDesc": "Apabila dihidupkan, semua alat berjalan tanpa kelulusan; hanya Plan Mode masih boleh menyekat. Padanan laluan dilindungi / arahan berbahaya menulis amaran tetapi tetap dijalankan.",
+      "yoloDisabled": "YOLO global dimatikan",
+      "yoloEnabled": "YOLO global dihidupkan",
+      "yoloTitle": "YOLO Global (langkau semua kelulusan)"
     },
     "approvalTimeout": "Tamat masa menunggu kelulusan alat",
     "approvalTimeoutAction": "Tindakan tamat masa kelulusan",
@@ -3320,150 +3320,150 @@
       "title": "Kawalan Mac"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "Kawalan & Tangkapan",
+      "deviceNetwork": "Peranti & Rangkaian",
+      "fileAccess": "Akses Fail",
+      "personalData": "Data Peribadi",
+      "systemServices": "Perkhidmatan Sistem"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "Kebolehcapaian",
+        "usage": "Kawal tetikus, papan kekunci dan tetingkap aplikasi lain."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "Pengurusan App",
+        "note": "macOS tidak menyediakan API awam yang boleh dipercayai untuk status setiap app.",
+        "usage": "Urus atau kemas kini aplikasi lain hanya apabila alat memerlukannya secara jelas."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "Automasi: Messages",
+        "note": "Persetujuan automasi disimpan mengikut app sasaran; Tetapan Sistem ialah sumber kebenaran paling boleh dipercayai.",
+        "usage": "Benarkan automasi Apple Events untuk Messages apabila aliran kerja pemesejan memerlukannya."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "Automasi: System Events",
+        "note": "Persetujuan automasi disimpan mengikut app sasaran; Tetapan Sistem ialah sumber kebenaran paling boleh dipercayai.",
+        "usage": "Benarkan automasi Apple Events untuk System Events."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Peranti Bluetooth",
+        "usage": "Temui dan sambung ke peranti Bluetooth apabila aliran kerja memerlukannya."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "Kalendar",
+        "usage": "Baca atau tulis acara kalendar apabila aliran kerja penjadualan memerlukannya."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "Kamera",
+        "usage": "Gunakan kamera untuk input visual hanya apabila diminta secara jelas."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "Kenalan",
+        "usage": "Baca kenalan hanya apabila aliran kerja pengguna memintanya secara jelas."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "Folder Desktop",
+        "note": "macOS mendedahkannya melalui Fail & Folder; status diperiksa.",
+        "usage": "Baca dan tulis fail pada Desktop apabila diminta oleh pengguna."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "Alat Pembangun",
+        "note": "macOS tidak menyediakan API awam yang boleh dipercayai untuk status setiap app.",
+        "usage": "Gunakan alat pembangun yang dilindungi macOS di belakang persetujuan Alat Pembangun."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "Folder Dokumen",
+        "note": "macOS mendedahkannya melalui Fail & Folder; status diperiksa.",
+        "usage": "Baca dan tulis fail dalam Dokumen apabila diminta oleh pengguna."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "Folder Muat Turun",
+        "note": "macOS mendedahkannya melalui Fail & Folder; status diperiksa.",
+        "usage": "Baca dan tulis fail dalam Muat Turun apabila diminta oleh pengguna."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "Status Fokus",
+        "note": "macOS tidak menyediakan API awam yang boleh dipercayai untuk status setiap app.",
+        "usage": "Baca status Fokus hanya untuk aliran kerja yang menyesuaikan notifikasi atau gangguan."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "Akses Cakera Penuh",
+        "note": "Dikesan melalui semakan sistem fail yang konservatif; ketiadaan dipaparkan sebagai pengesahan manual.",
+        "usage": "Baca fail terlindung yang tidak diliputi persetujuan Fail & Folder biasa."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit (rumah)",
+        "note": "Hope Agent tidak menggunakan aliran kerja HomeKit buat masa ini.",
+        "usage": "Akses data Home hanya jika aliran kerja HomeKit masa depan diaktifkan."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "Pemantauan Input",
+        "usage": "Dengar peristiwa papan kekunci dan penuding yang diperlukan oleh automasi desktop."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "Rangkaian Setempat",
+        "note": "Privasi Rangkaian Setempat macOS tiada API status awam yang boleh dipercayai.",
+        "usage": "Temui dan sambung ke peranti pada rangkaian setempat."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "Perkhidmatan Lokasi",
+        "usage": "Gunakan lokasi peranti untuk cuaca setempat dan aliran kerja sedar lokasi."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "Pustaka Media",
+        "note": "Tiada API status awam yang boleh dipercayai untuk permukaan app ini.",
+        "usage": "Akses pustaka media hanya apabila aliran kerja media memerlukannya secara jelas."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "Mikrofon",
+        "usage": "Gunakan mikrofon untuk input suara hanya apabila diminta secara jelas."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "Volum Rangkaian",
+        "note": "Tiada API status awam yang boleh dipercayai untuk setiap volum.",
+        "usage": "Akses volum rangkaian yang dipasang apabila pengguna meminta app bekerja di situ."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "Notifikasi",
+        "note": "Konfigurasi notifikasi kekal pada halaman tetapan Notifikasi.",
+        "usage": "Tunjukkan notifikasi sistem."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "Foto",
+        "usage": "Akses pustaka Foto hanya apabila pengguna meminta aliran kerja foto."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "Peringatan",
+        "usage": "Baca atau tulis peringatan apabila aliran kerja perancangan memerlukannya."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "Volum Boleh Alih",
+        "note": "Tiada API status awam yang boleh dipercayai untuk setiap volum.",
+        "usage": "Akses pemacu boleh alih apabila pengguna meminta app bekerja di situ."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "Rakaman Skrin",
+        "usage": "Tangkap kandungan skrin untuk pemahaman visual dan automasi UI."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "Pengecaman Pertuturan",
+        "usage": "Gunakan pengecaman pertuturan apabila aliran kerja suara meminta transkripsi."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "Tangkapan Audio Sistem",
+        "note": "macOS tidak menyediakan API preflight awam yang boleh dipercayai untuk kebenaran ini.",
+        "usage": "Tangkap audio sistem apabila aliran kerja masa depan memerlukannya secara jelas."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "Diberikan",
+      "manualCheck": "Semakan manual",
+      "notApplicable": "Tidak berkenaan",
+      "notDetermined": "Belum ditentukan",
+      "notGranted": "Tidak diberikan",
+      "notUsed": "Tidak digunakan",
+      "restricted": "Terhad"
     },
     "permissions": "Kebenaran",
     "personaModeDesc": "Isikan medan berstruktur, atau tulis markdown SOUL.md secara terus. Fail SOUL.md dikongsi dengan mod keserasian openclaw.",

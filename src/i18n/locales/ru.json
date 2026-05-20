@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "Этот инструмент находится в пользовательском списке подтверждений агента (только режим Default).",
+        "title": "Пользовательский список подтверждений агента"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "Совпало со списком шаблонов опасных команд. Требуется подтверждение при каждом вызове; «Всегда разрешать» недоступно.",
+        "title": "⚠️ Опасная команда"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "Совпало со списком шаблонов команд редактирования. В режиме Default требуется подтверждение; «Всегда разрешать» сохраняет префикс команды.",
+        "title": "Exec-команда редактирования"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "В режиме Default требуется подтверждение для инструментов записи файлов (write/edit/apply_patch).",
+        "title": "Инструмент редактирования"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "В Plan Mode этот инструмент помечен как требующий подтверждения перед каждым вызовом: он разрешен, но каждый запуск все равно требует вашего одобрения.",
+        "title": "Подтверждение Plan Mode"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "Совпало со списком защищенных путей. Требуется подтверждение при каждом вызове; «Всегда разрешать» недоступно.",
+        "title": "⚠️ Защищенный путь"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "Модель-судья режима Smart решила, что этот вызов требует подтверждения человеком.",
+        "title": "Судья режима Smart"
       },
       "mac_control_action": {
         "title": "Действие Mac Control",
@@ -2114,80 +2114,80 @@
     "agentAgentsMd": "AGENTS.md",
     "agentAgentsMdDesc": "Правила рабочего пространства, красные линии, рекомендации по памяти и поведенческие инструкции",
     "agentApproval": {
-      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
-      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
-      "customApprovalTitle": "Custom Tool Approval",
-      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
-      "defaultModeTitle": "Default Session Permission Mode",
+      "customApprovalDesc": "В режиме Default также требовать подтверждение для инструментов, отмеченных ниже.",
+      "customApprovalHint": "Примечание: действует только в режиме Default; режимы Smart и YOLO игнорируют этот список.",
+      "customApprovalTitle": "Пользовательское подтверждение инструментов",
+      "defaultModeDesc": "Начальный режим разрешений для новых сессий; существующие сессии не затрагиваются.",
+      "defaultModeTitle": "Режим разрешений сессии по умолчанию",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "Браузер",
+        "crossSession": "Чтение между сессиями",
+        "network": "Доступ к сети",
+        "outbound": "Исходящие действия",
+        "paid": "Платные API",
+        "settings": "Изменение настроек",
+        "settingsRead": "Чтение настроек",
+        "shell": "Shell и процессы",
+        "spawn": "Внешние подпроцессы"
       },
       "modes": {
         "default": {
-          "desc": "Edit-class tools and high-risk commands need approval",
-          "label": "Default"
+          "desc": "Инструменты редактирования и команды высокого риска требуют подтверждения",
+          "label": "По умолчанию"
         },
         "inherit": {
-          "desc": "Follow the global default (currently \"Default\" mode)",
-          "label": "Inherit Global"
+          "desc": "Следовать глобальному значению по умолчанию (сейчас режим \"Default\")",
+          "label": "Наследовать глобальное"
         },
         "smart": {
-          "desc": "Judge model or model self-confidence decides approvals",
-          "label": "Smart Approval"
+          "desc": "Подтверждения решает модель-судья или самооценка уверенности модели",
+          "label": "Умное подтверждение"
         },
         "yolo": {
-          "desc": "All tools run without approval (protected paths still audit-log)",
-          "label": "YOLO"
+          "desc": "Все инструменты запускаются без подтверждения (защищенные пути все равно пишутся в аудит)",
+          "label": "Режим YOLO"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "Запустить внешний процесс ACP-субагента",
+        "agents_list": "Показать всех настроенных агентов",
+        "browser": "Управлять браузером через CDP для автоматизации UI",
+        "get_settings": "Прочитать настройки приложения",
+        "image_generate": "Сгенерировать изображения через платный API",
+        "list_settings_backups": "Показать историю резервных копий настроек",
+        "peek_sessions": "Посмотреть живую активность в других сессиях",
+        "process": "Управлять фоновыми exec-сессиями (kill/write/clear/remove)",
+        "restore_settings_backup": "Откатиться к исторической резервной копии настроек",
+        "send_attachment": "Отправить файловое вложение в IM-каналы",
+        "session_status": "Запросить текущее состояние сессии",
+        "sessions_history": "Прочитать историю сообщений из других сессий",
+        "sessions_list": "Показать метаданные всех сессий",
+        "sessions_send": "Отправить сообщение в другую сессию, чтобы запустить работу",
+        "update_settings": "Изменить настройки AppConfig",
+        "web_fetch": "Загрузить URL и извлечь читаемое содержимое",
+        "web_search": "Выполнить поиск через поисковую систему"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "ACP-субагент",
+        "agents_list": "Список агентов",
+        "browser": "Управление браузером",
+        "get_settings": "Читать настройки",
+        "image_generate": "Генерация изображений",
+        "list_settings_backups": "Резервные копии настроек",
+        "peek_sessions": "Просмотр сессий",
+        "process": "Фоновые процессы",
+        "restore_settings_backup": "Восстановить настройки",
+        "send_attachment": "Отправить вложение",
+        "session_status": "Статус сессии",
+        "sessions_history": "История сессии",
+        "sessions_list": "Список сессий",
+        "sessions_send": "Отправка между сессиями",
+        "update_settings": "Обновить настройки",
+        "web_fetch": "Получение веб-страницы",
+        "web_search": "Веб-поиск"
       }
     },
-    "agentApprovalTab": "Approval",
+    "agentApprovalTab": "Подтверждение",
     "agentAsyncToolPolicy": {
       "title": "Фоновый режим для асинхронных инструментов",
       "desc": "Когда асинхронно-совместимые инструменты (exec / web_search / image_generate) отделяются в фоновые задания. Независимо от одобрения.",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "Определяйте и управляйте ИИ-агентами. Каждый агент может иметь свою идентичность, способности и поведение.",
     "appearance": "Внешний вид",
     "appearanceDesc": "Выберите режим оформления темы",
-    "approvalNav": "Permission",
+    "approvalNav": "Разрешения",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "Принудительно требует подтверждения и не может быть «Всегда разрешать». Режим YOLO обходит это, но все равно пишет журналы аудита.",
+      "dangerousCommandsPlaceholder": "например: rm -rf /, git push --force",
+      "dangerousCommandsTitle": "Опасные команды",
+      "editCommandsDesc": "В режиме Default exec-вызовы, совпадающие с этими шаблонами, требуют подтверждения (подстрока без учета регистра); «Всегда разрешать» доступно.",
+      "editCommandsPlaceholder": "например: rm , git commit, npm install",
+      "editCommandsTitle": "Команды редактирования",
+      "empty": "Записей нет — добавьте шаблон, чтобы включить",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "Принудительно разрешить",
+        "ask": "Принудительно спросить",
+        "default": "Вернуться к режиму Default"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "Глобальный переключатель YOLO, списки шаблонов защищенных путей / команд редактирования / опасных команд и настройка режима умного подтверждения.",
+      "judgeExtraPromptPlaceholder": "Необязательно: дополнительные инструкции для судьи (белые списки путей, доверенные команды...)",
+      "judgeModelPlaceholder": "Модель (например, claude-haiku-4-5)",
+      "judgeModelTitle": "Настройка модели-судьи",
+      "judgeProviderPlaceholder": "ID провайдера (например, anthropic-1)",
+      "protectedPathsDesc": "Вызовы инструментов, затрагивающие эти пути, принудительно требуют подтверждения и не могут быть «Всегда разрешать». Поддерживает раскрытие ~/, префикс каталога (с / на конце) и glob-шаблоны *.pattern.",
+      "protectedPathsPlaceholder": "например: ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "Защищенные пути",
+      "restoreDefaults": "Восстановить значения по умолчанию",
+      "restoredDefaults": "Восстановлено по умолчанию",
+      "smartDesc": "В режиме сессии Smart подтверждения решает тег самооценки уверенности модели или независимая модель-судья.",
+      "smartFallback": "Запасной вариант при недоступности",
+      "smartStrategy": "Стратегия решения",
+      "smartTitle": "Режим умного подтверждения",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "Сначала судья, затем самооценка",
+        "judge_model": "Модель-судья",
+        "self_confidence": "Самооценка модели"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "Действие при тайм-ауте",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "Блокировать выполнение",
+        "proceed": "Продолжить"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "Если пользователь не ответит за это число секунд, применяется действие ниже. 0 = ждать всегда.",
+      "timeoutHint": "0 = ждать всегда",
+      "timeoutSeconds": "Секунды тайм-аута",
+      "timeoutTitle": "Тайм-аут диалога подтверждения",
+      "title": "Разрешения",
+      "yoloCliActive": "⚠️ Флаг CLI --dangerously-skip-all-approvals активен и не может быть отключен из GUI.",
+      "yoloDesc": "Когда включено, все инструменты запускаются без подтверждения; блокировать все еще может только Plan Mode. Совпадения защищенных путей / опасных команд пишут предупреждение, но выполняются.",
+      "yoloDisabled": "Глобальный YOLO выключен",
+      "yoloEnabled": "Глобальный YOLO включен",
+      "yoloTitle": "Глобальный YOLO (пропускать все подтверждения)"
     },
     "approvalTimeout": "Таймаут ожидания одобрения",
     "approvalTimeoutAction": "Действие при таймауте одобрения",
@@ -3320,150 +3320,150 @@
       "title": "Управление Mac"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "Управление и захват",
+      "deviceNetwork": "Устройства и сеть",
+      "fileAccess": "Доступ к файлам",
+      "personalData": "Личные данные",
+      "systemServices": "Системные службы"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "Универсальный доступ",
+        "usage": "Управлять мышью, клавиатурой и окнами других приложений."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "Управление приложениями",
+        "note": "macOS не предоставляет надежный публичный API статуса для каждого приложения.",
+        "usage": "Управлять или обновлять другие приложения только когда инструменту это явно нужно."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "Автоматизация: Сообщения",
+        "note": "Согласие на автоматизацию хранится отдельно для целевого приложения; Системные настройки — самый надежный источник истины.",
+        "usage": "Разрешить автоматизацию Messages через Apple Events, когда это нужно сценариям обмена сообщениями."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "Автоматизация: System Events",
+        "note": "Согласие на автоматизацию хранится отдельно для целевого приложения; Системные настройки — самый надежный источник истины.",
+        "usage": "Разрешить автоматизацию System Events через Apple Events."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Устройства Bluetooth",
+        "usage": "Обнаруживать Bluetooth-устройства и подключаться к ним, когда это нужно рабочему процессу."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "Календари",
+        "usage": "Читать или записывать события календаря, когда это нужно сценариям планирования."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "Камера",
+        "usage": "Использовать камеру для визуального ввода только по явному запросу."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "Контакты",
+        "usage": "Читать контакты только когда пользовательский сценарий явно просит об этом."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "Папка Рабочий стол",
+        "note": "macOS показывает это через «Файлы и папки»; статус проверяется пробой.",
+        "usage": "Читать и записывать файлы на Рабочем столе по запросу пользователя."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "Инструменты разработчика",
+        "note": "macOS не предоставляет надежный публичный API статуса для каждого приложения.",
+        "usage": "Использовать инструменты разработки, которые macOS защищает согласием Developer Tools."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "Папка Документы",
+        "note": "macOS показывает это через «Файлы и папки»; статус проверяется пробой.",
+        "usage": "Читать и записывать файлы в Документах по запросу пользователя."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "Папка Загрузки",
+        "note": "macOS показывает это через «Файлы и папки»; статус проверяется пробой.",
+        "usage": "Читать и записывать файлы в Загрузках по запросу пользователя."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "Статус фокусирования",
+        "note": "macOS не предоставляет надежный публичный API статуса для каждого приложения.",
+        "usage": "Читать статус фокусирования только для сценариев, которые адаптируют уведомления или прерывания."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "Полный доступ к диску",
+        "note": "Определяется консервативной файловой пробой; отсутствие показывается как ручная проверка.",
+        "usage": "Читать защищенные файлы, которые не покрывает обычное согласие «Файлы и папки»."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit (дом)",
+        "note": "Hope Agent сейчас не использует сценарии HomeKit.",
+        "usage": "Получать доступ к данным дома только если будущие сценарии HomeKit будут включены."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "Мониторинг ввода",
+        "usage": "Слушать события клавиатуры и указателя, нужные для автоматизации рабочего стола."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "Локальная сеть",
+        "note": "У приватности локальной сети macOS нет надежного публичного API статуса.",
+        "usage": "Обнаруживать устройства в локальной сети и подключаться к ним."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "Службы геолокации",
+        "usage": "Использовать местоположение устройства для локальной погоды и сценариев с учетом места."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "Медиатека",
+        "note": "Для этой поверхности приложения нет надежного публичного API статуса.",
+        "usage": "Получать доступ к медиатеке только когда медиа-сценарий явно требует этого."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "Микрофон",
+        "usage": "Использовать микрофон для голосового ввода только по явному запросу."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "Сетевые тома",
+        "note": "Нет надежного публичного API статуса для каждого тома.",
+        "usage": "Получать доступ к подключенным сетевым томам, когда пользователь просит работать там."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "Уведомления",
+        "note": "Настройка уведомлений остается на странице настроек Уведомлений.",
+        "usage": "Показывать системные уведомления."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "Фото",
+        "usage": "Получать доступ к библиотеке Фото только когда пользователь просит фото-сценарии."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "Напоминания",
+        "usage": "Читать или записывать напоминания, когда это нужно сценариям планирования."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "Съемные тома",
+        "note": "Нет надежного публичного API статуса для каждого тома.",
+        "usage": "Получать доступ к съемным дискам, когда пользователь просит работать там."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "Запись экрана",
+        "usage": "Захватывать содержимое экрана для визуального понимания и автоматизации UI."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "Распознавание речи",
+        "usage": "Использовать распознавание речи, когда голосовой сценарий просит транскрипцию."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "Захват системного аудио",
+        "note": "macOS не предоставляет надежный публичный preflight API для этого разрешения.",
+        "usage": "Захватывать системное аудио, когда будущий сценарий явно потребует этого."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "Разрешено",
+      "manualCheck": "Ручная проверка",
+      "notApplicable": "Неприменимо",
+      "notDetermined": "Не определено",
+      "notGranted": "Не разрешено",
+      "notUsed": "Не используется",
+      "restricted": "Ограничено"
     },
     "permissions": "Разрешения",
     "personaModeDesc": "Заполните структурированные поля или напишите markdown SOUL.md напрямую. Файл SOUL.md общий с режимом совместимости openclaw.",

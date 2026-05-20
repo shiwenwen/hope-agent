@@ -3393,7 +3393,7 @@
         "usage": "读取“文件与文件夹”授权无法覆盖的受保护文件。"
       },
       "homekit": {
-        "label": "HomeKit",
+        "label": "HomeKit（家庭）",
         "note": "Hope Agent 当前未使用 HomeKit 工作流。",
         "usage": "仅当后续启用家庭工作流时访问家庭数据。"
       },
