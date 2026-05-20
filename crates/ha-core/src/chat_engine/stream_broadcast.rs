@@ -16,6 +16,10 @@ pub const EVENT_CHAT_STREAM_END: &str = "chat:stream_end";
 /// Event emitted once a user-facing turn id is known.
 pub const EVENT_CHAT_TURN_STARTED: &str = "chat:turn_started";
 
+/// Event emitted when a turn's persisted status changes but the stream is
+/// not terminal yet, e.g. `running` -> `cancelling` after the user presses Stop.
+pub const EVENT_CHAT_TURN_STATUS: &str = "chat:turn_status";
+
 /// Counterpart for IM channel worker sessions — same envelope shape
 /// (`{sessionId, event}`), different name so subscribers can filter.
 pub const EVENT_CHANNEL_STREAM_DELTA: &str = "channel:stream_delta";
@@ -73,6 +77,25 @@ pub fn broadcast_turn_started(session_id: &str, turn_id: &str, stream_id: Option
                 "sessionId": session_id,
                 "turnId": turn_id,
                 "streamId": stream_id,
+            }),
+        );
+    }
+}
+
+pub fn broadcast_turn_status(
+    session_id: &str,
+    turn_id: &str,
+    status: ChatTurnStatus,
+    interrupt_reason: Option<ChatTurnInterruptReason>,
+) {
+    if let Some(bus) = globals::get_event_bus() {
+        bus.emit(
+            EVENT_CHAT_TURN_STATUS,
+            json!({
+                "sessionId": session_id,
+                "turnId": turn_id,
+                "status": status.as_str(),
+                "interruptReason": interrupt_reason.map(|r| r.as_str()),
             }),
         );
     }

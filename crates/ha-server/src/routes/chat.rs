@@ -422,6 +422,7 @@ pub async fn stop_chat(
     let mut stopped = false;
     let mut stopped_count = 0usize;
     let mut active_session_ids = Vec::new();
+    let mut watchdog_turns = Vec::new();
     {
         let cancels = ctx
             .chat_cancels
@@ -440,6 +441,13 @@ pub async fn stop_chat(
                         &active.turn_id,
                         session::ChatTurnInterruptReason::UserStop,
                     );
+                    ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
+                        sid,
+                        &active.turn_id,
+                        session::ChatTurnStatus::Cancelling,
+                        Some(session::ChatTurnInterruptReason::UserStop),
+                    );
+                    watchdog_turns.push((sid.to_string(), active.turn_id.clone(), active.source));
                     stopped = true;
                     stopped_count = 1;
                 }
@@ -458,6 +466,13 @@ pub async fn stop_chat(
                         &active.turn_id,
                         session::ChatTurnInterruptReason::UserStop,
                     );
+                    ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
+                        sid,
+                        &active.turn_id,
+                        session::ChatTurnStatus::Cancelling,
+                        Some(session::ChatTurnInterruptReason::UserStop),
+                    );
+                    watchdog_turns.push((sid.clone(), active.turn_id.clone(), active.source));
                 }
                 active_session_ids.push(sid.clone());
                 stopped_count += 1;
@@ -481,6 +496,15 @@ pub async fn stop_chat(
         }
         out
     };
+
+    for (sid, turn_id, source) in watchdog_turns {
+        ha_core::chat_engine::spawn_user_stop_watchdog(
+            ctx.session_db.clone(),
+            sid,
+            turn_id,
+            source,
+        );
+    }
 
     if body.session_id.is_some() {
         return Ok(Json(json!({
