@@ -7,7 +7,7 @@
 //!   逆向 WA 协议提供 Go API），<https://github.com/WhiskeySockets/Baileys>（Node.js）
 //! - **Protocol**: 通用 bridge HTTP 长轮询 — `GET /api/messages?since={ts}` +
 //!   `POST /api/send` / `POST /api/media`；timestamp 单位 = Unix 秒（UTC，bridge 实现需遵守）
-//! - **Last reviewed**: 2026-05-05
+//! - **Last reviewed**: 2026-05-20
 
 pub mod api;
 pub mod format;
@@ -160,6 +160,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         tokio::spawn(polling::run_whatsapp_polling(
             api,
             account.id.clone(),
+            account.label.clone(),
             inbound_tx,
             cancel,
         ));
