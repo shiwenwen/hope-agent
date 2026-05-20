@@ -17,7 +17,7 @@
 |---|---|---|
 | `terminate_process_tree(pid: u32)` | `libc::kill(-(pid as i32), SIGKILL)` 杀整个进程组（要求 child spawn 时在 `pre_exec` 里 `setpgid(0,0)`） | `taskkill /F /T /PID <pid>` 走 job tree，`CREATE_NO_WINDOW` 不弹控制台 |
 | `send_graceful_stop(pid: u32)` | `libc::kill(pid, SIGTERM)` —— 注意是 pid 不是 -pid，**不**杀整个组 | `taskkill /PID <pid>`（无 `/F`，发 WM_CLOSE / CTRL_BREAK），`CREATE_NO_WINDOW` |
-| `detect_system_proxy() -> Option<String>` | 返回 `None`（Linux 用 `HTTP_PROXY` env；macOS 由 `provider/proxy.rs` / `docker/proxy.rs` 各自调 `scutil --proxy`，**目前不走这个 shim**） | 读 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`，`OnceLock` 进程级缓存避免每次构建 client 都重读注册表；解析 `ProxyEnable` + `ProxyServer`，支持 `http=...;https=...` 协议列表（优先 https） |
+| `detect_system_proxy() -> Option<String>` | `OnceLock` 进程级缓存；优先 env vars（`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` 大小写），macOS 读 `scutil --proxy`，Linux / BSD 再试 GNOME `gsettings` 与 KDE `kreadconfig6` / `kreadconfig5` | 读 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`，`OnceLock` 进程级缓存避免每次构建 client 都重读注册表；解析 `ProxyEnable` + `ProxyServer`，支持 `http=...;https=...` 协议列表（优先 https） |
 | `default_shell_command(cmdline) -> std::process::Command` | `Command::new("sh").arg("-c").arg(cmdline)` | `Command::new("cmd").raw_arg("/C").raw_arg(cmdline)` —— `raw_arg` 跳过 std 自动加引号，保留 `/C` 后续整段命令的原始语义 |
 | `default_shell_command_tokio(cmdline)` | 同上 std 版，返回 `tokio::process::Command` | 同上 std 版，返回 `tokio::process::Command` |
 | `os_version_string() -> String` | macOS 优先 `sw_vers -productVersion` → `"macOS 14.2.1"` 形态；其他 Unix 走 `sysinfo::System::long_os_version()` 兜底；都失败时 `"unknown"` | `sysinfo::long_os_version()` + `kernel_version()` 拼成 `"Windows 11 (26100)"` 形态；都缺失时 `"Windows (unknown build)"` |
@@ -47,11 +47,11 @@
 
 **Windows ACL 当前依赖继承**：`~/.hope-agent/` 在用户 profile 下，默认 DACL 已经把"普通用户"挡在外面，但**没有显式 strip 继承的 ACE**。注释里明确点出"hardening to an explicit DACL is a future pass"——威胁建模需要时再加，签名不变向后兼容。
 
-### Windows 系统代理缓存
+### 系统代理缓存
 
-`detect_system_proxy` 在 Windows 端用 `OnceLock<Option<String>>` 进程级缓存。理由：`provider/proxy.rs` / `docker/proxy.rs` 等 caller 每次构建 reqwest client 都会调一次，winreg 读虽然便宜但累积多了也是浪费。Unix 端实现是 `None` 直接返回，没有缓存必要。
+`detect_system_proxy` 两端都用 `OnceLock<Option<String>>` 进程级缓存。理由：`provider/proxy.rs` / `docker/proxy.rs` 等 caller 每次构建 reqwest client 都会调一次，winreg / `scutil` / `gsettings` / `kreadconfig` 都不应该在 hot path 上重复探测。
 
-如果用户在运行时改了系统代理，需要重启 Hope Agent 才能生效——这个 trade-off 有意为之，因为系统代理变更属于罕见配置事件，相比每次重读注册表更划算。
+如果用户在运行时改了系统代理，需要重启 Hope Agent 才能生效——这个 trade-off 有意为之，因为系统代理变更属于罕见配置事件，相比每次重读系统配置更划算。
 
 ### `os_version_string` 的 macOS 兜底
 
@@ -73,10 +73,9 @@
 
 ## 已知缺口（技术债）
 
-- **macOS 系统代理分裂**：`detect_system_proxy()` 在 macOS 上当前返回 `None`，真正读 `scutil --proxy` 的逻辑住在 [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs) 和 [`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs) 各一份（两份 `#[cfg(target_os = "macos")]` 重复实现）。未来应该把这条 macOS 路径收敛到 `platform::unix::detect_system_proxy()`，让 mod.rs 注释里那句"macOS: reads `scutil --proxy` (implemented per-caller in `provider/proxy.rs` / `docker/proxy.rs` today)"成为历史。这是当前唯一一处违反"硬规则 #1"的合法过渡态，触碰这条路径的 PR 顺手修是合理改动。
 - **主 LLM OAuth token 落盘没走 `write_secure_file`**：[`oauth.rs::save_token`](../../crates/ha-core/src/oauth.rs) 直接 `std::fs::write(path, json)?` 写 `~/.hope-agent/credentials/auth.json`——既不原子（写到一半 crash 留半截 JSON）也不强制 0600（依赖 umask 和父目录继承）。MCP 凭据已经走了 `write_secure_file`，对照之下这条主 LLM 路径应该也切过来。改动范围小（一行替换 + 错误类型 anyhow 转 io），未来一次专门的安全收尾时一起做。
 - **Windows 显式 DACL**：`write_secure_file` 在 Windows 仅依赖 NTFS 继承，没有 strip 继承 ACE 也没有显式只授予 owner。同一进程的低权限子进程理论上能读凭据。当前威胁模型可接受（用户机本地 trust），需要"零本地信任"姿态时按 mod.rs 里"future ACL pass"加固。
-- **`detect_system_proxy` 运行时不刷新**：Windows 端进程级缓存意味着用户运行时改系统代理需要重启应用。如果未来加入"代理变更感知"需求，应同步给 Linux/macOS 也加上等价的失效机制，保持入口语义跨平台一致。
+- **`detect_system_proxy` 运行时不刷新**：进程级缓存意味着用户运行时改系统代理需要重启应用。如果未来加入"代理变更感知"需求，应给所有平台加同一个缓存失效机制，保持入口语义跨平台一致。
 
 ## 关键源文件
 

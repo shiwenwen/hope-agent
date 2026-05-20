@@ -18,7 +18,205 @@ pub(super) fn send_graceful_stop(pid: u32) {
 }
 
 pub(super) fn detect_system_proxy() -> Option<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED.get_or_init(probe_system_proxy).clone()
+}
+
+fn probe_system_proxy() -> Option<String> {
+    env_proxy_url()
+        .or_else(detect_macos_system_proxy)
+        .or_else(detect_gnome_system_proxy)
+        .or_else(detect_kde_system_proxy)
+}
+
+fn env_proxy_url() -> Option<String> {
+    [
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+    ]
+    .iter()
+    .find_map(|key| {
+        let value = std::env::var(key)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())?;
+        normalize_proxy_url(&value)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn detect_macos_system_proxy() -> Option<String> {
+    let output = run_hidden("scutil", &["--proxy"])?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_scutil_proxy(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn detect_macos_system_proxy() -> Option<String> {
     None
+}
+
+fn parse_scutil_proxy(text: &str) -> Option<String> {
+    for prefix in ["HTTPS", "HTTP"] {
+        let enabled = text
+            .lines()
+            .find(|line| line.trim().starts_with(&format!("{prefix}Enable")))
+            .and_then(|line| line.split(':').nth(1))
+            .map(|value| value.trim() == "1")
+            .unwrap_or(false);
+        if !enabled {
+            continue;
+        }
+
+        let host = text
+            .lines()
+            .find(|line| {
+                let trimmed = line.trim();
+                trimmed.starts_with(&format!("{prefix}Proxy"))
+                    && !trimmed.contains("Enable")
+                    && !trimmed.contains("Port")
+            })
+            .and_then(|line| line.split(':').nth(1))
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let port = text
+            .lines()
+            .find(|line| line.trim().starts_with(&format!("{prefix}Port")))
+            .and_then(|line| line.split(':').nth(1))
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if let (Some(host), Some(port)) = (host, port) {
+            return Some(format!("http://{host}:{port}"));
+        }
+    }
+    None
+}
+
+fn detect_gnome_system_proxy() -> Option<String> {
+    let mode = gsettings_string("org.gnome.system.proxy", "mode")?;
+    if mode != "manual" {
+        return None;
+    }
+
+    for schema in [
+        "org.gnome.system.proxy.https",
+        "org.gnome.system.proxy.http",
+    ] {
+        let Some(host) = gsettings_string(schema, "host") else {
+            continue;
+        };
+        if host.is_empty() {
+            continue;
+        }
+        let Some(port) = command_stdout("gsettings", &["get", schema, "port"])
+            .and_then(|port| port.trim().parse::<u16>().ok())
+            .filter(|port| *port > 0)
+        else {
+            continue;
+        };
+        return Some(format!("http://{host}:{port}"));
+    }
+
+    None
+}
+
+fn gsettings_string(schema: &str, key: &str) -> Option<String> {
+    let raw = command_stdout("gsettings", &["get", schema, key])?;
+    Some(unquote_gsettings_string(&raw))
+}
+
+fn unquote_gsettings_string(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 && trimmed.starts_with('\'') && trimmed.ends_with('\'') {
+        trimmed[1..trimmed.len() - 1]
+            .replace("\\'", "'")
+            .trim()
+            .to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn detect_kde_system_proxy() -> Option<String> {
+    for binary in ["kreadconfig6", "kreadconfig5"] {
+        let proxy_type = command_stdout(
+            binary,
+            &[
+                "--file",
+                "kioslaverc",
+                "--group",
+                "Proxy Settings",
+                "--key",
+                "ProxyType",
+            ],
+        );
+        if matches!(proxy_type.as_deref().map(str::trim), Some(value) if value != "1") {
+            continue;
+        }
+
+        for key in ["httpsProxy", "httpProxy"] {
+            let Some(value) = command_stdout(
+                binary,
+                &[
+                    "--file",
+                    "kioslaverc",
+                    "--group",
+                    "Proxy Settings",
+                    "--key",
+                    key,
+                ],
+            ) else {
+                continue;
+            };
+            if let Some(url) = normalize_proxy_url(&value) {
+                return Some(url);
+            }
+        }
+    }
+    None
+}
+
+fn command_stdout(cmd: &str, args: &[&str]) -> Option<String> {
+    let output = run_hidden(cmd, args)?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_proxy_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut parts = trimmed.split_whitespace();
+    if let (Some(host), Some(port), None) = (parts.next(), parts.next(), parts.next()) {
+        if port.parse::<u16>().ok().filter(|port| *port > 0).is_some() {
+            let host = host.trim_end_matches('/');
+            if host.contains("://") {
+                return Some(format!("{host}:{port}"));
+            }
+            return Some(format!("http://{host}:{port}"));
+        }
+    }
+
+    if trimmed.contains("://") {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!("http://{trimmed}"))
+    }
 }
 
 pub(super) fn default_shell_command(cmdline: &str) -> Command {
@@ -263,5 +461,67 @@ pub(super) fn atomic_replace_binary(target: &Path, source: &Path) -> io::Result<
             Ok(())
         }
         Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_scutil_proxy_prefer_https() {
+        let text = r#"
+<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 8080
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 1082
+  HTTPSProxy : 10.0.0.2
+}
+"#;
+
+        assert_eq!(
+            parse_scutil_proxy(text).as_deref(),
+            Some("http://10.0.0.2:1082")
+        );
+    }
+
+    #[test]
+    fn parses_scutil_proxy_fallback_to_http() {
+        let text = r#"
+HTTPEnable : 1
+HTTPProxy : localhost
+HTTPPort : 7890
+HTTPSEnable : 0
+"#;
+
+        assert_eq!(
+            parse_scutil_proxy(text).as_deref(),
+            Some("http://localhost:7890")
+        );
+    }
+
+    #[test]
+    fn unquotes_gsettings_strings() {
+        assert_eq!(unquote_gsettings_string("'manual'"), "manual");
+        assert_eq!(unquote_gsettings_string("'127.0.0.1'"), "127.0.0.1");
+        assert_eq!(unquote_gsettings_string("  ''  "), "");
+    }
+
+    #[test]
+    fn normalizes_kde_proxy_values() {
+        assert_eq!(
+            normalize_proxy_url("127.0.0.1:8080").as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            normalize_proxy_url("http://127.0.0.1 8080").as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            normalize_proxy_url("socks5://127.0.0.1:1080").as_deref(),
+            Some("socks5://127.0.0.1:1080")
+        );
     }
 }

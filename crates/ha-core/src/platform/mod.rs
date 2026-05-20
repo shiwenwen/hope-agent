@@ -64,10 +64,9 @@ pub fn pid_alive(pid: u32) -> bool {
 
 /// Try to discover the user-configured HTTP proxy from the OS.
 ///
-/// - macOS: reads `scutil --proxy` (implemented per-caller in
-///   `provider/proxy.rs` / `docker/proxy.rs` today — those paths
-///   continue to own that logic and don't go through this shim).
-/// - Linux: returns `None` (users set `HTTP_PROXY` / `HTTPS_PROXY` env).
+/// - macOS: reads `scutil --proxy`.
+/// - Linux / BSD: env vars first, then GNOME `gsettings`, then KDE
+///   `kreadconfig6` / `kreadconfig5`.
 /// - Windows: reads
 ///   `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 ///   and returns e.g. `"http://127.0.0.1:1082"` when enabled.

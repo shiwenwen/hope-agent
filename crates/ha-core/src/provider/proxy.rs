@@ -51,8 +51,9 @@ pub fn apply_proxy_from_config(
     match config.mode {
         ProxyMode::System => {
             // reqwest default: reads HTTP_PROXY / HTTPS_PROXY / ALL_PROXY env vars.
-            // On macOS, apps like Shadowrocket/ClashX set system proxy via Network
-            // Preferences but NOT env vars. Detect and apply if env vars are empty.
+            // Desktop proxy settings (macOS Network, GNOME, KDE, Windows registry)
+            // often are not exported as env vars. Detect and apply them only
+            // when env vars are empty so explicit shell config still wins.
             let has_env_proxy = [
                 "HTTPS_PROXY",
                 "HTTP_PROXY",
@@ -64,7 +65,7 @@ pub fn apply_proxy_from_config(
             .iter()
             .any(|k| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some());
             if !has_env_proxy {
-                if let Some(url) = detect_system_proxy() {
+                if let Some(url) = crate::platform::detect_system_proxy() {
                     if let Ok(proxy) = reqwest::Proxy::all(&url) {
                         builder = builder.proxy(proxy);
                     }
@@ -85,64 +86,6 @@ pub fn apply_proxy_from_config(
         }
     }
     builder
-}
-
-/// Detect macOS system proxy via `scutil --proxy`.
-/// Returns e.g. `Some("http://127.0.0.1:1082")`.
-#[cfg(target_os = "macos")]
-fn detect_system_proxy() -> Option<String> {
-    use std::sync::OnceLock;
-    // Cache the result — scutil is a subprocess call, avoid repeated invocations
-    static CACHED: OnceLock<Option<String>> = OnceLock::new();
-    CACHED
-        .get_or_init(|| {
-            let output = std::process::Command::new("scutil")
-                .arg("--proxy")
-                .output()
-                .ok()?;
-            if !output.status.success() {
-                return None;
-            }
-            let text = String::from_utf8_lossy(&output.stdout);
-            for prefix in ["HTTPS", "HTTP"] {
-                let enabled = text
-                    .lines()
-                    .find(|l| l.trim().starts_with(&format!("{}Enable", prefix)))
-                    .and_then(|l| l.split(':').nth(1))
-                    .map(|v| v.trim() == "1")
-                    .unwrap_or(false);
-                if !enabled {
-                    continue;
-                }
-                let host = text
-                    .lines()
-                    .find(|l| {
-                        let t = l.trim();
-                        t.starts_with(&format!("{}Proxy", prefix))
-                            && !t.contains("Enable")
-                            && !t.contains("Port")
-                    })
-                    .and_then(|l| l.split(':').nth(1))
-                    .map(|v| v.trim().to_string())
-                    .filter(|v| !v.is_empty());
-                let port = text
-                    .lines()
-                    .find(|l| l.trim().starts_with(&format!("{}Port", prefix)))
-                    .and_then(|l| l.split(':').nth(1))
-                    .map(|v| v.trim().to_string())
-                    .filter(|v| !v.is_empty());
-                if let (Some(h), Some(p)) = (host, port) {
-                    return Some(format!("http://{}:{}", h, p));
-                }
-            }
-            None
-        })
-        .clone()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn detect_system_proxy() -> Option<String> {
-    crate::platform::detect_system_proxy()
 }
 
 fn should_bypass_proxy(target_url: &str) -> bool {
@@ -176,7 +119,7 @@ pub fn apply_proxy_blocking(
             .iter()
             .any(|k| std::env::var(k).ok().filter(|v| !v.is_empty()).is_some());
             if !has_env_proxy {
-                if let Some(url) = detect_system_proxy() {
+                if let Some(url) = crate::platform::detect_system_proxy() {
                     if let Ok(proxy) = reqwest::Proxy::all(&url) {
                         return builder.proxy(proxy);
                     }
