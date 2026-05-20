@@ -170,6 +170,23 @@ pub fn end(session_id: &str) {
     map.remove(session_id);
 }
 
+/// Drop the session entry only when it still belongs to `stream_id`.
+///
+/// This is the normal cleanup path for stream lifecycles whose owner may outlive
+/// a watchdog-forced stop. A stale owner must not remove a newer stream that
+/// started for the same session after the watchdog released the active turn.
+pub fn end_if_stream(session_id: &str, stream_id: &str) -> bool {
+    let mut map = registry().lock().expect("stream_seq registry poisoned");
+    let matches = map
+        .get(session_id)
+        .map(|entry| entry.stream_id == stream_id)
+        .unwrap_or(false);
+    if matches {
+        map.remove(session_id);
+    }
+    matches
+}
+
 /// Return the next `seq` for this session, or `0` if the session isn't
 /// registered (defensive — callers should [`begin`] first).
 pub fn next_seq(session_id: &str) -> u64 {
@@ -327,5 +344,19 @@ mod tests {
         assert_eq!(err.existing_source, ChatSource::Desktop);
         assert!(is_active(sid));
         end(sid);
+    }
+
+    #[test]
+    fn stale_end_does_not_clear_new_stream() {
+        let sid = "test-stream_seq-stale-end";
+        let old_stream = begin(sid, ChatSource::Desktop).unwrap();
+        assert!(end_if_stream(sid, &old_stream));
+        let new_stream = begin(sid, ChatSource::Desktop).unwrap();
+
+        assert!(!end_if_stream(sid, &old_stream));
+        assert_eq!(stream_id(sid).as_deref(), Some(new_stream.as_str()));
+
+        assert!(end_if_stream(sid, &new_stream));
+        assert!(!is_active(sid));
     }
 }

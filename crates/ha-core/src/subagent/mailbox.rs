@@ -65,15 +65,16 @@ pub static SUBAGENT_MAILBOX: std::sync::LazyLock<SubagentMailbox> =
 // ── Chat Session Guard ──────────────────────────────────────────
 
 /// RAII guard: marks a session as active in user chat, cancels any running injection.
-/// Drop removes the session from the active set.
+/// Drop releases only this guard's reference so a stale stopped turn cannot
+/// clear a newer turn that started for the same session.
 pub struct ChatSessionGuard {
     session_id: String,
 }
 
 impl ChatSessionGuard {
     pub fn new(session_id: &str) -> Self {
-        if let Ok(mut set) = ACTIVE_CHAT_SESSIONS.lock() {
-            set.insert(session_id.to_string());
+        if let Ok(mut counts) = ACTIVE_CHAT_SESSIONS.lock() {
+            *counts.entry(session_id.to_string()).or_insert(0) += 1;
         }
         // Cancel any running injection for this session
         if let Ok(map) = INJECTION_CANCELS.lock() {
@@ -89,12 +90,48 @@ impl ChatSessionGuard {
 
 impl Drop for ChatSessionGuard {
     fn drop(&mut self) {
-        if let Ok(mut set) = ACTIVE_CHAT_SESSIONS.lock() {
-            set.remove(&self.session_id);
+        let mut became_idle = false;
+        if let Ok(mut counts) = ACTIVE_CHAT_SESSIONS.lock() {
+            if let Some(count) = counts.get_mut(&self.session_id) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    counts.remove(&self.session_id);
+                    became_idle = true;
+                }
+            }
         }
-        // Wake up any injection waiters (replaces 2s polling)
-        SESSION_IDLE_NOTIFY.notify_waiters();
-        // Re-trigger any pending injections that were cancelled during this chat
-        flush_pending_injections(&self.session_id);
+        if became_idle {
+            // Wake up any injection waiters (replaces 2s polling)
+            SESSION_IDLE_NOTIFY.notify_waiters();
+            // Re-trigger any pending injections that were cancelled during this chat
+            flush_pending_injections(&self.session_id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlapping_chat_session_guards_release_by_reference() {
+        let sid = "test-subagent-chat-session-guard-refcount";
+        ACTIVE_CHAT_SESSIONS.lock().unwrap().remove(sid);
+
+        let first = ChatSessionGuard::new(sid);
+        let second = ChatSessionGuard::new(sid);
+        assert_eq!(
+            ACTIVE_CHAT_SESSIONS.lock().unwrap().get(sid).copied(),
+            Some(2)
+        );
+
+        drop(first);
+        assert_eq!(
+            ACTIVE_CHAT_SESSIONS.lock().unwrap().get(sid).copied(),
+            Some(1)
+        );
+
+        drop(second);
+        assert!(!ACTIVE_CHAT_SESSIONS.lock().unwrap().contains_key(sid));
     }
 }

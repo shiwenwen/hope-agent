@@ -55,3 +55,26 @@ pub fn flush_all_blocking() {
         );
     }
 }
+
+/// Flush and seal persisters for one session after a user stop. This preserves
+/// buffered partial text/thinking before a watchdog finalizes the turn, and it
+/// prevents late provider deltas from mutating an already-interrupted turn.
+pub(crate) fn cancel_flush_session(session_id: &str) -> usize {
+    let entries: Vec<Weak<StreamPersister>> = match active().lock() {
+        Ok(mut guard) => {
+            guard.retain(|w| w.strong_count() > 0);
+            guard.iter().cloned().collect()
+        }
+        Err(p) => p.into_inner().iter().cloned().collect(),
+    };
+    let mut flushed = 0usize;
+    for weak in entries {
+        if let Some(persister) = weak.upgrade() {
+            if persister.session_id() == session_id {
+                persister.cancel_flush_and_seal();
+                flushed += 1;
+            }
+        }
+    }
+    flushed
+}

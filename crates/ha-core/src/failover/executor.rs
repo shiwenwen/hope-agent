@@ -25,6 +25,8 @@
 //!   prompt cache prefix preserved), and call the executor again.
 
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::provider::{ApiType, AuthProfile, ProviderConfig};
@@ -49,6 +51,8 @@ pub struct FailoverPolicy {
     pub retry_base_ms: u64,
     /// Max clamped delay for exponential backoff (ms).
     pub retry_max_ms: u64,
+    /// Optional user-stop flag for foreground chat paths.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 impl FailoverPolicy {
@@ -59,6 +63,7 @@ impl FailoverPolicy {
             allow_profile_rotation: true,
             retry_base_ms: 1000,
             retry_max_ms: 10000,
+            cancel: None,
         }
     }
 
@@ -70,6 +75,7 @@ impl FailoverPolicy {
             allow_profile_rotation: true,
             retry_base_ms: 1000,
             retry_max_ms: 10000,
+            cancel: None,
         }
     }
 
@@ -85,7 +91,13 @@ impl FailoverPolicy {
             allow_profile_rotation: false,
             retry_base_ms: 1000,
             retry_max_ms: 10000,
+            cancel: None,
         }
+    }
+
+    pub fn with_cancel(mut self, cancel: Arc<AtomicBool>) -> Self {
+        self.cancel = Some(cancel);
+        self
     }
 }
 
@@ -109,6 +121,9 @@ pub enum ExecutorError {
     /// or `auth_profiles` empty + `api_key` empty). Distinct from `Exhausted`
     /// because no operation was ever attempted.
     NoProfileAvailable,
+    /// User requested cancellation while the executor was between attempts or
+    /// while the operation returned after observing the shared cancel flag.
+    Cancelled,
 }
 
 impl ExecutorError {
@@ -128,6 +143,7 @@ impl std::fmt::Display for ExecutorError {
                 last_error,
             } => write!(f, "exhausted ({:?}): {}", last_reason, last_error),
             Self::NoProfileAvailable => write!(f, "no auth profile available"),
+            Self::Cancelled => write!(f, "cancelled by caller"),
         }
     }
 }
@@ -185,6 +201,14 @@ where
     // profile, retry / classify paths still run.
 
     loop {
+        if policy
+            .cancel
+            .as_ref()
+            .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+        {
+            return Err(ExecutorError::Cancelled);
+        }
+
         match operation(current_profile.as_ref()).await {
             Ok(value) => {
                 if let Some(ref profile) = current_profile {
@@ -194,6 +218,14 @@ where
                 return Ok(value);
             }
             Err(e) => {
+                if policy
+                    .cancel
+                    .as_ref()
+                    .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+                {
+                    return Err(ExecutorError::Cancelled);
+                }
+
                 let err_str = e.to_string();
                 let reason = classify_error(&err_str);
 
@@ -239,7 +271,9 @@ where
                 if reason.is_retryable() && retry_count < policy.max_retries {
                     let delay =
                         retry_delay_ms(retry_count, policy.retry_base_ms, policy.retry_max_ms);
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    if sleep_or_cancel(Duration::from_millis(delay), policy.cancel.as_ref()).await {
+                        return Err(ExecutorError::Cancelled);
+                    }
                     retry_count += 1;
                     continue;
                 }
@@ -251,6 +285,30 @@ where
                 });
             }
         }
+    }
+}
+
+async fn sleep_or_cancel(duration: Duration, cancel: Option<&Arc<AtomicBool>>) -> bool {
+    let Some(cancel) = cancel else {
+        tokio::time::sleep(duration).await;
+        return false;
+    };
+    if cancel.load(Ordering::SeqCst) {
+        return true;
+    }
+    tokio::select! {
+        biased;
+        _ = wait_for_cancel(cancel) => true,
+        _ = tokio::time::sleep(duration) => cancel.load(Ordering::SeqCst),
+    }
+}
+
+async fn wait_for_cancel(cancel: &Arc<AtomicBool>) {
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -366,6 +424,7 @@ mod tests {
             allow_profile_rotation: false, // force retry path, not rotation
             retry_base_ms: 10,
             retry_max_ms: 20,
+            cancel: None,
         };
 
         let result: Result<String, _> =
@@ -419,6 +478,7 @@ mod tests {
             allow_profile_rotation: false,
             retry_base_ms: 1,
             retry_max_ms: 1,
+            cancel: None,
         };
 
         let attempt = AtomicU32::new(0);
@@ -608,6 +668,7 @@ mod tests {
             allow_profile_rotation: false,
             retry_base_ms: 5,
             retry_max_ms: 10,
+            cancel: None,
         };
 
         let result: Result<String, _> =

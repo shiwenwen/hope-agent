@@ -280,6 +280,26 @@ export function useChatStream({
     }
   }, [endedStreamIdsRef])
 
+  useEffect(() => {
+    const unlisten = getTransport().listen("chat:turn_status", (raw) => {
+      const payload = raw as {
+        sessionId?: string
+        turnId?: string | null
+        status?: ChatTurnStatus | null
+        interruptReason?: ChatTurnInterruptReason | null
+      } | null
+      const sid = payload?.sessionId
+      if (!sid || !payload?.status) return
+      if (payload.turnId) activeTurnBySessionRef.current.set(sid, payload.turnId)
+      lastTurnStatusBySessionRef.current.set(sid, {
+        status: payload.status,
+        interruptReason: payload.interruptReason ?? null,
+      })
+      setExecutionStateBySession((prev) => new Map(prev).set(sid, payload.status!))
+    })
+    return unlisten
+  }, [])
+
   // Compose sub-hooks
   const { approvalRequests, handleApprovalResponse } = useApprovals(currentSessionId)
 
@@ -351,6 +371,7 @@ export function useChatStream({
       const active = Array.from(activeTurnBySessionRef.current.entries()).at(-1)
       if (!active) return
       const [activeSid, activeTurnId] = active
+      setExecutionStateBySession((prev) => new Map(prev).set(activeSid, "cancelling"))
       try {
         await getTransport().call("stop_chat", {
           sessionId: activeSid,
@@ -361,10 +382,12 @@ export function useChatStream({
       }
       return
     }
+    const activeTurnId = activeTurnBySessionRef.current.get(sid) ?? null
+    setExecutionStateBySession((prev) => new Map(prev).set(sid, "cancelling"))
     try {
       await getTransport().call("stop_chat", {
         sessionId: sid,
-        turnId: activeTurnBySessionRef.current.get(sid) ?? null,
+        turnId: activeTurnId,
       })
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
