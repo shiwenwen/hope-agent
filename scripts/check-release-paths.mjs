@@ -27,6 +27,10 @@ function readWorkflow(name) {
   return readFileSync(path.join(repoRoot, ".github", "workflows", name), "utf8")
 }
 
+function readJson(name) {
+  return JSON.parse(readFileSync(path.join(repoRoot, name), "utf8"))
+}
+
 // ─── Check 1 ─────────────────────────────────────────────────────────
 // release.yml bare-binary step: every `target_dir=...` must start with
 // `target/`, never `src-tauri/target/`. Hope Agent is a Cargo workspace
@@ -152,6 +156,29 @@ for (const dep of downstreamArtifactDeps) {
 }
 
 // ─── Check 4 ─────────────────────────────────────────────────────────
+// NSIS language names must be the canonical NSIS identifiers used by
+// `!insertmacro MUI_LANGUAGE`, not locale aliases. `SimplifiedChinese`
+// looks natural but makes makensis look for `SimplifiedChinese.nlf`;
+// upstream NSIS ships that language as `SimpChinese.nlf`.
+{
+  const conf = readJson("src-tauri/tauri.conf.json")
+  const nsisLanguages = conf.bundle?.windows?.nsis?.languages ?? []
+  const wixLanguage = conf.bundle?.windows?.wix?.language
+  const wixLanguages = Array.isArray(wixLanguage) ? wixLanguage : [wixLanguage].filter(Boolean)
+
+  if (nsisLanguages.includes("SimplifiedChinese")) {
+    errors.push(
+      'src-tauri/tauri.conf.json: bundle.windows.nsis.languages uses "SimplifiedChinese"; NSIS expects "SimpChinese".',
+    )
+  }
+  if (wixLanguages.includes("zh-CN") && !nsisLanguages.includes("SimpChinese")) {
+    errors.push(
+      'src-tauri/tauri.conf.json: WiX includes "zh-CN" but NSIS languages do not include "SimpChinese"; Windows installers should expose matching Chinese UI coverage.',
+    )
+  }
+}
+
+// ─── Check 5 ─────────────────────────────────────────────────────────
 // release.yml must include at least the 4 platforms required for the
 // updater manifest's bare_binary entries to be useful: macos-arm64,
 // linux-x64, linux-arm64, windows-x64. macos-x64 is currently optional

@@ -49,18 +49,6 @@
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
-### F-074 NSIS 重新加回 SimplifiedChinese installer 语言
-
-- **来源**：2026-05-09 v0.1.0 release run 25567046354 Windows 失败诊断
-- **现象**：[`src-tauri/tauri.conf.json`](../../src-tauri/tauri.conf.json) `bundle.windows.nsis.languages` 临时去掉了 `SimplifiedChinese`，只保留 `English`。原因是 GitHub `windows-latest` runner 上 tauri 自动下载的 NSIS 包不含 `SimplifiedChinese.nlf`，bundling 阶段报 "Can't open language file - SimplifiedChinese.nlf"
-- **为什么留**：v0.1.0 release blocker；先打通中英文用户都能装的英文 installer，installer UI 语言不影响应用本身的 i18n（应用内 12 种语言完整）
-- **改的话要做什么**：两个方向二选一：
-  - **方案 A（workflow 层）**：在 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) Windows job 加 step pre-stage 完整 NSIS 到 `%LOCALAPPDATA%\tauri\NSIS`（覆盖 tauri 自动下载的精简版），需注意 NSCurl plugin 是 tauri 自定义补丁，要保留
-  - **方案 B（env 层）**：用 `NSIS_DIR` 环境变量指向 chocolatey 装的完整 NSIS（`C:\Program Files (x86)\NSIS`），需先验证 tauri-bundler 是否真的 respect `NSIS_DIR` + 验证 NSCurl plugin 可用性
-  - 两方案验证完成后把 `tauri.conf.json` 的 `languages` 改回 `["English", "SimplifiedChinese"]`
-- **影响面**：当前 Windows 中文用户首次安装 / 卸载 installer UI 是英文（一次性体验，应用内仍是中文）
-- **触发时机建议**：v0.1.1 或下一次动 windows release packaging 时
-
 ### F-075 WKWebView release 默认右键菜单含 "Reload" — 需要禁用 webview context menu
 
 - **来源**：2026-05-10 v0.1.0 release build 实测（fix/0.1-check-for-updates-menu 自测）
