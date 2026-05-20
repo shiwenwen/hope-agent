@@ -772,6 +772,7 @@ impl MacControlActRequest {
 pub enum MacControlActOp {
     #[default]
     Click,
+    DryRun,
     ClickPoint,
     DoubleClick,
     RightClick,
@@ -1869,6 +1870,11 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                 );
             }
         }
+        MacControlActOp::DryRun => {
+            if request.target.is_empty() {
+                return Some("mac_control act.dry_run requires a target.".to_string());
+            }
+        }
         MacControlActOp::ClickPoint => {
             if request.x.is_none() || request.y.is_none() {
                 return Some("mac_control act.click_point requires x and y.".to_string());
@@ -1932,6 +1938,7 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
 fn act_op_name(op: MacControlActOp) -> &'static str {
     match op {
         MacControlActOp::Click => "click",
+        MacControlActOp::DryRun => "dry_run",
         MacControlActOp::ClickPoint => "click_point",
         MacControlActOp::DoubleClick => "double_click",
         MacControlActOp::RightClick => "right_click",
@@ -2813,6 +2820,28 @@ mod tests {
         assert_eq!(targeted_click.x, Some(0.0));
         assert_eq!(targeted_click.y, Some(0.0));
         assert!(validate_act_request(&targeted_click).is_none());
+
+        let dry_run = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            target: MacControlTargetQuery {
+                text: Some(" Open ".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(dry_run.target.text.as_deref(), Some("Open"));
+        assert!(validate_act_request(&dry_run).is_none());
+
+        let dry_run_without_target = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(
+            validate_act_request(&dry_run_without_target).as_deref(),
+            Some("mac_control act.dry_run requires a target.")
+        );
 
         let ambiguous_click_point = MacControlActRequest {
             op: MacControlActOp::ClickPoint,

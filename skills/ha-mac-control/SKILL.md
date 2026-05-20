@@ -73,6 +73,7 @@ wait or snapshot                       # verify the expected change
 
 - Use `elements.find op="find"` before clicking or typing into ambiguous UI. Useful examples: `target.role="AXButton"`, `target.text="Save"`, `target.windowTitle="Untitled"`.
 - `elements.find` returns `totalMatches` plus candidate `score`, `reasons`, `element`, and `window`. Prefer high-score candidates whose reasons include the user's intended text/role/window.
+- Use `act.dry_run` when the next mutation should use the exact same target resolver as `act.click` / `act.set_value`, but you want to verify the resolved element first. It returns `target` and a fresh `snapshot` without changing the UI.
 - `act.click` is for AX targets only. It requires `target` and should not consume raw `x/y`.
 - Use `act.click_point` only when the user explicitly wants a coordinate click or AX cannot represent the target. This includes valid coordinates like `(0, 0)`.
 - `act.type` and `act.set_value` should target text input roles (`AXTextArea`, `AXTextField`, `AXSearchField`, etc.).

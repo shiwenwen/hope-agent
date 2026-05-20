@@ -829,6 +829,19 @@ mod imp {
         let request = request.clamped();
         let mut target = None;
         let execution = match request.op {
+            MacControlActOp::DryRun => {
+                if target_query_is_empty(&request.target) {
+                    return Err("act.dry_run requires a target.".to_string());
+                }
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.dry_run",
+                )?;
+                target = Some(summary);
+                "DryRun".to_string()
+            }
             MacControlActOp::Click => {
                 if target_query_is_empty(&request.target) {
                     return Err(

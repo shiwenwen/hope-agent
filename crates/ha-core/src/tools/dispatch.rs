@@ -463,6 +463,7 @@ mod tests {
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
         assert!(ops.contains(&"find"));
+        assert!(ops.contains(&"dry_run"));
         assert!(ops.contains(&"click"));
         assert!(ops.contains(&"click_point"));
         assert!(ops.contains(&"quit"));

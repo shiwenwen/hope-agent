@@ -830,6 +830,7 @@ mod tests {
 
         for args in [
             json!({"action": "elements", "op": "find", "target": {"text": "Open"}}),
+            json!({"action": "act", "op": "dry_run", "target": {"text": "Open"}}),
             json!({"action": "windows", "op": "list"}),
             json!({"action": "menu", "op": "list"}),
             json!({"action": "dialog", "op": "inspect"}),

@@ -323,7 +323,7 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision
 | **编辑命令** | `exec` | 命令字符串 substring | 仅 Default 模式触发；Smart/YOLO 不消费 | ✅ 可 AllowAlways |
 | **macOS 控制** | `mac_control` | `action/op/path` 纯参数分类 | ✅ 普通/隐私/高风险动作 | 普通/隐私动作可；高风险置灰 |
 
-`mac_control` 的只读动作（`status` / `permissions` / `snapshot` / `elements.find` / `wait` / `apps.list` / `apps.frontmost` / `apps.installed` / `apps.search` / `windows.list` / `menu.list` / `dialog.inspect`）直接放行；普通突变和隐私敏感动作（例如 `clipboard.get/set/clear`）弹审批；高风险突变动作禁用 AllowAlways。
+`mac_control` 的只读动作（`status` / `permissions` / `snapshot` / `elements.find` / `wait` / `apps.list` / `apps.frontmost` / `apps.installed` / `apps.search` / `windows.list` / `act.dry_run` / `menu.list` / `dialog.inspect`）直接放行；普通突变和隐私敏感动作（例如 `clipboard.get/set/clear`）弹审批；高风险突变动作禁用 AllowAlways。
 
 ### 默认值
 
