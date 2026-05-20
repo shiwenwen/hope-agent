@@ -738,6 +738,8 @@ pub struct MacControlActRequest {
     pub delta_x: Option<f64>,
     #[serde(default)]
     pub delta_y: Option<f64>,
+    #[serde(default)]
+    pub include_snapshot: bool,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
     #[serde(default = "default_snapshot_max_depth")]
@@ -2773,7 +2775,16 @@ mod tests {
         .clamped();
         assert_eq!(act.key, None);
         assert_eq!(act.keys, vec!["cmd".to_string(), "n".to_string()]);
+        assert!(!act.include_snapshot);
         assert!(validate_act_request(&act).is_none());
+
+        let act_with_snapshot: MacControlActRequest = serde_json::from_value(serde_json::json!({
+            "op": "click",
+            "includeSnapshot": true,
+            "target": { "elementId": "el_20" }
+        }))
+        .expect("act includeSnapshot request");
+        assert!(act_with_snapshot.include_snapshot);
 
         let paste_without_text = MacControlActRequest {
             op: MacControlActOp::Paste,

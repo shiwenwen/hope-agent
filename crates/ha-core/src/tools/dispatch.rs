@@ -497,6 +497,10 @@ mod tests {
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
         assert_eq!(window_scopes, vec!["frontmost", "all"]);
+        assert!(def
+            .parameters
+            .pointer("/properties/includeSnapshot")
+            .is_some());
 
         let f = Fixture::new();
         assert_eq!(

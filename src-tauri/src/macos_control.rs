@@ -1001,7 +1001,7 @@ mod imp {
                 "CGEventDrag".to_string()
             }
         };
-        let snapshot = if request.op == MacControlActOp::DryRun {
+        let snapshot = if request.op == MacControlActOp::DryRun || !request.include_snapshot {
             None
         } else {
             capture_ax_snapshot(MacControlSnapshotRequest {

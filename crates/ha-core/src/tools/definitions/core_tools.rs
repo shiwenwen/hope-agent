@@ -839,6 +839,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "boolean",
                         "description": "For `snapshot`: capture a JPEG, store it under ~/.hope-agent/mac-control/snapshots/, and emit a Mac Control mirror frame. Requires Screen Recording permission."
                     },
+                    "includeSnapshot": {
+                        "type": "boolean",
+                        "description": "For mutating `act` operations: include a full post-action AX snapshot in the result. Defaults to false to keep action results compact. `act.dry_run` stays compact; use `snapshot` or `elements.find` for full tree context."
+                    },
                     "screenshotTarget": {
                         "type": "string",
                         "enum": ["display", "window"],
