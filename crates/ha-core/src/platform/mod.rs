@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+pub(crate) mod system_permissions;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -88,6 +89,25 @@ pub async fn current_location() -> Option<(f64, f64)> {
 /// platform-specific well-known locations.
 pub fn pdfium_library_candidates() -> &'static [&'static str] {
     imp::pdfium_library_candidates()
+}
+
+/// Platform-specific implementation backing the v2 system permission catalog.
+pub(crate) fn system_permissions_platform_name() -> &'static str {
+    system_permissions::platform_name()
+}
+
+pub(crate) fn system_permissions_supported() -> bool {
+    system_permissions::supported()
+}
+
+pub(crate) fn check_system_permission_item(id: &str) -> crate::permissions::SystemPermissionStatus {
+    system_permissions::check_item(id)
+}
+
+pub(crate) fn request_system_permission_item(
+    def: crate::permissions::PermissionDef,
+) -> crate::permissions::SystemPermissionStatus {
+    system_permissions::request_item(def)
 }
 
 /// Build a `std::process::Command` that runs `cmdline` through the
