@@ -49,17 +49,6 @@
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
-### F-060 IM channel 配置 / 错误信息 / 安全细节（跨 channel）
-
-- **来源**：2026-05-05 IM channel 全量审计
-- **现象**：还剩一类需要单独设计/查证的交互细节：
-  - **Feishu**：`card.action.trigger` ack 目前只回 `{"code": ...}`，如要同步更新卡片，需要按飞书/Lark card action response schema 补 `card` / `toast` payload；具体更新内容还需要产品决策
-- **2026-05-20 已处理**：approval / ask_user interactive callback 已增加来源账号/chat/thread 校验；按钮点击会用 `request_id -> session -> channel_conversations` 反查目标会话，来源不一致则拒绝提交，覆盖 LINE postback 以及 Telegram / Discord / Slack / Feishu / QQ Bot / Google Chat 的按钮回调
-- **为什么留**：Feishu card ack 需要先确定点击后卡片展示策略
-- **改的话要做什么**：按官方 card action response schema 设计同步更新 payload
-- **影响面**：Feishu card ack 是点击后的交互体验问题
-- **触发时机建议**：下一次动到对应 channel 文件时顺手收
-
 ### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
 
 - **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）
