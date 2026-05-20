@@ -882,6 +882,8 @@ pub struct MacControlDialogRequest {
     pub target: MacControlTargetQuery,
     #[serde(default)]
     pub button_text: Option<String>,
+    #[serde(default)]
+    pub include_snapshot: bool,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
     #[serde(default = "default_snapshot_max_depth")]
@@ -920,6 +922,8 @@ pub struct MacControlWaitRequest {
     pub op: MacControlWaitOp,
     #[serde(default)]
     pub target: MacControlTargetQuery,
+    #[serde(default)]
+    pub include_snapshot: bool,
     #[serde(default = "default_wait_timeout_ms")]
     pub timeout_ms: u64,
     #[serde(default = "default_wait_poll_ms")]
@@ -1249,12 +1253,14 @@ pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
                         attempts,
                         target,
                         matches,
-                        snapshot: Some(snapshot),
+                        snapshot: request.include_snapshot.then_some(snapshot),
                         error: None,
                     };
                 }
                 last_matches = matches;
-                last_snapshot = Some(snapshot);
+                if request.include_snapshot {
+                    last_snapshot = Some(snapshot);
+                }
             }
             Err(error) => {
                 record_error("wait.snapshot", &error);
@@ -2640,6 +2646,14 @@ mod tests {
         assert_eq!(request.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(request.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
         assert_eq!(request.op, MacControlWaitOp::Present);
+        assert!(!request.include_snapshot);
+        let wait_with_snapshot: MacControlWaitRequest = serde_json::from_value(serde_json::json!({
+            "op": "present",
+            "includeSnapshot": true,
+            "target": { "text": "Ready" }
+        }))
+        .expect("wait includeSnapshot request");
+        assert!(wait_with_snapshot.include_snapshot);
     }
 
     #[test]
@@ -2942,12 +2956,14 @@ mod tests {
         let dialog = MacControlDialogRequest {
             op: MacControlDialogOp::Accept,
             button_text: Some(" OK ".to_string()),
+            include_snapshot: true,
             max_elements: 10_000,
             max_depth: 100,
             ..Default::default()
         }
         .clamped();
         assert_eq!(dialog.button_text.as_deref(), Some("OK"));
+        assert!(dialog.include_snapshot);
         assert_eq!(dialog.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(dialog.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
 

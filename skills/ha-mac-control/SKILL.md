@@ -78,7 +78,7 @@ wait or snapshot                       # verify the expected change
 - Use `act.click_point` only when the user explicitly wants a coordinate click or AX cannot represent the target. This includes valid coordinates like `(0, 0)`.
 - `act.type` and `act.set_value` should target text input roles (`AXTextArea`, `AXTextField`, `AXSearchField`, etc.).
 - Use `act.paste` for long text or apps that do not accept `AXValue` reliably. It stages text on the pasteboard, invokes paste, and reports only clipboard restore status.
-- Mutating `act` operations are compact by default and do not return a full post-action snapshot. Set `includeSnapshot=true` only when full AX tree debugging is needed; otherwise verify with `wait`, `elements.find`, `windows.list`, or `dialog.inspect`.
+- `act`, `wait`, and `dialog` results are compact by default and do not return a full AX snapshot. Set `includeSnapshot=true` only when full AX tree debugging is needed; otherwise verify with `wait`, `elements.find`, `windows.list`, or `dialog.inspect`.
 - Do not type passwords, OTPs, or private credentials unless the user explicitly supplied them in the current flow.
 
 ### Menus

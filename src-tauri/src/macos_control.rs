@@ -1203,7 +1203,7 @@ mod imp {
             op: request.op,
             dialogs,
             acted_button,
-            snapshot: Some(snapshot),
+            snapshot: request.include_snapshot.then_some(snapshot),
             execution,
         })
     }

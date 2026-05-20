@@ -841,7 +841,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "includeSnapshot": {
                         "type": "boolean",
-                        "description": "For mutating `act` operations: include a full post-action AX snapshot in the result. Defaults to false to keep action results compact. `act.dry_run` stays compact; use `snapshot` or `elements.find` for full tree context."
+                        "description": "For `act`, `wait`, or `dialog`: include the full AX snapshot used for the operation in the result. Defaults to false to keep results compact. `act.dry_run` stays compact; use `snapshot` or `elements.find` for full tree context."
                     },
                     "screenshotTarget": {
                         "type": "string",
@@ -878,7 +878,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "target": {
                         "type": "object",
-                        "description": "Target query for `wait`, `windows`, and `act`. App/window filters combine with element filters when provided.",
+                        "description": "Target query for `wait`, `windows`, `act`, and `dialog`. App/window filters combine with element filters when provided.",
                         "properties": {
                             "appName": {
                                 "type": "string",

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS Control 目标消歧**：`mac_control.act` 在 AX 元素候选最高分并列时不再默认操作第一个匹配项，而是返回带候选提示的歧义错误，要求模型用 `elementId`、窗口标题、role 或更具体文本重试，降低点错相似按钮/输入框的风险。
 - **macOS Control 元素检索**：`mac_control.elements.find` 新增只读 AX 元素检索，按 target 过滤并返回排序候选、score、reasons 和所在窗口，方便模型在点击/输入前先确认 `elementId`。
 - **macOS Control 动作预解析**：`mac_control.act.dry_run` 新增只读目标解析，可在点击、设置值或拖拽前验证将命中的 AX 元素和歧义状态，不产生 UI 副作用。
-- **macOS Control 动作结果收敛**：`mac_control.act` 突变操作默认不再返回完整后置 AX snapshot，只返回 `target` 与 `execution`；调试或确需完整树时可显式传 `includeSnapshot=true`。
+- **macOS Control 结果收敛**：`mac_control.act`、`wait`、`dialog` 默认不再返回完整 AX snapshot，只返回目标、命中或对话框摘要；调试或确需完整树时可显式传 `includeSnapshot=true`。
 
 ## [0.3.0] - 2026-05-19
 
