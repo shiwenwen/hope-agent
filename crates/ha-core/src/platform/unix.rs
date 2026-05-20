@@ -23,6 +23,21 @@ pub(super) fn detect_system_proxy() -> Option<String> {
     CACHED.get_or_init(probe_system_proxy).clone()
 }
 
+#[cfg(target_os = "macos")]
+pub(super) async fn current_location() -> Option<(f64, f64)> {
+    crate::weather_location_macos::system_locate().await
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(super) async fn current_location() -> Option<(f64, f64)> {
+    crate::app_info!(
+        "platform",
+        "current_location",
+        "OS precise location unavailable on this Unix platform"
+    );
+    None
+}
+
 fn probe_system_proxy() -> Option<String> {
     env_proxy_url()
         .or_else(detect_macos_system_proxy)

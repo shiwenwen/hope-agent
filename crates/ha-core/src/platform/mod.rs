@@ -74,6 +74,14 @@ pub fn detect_system_proxy() -> Option<String> {
     imp::detect_system_proxy()
 }
 
+/// Try to obtain a precise OS-backed location for weather.
+///
+/// macOS: uses CoreLocation. Other platforms currently return `None`, so
+/// callers can fall back to IP geolocation without carrying `#[cfg]` branches.
+pub async fn current_location() -> Option<(f64, f64)> {
+    imp::current_location().await
+}
+
 /// Build a `std::process::Command` that runs `cmdline` through the
 /// platform default shell.
 ///

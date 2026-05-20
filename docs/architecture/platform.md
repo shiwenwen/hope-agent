@@ -18,6 +18,7 @@
 | `terminate_process_tree(pid: u32)` | `libc::kill(-(pid as i32), SIGKILL)` 杀整个进程组（要求 child spawn 时在 `pre_exec` 里 `setpgid(0,0)`） | `taskkill /F /T /PID <pid>` 走 job tree，`CREATE_NO_WINDOW` 不弹控制台 |
 | `send_graceful_stop(pid: u32)` | `libc::kill(pid, SIGTERM)` —— 注意是 pid 不是 -pid，**不**杀整个组 | `taskkill /PID <pid>`（无 `/F`，发 WM_CLOSE / CTRL_BREAK），`CREATE_NO_WINDOW` |
 | `detect_system_proxy() -> Option<String>` | `OnceLock` 进程级缓存；优先 env vars（`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` 大小写），macOS 读 `scutil --proxy`，Linux / BSD 再试 GNOME `gsettings` 与 KDE `kreadconfig6` / `kreadconfig5` | 读 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`，`OnceLock` 进程级缓存避免每次构建 client 都重读注册表；解析 `ProxyEnable` + `ProxyServer`，支持 `http=...;https=...` 协议列表（优先 https） |
+| `current_location() -> Option<(f64, f64)>` | macOS 走 CoreLocation；其他 Unix 返回 `None`，业务层继续 IP 定位降级 | 返回 `None`，业务层继续 IP 定位降级 |
 | `default_shell_command(cmdline) -> std::process::Command` | `Command::new("sh").arg("-c").arg(cmdline)` | `Command::new("cmd").raw_arg("/C").raw_arg(cmdline)` —— `raw_arg` 跳过 std 自动加引号，保留 `/C` 后续整段命令的原始语义 |
 | `default_shell_command_tokio(cmdline)` | 同上 std 版，返回 `tokio::process::Command` | 同上 std 版，返回 `tokio::process::Command` |
 | `os_version_string() -> String` | macOS 优先 `sw_vers -productVersion` → `"macOS 14.2.1"` 形态；其他 Unix 走 `sysinfo::System::long_os_version()` 兜底；都失败时 `"unknown"` | `sysinfo::long_os_version()` + `kernel_version()` 拼成 `"Windows 11 (26100)"` 形态；都缺失时 `"Windows (unknown build)"` |
@@ -64,6 +65,7 @@
 | `terminate_process_tree` | [`tools/process.rs`](../../crates/ha-core/src/tools/process.rs) 强杀工具子进程 |
 | `send_graceful_stop` | [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) IM 渠道进程优雅退出；[`acp_control/runtime_stdio.rs`](../../crates/ha-core/src/acp_control/runtime_stdio.rs) ACP runtime 关闭；[`service_install.rs`](../../crates/ha-core/src/service_install.rs) 系统服务卸载 |
 | `detect_system_proxy` | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs) LLM 出站代理；[`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs) Docker 容器代理注入 |
+| `current_location` | [`weather.rs`](../../crates/ha-core/src/weather.rs) 天气自动定位：系统精确定位失败后降级 IP 定位 |
 | `default_shell_command_tokio` | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) 工具 shell 命令执行 |
 | `os_version_string` | [`agent/errors.rs`](../../crates/ha-core/src/agent/errors.rs) 错误报告 / 诊断；`self_diagnosis` 日志 |
 | `write_secure_file` | [`mcp/credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) MCP OAuth token 凭据 0600 原子落盘（**当前唯一调用方**）。注意：主 LLM OAuth `oauth.rs::save_token()` 当前直接用 `std::fs::write` 写 `~/.hope-agent/credentials/auth.json`，**未走** `write_secure_file`——见下文「已知缺口」 |
@@ -81,6 +83,6 @@
 
 | 文件 | 职责 |
 |---|---|
-| [`crates/ha-core/src/platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | 门面：10 个 `pub fn` 入口 + 跨平台 doc 注释，编译期按 `#[cfg(unix)]` / `#[cfg(windows)]` route 到对应 impl |
+| [`crates/ha-core/src/platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | 门面：11 个 `pub fn` 入口 + 跨平台 doc 注释，编译期按 `#[cfg(unix)]` / `#[cfg(windows)]` route 到对应 impl |
 | [`crates/ha-core/src/platform/unix.rs`](../../crates/ha-core/src/platform/unix.rs) | Unix 实现：`libc::kill` / `sh -c` / `OpenOptions::mode(0o600)` / `sw_vers` 兜底 / `chromiumoxide` 走自己的 which |
 | [`crates/ha-core/src/platform/windows.rs`](../../crates/ha-core/src/platform/windows.rs) | Windows 实现：`taskkill /F /T` / `cmd /C raw_arg` / NTFS DACL 继承 / winreg 读 Internet Settings + `OnceLock` 缓存 / `%ProgramFiles%` 三路扫 Chrome |
