@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::Value;
 
+use crate::channel::rate_limit::with_rate_limit_retry;
+
 /// LINE Messaging API client.
 pub struct LineApi {
     client: Client,
@@ -95,14 +97,21 @@ impl LineApi {
             "messages": messages,
         });
 
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.channel_access_token)
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send POST /v2/bot/message/push")?;
+        let retry_key = line_retry_key();
+        let resp = with_rate_limit_retry(3, || {
+            let req = self
+                .client
+                .post(&url)
+                .bearer_auth(&self.channel_access_token)
+                .header("X-Line-Retry-Key", &retry_key)
+                .json(&body);
+            async move {
+                req.send()
+                    .await
+                    .context("Failed to send POST /v2/bot/message/push")
+            }
+        })
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -200,5 +209,21 @@ impl LineApi {
         crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes)
             .await
             .context("LINE content download")
+    }
+}
+
+fn line_retry_key() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_retry_key_is_uuid() {
+        let key = line_retry_key();
+        let parsed = uuid::Uuid::parse_str(&key).unwrap();
+        assert_eq!(parsed.to_string(), key);
     }
 }

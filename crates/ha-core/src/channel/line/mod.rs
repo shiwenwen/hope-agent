@@ -4,7 +4,7 @@
 //! - **SDK / Reference**: <https://github.com/line/line-bot-sdk-go>
 //! - **Protocol**: HTTPS Webhook（HMAC-SHA256 签名）+ REST Reply/Push API；
 //!   replyToken 一次性，~30s/1min 有效
-//! - **Last reviewed**: 2026-05-05
+//! - **Last reviewed**: 2026-05-20
 
 pub mod api;
 pub mod format;

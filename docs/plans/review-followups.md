@@ -54,11 +54,11 @@
 - **来源**：2026-05-05 IM channel 全量审计
 - **现象**：本批用 [`channel/rate_limit.rs`](../../crates/ha-core/src/channel/rate_limit.rs) 接了 Discord/Slack 429 + Retry-After；剩余：
   - **Telegram** teloxide `Throttle` adaptor 包装 `Bot`（自动尊重 FloodWait `RetryAfter` 错误），需要在 [`Cargo.toml`](../../crates/ha-core/Cargo.toml) telmit feature 加 `throttle`，且持有 Bot 类型从 `Bot` 改 `Throttle<Bot>`，diff 较大
-  - **LINE** push API `X-Line-Retry-Key` UUID4 幂等头（避免网络重试重复扣费）+ 429 处理
   - **Feishu** `auth.rs` 并发首次取 token 加 `OnceCell` singleflight 锁
   - **WhatsApp** 连续失败 ≥3 后 `consecutive_failures` 清零，无最终告警；接 [`channel/start_watchdog.rs`](../../crates/ha-core/src/channel/start_watchdog.rs) 同款指数退避
+- **2026-05-20 已处理**：LINE push API 发送时生成 UUID4 `X-Line-Retry-Key`，同一次 429 重试复用同一个 retry key，并接入 `with_rate_limit_retry` 尊重 `Retry-After`
 - **为什么留**：边界并发 / 长期失败场景才暴露；teloxide Throttle 改动面较大需独立验证
-- **改的话要做什么**：Telegram 切 Throttle；LINE push 生成 UUID4 复用；Feishu auth 用 `tokio::sync::OnceCell` 单飞；WhatsApp 改用 watchdog
+- **改的话要做什么**：Telegram 切 Throttle；Feishu auth 用 `tokio::sync::OnceCell` 单飞；WhatsApp 改用 watchdog
 - **影响面**：偶发计费重复 / token 配额浪费 / 长期挂掉无告警
 - **触发时机建议**：用户报"消息重复" / "Feishu 503" / "Telegram FloodWait 螺旋" 时
 
