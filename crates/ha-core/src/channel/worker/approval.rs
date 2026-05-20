@@ -320,13 +320,14 @@ const DENY_ALIASES: &[&str] = &[
 
 // ── Shared callback handler (eliminates boilerplate in channel plugins) ──
 
-/// Spawn a background task to handle an approval callback and log the result.
-/// Used by channel plugins (Slack, Feishu, QQ Bot, LINE, Google Chat) that
-/// don't need platform-specific post-processing after the approval.
-pub fn spawn_callback_handler(data: &str, source: &'static str) {
+pub fn spawn_callback_handler_with_source(
+    data: &str,
+    source: &'static str,
+    callback_source: Option<super::ask_user::InteractiveCallbackSource>,
+) {
     let data = data.to_string();
     tokio::spawn(async move {
-        match handle_approval_callback(&data).await {
+        match handle_approval_callback_with_source(&data, callback_source, source).await {
             Ok(label) => app_info!("channel", source, "Approval: {}", label),
             Err(e) => app_warn!("channel", source, "Approval failed: {}", e),
         }
@@ -769,13 +770,11 @@ pub async fn maybe_send_pending_hint(
 
 // ── Callback approval handler (for button-based channels) ────────
 
-/// Parse an approval callback string and submit the response.
-///
-/// `callback_data` format: `approval:{request_id}:{action}`
-/// where action is one of: `allow_once`, `allow_always`, `deny`.
-///
-/// Returns `Ok(response_label)` on success for UI feedback, or `Err` on failure.
-pub async fn handle_approval_callback(callback_data: &str) -> anyhow::Result<&'static str> {
+pub async fn handle_approval_callback_with_source(
+    callback_data: &str,
+    callback_source: Option<super::ask_user::InteractiveCallbackSource>,
+    source: &'static str,
+) -> anyhow::Result<&'static str> {
     let rest = callback_data
         .strip_prefix(APPROVAL_PREFIX)
         .ok_or_else(|| anyhow::anyhow!("Not an approval callback"))?;
@@ -790,6 +789,17 @@ pub async fn handle_approval_callback(callback_data: &str) -> anyhow::Result<&'s
         "deny" => (ApprovalResponse::Deny, "❌ Denied"),
         _ => return Err(anyhow::anyhow!("Unknown approval action: {}", action)),
     };
+
+    if callback_source.is_some() {
+        let session_id = crate::tools::approval::pending_approval_session_id(request_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Pending approval {} has no session id", request_id))?;
+        super::ask_user::validate_callback_source_for_session(
+            &session_id,
+            callback_source.as_ref(),
+            source,
+        )?;
+    }
 
     submit_approval_response(request_id, response).await?;
     Ok(label)

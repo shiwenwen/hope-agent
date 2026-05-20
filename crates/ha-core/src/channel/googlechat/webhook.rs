@@ -180,9 +180,22 @@ pub fn create_webhook_handler(
                             )
                             .await;
                         } else {
+                            let chat_id = body
+                                .pointer("/space/name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let thread_id = body
+                                .pointer("/message/thread/name")
+                                .and_then(|v| v.as_str());
                             crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                                 action,
                                 "googlechat",
+                                Some(crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                                    ChannelId::GoogleChat,
+                                    &account_id,
+                                    chat_id,
+                                    thread_id,
+                                )),
                             );
                         }
                     }

@@ -498,9 +498,29 @@ async fn handle_interactive_payload(
             )
             .await;
         } else {
+            let chat_id = payload
+                .pointer("/channel/id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let message_id = payload
+                .pointer("/message/ts")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let thread_id = payload
+                .pointer("/message/thread_ts")
+                .and_then(|v| v.as_str())
+                .filter(|tid| !tid.is_empty() && *tid != message_id);
             crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                 action_id,
                 "slack::socket",
+                Some(
+                    crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                        ChannelId::Slack,
+                        account_id,
+                        chat_id,
+                        thread_id,
+                    ),
+                ),
             );
         }
     }

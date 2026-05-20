@@ -197,18 +197,18 @@ pub fn create_webhook_handler(
                         if let Some(postback_data) =
                             event.pointer("/postback/data").and_then(|v| v.as_str())
                         {
+                            let source = event.get("source").cloned().unwrap_or_default();
+                            let source_type = source
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("user");
+                            let user_id = source
+                                .get("userId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let chat_id = chat_id_from_source(&source, source_type, &user_id);
                             if let Some(rest) = postback_data.strip_prefix("slash:") {
-                                let source = event.get("source").cloned().unwrap_or_default();
-                                let source_type = source
-                                    .get("type")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("user");
-                                let user_id = source
-                                    .get("userId")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let chat_id = chat_id_from_source(&source, source_type, &user_id);
                                 // postback 无 message_id，按 timestamp 合成一个稳定串
                                 let ts = event
                                     .get("timestamp")
@@ -232,6 +232,12 @@ pub fn create_webhook_handler(
                                 crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                                     postback_data,
                                     "line",
+                                    Some(crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                                        ChannelId::Line,
+                                        &account_id,
+                                        &chat_id,
+                                        None,
+                                    )),
                                 );
                             }
                         }

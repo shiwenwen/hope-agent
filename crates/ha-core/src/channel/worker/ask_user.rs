@@ -13,10 +13,83 @@ use tokio::sync::Mutex;
 use crate::ask_user::{self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup};
 use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
-use crate::channel::types::{InlineButton, ReplyPayload};
+use crate::channel::types::{ChannelId, InlineButton, ReplyPayload};
 
 /// Callback data prefix for ask_user buttons across all channels.
 pub(crate) const ASK_USER_PREFIX: &str = "ask_user:";
+
+#[derive(Debug, Clone)]
+pub struct InteractiveCallbackSource {
+    pub channel_id: ChannelId,
+    pub account_id: String,
+    pub chat_id: String,
+    pub thread_id: Option<String>,
+}
+
+impl InteractiveCallbackSource {
+    pub fn new(
+        channel_id: ChannelId,
+        account_id: impl Into<String>,
+        chat_id: impl Into<String>,
+        thread_id: Option<&str>,
+    ) -> Self {
+        Self {
+            channel_id,
+            account_id: account_id.into(),
+            chat_id: chat_id.into(),
+            thread_id: thread_id
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+        }
+    }
+}
+
+fn normalized_thread(thread_id: Option<&str>) -> Option<&str> {
+    thread_id.map(str::trim).filter(|s| !s.is_empty())
+}
+
+pub fn validate_callback_source_for_session(
+    session_id: &str,
+    callback_source: Option<&InteractiveCallbackSource>,
+    source: &'static str,
+) -> anyhow::Result<()> {
+    let Some(callback_source) = callback_source else {
+        return Ok(());
+    };
+    let channel_db = crate::globals::get_channel_db()
+        .ok_or_else(|| anyhow::anyhow!("ChannelDB not initialized for IM callback validation"))?;
+    let Some(conversation) = channel_db.get_conversation_by_session(session_id)? else {
+        return Err(anyhow::anyhow!(
+            "No channel conversation attached to session {}",
+            session_id
+        ));
+    };
+
+    let expected_channel_id = callback_source.channel_id.to_string();
+    let expected_thread = normalized_thread(conversation.thread_id.as_deref());
+    let source_thread = normalized_thread(callback_source.thread_id.as_deref());
+    if conversation.channel_id != expected_channel_id
+        || conversation.account_id != callback_source.account_id
+        || conversation.chat_id != callback_source.chat_id
+        || expected_thread != source_thread
+    {
+        return Err(anyhow::anyhow!(
+            "Interactive callback source mismatch from {}: expected {}:{}:{}:{:?}, got {}:{}:{}:{:?}",
+            source,
+            conversation.channel_id,
+            conversation.account_id,
+            conversation.chat_id,
+            expected_thread,
+            expected_channel_id,
+            callback_source.account_id,
+            callback_source.chat_id,
+            source_thread,
+        ));
+    }
+
+    Ok(())
+}
 
 // ── Pending state for in-progress IM answers ─────────────────────
 
@@ -532,7 +605,11 @@ pub fn is_ask_user_callback(data: &str) -> bool {
 /// callback and update pending state / submit when complete.
 ///
 /// Returns a short human-readable label for UI feedback.
-pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'static str> {
+pub async fn handle_ask_user_callback_with_source(
+    callback_data: &str,
+    callback_source: Option<InteractiveCallbackSource>,
+    source: &'static str,
+) -> anyhow::Result<&'static str> {
     let rest = callback_data
         .strip_prefix(ASK_USER_PREFIX)
         .ok_or_else(|| anyhow::anyhow!("Not an ask_user callback"))?;
@@ -545,6 +622,16 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
     let action = parts
         .next()
         .ok_or_else(|| anyhow::anyhow!("Missing action"))?;
+
+    if callback_source.is_some() {
+        let session_id = {
+            let map = get_button_pending().lock().await;
+            map.get(&request_id)
+                .map(|pending| pending.group.session_id.clone())
+                .ok_or_else(|| anyhow::anyhow!("No pending ask_user with id {}", request_id))?
+        };
+        validate_callback_source_for_session(&session_id, callback_source.as_ref(), source)?;
+    }
 
     // Defense-in-depth: if the group's timeout has elapsed but the tool-side
     // cleanup hasn't run yet, drop the stale pending entry and surface a clear
@@ -634,11 +721,14 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
     }
 }
 
-/// Spawn a background task to handle an ask_user callback and log the result.
-pub fn spawn_callback_handler(data: &str, source: &'static str) {
+pub fn spawn_callback_handler_with_source(
+    data: &str,
+    source: &'static str,
+    callback_source: Option<InteractiveCallbackSource>,
+) {
     let data = data.to_string();
     tokio::spawn(async move {
-        match handle_ask_user_callback(&data).await {
+        match handle_ask_user_callback_with_source(&data, callback_source, source).await {
             Ok(label) => app_info!("channel", source, "ask_user: {}", label),
             Err(e) => app_warn!("channel", source, "ask_user callback failed: {}", e),
         }
@@ -650,13 +740,17 @@ pub fn spawn_callback_handler(data: &str, source: &'static str) {
 /// Detects whether a callback string belongs to an approval or ask_user flow
 /// and spawns the corresponding handler. Returns `true` if the callback was
 /// consumed (the plugin should not treat it as a regular message).
-pub fn try_dispatch_interactive_callback(data: &str, source: &'static str) -> bool {
+pub fn try_dispatch_interactive_callback(
+    data: &str,
+    source: &'static str,
+    callback_source: Option<InteractiveCallbackSource>,
+) -> bool {
     if super::approval::is_approval_callback(data) {
-        super::approval::spawn_callback_handler(data, source);
+        super::approval::spawn_callback_handler_with_source(data, source, callback_source);
         return true;
     }
     if is_ask_user_callback(data) {
-        spawn_callback_handler(data, source);
+        spawn_callback_handler_with_source(data, source, callback_source);
         return true;
     }
     false

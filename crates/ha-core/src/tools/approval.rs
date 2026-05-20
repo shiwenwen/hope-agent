@@ -150,6 +150,19 @@ pub async fn pending_approvals_per_session() -> HashMap<String, i64> {
     out
 }
 
+/// Return the originating session id for a pending approval request.
+///
+/// Used by IM button callbacks to verify that the click came from the same
+/// channel conversation that received the approval prompt before submitting
+/// the tool response.
+pub async fn pending_approval_session_id(request_id: &str) -> Result<Option<String>> {
+    let pending = get_pending_approvals().lock().await;
+    pending
+        .get(request_id)
+        .map(|entry| entry.session_id.clone())
+        .ok_or_else(|| anyhow::anyhow!("No pending approval request: {}", request_id))
+}
+
 /// Submit an approval response (called by Tauri command from frontend)
 pub async fn submit_approval_response(request_id: &str, response: ApprovalResponse) -> Result<()> {
     let mut pending = get_pending_approvals().lock().await;

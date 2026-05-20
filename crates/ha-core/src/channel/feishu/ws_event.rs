@@ -838,9 +838,18 @@ async fn handle_card_action(
     if let Some(rest) = value.strip_prefix("slash:") {
         inject_slash_callback(rest, event_data, account_id, inbound_tx).await;
     } else {
+        let chat_id = event_str_at(event_data, "/context/open_chat_id");
         crate::channel::worker::ask_user::try_dispatch_interactive_callback(
             value,
             "feishu:gateway",
+            Some(
+                crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                    ChannelId::Feishu,
+                    account_id,
+                    &chat_id,
+                    None,
+                ),
+            ),
         );
     }
 }

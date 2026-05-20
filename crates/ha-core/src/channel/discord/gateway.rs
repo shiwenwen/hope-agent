@@ -424,12 +424,30 @@ pub async fn run_gateway_loop(
                                             .and_then(|data| data.get("custom_id"))
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("");
+                                        let callback_source = {
+                                            let raw_channel_id =
+                                                d["channel_id"].as_str().unwrap_or("");
+                                            let has_guild = d
+                                                .get("guild_id")
+                                                .and_then(|v| v.as_str())
+                                                .is_some();
+                                            let cache = channel_cache.lock().await;
+                                            let (_, thread_id, chat_id) =
+                                                chat_type_from_channel(raw_channel_id, has_guild, &cache);
+                                            crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                                                ChannelId::Discord,
+                                                &account_id,
+                                                &chat_id,
+                                                thread_id.as_deref(),
+                                            )
+                                        };
 
                                         if crate::channel::worker::approval::is_approval_callback(custom_id) {
                                             let api_clone = api.clone();
                                             let interaction_id = d["id"].as_str().unwrap_or("").to_string();
                                             let interaction_token = d["token"].as_str().unwrap_or("").to_string();
                                             let custom_id_owned = custom_id.to_string();
+                                            let callback_source = callback_source.clone();
 
                                             tokio::spawn(async move {
                                                 handle_approval_component(
@@ -437,15 +455,17 @@ pub async fn run_gateway_loop(
                                                     &interaction_id,
                                                     &interaction_token,
                                                     &custom_id_owned,
+                                                    Some(callback_source),
                                                 ).await;
                                             });
                                         } else if crate::channel::worker::ask_user::is_ask_user_callback(custom_id) {
                                             // Dispatch ask_user callback (uses generic
                                             // spawn_callback_handler; Discord interaction
                                             // ack is best-effort via update_message below).
-                                            crate::channel::worker::ask_user::spawn_callback_handler(
+                                            crate::channel::worker::ask_user::spawn_callback_handler_with_source(
                                                 custom_id,
                                                 "discord::gateway",
+                                                Some(callback_source.clone()),
                                             );
                                             // Acknowledge the interaction (type 6 = DEFERRED_UPDATE_MESSAGE)
                                             // so Discord doesn't show "interaction failed".
@@ -454,7 +474,8 @@ pub async fn run_gateway_loop(
                                             // Ack first so the button doesn't render as failed.
                                             ack_component_interaction(api.clone(), &d);
                                             // Re-inject as synthetic inbound `/cmd arg`.
-                                            let chat_id = d["channel_id"].as_str().unwrap_or("").to_string();
+                                            let chat_id = callback_source.chat_id.clone();
+                                            let thread_id = callback_source.thread_id.clone();
                                             let sender_id = d
                                                 .get("member")
                                                 .and_then(|m| m.get("user"))
@@ -472,7 +493,7 @@ pub async fn run_gateway_loop(
                                                     ChannelId::Discord,
                                                     &account_id_clone,
                                                     &chat_id,
-                                                    None,
+                                                    thread_id.as_deref(),
                                                     &sender_id,
                                                     &message_id,
                                                     &rest_owned,
@@ -926,13 +947,19 @@ async fn handle_approval_component(
     interaction_id: &str,
     interaction_token: &str,
     custom_id: &str,
+    callback_source: Option<crate::channel::worker::ask_user::InteractiveCallbackSource>,
 ) {
     // Handle the approval
-    let result_text =
-        match crate::channel::worker::approval::handle_approval_callback(custom_id).await {
-            Ok(label) => label.to_string(),
-            Err(e) => format!("Error: {}", e),
-        };
+    let result_text = match crate::channel::worker::approval::handle_approval_callback_with_source(
+        custom_id,
+        callback_source,
+        "discord::gateway",
+    )
+    .await
+    {
+        Ok(label) => label.to_string(),
+        Err(e) => format!("Error: {}", e),
+    };
 
     // Respond with UPDATE_MESSAGE (type=7) to edit the original message
     // and remove the buttons

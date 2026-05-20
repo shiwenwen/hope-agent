@@ -52,12 +52,12 @@
 ### F-060 IM channel 配置 / 错误信息 / 安全细节（跨 channel）
 
 - **来源**：2026-05-05 IM channel 全量审计
-- **现象**：还剩两类需要单独设计/查证的安全与交互细节：
-  - **LINE / 跨 channel**：approval / ask_user interactive callback 目前只带 callback data，没有把点击来源 chat_id 与 worker pending map 里的目标 chat_id 比对；LINE postback / 群聊场景下存在跨 session 伪造审批的防御缺口
+- **现象**：还剩一类需要单独设计/查证的交互细节：
   - **Feishu**：`card.action.trigger` ack 目前只回 `{"code": ...}`，如要同步更新卡片，需要按飞书/Lark card action response schema 补 `card` / `toast` payload；具体更新内容还需要产品决策
-- **为什么留**：跨 channel callback 需要改 pending 状态结构和所有按钮渠道调用点；Feishu card ack 需要先确定点击后卡片展示策略
-- **改的话要做什么**：callback 侧给 `try_dispatch_interactive_callback` 增加来源账号/chat/thread 信息，并在 approval / ask_user button pending map 中登记原目标后校验；Feishu 侧按官方 card action response schema 设计同步更新 payload
-- **影响面**：LINE / 群聊 interactive callback 是潜在安全问题；Feishu card ack 是点击后的交互体验问题
+- **2026-05-20 已处理**：approval / ask_user interactive callback 已增加来源账号/chat/thread 校验；按钮点击会用 `request_id -> session -> channel_conversations` 反查目标会话，来源不一致则拒绝提交，覆盖 LINE postback 以及 Telegram / Discord / Slack / Feishu / QQ Bot / Google Chat 的按钮回调
+- **为什么留**：Feishu card ack 需要先确定点击后卡片展示策略
+- **改的话要做什么**：按官方 card action response schema 设计同步更新 payload
+- **影响面**：Feishu card ack 是点击后的交互体验问题
 - **触发时机建议**：下一次动到对应 channel 文件时顺手收
 
 ### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视

@@ -653,30 +653,32 @@ async fn handle_gateway_message(
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
 
+                        // chat_id 拼法必须与 convert_*_message 完全一致
+                        // (c2c:{openid} / group:{openid} / channel:{id})
+                        // 否则 channel_db.get_chat_type / callback source
+                        // validation 命中不到先前 inbound 写的行。
+                        let chat_type_field =
+                            d.get("chat_type").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let chat_id = match chat_type_field {
+                            1 => d
+                                .pointer("/data/resolved/user_openid")
+                                .or_else(|| d.get("user_openid"))
+                                .and_then(|v| v.as_str())
+                                .map(|u| format!("c2c:{}", u))
+                                .unwrap_or_default(),
+                            2 => d
+                                .get("group_openid")
+                                .and_then(|v| v.as_str())
+                                .map(|g| format!("group:{}", g))
+                                .unwrap_or_default(),
+                            _ => d
+                                .get("channel_id")
+                                .and_then(|v| v.as_str())
+                                .map(|c| format!("channel:{}", c))
+                                .unwrap_or_default(),
+                        };
+
                         if let Some(rest) = button_data.strip_prefix("slash:") {
-                            // chat_id 拼法必须与 convert_*_message 完全一致
-                            // (c2c:{openid} / group:{openid} / channel:{id})
-                            // 否则 channel_db.get_chat_type 命中不到先前 inbound 写的行
-                            let chat_type_field =
-                                d.get("chat_type").and_then(|v| v.as_u64()).unwrap_or(0);
-                            let chat_id = match chat_type_field {
-                                1 => d
-                                    .pointer("/data/resolved/user_openid")
-                                    .or_else(|| d.get("user_openid"))
-                                    .and_then(|v| v.as_str())
-                                    .map(|u| format!("c2c:{}", u))
-                                    .unwrap_or_default(),
-                                2 => d
-                                    .get("group_openid")
-                                    .and_then(|v| v.as_str())
-                                    .map(|g| format!("group:{}", g))
-                                    .unwrap_or_default(),
-                                _ => d
-                                    .get("channel_id")
-                                    .and_then(|v| v.as_str())
-                                    .map(|c| format!("channel:{}", c))
-                                    .unwrap_or_default(),
-                            };
                             let sender_id = d
                                 .pointer("/data/resolved/user_id")
                                 .or_else(|| d.pointer("/data/resolved/user_openid"))
@@ -705,6 +707,12 @@ async fn handle_gateway_message(
                             crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                                 button_data,
                                 "qqbot::gateway",
+                                Some(crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                                    ChannelId::QqBot,
+                                    account_id,
+                                    &chat_id,
+                                    None,
+                                )),
                             );
                         }
                     }
