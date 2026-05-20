@@ -49,15 +49,6 @@
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
-### F-075 WKWebView release 默认右键菜单含 "Reload" — 需要禁用 webview context menu
-
-- **来源**：2026-05-10 v0.1.0 release build 实测（fix/0.1-check-for-updates-menu 自测）
-- **现象**：release 桌面 app 右键 webview 主区域，弹出 macOS WKWebView 内置上下文菜单，里面有 "Reload" 等开发者风味选项；非编辑区域不该出现 reload。Tauri 这边没注册任何 reload 菜单（dev_reload_webview 在 `#[cfg(debug_assertions)]` gate 后），是 WKWebView 默认行为
-- **为什么留**：当前 PR 主题是 updater 菜单 + 错误诊断，禁用 context menu 是独立 UI 行为变更，影响所有页面（含输入框系统右键），需要做白名单逻辑（输入框保留 cut/copy/paste/Look up，非编辑区禁用），不在本期 scope
-- **改的话要做什么**：在前端入口（[`src/main.tsx`](../../src/main.tsx) 或 [`App.tsx`](../../src/App.tsx)）加全局 contextmenu listener，仅在 release（`import.meta.env.PROD`）+ Tauri 模式下 `e.preventDefault()`；按 `target` 是否 `HTMLInputElement / HTMLTextAreaElement / contenteditable` 决定是否保留默认菜单。或后端方案：用 webview2 / wkwebview API 全局禁 context menu（侵入性更大）
-- **影响面**：用户视角的"开发者风味泄露"，无功能问题；纯观感
-- **触发时机建议**：下次有人改前端入口 / 做 release UI polish 时
-
 ### F-076 plugin-process `relaunch()` 与 single-instance 锁的潜在 race
 
 - **来源**：2026-05-10 updater 菜单 / release 自测
