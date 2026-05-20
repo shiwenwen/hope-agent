@@ -49,19 +49,6 @@
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
 
-### F-059 IM channel 速率限制 / 幂等增强（跨 channel）
-
-- **来源**：2026-05-05 IM channel 全量审计
-- **现象**：本批用 [`channel/rate_limit.rs`](../../crates/ha-core/src/channel/rate_limit.rs) 接了 Discord/Slack 429 + Retry-After；剩余：
-  - **Telegram** teloxide `Throttle` adaptor 包装 `Bot`（自动尊重 FloodWait `RetryAfter` 错误），需要在 [`Cargo.toml`](../../crates/ha-core/Cargo.toml) telmit feature 加 `throttle`，且持有 Bot 类型从 `Bot` 改 `Throttle<Bot>`，diff 较大
-- **2026-05-20 已处理**：LINE push API 发送时生成 UUID4 `X-Line-Retry-Key`，同一次 429 重试复用同一个 retry key，并接入 `with_rate_limit_retry` 尊重 `Retry-After`
-- **2026-05-20 已确认**：Feishu `auth.rs` 已用 `RwLock + double-check` 在刷新路径形成 singleflight（并发首次取 token 只会有一个请求），补了并发测试覆盖；无需再换成 `OnceCell`
-- **2026-05-20 已处理**：WhatsApp polling 不再在连续 3 次失败后清零；前两次保留 2s 快速重试，第 3 次起复用 start watchdog 同款 30s/60s/120s/240s/5m 指数退避，并把持续失败升级为 `app_error!`、恢复时记录 recovered
-- **为什么留**：边界并发 / 长期失败场景才暴露；teloxide Throttle 改动面较大需独立验证
-- **改的话要做什么**：Telegram 切 Throttle
-- **影响面**：偶发计费重复 / token 配额浪费 / 长期挂掉无告警
-- **触发时机建议**：用户报"消息重复" / "Feishu 503" / "Telegram FloodWait 螺旋" 时
-
 ### F-060 IM channel 配置 / 错误信息 / 安全细节（跨 channel）
 
 - **来源**：2026-05-05 IM channel 全量审计

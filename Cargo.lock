@@ -8792,6 +8792,7 @@ dependencies = [
  "tokio-util",
  "url",
  "uuid",
+ "vecrem",
 ]
 
 [[package]]
@@ -9680,6 +9681,12 @@ checksum = "956ae1e0d85bca567dee1dcf87fb1ca2e792792f66f87dced8381f99cd91156a"
 dependencies = [
  "piston-float",
 ]
+
+[[package]]
+name = "vecrem"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4808a28789238714a29163e4cb8031f0f050dd670f7a0cc74b6d80f3ce343fa"
 
 [[package]]
 name = "version-compare"

@@ -1,15 +1,19 @@
 use crate::channel::types::InlineButton;
 use anyhow::Result;
 use std::time::Duration;
+use teloxide::adaptors::{throttle::Limits, Throttle};
 use teloxide::prelude::*;
+use teloxide::requests::RequesterExt;
 use teloxide::types::{
     BotCommand, CallbackQueryId, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup,
     InputFile, Me, MessageId, ParseMode as TgParseMode, ReplyParameters, ThreadId,
 };
 
+type ThrottledBot = Throttle<Bot>;
+
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
 pub struct TelegramBotApi {
-    bot: Bot,
+    bot: ThrottledBot,
     /// Stored proxy URL for raw HTTP requests (sendMessageDraft etc.)
     proxy_url: Option<String>,
     /// Shared `reqwest::Client` clone used for inbound media downloads.
@@ -61,6 +65,7 @@ impl TelegramBotApi {
                 ),
             }
         }
+        let bot = bot.throttle(Limits::default());
 
         Self {
             bot,
@@ -71,7 +76,7 @@ impl TelegramBotApi {
 
     /// Get the underlying teloxide Bot reference.
     pub fn bot(&self) -> &Bot {
-        &self.bot
+        self.bot.inner()
     }
 
     /// Verify the bot token and return bot info.
@@ -196,9 +201,9 @@ impl TelegramBotApi {
         parse_mode: Option<&str>,
         thread_id: Option<i32>,
     ) -> Result<()> {
-        let token = self.bot.token();
+        let token = self.bot.inner().token();
         // Use the bot's API URL base (respects custom apiRoot)
-        let api_url_owned = self.bot.api_url();
+        let api_url_owned = self.bot.inner().api_url();
         let api_url = api_url_owned.as_str().trim_end_matches('/');
         let url = format!("{}/bot{}/sendMessageDraft", api_url, token);
 
@@ -337,9 +342,9 @@ impl TelegramBotApi {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let api_url_owned = self.bot.api_url();
+        let api_url_owned = self.bot.inner().api_url();
         let api_url = api_url_owned.as_str().trim_end_matches('/');
-        let token = self.bot.token();
+        let token = self.bot.inner().token();
         let url = format!("{}/file/bot{}/{}", api_url, token, file.path);
         let builder = self.http_client.get(&url);
         crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
