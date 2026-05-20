@@ -187,7 +187,7 @@ readiness 计算规则：
 | `windows.resize` | `windowId` / `target.windowTitle` 之一，`width`，`height` | 调整窗口大小 |
 | `windows.minimize` | `windowId` / `target.windowTitle` 之一 | 最小化窗口 |
 | `windows.close` | `windowId` / `target.windowTitle` 之一 | 关闭窗口；高风险 |
-| `act.dry_run` | `target` | 只读解析 AX 元素目标；返回将被命中的元素和 snapshot，不执行操作 |
+| `act.dry_run` | `target` | 只读解析 AX 元素目标；返回将被命中的元素，不返回完整 snapshot，不执行操作 |
 | `act.click` | `target` | AX 元素点击；不消费裸 `x/y` |
 | `act.click_point` | `x`，`y`，且不能带 `target` | 裸坐标点击，允许 `(0, 0)` |
 | `act.double_click` | `target` | 对目标元素中心执行双击 |
@@ -276,7 +276,7 @@ readiness 计算规则：
 - 对多个相似目标，执行层必须返回歧义错误或选择唯一最高置信候选，不应静默随机选择。
 - AX 元素 mutation 会收集候选并按聚焦、可用、可执行、可见 bounds、精确文本等信号打分；若最高分并列且没有精确 `elementId`，直接拒绝执行，并提示模型用 fresh `snapshot` 后补充 `elementId`、`target.windowTitle`、`target.role` 或更具体的 `target.text`。
 - `elements.find` 使用同一套 AX snapshot 与元素匹配规则，只读返回 `totalMatches`、候选 `element`、所在 `window`、`score` 和 `reasons`。模型应先用它确认候选，再把选中的 `element.id` 传给 `act.*`。
-- `act.dry_run` 使用和 `act.click` / `act.set_value` 相同的目标解析、前台 App 校验、歧义拒绝和 stale 检查，但不触发 AX action、CGEvent、键盘、剪贴板或窗口变化。
+- `act.dry_run` 使用和 `act.click` / `act.set_value` 相同的目标解析、前台 App 校验、歧义拒绝和 stale 检查，但不触发 AX action、CGEvent、键盘、剪贴板或窗口变化；默认 `snapshot=null`，避免把完整 AX 树塞回上下文。
 - mutation 前会刷新 snapshot 并按 target 重新解析，降低 stale element 引用风险。
 - action target 必须符合当前前台 App 约束；跨 App 误点要被拒绝或要求先激活目标 App。
 
@@ -294,7 +294,7 @@ readiness 计算规则：
 
 坐标动作规则：
 
-- `act.dry_run` 用于 mutation 前确认目标元素；它只读返回解析结果，不产生 UI 副作用。
+- `act.dry_run` 用于 mutation 前确认目标元素；它只读返回解析结果，不附带完整 snapshot，不产生 UI 副作用。
 - `act.click` 只能点击 AX target，不读取 `x/y`。
 - 裸坐标点击必须使用 `act.click_point`。
 - `act.drag` 的起点来自 AX target 中心，终点来自 `x/y`。

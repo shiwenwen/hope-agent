@@ -1001,13 +1001,17 @@ mod imp {
                 "CGEventDrag".to_string()
             }
         };
-        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
-            include_screenshot: false,
-            max_elements: request.max_elements,
-            max_depth: request.max_depth,
-            ..Default::default()
-        })
-        .ok();
+        let snapshot = if request.op == MacControlActOp::DryRun {
+            None
+        } else {
+            capture_ax_snapshot(MacControlSnapshotRequest {
+                include_screenshot: false,
+                max_elements: request.max_elements,
+                max_depth: request.max_depth,
+                ..Default::default()
+            })
+            .ok()
+        };
         Ok(MacControlActResult {
             op: request.op,
             execution,
