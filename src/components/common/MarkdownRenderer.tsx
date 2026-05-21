@@ -1,7 +1,6 @@
 import {
   useState,
   useEffect,
-  useLayoutEffect,
   useRef,
   useMemo,
   type AnchorHTMLAttributes,
@@ -40,6 +39,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
 import { findAutoLinkMatches } from "@/lib/autoLink"
+import { shouldRenderAsBareJson } from "./markdownJson"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -432,18 +432,27 @@ function autolinkRehypePlugin() {
 const CATCHUP_THRESHOLD = 60
 /** Max chars per frame when catching up, prevents jarring jumps */
 const MAX_STEP = 8
-const STREAMING_HEIGHT_GUARD_PX = 2
-
-function getStreamingContentHeight(el: HTMLElement): number {
-  return Math.ceil(el.getBoundingClientRect().height + STREAMING_HEIGHT_GUARD_PX)
-}
 
 interface MarkdownRendererProps {
   content: string
   isStreaming?: boolean
 }
 
-export default function MarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
+function BareJsonRenderer({ content, isStreaming }: MarkdownRendererProps) {
+  return (
+    <div className="markdown-content markdown-json-content">
+      <pre
+        data-hope-bare-json
+        data-streaming={isStreaming || undefined}
+        className="hope-bare-json-block"
+      >
+        <code>{content}</code>
+      </pre>
+    </div>
+  )
+}
+
+function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
   const plugins = useHeavyPlugins(content)
 
   // 外部接管 Streamdown 的 animate plugin 生命周期。Streamdown 自带的
@@ -474,10 +483,6 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
   const targetRef = useRef(content.length)
   const streamingRef = useRef(isStreaming)
   const rafRef = useRef<number | null>(null)
-
-  // Height animation refs
-  const containerRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
 
   // eslint-disable-next-line react-hooks/refs -- intentional "latest value" refs read only in rAF callback
   targetRef.current = content.length
@@ -528,32 +533,6 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
     rafRef.current = requestAnimationFrame(tick)
   }, [isStreaming])
 
-  // Smooth height transition: mount ResizeObserver once when streaming starts,
-  // let it detect height changes on its own to avoid breaking CSS transitions
-  useLayoutEffect(() => {
-    const container = containerRef.current
-    const contentEl = contentRef.current
-    if (!container || !contentEl || !isStreaming) {
-      if (containerRef.current) containerRef.current.style.height = ""
-      return
-    }
-
-    container.style.height = `${getStreamingContentHeight(contentEl)}px`
-
-    const observer = new ResizeObserver(() => {
-      const h = getStreamingContentHeight(contentEl)
-      if (container.style.height !== `${h}px`) {
-        container.style.height = `${h}px`
-      }
-    })
-    observer.observe(contentEl)
-
-    return () => {
-      observer.disconnect()
-      container.style.height = ""
-    }
-  }, [isStreaming])
-
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) {
@@ -578,11 +557,8 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
     : [...defaultRehypePluginList, autolinkRehypePlugin]
 
   return (
-    <div
-      ref={containerRef}
-      className={isActive ? "streaming-height markdown-content" : "markdown-content"}
-    >
-      <div ref={contentRef}>
+    <div className="markdown-content">
+      <div>
         <Streamdown
           animated={false}
           plugins={plugins}
@@ -597,4 +573,11 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
       </div>
     </div>
   )
+}
+
+export default function MarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
+  if (shouldRenderAsBareJson(content)) {
+    return <BareJsonRenderer content={content} isStreaming={isStreaming} />
+  }
+  return <StreamdownMarkdownRenderer content={content} isStreaming={isStreaming} />
 }

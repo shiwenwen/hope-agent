@@ -153,7 +153,7 @@
   }
 }
 
-/* Smooth streaming bubble growth — height + padding transitions.
+/* Streaming bubble floor.
  * `min-width` / `min-height` lock the bubble to a one-line-of-text floor
  * so the dots → first-token transition doesn't shrink the box during the
  * brief frames where Streamdown's `blurIn` keyframe holds the first char
@@ -168,12 +168,6 @@
   transition: padding 0.15s ease-out;
   min-width: 4rem;
   min-height: 4.0625rem;
-}
-
-/* Streaming content height transition — new lines slide in smoothly */
-.streaming-height {
-  overflow: hidden;
-  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Anti-flicker: Streamdown sets --sd-duration:0ms on already-visible chars,
@@ -581,6 +575,32 @@
 .plain-text-content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.markdown-json-content {
+  width: 100%;
+}
+
+.hope-bare-json-block {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-muted) 42%, transparent);
+  padding: 0.625rem 0.75rem;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.hope-bare-json-block code {
+  white-space: inherit;
 }
 
 .message-markdown-content .markdown-content > div > div > :first-child,
