@@ -465,6 +465,7 @@ fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
         ("act", Some("double_click")) => "act.double_click",
         ("act", Some("right_click")) => "act.right_click",
         ("act", Some("type")) => "act.type",
+        ("act", Some("paste")) => "act.paste",
         ("act", Some("set_value")) => "act.set_value",
         ("act", Some("hotkey")) => "act.hotkey",
         ("act", Some("scroll")) => "act.scroll",
@@ -472,6 +473,10 @@ fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
         ("act", None) => "act.click",
         ("dialog", Some("dismiss")) => "dialog.dismiss",
         ("menu", Some("click")) => "menu.click",
+        ("clipboard", Some("get")) => "clipboard.get",
+        ("clipboard", Some("set")) => "clipboard.set",
+        ("clipboard", Some("clear")) => "clipboard.clear",
+        ("clipboard", None) => "clipboard.get",
         _ => return None,
     };
     Some(AskReason::MacControlAction {
@@ -806,9 +811,13 @@ mod tests {
             json!({"action": "act", "op": "click_point", "x": 0, "y": 0}),
             json!({"action": "act", "op": "double_click", "target": {"text": "Open"}}),
             json!({"action": "act", "op": "right_click", "target": {"text": "Open"}}),
+            json!({"action": "act", "op": "paste", "text": "hello"}),
             json!({"action": "act", "op": "drag", "target": {"text": "Open"}, "x": 200, "y": 200}),
             json!({"action": "dialog", "op": "dismiss"}),
             json!({"action": "menu", "op": "click", "path": ["File", "New"]}),
+            json!({"action": "clipboard", "op": "get"}),
+            json!({"action": "clipboard", "op": "set", "text": "hello"}),
+            json!({"action": "clipboard", "op": "clear"}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert!(matches!(
@@ -820,6 +829,8 @@ mod tests {
         }
 
         for args in [
+            json!({"action": "elements", "op": "find", "target": {"text": "Open"}}),
+            json!({"action": "act", "op": "dry_run", "target": {"text": "Open"}}),
             json!({"action": "windows", "op": "list"}),
             json!({"action": "menu", "op": "list"}),
             json!({"action": "dialog", "op": "inspect"}),

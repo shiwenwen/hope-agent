@@ -58,10 +58,10 @@ pub const MAX_CONCURRENT_PER_SESSION: usize = 5;
 static INJECTING_SESSIONS: std::sync::LazyLock<Mutex<HashSet<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
 
-/// Sessions currently in a user-initiated chat() call.
+/// Sessions currently in one or more user-initiated chat() calls.
 /// Injection must wait until the session is idle.
-pub static ACTIVE_CHAT_SESSIONS: std::sync::LazyLock<Mutex<HashSet<String>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+pub static ACTIVE_CHAT_SESSIONS: std::sync::LazyLock<Mutex<HashMap<String, usize>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Per-session cancel flags for active injections.
 /// When the user starts a new chat() on a session, the injection cancel flag is set.

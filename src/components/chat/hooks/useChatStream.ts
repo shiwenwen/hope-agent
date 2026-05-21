@@ -3,7 +3,12 @@ import { getTransport } from "@/lib/transport-provider"
 import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
-import { loadNotificationConfig, isAgentNotifyEnabled, notify } from "@/lib/notifications"
+import {
+  loadNotificationConfig,
+  isAgentNotifyEnabled,
+  notify,
+  notifyIfBackground,
+} from "@/lib/notifications"
 import type {
   Message,
   ActiveModel,
@@ -275,6 +280,26 @@ export function useChatStream({
     }
   }, [endedStreamIdsRef])
 
+  useEffect(() => {
+    const unlisten = getTransport().listen("chat:turn_status", (raw) => {
+      const payload = raw as {
+        sessionId?: string
+        turnId?: string | null
+        status?: ChatTurnStatus | null
+        interruptReason?: ChatTurnInterruptReason | null
+      } | null
+      const sid = payload?.sessionId
+      if (!sid || !payload?.status) return
+      if (payload.turnId) activeTurnBySessionRef.current.set(sid, payload.turnId)
+      lastTurnStatusBySessionRef.current.set(sid, {
+        status: payload.status,
+        interruptReason: payload.interruptReason ?? null,
+      })
+      setExecutionStateBySession((prev) => new Map(prev).set(sid, payload.status!))
+    })
+    return unlisten
+  }, [])
+
   // Compose sub-hooks
   const { approvalRequests, handleApprovalResponse } = useApprovals(currentSessionId)
 
@@ -346,6 +371,7 @@ export function useChatStream({
       const active = Array.from(activeTurnBySessionRef.current.entries()).at(-1)
       if (!active) return
       const [activeSid, activeTurnId] = active
+      setExecutionStateBySession((prev) => new Map(prev).set(activeSid, "cancelling"))
       try {
         await getTransport().call("stop_chat", {
           sessionId: activeSid,
@@ -356,10 +382,12 @@ export function useChatStream({
       }
       return
     }
+    const activeTurnId = activeTurnBySessionRef.current.get(sid) ?? null
+    setExecutionStateBySession((prev) => new Map(prev).set(sid, "cancelling"))
     try {
       await getTransport().call("stop_chat", {
         sessionId: sid,
-        turnId: activeTurnBySessionRef.current.get(sid) ?? null,
+        turnId: activeTurnId,
       })
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
@@ -520,6 +548,7 @@ export function useChatStream({
     })
 
     let targetSessionId = currentSessionId
+    let chatResolved = false
     let keepExistingStreamLoading = false
 
     try {
@@ -671,6 +700,7 @@ export function useChatStream({
         },
         onEvent,
       )
+      chatResolved = true
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       if (isActiveStreamError(e) && sid !== "__pending__") {
@@ -792,16 +822,23 @@ export function useChatStream({
           setLoading(false)
         }
       }
-      // Notify on completion for non-current sessions
-      if (
-        !keepExistingStreamLoading &&
-        targetSessionId &&
-        currentSessionIdRef.current !== targetSessionId
-      ) {
+      // Notify on completion. Existing behavior: always notify for a
+      // different session. For the active session, only surface an OS
+      // notification when the app window is no longer foregrounded.
+      if (!keepExistingStreamLoading && chatResolved && targetSessionId) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+          const status = lastTurnStatusBySessionRef.current.get(targetSessionId)?.status
+          const completed =
+            status !== "failed" &&
+            status !== "interrupted" &&
+            status !== "cancelling"
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
-          notify(t("notification.chatCompleted"), sessionTitle)
+          if (completed && currentSessionIdRef.current !== targetSessionId) {
+            void notify(t("notification.chatCompleted"), sessionTitle)
+          } else if (completed) {
+            void notifyIfBackground(t("notification.chatCompleted"), sessionTitle)
+          }
         }
       }
       // Mark current session as read so unread count stays 0 for active session

@@ -44,7 +44,7 @@ libc = "0.2"
 portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
-# arboard comes in transitively via ha-core's `desktop-tools` feature.
+arboard = "3"
 regex = "1.12.3"
 ignore = "0.4.25"
 glob = "0.3.3"
@@ -87,7 +87,7 @@ rpassword = "7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }
-objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor", "NSWorkspace", "NSRunningApplication", "libc"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem", "libc"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSError", "NSBundle", "NSObject", "NSRunLoop", "NSString", "NSURL"] }
 xcap = "0.9"
 

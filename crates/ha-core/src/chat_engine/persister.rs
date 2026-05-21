@@ -56,6 +56,7 @@ pub(crate) struct StreamPersister {
     owned_partial_message_ids: Mutex<Vec<i64>>,
     last_flush: Mutex<Instant>,
     bytes_since_flush: AtomicUsize,
+    sealed: AtomicBool,
 }
 
 impl StreamPersister {
@@ -77,9 +78,14 @@ impl StreamPersister {
             owned_partial_message_ids: Mutex::new(Vec::new()),
             last_flush: Mutex::new(Instant::now()),
             bytes_since_flush: AtomicUsize::new(0),
+            sealed: AtomicBool::new(false),
         });
         super::active_persisters::register(&me);
         me
+    }
+
+    pub(crate) fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     pub(crate) fn had_thinking_blocks(&self) -> bool {
@@ -105,6 +111,9 @@ impl StreamPersister {
         let me = Arc::clone(self);
 
         move |delta: &str| {
+            if me.sealed.load(Ordering::SeqCst) {
+                return;
+            }
             let event = match serde_json::from_str::<serde_json::Value>(delta) {
                 Ok(v) => v,
                 Err(_) => return,
@@ -493,6 +502,9 @@ impl StreamPersister {
         thinking_from_api: Option<String>,
         duration_ms: u64,
     ) -> Option<i64> {
+        if self.sealed.load(Ordering::SeqCst) {
+            return None;
+        }
         self.flush_remaining_thinking();
         let trailing_text = self.trailing_text_snapshot();
         let has_partial_rows = self.has_claimable_partial_rows();
@@ -533,6 +545,15 @@ impl StreamPersister {
     /// rusqlite is synchronous, no `await`. Idempotent.
     pub(crate) fn crash_flush(&self) {
         self.finalize_active_placeholder_with_status("orphaned");
+    }
+
+    /// User-stop watchdog flush. Unlike `crash_flush`, this keeps the row in
+    /// the normal completed stream state so the cancellation finalize path can
+    /// claim it as the current partial, then seals the persister so late model
+    /// deltas cannot write after the turn has been marked terminal.
+    pub(crate) fn cancel_flush_and_seal(&self) {
+        self.finalize_active_placeholder_with_status("completed");
+        self.sealed.store(true, Ordering::SeqCst);
     }
 
     fn trailing_text_snapshot(&self) -> String {
@@ -721,6 +742,28 @@ mod tests {
             .is_none());
 
         let messages = db.load_session_messages(&session_id).unwrap();
+        assert!(!messages
+            .iter()
+            .any(|msg| msg.role == MessageRole::Assistant));
+    }
+
+    #[test]
+    fn sealed_failed_partial_does_not_append_late_assistant() {
+        let db = temp_db();
+        let session_id = session_with_user(&db);
+        let persister = StreamPersister::new(db.clone(), session_id.clone(), ChatSource::Desktop);
+        let cb = persister.build_callback();
+
+        cb(r#"{"type":"text_delta","content":"already preserved"}"#);
+        persister.cancel_flush_and_seal();
+        assert!(persister
+            .persist_failed_partial_assistant(None, 50)
+            .is_none());
+
+        let messages = db.load_session_messages(&session_id).unwrap();
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::TextBlock && msg.content == "already preserved"
+        }));
         assert!(!messages
             .iter()
             .any(|msg| msg.role == MessageRole::Assistant));

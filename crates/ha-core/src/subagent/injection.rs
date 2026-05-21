@@ -179,7 +179,10 @@ pub(crate) async fn inject_and_run_parent(
         let is_busy = ACTIVE_CHAT_SESSIONS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .contains(&parent_session_id);
+            .get(&parent_session_id)
+            .copied()
+            .unwrap_or(0)
+            > 0;
         if !is_busy {
             break;
         }

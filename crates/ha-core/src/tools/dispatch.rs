@@ -444,11 +444,13 @@ mod tests {
                 "status",
                 "permissions",
                 "snapshot",
+                "elements",
                 "wait",
                 "apps",
                 "windows",
                 "act",
                 "menu",
+                "clipboard",
                 "dialog"
             ]
         );
@@ -460,6 +462,8 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
+        assert!(ops.contains(&"find"));
+        assert!(ops.contains(&"dry_run"));
         assert!(ops.contains(&"click"));
         assert!(ops.contains(&"click_point"));
         assert!(ops.contains(&"quit"));
@@ -467,10 +471,36 @@ mod tests {
         assert!(ops.contains(&"double_click"));
         assert!(ops.contains(&"right_click"));
         assert!(ops.contains(&"type"));
+        assert!(ops.contains(&"paste"));
         assert!(ops.contains(&"drag"));
+        assert!(ops.contains(&"get"));
+        assert!(ops.contains(&"set"));
+        assert!(ops.contains(&"clear"));
         assert!(ops.contains(&"inspect"));
         assert!(ops.contains(&"accept"));
         assert!(ops.contains(&"dismiss"));
+        let menu_scopes = def
+            .parameters
+            .pointer("/properties/scope/enum")
+            .and_then(|v| v.as_array())
+            .expect("menu scope enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(menu_scopes, vec!["app", "system"]);
+        let window_scopes = def
+            .parameters
+            .pointer("/properties/windowScope/enum")
+            .and_then(|v| v.as_array())
+            .expect("window scope enum exists")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(window_scopes, vec!["frontmost", "all"]);
+        assert!(def
+            .parameters
+            .pointer("/properties/includeSnapshot")
+            .is_some());
 
         let f = Fixture::new();
         assert_eq!(

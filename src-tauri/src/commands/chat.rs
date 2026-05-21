@@ -13,6 +13,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 
+const CHAT_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
+
+async fn wait_for_chat_cancel(cancel: Arc<AtomicBool>) {
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(CHAT_CANCEL_POLL_INTERVAL).await;
+    }
+}
+
+fn event_enters_runtime_loop(event: &str) -> bool {
+    event.contains("\"type\":\"text_delta\"")
+        || event.contains("\"type\":\"thinking_delta\"")
+        || event.contains("\"type\":\"tool_call\"")
+        || event.contains("\"type\":\"tool_result\"")
+}
+
 /// Tauri-specific EventSink — wraps `tauri::ipc::Channel<String>`.
 pub(crate) struct ChannelSink {
     pub channel: tauri::ipc::Channel<String>,
@@ -579,34 +598,77 @@ pub async fn chat(
                 let captured_usage: Arc<std::sync::Mutex<crate::chat_engine::CapturedUsage>> =
                     Arc::new(std::sync::Mutex::new(Default::default()));
                 let captured_usage_clone = captured_usage.clone();
-                let (result, thinking) = match agent
-                    .chat(
-                        &message,
-                        &attachments,
-                        effort_ref,
-                        cancel_clone,
-                        move |delta| {
-                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                                if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                                    if let Ok(mut usage) = captured_usage_clone.lock() {
-                                        usage.absorb_event(&event);
-                                    }
+                let cancel_wait = cancel_clone.clone();
+                let allow_hard_cancel = Arc::new(AtomicBool::new(true));
+                let allow_hard_cancel_for_cb = allow_hard_cancel.clone();
+                let mut chat_future = Box::pin(agent.chat(
+                    &message,
+                    &attachments,
+                    effort_ref,
+                    cancel_clone,
+                    move |delta| {
+                        if event_enters_runtime_loop(delta) {
+                            allow_hard_cancel_for_cb.store(false, Ordering::SeqCst);
+                        }
+                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                            if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
+                                if let Ok(mut usage) = captured_usage_clone.lock() {
+                                    usage.absorb_event(&event);
                                 }
                             }
-                            crate::chat_engine::persist_tool_event(
-                                &db_for_cb,
-                                &sid_for_cb,
-                                ha_core::chat_engine::ChatSource::Desktop,
-                                delta,
-                            );
-                            let _ = on_event_clone.send(delta.to_string());
-                        },
-                    )
-                    .await
-                {
+                        }
+                        crate::chat_engine::persist_tool_event(
+                            &db_for_cb,
+                            &sid_for_cb,
+                            ha_core::chat_engine::ChatSource::Desktop,
+                            delta,
+                        );
+                        let _ = on_event_clone.send(delta.to_string());
+                    },
+                ));
+                let chat_result = match tokio::select! {
+                    biased;
+                    _ = wait_for_chat_cancel(cancel_wait) => None,
+                    result = &mut chat_future => Some(result),
+                } {
+                    Some(result) => result,
+                    None if allow_hard_cancel.load(Ordering::SeqCst) => {
+                        Err(anyhow::anyhow!(CHAT_CANCELLED_BY_CALLER))
+                    }
+                    None => chat_future.as_mut().await,
+                };
+                drop(chat_future);
+                let (result, thinking) = match chat_result {
                     Ok((text, thinking)) => (text, thinking),
                     Err(e) => {
                         let err = e.to_string();
+                        if cancel.load(Ordering::SeqCst) {
+                            let partial = ha_core::chat_engine::finalize::PartialMeta {
+                                user_message: Some(message.clone()),
+                                turn_id: Some(turn_id.clone()),
+                                ..Default::default()
+                            };
+                            let outcome =
+                                ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                                    &db,
+                                    &sid,
+                                    ha_core::chat_engine::finalize::TerminationReason::UserStop,
+                                    partial,
+                                    ha_core::chat_engine::ChatSource::Desktop,
+                                );
+                            broadcast_turn_end(
+                                &sid,
+                                &turn_id,
+                                outcome
+                                    .turn_status
+                                    .unwrap_or(session::ChatTurnStatus::Interrupted),
+                                outcome
+                                    .interrupt_reason
+                                    .or(Some(session::ChatTurnInterruptReason::UserStop)),
+                                None,
+                            );
+                            return Ok(String::new());
+                        }
                         let turn = finish_turn_after_execution_and_broadcast(
                             &db,
                             &sid,
@@ -667,6 +729,34 @@ pub async fn chat(
                         .or(usage.cache_read_input_tokens);
                 }
                 let assistant_id = db.append_message(&sid, &assistant_msg).ok();
+                if cancel.load(Ordering::SeqCst) {
+                    crate::chat_engine::save_agent_context(&db, &sid, agent);
+                    let partial = ha_core::chat_engine::finalize::PartialMeta {
+                        user_message: Some(message.clone()),
+                        turn_id: Some(turn_id.clone()),
+                        assistant_message_id: assistant_id,
+                        ..Default::default()
+                    };
+                    let outcome = ha_core::chat_engine::finalize::finalize_turn_context_blocking(
+                        &db,
+                        &sid,
+                        ha_core::chat_engine::finalize::TerminationReason::UserStop,
+                        partial,
+                        ha_core::chat_engine::ChatSource::Desktop,
+                    );
+                    broadcast_turn_end(
+                        &sid,
+                        &turn_id,
+                        outcome
+                            .turn_status
+                            .unwrap_or(session::ChatTurnStatus::Interrupted),
+                        outcome
+                            .interrupt_reason
+                            .or(Some(session::ChatTurnInterruptReason::UserStop)),
+                        None,
+                    );
+                    return Ok(result);
+                }
                 let _ = finish_turn_after_execution_and_broadcast(
                     &db,
                     &sid,
@@ -773,6 +863,7 @@ pub async fn stop_chat(
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
     let mut stopped = false;
+    let mut watchdog_turns = Vec::new();
     if let Some(sid) = session_id.as_deref() {
         if let Some(active) = crate::chat_engine::active_turn::current(sid) {
             let matches_turn = turn_id
@@ -785,6 +876,13 @@ pub async fn stop_chat(
                     &active.turn_id,
                     session::ChatTurnInterruptReason::UserStop,
                 );
+                ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
+                    sid,
+                    &active.turn_id,
+                    session::ChatTurnStatus::Cancelling,
+                    Some(session::ChatTurnInterruptReason::UserStop),
+                );
+                watchdog_turns.push((sid.to_string(), active.turn_id.clone(), active.source));
                 stopped = true;
             } else {
                 app_info!(
@@ -807,6 +905,17 @@ pub async fn stop_chat(
                 &active.turn_id,
                 session::ChatTurnInterruptReason::UserStop,
             );
+            ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
+                &active.session_id,
+                &active.turn_id,
+                session::ChatTurnStatus::Cancelling,
+                Some(session::ChatTurnInterruptReason::UserStop),
+            );
+            watchdog_turns.push((
+                active.session_id.clone(),
+                active.turn_id.clone(),
+                active.source,
+            ));
         }
         stopped = true;
     }
@@ -834,6 +943,14 @@ pub async fn stop_chat(
                 e
             );
         }
+    }
+    for (sid, turn_id, source) in watchdog_turns {
+        crate::chat_engine::spawn_user_stop_watchdog(
+            state.session_db.clone(),
+            sid,
+            turn_id,
+            source,
+        );
     }
     Ok(())
 }

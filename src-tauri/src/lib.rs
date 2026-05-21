@@ -10,6 +10,7 @@ mod setup;
 mod shortcuts;
 mod tauri_wrappers;
 mod tray;
+mod window_state;
 
 // ── Re-export all business logic from ha-core ────────────────────
 // This makes `crate::agent`, `crate::session`, etc. resolve to ha-core's modules,
@@ -103,6 +104,8 @@ pub fn run() {
         log::error!("Failed to ensure default agent: {}", e);
     }
 
+    let main_window_resize_save_token = window_state::new_resize_save_token();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -125,7 +128,9 @@ pub fn run() {
                 .with_handler(shortcuts::handle_shortcut)
                 .build(),
         )
-        .on_window_event(|window, event| {
+        .on_window_event(move |window, event| {
+            window_state::handle_main_window_event(window, event, &main_window_resize_save_token);
+
             // Intercept window close → hide instead of quit (app stays resident in tray)
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label();
@@ -476,6 +481,7 @@ pub fn run() {
             tauri_wrappers::mac_control_status,
             tauri_wrappers::mac_control_permissions,
             tauri_wrappers::mac_control_snapshot,
+            tauri_wrappers::mac_control_elements,
             tauri_wrappers::mac_control_capture_frame,
             // Session management
             commands::session::create_session_cmd,

@@ -17,6 +17,56 @@ use super::stream_broadcast;
 use super::stream_seq;
 use super::types::*;
 
+const CHAT_CANCEL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+const CHAT_CANCELLED_BY_CALLER: &str = "chat cancelled by caller";
+
+async fn wait_for_chat_cancel(cancel: Arc<std::sync::atomic::AtomicBool>) {
+    loop {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(CHAT_CANCEL_POLL_INTERVAL).await;
+    }
+}
+
+fn event_enters_runtime_loop(event: &str) -> bool {
+    event.contains("\"type\":\"text_delta\"")
+        || event.contains("\"type\":\"thinking_delta\"")
+        || event.contains("\"type\":\"tool_call\"")
+        || event.contains("\"type\":\"tool_result\"")
+}
+
+fn terminal_turn_state(
+    db: &session::SessionDB,
+    turn_id: Option<&str>,
+) -> Option<(
+    session::ChatTurnStatus,
+    Option<session::ChatTurnInterruptReason>,
+    Option<String>,
+)> {
+    let turn_id = turn_id?;
+    db.get_chat_turn(turn_id)
+        .ok()
+        .flatten()
+        .filter(|turn| turn.status.is_terminal())
+        .map(|turn| (turn.status, turn.interrupt_reason, turn.error))
+}
+
+fn turn_accepts_stream_event(
+    db: &session::SessionDB,
+    session_id: &str,
+    turn_id: Option<&str>,
+) -> bool {
+    let Some(turn_id) = turn_id else {
+        return true;
+    };
+    if let Some(active) = super::active_turn::current(session_id) {
+        return active.turn_id == turn_id
+            && !active.cancel.load(std::sync::atomic::Ordering::SeqCst);
+    }
+    terminal_turn_state(db, Some(turn_id)).is_none()
+}
+
 /// Successful chat round payload returned by the executor closure.
 /// Bundles everything the post-success path needs to flush thinking, build
 /// the assistant message, save context, and run extraction follow-ups.
@@ -104,6 +154,11 @@ impl StreamLifecycle {
             return;
         }
         if let Some(ref stream_id) = self.stream_id {
+            let released = stream_seq::end_if_stream(&self.session_id, stream_id);
+            if !released {
+                self.finished = true;
+                return;
+            }
             if self.source.broadcasts_to_user_ui() {
                 stream_broadcast::broadcast_stream_end(
                     &self.session_id,
@@ -114,7 +169,6 @@ impl StreamLifecycle {
                     self.terminal_error.as_deref(),
                 );
             }
-            stream_seq::end(&self.session_id);
         }
         self.finished = true;
     }
@@ -163,12 +217,16 @@ fn discard_failed_attempt_partial(slot: &Arc<Mutex<Option<FailedAttemptPartial>>
 /// for dedup. Channel / cron turns stay off the main chat bus; IM uses
 /// `ChannelStreamSink` to emit `channel:stream_delta` instead.
 fn emit_stream_event(
+    db: &session::SessionDB,
     event_sink: &std::sync::Arc<dyn EventSink>,
     session_id: &str,
     source: stream_seq::ChatSource,
     turn_id: Option<&str>,
     event: &str,
-) {
+) -> bool {
+    if !turn_accepts_stream_event(db, session_id, turn_id) {
+        return false;
+    }
     let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
         event.to_string()
@@ -182,6 +240,7 @@ fn emit_stream_event(
     // mirror is the primary consumer). The primary `event_sink`
     // above is intentionally not registered, so each consumer fires once.
     sink_registry::sink_registry().emit(session_id, &payload);
+    true
 }
 
 // ── Core Chat Engine ────────────────────────────────────────────────
@@ -356,6 +415,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     let effort_str = reasoning_effort.clone();
 
     for (idx, model_ref) in model_chain.iter().enumerate() {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
+            break;
+        }
         // Look up provider once per model. Skip the model if missing — same
         // semantics as the pre-Phase-3 build_agent_from_snapshot None path.
         let current_provider = providers.iter().find(|p| p.id == model_ref.provider_id);
@@ -404,17 +467,19 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 "error": last_error.as_deref().unwrap_or(""),
             });
             if let Ok(json_str) = serde_json::to_string(&event) {
-                emit_stream_event(
+                if emit_stream_event(
+                    &db,
                     &event_sink,
                     &session_id,
                     source,
                     turn_id.as_deref(),
                     &json_str,
-                );
-                let _ = db.append_message(
-                    &session_id,
-                    &session::NewMessage::event(&json_str).with_source(source),
-                );
+                ) {
+                    let _ = db.append_message(
+                        &session_id,
+                        &session::NewMessage::event(&json_str).with_source(source),
+                    );
+                }
             }
         }
 
@@ -456,19 +521,21 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "to_profile": to.label,
                         "reason": reason,
                     })) {
-                        emit_stream_event(
+                        if emit_stream_event(
+                            &db,
                             &event_sink,
                             &session_id,
                             source,
                             turn_id.as_deref(),
                             &json_str,
-                        );
-                        // Persist as `role=event` so the GUI's
-                        // ProfileRotationBanner survives session reload.
-                        let _ = db.append_message(
-                            &session_id,
-                            &session::NewMessage::event(&json_str).with_source(source),
-                        );
+                        ) {
+                            // Persist as `role=event` so the GUI's
+                            // ProfileRotationBanner survives session reload.
+                            let _ = db.append_message(
+                                &session_id,
+                                &session::NewMessage::event(&json_str).with_source(source),
+                            );
+                        }
                     }
                 };
 
@@ -495,7 +562,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let exec_result = execute_with_failover(
                 prov,
                 &session_id,
-                FailoverPolicy::chat_engine_default(),
+                FailoverPolicy::chat_engine_default().with_cancel(cancel.clone()),
                 Some(&on_rotate),
                 |profile| {
                     let profile_owned = profile.cloned();
@@ -508,6 +575,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let source_for_cb = source;
                     let cancel_for_op = cancel_ref.clone();
                     let cancel_for_check = cancel_for_op.clone();
+                    let cancel_for_wait = cancel_for_op.clone();
                     let turn_id_for_cb = turn_id.clone();
 
                     let agent_id_owned = agent_id_ref.clone();
@@ -574,25 +642,49 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             source_for_cb,
                         );
                         let persist_cb = persister.build_callback();
+                        let allow_hard_cancel = Arc::new(std::sync::atomic::AtomicBool::new(true));
+                        let allow_hard_cancel_for_cb = allow_hard_cancel.clone();
 
-                        let chat_result = agent
-                            .chat(
-                                &message_owned,
-                                &attachments_owned,
-                                effort_owned.as_deref(),
-                                cancel_for_op,
-                                move |delta| {
-                                    persist_cb(delta);
-                                    emit_stream_event(
-                                        &event_sink_for_cb,
-                                        &session_for_cb,
-                                        source_for_cb,
-                                        turn_id_for_cb.as_deref(),
-                                        delta,
-                                    );
-                                },
-                            )
-                            .await;
+                        let mut chat_future = Box::pin(agent.chat(
+                            &message_owned,
+                            &attachments_owned,
+                            effort_owned.as_deref(),
+                            cancel_for_op,
+                            move |delta| {
+                                if !turn_accepts_stream_event(
+                                    &db_owned,
+                                    &session_for_cb,
+                                    turn_id_for_cb.as_deref(),
+                                ) {
+                                    return;
+                                }
+                                if event_enters_runtime_loop(delta) {
+                                    allow_hard_cancel_for_cb
+                                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                                }
+                                persist_cb(delta);
+                                emit_stream_event(
+                                    &db_owned,
+                                    &event_sink_for_cb,
+                                    &session_for_cb,
+                                    source_for_cb,
+                                    turn_id_for_cb.as_deref(),
+                                    delta,
+                                );
+                            },
+                        ));
+                        let chat_result = match tokio::select! {
+                            biased;
+                            _ = wait_for_chat_cancel(cancel_for_wait) => None,
+                            result = &mut chat_future => Some(result),
+                        } {
+                            Some(result) => result,
+                            None if allow_hard_cancel.load(std::sync::atomic::Ordering::SeqCst) => {
+                                Err(anyhow::anyhow!(CHAT_CANCELLED_BY_CALLER))
+                            }
+                            None => chat_future.as_mut().await,
+                        };
+                        drop(chat_future);
 
                         if abort_on_cancel
                             && cancel_for_check.load(std::sync::atomic::Ordering::SeqCst)
@@ -643,8 +735,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
             match exec_result {
                 Ok(ok) => {
-                    discard_failed_attempt_partial(&failed_attempt_partial);
-
                     let ChatRoundOk {
                         response,
                         thinking,
@@ -655,6 +745,61 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     } = ok;
                     let duration_ms = chat_start.elapsed().as_millis() as u64;
 
+                    if let Some(ref tid) = turn_id {
+                        if let Ok(Some(turn)) = db.get_chat_turn(tid) {
+                            if turn.status.is_terminal() {
+                                stream_lifecycle.set_terminal(
+                                    turn.status,
+                                    turn.interrupt_reason,
+                                    turn.error.clone(),
+                                );
+                                stream_lifecycle.finish();
+                                return Ok(ChatEngineResult {
+                                    response,
+                                    model_used: Some(model_ref.clone()),
+                                    agent: Some(agent),
+                                });
+                            }
+                        }
+                    }
+
+                    if !abort_on_cancel
+                        && cancel.load(std::sync::atomic::Ordering::SeqCst)
+                        && persist_final_error_event
+                    {
+                        let assistant_id =
+                            persister.persist_failed_partial_assistant(thinking, duration_ms);
+                        let partial = collect_partial_meta_from_runtime(
+                            &db,
+                            &session_id,
+                            &message,
+                            Some(prov.api_type.clone()),
+                            assistant_id,
+                            turn_id.as_deref(),
+                        );
+                        let outcome = finalize::finalize_turn_context(
+                            &db,
+                            &session_id,
+                            TerminationReason::UserStop,
+                            partial,
+                            source,
+                            im_mirror.take(),
+                        )
+                        .await;
+                        let terminal = outcome
+                            .turn_status
+                            .unwrap_or(session::ChatTurnStatus::Interrupted);
+                        stream_lifecycle.set_terminal(terminal, outcome.interrupt_reason, None);
+                        stream_lifecycle.finish();
+                        return Ok(ChatEngineResult {
+                            response: String::new(),
+                            model_used: None,
+                            agent: None,
+                        });
+                    }
+
+                    discard_failed_attempt_partial(&failed_attempt_partial);
+
                     // Emit usage event with duration
                     let usage_event = serde_json::json!({
                         "type": "usage",
@@ -662,6 +807,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     });
                     if let Ok(json_str) = serde_json::to_string(&usage_event) {
                         emit_stream_event(
+                            &db,
                             &event_sink,
                             &session_id,
                             source,
@@ -886,6 +1032,18 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 }
 
                 Err(ExecutorError::NeedsCompaction { last_profile }) => {
+                    if let Some((status, interrupt, error)) =
+                        terminal_turn_state(&db, turn_id.as_deref())
+                    {
+                        stream_lifecycle.set_terminal(status, interrupt, error);
+                        stream_lifecycle.finish();
+                        return Ok(ChatEngineResult {
+                            response: String::new(),
+                            model_used: Some(model_ref.clone()),
+                            agent: None,
+                        });
+                    }
+
                     discard_failed_attempt_partial(&failed_attempt_partial);
 
                     if compaction_attempts >= MAX_COMPACTION_RETRIES {
@@ -961,6 +1119,17 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         .context_engine()
                         .emergency_compact(&mut history, &compact_config);
                     compact_agent.set_conversation_history(history);
+                    if let Some((status, interrupt, error)) =
+                        terminal_turn_state(&db, turn_id.as_deref())
+                    {
+                        stream_lifecycle.set_terminal(status, interrupt, error);
+                        stream_lifecycle.finish();
+                        return Ok(ChatEngineResult {
+                            response: String::new(),
+                            model_used: Some(model_ref.clone()),
+                            agent: None,
+                        });
+                    }
                     save_agent_context(&db, &session_id, &compact_agent);
 
                     // Manual snake_case shape — `CompactResult` itself is
@@ -979,22 +1148,24 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "description": compact_result.description,
                         },
                     })) {
-                        emit_stream_event(
+                        if emit_stream_event(
+                            &db,
                             &event_sink,
                             &session_id,
                             source,
                             turn_id.as_deref(),
                             &event_str,
-                        );
-                        // emergency_compact always runs Tier ≥ 3 — persist
-                        // unconditionally so the GUI's ContextCompactedBanner
-                        // survives session reload. Per-turn pre-LLM compaction
-                        // (agent/context.rs) is filtered separately in the
-                        // persister's `context_compacted` arm.
-                        let _ = db.append_message(
-                            &session_id,
-                            &session::NewMessage::event(&event_str).with_source(source),
-                        );
+                        ) {
+                            // emergency_compact always runs Tier ≥ 3 — persist
+                            // unconditionally so the GUI's ContextCompactedBanner
+                            // survives session reload. Per-turn pre-LLM compaction
+                            // (agent/context.rs) is filtered separately in the
+                            // persister's `context_compacted` arm.
+                            let _ = db.append_message(
+                                &session_id,
+                                &session::NewMessage::event(&event_str).with_source(source),
+                            );
+                        }
                     }
 
                     // Write the just-failed profile back to PROFILE_STICKY
@@ -1005,6 +1176,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         failover::PROFILE_STICKY.set(&model_ref.provider_id, &session_id, &p.id);
                     }
                     continue;
+                }
+
+                Err(ExecutorError::Cancelled) => {
+                    last_reason = None;
+                    last_error = Some(CHAT_CANCELLED_BY_CALLER.to_string());
+                    last_was_no_profile = false;
+                    break;
                 }
 
                 Err(ExecutorError::Exhausted {
@@ -1030,6 +1208,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "error": &err_str,
                         })) {
                             emit_stream_event(
+                                &db,
                                 &event_sink,
                                 &session_id,
                                 source,
@@ -1163,6 +1342,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         );
     }
 
+    if matches!(reason, TerminationReason::UserStop) && !abort_on_cancel {
+        stream_lifecycle.finish();
+        return Ok(ChatEngineResult {
+            response: String::new(),
+            model_used: None,
+            agent: None,
+        });
+    }
+
     Err(final_error)
 }
 
@@ -1170,14 +1358,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
 /// Map runtime convergence state to a [`TerminationReason`].
 ///
-/// `cancel + abort_on_cancel` is the only positive signal for
-/// `UserStop` — `cancel.load()` alone fires on IM channel turns where
-/// `/cancel` flips the flag but the engine still wants to surface the
-/// partial as a normal failure. `last_reason == None` after a non-cancel
+/// A set cancel flag is the positive signal for `UserStop`; user-facing
+/// desktop / HTTP / IM paths all preserve partial state and converge through
+/// the same interrupted finalizer. `last_reason == None` after a non-cancel
 /// path means we never even reached an executor call → `NoProfileAvailable`.
 /// Everything else is `ProviderFailed` carrying the classified reason.
 fn derive_termination_reason(
-    abort_on_cancel: bool,
+    _abort_on_cancel: bool,
     cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     last_reason: Option<failover::FailoverReason>,
     last_error: Option<&str>,
@@ -1185,8 +1372,7 @@ fn derive_termination_reason(
     compaction_failed: Option<&str>,
     last_was_no_profile: bool,
 ) -> TerminationReason {
-    let user_cancel = abort_on_cancel && cancel.load(std::sync::atomic::Ordering::SeqCst);
-    if user_cancel {
+    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
         return TerminationReason::UserStop;
     }
     if let Some(detail) = compaction_failed {
@@ -1372,6 +1558,15 @@ mod stream_lifecycle_tests {
         )
     }
 
+    fn sse_two_text_then_done(first: &str, second: &str) -> String {
+        format!(
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.completed\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n\n",
+            first, second
+        )
+    }
+
     fn sse_partial_then_failed(text: &str) -> String {
         format!(
             "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
@@ -1450,6 +1645,22 @@ mod stream_lifecycle_tests {
         }
     }
 
+    fn create_user_turn(db: &SessionDB, session_id: &str) -> String {
+        let user_id = db
+            .append_message(session_id, &NewMessage::user("hello"))
+            .unwrap();
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        db.create_chat_turn_with_id(
+            &turn_id,
+            session_id,
+            stream_seq::ChatSource::Desktop.as_str(),
+            None,
+            Some(user_id),
+        )
+        .unwrap();
+        turn_id
+    }
+
     struct CancelOnTextDelta {
         cancel: Arc<AtomicBool>,
     }
@@ -1472,6 +1683,233 @@ mod stream_lifecycle_tests {
                 self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingSink {
+        events: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl EventSink for RecordingSink {
+        fn send(&self, event: &str) {
+            self.events.lock().unwrap().push(event.to_string());
+        }
+    }
+
+    #[test]
+    fn stream_events_stop_after_cancel_or_terminal_turn() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = create_user_turn(&db, &session.id);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            stream_seq::ChatSource::Desktop,
+            turn_id.clone(),
+            cancel.clone(),
+        )
+        .unwrap();
+        let sink = Arc::new(RecordingSink::default());
+        let event_sink: Arc<dyn EventSink> = sink.clone();
+
+        assert!(emit_stream_event(
+            &db,
+            &event_sink,
+            &session.id,
+            stream_seq::ChatSource::Desktop,
+            Some(&turn_id),
+            r#"{"type":"text_delta","content":"kept"}"#,
+        ));
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!emit_stream_event(
+            &db,
+            &event_sink,
+            &session.id,
+            stream_seq::ChatSource::Desktop,
+            Some(&turn_id),
+            r#"{"type":"text_delta","content":"dropped"}"#,
+        ));
+        assert_eq!(sink.events.lock().unwrap().len(), 1);
+
+        cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(crate::chat_engine::active_turn::force_release(
+            &session.id,
+            &turn_id
+        ));
+        db.finish_chat_turn_once(
+            &turn_id,
+            session::ChatTurnStatus::Interrupted,
+            Some(session::ChatTurnInterruptReason::UserStop),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!emit_stream_event(
+            &db,
+            &event_sink,
+            &session.id,
+            stream_seq::ChatSource::Desktop,
+            Some(&turn_id),
+            r#"{"type":"text_delta","content":"late"}"#,
+        ));
+        assert_eq!(sink.events.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn user_stop_before_first_model_event_finalizes_without_empty_assistant() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = create_user_turn(&db, &session.id);
+
+        let server = MockServer::start().await;
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let cancel = Arc::new(AtomicBool::new(true));
+        let mut p = params(db.clone(), session.id.clone(), vec![model], vec![provider]);
+        p.turn_id = Some(turn_id.clone());
+        p.cancel = cancel;
+
+        let result = run_chat_engine(p)
+            .await
+            .expect("user stop should not surface as chat error");
+        assert_eq!(result.response, "");
+
+        let turn = db.get_chat_turn(&turn_id).unwrap().unwrap();
+        assert_eq!(turn.status, session::ChatTurnStatus::Interrupted);
+        assert_eq!(
+            turn.interrupt_reason,
+            Some(session::ChatTurnInterruptReason::UserStop)
+        );
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        assert!(!messages
+            .iter()
+            .any(|msg| msg.role == MessageRole::Assistant && msg.content.is_empty()));
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::Event && msg.content.contains("已停止此次回复")
+        }));
+        let context_json = db.load_context(&session.id).unwrap().unwrap_or_default();
+        assert!(context_json.contains("用户主动停止"));
+    }
+
+    #[tokio::test]
+    async fn user_stop_after_text_delta_preserves_partial_and_marker() {
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = create_user_turn(&db, &session.id);
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_text_then_done("partial before stop")),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut p = params(db.clone(), session.id.clone(), vec![model], vec![provider]);
+        p.turn_id = Some(turn_id.clone());
+        p.cancel = cancel.clone();
+        p.event_sink = Arc::new(CancelOnTextDelta {
+            cancel: cancel.clone(),
+        });
+
+        let result = run_chat_engine(p)
+            .await
+            .expect("user stop should preserve partial");
+        assert_eq!(result.response, "");
+
+        let turn = db.get_chat_turn(&turn_id).unwrap().unwrap();
+        assert_eq!(turn.status, session::ChatTurnStatus::Interrupted);
+        assert_eq!(
+            turn.interrupt_reason,
+            Some(session::ChatTurnInterruptReason::UserStop)
+        );
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::Assistant && msg.content == "partial before stop"
+        }));
+        assert!(messages.iter().any(|msg| {
+            msg.role == MessageRole::Event && msg.content.contains("已停止此次回复")
+        }));
+        let context_json = db.load_context(&session.id).unwrap().unwrap_or_default();
+        assert!(context_json.contains("partial before stop"));
+        assert!(context_json.contains("用户主动停止"));
+    }
+
+    #[tokio::test]
+    async fn user_stop_drops_model_deltas_after_cancel_point() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let (_dir, db) = temp_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = create_user_turn(&db, &session.id);
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_two_text_then_done("before stop", " after stop")),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = openai_provider(server.uri(), "m1");
+        let model = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: "m1".to_string(),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = crate::chat_engine::active_turn::try_acquire(
+            &session.id,
+            stream_seq::ChatSource::Desktop,
+            turn_id.clone(),
+            cancel.clone(),
+        )
+        .unwrap();
+        let mut p = params(db.clone(), session.id.clone(), vec![model], vec![provider]);
+        p.turn_id = Some(turn_id.clone());
+        p.cancel = cancel.clone();
+        p.event_sink = Arc::new(CancelOnTextDelta {
+            cancel: cancel.clone(),
+        });
+
+        run_chat_engine(p)
+            .await
+            .expect("user stop should not surface as chat error");
+
+        let messages = db.load_session_messages(&session.id).unwrap();
+        assert!(messages
+            .iter()
+            .any(|msg| { msg.role == MessageRole::Assistant && msg.content == "before stop" }));
+        assert!(!messages
+            .iter()
+            .any(|msg| msg.content.contains("after stop")));
+        let context_json = db.load_context(&session.id).unwrap().unwrap_or_default();
+        assert!(context_json.contains("before stop"));
+        assert!(!context_json.contains("after stop"));
     }
 
     #[tokio::test]

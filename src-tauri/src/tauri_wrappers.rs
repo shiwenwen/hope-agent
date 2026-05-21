@@ -50,6 +50,13 @@ pub async fn mac_control_snapshot(
 }
 
 #[tauri::command]
+pub async fn mac_control_elements(
+    options: Option<ha_core::mac_control::MacControlElementsRequest>,
+) -> ha_core::mac_control::MacControlElementsResponse {
+    ha_core::mac_control::elements(options.unwrap_or_default()).await
+}
+
+#[tauri::command]
 pub async fn mac_control_capture_frame() -> ha_core::mac_control::MacControlFrameResponse {
     ha_core::mac_control::capture_frame().await
 }

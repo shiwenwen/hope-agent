@@ -332,10 +332,22 @@ fn apply_finalize(
     //    handle idempotency via the DB UPDATE `WHERE status NOT IN
     //    terminal` clause inside `finish_chat_turn_once`.
     if !crate::chat_engine::active_turn::mark_finalized(partial.turn_id.as_deref()) {
-        return FinalizeOutcome {
+        let mut outcome = FinalizeOutcome {
             was_already_finalized: true,
             ..Default::default()
         };
+        if let Some(turn_id) = partial.turn_id.as_deref() {
+            if let Ok(Some(turn)) = db.get_chat_turn(turn_id) {
+                if turn.status.is_terminal() {
+                    outcome.turn_status = Some(turn.status);
+                    outcome.interrupt_reason = turn.interrupt_reason;
+                } else {
+                    outcome.turn_status = Some(reason.to_chat_turn_status());
+                    outcome.interrupt_reason = Some(reason.to_chat_turn_interrupt_reason());
+                }
+            }
+        }
+        return outcome;
     }
 
     let mut outcome = FinalizeOutcome::default();
@@ -772,6 +784,37 @@ mod tests {
         );
         assert!(second.was_already_finalized);
         assert!(second.event_row_id.is_none());
+    }
+
+    #[test]
+    fn reentry_returns_terminal_status_even_if_db_is_still_cancelling() {
+        let _lock = test_lock();
+        let db = temp_db();
+        let (sid, turn_id) = fresh_session(&db);
+        assert!(crate::chat_engine::active_turn::mark_finalized(Some(
+            &turn_id
+        )));
+        db.mark_chat_turn_cancelling(&turn_id, ChatTurnInterruptReason::UserStop)
+            .unwrap();
+
+        let outcome = finalize_turn_context_blocking(
+            &db,
+            &sid,
+            TerminationReason::UserStop,
+            PartialMeta {
+                user_message: Some("hello".into()),
+                turn_id: Some(turn_id),
+                ..Default::default()
+            },
+            ChatSource::Desktop,
+        );
+
+        assert!(outcome.was_already_finalized);
+        assert_eq!(outcome.turn_status, Some(ChatTurnStatus::Interrupted));
+        assert_eq!(
+            outcome.interrupt_reason,
+            Some(ChatTurnInterruptReason::UserStop)
+        );
     }
 
     #[test]

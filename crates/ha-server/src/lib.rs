@@ -1363,6 +1363,7 @@ fn build_router_with_cors(
             get(routes::mac_control::permissions),
         )
         .route("/mac-control/snapshot", post(routes::mac_control::snapshot))
+        .route("/mac-control/elements", post(routes::mac_control::elements))
         .route(
             "/mac-control/capture-frame",
             post(routes::mac_control::capture_frame),

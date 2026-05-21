@@ -294,6 +294,13 @@ pub fn crash_journal_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("crash_journal.json"))
 }
 
+// ── Desktop Window State ───────────────────────────────────────────
+
+/// Desktop window state file path: ~/.hope-agent/window-state.json
+pub fn window_state_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("window-state.json"))
+}
+
 // ── Self-Update ─────────────────────────────────────────────────────
 
 /// Self-update working directory: ~/.hope-agent/updater/

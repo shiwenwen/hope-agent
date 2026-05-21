@@ -153,6 +153,25 @@ pub fn all_current_turn_ids() -> Vec<String> {
     map.values().map(|entry| entry.turn_id.clone()).collect()
 }
 
+/// Force-release one active turn by `(session_id, turn_id)`.
+///
+/// Used by the user-stop watchdog after it has already finalized the turn in
+/// persistent state. The turn id guard prevents an old watchdog from clearing
+/// a newer turn that started in the same session.
+pub fn force_release(session_id: &str, turn_id: &str) -> bool {
+    let mut map = registry()
+        .lock()
+        .expect("active chat turn registry poisoned");
+    let matches = map
+        .get(session_id)
+        .map(|entry| entry.turn_id == turn_id)
+        .unwrap_or(false);
+    if matches {
+        map.remove(session_id);
+    }
+    matches
+}
+
 /// Clear all in-memory active turn entries.
 ///
 /// Used during runtime startup after persisted `running` / `cancelling` turns
@@ -371,6 +390,24 @@ mod tests {
 
         assert!(current(sid).is_some());
         assert!(clear_all() >= 1);
+        assert!(current(sid).is_none());
+    }
+
+    #[test]
+    fn force_release_requires_matching_turn_id() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-force-release";
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-force".to_string(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert!(!force_release(sid, "other-turn"));
+        assert!(current(sid).is_some());
+        assert!(force_release(sid, "turn-force"));
         assert!(current(sid).is_none());
     }
 }

@@ -3226,6 +3226,7 @@ name = "hope-agent"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "async-trait",
  "axum",
  "base64 0.22.1",
