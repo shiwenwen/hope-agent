@@ -118,12 +118,38 @@ interface LocalModelsTabData {
 interface DashboardViewProps {
   onBack: () => void
   onOpenSettings?: (section?: SettingsSection) => void
+  initialTab?: string
+  initialRecapReportId?: string | null
 }
 
-export default function DashboardView({ onBack, onOpenSettings }: DashboardViewProps) {
+const DASHBOARD_TAB_VALUES = new Set([
+  "insights",
+  "tokens",
+  "tools",
+  "sessions",
+  "errors",
+  "tasks",
+  "plans",
+  "system",
+  "local-models",
+  "recap",
+  "learning",
+  "dreaming",
+])
+
+function normalizeInitialTab(tab?: string): string {
+  return tab && DASHBOARD_TAB_VALUES.has(tab) ? tab : "insights"
+}
+
+export default function DashboardView({
+  onBack,
+  onOpenSettings,
+  initialTab,
+  initialRecapReportId,
+}: DashboardViewProps) {
   const { t } = useTranslation()
   const [filter, setFilter] = useState<DashboardFilterState>(defaultFilter)
-  const [activeTab, setActiveTab] = useState("insights")
+  const [activeTab, setActiveTab] = useState(() => normalizeInitialTab(initialTab))
   const [activeList, setActiveList] = useState<DetailListType | null>(null)
   const [loading, setLoading] = useState(true)
   const [overview, setOverview] = useState<OverviewStatsWithDelta | null>(null)
@@ -601,7 +627,7 @@ export default function DashboardView({ onBack, onOpenSettings }: DashboardViewP
             />
           </TabsContent>
           <TabsContent value="recap">
-            <RecapTab />
+            <RecapTab initialReportId={initialRecapReportId} />
           </TabsContent>
           <TabsContent value="learning">
             <LearningTab />

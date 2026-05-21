@@ -15,6 +15,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+pub(crate) mod service;
+pub(crate) mod system_permissions;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -64,15 +66,49 @@ pub fn pid_alive(pid: u32) -> bool {
 
 /// Try to discover the user-configured HTTP proxy from the OS.
 ///
-/// - macOS: reads `scutil --proxy` (implemented per-caller in
-///   `provider/proxy.rs` / `docker/proxy.rs` today — those paths
-///   continue to own that logic and don't go through this shim).
-/// - Linux: returns `None` (users set `HTTP_PROXY` / `HTTPS_PROXY` env).
+/// - macOS: reads `scutil --proxy`.
+/// - Linux / BSD: env vars first, then GNOME `gsettings`, then KDE
+///   `kreadconfig6` / `kreadconfig5`.
 /// - Windows: reads
 ///   `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`
 ///   and returns e.g. `"http://127.0.0.1:1082"` when enabled.
 pub fn detect_system_proxy() -> Option<String> {
     imp::detect_system_proxy()
+}
+
+/// Try to obtain a precise OS-backed location for weather.
+///
+/// macOS: uses CoreLocation. Other platforms currently return `None`, so
+/// callers can fall back to IP geolocation without carrying `#[cfg]` branches.
+pub async fn current_location() -> Option<(f64, f64)> {
+    imp::current_location().await
+}
+
+/// Candidate dynamic-library names/paths for pdfium-render fallback binding.
+///
+/// Callers should try `Pdfium::bind_to_system_library()` first, then these
+/// platform-specific well-known locations.
+pub fn pdfium_library_candidates() -> &'static [&'static str] {
+    imp::pdfium_library_candidates()
+}
+
+/// Platform-specific implementation backing the v2 system permission catalog.
+pub(crate) fn system_permissions_platform_name() -> &'static str {
+    system_permissions::platform_name()
+}
+
+pub(crate) fn system_permissions_supported() -> bool {
+    system_permissions::supported()
+}
+
+pub(crate) fn check_system_permission_item(id: &str) -> crate::permissions::SystemPermissionStatus {
+    system_permissions::check_item(id)
+}
+
+pub(crate) fn request_system_permission_item(
+    def: crate::permissions::PermissionDef,
+) -> crate::permissions::SystemPermissionStatus {
+    system_permissions::request_item(def)
 }
 
 /// Build a `std::process::Command` that runs `cmdline` through the

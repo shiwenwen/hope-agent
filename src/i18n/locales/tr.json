@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "Bu araç, ajanın özel onay listesinde yer alıyor (yalnızca Default modu).",
+        "title": "Ajan özel onay listesi"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "Tehlikeli komut desenleri listesiyle eşleşti. Her çağrıda onay gerekir; Her zaman izin ver kullanılamaz.",
+        "title": "⚠️ Tehlikeli komut"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "Düzenleme komutu desenleri listesiyle eşleşti. Default modu sorar; Her zaman izin ver bir komut öneki kaydeder.",
+        "title": "Düzenleme desenli exec komutu"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "Default modu, dosya yazan araçlar (write/edit/apply_patch) için onay ister.",
+        "title": "Düzenleme sınıfı araç"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "Plan Mode bu aracı her çağrıdan önce sorulacak olarak listeler; izinli olsa da her çağrı için onayınız gerekir.",
+        "title": "Plan Mode onayı"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "Korunan yollar listesiyle eşleşti. Her çağrıda onay gerekir; Her zaman izin ver kullanılamaz.",
+        "title": "⚠️ Korunan yol"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "Smart modu yargıç modeli bu çağrının insan onayı gerektirdiğine karar verdi.",
+        "title": "Smart modu yargıcı"
       },
       "mac_control_action": {
         "title": "Mac Control işlemi",
@@ -2114,80 +2114,80 @@
     "agentAgentsMd": "AGENTS.md",
     "agentAgentsMdDesc": "Workspace kuralları, kırmızı çizgiler, hafıza rehberi ve davranış talimatları",
     "agentApproval": {
-      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
-      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
-      "customApprovalTitle": "Custom Tool Approval",
-      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
-      "defaultModeTitle": "Default Session Permission Mode",
+      "customApprovalDesc": "Default modunda, aşağıda işaretlediğiniz araçlar için de onay iste.",
+      "customApprovalHint": "Not: yalnızca Default modunda etkilidir; Smart ve YOLO modları bu listeyi yok sayar.",
+      "customApprovalTitle": "Özel Araç Onayı",
+      "defaultModeDesc": "Yeni oturumlar için başlangıç izin modu; mevcut oturumlar etkilenmez.",
+      "defaultModeTitle": "Varsayılan Oturum İzin Modu",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "Tarayıcı",
+        "crossSession": "Oturumlar arası okuma",
+        "network": "Ağ erişimi",
+        "outbound": "Dışa giden",
+        "paid": "Ücretli API’ler",
+        "settings": "Ayar değişiklikleri",
+        "settingsRead": "Ayar sorguları",
+        "shell": "Shell ve süreçler",
+        "spawn": "Harici alt süreçler"
       },
       "modes": {
         "default": {
-          "desc": "Edit-class tools and high-risk commands need approval",
-          "label": "Default"
+          "desc": "Düzenleme sınıfı araçlar ve yüksek riskli komutlar onay ister",
+          "label": "Varsayılan"
         },
         "inherit": {
-          "desc": "Follow the global default (currently \"Default\" mode)",
-          "label": "Inherit Global"
+          "desc": "Genel varsayılanı takip et (şu anda \"Default\" modu)",
+          "label": "Geneli devral"
         },
         "smart": {
-          "desc": "Judge model or model self-confidence decides approvals",
-          "label": "Smart Approval"
+          "desc": "Yargıç model veya modelin öz güveni onaylara karar verir",
+          "label": "Akıllı Onay"
         },
         "yolo": {
-          "desc": "All tools run without approval (protected paths still audit-log)",
-          "label": "YOLO"
+          "desc": "Tüm araçlar onaysız çalışır (korunan yollar yine de denetim günlüğüne yazılır)",
+          "label": "YOLO modu"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "Harici bir ACP alt ajan süreci başlat",
+        "agents_list": "Yapılandırılmış tüm ajanları listele",
+        "browser": "UI otomasyonu için CDP ile tarayıcıyı sür",
+        "get_settings": "Uygulama ayarlarını oku",
+        "image_generate": "Ücretli API ile görsel oluştur",
+        "list_settings_backups": "Ayar yedekleme geçmişini listele",
+        "peek_sessions": "Diğer oturumlardaki canlı etkinliği gör",
+        "process": "exec arka plan oturumlarını yönet (kill/write/clear/remove)",
+        "restore_settings_backup": "Geçmiş bir ayar yedeğine geri dön",
+        "send_attachment": "IM kanallarına dosya eki gönder",
+        "session_status": "Bir oturumun mevcut durumunu sorgula",
+        "sessions_history": "Diğer oturumlardan mesaj geçmişini oku",
+        "sessions_list": "Tüm oturumların meta verilerini listele",
+        "sessions_send": "İş başlatmak için başka bir oturuma mesaj gönder",
+        "update_settings": "AppConfig ayarlarını değiştir",
+        "web_fetch": "Bir URL getir ve okunabilir içeriği çıkar",
+        "web_search": "Arama motoru ile sorgu yap"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "ACP alt ajanı",
+        "agents_list": "Ajanları listele",
+        "browser": "Tarayıcı kontrolü",
+        "get_settings": "Ayarları oku",
+        "image_generate": "Görsel oluşturma",
+        "list_settings_backups": "Ayar yedekleri",
+        "peek_sessions": "Oturumlara bak",
+        "process": "Arka plan süreçleri",
+        "restore_settings_backup": "Ayar yedeğini geri yükle",
+        "send_attachment": "Ek gönder",
+        "session_status": "Oturum durumu",
+        "sessions_history": "Oturum geçmişi",
+        "sessions_list": "Oturumları listele",
+        "sessions_send": "Oturumlar arası gönderim",
+        "update_settings": "Ayarları güncelle",
+        "web_fetch": "Web getir",
+        "web_search": "Web arama"
       }
     },
-    "agentApprovalTab": "Approval",
+    "agentApprovalTab": "Onay",
     "agentAsyncToolPolicy": {
       "title": "Asenkron araç arka plana alma",
       "desc": "Asenkron destekli araçların (exec / web_search / image_generate) ne zaman arka plan işine alınacağı. Onaydan bağımsız.",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "AI Ajanlarını tanımlayın ve yönetin. Her Ajan farklı kimlik, yetenek ve davranışa sahip olabilir.",
     "appearance": "Görünüm",
     "appearanceDesc": "Tema görünüm modunu seçin",
-    "approvalNav": "Permission",
+    "approvalNav": "İzinler",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "Onayı zorunlu kılar ve Her zaman izin ver yapılamaz. YOLO modu bunu atlar ama denetim günlüklerini yine yazar.",
+      "dangerousCommandsPlaceholder": "örn. rm -rf /, git push --force",
+      "dangerousCommandsTitle": "Tehlikeli Komutlar",
+      "editCommandsDesc": "Default modunda, bu desenlerle eşleşen exec çağrıları onay ister (büyük/küçük harfe duyarsız alt dize); Her zaman izin ver kullanılabilir.",
+      "editCommandsPlaceholder": "örn. rm , git commit, npm install",
+      "editCommandsTitle": "Düzenleme Komutları",
+      "empty": "Kayıt yok — etkinleştirmek için bir desen ekleyin",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "İzni zorla",
+        "ask": "Soruyu zorla",
+        "default": "Default moduna dön"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "Genel YOLO anahtarı, korunan yol / düzenleme komutu / tehlikeli komut desen listeleri ve Akıllı onay modu yapılandırması.",
+      "judgeExtraPromptPlaceholder": "İsteğe bağlı: yargıç için ek talimatlar (yol izin listeleri, güvenilir komutlar...)",
+      "judgeModelPlaceholder": "Model (örn. claude-haiku-4-5)",
+      "judgeModelTitle": "Yargıç Model Yapılandırması",
+      "judgeProviderPlaceholder": "Sağlayıcı ID’si (örn. anthropic-1)",
+      "protectedPathsDesc": "Bu yollara dokunan araç çağrıları onayı zorunlu kılar ve Her zaman izin ver yapılamaz. ~/ genişletme, dizin öneki (sonunda /) ve *.pattern glob desteği vardır.",
+      "protectedPathsPlaceholder": "örn. ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "Korunan Yollar",
+      "restoreDefaults": "Varsayılanları geri yükle",
+      "restoredDefaults": "Varsayılanlara geri yüklendi",
+      "smartDesc": "Smart oturum modunda, modelin öz güven etiketi veya bağımsız yargıç model onaylara karar verir.",
+      "smartFallback": "Kullanılamadığında yedek",
+      "smartStrategy": "Karar stratejisi",
+      "smartTitle": "Akıllı Onay Modu",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "Önce yargıç, öz etiket yedek",
+        "judge_model": "Yargıç Model",
+        "self_confidence": "Model öz etiketi"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "Zaman aşımı eylemi",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "Yürütmeyi engelle",
+        "proceed": "Devam et"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "Kullanıcı bu saniye içinde yanıt vermezse aşağıdaki eyleme düşer. 0 = sonsuza kadar bekle.",
+      "timeoutHint": "0 = sonsuza kadar bekle",
+      "timeoutSeconds": "Zaman aşımı saniyesi",
+      "timeoutTitle": "Onay iletişim kutusu zaman aşımı",
+      "title": "İzin",
+      "yoloCliActive": "⚠️ CLI bayrağı --dangerously-skip-all-approvals etkin ve GUI’den devre dışı bırakılamaz.",
+      "yoloDesc": "Açıkken tüm araçlar onaysız çalışır; yalnızca Plan Mode hâlâ engelleyebilir. Korunan yol / tehlikeli komut eşleşmeleri uyarı günlüğü yazar ama yürütülür.",
+      "yoloDisabled": "Genel YOLO devre dışı",
+      "yoloEnabled": "Genel YOLO etkin",
+      "yoloTitle": "Genel YOLO (tüm onayları atla)"
     },
     "approvalTimeout": "Araç onay bekleme zaman aşımı",
     "approvalTimeoutAction": "Onay zaman aşımı eylemi",
@@ -3320,150 +3320,150 @@
       "title": "Mac Kontrolü"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "Kontrol ve Yakalama",
+      "deviceNetwork": "Cihazlar ve Ağ",
+      "fileAccess": "Dosya Erişimi",
+      "personalData": "Kişisel Veriler",
+      "systemServices": "Sistem Hizmetleri"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "Erişilebilirlik",
+        "usage": "Fareyi, klavyeyi ve diğer uygulama pencerelerini kontrol et."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "Uygulama Yönetimi",
+        "note": "macOS, uygulama başına güvenilir bir genel durum API’si sunmaz.",
+        "usage": "Diğer uygulamaları yalnızca bir araç açıkça ihtiyaç duyduğunda yönet veya güncelle."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "Otomasyon: Mesajlar",
+        "note": "Otomasyon onayı hedef uygulama başına saklanır; Sistem Ayarları en güvenilir doğruluk kaynağıdır.",
+        "usage": "Mesajlaşma iş akışları gerektiğinde Apple Events ile Mesajlar otomasyonuna izin ver."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "Otomasyon: System Events",
+        "note": "Otomasyon onayı hedef uygulama başına saklanır; Sistem Ayarları en güvenilir doğruluk kaynağıdır.",
+        "usage": "Apple Events ile System Events otomasyonuna izin ver."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Bluetooth cihazları",
+        "usage": "Bir iş akışı gerektiğinde Bluetooth cihazlarını bul ve bağlan."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "Takvimler",
+        "usage": "Planlama iş akışları gerektiğinde takvim etkinliklerini oku veya yaz."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "Kamera",
+        "usage": "Kamerayı yalnızca açıkça istendiğinde görsel giriş için kullan."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "Kişiler",
+        "usage": "Kişileri yalnızca kullanıcı iş akışı açıkça istediğinde oku."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "Masaüstü Klasörü",
+        "note": "macOS bunu Dosyalar ve Klasörler üzerinden sunar; durum yoklanır.",
+        "usage": "Kullanıcı istediğinde Masaüstündeki dosyaları oku ve yaz."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "Geliştirici Araçları",
+        "note": "macOS, uygulama başına güvenilir bir genel durum API’si sunmaz.",
+        "usage": "macOS’un Geliştirici Araçları onayı arkasında koruduğu geliştirme araçlarını kullan."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "Belgeler Klasörü",
+        "note": "macOS bunu Dosyalar ve Klasörler üzerinden sunar; durum yoklanır.",
+        "usage": "Kullanıcı istediğinde Belgeler içindeki dosyaları oku ve yaz."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "İndirilenler Klasörü",
+        "note": "macOS bunu Dosyalar ve Klasörler üzerinden sunar; durum yoklanır.",
+        "usage": "Kullanıcı istediğinde İndirilenler içindeki dosyaları oku ve yaz."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "Odak Durumu",
+        "note": "macOS, uygulama başına güvenilir bir genel durum API’si sunmaz.",
+        "usage": "Odak durumunu yalnızca bildirimleri veya kesintileri uyarlayan iş akışları için oku."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "Tam Disk Erişimi",
+        "note": "Muhafazakâr bir dosya sistemi yoklamasıyla algılanır; yokluğu manuel onay olarak gösterilir.",
+        "usage": "Normal Dosyalar ve Klasörler onayının kapsamadığı korumalı dosyaları oku."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit (ev)",
+        "note": "Hope Agent şu anda HomeKit iş akışlarını kullanmaz.",
+        "usage": "Ev verilerine yalnızca gelecekte HomeKit iş akışları etkinleştirilirse eriş."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "Giriş İzleme",
+        "usage": "Masaüstü otomasyonu için gereken klavye ve işaretçi olaylarını dinle."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "Yerel Ağ",
+        "note": "macOS Yerel Ağ gizliliğinin güvenilir bir genel durum API’si yoktur.",
+        "usage": "Yerel ağdaki cihazları bul ve bağlan."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "Konum Hizmetleri",
+        "usage": "Yerel hava durumu ve konuma duyarlı iş akışları için cihaz konumunu kullan."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "Medya Kitaplığı",
+        "note": "Bu uygulama yüzeyi için güvenilir bir genel durum API’si yoktur.",
+        "usage": "Medya kitaplığına yalnızca bir medya iş akışı açıkça ihtiyaç duyduğunda eriş."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "Mikrofon",
+        "usage": "Mikrofonu yalnızca açıkça istendiğinde ses girişi için kullan."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "Ağ Birimleri",
+        "note": "Birim başına güvenilir bir genel durum API’si yoktur.",
+        "usage": "Kullanıcı uygulamadan orada çalışmasını istediğinde bağlı ağ birimlerine eriş."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "Bildirimler",
+        "note": "Bildirim yapılandırması Bildirimler ayar sayfasında kalır.",
+        "usage": "Sistem bildirimlerini göster."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "Fotoğraflar",
+        "usage": "Fotoğraflar kitaplığına yalnızca kullanıcı fotoğraf iş akışları istediğinde eriş."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "Anımsatıcılar",
+        "usage": "Planlama iş akışları gerektiğinde anımsatıcıları oku veya yaz."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "Çıkarılabilir Birimler",
+        "note": "Birim başına güvenilir bir genel durum API’si yoktur.",
+        "usage": "Kullanıcı uygulamadan orada çalışmasını istediğinde çıkarılabilir sürücülere eriş."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "Ekran Kaydı",
+        "usage": "Görsel anlama ve UI otomasyonu için ekran içeriklerini yakala."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "Konuşma Tanıma",
+        "usage": "Bir ses iş akışı transkripsiyon istediğinde konuşma tanımayı kullan."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "Sistem Sesi Yakalama",
+        "note": "macOS bu izin için güvenilir bir genel preflight API’si sunmaz.",
+        "usage": "Gelecekteki bir iş akışı açıkça ihtiyaç duyduğunda sistem sesini yakala."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "Verildi",
+      "manualCheck": "Manuel kontrol",
+      "notApplicable": "Geçerli değil",
+      "notDetermined": "Belirlenmedi",
+      "notGranted": "Verilmedi",
+      "notUsed": "Kullanılmıyor",
+      "restricted": "Kısıtlı"
     },
     "permissions": "İzinler",
     "personaModeDesc": "Yapılandırılmış alanları doldurun veya doğrudan bir SOUL.md markdown yazın. SOUL.md dosyası openclaw uyumluluk moduyla paylaşılır.",
@@ -3690,7 +3690,9 @@
         "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
         "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
         "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
+        "apply": "Keep this, discard the other {{n}}",
+        "autoNoticeTitle": "Auto-curator birleştirme önerileri buldu",
+        "autoNoticeBody": "{{scanned}} taslak içinde {{proposals}} küme aşağıda incelenmeye hazır."
       },
       "resetAll": {
         "label": "Reset everything",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        },
+        "autoCuratorEnabled": {
+          "label": "Curatorı zamanlı çalıştır",
+          "help": "Açıkken Hope Agent taslak becerilerdeki örtüşmeleri düzenli olarak tarar ve birleştirme önerilerini burada gösterir."
+        },
+        "autoCuratorIntervalDays": {
+          "label": "Curator aralığı",
+          "help": "Otomatik taslak birleştirme taramaları arasındaki gün sayısı. Backend her döngüde bu ayarı yeniden okur."
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "Bu sağlayıcı HTTP kullanır — Base URL http:// veya https:// ile başlamalı",
       "errApiKeyRequired": "API Key gerekli",
       "errExtraFieldRequired": "Zorunlu alan eksik: {{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+      "text": "Run this JavaScript in the browser?\n\n{{preview}}",
+      "header": "Browser evaluate",
+      "runIt": "Run it",
+      "cancel": "Cancel"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+        "header": "Hope Agent rollback",
+        "confirm": "Roll back now",
+        "cancel": "Cancel"
+      },
+      "install": {
+        "context": "Hope Agent self-update confirmation. Install source: {{installSource}}. Recommended path: {{path}}.",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: package manager ({{installSource}}){{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "selfContained": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: download bare binary, verify Minisign signature, atomically swap.{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "tauri": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: Tauri bundled updater (signed installer).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "manualPrompt": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: manual download (no automated path matches).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first."
+        },
+        "confirm": "Upgrade now",
+        "cancel": "Not now"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+        "dockerText": "Hope Agent is running in a Docker container ({{from}} → {{to}}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+        "dockerHeader": "Docker upgrade required",
+        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+        "text": "No automated upgrade path is available for Hope Agent {{from}} → {{to}}. Install source detected as: {{installSource}}. Pick a recovery:",
+        "header": "Manual upgrade required",
+        "openReleases": "Open release page in browser",
+        "openReleasesManual": "Open release page in browser (manual download)",
+        "forceSelfContained": "Try the self-contained bare-binary swap anyway",
+        "abort": "Abort upgrade"
+      }
     }
   }
 }

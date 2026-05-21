@@ -136,13 +136,17 @@ pub async fn wait_login(session_key: &str, timeout_ms: Option<u64>) -> Result<We
 
     match status.status.as_deref().unwrap_or("wait") {
         "confirmed" => {
+            let base_url = status
+                .baseurl
+                .filter(|v| !v.trim().is_empty())
+                .or_else(|| Some(login.current_api_base_url.clone()));
             ACTIVE_LOGINS.lock().await.remove(session_key);
             Ok(WeChatLoginWait {
                 connected: true,
                 status: Some("connected".to_string()),
                 bot_token: status.bot_token,
                 remote_account_id: status.ilink_bot_id,
-                base_url: status.baseurl,
+                base_url,
                 user_id: status.ilink_user_id,
                 message: "微信连接成功。".to_string(),
                 qrcode_url: None,

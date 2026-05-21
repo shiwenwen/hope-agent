@@ -637,29 +637,14 @@ async fn reverse_geocode(
     }
 }
 
-#[cfg(target_os = "macos")]
-async fn system_locate() -> Option<(f64, f64)> {
-    crate::weather_location_macos::system_locate().await
-}
-
-#[cfg(not(target_os = "macos"))]
-async fn system_locate() -> Option<(f64, f64)> {
-    crate::app_info!(
-        "weather",
-        "system_locate",
-        "Not macOS, skipping CoreLocation"
-    );
-    None
-}
-
 /// Detect user location automatically.
-/// Tries macOS CoreLocation first (precise), falls back to IP geolocation (city-level).
+/// Tries OS precise location first, falls back to IP geolocation (city-level).
 /// Reverse geocodes to get a city name when using system location.
 pub async fn detect_location() -> Result<DetectedLocation> {
     crate::app_info!("weather", "detect_location", "Starting location detection");
 
-    // Step 1: Try system location (macOS CoreLocation)
-    let system_result = system_locate().await;
+    // Step 1: Try OS-backed precise location (macOS CoreLocation today).
+    let system_result = crate::platform::current_location().await;
 
     if let Some((lat, lon)) = system_result {
         crate::app_info!(

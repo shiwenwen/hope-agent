@@ -6,12 +6,13 @@
 //! - **SDK / Reference**: <https://github.com/tulir/whatsmeow>（推荐 bridge 实现，
 //!   逆向 WA 协议提供 Go API），<https://github.com/WhiskeySockets/Baileys>（Node.js）
 //! - **Protocol**: 通用 bridge HTTP 长轮询 — `GET /api/messages?since={ts}` +
-//!   `POST /api/send`；timestamp 单位 = Unix 秒（UTC，bridge 实现需遵守）
-//! - **Last reviewed**: 2026-05-05
+//!   `POST /api/send` / `POST /api/media`；timestamp 单位 = Unix 秒（UTC，bridge 实现需遵守）
+//! - **Last reviewed**: 2026-05-20
 
 pub mod api;
 pub mod format;
 pub mod inbound_media;
+pub mod media;
 pub mod polling;
 
 use std::collections::HashMap;
@@ -101,10 +102,15 @@ impl ChannelPlugin for WhatsAppPlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            // TODO: native WhatsApp media (Cloud API two-step upload →
-            // messages) not yet implemented. Dispatcher falls back to a
-            // download-link text for now.
-            supports_media: Vec::new(),
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+                MediaType::Sticker,
+                MediaType::Voice,
+                MediaType::Animation,
+            ],
             supports_typing: true,
             supports_buttons: false,
             streaming_preview_max_bytes: Some(65536),
@@ -154,6 +160,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         tokio::spawn(polling::run_whatsapp_polling(
             api,
             account.id.clone(),
+            account.label.clone(),
             inbound_tx,
             cancel,
         ));
@@ -206,9 +213,47 @@ impl ChannelPlugin for WhatsAppPlugin {
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
 
+        if !payload.media.is_empty() {
+            let prepared = match media::prepare_whatsapp_media(&payload.media).await {
+                Ok(prepared) => prepared,
+                Err(e) => return Ok(DeliveryResult::err(e.to_string())),
+            };
+
+            let mut last_msg_id = None;
+            for (idx, item) in prepared.iter().enumerate() {
+                let caption =
+                    media::caption_text(payload.text.as_deref(), item.caption.as_deref(), idx == 0);
+                let resp = api
+                    .send_media(
+                        chat_id,
+                        item.media_type,
+                        &item.media,
+                        caption.as_deref(),
+                        Some(&item.filename),
+                        Some(&item.mime_type),
+                        payload.reply_to_message_id.as_deref(),
+                    )
+                    .await?;
+                if let Some(err) = resp.error {
+                    return Ok(DeliveryResult::err(err));
+                }
+                last_msg_id = Some(resp.message_id.unwrap_or_else(|| {
+                    if prepared.len() == 1 {
+                        "sent".to_string()
+                    } else {
+                        format!("sent:{}", idx + 1)
+                    }
+                }));
+            }
+
+            return Ok(DeliveryResult::ok(
+                last_msg_id.unwrap_or_else(|| "no_content".to_string()),
+            ));
+        }
+
         let text = payload.text.as_deref().map(str::trim).unwrap_or("");
         if text.is_empty() {
-            return Ok(DeliveryResult::ok("empty"));
+            return Ok(DeliveryResult::err("WhatsApp message text is empty"));
         }
 
         let reply_to = payload.reply_to_message_id.as_deref();

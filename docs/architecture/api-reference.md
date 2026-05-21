@@ -122,6 +122,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `agent:send_notification` | tools/notification.rs（`{ title, body }`） |
 | `acp_control_event` | ACP 运行生命周期 |
 | `skills:auto_review_complete` | skills 草稿审核完成 |
+| `skills:curator_proposals_ready` | auto-curator 周期扫描完成，payload 为 `CuratorReport` |
 | `recap_progress` | `/recap` 深度复盘进度 |
 | `local_model_job:created` / `:updated` / `:log` / `:completed` | 后台本地模型任务（Ollama 安装、模型拉取、Embedding 拉取）的全生命周期事件，payload 见 `LocalModelJobSnapshot` / `LocalModelJobLogEntry` |
 | `local_model:missing_alert` | 默认 chat / embedding 模型文件丢失，payload 见 `LocalModelMissingAlert`（kind / missingModelId / alternatives / canRedownload / canDisableEmbedding） |

@@ -3393,7 +3393,7 @@
         "usage": "读取“文件与文件夹”授权无法覆盖的受保护文件。"
       },
       "homekit": {
-        "label": "HomeKit",
+        "label": "HomeKit（家庭）",
         "note": "Hope Agent 当前未使用 HomeKit 工作流。",
         "usage": "仅当后续启用家庭工作流时访问家庭数据。"
       },
@@ -3690,7 +3690,9 @@
         "noClusters": "已扫描 {{count}} 条草稿，未发现明显重叠。",
         "foundN": "在 {{scanned}} 条草稿中发现 {{proposals}} 组潜在重叠。",
         "clusterMeta": "{{members}} 条草稿 · 最低相似度 {{similarity}}",
-        "apply": "保留这一条、删除其余 {{n}} 条"
+        "apply": "保留这一条、删除其余 {{n}} 条",
+        "autoNoticeTitle": "Auto-curator 发现了合并建议",
+        "autoNoticeBody": "在 {{scanned}} 条草稿中发现 {{proposals}} 组可合并项，下面可以直接审核。"
       },
       "resetAll": {
         "label": "全部恢复默认",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "覆盖审核 Prompt",
           "help": "完全替换内置审核系统提示词；留空则用内置版本。后端硬阈值仍会生效。"
+        },
+        "autoCuratorEnabled": {
+          "label": "定期运行草稿合并扫描",
+          "help": "开启后，Hope Agent 会周期性扫描草稿技能里的主题重叠，并把合并建议显示在这里。"
+        },
+        "autoCuratorIntervalDays": {
+          "label": "合并扫描间隔",
+          "help": "两次自动草稿合并扫描之间的天数。后端每轮都会重新读取这个设置。"
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "该服务商是 HTTP 协议，Base URL 必须以 http:// 或 https:// 开头",
       "errApiKeyRequired": "请填写 API Key",
       "errExtraFieldRequired": "请填写必填字段：{{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "浏览器 control.evaluate 即将在当前标签页运行任意 JavaScript。只有在你信任这段脚本时才批准。",
+      "text": "要在浏览器中运行这段 JavaScript 吗？\n\n{{preview}}",
+      "header": "浏览器执行脚本",
+      "runIt": "运行",
+      "cancel": "取消"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent 回滚：从 ~/.hope-agent/updater/backup/ 恢复上一个二进制文件并重启服务。",
+        "text": "要回滚到上一个已安装的 Hope Agent 二进制文件吗？替换完成后服务会立即重启。",
+        "header": "Hope Agent 回滚",
+        "confirm": "立即回滚",
+        "cancel": "取消"
+      },
+      "install": {
+        "context": "Hope Agent 自更新确认。安装来源：{{installSource}}。推荐路径：{{path}}。",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "要升级 Hope Agent {{from}} → {{to}} 吗？\n路径：包管理器（{{installSource}}）{{notes}}\n\n用户级服务会在二进制替换后立即重启（通常停机 1-2 秒）。正在进行的对话、定时任务或 IM 流都会被取消，请先暂停重要工作。",
+          "selfContained": "要升级 Hope Agent {{from}} → {{to}} 吗？\n路径：下载独立二进制、校验 Minisign 签名、原子替换。{{notes}}\n\n用户级服务会在二进制替换后立即重启（通常停机 1-2 秒）。正在进行的对话、定时任务或 IM 流都会被取消，请先暂停重要工作。",
+          "tauri": "要升级 Hope Agent {{from}} → {{to}} 吗？\n路径：Tauri 桌面更新器（已签名安装包）。{{notes}}\n\n用户级服务会在二进制替换后立即重启（通常停机 1-2 秒）。正在进行的对话、定时任务或 IM 流都会被取消，请先暂停重要工作。",
+          "manualPrompt": "要升级 Hope Agent {{from}} → {{to}} 吗？\n路径：手动下载（没有匹配的自动升级路径）。{{notes}}\n\n用户级服务会在二进制替换后立即重启（通常停机 1-2 秒）。正在进行的对话、定时任务或 IM 流都会被取消，请先暂停重要工作。"
+        },
+        "confirm": "立即升级",
+        "cancel": "暂不升级"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent 正在 Docker 容器中运行。自更新无法替换镜像，请拉取新 tag 并重新创建容器。",
+        "dockerText": "Hope Agent 正在 Docker 容器中运行（{{from}} → {{to}}）。\n\n请拉取新镜像并重新创建容器：\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\n如果 compose 文件使用 latest，也可以固定到 latest。",
+        "dockerHeader": "需要 Docker 升级",
+        "context": "Hope Agent 无法为当前安装选择自动升级路径。请选择下一步。",
+        "text": "Hope Agent {{from}} → {{to}} 没有可用的自动升级路径。检测到的安装来源：{{installSource}}。请选择处理方式：",
+        "header": "需要手动升级",
+        "openReleases": "在浏览器中打开发布页面",
+        "openReleasesManual": "在浏览器中打开发布页面（手动下载）",
+        "forceSelfContained": "仍然尝试独立二进制替换",
+        "abort": "取消升级"
+      }
     }
   }
 }

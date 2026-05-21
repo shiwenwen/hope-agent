@@ -158,7 +158,7 @@ Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/se
 | Config | `config:changed` | `mutate_config()` 或 user config 写入后广播。 |
 | Notifications | `agent:send_notification` | Agent 触发系统通知。 |
 | ACP | `acp_control_event` | ACP 运行生命周期。 |
-| Skills | `skills:auto_review_complete` | Skill draft 自动审核完成。 |
+| Skills | `skills:auto_review_complete` / `skills:curator_proposals_ready` | Skill draft 自动审核完成；auto-curator 周期扫描产出草稿合并建议。 |
 | Recap | `recap_progress` | 深度复盘进度。 |
 | Local model jobs | `local_model_job:created` / `:updated` / `:log` / `:completed` | 后台本地模型任务（Ollama 安装、模型拉取、Embedding 拉取）的全生命周期事件。 |
 | Docker | `searxng:deploy_progress` | SearXNG Docker 部署进度。 |

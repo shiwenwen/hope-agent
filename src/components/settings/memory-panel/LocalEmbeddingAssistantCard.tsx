@@ -350,8 +350,8 @@ export default function LocalEmbeddingAssistantCard({
 
   // 已下载 + ollama 在跑 + 已是默认 memory embedding 模型时显示 disabled「已启用」
   // 按钮；任一不满足都让用户能从这张卡修复（重启 ollama / 重拉外部删掉的 tag）。
-  // 后端 ollama EmbeddingModelConfig.apiModel == OllamaEmbeddingModel.id 字面相等，
-  // 见 F-054 followup（待后端补 is_active flag 后可去掉这层比对）。
+  // 后端 ollama EmbeddingModelConfig.apiModel == OllamaEmbeddingModel.id 字面相等；
+  // 待后端补 is_active flag 后可去掉这层比对。
   const recommendedIsActiveEmbedding =
     !!recommended?.installed
     && ollama?.phase === "running"

@@ -9,7 +9,8 @@ mod types;
 // ── Re-exports ──────────────────────────────────────────────────
 
 pub use types::{
-    AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption,
+    AskUserI18nText, AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup,
+    AskUserQuestionOption, AskUserText,
 };
 
 pub use questions::{

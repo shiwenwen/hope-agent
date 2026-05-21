@@ -48,13 +48,17 @@ interface CanvasPanelProps {
   onPanelWidthChange?: (width: number) => void
   currentSessionId?: string | null
   onOpenChange?: (open: boolean) => void
+  visible?: boolean
 }
+
+export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
 
 export default function CanvasPanel({
   panelWidth = 480,
   onPanelWidthChange,
   currentSessionId = null,
   onOpenChange,
+  visible = true,
 }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
@@ -193,8 +197,8 @@ export default function CanvasPanel({
     // We can't reach into this component from `ChatScreen` directly, so the
     // close request flows over a CustomEvent.
     const onForceClose = () => setCanvas(null)
-    window.addEventListener("hope-agent:close-canvas", onForceClose)
-    unlisteners.push(() => window.removeEventListener("hope-agent:close-canvas", onForceClose))
+    window.addEventListener(CLOSE_CANVAS_PANEL_EVENT, onForceClose)
+    unlisteners.push(() => window.removeEventListener(CLOSE_CANVAS_PANEL_EVENT, onForceClose))
 
     unlisteners.push(
       getTransport().listen("canvas_reload", (raw) => {
@@ -385,7 +389,7 @@ export default function CanvasPanel({
     setDetached(false)
   }, [])
 
-  if (!canvas) return null
+  if (!canvas || !visible) return null
 
   // Build the iframe URL via the transport — `asset://` scheme in Tauri,
   // `/api/canvas/projects/{id}/index.html?token=...` in HTTP mode.

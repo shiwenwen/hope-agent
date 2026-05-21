@@ -376,8 +376,9 @@ pub struct EmbeddedServerConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     /// Publicly-reachable base URL for this server, used when IM channels
-    /// that only accept remote HTTPS media (LINE, IRC text fallback) need to
-    /// send `/api/attachments/...` links. `None` disables those fallbacks.
+    /// that only accept remote HTTPS media (LINE / QQ Bot native media, IRC
+    /// text fallback) need to send `/api/attachments/...` links. `None`
+    /// disables those fallbacks.
     /// Format: `https://example.com` (no trailing slash).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_base_url: Option<String>,

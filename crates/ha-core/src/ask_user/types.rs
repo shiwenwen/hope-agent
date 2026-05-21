@@ -1,4 +1,56 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
+
+// ── Localizable Text ─────────────────────────────────────────────
+
+/// Text shown in an ask-user prompt.
+///
+/// Backward compatibility is intentional here: older tool calls and persisted
+/// rows store plain strings, while backend-owned prompts can now send an i18n
+/// key plus interpolation params for the desktop/web UI. Non-i18n surfaces
+/// such as IM channels use `fallback_text()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AskUserText {
+    Plain(String),
+    I18n(AskUserI18nText),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserI18nText {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+impl AskUserText {
+    pub fn plain(value: impl Into<String>) -> Self {
+        Self::Plain(value.into())
+    }
+
+    pub fn fallback_text(&self) -> &str {
+        match self {
+            Self::Plain(value) => value,
+            Self::I18n(value) => value.fallback.as_deref().unwrap_or(&value.key),
+        }
+    }
+}
+
+impl From<String> for AskUserText {
+    fn from(value: String) -> Self {
+        Self::Plain(value)
+    }
+}
+
+impl From<&str> for AskUserText {
+    fn from(value: &str) -> Self {
+        Self::Plain(value.to_string())
+    }
+}
 
 // ── Ask User Question (Interactive Q&A) ──
 
@@ -7,9 +59,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct AskUserQuestionOption {
     pub value: String,
-    pub label: String,
+    pub label: AskUserText,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub description: Option<AskUserText>,
     /// Whether this option is recommended/suggested as the default choice.
     #[serde(default)]
     pub recommended: bool,
@@ -27,7 +79,7 @@ pub struct AskUserQuestionOption {
 #[serde(rename_all = "camelCase")]
 pub struct AskUserQuestion {
     pub question_id: String,
-    pub text: String,
+    pub text: AskUserText,
     pub options: Vec<AskUserQuestionOption>,
     /// Whether to render a free-form custom input alongside the options.
     ///
@@ -45,7 +97,7 @@ pub struct AskUserQuestion {
     pub template: Option<String>,
     /// Very short chip label (max ~12 chars) displayed next to the question text.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub header: Option<String>,
+    pub header: Option<AskUserText>,
     /// Per-question timeout in seconds. 0 or missing = inherit group / global default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
@@ -63,7 +115,7 @@ pub struct AskUserQuestionGroup {
     pub session_id: String,
     pub questions: Vec<AskUserQuestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<String>,
+    pub context: Option<AskUserText>,
     /// Where this question originated from: "plan" | "normal" | skill id.
     /// Used by the UI and listeners for routing / styling.
     #[serde(skip_serializing_if = "Option::is_none")]

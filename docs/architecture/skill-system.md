@@ -1340,7 +1340,7 @@ SkillsPanel 列表中每个技能显示状态标签：
 
 ### Curator（草稿合并）
 
-[`curator.rs`](../../crates/ha-core/src/skills/auto_review/curator.rs) 提供一次性扫描：用 Jaccard 把 `status=draft` 的 managed skill 聚类（默认阈值 0.4），输出 `MergeProposal { members, min_similarity }`。**不调用 LLM、不落盘**；前端展示给用户选择保留哪一个，调用 `apply_skills_curator_merge` 时通过 `delete_skill` 删除其余成员（同时进 gate 2 黑名单）。`autoCuratorEnabled=true` 时由独立后台任务按 `autoCuratorIntervalDays` 周期触发（默认关）。
+[`curator.rs`](../../crates/ha-core/src/skills/auto_review/curator.rs) 提供一次性扫描：用 Jaccard 把 `status=draft` 的 managed skill 聚类（默认阈值 0.4），输出 `MergeProposal { members, min_similarity }`。**不调用 LLM、不落盘**；前端展示给用户选择保留哪一个，调用 `apply_skills_curator_merge` 时通过 `delete_skill` 删除其余成员（同时进 gate 2 黑名单）。`autoCuratorEnabled=true` 时由独立后台任务按 `autoCuratorIntervalDays` 周期触发（默认关），每轮成功扫描会 emit `skills:curator_proposals_ready`（payload `CuratorReport`）；设置页只在 proposals 非空时显示提醒。
 
 ### 命令一览
 

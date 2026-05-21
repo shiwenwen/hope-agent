@@ -30,6 +30,19 @@ pub(super) fn detect_system_proxy() -> Option<String> {
     CACHED.get_or_init(probe_system_proxy).clone()
 }
 
+pub(super) async fn current_location() -> Option<(f64, f64)> {
+    crate::app_info!(
+        "platform",
+        "current_location",
+        "OS precise location unavailable on Windows"
+    );
+    None
+}
+
+pub(super) fn pdfium_library_candidates() -> &'static [&'static str] {
+    &["pdfium.dll"]
+}
+
 fn probe_system_proxy() -> Option<String> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;

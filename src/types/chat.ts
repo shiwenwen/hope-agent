@@ -167,6 +167,15 @@ export interface Message {
   }
   /** Context window breakdown data for rendering the /context card */
   contextBreakdownData?: import("@/components/chat/slash-commands/types").ContextBreakdown
+  /** Recap generation progress card created by the /recap slash command. */
+  recapCardData?: {
+    reportId: string
+  }
+  /** Skill fork status card created by slash skill commands that run in a child session. */
+  skillForkData?: {
+    runId: string
+    skillName: string
+  }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
   /** If true, this message is currently being streamed (channel streaming) */

@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "이 도구는 에이전트의 사용자 지정 승인 목록에 있습니다(Default 모드에서만 적용).",
+        "title": "에이전트 사용자 지정 승인 목록"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "위험 명령 패턴 목록과 일치했습니다. 호출마다 확인이 필요하며 항상 허용은 사용할 수 없습니다.",
+        "title": "⚠️ 위험 명령"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "편집 명령 패턴 목록과 일치했습니다. Default 모드에서는 확인이 필요하며, 항상 허용을 선택하면 명령 접두사가 저장됩니다.",
+        "title": "편집 패턴 exec 명령"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "Default 모드에서는 파일 쓰기 도구(write/edit/apply_patch)에 확인이 필요합니다.",
+        "title": "편집 유형 도구"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "Plan Mode에서 이 도구는 호출마다 확인 대상으로 지정되어 있습니다. 허용 목록에 있어도 매번 승인이 필요합니다.",
+        "title": "Plan Mode 확인"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "보호 경로 목록과 일치했습니다. 호출마다 확인이 필요하며 항상 허용은 사용할 수 없습니다.",
+        "title": "⚠️ 보호 경로"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "Smart 모드의 판정 모델이 이 호출에는 사람의 확인이 필요하다고 판단했습니다.",
+        "title": "Smart 모드 판정"
       },
       "mac_control_action": {
         "title": "Mac 제어 작업",
@@ -2120,15 +2120,15 @@
       "defaultModeDesc": "새 세션의 초기 권한 모드. 기존 세션에는 영향이 없습니다.",
       "defaultModeTitle": "기본 세션 권한 모드",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "브라우저",
+        "crossSession": "세션 간 읽기",
+        "network": "네트워크 접근",
+        "outbound": "외부 전송",
+        "paid": "유료 API",
+        "settings": "설정 변경",
+        "settingsRead": "설정 조회",
+        "shell": "셸 및 프로세스",
+        "spawn": "외부 하위 프로세스"
       },
       "modes": {
         "default": {
@@ -2145,46 +2145,46 @@
         },
         "yolo": {
           "desc": "모든 도구가 승인 없이 실행 (보호 경로는 감사 로그)",
-          "label": "YOLO"
+          "label": "YOLO 모드"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "외부 ACP 하위 에이전트 프로세스 실행",
+        "agents_list": "구성된 모든 에이전트 나열",
+        "browser": "CDP로 브라우저를 제어해 UI 자동화",
+        "get_settings": "애플리케이션 설정 읽기",
+        "image_generate": "유료 API로 이미지 생성",
+        "list_settings_backups": "설정 백업 기록 나열",
+        "peek_sessions": "다른 세션의 실시간 활동 보기",
+        "process": "exec 백그라운드 세션 관리(kill/write/clear/remove)",
+        "restore_settings_backup": "이전 설정 백업으로 롤백",
+        "send_attachment": "IM 채널로 파일 첨부 전송",
+        "session_status": "세션의 현재 상태 조회",
+        "sessions_history": "다른 세션의 메시지 기록 읽기",
+        "sessions_list": "모든 세션 메타데이터 나열",
+        "sessions_send": "다른 세션에 메시지를 보내 작업 트리거",
+        "update_settings": "AppConfig 설정 수정",
+        "web_fetch": "URL을 가져와 읽기 쉬운 콘텐츠 추출",
+        "web_search": "검색 엔진으로 검색"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "ACP 하위 에이전트",
+        "agents_list": "에이전트 목록",
+        "browser": "브라우저 제어",
+        "get_settings": "설정 읽기",
+        "image_generate": "이미지 생성",
+        "list_settings_backups": "설정 백업 목록",
+        "peek_sessions": "세션 살펴보기",
+        "process": "백그라운드 프로세스",
+        "restore_settings_backup": "설정 백업 복원",
+        "send_attachment": "첨부 파일 보내기",
+        "session_status": "세션 상태",
+        "sessions_history": "세션 기록",
+        "sessions_list": "세션 목록",
+        "sessions_send": "세션 간 전송",
+        "update_settings": "설정 업데이트",
+        "web_fetch": "웹 가져오기",
+        "web_search": "웹 검색"
       }
     },
     "agentApprovalTab": "승인",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "AI 에이전트를 정의하고 관리합니다. 각 에이전트는 고유한 정체성, 능력, 행동을 가질 수 있습니다.",
     "appearance": "외관",
     "appearanceDesc": "테마 외관 모드 선택",
-    "approvalNav": "Permission",
+    "approvalNav": "권한",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "승인을 강제하며 항상 허용할 수 없습니다. YOLO 모드는 우회하지만 감사 로그는 계속 기록합니다.",
+      "dangerousCommandsPlaceholder": "예: rm -rf /, git push --force",
+      "dangerousCommandsTitle": "위험 명령",
+      "editCommandsDesc": "Default 모드에서 이 패턴과 일치하는 exec 호출은 승인이 필요합니다(대소문자 구분 없는 부분 문자열). 항상 허용도 사용할 수 있습니다.",
+      "editCommandsPlaceholder": "예: rm , git commit, npm install",
+      "editCommandsTitle": "편집 명령",
+      "empty": "항목이 없습니다. 패턴을 추가하면 활성화됩니다.",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "강제 허용",
+        "ask": "강제 확인",
+        "default": "Default 모드로 폴백"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "전역 YOLO 토글, 보호 경로 / 편집 명령 / 위험 명령 패턴 목록, Smart 승인 모드 설정입니다.",
+      "judgeExtraPromptPlaceholder": "선택 사항: 판정 모델에 전달할 추가 지침(경로 허용 목록, 신뢰할 명령 등)",
+      "judgeModelPlaceholder": "모델(예: claude-haiku-4-5)",
+      "judgeModelTitle": "판정 모델 설정",
+      "judgeProviderPlaceholder": "Provider ID(예: anthropic-1)",
+      "protectedPathsDesc": "이 경로에 닿는 도구 호출은 승인이 강제되며 항상 허용할 수 없습니다. ~/ 확장, 디렉터리 접두사(끝 /), *.pattern glob을 지원합니다.",
+      "protectedPathsPlaceholder": "예: ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "보호 경로",
+      "restoreDefaults": "기본값 복원",
+      "restoredDefaults": "기본값으로 복원됨",
+      "smartDesc": "Smart 세션 모드에서는 모델의 자기 신뢰도 태그 또는 독립 판정 모델이 승인을 결정합니다.",
+      "smartFallback": "사용할 수 없을 때의 폴백",
+      "smartStrategy": "결정 전략",
+      "smartTitle": "Smart 승인 모드",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "판정 모델 우선, 자기 태그 폴백",
+        "judge_model": "판정 모델",
+        "self_confidence": "모델 자기 태그"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "타임아웃 동작",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "실행 차단",
+        "proceed": "진행"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "사용자가 이 초 안에 응답하지 않으면 아래 동작으로 폴백합니다. 0 = 계속 대기.",
+      "timeoutHint": "0 = 계속 대기",
+      "timeoutSeconds": "타임아웃 초",
+      "timeoutTitle": "승인 대화상자 타임아웃",
+      "title": "권한",
+      "yoloCliActive": "⚠️ CLI 플래그 --dangerously-skip-all-approvals가 활성화되어 있으며 GUI에서 비활성화할 수 없습니다.",
+      "yoloDesc": "켜면 모든 도구가 승인 없이 실행됩니다. Plan Mode만 계속 차단할 수 있습니다. 보호 경로 / 위험 명령 일치는 경고 로그를 남기고 실행됩니다.",
+      "yoloDisabled": "전역 YOLO 비활성화됨",
+      "yoloEnabled": "전역 YOLO 활성화됨",
+      "yoloTitle": "전역 YOLO(모든 승인 건너뛰기)"
     },
     "approvalTimeout": "도구 승인 대기 시간 초과",
     "approvalTimeoutAction": "승인 시간 초과 동작",
@@ -3320,150 +3320,150 @@
       "title": "Mac 제어"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "제어 및 캡처",
+      "deviceNetwork": "기기 및 네트워크",
+      "fileAccess": "파일 접근",
+      "personalData": "개인 데이터",
+      "systemServices": "시스템 서비스"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "손쉬운 사용",
+        "usage": "마우스, 키보드 및 다른 애플리케이션 창을 제어합니다."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "앱 관리",
+        "note": "macOS는 앱별 상태를 안정적으로 제공하는 공개 API를 노출하지 않습니다.",
+        "usage": "도구가 명시적으로 필요로 할 때만 다른 애플리케이션을 관리하거나 업데이트합니다."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "자동화: 메시지",
+        "note": "자동화 동의는 대상 앱별로 저장됩니다. 시스템 설정이 가장 신뢰할 수 있는 기준입니다.",
+        "usage": "메시징 워크플로에 필요할 때 Apple Events로 메시지를 자동화하도록 허용합니다."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "자동화: System Events",
+        "note": "자동화 동의는 대상 앱별로 저장됩니다. 시스템 설정이 가장 신뢰할 수 있는 기준입니다.",
+        "usage": "Apple Events로 System Events를 자동화하도록 허용합니다."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Bluetooth 기기",
+        "usage": "워크플로에 필요할 때 Bluetooth 기기를 검색하고 연결합니다."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "캘린더",
+        "usage": "일정 워크플로에 필요할 때 캘린더 이벤트를 읽거나 씁니다."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "카메라",
+        "usage": "명시적으로 요청된 경우에만 시각 입력에 카메라를 사용합니다."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "연락처",
+        "usage": "사용자 워크플로가 명시적으로 요청한 경우에만 연락처를 읽습니다."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "데스크탑 폴더",
+        "note": "macOS는 이를 파일 및 폴더를 통해 노출하며, 상태는 프로브로 확인합니다.",
+        "usage": "사용자가 요청한 경우 데스크탑의 파일을 읽고 씁니다."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "개발자 도구",
+        "note": "macOS는 앱별 상태를 안정적으로 제공하는 공개 API를 노출하지 않습니다.",
+        "usage": "macOS가 개발자 도구 동의로 보호하는 개발 도구를 사용합니다."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "문서 폴더",
+        "note": "macOS는 이를 파일 및 폴더를 통해 노출하며, 상태는 프로브로 확인합니다.",
+        "usage": "사용자가 요청한 경우 문서 폴더의 파일을 읽고 씁니다."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "다운로드 폴더",
+        "note": "macOS는 이를 파일 및 폴더를 통해 노출하며, 상태는 프로브로 확인합니다.",
+        "usage": "사용자가 요청한 경우 다운로드 폴더의 파일을 읽고 씁니다."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "집중 모드 상태",
+        "note": "macOS는 앱별 상태를 안정적으로 제공하는 공개 API를 노출하지 않습니다.",
+        "usage": "알림이나 방해를 조정하는 워크플로에서만 집중 모드 상태를 읽습니다."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "전체 디스크 접근",
+        "note": "보수적인 파일시스템 프로브로 감지합니다. 없으면 수동 확인으로 표시됩니다.",
+        "usage": "일반 파일 및 폴더 동의로는 포함되지 않는 보호 파일을 읽습니다."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit 홈",
+        "note": "Hope Agent는 현재 HomeKit 워크플로를 사용하지 않습니다.",
+        "usage": "향후 HomeKit 워크플로가 활성화된 경우에만 홈 데이터에 접근합니다."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "입력 모니터링",
+        "usage": "데스크톱 자동화에 필요한 키보드 및 포인터 이벤트를 감지합니다."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "로컬 네트워크",
+        "note": "macOS 로컬 네트워크 개인정보 보호에는 신뢰할 수 있는 공개 상태 API가 없습니다.",
+        "usage": "로컬 네트워크의 기기를 검색하고 연결합니다."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "위치 서비스",
+        "usage": "지역 날씨와 위치 기반 워크플로에 기기 위치를 사용합니다."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "미디어 라이브러리",
+        "note": "이 앱 영역에는 신뢰할 수 있는 공개 상태 API가 없습니다.",
+        "usage": "미디어 워크플로가 명시적으로 필요로 할 때만 미디어 라이브러리에 접근합니다."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "마이크",
+        "usage": "명시적으로 요청된 경우에만 음성 입력에 마이크를 사용합니다."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "네트워크 볼륨",
+        "note": "볼륨별 신뢰할 수 있는 공개 상태 API가 없습니다.",
+        "usage": "사용자가 앱에 해당 위치에서 작업하라고 요청할 때 마운트된 네트워크 볼륨에 접근합니다."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "알림",
+        "note": "알림 구성은 알림 설정 페이지에서 관리합니다.",
+        "usage": "시스템 알림을 표시합니다."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "사진",
+        "usage": "사용자가 사진 워크플로를 요청한 경우에만 사진 보관함에 접근합니다."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "미리 알림",
+        "usage": "계획 워크플로에 필요할 때 미리 알림을 읽거나 씁니다."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "이동식 볼륨",
+        "note": "볼륨별 신뢰할 수 있는 공개 상태 API가 없습니다.",
+        "usage": "사용자가 앱에 해당 위치에서 작업하라고 요청할 때 이동식 드라이브에 접근합니다."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "화면 기록",
+        "usage": "시각적 이해와 UI 자동화를 위해 화면 내용을 캡처합니다."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "음성 인식",
+        "usage": "음성 워크플로가 전사를 요청할 때 음성 인식을 사용합니다."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "시스템 오디오 캡처",
+        "note": "macOS는 이 권한에 대한 신뢰할 수 있는 공개 사전 확인 API를 노출하지 않습니다.",
+        "usage": "향후 워크플로가 명시적으로 필요로 할 때 시스템 오디오를 캡처합니다."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "허용됨",
+      "manualCheck": "수동 확인",
+      "notApplicable": "해당 없음",
+      "notDetermined": "결정되지 않음",
+      "notGranted": "허용되지 않음",
+      "notUsed": "사용 안 함",
+      "restricted": "제한됨"
     },
     "permissions": "시스템 권한",
     "personaModeDesc": "구조화된 필드를 채우거나 SOUL.md 마크다운을 직접 작성하세요. SOUL.md 파일은 openclaw 호환 모드와 공유됩니다.",
@@ -3690,7 +3690,9 @@
         "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
         "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
         "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
+        "apply": "Keep this, discard the other {{n}}",
+        "autoNoticeTitle": "Auto-curator가 병합 제안을 찾았습니다",
+        "autoNoticeBody": "{{scanned}}개의 초안에서 {{proposals}}개의 클러스터를 찾았습니다. 아래에서 검토할 수 있습니다."
       },
       "resetAll": {
         "label": "Reset everything",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        },
+        "autoCuratorEnabled": {
+          "label": "Curator를 주기적으로 실행",
+          "help": "켜면 Hope Agent가 초안 스킬의 겹치는 주제를 주기적으로 스캔하고 병합 제안을 여기에 표시합니다."
+        },
+        "autoCuratorIntervalDays": {
+          "label": "Curator 실행 간격",
+          "help": "자동 초안 통합 스캔 사이의 일수입니다. 백엔드는 매 주기마다 이 설정을 다시 읽습니다."
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "이 공급자는 HTTP를 사용합니다 — Base URL은 http:// 또는 https://로 시작해야 합니다",
       "errApiKeyRequired": "API Key는 필수입니다",
       "errExtraFieldRequired": "필수 항목이 누락되었습니다: {{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+      "text": "Run this JavaScript in the browser?\n\n{{preview}}",
+      "header": "Browser evaluate",
+      "runIt": "Run it",
+      "cancel": "Cancel"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+        "header": "Hope Agent rollback",
+        "confirm": "Roll back now",
+        "cancel": "Cancel"
+      },
+      "install": {
+        "context": "Hope Agent self-update confirmation. Install source: {{installSource}}. Recommended path: {{path}}.",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: package manager ({{installSource}}){{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "selfContained": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: download bare binary, verify Minisign signature, atomically swap.{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "tauri": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: Tauri bundled updater (signed installer).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "manualPrompt": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: manual download (no automated path matches).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first."
+        },
+        "confirm": "Upgrade now",
+        "cancel": "Not now"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+        "dockerText": "Hope Agent is running in a Docker container ({{from}} → {{to}}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+        "dockerHeader": "Docker upgrade required",
+        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+        "text": "No automated upgrade path is available for Hope Agent {{from}} → {{to}}. Install source detected as: {{installSource}}. Pick a recovery:",
+        "header": "Manual upgrade required",
+        "openReleases": "Open release page in browser",
+        "openReleasesManual": "Open release page in browser (manual download)",
+        "forceSelfContained": "Try the self-contained bare-binary swap anyway",
+        "abort": "Abort upgrade"
+      }
     }
   }
 }

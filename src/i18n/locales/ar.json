@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "هذه الأداة ضمن قائمة الموافقات المخصصة للوكيل (وضع Default فقط).",
+        "title": "قائمة موافقات الوكيل المخصصة"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "طابقت قائمة أنماط الأوامر الخطرة. يلزم تأكيد لكل استدعاء؛ خيار السماح الدائم غير متاح.",
+        "title": "⚠️ أمر خطير"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "طابقت قائمة أنماط أوامر التحرير. في وضع Default سيُطلب التأكيد؛ والسماح الدائم يحفظ بادئة الأمر.",
+        "title": "أمر exec بنمط تحرير"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "يتطلب وضع Default تأكيدًا لأدوات الكتابة إلى الملفات (write/edit/apply_patch).",
+        "title": "أداة من فئة التحرير"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "يضع Plan Mode هذه الأداة ضمن فئة السؤال قبل كل استدعاء؛ هي مسموحة، لكن كل تشغيل ما زال يحتاج موافقتك.",
+        "title": "تأكيد Plan Mode"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "طابقت قائمة المسارات المحمية. يلزم تأكيد لكل استدعاء؛ خيار السماح الدائم غير متاح.",
+        "title": "⚠️ مسار محمي"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "قرر نموذج الحكم في وضع Smart أن هذا الاستدعاء يحتاج تأكيدًا بشريًا.",
+        "title": "حكم وضع Smart"
       },
       "mac_control_action": {
         "title": "إجراء Mac Control",
@@ -2114,80 +2114,80 @@
     "agentAgentsMd": "AGENTS.md",
     "agentAgentsMdDesc": "قواعد مساحة العمل، الخطوط الحمراء، إرشادات الذاكرة، وتعليمات السلوك",
     "agentApproval": {
-      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
-      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
-      "customApprovalTitle": "Custom Tool Approval",
-      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
-      "defaultModeTitle": "Default Session Permission Mode",
+      "customApprovalDesc": "في وضع Default، اطلب الموافقة أيضًا على الأدوات التي تحددها أدناه.",
+      "customApprovalHint": "ملاحظة: يسري فقط في وضع Default؛ يتجاهل وضعا Smart وYOLO هذه القائمة.",
+      "customApprovalTitle": "موافقة أدوات مخصصة",
+      "defaultModeDesc": "وضع الأذونات الأولي للجلسات الجديدة؛ لا تتأثر الجلسات الحالية.",
+      "defaultModeTitle": "وضع أذونات الجلسة الافتراضي",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "المتصفح",
+        "crossSession": "قراءات عبر الجلسات",
+        "network": "الوصول إلى الشبكة",
+        "outbound": "صادر",
+        "paid": "واجهات API مدفوعة",
+        "settings": "تغييرات الإعدادات",
+        "settingsRead": "استعلامات الإعدادات",
+        "shell": "Shell والعمليات",
+        "spawn": "عمليات فرعية خارجية"
       },
       "modes": {
         "default": {
-          "desc": "Edit-class tools and high-risk commands need approval",
-          "label": "Default"
+          "desc": "أدوات التحرير والأوامر عالية الخطورة تحتاج إلى موافقة",
+          "label": "افتراضي"
         },
         "inherit": {
-          "desc": "Follow the global default (currently \"Default\" mode)",
-          "label": "Inherit Global"
+          "desc": "اتباع الإعداد العام الافتراضي (حاليًا وضع \"Default\")",
+          "label": "وراثة العام"
         },
         "smart": {
-          "desc": "Judge model or model self-confidence decides approvals",
-          "label": "Smart Approval"
+          "desc": "نموذج الحكم أو ثقة النموذج الذاتية يقرران الموافقات",
+          "label": "موافقة ذكية"
         },
         "yolo": {
-          "desc": "All tools run without approval (protected paths still audit-log)",
-          "label": "YOLO"
+          "desc": "كل الأدوات تعمل بلا موافقة (تظل المسارات المحمية تُسجّل في سجل التدقيق)",
+          "label": "وضع YOLO"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "تشغيل عملية وكيل ACP فرعي خارجي",
+        "agents_list": "عرض كل الوكلاء المكوّنين",
+        "browser": "التحكم في المتصفح عبر CDP لأتمتة الواجهة",
+        "get_settings": "قراءة إعدادات التطبيق",
+        "image_generate": "توليد صور عبر واجهة API مدفوعة",
+        "list_settings_backups": "عرض سجل نسخ الإعدادات الاحتياطية",
+        "peek_sessions": "الاطلاع على النشاط الحي في جلسات أخرى",
+        "process": "إدارة جلسات exec الخلفية (kill/write/clear/remove)",
+        "restore_settings_backup": "الرجوع إلى نسخة إعدادات احتياطية قديمة",
+        "send_attachment": "إرسال مرفق ملف إلى قنوات IM",
+        "session_status": "الاستعلام عن الحالة الحالية لجلسة",
+        "sessions_history": "قراءة سجل الرسائل من جلسات أخرى",
+        "sessions_list": "عرض بيانات التعريف لكل الجلسات",
+        "sessions_send": "إرسال رسالة إلى جلسة أخرى لتحفيز العمل",
+        "update_settings": "تعديل إعدادات AppConfig",
+        "web_fetch": "جلب عنوان URL واستخراج محتوى مقروء",
+        "web_search": "البحث عبر محرك بحث"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "وكيل ACP فرعي",
+        "agents_list": "قائمة الوكلاء",
+        "browser": "تحكم المتصفح",
+        "get_settings": "قراءة الإعدادات",
+        "image_generate": "توليد الصور",
+        "list_settings_backups": "نسخ الإعدادات الاحتياطية",
+        "peek_sessions": "معاينة الجلسات",
+        "process": "عمليات الخلفية",
+        "restore_settings_backup": "استعادة نسخة إعدادات",
+        "send_attachment": "إرسال مرفق",
+        "session_status": "حالة الجلسة",
+        "sessions_history": "سجل الجلسة",
+        "sessions_list": "قائمة الجلسات",
+        "sessions_send": "إرسال عبر الجلسات",
+        "update_settings": "تحديث الإعدادات",
+        "web_fetch": "جلب الويب",
+        "web_search": "بحث الويب"
       }
     },
-    "agentApprovalTab": "Approval",
+    "agentApprovalTab": "الموافقة",
     "agentAsyncToolPolicy": {
       "title": "نقل الأدوات غير المتزامنة للخلفية",
       "desc": "متى يتم نقل الأدوات القادرة على العمل غير المتزامن (exec / web_search / image_generate) إلى مهام خلفية. مستقل عن الموافقة.",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "حدد وأدر وكلاء الذكاء الاصطناعي. يمكن أن يكون لكل وكيل هوية وقدرات وسلوك مختلف.",
     "appearance": "المظهر",
     "appearanceDesc": "اختر وضع المظهر",
-    "approvalNav": "Permission",
+    "approvalNav": "الأذونات",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "يفرض الموافقة ولا يمكن جعله مسموحًا دائمًا. يتجاوزه وضع YOLO لكنه يظل يكتب سجلات التدقيق.",
+      "dangerousCommandsPlaceholder": "مثلاً: rm -rf /, git push --force",
+      "dangerousCommandsTitle": "أوامر خطرة",
+      "editCommandsDesc": "في وضع Default، تحتاج استدعاءات exec المطابقة لهذه الأنماط إلى موافقة (مطابقة جزء نص دون حساسية لحالة الأحرف)؛ السماح الدائم متاح.",
+      "editCommandsPlaceholder": "مثلاً: rm , git commit, npm install",
+      "editCommandsTitle": "أوامر تحرير",
+      "empty": "لا توجد إدخالات — أضف نمطًا للتفعيل",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "فرض السماح",
+        "ask": "فرض السؤال",
+        "default": "الرجوع إلى وضع Default"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "مفتاح YOLO العام، وقوائم أنماط المسارات المحمية / أوامر التحرير / الأوامر الخطرة، وإعداد وضع الموافقة الذكية.",
+      "judgeExtraPromptPlaceholder": "اختياري: تعليمات إضافية للحكم (قوائم مسارات موثوقة، أوامر موثوقة...)",
+      "judgeModelPlaceholder": "النموذج (مثلاً: claude-haiku-4-5)",
+      "judgeModelTitle": "إعداد نموذج الحكم",
+      "judgeProviderPlaceholder": "معرّف المزوّد (مثلاً: anthropic-1)",
+      "protectedPathsDesc": "استدعاءات الأدوات التي تمس هذه المسارات تفرض الموافقة ولا يمكن جعلها مسموحة دائمًا. يدعم توسيع ~/، وبادئة المجلد (شرطة مائلة في النهاية)، وأنماط glob مثل *.pattern.",
+      "protectedPathsPlaceholder": "مثلاً: ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "مسارات محمية",
+      "restoreDefaults": "استعادة الافتراضيات",
+      "restoredDefaults": "تمت الاستعادة إلى الافتراضيات",
+      "smartDesc": "في وضع جلسة Smart، يقرر وسم الثقة الذاتية للنموذج أو نموذج حكم مستقل الموافقات.",
+      "smartFallback": "الخطة البديلة عند عدم التوفر",
+      "smartStrategy": "استراتيجية القرار",
+      "smartTitle": "وضع الموافقة الذكية",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "الحكم أولًا، ثم الوسم الذاتي كبديل",
+        "judge_model": "نموذج الحكم",
+        "self_confidence": "وسم النموذج الذاتي"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "إجراء انتهاء المهلة",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "حظر التنفيذ",
+        "proceed": "المتابعة"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "إذا لم يرد المستخدم خلال هذا العدد من الثواني، يُستخدم الإجراء أدناه. 0 = انتظار دائم.",
+      "timeoutHint": "0 = انتظار دائم",
+      "timeoutSeconds": "ثواني المهلة",
+      "timeoutTitle": "مهلة مربع حوار الموافقة",
+      "title": "الأذونات",
+      "yoloCliActive": "⚠️ علم CLI --dangerously-skip-all-approvals نشط ولا يمكن تعطيله من الواجهة.",
+      "yoloDesc": "عند التفعيل، تعمل كل الأدوات بلا موافقة؛ Plan Mode فقط يمكنه الاستمرار في الحظر. تطابق المسار المحمي / الأمر الخطر يكتب تحذيرًا لكنه ينفذ.",
+      "yoloDisabled": "YOLO العام معطّل",
+      "yoloEnabled": "YOLO العام مفعّل",
+      "yoloTitle": "YOLO عام (تخطي كل الموافقات)"
     },
     "approvalTimeout": "مهلة انتظار موافقة الأداة",
     "approvalTimeoutAction": "إجراء انتهاء مهلة الموافقة",
@@ -3320,150 +3320,150 @@
       "title": "التحكم في Mac"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "التحكم والالتقاط",
+      "deviceNetwork": "الأجهزة والشبكة",
+      "fileAccess": "الوصول إلى الملفات",
+      "personalData": "البيانات الشخصية",
+      "systemServices": "خدمات النظام"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "إمكانية الوصول",
+        "usage": "التحكم بالماوس ولوحة المفاتيح ونوافذ التطبيقات الأخرى."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "إدارة التطبيقات",
+        "note": "لا يوفر macOS واجهة API عامة موثوقة لحالة كل تطبيق.",
+        "usage": "إدارة أو تحديث تطبيقات أخرى فقط عندما تحتاج أداة ذلك صراحة."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "الأتمتة: الرسائل",
+        "note": "تُخزّن موافقة الأتمتة لكل تطبيق هدف؛ إعدادات النظام هي مصدر الحقيقة الأكثر موثوقية.",
+        "usage": "السماح بأتمتة تطبيق الرسائل عبر Apple Events عندما تحتاجها مسارات عمل المراسلة."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "الأتمتة: أحداث النظام",
+        "note": "تُخزّن موافقة الأتمتة لكل تطبيق هدف؛ إعدادات النظام هي مصدر الحقيقة الأكثر موثوقية.",
+        "usage": "السماح بأتمتة System Events عبر Apple Events."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "أجهزة Bluetooth",
+        "usage": "اكتشاف أجهزة Bluetooth والاتصال بها عندما يحتاج مسار العمل ذلك."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "التقويمات",
+        "usage": "قراءة أحداث التقويم أو كتابتها عندما تحتاجها مسارات عمل الجدولة."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "الكاميرا",
+        "usage": "استخدام الكاميرا للإدخال البصري فقط عند الطلب صراحة."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "جهات الاتصال",
+        "usage": "قراءة جهات الاتصال فقط عندما يطلب مسار عمل المستخدم ذلك صراحة."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "مجلد سطح المكتب",
+        "note": "يعرض macOS هذا عبر الملفات والمجلدات؛ ويتم فحص الحالة.",
+        "usage": "قراءة الملفات وكتابتها على سطح المكتب عندما يطلب المستخدم ذلك."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "أدوات المطور",
+        "note": "لا يوفر macOS واجهة API عامة موثوقة لحالة كل تطبيق.",
+        "usage": "استخدام أدوات التطوير التي يحميها macOS بموافقة أدوات المطور."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "مجلد المستندات",
+        "note": "يعرض macOS هذا عبر الملفات والمجلدات؛ ويتم فحص الحالة.",
+        "usage": "قراءة الملفات وكتابتها في المستندات عندما يطلب المستخدم ذلك."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "مجلد التنزيلات",
+        "note": "يعرض macOS هذا عبر الملفات والمجلدات؛ ويتم فحص الحالة.",
+        "usage": "قراءة الملفات وكتابتها في التنزيلات عندما يطلب المستخدم ذلك."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "حالة التركيز",
+        "note": "لا يوفر macOS واجهة API عامة موثوقة لحالة كل تطبيق.",
+        "usage": "قراءة حالة التركيز فقط لمسارات العمل التي تكيّف الإشعارات أو المقاطعات."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "وصول كامل إلى القرص",
+        "note": "يُكتشف بفحص محافظ لنظام الملفات؛ ويظهر الغياب كتأكيد يدوي.",
+        "usage": "قراءة الملفات المحمية التي لا تغطيها موافقة الملفات والمجلدات العادية."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit (المنزل)",
+        "note": "لا يستخدم Hope Agent حاليًا مسارات عمل HomeKit.",
+        "usage": "الوصول إلى بيانات المنزل فقط إذا فُعّلت مسارات عمل HomeKit مستقبلًا."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "مراقبة الإدخال",
+        "usage": "الاستماع إلى أحداث لوحة المفاتيح والمؤشر اللازمة لأتمتة سطح المكتب."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "الشبكة المحلية",
+        "note": "خصوصية الشبكة المحلية في macOS لا تملك واجهة API عامة موثوقة للحالة.",
+        "usage": "اكتشاف الأجهزة على الشبكة المحلية والاتصال بها."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "خدمات الموقع",
+        "usage": "استخدام موقع الجهاز للطقس المحلي ومسارات العمل الواعية بالموقع."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "مكتبة الوسائط",
+        "note": "لا توجد واجهة API عامة موثوقة للحالة لهذا السطح من التطبيق.",
+        "usage": "الوصول إلى مكتبة الوسائط فقط عندما يحتاج مسار عمل وسائط ذلك صراحة."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "الميكروفون",
+        "usage": "استخدام الميكروفون للإدخال الصوتي فقط عند الطلب صراحة."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "وحدات تخزين الشبكة",
+        "note": "لا توجد واجهة API عامة موثوقة للحالة لكل وحدة تخزين.",
+        "usage": "الوصول إلى وحدات تخزين الشبكة المركّبة عندما يطلب المستخدم العمل هناك."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "الإشعارات",
+        "note": "تبقى إعدادات الإشعارات في صفحة إعدادات الإشعارات.",
+        "usage": "عرض إشعارات النظام."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "الصور",
+        "usage": "الوصول إلى مكتبة الصور فقط عندما يطلب المستخدم مسارات عمل الصور."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "التذكيرات",
+        "usage": "قراءة التذكيرات أو كتابتها عندما تحتاجها مسارات عمل التخطيط."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "وحدات التخزين القابلة للإزالة",
+        "note": "لا توجد واجهة API عامة موثوقة للحالة لكل وحدة تخزين.",
+        "usage": "الوصول إلى الأقراص القابلة للإزالة عندما يطلب المستخدم العمل هناك."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "تسجيل الشاشة",
+        "usage": "التقاط محتوى الشاشة للفهم البصري وأتمتة الواجهة."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "التعرف على الكلام",
+        "usage": "استخدام التعرف على الكلام عندما يطلب مسار عمل صوتي التفريغ النصي."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "التقاط صوت النظام",
+        "note": "لا يوفر macOS واجهة API عامة موثوقة للفحص المسبق لهذا الإذن.",
+        "usage": "التقاط صوت النظام عندما يحتاج مسار عمل مستقبلي ذلك صراحة."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "ممنوح",
+      "manualCheck": "فحص يدوي",
+      "notApplicable": "غير منطبق",
+      "notDetermined": "غير محدد",
+      "notGranted": "غير ممنوح",
+      "notUsed": "غير مستخدم",
+      "restricted": "مقيّد"
     },
     "permissions": "الصلاحيات",
     "personaModeDesc": "املأ الحقول المنظَّمة أو اكتب ملف SOUL.md مباشرة. ملف SOUL.md مشترك مع وضع توافق openclaw.",
@@ -3690,7 +3690,9 @@
         "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
         "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
         "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
+        "apply": "Keep this, discard the other {{n}}",
+        "autoNoticeTitle": "عثر Auto-curator على اقتراحات دمج",
+        "autoNoticeBody": "هناك {{proposals}} مجموعة ضمن {{scanned}} مسودة جاهزة للمراجعة أدناه."
       },
       "resetAll": {
         "label": "Reset everything",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        },
+        "autoCuratorEnabled": {
+          "label": "تشغيل curator وفق جدول",
+          "help": "عند التفعيل، يفحص Hope Agent مسودات المهارات دوريا لاكتشاف التداخل ويعرض اقتراحات الدمج هنا."
+        },
+        "autoCuratorIntervalDays": {
+          "label": "فاصل تشغيل curator",
+          "help": "عدد الأيام بين فحوصات دمج المسودات التلقائية. يعيد backend قراءة هذا الإعداد في كل دورة."
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "هذا المزود يستخدم HTTP — يجب أن يبدأ Base URL بـ http:// أو https://",
       "errApiKeyRequired": "مفتاح API مطلوب",
       "errExtraFieldRequired": "الحقل المطلوب مفقود: {{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+      "text": "Run this JavaScript in the browser?\n\n{{preview}}",
+      "header": "Browser evaluate",
+      "runIt": "Run it",
+      "cancel": "Cancel"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+        "header": "Hope Agent rollback",
+        "confirm": "Roll back now",
+        "cancel": "Cancel"
+      },
+      "install": {
+        "context": "Hope Agent self-update confirmation. Install source: {{installSource}}. Recommended path: {{path}}.",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: package manager ({{installSource}}){{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "selfContained": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: download bare binary, verify Minisign signature, atomically swap.{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "tauri": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: Tauri bundled updater (signed installer).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "manualPrompt": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: manual download (no automated path matches).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first."
+        },
+        "confirm": "Upgrade now",
+        "cancel": "Not now"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+        "dockerText": "Hope Agent is running in a Docker container ({{from}} → {{to}}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+        "dockerHeader": "Docker upgrade required",
+        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+        "text": "No automated upgrade path is available for Hope Agent {{from}} → {{to}}. Install source detected as: {{installSource}}. Pick a recovery:",
+        "header": "Manual upgrade required",
+        "openReleases": "Open release page in browser",
+        "openReleasesManual": "Open release page in browser (manual download)",
+        "forceSelfContained": "Try the self-contained bare-binary swap anyway",
+        "abort": "Abort upgrade"
+      }
     }
   }
 }

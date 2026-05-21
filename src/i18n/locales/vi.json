@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "Công cụ này nằm trong danh sách phê duyệt tùy chỉnh của agent (chỉ chế độ Default).",
+        "title": "Danh sách phê duyệt tùy chỉnh của agent"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "Khớp với danh sách mẫu lệnh nguy hiểm. Cần xác nhận từng lần gọi; không thể dùng Luôn cho phép.",
+        "title": "⚠️ Lệnh nguy hiểm"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "Khớp với danh sách mẫu lệnh chỉnh sửa. Chế độ Default sẽ hỏi; Luôn cho phép sẽ lưu tiền tố lệnh.",
+        "title": "Lệnh exec dạng chỉnh sửa"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "Chế độ Default yêu cầu xác nhận với các công cụ ghi tệp (write/edit/apply_patch).",
+        "title": "Công cụ nhóm chỉnh sửa"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "Plan Mode liệt kê công cụ này là phải hỏi trước mỗi lần gọi; dù nằm trong danh sách cho phép, mỗi lần chạy vẫn cần bạn phê duyệt.",
+        "title": "Xác nhận Plan Mode"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "Khớp với danh sách đường dẫn được bảo vệ. Cần xác nhận từng lần gọi; không thể dùng Luôn cho phép.",
+        "title": "⚠️ Đường dẫn được bảo vệ"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "Mô hình giám khảo của chế độ Smart quyết định lần gọi này cần người dùng xác nhận.",
+        "title": "Giám khảo chế độ Smart"
       },
       "mac_control_action": {
         "title": "Thao tác Mac Control",
@@ -2114,80 +2114,80 @@
     "agentAgentsMd": "AGENTS.md",
     "agentAgentsMdDesc": "Quy tắc workspace, ranh giới đỏ, hướng dẫn bộ nhớ và hướng dẫn hành vi",
     "agentApproval": {
-      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
-      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
-      "customApprovalTitle": "Custom Tool Approval",
-      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
-      "defaultModeTitle": "Default Session Permission Mode",
+      "customApprovalDesc": "Trong chế độ Default, cũng yêu cầu phê duyệt cho các công cụ bạn chọn bên dưới.",
+      "customApprovalHint": "Lưu ý: chỉ có hiệu lực trong chế độ Default; chế độ Smart và YOLO bỏ qua danh sách này.",
+      "customApprovalTitle": "Phê duyệt công cụ tùy chỉnh",
+      "defaultModeDesc": "Chế độ quyền ban đầu cho phiên mới; các phiên hiện có không bị ảnh hưởng.",
+      "defaultModeTitle": "Chế độ quyền phiên mặc định",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "Trình duyệt",
+        "crossSession": "Đọc giữa các phiên",
+        "network": "Truy cập mạng",
+        "outbound": "Gửi ra ngoài",
+        "paid": "API trả phí",
+        "settings": "Thay đổi cài đặt",
+        "settingsRead": "Truy vấn cài đặt",
+        "shell": "Shell và tiến trình",
+        "spawn": "Tiến trình con bên ngoài"
       },
       "modes": {
         "default": {
-          "desc": "Edit-class tools and high-risk commands need approval",
-          "label": "Default"
+          "desc": "Công cụ chỉnh sửa và lệnh rủi ro cao cần phê duyệt",
+          "label": "Mặc định"
         },
         "inherit": {
-          "desc": "Follow the global default (currently \"Default\" mode)",
-          "label": "Inherit Global"
+          "desc": "Theo mặc định toàn cục (hiện là chế độ \"Default\")",
+          "label": "Kế thừa toàn cục"
         },
         "smart": {
-          "desc": "Judge model or model self-confidence decides approvals",
-          "label": "Smart Approval"
+          "desc": "Mô hình giám khảo hoặc độ tự tin của mô hình quyết định phê duyệt",
+          "label": "Phê duyệt thông minh"
         },
         "yolo": {
-          "desc": "All tools run without approval (protected paths still audit-log)",
-          "label": "YOLO"
+          "desc": "Tất cả công cụ chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log kiểm toán)",
+          "label": "Chế độ YOLO"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "Khởi chạy tiến trình subagent ACP bên ngoài",
+        "agents_list": "Liệt kê tất cả agent đã cấu hình",
+        "browser": "Điều khiển trình duyệt qua CDP để tự động hóa UI",
+        "get_settings": "Đọc cài đặt ứng dụng",
+        "image_generate": "Tạo hình ảnh qua API trả phí",
+        "list_settings_backups": "Liệt kê lịch sử bản sao lưu cài đặt",
+        "peek_sessions": "Xem hoạt động trực tiếp trong phiên khác",
+        "process": "Quản lý phiên exec nền (kill/write/clear/remove)",
+        "restore_settings_backup": "Quay lại bản sao lưu cài đặt trước đó",
+        "send_attachment": "Gửi tệp đính kèm tới kênh IM",
+        "session_status": "Truy vấn trạng thái hiện tại của phiên",
+        "sessions_history": "Đọc lịch sử tin nhắn từ phiên khác",
+        "sessions_list": "Liệt kê siêu dữ liệu của mọi phiên",
+        "sessions_send": "Gửi tin nhắn tới phiên khác để kích hoạt công việc",
+        "update_settings": "Sửa cài đặt AppConfig",
+        "web_fetch": "Tải URL và trích xuất nội dung dễ đọc",
+        "web_search": "Truy vấn qua công cụ tìm kiếm"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "Subagent ACP",
+        "agents_list": "Liệt kê agent",
+        "browser": "Điều khiển trình duyệt",
+        "get_settings": "Đọc cài đặt",
+        "image_generate": "Tạo hình ảnh",
+        "list_settings_backups": "Bản sao lưu cài đặt",
+        "peek_sessions": "Xem phiên",
+        "process": "Tiến trình nền",
+        "restore_settings_backup": "Khôi phục sao lưu cài đặt",
+        "send_attachment": "Gửi tệp đính kèm",
+        "session_status": "Trạng thái phiên",
+        "sessions_history": "Lịch sử phiên",
+        "sessions_list": "Liệt kê phiên",
+        "sessions_send": "Gửi giữa các phiên",
+        "update_settings": "Cập nhật cài đặt",
+        "web_fetch": "Tải web",
+        "web_search": "Tìm kiếm web"
       }
     },
-    "agentApprovalTab": "Approval",
+    "agentApprovalTab": "Phê duyệt",
     "agentAsyncToolPolicy": {
       "title": "Chạy ngầm cho công cụ bất đồng bộ",
       "desc": "Khi nào các công cụ hỗ trợ chạy bất đồng bộ (exec / web_search / image_generate) tách ra thành công việc nền. Độc lập với phê duyệt.",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "Định nghĩa và quản lý AI Agent. Mỗi Agent có thể có danh tính, khả năng và hành vi khác nhau.",
     "appearance": "Giao diện",
     "appearanceDesc": "Chọn chế độ giao diện chủ đề",
-    "approvalNav": "Permission",
+    "approvalNav": "Quyền",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "Bắt buộc phê duyệt và không thể đặt Luôn cho phép. Chế độ YOLO bỏ qua nhưng vẫn ghi log kiểm toán.",
+      "dangerousCommandsPlaceholder": "vd: rm -rf /, git push --force",
+      "dangerousCommandsTitle": "Lệnh nguy hiểm",
+      "editCommandsDesc": "Trong chế độ Default, các lần gọi exec khớp mẫu này cần phê duyệt (chuỗi con không phân biệt hoa thường); có thể dùng Luôn cho phép.",
+      "editCommandsPlaceholder": "vd: rm , git commit, npm install",
+      "editCommandsTitle": "Lệnh chỉnh sửa",
+      "empty": "Chưa có mục — thêm mẫu để bật",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "Buộc cho phép",
+        "ask": "Buộc hỏi",
+        "default": "Quay về chế độ Default"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "Công tắc YOLO toàn cục, danh sách mẫu đường dẫn bảo vệ / lệnh chỉnh sửa / lệnh nguy hiểm, và cấu hình chế độ phê duyệt thông minh.",
+      "judgeExtraPromptPlaceholder": "Tùy chọn: hướng dẫn thêm cho giám khảo (danh sách đường dẫn cho phép, lệnh tin cậy...)",
+      "judgeModelPlaceholder": "Mô hình (vd: claude-haiku-4-5)",
+      "judgeModelTitle": "Cấu hình mô hình giám khảo",
+      "judgeProviderPlaceholder": "ID provider (vd: anthropic-1)",
+      "protectedPathsDesc": "Lần gọi công cụ chạm tới các đường dẫn này sẽ bắt buộc phê duyệt và không thể Luôn cho phép. Hỗ trợ mở rộng ~/, tiền tố thư mục (kết thúc bằng /) và glob *.pattern.",
+      "protectedPathsPlaceholder": "vd: ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "Đường dẫn được bảo vệ",
+      "restoreDefaults": "Khôi phục mặc định",
+      "restoredDefaults": "Đã khôi phục về mặc định",
+      "smartDesc": "Trong chế độ phiên Smart, thẻ tự tin của mô hình hoặc mô hình giám khảo độc lập quyết định phê duyệt.",
+      "smartFallback": "Dự phòng khi không khả dụng",
+      "smartStrategy": "Chiến lược quyết định",
+      "smartTitle": "Chế độ phê duyệt thông minh",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "Giám khảo trước, tự gắn thẻ dự phòng",
+        "judge_model": "Mô hình giám khảo",
+        "self_confidence": "Mô hình tự gắn thẻ"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "Hành động khi hết giờ",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "Chặn thực thi",
+        "proceed": "Tiếp tục"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "Khi người dùng không trả lời trong số giây này, dùng hành động bên dưới. 0 = chờ mãi.",
+      "timeoutHint": "0 = chờ mãi",
+      "timeoutSeconds": "Số giây chờ",
+      "timeoutTitle": "Thời gian chờ hộp thoại phê duyệt",
+      "title": "Quyền",
+      "yoloCliActive": "⚠️ Cờ CLI --dangerously-skip-all-approvals đang bật và không thể tắt từ GUI.",
+      "yoloDesc": "Khi bật, mọi công cụ chạy không cần phê duyệt; chỉ Plan Mode vẫn có thể chặn. Khớp đường dẫn bảo vệ / lệnh nguy hiểm sẽ ghi cảnh báo nhưng vẫn thực thi.",
+      "yoloDisabled": "YOLO toàn cục đã tắt",
+      "yoloEnabled": "YOLO toàn cục đã bật",
+      "yoloTitle": "YOLO toàn cục (bỏ qua mọi phê duyệt)"
     },
     "approvalTimeout": "Hết thời gian chờ phê duyệt công cụ",
     "approvalTimeoutAction": "Hành động khi hết thời gian phê duyệt",
@@ -3320,150 +3320,150 @@
       "title": "Điều khiển Mac"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "Điều khiển & ghi nhận",
+      "deviceNetwork": "Thiết bị & mạng",
+      "fileAccess": "Truy cập tệp",
+      "personalData": "Dữ liệu cá nhân",
+      "systemServices": "Dịch vụ hệ thống"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "Trợ năng",
+        "usage": "Điều khiển chuột, bàn phím và cửa sổ ứng dụng khác."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "Quản lý ứng dụng",
+        "note": "macOS không cung cấp API công khai đáng tin cậy để xem trạng thái theo từng ứng dụng.",
+        "usage": "Quản lý hoặc cập nhật ứng dụng khác chỉ khi công cụ cần rõ ràng."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "Tự động hóa: Tin nhắn",
+        "note": "Quyền tự động hóa được lưu theo ứng dụng đích; Cài đặt Hệ thống là nguồn đáng tin cậy nhất.",
+        "usage": "Cho phép tự động hóa Messages qua Apple Events khi luồng nhắn tin cần."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "Tự động hóa: System Events",
+        "note": "Quyền tự động hóa được lưu theo ứng dụng đích; Cài đặt Hệ thống là nguồn đáng tin cậy nhất.",
+        "usage": "Cho phép tự động hóa System Events qua Apple Events."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Thiết bị Bluetooth",
+        "usage": "Tìm và kết nối tới thiết bị Bluetooth khi luồng công việc cần."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "Lịch",
+        "usage": "Đọc hoặc ghi sự kiện lịch khi luồng lập lịch cần."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "Máy ảnh",
+        "usage": "Dùng máy ảnh làm đầu vào hình ảnh chỉ khi được yêu cầu rõ ràng."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "Danh bạ",
+        "usage": "Chỉ đọc danh bạ khi luồng công việc của người dùng yêu cầu rõ ràng."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "Thư mục Màn hình nền",
+        "note": "macOS hiển thị quyền này qua Tệp & Thư mục; trạng thái được thăm dò.",
+        "usage": "Đọc và ghi tệp trên Màn hình nền khi người dùng yêu cầu."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "Công cụ nhà phát triển",
+        "note": "macOS không cung cấp API công khai đáng tin cậy để xem trạng thái theo từng ứng dụng.",
+        "usage": "Dùng công cụ phát triển mà macOS bảo vệ sau quyền Công cụ nhà phát triển."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "Thư mục Tài liệu",
+        "note": "macOS hiển thị quyền này qua Tệp & Thư mục; trạng thái được thăm dò.",
+        "usage": "Đọc và ghi tệp trong Tài liệu khi người dùng yêu cầu."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "Thư mục Tải xuống",
+        "note": "macOS hiển thị quyền này qua Tệp & Thư mục; trạng thái được thăm dò.",
+        "usage": "Đọc và ghi tệp trong Tải xuống khi người dùng yêu cầu."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "Trạng thái Tập trung",
+        "note": "macOS không cung cấp API công khai đáng tin cậy để xem trạng thái theo từng ứng dụng.",
+        "usage": "Chỉ đọc trạng thái Tập trung cho luồng điều chỉnh thông báo hoặc gián đoạn."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "Truy cập toàn bộ ổ đĩa",
+        "note": "Được phát hiện bằng phép thăm dò hệ thống tệp thận trọng; nếu thiếu sẽ hiển thị là xác nhận thủ công.",
+        "usage": "Đọc tệp được bảo vệ mà quyền Tệp & Thư mục thông thường không bao phủ."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit (nhà)",
+        "note": "Hope Agent hiện không dùng luồng HomeKit.",
+        "usage": "Chỉ truy cập dữ liệu Nhà nếu luồng HomeKit tương lai được bật."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "Giám sát đầu vào",
+        "usage": "Lắng nghe sự kiện bàn phím và con trỏ cần cho tự động hóa desktop."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "Mạng cục bộ",
+        "note": "Quyền riêng tư Mạng cục bộ của macOS không có API trạng thái công khai đáng tin cậy.",
+        "usage": "Tìm và kết nối tới thiết bị trên mạng cục bộ."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "Dịch vụ vị trí",
+        "usage": "Dùng vị trí thiết bị cho thời tiết địa phương và luồng nhận biết vị trí."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "Thư viện phương tiện",
+        "note": "Không có API trạng thái công khai đáng tin cậy cho bề mặt ứng dụng này.",
+        "usage": "Chỉ truy cập thư viện phương tiện khi luồng phương tiện cần rõ ràng."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "Micrô",
+        "usage": "Dùng micrô cho đầu vào giọng nói chỉ khi được yêu cầu rõ ràng."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "Ổ đĩa mạng",
+        "note": "Không có API trạng thái công khai đáng tin cậy theo từng ổ đĩa.",
+        "usage": "Truy cập ổ đĩa mạng đã gắn khi người dùng yêu cầu ứng dụng làm việc ở đó."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "Thông báo",
+        "note": "Cấu hình thông báo nằm trên trang cài đặt Thông báo.",
+        "usage": "Hiển thị thông báo hệ thống."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "Ảnh",
+        "usage": "Chỉ truy cập thư viện Ảnh khi người dùng yêu cầu luồng ảnh."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "Lời nhắc",
+        "usage": "Đọc hoặc ghi lời nhắc khi luồng lập kế hoạch cần."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "Ổ đĩa tháo rời",
+        "note": "Không có API trạng thái công khai đáng tin cậy theo từng ổ đĩa.",
+        "usage": "Truy cập ổ đĩa tháo rời khi người dùng yêu cầu ứng dụng làm việc ở đó."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "Ghi màn hình",
+        "usage": "Chụp nội dung màn hình để hiểu hình ảnh và tự động hóa UI."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "Nhận dạng giọng nói",
+        "usage": "Dùng nhận dạng giọng nói khi luồng thoại yêu cầu phiên âm."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "Ghi âm thanh hệ thống",
+        "note": "macOS không cung cấp API preflight công khai đáng tin cậy cho quyền này.",
+        "usage": "Ghi âm thanh hệ thống khi luồng tương lai cần rõ ràng."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "Đã cấp",
+      "manualCheck": "Kiểm tra thủ công",
+      "notApplicable": "Không áp dụng",
+      "notDetermined": "Chưa xác định",
+      "notGranted": "Chưa cấp",
+      "notUsed": "Không dùng",
+      "restricted": "Bị hạn chế"
     },
     "permissions": "Quyền",
     "personaModeDesc": "Điền các trường có cấu trúc, hoặc viết trực tiếp một SOUL.md markdown. Tệp SOUL.md dùng chung với chế độ tương thích openclaw.",
@@ -3690,7 +3690,9 @@
         "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
         "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
         "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
+        "apply": "Keep this, discard the other {{n}}",
+        "autoNoticeTitle": "Auto-curator tìm thấy gợi ý hợp nhất",
+        "autoNoticeBody": "{{proposals}} cụm trong {{scanned}} bản nháp đã sẵn sàng để xem lại bên dưới."
       },
       "resetAll": {
         "label": "Reset everything",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        },
+        "autoCuratorEnabled": {
+          "label": "Chạy curator theo lịch",
+          "help": "Khi bật, Hope Agent định kỳ quét các skill nháp để tìm phần trùng lặp và hiển thị gợi ý hợp nhất tại đây."
+        },
+        "autoCuratorIntervalDays": {
+          "label": "Khoảng chạy curator",
+          "help": "Số ngày giữa các lần quét hợp nhất bản nháp tự động. Backend đọc lại thiết lập này ở mỗi chu kỳ."
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "Nhà cung cấp này dùng HTTP — Base URL phải bắt đầu bằng http:// hoặc https://",
       "errApiKeyRequired": "API Key là bắt buộc",
       "errExtraFieldRequired": "Thiếu trường bắt buộc: {{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+      "text": "Run this JavaScript in the browser?\n\n{{preview}}",
+      "header": "Browser evaluate",
+      "runIt": "Run it",
+      "cancel": "Cancel"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+        "header": "Hope Agent rollback",
+        "confirm": "Roll back now",
+        "cancel": "Cancel"
+      },
+      "install": {
+        "context": "Hope Agent self-update confirmation. Install source: {{installSource}}. Recommended path: {{path}}.",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: package manager ({{installSource}}){{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "selfContained": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: download bare binary, verify Minisign signature, atomically swap.{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "tauri": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: Tauri bundled updater (signed installer).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "manualPrompt": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: manual download (no automated path matches).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first."
+        },
+        "confirm": "Upgrade now",
+        "cancel": "Not now"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+        "dockerText": "Hope Agent is running in a Docker container ({{from}} → {{to}}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+        "dockerHeader": "Docker upgrade required",
+        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+        "text": "No automated upgrade path is available for Hope Agent {{from}} → {{to}}. Install source detected as: {{installSource}}. Pick a recovery:",
+        "header": "Manual upgrade required",
+        "openReleases": "Open release page in browser",
+        "openReleasesManual": "Open release page in browser (manual download)",
+        "forceSelfContained": "Try the self-contained bare-binary swap anyway",
+        "abort": "Abort upgrade"
+      }
     }
   }
 }

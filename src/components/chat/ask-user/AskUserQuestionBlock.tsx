@@ -24,10 +24,18 @@ import {
 
 // ── Types (mirror of ha-core `AskUserQuestion*` types) ──
 
+export type AskUserLocalizedText =
+  | string
+  | {
+      key: string
+      params?: Record<string, unknown>
+      fallback?: string
+    }
+
 export interface AskUserQuestionOption {
   value: string
-  label: string
-  description?: string
+  label: AskUserLocalizedText
+  description?: AskUserLocalizedText
   recommended?: boolean
   /** Rich preview body (markdown by default, or image URL / mermaid source). */
   preview?: string
@@ -36,7 +44,7 @@ export interface AskUserQuestionOption {
 
 export interface AskUserQuestion {
   questionId: string
-  text: string
+  text: AskUserLocalizedText
   options: AskUserQuestionOption[]
   /**
    * Whether to offer a free-form custom input. The backend currently forces
@@ -47,7 +55,7 @@ export interface AskUserQuestion {
   multiSelect: boolean
   template?: string
   /** Very short chip label (<=12 chars). */
-  header?: string
+  header?: AskUserLocalizedText
   /** Per-question timeout in seconds. 0 / missing = inherit group default. */
   timeoutSecs?: number
   /** Values auto-selected if the question times out. */
@@ -58,7 +66,7 @@ export interface AskUserQuestionGroup {
   requestId: string
   sessionId: string
   questions: AskUserQuestion[]
-  context?: string
+  context?: AskUserLocalizedText
   source?: string
   /** Unix timestamp (seconds) after which pending answers auto-fall back. */
   timeoutAt?: number
@@ -86,7 +94,26 @@ interface QuestionState {
 const staticPlugins = { code, cjk }
 const CUSTOM_OPTION_FOCUS = "__custom__"
 
+function fallbackText(text: AskUserLocalizedText | undefined | null): string {
+  if (!text) return ""
+  if (typeof text === "string") return text
+  return text.fallback || text.key
+}
+
+function localizedText(
+  text: AskUserLocalizedText | undefined | null,
+  t: ReturnType<typeof useTranslation>["t"]
+): string {
+  if (!text) return ""
+  if (typeof text === "string") return text
+  return t(text.key, {
+    ...(text.params ?? {}),
+    defaultValue: text.fallback || text.key,
+  })
+}
+
 function OptionPreview({ option }: { option: AskUserQuestionOption }) {
+  const { t } = useTranslation()
   const kind = option.previewKind ?? "markdown"
   const preview = option.preview ?? ""
   if (!preview) return null
@@ -96,7 +123,7 @@ function OptionPreview({ option }: { option: AskUserQuestionOption }) {
       <div className="mt-2 rounded-md border border-border overflow-hidden">
         <img
           src={preview}
-          alt={option.label}
+          alt={localizedText(option.label, t)}
           className="max-h-64 w-full object-contain bg-muted"
           loading="lazy"
         />
@@ -326,12 +353,14 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
       {/* Context */}
       {isEnterPlanModeAsk ? (
         <p className="text-sm text-muted-foreground">
-          {group.context
-            ? t("planMode.enterDialog.contextPrefix") + group.context
+          {fallbackText(group.context)
+            ? t("planMode.enterDialog.contextPrefix") + fallbackText(group.context)
             : t("planMode.enterDialog.contextNoReason")}
         </p>
       ) : (
-        group.context && <p className="text-sm text-muted-foreground">{group.context}</p>
+        group.context && (
+          <p className="text-sm text-muted-foreground">{localizedText(group.context, t)}</p>
+        )
       )}
 
       {/* Questions */}
@@ -364,11 +393,15 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                 )}
                 <span className="text-sm font-medium">
                   {group.questions.length > 1 && `${qi + 1}. `}
-                  {isEnterPlanModeAsk ? t("planMode.enterDialog.question") : q.text}
+                  {isEnterPlanModeAsk
+                    ? t("planMode.enterDialog.question")
+                    : localizedText(q.text, t)}
                 </span>
                 {(isEnterPlanModeAsk || q.header) && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-normal uppercase tracking-wide">
-                    {isEnterPlanModeAsk ? t("planMode.enterDialog.header") : q.header}
+                    {isEnterPlanModeAsk
+                      ? t("planMode.enterDialog.header")
+                      : localizedText(q.header, t)}
                   </span>
                 )}
                 {q.multiSelect && (
@@ -416,9 +449,9 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                             <span className="font-medium">
                               {isEnterPlanModeAsk
                                 ? t(`planMode.enterDialog.option.${opt.value}.label`, {
-                                    defaultValue: opt.label,
+                                    defaultValue: fallbackText(opt.label),
                                   })
-                                : opt.label}
+                                : localizedText(opt.label, t)}
                             </span>
                             {opt.recommended && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600">
@@ -436,9 +469,9 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                           {(() => {
                             const desc = isEnterPlanModeAsk
                               ? t(`planMode.enterDialog.option.${opt.value}.description`, {
-                                  defaultValue: opt.description ?? "",
+                                  defaultValue: fallbackText(opt.description),
                                 })
-                              : opt.description
+                              : localizedText(opt.description, t)
                             return desc ? (
                               <div className="text-xs text-muted-foreground mt-0.5">
                                 {desc}
@@ -507,7 +540,8 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
             {showSidePreview && (
               <div className="hidden md:block">
                 <div className="flex items-center text-[10px] uppercase tracking-wide text-muted-foreground mb-1 leading-5 h-5">
-                  {t("planMode.question.preview", { defaultValue: "Preview" })}: {focusedOpt!.label}
+                  {t("planMode.question.preview", { defaultValue: "Preview" })}:{" "}
+                  {localizedText(focusedOpt!.label, t)}
                 </div>
                 <OptionPreview option={focusedOpt!} />
               </div>

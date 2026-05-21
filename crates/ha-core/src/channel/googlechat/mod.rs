@@ -128,9 +128,10 @@ impl ChannelPlugin for GoogleChatPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: true,
-            // TODO: native Google Chat media (media:upload +
-            // messages.create) not yet implemented. Dispatcher falls back to
-            // a download-link text for now.
+            // Google Chat media.upload is user-auth only
+            // (`chat.messages.create` / `chat.messages`); this plugin uses
+            // service account app-auth (`chat.bot`). Keep link fallback until
+            // a separate user-OAuth credential mode exists.
             supports_media: Vec::new(),
             supports_typing: false,
             supports_buttons: true,

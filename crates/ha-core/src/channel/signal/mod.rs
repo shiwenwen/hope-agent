@@ -11,6 +11,7 @@ pub mod client;
 pub mod daemon;
 pub mod format;
 pub mod inbound_media;
+pub mod media;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -90,6 +91,47 @@ impl SignalPlugin {
     }
 }
 
+async fn wait_for_daemon_ready(
+    client: &SignalClient,
+    daemon: &mut SignalDaemon,
+    phone: &str,
+) -> Result<()> {
+    let timeout = std::time::Duration::from_secs(10);
+    let started_at = std::time::Instant::now();
+    let mut last_error: Option<String> = None;
+
+    loop {
+        if !daemon.is_running() {
+            anyhow::bail!(
+                "signal-cli daemon exited before readiness check passed for {}{}",
+                phone,
+                last_error
+                    .as_deref()
+                    .map(|e| format!(": {}", e))
+                    .unwrap_or_default()
+            );
+        }
+
+        match client.check_ready().await {
+            Ok(()) => return Ok(()),
+            Err(e) => last_error = Some(e.to_string()),
+        }
+
+        if started_at.elapsed() >= timeout {
+            anyhow::bail!(
+                "timed out waiting for signal-cli daemon readiness at /api/v1/check for {}{}",
+                phone,
+                last_error
+                    .as_deref()
+                    .map(|e| format!(": {}", e))
+                    .unwrap_or_default()
+            );
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 #[async_trait]
 impl ChannelPlugin for SignalPlugin {
     fn meta(&self) -> ChannelMeta {
@@ -111,10 +153,14 @@ impl ChannelPlugin for SignalPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: false,
-            // TODO: native Signal media (signal-cli `--attachment`)
-            // not yet implemented. Dispatcher falls back to a download-link
-            // text for now.
-            supports_media: Vec::new(),
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+                MediaType::Voice,
+                MediaType::Animation,
+            ],
             supports_typing: true,
             supports_buttons: false,
             streaming_preview_max_bytes: None,
@@ -145,11 +191,11 @@ impl ChannelPlugin for SignalPlugin {
         let mut daemon = SignalDaemon::start(&phone, cli_path.as_deref(), port)?;
         let daemon_port = daemon.port();
 
-        // Wait briefly for the daemon to initialize
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-        if !daemon.is_running() {
-            anyhow::bail!("signal-cli daemon exited immediately after start");
+        // Create the client and actively poll signal-cli's readiness endpoint.
+        let client = Arc::new(SignalClient::new(daemon_port, phone.clone()));
+        if let Err(e) = wait_for_daemon_ready(&client, &mut daemon, &phone).await {
+            daemon.stop().await;
+            return Err(e);
         }
 
         app_info!(
@@ -160,10 +206,8 @@ impl ChannelPlugin for SignalPlugin {
             daemon_port
         );
 
-        // Create the client. SSE loop 内部 parse_data_payload 会顺手把
-        // (message_id → sender_id) 写到 client.quote_authors 缓存，给 outbound
-        // reply 拼 quoteAuthor 用。
-        let client = Arc::new(SignalClient::new(daemon_port, phone.clone()));
+        // SSE loop 内部 parse_data_payload 会顺手把 (message_id → sender_id)
+        // 写到 client.quote_authors 缓存，给 outbound reply 拼 quoteAuthor 用。
 
         {
             let mut accounts = self.accounts.lock().await;
@@ -231,38 +275,52 @@ impl ChannelPlugin for SignalPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let client = self.get_client(account_id).await?;
+        let prepared = match media::prepare_signal_attachments(&payload.media).await {
+            Ok(prepared) => prepared,
+            Err(e) => return Ok(DeliveryResult::err(e.to_string())),
+        };
 
-        if let Some(ref text) = payload.text {
-            if text.is_empty() {
-                return Ok(DeliveryResult::ok("empty"));
+        let text = payload
+            .text
+            .as_deref()
+            .or_else(|| payload.media.iter().find_map(|m| m.caption.as_deref()))
+            .filter(|s| !s.is_empty());
+
+        if text.is_none() && prepared.paths().is_empty() {
+            return Ok(DeliveryResult::ok("no_content"));
+        }
+
+        // signal-cli reply 必须 timestamp + author 配对，缺一即不发 quote
+        let (quote_ts, quote_author) = match payload.reply_to_message_id.as_deref() {
+            Some(reply_id) => (
+                reply_id.parse::<i64>().ok(),
+                client.quote_author_for(reply_id).await,
+            ),
+            None => (None, None),
+        };
+
+        let result = client
+            .send_message(
+                chat_id,
+                text,
+                prepared.paths(),
+                quote_ts,
+                quote_author.as_deref(),
+            )
+            .await;
+        prepared.cleanup().await;
+
+        match result {
+            Ok(result) => {
+                // signal-cli send returns the timestamp as message ID
+                let msg_id = result
+                    .get("timestamp")
+                    .and_then(|v| v.as_i64())
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "sent".to_string());
+                Ok(DeliveryResult::ok(msg_id))
             }
-
-            // signal-cli reply 必须 timestamp + author 配对，缺一即不发 quote
-            let (quote_ts, quote_author) = match payload.reply_to_message_id.as_deref() {
-                Some(reply_id) => (
-                    reply_id.parse::<i64>().ok(),
-                    client.quote_author_for(reply_id).await,
-                ),
-                None => (None, None),
-            };
-
-            match client
-                .send_message(chat_id, text, &[], quote_ts, quote_author.as_deref())
-                .await
-            {
-                Ok(result) => {
-                    // signal-cli send returns the timestamp as message ID
-                    let msg_id = result
-                        .get("timestamp")
-                        .and_then(|v| v.as_i64())
-                        .map(|ts| ts.to_string())
-                        .unwrap_or_else(|| "sent".to_string());
-                    Ok(DeliveryResult::ok(msg_id))
-                }
-                Err(e) => Ok(DeliveryResult::err(e.to_string())),
-            }
-        } else {
-            Ok(DeliveryResult::ok("no_content"))
+            Err(e) => Ok(DeliveryResult::err(e.to_string())),
         }
     }
 

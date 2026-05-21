@@ -4,7 +4,7 @@
 //! - **SDK / Reference**: <https://github.com/line/line-bot-sdk-go>
 //! - **Protocol**: HTTPS Webhook（HMAC-SHA256 签名）+ REST Reply/Push API；
 //!   replyToken 一次性，~30s/1min 有效
-//! - **Last reviewed**: 2026-05-05
+//! - **Last reviewed**: 2026-05-20
 
 pub mod api;
 pub mod format;
@@ -127,13 +127,7 @@ impl ChannelPlugin for LinePlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            // 暂不声明原生媒体能力——LINE message object 仅接收公网 HTTPS
-            // URL，但 dispatcher 的 to_outbound_media 优先给 MediaData::FilePath
-            // （hope-agent 本地缓存路径），plugin 内部会静默跳过；声明
-            // supports_media 反而让 dispatcher 不再追加链接文本兜底 → 媒体
-            // 两头不到位。媒体能力完整补完跟踪 review-followups F-057
-            // （需要本地附件中转 + 公网 HTTPS 暴露基建）
-            supports_media: Vec::new(),
+            supports_media: vec![MediaType::Photo, MediaType::Audio, MediaType::Voice],
             supports_typing: false,
             supports_buttons: true,
             // LINE 文本上限 5000 字符；UTF-8 字节计算 CJK 占 3 bytes，4500 字节

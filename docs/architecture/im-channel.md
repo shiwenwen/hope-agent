@@ -92,13 +92,13 @@ IM Channel 系统是 Hope Agent 的多渠道即时通讯接入层，允许用户
 | **WeChat** | ✅ 已实现 | Photo, Video, Document, Voice | iLink `getUploadUrl` + AES-128-ECB CDN 上传 + `sendMessage` | 自建加密通道，单文件 100 MB 上限 |
 | **Discord** | ✅ 已实现（本次新增） | Photo, Video, Audio, Document | `POST /channels/{id}/messages` multipart `payload_json` + `files[N]` | 单条 25 MiB 硬上限，超限退化链接 |
 | **飞书 / Lark** | ✅ 已实现（本次新增） | Photo, Video, Audio, Document | 两步：`im/v1/images` 或 `im/v1/files` 上传换 key → `im/v1/messages` `msg_type=image\|file` | image/file 不带 caption，文本由 dispatcher 单发 |
-| **Slack** | ⏳ 待补 | — | `files.getUploadURLExternal` + `files.completeUploadExternal`（v2） | Slack v1 `files.upload` 已弃用，需走两步上传 + initial_comment |
-| **QQ Bot** | ⏳ 待补 | — | `POST /v2/groups/{group_openid}/files` 拿 `file_info` 再发 `media` 消息 | 群消息富媒体走"上传换 file_info"两步 |
-| **Signal** | ⏳ 待补 | — | signal-cli `--attachment <path>` | 通过外部 signal-cli 进程传文件路径 |
-| **iMessage** | ⏳ 待补 | — | imsg CLI `send_attachment` 子命令（待新增 stdio 协议字段） | macOS 本地路径 + Apple Messages.app 协议 |
-| **WhatsApp** | ⏳ 待补 | — | 桥接服务（与 WeChat iLink 同源协议）`media` 字段 | 桥接侧已具备能力，待 plugin 端补封装 |
-| **Google Chat** | ⏳ 待补 | — | `spaces.messages.create` + `attachment` 数组（先 `media.upload` 拿 resourceName） | 需要 Service Account 拓展 Drive scope |
-| **LINE** | ⏳ 待补 | — | Reply/Push API 的 `image` / `video` / `audio` / `file` message object | 必须公网 HTTPS URL，本地附件需自带文件中转 |
+| **Slack** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | `files.getUploadURLExternal` + `files.completeUploadExternal`（v2） | Slack v1 `files.upload` 已弃用；需要 bot token `files:write` |
+| **QQ Bot** | ✅ c2c/group 条件实现 | Photo, Video, Audio, Voice, Animation | `POST /v2/{users|groups}/{openid}/files` 拿 `file_info` 再发 `media` 消息 | 需要 `server.publicBaseUrl=https://...`；channel/dms 端点仍走链接 |
+| **Signal** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | signal-cli JSON-RPC `send.attachments` | 本地路径直传；URL / bytes 先物化到临时文件 |
+| **iMessage** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | imsg JSON-RPC `send` + `file` 参数 | 本地路径直传；URL / bytes 先物化到临时文件；`imsg` 自行 stage 到 Messages 附件目录 |
+| **WhatsApp** | ✅ 已实现 | Photo, Video, Audio, Document, Sticker, Voice, Animation | bridge `POST /api/media`，`media=data:<mime>;name=<filename>;base64,...` | 同时发送旧 `data` alias；bridge 负责上传到 Cloud API / whatsmeow / Baileys |
+| **Google Chat** | ⏳ 认证模型阻塞 | — | `spaces.messages.create` + `attachment` 数组（先 `media.upload` 拿 `attachmentDataRef`） | 官方 `media.upload` 需要 user auth `chat.messages.create` / `chat.messages`；当前插件是 app-auth `chat.bot` |
+| **LINE** | ✅ 条件实现 | Photo, Audio, Voice | Reply/Push API 的 `image` / `audio` message object | 需要 `server.publicBaseUrl=https://...`；video 还缺独立 `previewImageUrl` 缩略图，走链接 |
 | **IRC** | ❌ 协议限制 | — | （IRC 纯文本协议） | 无原生二进制传输，永久走链接兜底；可选未来接 DCC SEND 但实用性低 |
 
 补齐参考实现：Telegram 走 SDK 内置 `InputFile`（[telegram/media.rs](../../crates/ha-core/src/channel/telegram/media.rs)），Discord 走单 POST multipart（[discord/media.rs](../../crates/ha-core/src/channel/discord/media.rs)），飞书走"上传 → 引用 key 发消息"两步（[feishu/media.rs](../../crates/ha-core/src/channel/feishu/media.rs)），WeChat 走"获取 CDN 上传 URL → AES 加密上传 → 引用消息项"自建加密链路（[wechat/media.rs](../../crates/ha-core/src/channel/wechat/media.rs)）。新增渠道时按平台 API 形态选最接近的范本套用 — 大多数 IM 平台属于 Discord 或飞书两类。
@@ -506,7 +506,7 @@ sequenceDiagram
 
 #### WeChat AES streaming（commit 14）
 
-WeChat 的特殊性是密文必须经 AES-128-ECB + PKCS#7 解密。旧实现 `response.bytes()` + `decrypt(&buf)` 在内存里同时持有密文 + 明文两份 buffer，100 MB 文件 → ≥ 200 MB 峰值 RSS。F-082 改成磁盘缓冲二段法：
+WeChat 的特殊性是密文必须经 AES-128-ECB + PKCS#7 解密。旧实现 `response.bytes()` + `decrypt(&buf)` 在内存里同时持有密文 + 明文两份 buffer，100 MB 文件 → ≥ 200 MB 峰值 RSS。现实现改成磁盘缓冲二段法：
 
 ```
 Stage 1  stream_to_disk(url → <ts>-<msg>.enc)        // 16 KiB read / 64 KiB write buffer
@@ -566,7 +566,7 @@ crates/ha-core/src/channel/
 │   ├── mod.rs, client.rs, daemon.rs, format.rs
 ├── imessage/           iMessage（macOS, imsg CLI JSON-RPC）
 │   ├── mod.rs, client.rs, format.rs
-├── whatsapp/           WhatsApp（外部桥接服务轮询）
+├── whatsapp/           WhatsApp（外部桥接服务轮询 + media bridge）
 │   ├── mod.rs, api.rs, format.rs, polling.rs
 ├── googlechat/         Google Chat（Webhook + REST API）
 │   ├── mod.rs, api.rs, auth.rs, format.rs, webhook.rs
@@ -770,7 +770,7 @@ turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处
 
 mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to_native` → `chunk_message`),三种 `ImReplyMode` 的路径覆盖详见本节末尾[消息分段(chunking)契约](#消息分段chunking契约)表。
 
-> 历史:本能力之前是 follow-up F-066(详见 [`docs/plans/review-followups.md`](../plans/review-followups.md));旧版 `attach_im_mirrors` / `finalize_im_mirrors` 走「turn 末尾一次性 send_message」,与 src-tauri `chat.rs` 的 `relay_to_channel` 还存在 double-send。F-066 落地后 live mirror 完整接管 IM 投递,`relay_to_channel` 已删除。
+> 历史:旧版 `attach_im_mirrors` / `finalize_im_mirrors` 走「turn 末尾一次性 send_message」,与 src-tauri `chat.rs` 的 `relay_to_channel` 还存在 double-send。live mirror 落地后完整接管 IM 投递,`relay_to_channel` 已删除。
 
 ### Attach catch-up:接管已有会话立刻看到上一轮
 
@@ -1433,7 +1433,7 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 ### Smart 模式判官说明
 
-当会话处于 Smart 模式（`SessionMode::Smart`）且 `judge_model` 返回 `Ask` 时，`ApprovalReasonPayload { kind: SmartJudge, detail: rationale }` 会经 EventBus 事件 `approval_required` 一并落到 IM 端。`format_approval_text` / `format_text_approval` 在 command preview 后追加一行 `💭 Smart Judge: {rationale}`（UTF-8 安全截断到 280 字节，文本 fallback 路径置于 `Reply: 1 / 2 / 3` 数字列表前以避免破坏数字解析）。其它 `AskReason` kind（保护路径命中、危险命令命中等）当前在 IM 端只渲染基础 `command` 预览，已登记 review-followups。
+当会话处于 Smart 模式（`SessionMode::Smart`）且 `judge_model` 返回 `Ask` 时，`ApprovalReasonPayload { kind: SmartJudge, detail: rationale }` 会经 EventBus 事件 `approval_required` 一并落到 IM 端。`format_approval_text` / `format_text_approval` 在 command preview 后追加一行 `💭 Smart Judge: {rationale}`（UTF-8 安全截断到 280 字节，文本 fallback 路径置于 `Reply: 1 / 2 / 3` 数字列表前以避免破坏数字解析）。其它 `AskReason` kind 会渲染对应安全摘要；保护路径等敏感细节只展示命中类别，不回显具体路径。
 
 ### `/permission` 切换会话权限模式
 
@@ -1707,13 +1707,13 @@ registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new(
 | **Telegram** | `telegram/{mod,api,format,media,polling}.rs` | teloxide + Long-polling |
 | **WeChat** | `wechat/{mod,api,login,media,polling}.rs` | iLink HTTP 长轮询 |
 | **Discord** | `discord/{mod,api,format,gateway}.rs` | WebSocket Gateway + Application Commands |
-| **Slack** | `slack/{mod,api,format,socket}.rs` | Socket Mode WebSocket |
+| **Slack** | `slack/{mod,api,format,inbound_media,media,socket}.rs` | Socket Mode WebSocket |
 | **飞书** | `feishu/{mod,api,auth,format,ws_event}.rs` | WebSocket + OAuth Token |
 | **QQ Bot** | `qqbot/{mod,api,auth,format,gateway}.rs` | WebSocket Gateway + Token |
 | **IRC** | `irc/{mod,client,format,protocol}.rs` | TCP/TLS 直连 + 原生 IRC 协议 |
-| **Signal** | `signal/{mod,client,daemon,format}.rs` | signal-cli daemon + SSE |
-| **iMessage** | `imessage/{mod,client,format}.rs` | imsg CLI JSON-RPC over stdio (macOS) |
-| **WhatsApp** | `whatsapp/{mod,api,format,polling}.rs` | 外部桥接服务 HTTP 轮询 |
+| **Signal** | `signal/{mod,client,daemon,format,inbound_media,media}.rs` | signal-cli daemon + SSE |
+| **iMessage** | `imessage/{mod,client,format,media}.rs` | imsg CLI JSON-RPC over stdio (macOS) |
+| **WhatsApp** | `whatsapp/{mod,api,format,inbound_media,media,polling}.rs` | 外部桥接服务 HTTP 轮询 |
 | **Google Chat** | `googlechat/{mod,api,auth,format,webhook}.rs` | Service Account JWT + Webhook |
 | **LINE** | `line/{mod,api,format,webhook}.rs` | HMAC-SHA256 Webhook + REST API |
 

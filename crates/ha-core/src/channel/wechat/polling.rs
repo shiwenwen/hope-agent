@@ -61,7 +61,7 @@ pub(crate) async fn run_polling_loop(
         match response {
             Ok(resp) => {
                 if let Some(timeout_ms) = resp.longpolling_timeout_ms.filter(|v| *v > 0) {
-                    next_timeout_ms = timeout_ms.min(60_000);
+                    next_timeout_ms = timeout_ms.clamp(5_000, 60_000);
                 }
 
                 if is_api_error(&resp) {

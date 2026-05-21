@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::time::Duration;
 
+use crate::channel::media_helpers::MaterializedMedia;
 use crate::channel::rate_limit::with_rate_limit_retry;
 
 /// Slack Web API client.
@@ -42,6 +43,22 @@ struct PostMessageData {
 #[derive(Debug, Deserialize)]
 struct ConnectionsOpenData {
     url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UploadUrlData {
+    upload_url: Option<String>,
+    file_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CompleteUploadData {
+    files: Option<Vec<CompletedFile>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CompletedFile {
+    id: Option<String>,
 }
 
 impl SlackApi {
@@ -198,6 +215,102 @@ impl SlackApi {
             .ok_or_else(|| anyhow!("apps.connections.open returned ok but no URL"))
     }
 
+    /// Upload and share files using Slack's external upload flow:
+    /// files.getUploadURLExternal → POST upload_url → files.completeUploadExternal.
+    pub async fn upload_files_external(
+        &self,
+        channel_id: &str,
+        thread_ts: Option<&str>,
+        initial_comment: Option<&str>,
+        files: Vec<MaterializedMedia>,
+    ) -> Result<String> {
+        if files.is_empty() {
+            return Err(anyhow!("Slack upload_files_external called with no files"));
+        }
+
+        let mut complete_files = Vec::with_capacity(files.len());
+        for file in files {
+            if file.bytes.is_empty() {
+                return Err(anyhow!("Slack does not accept zero-length file uploads"));
+            }
+
+            let ticket = self
+                .files_get_upload_url_external(&file.filename, file.bytes.len())
+                .await?;
+            self.upload_to_external_url(&ticket.upload_url, file)
+                .await?;
+            complete_files.push(serde_json::json!({
+                "id": ticket.file_id,
+                "title": ticket.title,
+            }));
+        }
+
+        let body = complete_upload_body(channel_id, thread_ts, initial_comment, complete_files);
+        let data: CompleteUploadData = self
+            .slack_post("files.completeUploadExternal", body)
+            .await?;
+        let first_id = data
+            .files
+            .and_then(|files| files.into_iter().find_map(|file| file.id))
+            .unwrap_or_else(|| "file_uploaded".to_string());
+        Ok(first_id)
+    }
+
+    async fn files_get_upload_url_external(
+        &self,
+        filename: &str,
+        length: usize,
+    ) -> Result<UploadTicket> {
+        let data: UploadUrlData = self
+            .slack_post(
+                "files.getUploadURLExternal",
+                serde_json::json!({
+                    "filename": filename,
+                    "length": length,
+                }),
+            )
+            .await?;
+        Ok(UploadTicket {
+            upload_url: data
+                .upload_url
+                .ok_or_else(|| anyhow!("files.getUploadURLExternal returned no upload_url"))?,
+            file_id: data
+                .file_id
+                .ok_or_else(|| anyhow!("files.getUploadURLExternal returned no file_id"))?,
+            title: filename.to_string(),
+        })
+    }
+
+    async fn upload_to_external_url(
+        &self,
+        upload_url: &str,
+        file: MaterializedMedia,
+    ) -> Result<()> {
+        validate_slack_upload_url(upload_url)?;
+        let part = reqwest::multipart::Part::bytes(file.bytes)
+            .file_name(file.filename.clone())
+            .mime_str(&file.mime)
+            .map_err(|e| anyhow!("Invalid Slack upload mime '{}': {}", file.mime, e))?;
+        let form = reqwest::multipart::Form::new().part("filename", part);
+        let resp = self
+            .client
+            .post(upload_url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Slack external upload request failed: {}", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Slack external upload returned HTTP {}: {}",
+                status,
+                crate::truncate_utf8(&body, 500)
+            ));
+        }
+        Ok(())
+    }
+
     /// Download a Slack-hosted file (`url_private` / `url_private_download`)
     /// to `dest` using the bot token. Slack's private file URLs return a
     /// login page (HTTP 200, HTML body) when fetched without
@@ -240,5 +353,76 @@ impl SlackApi {
             .get(url)
             .header("Authorization", format!("Bearer {}", self.bot_token));
         crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+    }
+}
+
+struct UploadTicket {
+    upload_url: String,
+    file_id: String,
+    title: String,
+}
+
+fn complete_upload_body(
+    channel_id: &str,
+    thread_ts: Option<&str>,
+    initial_comment: Option<&str>,
+    files: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "channel_id": channel_id,
+        "files": files,
+    });
+    if let Some(thread_ts) = thread_ts.filter(|s| !s.is_empty()) {
+        body["thread_ts"] = serde_json::Value::String(thread_ts.to_string());
+    }
+    if let Some(comment) = initial_comment.filter(|s| !s.is_empty()) {
+        body["initial_comment"] = serde_json::Value::String(comment.to_string());
+    }
+    body
+}
+
+fn validate_slack_upload_url(upload_url: &str) -> Result<()> {
+    let parsed =
+        url::Url::parse(upload_url).map_err(|e| anyhow!("Invalid Slack upload URL: {}", e))?;
+    if parsed.scheme() != "https" {
+        return Err(anyhow!("Slack upload URL must use https"));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| anyhow!("Slack upload URL has no host"))?;
+    if host == "slack.com" || host == "files.slack.com" || host.ends_with(".slack.com") {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Refusing Slack upload URL from non-Slack host: {}",
+            host
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{complete_upload_body, validate_slack_upload_url};
+
+    #[test]
+    fn complete_upload_body_includes_share_target_and_comment() {
+        let body = complete_upload_body(
+            "C123",
+            Some("1710000000.000100"),
+            Some("hello"),
+            vec![serde_json::json!({"id": "F123", "title": "cat.png"})],
+        );
+
+        assert_eq!(body["channel_id"], "C123");
+        assert_eq!(body["thread_ts"], "1710000000.000100");
+        assert_eq!(body["initial_comment"], "hello");
+        assert_eq!(body["files"][0]["id"], "F123");
+    }
+
+    #[test]
+    fn validate_slack_upload_url_requires_https_slack_host() {
+        assert!(validate_slack_upload_url("https://files.slack.com/upload/v1/abc").is_ok());
+        assert!(validate_slack_upload_url("http://files.slack.com/upload/v1/abc").is_err());
+        assert!(validate_slack_upload_url("https://example.com/upload/v1/abc").is_err());
     }
 }

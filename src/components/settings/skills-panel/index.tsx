@@ -252,8 +252,19 @@ export default function SkillsPanel() {
   }
 
   async function handleSetSkillEnvCheck(v: boolean) {
+    const previous = skillEnvCheck
     setSkillEnvCheck(v)
-    await getTransport().call("set_skill_env_check", { enabled: v })
+    try {
+      await getTransport().call("set_skill_env_check", { enabled: v })
+    } catch (e) {
+      logger.error(
+        "settings",
+        "SkillsPanel::setSkillEnvCheck",
+        "Failed to update skill environment check",
+        e,
+      )
+      setSkillEnvCheck(previous)
+    }
   }
 
   async function handleSetAutoReviewPromotion(v: boolean) {

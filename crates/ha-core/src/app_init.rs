@@ -807,6 +807,10 @@ pub async fn start_background_tasks() {
         // on every `config:changed { category: "dreaming" }`.
         crate::memory::dreaming::spawn_dreaming_cron_loop();
 
+        // Optional skill draft consolidation loop. Re-reads the
+        // auto-review config after every interval or config change.
+        crate::skills::auto_review::curator::spawn_auto_curator_loop();
+
         // STT streaming-session GC. Sweeps abandoned sessions every 5
         // minutes — a front-end crash / lost connection between `start`
         // and `finalize` would otherwise leak the upstream WS forever.

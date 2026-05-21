@@ -6,10 +6,13 @@
 //! formatting the result for the LLM.
 
 use crate::ask_user::{
-    self, AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption,
+    self, AskUserI18nText, AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup,
+    AskUserQuestionOption, AskUserText,
 };
 use crate::process_registry::create_session_id;
+use serde_json::json;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Execute the ask_user_question tool.
@@ -25,16 +28,18 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None => return "Error: questions parameter is required (array)".to_string(),
     };
 
-    let context = args
-        .get("context")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let context = parse_optional_text_field(args, "context");
 
     let mut questions = Vec::new();
     for (i, q) in questions_val.iter().enumerate() {
-        let text = match q.get("text").and_then(|v| v.as_str()) {
-            Some(t) => t.to_string(),
-            None => return format!("Error: questions[{}].text is required", i),
+        let text = match parse_optional_text_field(q, "text") {
+            Some(t) => t,
+            None => {
+                return format!(
+                    "Error: questions[{}].text is required (string or {{key, params, fallback}})",
+                    i
+                )
+            }
         };
 
         let options = q
@@ -44,11 +49,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 arr.iter()
                     .filter_map(|opt| {
                         let value = opt.get("value").and_then(|v| v.as_str())?.to_string();
-                        let label = opt.get("label").and_then(|v| v.as_str())?.to_string();
-                        let description = opt
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
+                        let label = parse_optional_text_field(opt, "label")?;
+                        let description = opt.get("description").and_then(parse_text_value);
                         let recommended = opt
                             .get("recommended")
                             .and_then(|v| v.as_bool())
@@ -96,10 +98,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             .get("template")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        let header = q
-            .get("header")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let header = q.get("header").and_then(parse_text_value);
         let timeout_secs = q
             .get("timeout_secs")
             .or_else(|| q.get("timeoutSecs"))
@@ -330,7 +329,7 @@ fn format_answers_for_llm(
                     .options
                     .iter()
                     .find(|o| o.value == *sel)
-                    .map(|o| o.label.clone())
+                    .map(|o| o.label.fallback_text().to_string())
                     .unwrap_or_else(|| sel.clone());
                 selected_labels.push(label);
             }
@@ -342,7 +341,7 @@ fn format_answers_for_llm(
         }
 
         items.push(serde_json::json!({
-            "question": question.text,
+            "question": question.text.fallback_text(),
             "selected": selected_labels,
             "customInput": custom_input,
         }));
@@ -361,4 +360,45 @@ fn format_answers_for_llm(
         );
     }
     serde_json::Value::Object(root).to_string()
+}
+
+fn parse_optional_text_field(value: &Value, field: &str) -> Option<AskUserText> {
+    value.get(field).and_then(parse_text_value)
+}
+
+fn parse_text_value(value: &Value) -> Option<AskUserText> {
+    match value {
+        Value::String(s) => Some(AskUserText::plain(s.clone())),
+        Value::Object(obj) => {
+            let key = obj.get("key")?.as_str()?.to_string();
+            let fallback = obj
+                .get("fallback")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let params = obj
+                .get("params")
+                .and_then(|v| v.as_object())
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .unwrap_or_default();
+            Some(AskUserText::I18n(AskUserI18nText {
+                key,
+                params,
+                fallback,
+            }))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn i18n_text(key: &str, params: Value, fallback: impl Into<String>) -> Value {
+    let params = params.as_object().cloned().unwrap_or_default();
+    json!({
+        "key": key,
+        "params": params,
+        "fallback": fallback.into(),
+    })
 }

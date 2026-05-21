@@ -245,14 +245,42 @@ async fn action_rollback(args: &Value, ctx: &ToolExecContext) -> Result<String> 
     }
 
     let ask_args = json!({
-        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "context": ask_i18n(
+            "askUserDialog.appUpdate.rollback.context",
+            json!({}),
+            "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        ),
         "questions": [{
             "question_id": "confirm_rollback",
-            "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
-            "header": "Hope Agent rollback",
+            "text": ask_i18n(
+                "askUserDialog.appUpdate.rollback.text",
+                json!({}),
+                "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+            ),
+            "header": ask_i18n(
+                "askUserDialog.appUpdate.rollback.header",
+                json!({}),
+                "Hope Agent rollback",
+            ),
             "options": [
-                {"value": "confirm", "label": "Roll back now", "recommended": false},
-                {"value": "cancel", "label": "Cancel", "recommended": true}
+                {
+                    "value": "confirm",
+                    "label": ask_i18n(
+                        "askUserDialog.appUpdate.rollback.confirm",
+                        json!({}),
+                        "Roll back now",
+                    ),
+                    "recommended": false
+                },
+                {
+                    "value": "cancel",
+                    "label": ask_i18n(
+                        "askUserDialog.appUpdate.rollback.cancel",
+                        json!({}),
+                        "Cancel",
+                    ),
+                    "recommended": true
+                }
             ],
             "multi_select": false,
             "default_values": ["cancel"]
@@ -292,52 +320,98 @@ fn path_label(path: RecommendedPath) -> &'static str {
     }
 }
 
+fn ask_i18n(key: &str, params: Value, fallback: impl Into<String>) -> Value {
+    super::ask_user_question::i18n_text(key, params, fallback)
+}
+
 async fn ask_install_confirmation(
     session_id: &str,
     snapshot: &updater::CheckOutcome,
     to_version: &str,
     path: RecommendedPath,
 ) -> Result<bool> {
-    let route_desc = match path {
-        RecommendedPath::PackageManager => format!(
-            "Route: package manager ({})",
-            snapshot.install_source.label()
+    let (text_key, route_desc) = match path {
+        RecommendedPath::PackageManager => (
+            "askUserDialog.appUpdate.install.text.packageManager",
+            format!(
+                "Route: package manager ({})",
+                snapshot.install_source.label()
+            ),
         ),
-        RecommendedPath::SelfContained => {
-            "Route: download bare binary, verify Minisign signature, atomically swap.".into()
-        }
-        RecommendedPath::Tauri => "Route: Tauri bundled updater (signed installer).".into(),
-        RecommendedPath::ManualPrompt => {
-            "Route: manual download (no automated path matches).".into()
-        }
+        RecommendedPath::SelfContained => (
+            "askUserDialog.appUpdate.install.text.selfContained",
+            "Route: download bare binary, verify Minisign signature, atomically swap.".into(),
+        ),
+        RecommendedPath::Tauri => (
+            "askUserDialog.appUpdate.install.text.tauri",
+            "Route: Tauri bundled updater (signed installer).".into(),
+        ),
+        RecommendedPath::ManualPrompt => (
+            "askUserDialog.appUpdate.install.text.manualPrompt",
+            "Route: manual download (no automated path matches).".into(),
+        ),
     };
     let notes_line = snapshot
         .notes
         .as_deref()
-        .map(|n| {
-            format!(
-                "\n\nRelease notes (excerpt):\n{}",
-                crate::truncate_utf8(n, 512)
-            )
-        })
+        .map(|n| format!("\n\n{}", crate::truncate_utf8(n, 512)))
         .unwrap_or_default();
     let text = format!(
         "Upgrade Hope Agent {} → {}?\n{}{}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
         snapshot.current_version, to_version, route_desc, notes_line
     );
     let ask_args = json!({
-        "context": format!(
-            "Hope Agent self-update confirmation. Install source: {}. Recommended path: {}.",
-            snapshot.install_source.label(),
-            path_label(path),
+        "context": ask_i18n(
+            "askUserDialog.appUpdate.install.context",
+            json!({
+                "installSource": snapshot.install_source.label(),
+                "path": path_label(path),
+            }),
+            format!(
+                "Hope Agent self-update confirmation. Install source: {}. Recommended path: {}.",
+                snapshot.install_source.label(),
+                path_label(path),
+            ),
         ),
         "questions": [{
             "question_id": "confirm_install",
-            "text": text,
-            "header": format!("Hope Agent {} → {}", snapshot.current_version, to_version),
+            "text": ask_i18n(
+                text_key,
+                json!({
+                    "from": snapshot.current_version,
+                    "to": to_version,
+                    "installSource": snapshot.install_source.label(),
+                    "notes": notes_line,
+                }),
+                text,
+            ),
+            "header": ask_i18n(
+                "askUserDialog.appUpdate.install.header",
+                json!({
+                    "from": snapshot.current_version,
+                    "to": to_version,
+                }),
+                format!("Hope Agent {} → {}", snapshot.current_version, to_version),
+            ),
             "options": [
-                {"value": "confirm", "label": "Upgrade now", "recommended": false},
-                {"value": "cancel", "label": "Not now", "recommended": true}
+                {
+                    "value": "confirm",
+                    "label": ask_i18n(
+                        "askUserDialog.appUpdate.install.confirm",
+                        json!({}),
+                        "Upgrade now",
+                    ),
+                    "recommended": false
+                },
+                {
+                    "value": "cancel",
+                    "label": ask_i18n(
+                        "askUserDialog.appUpdate.install.cancel",
+                        json!({}),
+                        "Not now",
+                    ),
+                    "recommended": true
+                }
             ],
             "multi_select": false,
             "default_values": ["cancel"]
@@ -362,37 +436,107 @@ async fn prompt_manual_install(
     // `docker pull` — confusing and pointless. The Docker branch tells the
     // user how to upgrade the image instead.
     let ask_args = if matches!(snapshot.install_source, InstallSource::Docker) {
+        let fallback_text = format!(
+            "Hope Agent is running in a Docker container ({} → {}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+            snapshot.current_version, to_version, to_version
+        );
         json!({
-            "context": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+            "context": ask_i18n(
+                "askUserDialog.appUpdate.manual.dockerContext",
+                json!({}),
+                "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+            ),
             "questions": [{
                 "question_id": "docker_manual_install",
-                "text": format!(
-                    "Hope Agent is running in a Docker container ({} → {}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
-                    snapshot.current_version, to_version, to_version
+                "text": ask_i18n(
+                    "askUserDialog.appUpdate.manual.dockerText",
+                    json!({
+                        "from": snapshot.current_version,
+                        "to": to_version,
+                    }),
+                    fallback_text,
                 ),
-                "header": "Docker upgrade required",
+                "header": ask_i18n(
+                    "askUserDialog.appUpdate.manual.dockerHeader",
+                    json!({}),
+                    "Docker upgrade required",
+                ),
                 "options": [
-                    {"value": "open_releases", "label": "Open release page in browser", "recommended": true},
-                    {"value": "abort", "label": "Abort upgrade"}
+                    {
+                        "value": "open_releases",
+                        "label": ask_i18n(
+                            "askUserDialog.appUpdate.manual.openReleases",
+                            json!({}),
+                            "Open release page in browser",
+                        ),
+                        "recommended": true
+                    },
+                    {
+                        "value": "abort",
+                        "label": ask_i18n(
+                            "askUserDialog.appUpdate.manual.abort",
+                            json!({}),
+                            "Abort upgrade",
+                        )
+                    }
                 ],
                 "multi_select": false,
                 "default_values": ["open_releases"]
             }]
         })
     } else {
+        let fallback_text = format!(
+            "No automated upgrade path is available for Hope Agent {} → {}. Install source detected as: {}. Pick a recovery:",
+            snapshot.current_version, to_version, snapshot.install_source.label()
+        );
         json!({
-            "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+            "context": ask_i18n(
+                "askUserDialog.appUpdate.manual.context",
+                json!({}),
+                "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+            ),
             "questions": [{
                 "question_id": "manual_install_route",
-                "text": format!(
-                    "No automated upgrade path is available for Hope Agent {} → {}. Install source detected as: {}. Pick a recovery:",
-                    snapshot.current_version, to_version, snapshot.install_source.label()
+                "text": ask_i18n(
+                    "askUserDialog.appUpdate.manual.text",
+                    json!({
+                        "from": snapshot.current_version,
+                        "to": to_version,
+                        "installSource": snapshot.install_source.label(),
+                    }),
+                    fallback_text,
                 ),
-                "header": "Manual upgrade required",
+                "header": ask_i18n(
+                    "askUserDialog.appUpdate.manual.header",
+                    json!({}),
+                    "Manual upgrade required",
+                ),
                 "options": [
-                    {"value": "open_releases", "label": "Open release page in browser (manual download)", "recommended": true},
-                    {"value": "force_self_contained", "label": "Try the self-contained bare-binary swap anyway"},
-                    {"value": "abort", "label": "Abort upgrade"}
+                    {
+                        "value": "open_releases",
+                        "label": ask_i18n(
+                            "askUserDialog.appUpdate.manual.openReleasesManual",
+                            json!({}),
+                            "Open release page in browser (manual download)",
+                        ),
+                        "recommended": true
+                    },
+                    {
+                        "value": "force_self_contained",
+                        "label": ask_i18n(
+                            "askUserDialog.appUpdate.manual.forceSelfContained",
+                            json!({}),
+                            "Try the self-contained bare-binary swap anyway",
+                        )
+                    },
+                    {
+                        "value": "abort",
+                        "label": ask_i18n(
+                            "askUserDialog.appUpdate.manual.abort",
+                            json!({}),
+                            "Abort upgrade",
+                        )
+                    }
                 ],
                 "multi_select": false,
                 "default_values": ["open_releases"]

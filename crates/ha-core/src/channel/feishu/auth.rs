@@ -98,7 +98,7 @@ impl FeishuAuth {
         }
 
         let url = format!(
-            "{}/open-apis/auth/v3/tenant_access_token/internal/",
+            "{}/open-apis/auth/v3/tenant_access_token/internal",
             self.base_url
         );
         let resp = self
@@ -177,6 +177,43 @@ fn resolve_base_url(domain: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn concurrent_get_token_singleflights_refresh() {
+        use std::sync::Arc;
+        use std::time::Duration;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/open-apis/auth/v3/tenant_access_token/internal"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(50))
+                    .set_body_json(serde_json::json!({
+                        "code": 0,
+                        "msg": "ok",
+                        "tenant_access_token": "t-fake-token",
+                        "expire": 7200
+                    })),
+            )
+            .mount(&server)
+            .await;
+
+        let auth = Arc::new(FeishuAuth::new("cli_test", "secret_test", &server.uri()));
+        let tasks = (0..10).map(|_| {
+            let auth = auth.clone();
+            tokio::spawn(async move { auth.get_token().await })
+        });
+
+        for result in futures_util::future::join_all(tasks).await {
+            assert_eq!(result.unwrap().unwrap(), "t-fake-token");
+        }
+
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+    }
 
     #[test]
     fn test_resolve_base_url_feishu() {

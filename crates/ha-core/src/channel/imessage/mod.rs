@@ -5,10 +5,11 @@
 //! - **SDK / Reference**: imsg JSON-RPC over stdio 文档见仓库 README
 //! - **Protocol**: 子进程托管 `imsg`，stdio NDJSON JSON-RPC，watch 订阅推送
 //!   事件，send 单条命令；macOS 限定（依赖 Messages.app + chat.db）
-//! - **Last reviewed**: 2026-05-05
+//! - **Last reviewed**: 2026-05-20
 
 pub mod client;
 pub mod format;
+pub mod media;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -84,11 +85,16 @@ impl ChannelPlugin for IMessagePlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            // TODO: native iMessage media (AppleScript
-            // `send POSIX file`) not yet implemented. Dispatcher falls back
-            // to a download-link text for now.
-            supports_media: Vec::new(),
-            supports_typing: true,
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+                MediaType::Sticker,
+                MediaType::Voice,
+                MediaType::Animation,
+            ],
+            supports_typing: false,
             supports_buttons: false,
             streaming_preview_max_bytes: None,
             supports_card_stream: false,
@@ -217,6 +223,47 @@ impl ChannelPlugin for IMessagePlugin {
             .get(account_id)
             .ok_or_else(|| anyhow::anyhow!("iMessage account '{}' is not running", account_id))?;
 
+        if !payload.media.is_empty() {
+            let prepared = match media::prepare_imessage_attachments(&payload.media).await {
+                Ok(prepared) => prepared,
+                Err(e) => return Ok(DeliveryResult::err(e.to_string())),
+            };
+            let send_result: Result<String> = async {
+                let mut last_msg_id = None;
+                for (idx, attachment) in prepared.attachments().iter().enumerate() {
+                    let text = media::attachment_text(
+                        payload.text.as_deref(),
+                        attachment.caption.as_deref(),
+                        idx == 0,
+                    );
+                    let result = running
+                        .client
+                        .send_file(
+                            chat_id,
+                            text.as_deref(),
+                            &attachment.path,
+                            payload.reply_to_message_id.as_deref(),
+                        )
+                        .await?;
+                    last_msg_id = Some(extract_message_id(&result).unwrap_or_else(|| {
+                        if prepared.attachments().len() == 1 {
+                            "sent".to_string()
+                        } else {
+                            format!("sent:{}", idx + 1)
+                        }
+                    }));
+                }
+                Ok(last_msg_id.unwrap_or_else(|| "no_content".to_string()))
+            }
+            .await;
+            prepared.cleanup().await;
+
+            return match send_result {
+                Ok(msg_id) => Ok(DeliveryResult::ok(msg_id)),
+                Err(e) => Ok(DeliveryResult::err(e.to_string())),
+            };
+        }
+
         if let Some(ref text) = payload.text {
             if text.is_empty() {
                 return Ok(DeliveryResult::ok("empty"));
@@ -226,17 +273,7 @@ impl ChannelPlugin for IMessagePlugin {
             match running.client.send_message(chat_id, text, reply_to).await {
                 Ok(result) => {
                     // Try to extract message ID from result
-                    let msg_id = result
-                        .get("messageId")
-                        .or_else(|| result.get("message_id"))
-                        .or_else(|| result.get("id"))
-                        .or_else(|| result.get("guid"))
-                        .and_then(|v| {
-                            v.as_str()
-                                .map(|s| s.to_string())
-                                .or_else(|| v.as_i64().map(|n| n.to_string()))
-                        })
-                        .unwrap_or_else(|| "ok".to_string());
+                    let msg_id = extract_message_id(&result).unwrap_or_else(|| "ok".to_string());
                     Ok(DeliveryResult::ok(msg_id))
                 }
                 Err(e) => Ok(DeliveryResult::err(e.to_string())),
@@ -258,12 +295,10 @@ impl ChannelPlugin for IMessagePlugin {
 
     #[cfg(target_os = "macos")]
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
-        let accounts = self.accounts.lock().await;
-        let running = accounts
-            .get(account_id)
-            .ok_or_else(|| anyhow::anyhow!("iMessage account '{}' is not running", account_id))?;
-
-        running.client.send_typing(chat_id).await
+        // `imsg rpc` does not expose typing indicators; typing is an advanced
+        // IMCore/bridge feature, so this channel does not advertise support.
+        let _ = (account_id, chat_id);
+        Ok(())
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -372,4 +407,18 @@ impl ChannelPlugin for IMessagePlugin {
     async fn validate_credentials(&self, _credentials: &serde_json::Value) -> Result<String> {
         Err(anyhow::anyhow!("iMessage is only supported on macOS"))
     }
+}
+
+#[cfg(target_os = "macos")]
+fn extract_message_id(result: &serde_json::Value) -> Option<String> {
+    result
+        .get("messageId")
+        .or_else(|| result.get("message_id"))
+        .or_else(|| result.get("id"))
+        .or_else(|| result.get("guid"))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_i64().map(|n| n.to_string()))
+        })
 }

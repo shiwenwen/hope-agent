@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +24,23 @@ const GATEWAY_INTENTS: u64 = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
 
 const MAX_RECONNECT_ATTEMPTS: usize = 50;
 
+#[cfg(test)]
+const DISCORD_CHANNEL_TYPE_GUILD_TEXT: u64 = 0;
+const DISCORD_CHANNEL_TYPE_DM: u64 = 1;
+const DISCORD_CHANNEL_TYPE_GROUP_DM: u64 = 3;
+const DISCORD_CHANNEL_TYPE_GUILD_NEWS: u64 = 5;
+const DISCORD_CHANNEL_TYPE_ANNOUNCEMENT_THREAD: u64 = 10;
+const DISCORD_CHANNEL_TYPE_PUBLIC_THREAD: u64 = 11;
+const DISCORD_CHANNEL_TYPE_PRIVATE_THREAD: u64 = 12;
+const DISCORD_CHANNEL_TYPE_GUILD_FORUM: u64 = 15;
+const DISCORD_CHANNEL_TYPE_GUILD_MEDIA: u64 = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiscordChannelInfo {
+    channel_type: u64,
+    parent_id: Option<String>,
+}
+
 /// Run the Discord gateway WebSocket loop.
 ///
 /// Connects to the Discord gateway, handles heartbeating, dispatches events,
@@ -46,6 +64,9 @@ pub async fn run_gateway_loop(
     let mut session_id: Option<String> = None;
     let mut resume_gateway_url: Option<String> = None;
     let mut last_seq: Option<u64> = None;
+    let channel_cache = Arc::new(tokio::sync::Mutex::new(
+        HashMap::<String, DiscordChannelInfo>::new(),
+    ));
 
     loop {
         if cancel.is_cancelled() {
@@ -202,17 +223,17 @@ pub async fn run_gateway_loop(
         let heartbeat_seq = Arc::new(tokio::sync::Mutex::new(last_seq));
 
         // Main message loop with integrated heartbeat
-        let mut last_heartbeat = tokio::time::Instant::now();
-        let mut heartbeat_acked = true;
         let heartbeat_duration = tokio::time::Duration::from_millis(heartbeat_interval_ms);
+        let mut next_heartbeat_at =
+            tokio::time::Instant::now() + heartbeat_duration.mul_f64(rand::random::<f64>());
+        let mut heartbeat_acked = true;
         // When breaking out of the inner loop, we always want to reconnect.
         // invalidate_session is set when the session cannot be resumed.
         let mut invalidate_session = false;
 
         loop {
-            let time_until_heartbeat = heartbeat_duration
-                .checked_sub(last_heartbeat.elapsed())
-                .unwrap_or(tokio::time::Duration::ZERO);
+            let time_until_heartbeat =
+                next_heartbeat_at.saturating_duration_since(tokio::time::Instant::now());
 
             tokio::select! {
                 _ = cancel.cancelled() => {
@@ -249,7 +270,7 @@ pub async fn run_gateway_loop(
                         break;
                     }
                     heartbeat_acked = false;
-                    last_heartbeat = tokio::time::Instant::now();
+                    next_heartbeat_at = tokio::time::Instant::now() + heartbeat_duration;
                 }
 
                 msg = ws.recv_text_with_close() => {
@@ -361,13 +382,30 @@ pub async fn run_gateway_loop(
                                         "Successfully resumed session"
                                     );
                                 }
+                                "GUILD_CREATE" => {
+                                    upsert_guild_channels(&channel_cache, d).await;
+                                }
+                                "CHANNEL_CREATE" | "CHANNEL_UPDATE" | "THREAD_CREATE" | "THREAD_UPDATE" => {
+                                    upsert_channel_from_event(&channel_cache, d).await;
+                                }
+                                "CHANNEL_DELETE" | "THREAD_DELETE" => {
+                                    remove_channel_from_event(&channel_cache, d).await;
+                                }
+                                "THREAD_LIST_SYNC" => {
+                                    upsert_thread_list_sync(&channel_cache, d).await;
+                                }
                                 "MESSAGE_CREATE" => {
-                                    if let Some(ctx) = convert_message_create(
-                                        d,
-                                        &account_id,
-                                        &bot_id,
-                                        &bot_username,
-                                    ) {
+                                    let ctx = {
+                                        let cache = channel_cache.lock().await;
+                                        convert_message_create(
+                                            d,
+                                            &account_id,
+                                            &bot_id,
+                                            &bot_username,
+                                            &cache,
+                                        )
+                                    };
+                                    if let Some(ctx) = ctx {
                                         if let Err(e) = inbound_tx.send(InboundEvent::Message(ctx)).await {
                                             app_error!(
                                                 "channel",
@@ -387,12 +425,30 @@ pub async fn run_gateway_loop(
                                             .and_then(|data| data.get("custom_id"))
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("");
+                                        let callback_source = {
+                                            let raw_channel_id =
+                                                d["channel_id"].as_str().unwrap_or("");
+                                            let has_guild = d
+                                                .get("guild_id")
+                                                .and_then(|v| v.as_str())
+                                                .is_some();
+                                            let cache = channel_cache.lock().await;
+                                            let (_, thread_id, chat_id) =
+                                                chat_type_from_channel(raw_channel_id, has_guild, &cache);
+                                            crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                                                ChannelId::Discord,
+                                                &account_id,
+                                                &chat_id,
+                                                thread_id.as_deref(),
+                                            )
+                                        };
 
                                         if crate::channel::worker::approval::is_approval_callback(custom_id) {
                                             let api_clone = api.clone();
                                             let interaction_id = d["id"].as_str().unwrap_or("").to_string();
                                             let interaction_token = d["token"].as_str().unwrap_or("").to_string();
                                             let custom_id_owned = custom_id.to_string();
+                                            let callback_source = callback_source.clone();
 
                                             tokio::spawn(async move {
                                                 handle_approval_component(
@@ -400,15 +456,17 @@ pub async fn run_gateway_loop(
                                                     &interaction_id,
                                                     &interaction_token,
                                                     &custom_id_owned,
+                                                    Some(callback_source),
                                                 ).await;
                                             });
                                         } else if crate::channel::worker::ask_user::is_ask_user_callback(custom_id) {
                                             // Dispatch ask_user callback (uses generic
                                             // spawn_callback_handler; Discord interaction
                                             // ack is best-effort via update_message below).
-                                            crate::channel::worker::ask_user::spawn_callback_handler(
+                                            crate::channel::worker::ask_user::spawn_callback_handler_with_source(
                                                 custom_id,
                                                 "discord::gateway",
+                                                Some(callback_source.clone()),
                                             );
                                             // Acknowledge the interaction (type 6 = DEFERRED_UPDATE_MESSAGE)
                                             // so Discord doesn't show "interaction failed".
@@ -417,7 +475,8 @@ pub async fn run_gateway_loop(
                                             // Ack first so the button doesn't render as failed.
                                             ack_component_interaction(api.clone(), &d);
                                             // Re-inject as synthetic inbound `/cmd arg`.
-                                            let chat_id = d["channel_id"].as_str().unwrap_or("").to_string();
+                                            let chat_id = callback_source.chat_id.clone();
+                                            let thread_id = callback_source.thread_id.clone();
                                             let sender_id = d
                                                 .get("member")
                                                 .and_then(|m| m.get("user"))
@@ -435,7 +494,7 @@ pub async fn run_gateway_loop(
                                                     ChannelId::Discord,
                                                     &account_id_clone,
                                                     &chat_id,
-                                                    None,
+                                                    thread_id.as_deref(),
                                                     &sender_id,
                                                     &message_id,
                                                     &rest_owned,
@@ -564,18 +623,7 @@ async fn recv_hello(ws: &mut WsConnection, cancel: &CancellationToken) -> Option
 
 /// Send the IDENTIFY payload.
 async fn send_identify(ws: &mut WsConnection, token: &str) -> bool {
-    let identify = serde_json::json!({
-        "op": OP_IDENTIFY,
-        "d": {
-            "token": token,
-            "intents": GATEWAY_INTENTS,
-            "properties": {
-                "os": "macos",
-                "browser": "hope-agent",
-                "device": "hope-agent"
-            }
-        }
-    });
+    let identify = build_identify_payload(token);
 
     match ws.send_json(&identify).await {
         Ok(()) => {
@@ -594,7 +642,142 @@ async fn send_identify(ws: &mut WsConnection, token: &str) -> bool {
     }
 }
 
+fn build_identify_payload(token: &str) -> serde_json::Value {
+    serde_json::json!({
+        "op": OP_IDENTIFY,
+        "d": {
+            "token": token,
+            "intents": GATEWAY_INTENTS,
+            "properties": {
+                "os": std::env::consts::OS,
+                "browser": "hope-agent",
+                "device": "hope-agent"
+            }
+        }
+    })
+}
+
 // ── Event Converters ────────────────────────────────────────────
+
+async fn upsert_guild_channels(
+    cache: &Arc<tokio::sync::Mutex<HashMap<String, DiscordChannelInfo>>>,
+    guild: &serde_json::Value,
+) {
+    let mut guard = cache.lock().await;
+    if let Some(channels) = guild.get("channels").and_then(|v| v.as_array()) {
+        for channel in channels {
+            upsert_channel_info(&mut guard, channel);
+        }
+    }
+    if let Some(threads) = guild.get("threads").and_then(|v| v.as_array()) {
+        for thread in threads {
+            upsert_channel_info(&mut guard, thread);
+        }
+    }
+}
+
+async fn upsert_channel_from_event(
+    cache: &Arc<tokio::sync::Mutex<HashMap<String, DiscordChannelInfo>>>,
+    channel: &serde_json::Value,
+) {
+    let mut guard = cache.lock().await;
+    upsert_channel_info(&mut guard, channel);
+}
+
+async fn remove_channel_from_event(
+    cache: &Arc<tokio::sync::Mutex<HashMap<String, DiscordChannelInfo>>>,
+    channel: &serde_json::Value,
+) {
+    if let Some(id) = channel.get("id").and_then(|v| v.as_str()) {
+        cache.lock().await.remove(id);
+    }
+}
+
+async fn upsert_thread_list_sync(
+    cache: &Arc<tokio::sync::Mutex<HashMap<String, DiscordChannelInfo>>>,
+    payload: &serde_json::Value,
+) {
+    let mut guard = cache.lock().await;
+    if let Some(threads) = payload.get("threads").and_then(|v| v.as_array()) {
+        for thread in threads {
+            upsert_channel_info(&mut guard, thread);
+        }
+    }
+}
+
+fn upsert_channel_info(
+    cache: &mut HashMap<String, DiscordChannelInfo>,
+    channel: &serde_json::Value,
+) {
+    let Some(id) = channel.get("id").and_then(|v| v.as_str()) else {
+        return;
+    };
+    let Some(channel_type) = channel.get("type").and_then(|v| v.as_u64()) else {
+        return;
+    };
+    let parent_id = channel
+        .get("parent_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    cache.insert(
+        id.to_string(),
+        DiscordChannelInfo {
+            channel_type,
+            parent_id,
+        },
+    );
+}
+
+fn is_thread_channel_type(channel_type: u64) -> bool {
+    matches!(
+        channel_type,
+        DISCORD_CHANNEL_TYPE_ANNOUNCEMENT_THREAD
+            | DISCORD_CHANNEL_TYPE_PUBLIC_THREAD
+            | DISCORD_CHANNEL_TYPE_PRIVATE_THREAD
+    )
+}
+
+fn chat_type_from_channel(
+    channel_id: &str,
+    has_guild: bool,
+    cache: &HashMap<String, DiscordChannelInfo>,
+) -> (ChatType, Option<String>, String) {
+    if !has_guild {
+        let chat_type = match cache.get(channel_id).map(|info| info.channel_type) {
+            Some(DISCORD_CHANNEL_TYPE_GROUP_DM) => ChatType::Group,
+            Some(DISCORD_CHANNEL_TYPE_DM) | Some(_) | None => ChatType::Dm,
+        };
+        return (chat_type, None, channel_id.to_string());
+    }
+
+    let Some(info) = cache.get(channel_id) else {
+        return (ChatType::Group, None, channel_id.to_string());
+    };
+
+    if is_thread_channel_type(info.channel_type) {
+        let parent_id = info.parent_id.clone();
+        let parent_type = parent_id
+            .as_deref()
+            .and_then(|pid| cache.get(pid))
+            .map(|parent| parent.channel_type);
+        let chat_type = match parent_type {
+            Some(DISCORD_CHANNEL_TYPE_GUILD_FORUM | DISCORD_CHANNEL_TYPE_GUILD_MEDIA) => {
+                ChatType::Forum
+            }
+            Some(DISCORD_CHANNEL_TYPE_GUILD_NEWS) => ChatType::Channel,
+            _ => ChatType::Group,
+        };
+        let chat_id = parent_id.unwrap_or_else(|| channel_id.to_string());
+        return (chat_type, Some(channel_id.to_string()), chat_id);
+    }
+
+    let chat_type = match info.channel_type {
+        DISCORD_CHANNEL_TYPE_GUILD_FORUM | DISCORD_CHANNEL_TYPE_GUILD_MEDIA => ChatType::Forum,
+        DISCORD_CHANNEL_TYPE_GUILD_NEWS => ChatType::Channel,
+        _ => ChatType::Group,
+    };
+    (chat_type, None, channel_id.to_string())
+}
 
 /// Convert a Discord MESSAGE_CREATE dispatch event to MsgContext.
 fn convert_message_create(
@@ -602,6 +785,7 @@ fn convert_message_create(
     account_id: &str,
     bot_id: &str,
     bot_username: &str,
+    channel_cache: &HashMap<String, DiscordChannelInfo>,
 ) -> Option<MsgContext> {
     let author = d.get("author")?;
     let author_id = author["id"].as_str()?;
@@ -612,15 +796,12 @@ fn convert_message_create(
         return None;
     }
 
-    let channel_id_str = d["channel_id"].as_str()?.to_string();
+    let raw_channel_id = d["channel_id"].as_str()?;
     let message_id = d["id"].as_str()?.to_string();
 
-    // Determine chat type: guild_id present → Group, absent → Dm
-    let chat_type = if d.get("guild_id").and_then(|v| v.as_str()).is_some() {
-        ChatType::Group
-    } else {
-        ChatType::Dm
-    };
+    let has_guild = d.get("guild_id").and_then(|v| v.as_str()).is_some();
+    let (chat_type, thread_id, channel_id_str) =
+        chat_type_from_channel(raw_channel_id, has_guild, channel_cache);
 
     // Sender info
     let sender_id = author_id.to_string();
@@ -681,11 +862,6 @@ fn convert_message_create(
         .and_then(|r| r.get("message_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-
-    // Thread: if the message is in a thread, the channel_id IS the thread
-    // We don't have parent info in MESSAGE_CREATE directly, so thread_id = None for now.
-    // The worker can resolve this from the channel type if needed.
-    let thread_id: Option<String> = None;
 
     // Media: parse attachments to deferred refs (downloaded server-side
     // by DiscordPlugin::materialize_pending_media after gating; CDN URLs
@@ -772,13 +948,19 @@ async fn handle_approval_component(
     interaction_id: &str,
     interaction_token: &str,
     custom_id: &str,
+    callback_source: Option<crate::channel::worker::ask_user::InteractiveCallbackSource>,
 ) {
     // Handle the approval
-    let result_text =
-        match crate::channel::worker::approval::handle_approval_callback(custom_id).await {
-            Ok(label) => label.to_string(),
-            Err(e) => format!("Error: {}", e),
-        };
+    let result_text = match crate::channel::worker::approval::handle_approval_callback_with_source(
+        custom_id,
+        callback_source,
+        "discord::gateway",
+    )
+    .await
+    {
+        Ok(label) => label.to_string(),
+        Err(e) => format!("Error: {}", e),
+    };
 
     // Respond with UPDATE_MESSAGE (type=7) to edit the original message
     // and remove the buttons
@@ -880,4 +1062,62 @@ fn convert_interaction(d: &serde_json::Value, account_id: &str) -> Option<MsgCon
         was_mentioned: true, // Slash commands are always directed at the bot
         raw: d.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn channel_info(channel_type: u64, parent_id: Option<&str>) -> DiscordChannelInfo {
+        DiscordChannelInfo {
+            channel_type,
+            parent_id: parent_id.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn identify_payload_uses_runtime_os() {
+        let payload = build_identify_payload("Bot token");
+        assert_eq!(
+            payload["d"]["properties"]["os"].as_str(),
+            Some(std::env::consts::OS)
+        );
+        assert_eq!(payload["d"]["token"].as_str(), Some("Bot token"));
+    }
+
+    #[test]
+    fn forum_thread_maps_to_parent_chat_and_thread_id() {
+        let mut cache = HashMap::new();
+        cache.insert(
+            "forum-parent".to_string(),
+            channel_info(DISCORD_CHANNEL_TYPE_GUILD_FORUM, None),
+        );
+        cache.insert(
+            "thread-1".to_string(),
+            channel_info(DISCORD_CHANNEL_TYPE_PUBLIC_THREAD, Some("forum-parent")),
+        );
+
+        let (chat_type, thread_id, chat_id) = chat_type_from_channel("thread-1", true, &cache);
+        assert_eq!(chat_type, ChatType::Forum);
+        assert_eq!(thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(chat_id, "forum-parent");
+    }
+
+    #[test]
+    fn text_thread_maps_to_group_parent_and_thread_id() {
+        let mut cache = HashMap::new();
+        cache.insert(
+            "text-parent".to_string(),
+            channel_info(DISCORD_CHANNEL_TYPE_GUILD_TEXT, None),
+        );
+        cache.insert(
+            "thread-2".to_string(),
+            channel_info(DISCORD_CHANNEL_TYPE_PUBLIC_THREAD, Some("text-parent")),
+        );
+
+        let (chat_type, thread_id, chat_id) = chat_type_from_channel("thread-2", true, &cache);
+        assert_eq!(chat_type, ChatType::Group);
+        assert_eq!(thread_id.as_deref(), Some("thread-2"));
+        assert_eq!(chat_id, "text-parent");
+    }
 }

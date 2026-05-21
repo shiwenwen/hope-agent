@@ -668,7 +668,7 @@ async fn handle_inbound_message(
     //
     // Conservative `all` rather than `primary-only`: engine returns
     // `Result<_, String>` and erases which model in the chain actually
-    // failed (see F-072). With a mixed chain (e.g. OpenAI primary +
+    // failed. With a mixed chain (e.g. OpenAI primary +
     // Codex fallback) we'd guess wrong either way — falling through to
     // the generic Auth headline ("re-check the API key in settings") is
     // strictly better than directing the user to re-auth Codex when the
@@ -808,20 +808,10 @@ fn build_media_fallback_lines(items: &[&crate::attachments::MediaItem]) -> Optio
     if items.is_empty() {
         return None;
     }
-    let cfg = crate::config::cached_config();
-    let public_base = cfg.server.public_base_url.as_deref().and_then(|s| {
-        let trimmed = s.trim_end_matches('/');
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    });
     let mut lines = Vec::new();
     lines.push("📎 Attachments:".to_string());
     for it in items {
-        let link = public_base
-            .map(|base| format!("{}{}", base, it.url))
+        let link = public_attachment_url(it, false)
             .unwrap_or_else(|| "(no public link configured)".to_string());
         lines.push(format!("- {}: {}", it.name, link));
     }
@@ -888,14 +878,85 @@ pub(super) fn partition_media_by_channel<'a>(
     (native, fallback)
 }
 
-/// Build an `OutboundMedia` from a `MediaItem`, preferring the absolute
-/// `local_path` (zero-copy for local-disk delivery). Falls back to the
-/// logical URL as a last resort so callers still get a reasonable payload
-/// when `local_path` is missing (e.g. re-sent from persisted state).
-fn to_outbound_media(it: &crate::attachments::MediaItem, media_type: MediaType) -> OutboundMedia {
-    let data = match it.local_path.as_deref() {
-        Some(p) if !p.is_empty() => MediaData::FilePath(p.to_string()),
-        _ => MediaData::Url(it.url.clone()),
+fn configured_public_base_url(require_https: bool) -> Option<String> {
+    let cfg = crate::config::cached_config();
+    let trimmed = cfg.server.public_base_url.as_deref()?.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    if require_https && !trimmed.starts_with("https://") {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn public_attachment_url(
+    it: &crate::attachments::MediaItem,
+    require_https: bool,
+) -> Option<String> {
+    public_attachment_url_with_base(
+        it,
+        configured_public_base_url(require_https).as_deref(),
+        require_https,
+    )
+}
+
+fn public_attachment_url_with_base(
+    it: &crate::attachments::MediaItem,
+    public_base: Option<&str>,
+    require_https: bool,
+) -> Option<String> {
+    let logical = it.url.trim();
+    if logical.starts_with("https://") {
+        return Some(logical.to_string());
+    }
+    if logical.starts_with("http://") {
+        return (!require_https).then(|| logical.to_string());
+    }
+    if !logical.starts_with('/') {
+        return None;
+    }
+    let base = public_base?.trim_end_matches('/');
+    if base.is_empty() || (require_https && !base.starts_with("https://")) {
+        return None;
+    }
+    Some(format!("{}{}", base, logical))
+}
+
+fn native_media_requires_public_url(channel_id: &ChannelId) -> bool {
+    matches!(channel_id, ChannelId::Line | ChannelId::QqBot)
+}
+
+fn native_media_supported_for_target(
+    channel_id: &ChannelId,
+    chat_id: &str,
+    item: &crate::attachments::MediaItem,
+) -> bool {
+    match channel_id {
+        ChannelId::Line => public_attachment_url(item, true).is_some(),
+        ChannelId::QqBot => {
+            (chat_id.starts_with("c2c:") || chat_id.starts_with("group:"))
+                && public_attachment_url(item, true).is_some()
+        }
+        _ => true,
+    }
+}
+
+/// Build an `OutboundMedia` from a `MediaItem`. Most channels prefer the
+/// absolute `local_path` (zero-copy for local-disk delivery). LINE and QQ Bot
+/// are URL-only for outbound media, so they use a public HTTPS attachment URL.
+fn to_outbound_media(
+    it: &crate::attachments::MediaItem,
+    media_type: MediaType,
+    channel_id: &ChannelId,
+) -> OutboundMedia {
+    let data = if native_media_requires_public_url(channel_id) {
+        MediaData::Url(public_attachment_url(it, true).unwrap_or_else(|| it.url.clone()))
+    } else {
+        match it.local_path.as_deref() {
+            Some(p) if !p.is_empty() => MediaData::FilePath(p.to_string()),
+            _ => MediaData::Url(it.url.clone()),
+        }
     };
     OutboundMedia {
         media_type,
@@ -1352,13 +1413,22 @@ pub(crate) async fn deliver_media_to_chat(
         return;
     }
 
-    let (native_items, fallback_items) = partition_media_by_channel(items, caps);
+    let channel_id = plugin.meta().id;
+    let (native_items, mut fallback_items) = partition_media_by_channel(items, caps);
+    let mut deliverable_native_items = Vec::with_capacity(native_items.len());
+    for (it, t) in native_items {
+        if native_media_supported_for_target(&channel_id, chat_id, it) {
+            deliverable_native_items.push((it, t));
+        } else {
+            fallback_items.push(it);
+        }
+    }
 
-    for (it, t) in &native_items {
+    for (it, t) in &deliverable_native_items {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let payload = ReplyPayload {
             text: None,
-            media: vec![to_outbound_media(it, t.clone())],
+            media: vec![to_outbound_media(it, t.clone(), &channel_id)],
             reply_to_message_id: None,
             parse_mode: None,
             buttons: Vec::new(),
@@ -1374,9 +1444,11 @@ pub(crate) async fn deliver_media_to_chat(
                     it.name,
                     r.error.unwrap_or_default()
                 );
+                fallback_items.push(*it);
             }
             Err(e) => {
                 app_error!("channel", "worker", "Media send error ({}): {}", it.name, e);
+                fallback_items.push(*it);
             }
             Ok(_) => {}
         }
@@ -1492,8 +1564,48 @@ mod tests {
     #[test]
     fn outbound_prefers_local_path() {
         let it = mk_item("x.pdf", "application/pdf", MediaKind::File);
-        let out = to_outbound_media(&it, MediaType::Document);
+        let out = to_outbound_media(&it, MediaType::Document, &ChannelId::Telegram);
         assert!(matches!(out.data, MediaData::FilePath(_)));
+    }
+
+    #[test]
+    fn public_attachment_url_requires_https_when_native_media_needs_it() {
+        let it = mk_item("x.png", "image/png", MediaKind::Image);
+        assert_eq!(
+            public_attachment_url_with_base(&it, Some("https://files.example"), true).as_deref(),
+            Some("https://files.example/api/attachments/s/x.png")
+        );
+        assert!(public_attachment_url_with_base(&it, Some("http://files.example"), true).is_none());
+        assert_eq!(
+            public_attachment_url_with_base(&it, Some("http://files.example"), false).as_deref(),
+            Some("http://files.example/api/attachments/s/x.png")
+        );
+    }
+
+    #[test]
+    fn line_and_qqbot_use_public_url_for_native_media() {
+        let mut it = mk_item("x.png", "image/png", MediaKind::Image);
+        it.url = "https://files.example/x.png".to_string();
+        let line = to_outbound_media(&it, MediaType::Photo, &ChannelId::Line);
+        assert!(matches!(
+            line.data,
+            MediaData::Url(ref url) if url == "https://files.example/x.png"
+        ));
+        assert!(native_media_supported_for_target(
+            &ChannelId::Line,
+            "user",
+            &it
+        ));
+        assert!(native_media_supported_for_target(
+            &ChannelId::QqBot,
+            "group:g1",
+            &it
+        ));
+        assert!(!native_media_supported_for_target(
+            &ChannelId::QqBot,
+            "channel:c1",
+            &it
+        ));
     }
 
     use crate::chat_engine::RoundOutput;
@@ -1508,6 +1620,7 @@ mod tests {
         max_bytes: usize,
         sends: Mutex<Vec<String>>,
         send_count: AtomicUsize,
+        fail_media: bool,
     }
 
     impl CountingPlugin {
@@ -1516,6 +1629,16 @@ mod tests {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
+                fail_media: false,
+            }
+        }
+
+        fn failing_media(max_bytes: usize) -> Self {
+            Self {
+                max_bytes,
+                sends: Mutex::new(Vec::new()),
+                send_count: AtomicUsize::new(0),
+                fail_media: true,
             }
         }
     }
@@ -1558,6 +1681,9 @@ mod tests {
             payload: &ReplyPayload,
         ) -> Result<DeliveryResult> {
             let n = self.send_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if !payload.media.is_empty() && self.fail_media {
+                return Ok(DeliveryResult::err("native media failed"));
+            }
             if let Some(text) = payload.text.as_ref() {
                 self.sends.lock().unwrap().push(text.clone());
             }
@@ -1638,5 +1764,20 @@ mod tests {
         let prefinal_chunks: String = sends.iter().take(sends.len() - 1).cloned().collect();
         assert_eq!(prefinal_chunks, pre_final_text);
         assert_eq!(sends.last().unwrap(), "final.");
+    }
+
+    #[tokio::test]
+    async fn deliver_media_falls_back_when_native_send_fails() {
+        let plugin_concrete = Arc::new(CountingPlugin::failing_media(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let items = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+        let caps = caps(vec![MediaType::Document]);
+
+        deliver_media_to_chat(&plugin, "acc", "chat", None, &items, &caps).await;
+
+        let sends = plugin_concrete.sends.lock().unwrap().clone();
+        assert_eq!(sends.len(), 1);
+        assert!(sends[0].contains("Attachments"));
+        assert!(sends[0].contains("x.pdf"));
     }
 }

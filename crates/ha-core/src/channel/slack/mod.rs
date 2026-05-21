@@ -9,6 +9,7 @@
 pub mod api;
 pub mod format;
 pub mod inbound_media;
+pub mod media;
 pub mod socket;
 
 use anyhow::Result;
@@ -21,6 +22,10 @@ use tokio_util::sync::CancellationToken;
 use crate::channel::traits::{chunk_text, ChannelPlugin};
 use crate::channel::types::*;
 use api::SlackApi;
+
+/// Slack Block Kit `action_id` fields are limited to 255 characters.
+pub(crate) const SLACK_ACTION_ID_MAX_CHARS: usize = 255;
+const SLACK_BUTTON_ACTION_PREFIX: &str = "ha_button";
 
 /// Running account state.
 struct RunningAccount {
@@ -85,6 +90,32 @@ impl SlackPlugin {
     }
 }
 
+fn slack_action_id(index: usize) -> String {
+    format!("{SLACK_BUTTON_ACTION_PREFIX}:{index}")
+}
+
+fn slack_button_element(button: &InlineButton, index: usize) -> serde_json::Value {
+    let callback = button.callback_id();
+    if callback.chars().count() > 2000 {
+        app_warn!(
+            "channel",
+            "slack",
+            "Slack button value exceeds 2000 characters; Slack may reject the block"
+        );
+    }
+
+    let mut element = serde_json::json!({
+        "type": "button",
+        "text": {"type": "plain_text", "text": &button.text},
+        "action_id": slack_action_id(index),
+        "value": callback,
+    });
+    if let Some(url) = button.url.as_deref().filter(|url| !url.is_empty()) {
+        element["url"] = serde_json::Value::String(url.to_string());
+    }
+    element
+}
+
 #[async_trait]
 impl ChannelPlugin for SlackPlugin {
     fn meta(&self) -> ChannelMeta {
@@ -111,10 +142,15 @@ impl ChannelPlugin for SlackPlugin {
             // Slack chat.postMessage 上限 4000 字符；UTF-8 字节计算下 CJK 字符
             // 占 3 bytes，留 20% 余量到 3200 字节避免 msg_too_long
             streaming_preview_max_bytes: Some(3200),
-            // TODO: native Slack media (files.getUploadURLExternal +
-            // files.completeUploadExternal) not yet implemented. Dispatcher
-            // falls back to a download-link text for now.
-            supports_media: Vec::new(),
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+                MediaType::Sticker,
+                MediaType::Voice,
+                MediaType::Animation,
+            ],
             supports_card_stream: false,
         }
     }
@@ -206,13 +242,22 @@ impl ChannelPlugin for SlackPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
+        let thread_ts = payload.thread_id.as_deref();
+
+        if !payload.media.is_empty() {
+            let files = media::build_slack_files(&payload.media).await?;
+            let initial_comment =
+                media::merge_initial_comment(payload.text.as_deref(), &payload.media);
+            let file_id = api
+                .upload_files_external(chat_id, thread_ts, initial_comment.as_deref(), files)
+                .await?;
+            return Ok(DeliveryResult::ok(file_id));
+        }
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {
                 return Ok(DeliveryResult::ok("empty"));
             }
-
-            let thread_ts = payload.thread_id.as_deref();
 
             // Convert buttons to Slack Block Kit format if present
             let blocks = if payload.buttons.is_empty() {
@@ -226,13 +271,8 @@ impl ChannelPlugin for SlackPlugin {
                     .buttons
                     .iter()
                     .flatten()
-                    .map(|b| {
-                        serde_json::json!({
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": &b.text},
-                            "action_id": b.callback_id(),
-                        })
-                    })
+                    .enumerate()
+                    .map(|(idx, b)| slack_button_element(b, idx))
                     .collect();
                 let actions_block = serde_json::json!({
                     "type": "actions",
@@ -420,5 +460,38 @@ impl ChannelPlugin for SlackPlugin {
         let api = SlackApi::new(&bot_token, None);
         let auth = api.auth_test().await?;
         Ok(auth.user)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slack_button_uses_short_action_id_and_full_callback_value() {
+        let callback = format!("ask_user:req:select:q:{}", "x".repeat(300));
+        let button = InlineButton {
+            text: "Pick".to_string(),
+            callback_data: Some(callback.clone()),
+            url: None,
+        };
+
+        let element = slack_button_element(&button, 7);
+
+        assert_eq!(element["action_id"], "ha_button:7");
+        assert_eq!(element["value"], callback);
+    }
+
+    #[test]
+    fn slack_button_preserves_url() {
+        let button = InlineButton {
+            text: "Docs".to_string(),
+            callback_data: None,
+            url: Some("https://example.com".to_string()),
+        };
+        let element = slack_button_element(&button, 0);
+
+        assert_eq!(element["url"], "https://example.com");
+        assert_eq!(element["value"], "Docs");
     }
 }

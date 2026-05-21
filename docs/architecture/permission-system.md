@@ -522,7 +522,7 @@ useEffect(() => {
 | `set_approval_timeout_action` | `POST /api/config/approval-timeout-action` | 同上 |
 | `respond_to_approval` | `POST /api/chat/approval` | 弹窗按钮回调（`allow_once` / `allow_always` / `deny`） |
 
-后端实现：[`src-tauri/src/commands/permission.rs`](../../src-tauri/src/commands/permission.rs) + [`crates/ha-server/src/routes/permission.rs`](../../crates/ha-server/src/routes/permission.rs)（双壳镜像，登记 followup F-025 计划合并到 `permission::api` 模块）。
+后端实现：[`src-tauri/src/commands/permission.rs`](../../src-tauri/src/commands/permission.rs) + [`crates/ha-server/src/routes/permission.rs`](../../crates/ha-server/src/routes/permission.rs)（双壳镜像；后续可按需合并到 `permission::api` 模块）。
 
 ---
 
@@ -577,13 +577,13 @@ useEffect(() => {
    - 编辑器 UI 在「设置 → 权限 → AllowAlways」
    - 弹窗按上下文动态高亮 in-this-project / in-this-session / agent-home / globally
 
-2. **`smart_judge` 不复用主对话 prompt cache**：`judge_one_shot` 走 bare 模式，每次 cache miss 是完整 token 成本（60s TTL 摊销）。原计划 "复用 system_prompt + history 前缀命中 prompt cache 成本 ≈ 主对话首轮的 10%" 留作 followup——需要把 agent 引用透传到 engine async 路径
+2. **`smart_judge` 不复用主对话 prompt cache**：`judge_one_shot` 走 bare 模式，每次 cache miss 是完整 token 成本（60s TTL 摊销）。若要复用 system_prompt + history 前缀命中 prompt cache，需要把 agent 引用透传到 engine async 路径
 
-3. **`SessionMeta.permission_mode` 仍是 `String`**：消费方各自 `SessionMode::parse_or_default(&m.permission_mode)`。enum 已存在但未替换字段类型——登记 [F-029](../plans/review-followups.md)
+3. **`SessionMeta.permission_mode` 仍是 `String`**：消费方各自 `SessionMode::parse_or_default(&m.permission_mode)`。enum 已存在但未替换字段类型
 
 4. **Smart 模式 system prompt cache 失效**：`SMART_MODE_GUIDANCE` 注入位置在 `TOOL_CALL_NARRATION_GUIDANCE` 之后但仍在 prefix 里——session 切 mode 会作废静态前缀缓存一次。原 plan 描述的"作为 suffix cache block 不作废静态前缀"未实现（需要改 chat_round provider 适配，跨 4 个 provider）
 
-5. **判官 cache key 不规范化对象键序**：`args.to_string()` 哈希——同语义不同键序产生不同 cache key——登记 [F-031](../plans/review-followups.md)
+5. **判官 cache key 不规范化对象键序**：`args.to_string()` 哈希——同语义不同键序产生不同 cache key
 
 6. **不做老数据迁移**：`ToolPermissionMode` / `exec-approvals.json` / `auto_approve_tools` / `require_approval` 一律不读，重启后默认值生效，老用户审批规则需要重新设置
 

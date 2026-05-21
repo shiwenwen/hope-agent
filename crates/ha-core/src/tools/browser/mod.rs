@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::agent::MEDIA_ITEMS_PREFIX;
 use crate::attachments::{self, MediaItem, MediaKind};
@@ -791,16 +791,43 @@ async fn confirm_evaluate(script: &str, session_id: Option<&str>) -> Result<()> 
             format!("{head}...")
         }
     };
-    let ask_args = serde_json::json!({
-        "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. \
-                    Approve only if you trust the script.",
+    let ask_args = json!({
+        "context": super::ask_user_question::i18n_text(
+            "askUserDialog.browserEvaluate.context",
+            json!({}),
+            "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+        ),
         "questions": [{
             "question_id": "confirm_browser_evaluate",
-            "text": format!("Run this JavaScript in the browser?\n\n{preview}"),
-            "header": "Browser evaluate",
+            "text": super::ask_user_question::i18n_text(
+                "askUserDialog.browserEvaluate.text",
+                json!({ "preview": preview }),
+                format!("Run this JavaScript in the browser?\n\n{preview}"),
+            ),
+            "header": super::ask_user_question::i18n_text(
+                "askUserDialog.browserEvaluate.header",
+                json!({}),
+                "Browser evaluate",
+            ),
             "options": [
-                {"value": "confirm", "label": EVALUATE_AFFIRMATIVE_LABEL, "recommended": false},
-                {"value": "cancel", "label": "Cancel", "recommended": true},
+                {
+                    "value": "confirm",
+                    "label": super::ask_user_question::i18n_text(
+                        "askUserDialog.browserEvaluate.runIt",
+                        json!({}),
+                        EVALUATE_AFFIRMATIVE_LABEL,
+                    ),
+                    "recommended": false
+                },
+                {
+                    "value": "cancel",
+                    "label": super::ask_user_question::i18n_text(
+                        "askUserDialog.browserEvaluate.cancel",
+                        json!({}),
+                        "Cancel",
+                    ),
+                    "recommended": true
+                },
             ],
             "multi_select": false,
             "default_values": ["cancel"]

@@ -2,6 +2,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine as _;
 use prost::Message as _;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -526,9 +527,10 @@ async fn handle_data_frame(
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
 ) -> anyhow::Result<()> {
+    let started_at = TokioInstant::now();
     let ty = find_header(&frame, HK_TYPE).unwrap_or("");
     if ty != TY_EVENT && ty != TY_CARD {
-        try_send_ack(conn, frame, 200, account_id).await;
+        try_send_ack(conn, frame, 200, None, account_id, started_at).await;
         return Ok(());
     }
 
@@ -547,7 +549,7 @@ async fn handle_data_frame(
             return Ok(());
         }
         ResolvedPayload::Drop => {
-            try_send_ack(conn, frame, 200, account_id).await;
+            try_send_ack(conn, frame, 200, None, account_id, started_at).await;
             return Ok(());
         }
     };
@@ -563,19 +565,22 @@ async fn handle_data_frame(
         .and_then(|h| h.event_type.as_deref())
         .unwrap_or("");
 
-    let dispatch_result: anyhow::Result<()> = match event_type {
+    let dispatch_result: anyhow::Result<Option<serde_json::Value>> = match event_type {
         "im.message.receive_v1" => {
             if let Some(event_data) = parsed.event {
-                handle_message_event(event_data, account_id, bot_open_id, inbound_tx).await
+                handle_message_event(event_data, account_id, bot_open_id, inbound_tx)
+                    .await
+                    .map(|_| None)
             } else {
-                Ok(())
+                Ok(None)
             }
         }
         "card.action.trigger" => {
             if let Some(event_data) = parsed.event {
-                handle_card_action(&event_data, account_id, inbound_tx).await;
+                Ok(handle_card_action(&event_data, account_id, inbound_tx).await)
+            } else {
+                Ok(None)
             }
-            Ok(())
         }
         _ => {
             // Try the non-message event dispatcher (reactions / recalls /
@@ -605,21 +610,29 @@ async fn handle_data_frame(
                     event_type
                 );
             }
-            Ok(())
+            Ok(None)
         }
     };
 
     let code = if dispatch_result.is_ok() { 200 } else { 500 };
-    try_send_ack(conn, frame, code, account_id).await;
-    dispatch_result
+    let response_data = dispatch_result.as_ref().ok().and_then(|data| data.as_ref());
+    try_send_ack(conn, frame, code, response_data, account_id, started_at).await;
+    dispatch_result.map(|_| ())
 }
 
 /// Send an ack and log on failure rather than swallowing the error — failure
 /// here usually means the WS write half is broken, which the receive loop
 /// will pick up as a `None` from `recv_binary` shortly. Logging makes the
 /// causal chain visible to operators / agent self-diagnosis.
-async fn try_send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32, account_id: &str) {
-    if let Err(e) = send_ack(conn, src, code).await {
+async fn try_send_ack(
+    conn: &mut ws::WsConnection,
+    src: Frame,
+    code: i32,
+    response_data: Option<&serde_json::Value>,
+    account_id: &str,
+    started_at: TokioInstant,
+) {
+    if let Err(e) = send_ack(conn, src, code, response_data, started_at).await {
         app_warn!(
             "channel",
             "feishu:gateway",
@@ -631,15 +644,33 @@ async fn try_send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32, accoun
 }
 
 /// Send a data-frame acknowledgement back to the gateway. Mirrors the official
-/// SDK's response shape: same headers + `biz_rt`, payload `{"code":<n>}`.
+/// SDK's response shape: same headers + `biz_rt`, payload `{"code":<n>}` and
+/// optional base64-encoded `data` for card-action response payloads.
 /// Consumes `src` so headers / log_id_new can be moved instead of cloned.
-async fn send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32) -> anyhow::Result<()> {
+async fn send_ack(
+    conn: &mut ws::WsConnection,
+    src: Frame,
+    code: i32,
+    response_data: Option<&serde_json::Value>,
+    started_at: TokioInstant,
+) -> anyhow::Result<()> {
+    let ack = build_ack_frame(src, code, response_data, started_at.elapsed().as_millis());
+
+    conn.send_binary(encode_frame(&ack)).await
+}
+
+fn build_ack_frame(
+    src: Frame,
+    code: i32,
+    response_data: Option<&serde_json::Value>,
+    biz_rt_ms: u128,
+) -> Frame {
     let mut headers = src.headers;
-    headers.push(header(HK_BIZ_RT, "0"));
+    headers.push(header(HK_BIZ_RT, biz_rt_ms.to_string()));
 
-    let payload = serde_json::json!({ "code": code }).to_string().into_bytes();
+    let payload = build_ack_payload(code, response_data);
 
-    let ack = Frame {
+    Frame {
         seq_id: src.seq_id,
         log_id: src.log_id,
         service: src.service,
@@ -649,9 +680,17 @@ async fn send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32) -> anyhow:
         payload_type: String::new(),
         payload,
         log_id_new: src.log_id_new,
-    };
+    }
+}
 
-    conn.send_binary(encode_frame(&ack)).await
+fn build_ack_payload(code: i32, response_data: Option<&serde_json::Value>) -> Vec<u8> {
+    let mut payload = serde_json::json!({ "code": code });
+    if let Some(data) = response_data {
+        payload["data"] = serde_json::Value::String(
+            base64::engine::general_purpose::STANDARD.encode(data.to_string().as_bytes()),
+        );
+    }
+    payload.to_string().into_bytes()
 }
 
 /// Process an `im.message.receive_v1` event and forward as MsgContext.
@@ -808,7 +847,7 @@ async fn handle_card_action(
     event_data: &serde_json::Value,
     account_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
-) {
+) -> Option<serde_json::Value> {
     let Some(value) = extract_hope_callback(event_data) else {
         app_warn!(
             "channel",
@@ -817,17 +856,57 @@ async fn handle_card_action(
             account_id,
             serde_json::to_string(event_data).unwrap_or_default()
         );
-        return;
+        return None;
     };
 
     if let Some(rest) = value.strip_prefix("slash:") {
         inject_slash_callback(rest, event_data, account_id, inbound_tx).await;
+        Some(card_action_toast("success", "Command sent"))
     } else {
-        crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-            value,
-            "feishu:gateway",
+        let chat_id = event_str_at(event_data, "/context/open_chat_id");
+        let callback_source = Some(
+            crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                ChannelId::Feishu,
+                account_id,
+                &chat_id,
+                None,
+            ),
         );
+        let result = if crate::channel::worker::approval::is_approval_callback(value) {
+            crate::channel::worker::approval::handle_approval_callback_with_source(
+                value,
+                callback_source,
+                "feishu:gateway",
+            )
+            .await
+        } else if crate::channel::worker::ask_user::is_ask_user_callback(value) {
+            crate::channel::worker::ask_user::handle_ask_user_callback_with_source(
+                value,
+                callback_source,
+                "feishu:gateway",
+            )
+            .await
+        } else {
+            return Some(card_action_toast("warning", "Unsupported action"));
+        };
+
+        match result {
+            Ok(label) => Some(card_action_toast("success", label)),
+            Err(e) => {
+                app_warn!("channel", "feishu:gateway", "Card action failed: {}", e);
+                Some(card_action_toast("error", "Action failed"))
+            }
+        }
     }
+}
+
+fn card_action_toast(kind: &str, content: &str) -> serde_json::Value {
+    serde_json::json!({
+        "toast": {
+            "type": kind,
+            "content": content,
+        },
+    })
 }
 
 /// Take a JSON value at `path` and return it as a `String` (empty if missing
@@ -995,6 +1074,45 @@ mod tests {
     fn test_pong_malformed_json_ignored() {
         let frame = make_pong("not json");
         assert_eq!(handle_control_frame(&frame), None);
+    }
+
+    #[test]
+    fn ack_payload_base64_encodes_card_action_response_data() {
+        let response = card_action_toast("success", "Done");
+        let payload = build_ack_payload(200, Some(&response));
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+
+        assert_eq!(parsed["code"], 200);
+        let encoded = parsed["data"].as_str().expect("missing data");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        let decoded_json: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+
+        assert_eq!(decoded_json, response);
+    }
+
+    #[test]
+    fn ack_frame_declares_plain_payload_encoding() {
+        let src = Frame {
+            seq_id: 7,
+            log_id: 9,
+            service: 1,
+            method: METHOD_DATA,
+            headers: vec![header(HK_TYPE, TY_CARD)],
+            payload_encoding: "gzip".to_string(),
+            payload_type: "event".to_string(),
+            payload: b"ignored".to_vec(),
+            log_id_new: "log-new".to_string(),
+        };
+
+        let ack = build_ack_frame(src, 200, None, 12);
+
+        assert_eq!(ack.payload_encoding, "");
+        assert_eq!(ack.payload_type, "");
+        assert_eq!(find_header(&ack, HK_BIZ_RT), Some("12"));
+        let parsed: serde_json::Value = serde_json::from_slice(&ack.payload).unwrap();
+        assert_eq!(parsed["code"], 200);
     }
 
     // ── card.action.trigger value extraction ─────────────────────────

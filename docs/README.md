@@ -109,7 +109,6 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [Review Followups](plans/review-followups.md) | 所有 code review 识别但当期不修的问题登记表（与 PR 同 commit，AGENTS.md 强制约定） |
 | [Hooks System Design](plans/hooks-system-design.md) | Hooks 系统的设计文档（与 Claude Code Hook spec 对齐） |
 
 ---

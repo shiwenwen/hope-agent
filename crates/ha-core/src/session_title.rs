@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_title_messages_uses_first_turn_when_followup_exists() {
+    fn collect_title_messages_uses_first_turn_when_later_turn_exists() {
         let db_path = std::env::temp_dir().join(format!(
             "hope-agent-session-title-{}.db",
             uuid::Uuid::new_v4()

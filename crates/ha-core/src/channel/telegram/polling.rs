@@ -149,11 +149,11 @@ async fn convert_update(
             // Handle approval / ask_user / slash callbacks directly (don't create MsgContext)
             if let Some(data) = cb.data.as_ref() {
                 if crate::channel::worker::approval::is_approval_callback(data) {
-                    handle_approval_callback_query(api, cb).await;
+                    handle_approval_callback_query(api, account_id, cb).await;
                     return None;
                 }
                 if crate::channel::worker::ask_user::is_ask_user_callback(data) {
-                    handle_ask_user_callback_query(api, cb).await;
+                    handle_ask_user_callback_query(api, account_id, cb).await;
                     return None;
                 }
                 if let Some(rest) = data.strip_prefix("slash:") {
@@ -272,14 +272,36 @@ async fn convert_message(
 /// Handle an approval callback query: submit the approval response, answer the
 /// callback query to dismiss the loading spinner, and edit the message to show
 /// the result (removing the inline keyboard).
-async fn handle_approval_callback_query(api: &TelegramBotApi, cb: &teloxide::types::CallbackQuery) {
+async fn handle_approval_callback_query(
+    api: &TelegramBotApi,
+    account_id: &str,
+    cb: &teloxide::types::CallbackQuery,
+) {
     let data = match cb.data.as_ref() {
         Some(d) => d,
         None => return,
     };
 
     // Handle the approval
-    let result_text = match crate::channel::worker::approval::handle_approval_callback(data).await {
+    let callback_source = cb
+        .message
+        .as_ref()
+        .and_then(|m| m.regular_message())
+        .map(|msg| {
+            crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                crate::channel::types::ChannelId::Telegram,
+                account_id,
+                msg.chat.id.0.to_string(),
+                msg.thread_id.map(|tid| tid.to_string()).as_deref(),
+            )
+        });
+    let result_text = match crate::channel::worker::approval::handle_approval_callback_with_source(
+        data,
+        callback_source,
+        "telegram::polling",
+    )
+    .await
+    {
         Ok(label) => label.to_string(),
         Err(e) => format!("Error: {}", e),
     };
@@ -334,13 +356,35 @@ async fn handle_approval_callback_query(api: &TelegramBotApi, cb: &teloxide::typ
 /// submit if the last question just got answered), answer the callback query
 /// to dismiss the loading spinner, and optionally remove the inline keyboard
 /// when the group is fully resolved.
-async fn handle_ask_user_callback_query(api: &TelegramBotApi, cb: &teloxide::types::CallbackQuery) {
+async fn handle_ask_user_callback_query(
+    api: &TelegramBotApi,
+    account_id: &str,
+    cb: &teloxide::types::CallbackQuery,
+) {
     let data = match cb.data.as_ref() {
         Some(d) => d,
         None => return,
     };
 
-    let result_text = match crate::channel::worker::ask_user::handle_ask_user_callback(data).await {
+    let callback_source = cb
+        .message
+        .as_ref()
+        .and_then(|m| m.regular_message())
+        .map(|msg| {
+            crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                crate::channel::types::ChannelId::Telegram,
+                account_id,
+                msg.chat.id.0.to_string(),
+                msg.thread_id.map(|tid| tid.to_string()).as_deref(),
+            )
+        });
+    let result_text = match crate::channel::worker::ask_user::handle_ask_user_callback_with_source(
+        data,
+        callback_source,
+        "telegram::polling",
+    )
+    .await
+    {
         Ok(label) => label.to_string(),
         Err(e) => format!("Error: {}", e),
     };

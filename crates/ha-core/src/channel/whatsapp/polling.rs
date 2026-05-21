@@ -6,12 +6,14 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::channel::types::{ChannelId, ChatType, InboundEvent, MsgContext};
+use crate::failover::retry_delay_ms;
 
 use super::api::{BridgeMessage, WhatsAppApi};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
-const BACKOFF_DELAY: Duration = Duration::from_secs(30);
+const QUICK_RETRY_FAILURES: usize = 2;
+const PERSISTENT_FAILURE_ALERT_THRESHOLD: usize = 3;
 
 /// 时间戳单位防御：bridge HTTP 协议约定 Unix 秒（UTC），但 WhatsApp 原生
 /// （whatsmeow / Baileys）用毫秒。若 ts 大于 4_000_000_000（2096 年）即
@@ -34,6 +36,7 @@ fn normalize_unix_seconds(ts: i64) -> i64 {
 pub(crate) async fn run_whatsapp_polling(
     api: Arc<WhatsAppApi>,
     account_id: String,
+    account_label: String,
     inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
@@ -63,6 +66,16 @@ pub(crate) async fn run_whatsapp_polling(
 
         match result {
             Ok(messages) => {
+                if consecutive_failures >= PERSISTENT_FAILURE_ALERT_THRESHOLD {
+                    app_info!(
+                        "channel",
+                        "whatsapp::polling",
+                        "WhatsApp polling for '{}' [{}] recovered after {} consecutive failure(s)",
+                        account_label,
+                        account_id,
+                        consecutive_failures
+                    );
+                }
                 consecutive_failures = 0;
 
                 for msg in messages {
@@ -93,26 +106,47 @@ pub(crate) async fn run_whatsapp_polling(
             }
             Err(err) => {
                 consecutive_failures += 1;
-                app_warn!(
-                    "channel",
-                    "whatsapp::polling",
-                    "WhatsApp polling error for '{}': {}",
-                    account_id,
-                    err
-                );
-
-                let delay = if consecutive_failures >= 3 {
-                    consecutive_failures = 0;
-                    BACKOFF_DELAY
+                let delay = polling_retry_delay(consecutive_failures);
+                if consecutive_failures >= PERSISTENT_FAILURE_ALERT_THRESHOLD {
+                    app_error!(
+                        "channel",
+                        "whatsapp::polling",
+                        "WhatsApp polling has failed {} consecutive time(s) for '{}' [{}]: {} | next retry in {}s",
+                        consecutive_failures,
+                        account_label,
+                        account_id,
+                        err,
+                        delay.as_secs()
+                    );
                 } else {
-                    RETRY_DELAY
-                };
+                    app_warn!(
+                        "channel",
+                        "whatsapp::polling",
+                        "WhatsApp polling error for '{}' [{}]: {} | retry in {}s",
+                        account_label,
+                        account_id,
+                        err,
+                        delay.as_secs()
+                    );
+                }
                 if sleep_or_cancel(&cancel, delay).await {
                     break;
                 }
             }
         }
     }
+}
+
+fn polling_retry_delay(consecutive_failures: usize) -> Duration {
+    if consecutive_failures <= QUICK_RETRY_FAILURES {
+        return RETRY_DELAY;
+    }
+
+    let attempt = consecutive_failures
+        .saturating_sub(QUICK_RETRY_FAILURES + 1)
+        .try_into()
+        .unwrap_or(u32::MAX);
+    Duration::from_millis(retry_delay_ms(attempt, 30_000, 300_000))
 }
 
 /// Convert a bridge message to a normalized MsgContext.
@@ -197,9 +231,15 @@ async fn sleep_or_cancel(cancel: &CancellationToken, delay: Duration) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::convert_bridge_message;
+    use super::{convert_bridge_message, polling_retry_delay};
     use crate::channel::types::ChatType;
     use crate::channel::whatsapp::api::BridgeMessage;
+    use std::time::Duration;
+
+    fn assert_delay_between(actual: Duration, min: Duration, max: Duration) {
+        assert!(actual >= min, "{actual:?} < {min:?}");
+        assert!(actual <= max, "{actual:?} > {max:?}");
+    }
 
     #[test]
     fn convert_bridge_message_missing_required_fields_returns_none() {
@@ -230,5 +270,26 @@ mod tests {
         assert_eq!(ctx.chat_type, ChatType::Group);
         assert_eq!(ctx.message_id, "m1");
         assert_eq!(ctx.text.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn polling_retry_delay_escalates_after_quick_retries() {
+        assert_eq!(polling_retry_delay(1), Duration::from_secs(2));
+        assert_eq!(polling_retry_delay(2), Duration::from_secs(2));
+        assert_delay_between(
+            polling_retry_delay(3),
+            Duration::from_secs(27),
+            Duration::from_secs(33),
+        );
+        assert_delay_between(
+            polling_retry_delay(4),
+            Duration::from_secs(54),
+            Duration::from_secs(66),
+        );
+        assert_delay_between(
+            polling_retry_delay(8),
+            Duration::from_secs(270),
+            Duration::from_secs(330),
+        );
     }
 }

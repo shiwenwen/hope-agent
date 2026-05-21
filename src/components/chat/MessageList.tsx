@@ -60,6 +60,7 @@ interface MessageListProps {
   planSubagentRunning?: boolean
   onSwitchModel?: (providerId: string, modelId: string) => void
   onViewSystemPrompt?: () => void
+  onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   onSwitchSession?: (sessionId: string) => void
   onOpenDiff?: (
     metadata:
@@ -117,6 +118,7 @@ export default function MessageList({
   planSubagentRunning,
   onSwitchModel,
   onViewSystemPrompt,
+  onOpenDashboardTab,
   onSwitchSession,
   onOpenDiff,
   onResume,
@@ -823,6 +825,7 @@ export default function MessageList({
                 onSwitchSession={onSwitchSession}
                 onSwitchModel={onSwitchModel}
                 onViewSystemPrompt={onViewSystemPrompt}
+                onOpenDashboardTab={onOpenDashboardTab}
                 onOpenDiff={onOpenDiff}
                 onResume={onResume}
                 displayMode={displayMode}

@@ -45,6 +45,8 @@ import type {
 } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
+import RecapProgressCard from "@/components/chat/RecapProgressCard"
+import SkillForkStatusCard from "@/components/chat/SkillForkStatusCard"
 
 export interface MessageBubbleProps {
   msg: Message
@@ -69,6 +71,8 @@ export interface MessageBubbleProps {
   onSwitchModel?: (providerId: string, modelId: string) => void
   // View system prompt (triggered from context breakdown card)
   onViewSystemPrompt?: () => void
+  // Open a dashboard tab from structured slash command cards.
+  onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   // Open the right-side diff panel for a file change payload.
   onOpenDiff?: (
     metadata:
@@ -284,6 +288,7 @@ function MessageBubbleInner({
   onSwitchSession,
   onSwitchModel,
   onViewSystemPrompt,
+  onOpenDashboardTab,
   onOpenDiff,
   onResume,
   displayMode = "bubble",
@@ -457,6 +462,23 @@ function MessageBubbleInner({
         <ContextBreakdownCard
           data={msg.contextBreakdownData}
           onViewSystemPrompt={onViewSystemPrompt}
+        />
+      )
+    }
+    if (msg.recapCardData) {
+      return (
+        <RecapProgressCard
+          reportId={msg.recapCardData.reportId}
+          onOpenDashboardTab={onOpenDashboardTab}
+        />
+      )
+    }
+    if (msg.skillForkData) {
+      return (
+        <SkillForkStatusCard
+          runId={msg.skillForkData.runId}
+          skillName={msg.skillForkData.skillName}
+          onSwitchSession={onSwitchSession}
         />
       )
     }

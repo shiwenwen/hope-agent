@@ -65,20 +65,39 @@ impl WhatsAppApi {
     }
 
     /// POST /api/media — send a media attachment.
+    ///
+    /// Canonical bridge contract:
+    /// `{ chatId, mediaType, media, dataEncoding, filename?, mimeType?, caption?, replyTo? }`.
+    /// `data` is sent as a legacy alias for older bridge prototypes that
+    /// predate the explicit `media` field.
     pub async fn send_media(
         &self,
         chat_id: &str,
         media_type: &str,
-        data: &str,
+        media: &str,
         caption: Option<&str>,
+        filename: Option<&str>,
+        mime_type: Option<&str>,
+        reply_to: Option<&str>,
     ) -> Result<SendResponse> {
         let mut body = json!({
             "chatId": chat_id,
             "mediaType": media_type,
-            "data": data,
+            "media": media,
+            "data": media,
+            "dataEncoding": "data-url",
         });
         if let Some(cap) = caption {
             body["caption"] = json!(cap);
+        }
+        if let Some(name) = filename {
+            body["filename"] = json!(name);
+        }
+        if let Some(mime) = mime_type {
+            body["mimeType"] = json!(mime);
+        }
+        if let Some(reply_id) = reply_to {
+            body["replyTo"] = json!(reply_id);
         }
         let raw = self.post("api/media", body, 30_000).await?;
         serde_json::from_str(&raw).context("Failed to decode WhatsApp media response")

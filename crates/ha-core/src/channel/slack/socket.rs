@@ -3,11 +3,18 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::api::SlackApi;
+use super::SLACK_ACTION_ID_MAX_CHARS;
 use crate::channel::types::*;
 use crate::channel::ws::{backoff_duration, WsConnection};
 
 /// Maximum reconnection attempts before giving up.
 const MAX_RECONNECT_ATTEMPTS: usize = 50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EnvelopeOutcome {
+    Continue,
+    Reconnect,
+}
 
 /// Run the Slack Socket Mode event loop.
 ///
@@ -129,13 +136,17 @@ pub async fn run_socket_mode(
                 msg = ws.recv_text() => {
                     match msg {
                         Some(text) => {
-                            handle_envelope(
+                            let outcome = handle_envelope(
                                 &mut ws,
                                 &text,
                                 &account_id,
                                 &bot_id,
                                 &inbound_tx,
                             ).await;
+                            if outcome == EnvelopeOutcome::Reconnect {
+                                ws.close().await;
+                                break;
+                            }
                         }
                         None => {
                             // Connection closed - need to reconnect with a NEW URL
@@ -189,14 +200,16 @@ pub async fn run_socket_mode(
 /// }
 /// ```
 ///
-/// We must ACK every envelope immediately by sending `{"envelope_id": "xxx"}`.
+/// We must ACK every envelope immediately. Socket Mode slash commands can
+/// accept an optional response payload in the ACK; Slack documents this via
+/// `accepts_response_payload`.
 async fn handle_envelope(
     ws: &mut WsConnection,
     text: &str,
     account_id: &str,
     bot_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
-) {
+) -> EnvelopeOutcome {
     let envelope: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(e) => {
@@ -206,14 +219,16 @@ async fn handle_envelope(
                 "Failed to parse envelope: {}",
                 e
             );
-            return;
+            return EnvelopeOutcome::Continue;
         }
     };
 
-    // ACK immediately
-    if let Some(envelope_id) = envelope.get("envelope_id").and_then(|v| v.as_str()) {
-        let ack = serde_json::json!({"envelope_id": envelope_id});
+    if let Some(ack) = build_socket_ack(&envelope) {
         if let Err(e) = ws.send_json(&ack).await {
+            let envelope_id = ack
+                .get("envelope_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             app_warn!(
                 "channel",
                 "slack::socket",
@@ -261,6 +276,7 @@ async fn handle_envelope(
                 "Received disconnect signal for account '{}'",
                 account_id
             );
+            return EnvelopeOutcome::Reconnect;
         }
         other => {
             app_debug!(
@@ -272,6 +288,8 @@ async fn handle_envelope(
             );
         }
     }
+
+    EnvelopeOutcome::Continue
 }
 
 /// Handle a Slack Events API event.
@@ -285,12 +303,7 @@ async fn handle_event(
 
     match event_type {
         "message" => {
-            // Skip bot messages, message edits, and subtypes we don't handle
-            if let Some(
-                "bot_message" | "message_changed" | "message_deleted" | "channel_join"
-                | "channel_leave",
-            ) = event.get("subtype").and_then(|v| v.as_str())
-            {
+            if should_skip_message_subtype(event.get("subtype").and_then(|v| v.as_str())) {
                 return;
             }
 
@@ -436,8 +449,19 @@ async fn handle_interactive_payload(
         let Some(action_id) = action.get("action_id").and_then(|v| v.as_str()) else {
             continue;
         };
+        if action_id.chars().count() > SLACK_ACTION_ID_MAX_CHARS {
+            app_warn!(
+                "channel",
+                "slack::socket",
+                "Ignoring Slack action_id longer than {} characters for account '{}'",
+                SLACK_ACTION_ID_MAX_CHARS,
+                account_id
+            );
+            continue;
+        }
+        let callback_id = action_callback_id(action).unwrap_or(action_id);
 
-        if let Some(rest) = action_id.strip_prefix("slash:") {
+        if let Some(rest) = callback_id.strip_prefix("slash:") {
             let chat_id = payload
                 .pointer("/channel/id")
                 .and_then(|v| v.as_str())
@@ -475,9 +499,29 @@ async fn handle_interactive_payload(
             )
             .await;
         } else {
+            let chat_id = payload
+                .pointer("/channel/id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let message_id = payload
+                .pointer("/message/ts")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let thread_id = payload
+                .pointer("/message/thread_ts")
+                .and_then(|v| v.as_str())
+                .filter(|tid| !tid.is_empty() && *tid != message_id);
             crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-                action_id,
+                callback_id,
                 "slack::socket",
+                Some(
+                    crate::channel::worker::ask_user::InteractiveCallbackSource::new(
+                        ChannelId::Slack,
+                        account_id,
+                        chat_id,
+                        thread_id,
+                    ),
+                ),
             );
         }
     }
@@ -572,6 +616,43 @@ fn chat_type_from_slack_channel_id(channel_id: &str) -> ChatType {
     }
 }
 
+fn build_socket_ack(envelope: &serde_json::Value) -> Option<serde_json::Value> {
+    let envelope_id = envelope.get("envelope_id").and_then(|v| v.as_str())?;
+    let mut ack = serde_json::json!({ "envelope_id": envelope_id });
+
+    if envelope.get("type").and_then(|v| v.as_str()) == Some("slash_commands")
+        && envelope
+            .get("accepts_response_payload")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    {
+        ack["payload"] = serde_json::json!({ "response_type": "in_channel" });
+    }
+
+    Some(ack)
+}
+
+fn should_skip_message_subtype(subtype: Option<&str>) -> bool {
+    matches!(
+        subtype,
+        Some(
+            "bot_message"
+                | "message_changed"
+                | "message_deleted"
+                | "channel_join"
+                | "channel_leave"
+        )
+    )
+}
+
+fn action_callback_id(action: &serde_json::Value) -> Option<&str> {
+    action
+        .get("value")
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.is_empty())
+        .or_else(|| action.get("action_id").and_then(|v| v.as_str()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,5 +663,37 @@ mod tests {
         assert_eq!(chat_type_from_slack_channel_id("C5678"), ChatType::Channel);
         assert_eq!(chat_type_from_slack_channel_id("G9ABC"), ChatType::Group);
         assert_eq!(chat_type_from_slack_channel_id(""), ChatType::Group);
+    }
+
+    #[test]
+    fn socket_ack_includes_payload_for_slash_commands_that_accept_it() {
+        let ack = build_socket_ack(&serde_json::json!({
+            "envelope_id": "env-1",
+            "type": "slash_commands",
+            "accepts_response_payload": true,
+        }))
+        .unwrap();
+
+        assert_eq!(ack["envelope_id"], "env-1");
+        assert_eq!(ack["payload"]["response_type"], "in_channel");
+    }
+
+    #[test]
+    fn file_share_subtype_is_not_skipped() {
+        assert!(!should_skip_message_subtype(Some("file_share")));
+        assert!(should_skip_message_subtype(Some("bot_message")));
+    }
+
+    #[test]
+    fn interactive_payload_prefers_button_value_over_action_id() {
+        let action = serde_json::json!({
+            "action_id": "ha_button:0",
+            "value": "ask_user:req:select:q:long-option-value",
+        });
+
+        assert_eq!(
+            action_callback_id(&action),
+            Some("ask_user:req:select:q:long-option-value")
+        );
     }
 }

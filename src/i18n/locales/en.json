@@ -3690,7 +3690,9 @@
         "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
         "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
         "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
+        "apply": "Keep this, discard the other {{n}}",
+        "autoNoticeTitle": "Auto-curator found merge suggestions",
+        "autoNoticeBody": "{{proposals}} cluster(s) across {{scanned}} drafts are ready to review below."
       },
       "resetAll": {
         "label": "Reset everything",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        },
+        "autoCuratorEnabled": {
+          "label": "Run curator on a schedule",
+          "help": "When on, Hope Agent periodically scans draft skills for overlap and surfaces merge suggestions here."
+        },
+        "autoCuratorIntervalDays": {
+          "label": "Curator interval",
+          "help": "Days between automatic draft-consolidation scans. The backend re-reads this setting each cycle."
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "This provider uses HTTP — Base URL must start with http:// or https://",
       "errApiKeyRequired": "API Key is required",
       "errExtraFieldRequired": "Required field is missing: {{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+      "text": "Run this JavaScript in the browser?\n\n{{preview}}",
+      "header": "Browser evaluate",
+      "runIt": "Run it",
+      "cancel": "Cancel"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+        "header": "Hope Agent rollback",
+        "confirm": "Roll back now",
+        "cancel": "Cancel"
+      },
+      "install": {
+        "context": "Hope Agent self-update confirmation. Install source: {{installSource}}. Recommended path: {{path}}.",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: package manager ({{installSource}}){{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "selfContained": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: download bare binary, verify Minisign signature, atomically swap.{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "tauri": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: Tauri bundled updater (signed installer).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "manualPrompt": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: manual download (no automated path matches).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first."
+        },
+        "confirm": "Upgrade now",
+        "cancel": "Not now"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+        "dockerText": "Hope Agent is running in a Docker container ({{from}} → {{to}}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+        "dockerHeader": "Docker upgrade required",
+        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+        "text": "No automated upgrade path is available for Hope Agent {{from}} → {{to}}. Install source detected as: {{installSource}}. Pick a recovery:",
+        "header": "Manual upgrade required",
+        "openReleases": "Open release page in browser",
+        "openReleasesManual": "Open release page in browser (manual download)",
+        "forceSelfContained": "Try the self-contained bare-binary swap anyway",
+        "abort": "Abort upgrade"
+      }
     }
   }
 }

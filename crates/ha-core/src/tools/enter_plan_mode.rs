@@ -1,6 +1,8 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::ask_user::{self, AskUserQuestion, AskUserQuestionGroup, AskUserQuestionOption};
+use crate::ask_user::{
+    self, AskUserQuestion, AskUserQuestionGroup, AskUserQuestionOption, AskUserText,
+};
 use crate::plan::{self, PlanModeState, TransitionOutcome};
 use crate::process_registry::create_session_id;
 use serde_json::Value;
@@ -68,28 +70,27 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         session_id: sid.to_string(),
         questions: vec![AskUserQuestion {
             question_id: "enter_plan_mode".to_string(),
-            text: "Enter Plan Mode? The model will explore, ask clarifying questions, and \
-                   draft a written plan for your review before doing the work."
-                .to_string(),
+            text: AskUserText::plain(
+                "Enter Plan Mode? The model will explore, ask clarifying questions, and \
+                 draft a written plan for your review before doing the work.",
+            ),
             options: vec![
                 AskUserQuestionOption {
                     value: "yes".to_string(),
-                    label: "Enter Plan Mode".to_string(),
-                    description: Some(
-                        "Switch to Plan Mode now; the model will start drafting the plan."
-                            .to_string(),
-                    ),
+                    label: AskUserText::plain("Enter Plan Mode"),
+                    description: Some(AskUserText::plain(
+                        "Switch to Plan Mode now; the model will start drafting the plan.",
+                    )),
                     recommended: true,
                     preview: None,
                     preview_kind: None,
                 },
                 AskUserQuestionOption {
                     value: "no".to_string(),
-                    label: "Skip planning".to_string(),
-                    description: Some(
-                        "Stay in normal mode; the model will continue the task directly."
-                            .to_string(),
-                    ),
+                    label: AskUserText::plain("Skip planning"),
+                    description: Some(AskUserText::plain(
+                        "Stay in normal mode; the model will continue the task directly.",
+                    )),
                     recommended: false,
                     preview: None,
                     preview_kind: None,
@@ -98,7 +99,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             allow_custom: false,
             multi_select: false,
             template: None,
-            header: Some("Plan Mode".to_string()),
+            header: Some(AskUserText::plain("Plan Mode")),
             timeout_secs: if timeout_secs > 0 {
                 Some(timeout_secs)
             } else {
@@ -106,7 +107,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             },
             default_values: vec!["no".to_string()],
         }],
-        context: reason,
+        context: reason.map(AskUserText::plain),
         source: Some("plan".to_string()),
         timeout_at,
     };

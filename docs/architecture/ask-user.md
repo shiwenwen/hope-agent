@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-13
+> 更新时间：2026-05-20
 
 ## 目录
 
@@ -51,6 +51,7 @@
 - 每个选项可挂载 **markdown / image URL / mermaid** 三种 `previewKind` 的富预览，用于方案并排对比
 - 每题独立 `timeout_secs` + `default_values`，超时自动回退到默认答案
 - 每题 `header` chip 标签、`template`（scope / tech_choice / priority）分类图标
+- `context` / `text` / `header` / `label` / `description` 支持 `string | { key, params, fallback }`，后端受控弹窗走 i18n key，旧字符串 payload 继续兼容
 - pending 组持久化到 session SQLite `ask_user_questions` 表，App 重启后可断点续答
 - IM 渠道按 `ChannelCapabilities.supports_buttons` 分流：支持按钮的渠道（Telegram / Slack / Discord / Feishu / QQ Bot / LINE / Google Chat）发送原生 inline button，不支持的渠道（WeChat / Signal / iMessage / IRC / WhatsApp）降级为 `1a / 1b / done / cancel` 文本回复
 - 与工具审批（approval）共用统一的 `try_dispatch_interactive_callback` dispatcher，避免每个渠道插件重复路由逻辑
@@ -83,10 +84,15 @@
 定义在 `crates/ha-core/src/ask_user/types.rs`（独立模块，不依赖 plan）。结构体名保留 `AskUserQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `ask_user_request` 事件保持二进制兼容。
 
 ```rust
+pub enum AskUserText {
+    Plain(String),
+    I18n(AskUserI18nText), // { key, params, fallback }
+}
+
 pub struct AskUserQuestionOption {
     pub value: String,          // 选项内部标识
-    pub label: String,          // UI 显示文本（1-5 词）
-    pub description: Option<String>,
+    pub label: AskUserText,     // UI 显示文本（1-5 词）
+    pub description: Option<AskUserText>,
     pub recommended: bool,      // 推荐项，UI 渲染 ★ 徽章
     pub preview: Option<String>,       // markdown / image URL / mermaid 源
     pub preview_kind: Option<String>,  // "markdown" | "image" | "mermaid"
@@ -94,12 +100,12 @@ pub struct AskUserQuestionOption {
 
 pub struct AskUserQuestion {
     pub question_id: String,
-    pub text: String,
+    pub text: AskUserText,
     pub options: Vec<AskUserQuestionOption>,
     pub allow_custom: bool,     // 默认 true，当前运行时强制覆盖为 true
     pub multi_select: bool,     // 默认 false
     pub template: Option<String>,   // scope | tech_choice | priority
-    pub header: Option<String>,     // ≤12 char chip 标签
+    pub header: Option<AskUserText>, // ≤12 char chip 标签
     pub timeout_secs: Option<u64>,  // 0 / None = 继承全局默认
     pub default_values: Vec<String>, // 超时回退答案
 }
@@ -111,13 +117,13 @@ pub struct AskUserQuestionGroup {
     pub request_id: String,
     pub session_id: String,
     pub questions: Vec<AskUserQuestion>,
-    pub context: Option<String>,
+    pub context: Option<AskUserText>,
     pub source: Option<String>,     // "plan" | "normal" | skill id
     pub timeout_at: Option<u64>,    // unix 秒时间戳
 }
 ```
 
-所有结构体 `#[serde(rename_all = "camelCase")]`，前端 TypeScript 类型在 `src/components/chat/ask-user/AskUserQuestionBlock.tsx` 中镜像定义。
+所有结构体 `#[serde(rename_all = "camelCase")]`，前端 TypeScript 类型在 `src/components/chat/ask-user/AskUserQuestionBlock.tsx` 中镜像定义。`AskUserText` 是 `#[serde(untagged)]`，所以历史 DB 行和模型调用的纯字符串不需要迁移；桌面 / HTTP UI 遇到 `{ key, params, fallback }` 时用当前 locale 渲染，IM 渠道和 LLM result formatter 使用 `fallback_text()`。
 
 ### AskUserQuestionAnswer
 

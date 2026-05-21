@@ -936,13 +936,13 @@ pub(super) mod test_support {
     use super::FeishuApi;
     use crate::channel::feishu::auth::FeishuAuth;
 
-    /// Mount the `/open-apis/auth/v3/tenant_access_token/internal/` endpoint
+    /// Mount the `/open-apis/auth/v3/tenant_access_token/internal` endpoint
     /// on `server` and return a [`FeishuApi`] pointed at it. The token
     /// returned (`"t-fake-token"`) is what subsequent tests can match
     /// against in the `Authorization: Bearer …` header if they care.
     pub async fn mock_api(server: &MockServer) -> FeishuApi {
         Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
+            .and(path("/open-apis/auth/v3/tenant_access_token/internal"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "code": 0,
                 "msg": "ok",

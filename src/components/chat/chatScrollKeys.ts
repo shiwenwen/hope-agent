@@ -27,9 +27,10 @@ function messageStableId(msg: Message, index: number): string {
   if (typeof msg.dbId === "number") return `db:${msg.dbId}`
   // useChatStream creates an optimistic user message and an assistant
   // placeholder back-to-back before either lands in the DB; their `new
-  // Date().toISOString()` stamps frequently collide on the same millisecond,
-  // so role must be part of the fallback key to keep React row keys distinct.
-  if (msg.timestamp) return `ts:${msg.role}:${msg.timestamp}`
+  // Date().toISOString()` stamps frequently collide on the same millisecond.
+  // Role separates the common user/assistant case, and index is the final
+  // fallback for same-role event rows that legitimately share a timestamp.
+  if (msg.timestamp) return `ts:${msg.role}:${msg.timestamp}:${index}`
   return `idx:${index}`
 }
 
@@ -50,10 +51,7 @@ export function getLatestUserTurnKey(messages: Message[]): string | null {
 // — the minimum required for a well-formed quoted attribute selector — instead
 // of relying on `CSS.escape`, which is missing in some WebViews and not
 // guaranteed across jsdom versions.
-export function findMessageRowByKey(
-  scope: ParentNode,
-  rowKey: string,
-): HTMLElement | null {
+export function findMessageRowByKey(scope: ParentNode, rowKey: string): HTMLElement | null {
   const escaped = rowKey.replace(/["\\]/g, "\\$&")
   return scope.querySelector<HTMLElement>(`[data-message-key="${escaped}"]`)
 }

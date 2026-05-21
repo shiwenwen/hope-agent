@@ -3,7 +3,7 @@
 //! - **Official API**: <https://core.telegram.org/bots/api>
 //! - **SDK / Reference**: teloxide 0.17 — <https://github.com/teloxide/teloxide>
 //! - **Protocol**: HTTPS long-polling (`getUpdates`) over teloxide `Bot`
-//! - **Last reviewed**: 2026-05-05
+//! - **Last reviewed**: 2026-05-20
 
 pub mod api;
 pub mod format;
@@ -285,17 +285,49 @@ impl ChannelPlugin for TelegramPlugin {
         let mut last_id: Option<String> = None;
         for m in &payload.media {
             let input_file = media::media_data_to_input_file(&m.data)?;
-            let msg = match m.media_type {
+            let media_type = &m.media_type;
+            let msg = match media_type {
                 MediaType::Photo => {
                     api.send_photo(chat_id_num, input_file, m.caption.as_deref(), thread_id)
                         .await?
                 }
-                _ => {
+                MediaType::Video => {
+                    api.send_video(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?
+                }
+                MediaType::Audio => {
+                    api.send_audio(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?
+                }
+                MediaType::Voice => {
+                    api.send_voice(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?
+                }
+                MediaType::Animation => {
+                    api.send_animation(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?
+                }
+                MediaType::Sticker => api.send_sticker(chat_id_num, input_file, thread_id).await?,
+                MediaType::Document => {
                     api.send_document(chat_id_num, input_file, m.caption.as_deref(), thread_id)
                         .await?
                 }
             };
             last_id = Some(msg.id.0.to_string());
+
+            if matches!(media_type, MediaType::Sticker) {
+                if let Some(caption) = m
+                    .caption
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    let caption_msg = api
+                        .send_text_with_fallback(chat_id_num, caption, None, thread_id, &[])
+                        .await?;
+                    last_id = Some(caption_msg.id.0.to_string());
+                }
+            }
         }
 
         match last_id {

@@ -24,7 +24,7 @@ describe("getLatestUserTurnKey", () => {
         }),
         message({ role: "assistant", content: "" }),
       ]),
-    ).toBe("user-turn:ts:user:2026-04-26T00:01:00.000Z")
+    ).toBe("user-turn:ts:user:2026-04-26T00:01:00.000Z:1")
   })
 
   test("prefers database id when available", () => {
@@ -55,7 +55,9 @@ describe("getLatestUserTurnKey", () => {
 
 describe("getMessageRowKey", () => {
   test("prefers database id", () => {
-    expect(getMessageRowKey(message({ role: "user", content: "x", dbId: 7 }), 0)).toBe("message:db:7")
+    expect(getMessageRowKey(message({ role: "user", content: "x", dbId: 7 }), 0)).toBe(
+      "message:db:7",
+    )
   })
 
   test("falls back to timestamp with role discriminator", () => {
@@ -64,7 +66,7 @@ describe("getMessageRowKey", () => {
         message({ role: "user", content: "x", timestamp: "2026-04-26T00:00:00.000Z" }),
         2,
       ),
-    ).toBe("message:ts:user:2026-04-26T00:00:00.000Z")
+    ).toBe("message:ts:user:2026-04-26T00:00:00.000Z:2")
   })
 
   test("user and assistant messages with the same timestamp produce distinct keys", () => {
@@ -75,6 +77,16 @@ describe("getMessageRowKey", () => {
       1,
     )
     expect(userKey).not.toBe(assistantKey)
+  })
+
+  test("same-role event messages with the same timestamp produce distinct keys", () => {
+    const ts = "2026-04-26T00:00:00.000Z"
+    const commandKey = getMessageRowKey(
+      message({ role: "event", content: "/recap", timestamp: ts }),
+      4,
+    )
+    const resultKey = getMessageRowKey(message({ role: "event", content: "", timestamp: ts }), 5)
+    expect(commandKey).not.toBe(resultKey)
   })
 
   test("falls back to index when neither dbId nor timestamp is present", () => {

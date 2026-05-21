@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 
 /// Default port for the webhook server (avoids conflict with OAuth callback on 1455).
 pub const DEFAULT_WEBHOOK_PORT: u16 = 1456;
+const MAX_WEBHOOK_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// A webhook handler receives the raw request body and headers, returns a response body.
 pub type WebhookHandlerFn = Arc<
@@ -169,7 +170,7 @@ async fn handle_webhook(
     }
 
     // Read body
-    let body = match axum::body::to_bytes(request.into_body(), 1024 * 1024).await {
+    let body = match axum::body::to_bytes(request.into_body(), MAX_WEBHOOK_BODY_BYTES).await {
         Ok(b) => b.to_vec(),
         Err(_) => return (StatusCode::BAD_REQUEST, "Failed to read body".to_string()),
     };

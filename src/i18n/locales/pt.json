@@ -45,32 +45,32 @@
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
       "agent_custom_list": {
-        "body": "This tool is on the agent's custom-approval list (Default mode only).",
-        "title": "Agent custom approval list"
+        "body": "Esta ferramenta está na lista de aprovação personalizada do agente (somente modo Default).",
+        "title": "Lista de aprovação personalizada do agente"
       },
       "dangerous_command": {
-        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Dangerous command"
+        "body": "Correspondeu à lista de padrões de comandos perigosos. Exige confirmação por chamada; Permitir sempre indisponível.",
+        "title": "⚠️ Comando perigoso"
       },
       "edit_command": {
-        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix.",
-        "title": "Edit-pattern exec command"
+        "body": "Correspondeu à lista de padrões de comandos de edição. O modo Default pede confirmação; Permitir sempre salva um prefixo de comando.",
+        "title": "Comando exec de edição"
       },
       "edit_tool": {
-        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch).",
-        "title": "Edit-class tool"
+        "body": "O modo Default exige confirmação para ferramentas que escrevem arquivos (write/edit/apply_patch).",
+        "title": "Ferramenta de edição"
       },
       "plan_mode_ask": {
-        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval.",
-        "title": "Plan Mode confirmation"
+        "body": "O Plan Mode lista esta ferramenta como perguntar antes de cada chamada; ela está permitida, mas cada invocação ainda precisa da sua aprovação.",
+        "title": "Confirmação do Plan Mode"
       },
       "protected_path": {
-        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable.",
-        "title": "⚠️ Protected path"
+        "body": "Correspondeu à lista de caminhos protegidos. Exige confirmação por chamada; Permitir sempre indisponível.",
+        "title": "⚠️ Caminho protegido"
       },
       "smart_judge": {
-        "body": "The Smart-mode judge model decided this call needs human confirmation.",
-        "title": "Smart-mode judge"
+        "body": "O modelo juiz do modo Smart decidiu que esta chamada precisa de confirmação humana.",
+        "title": "Juiz do modo Smart"
       },
       "mac_control_action": {
         "title": "Ação do Mac Control",
@@ -2114,80 +2114,80 @@
     "agentAgentsMd": "AGENTS.md",
     "agentAgentsMdDesc": "Regras do workspace, linhas vermelhas, orientação de memória e instruções de comportamento",
     "agentApproval": {
-      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
-      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
-      "customApprovalTitle": "Custom Tool Approval",
-      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
-      "defaultModeTitle": "Default Session Permission Mode",
+      "customApprovalDesc": "No modo Default, também exija aprovação para as ferramentas marcadas abaixo.",
+      "customApprovalHint": "Observação: só tem efeito no modo Default; os modos Smart e YOLO ignoram esta lista.",
+      "customApprovalTitle": "Aprovação personalizada de ferramentas",
+      "defaultModeDesc": "Modo inicial de permissão para novas sessões; sessões existentes não são afetadas.",
+      "defaultModeTitle": "Modo padrão de permissão da sessão",
       "groups": {
-        "browser": "Browser",
-        "crossSession": "Cross-Session Reads",
-        "network": "Network Access",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "settings": "Settings Changes",
-        "settingsRead": "Settings Queries",
-        "shell": "Shell & Processes",
-        "spawn": "External Subprocesses"
+        "browser": "Navegador",
+        "crossSession": "Leituras entre sessões",
+        "network": "Acesso à rede",
+        "outbound": "Saída",
+        "paid": "APIs pagas",
+        "settings": "Alterações de configurações",
+        "settingsRead": "Consultas de configurações",
+        "shell": "Shell e processos",
+        "spawn": "Subprocessos externos"
       },
       "modes": {
         "default": {
-          "desc": "Edit-class tools and high-risk commands need approval",
-          "label": "Default"
+          "desc": "Ferramentas de edição e comandos de alto risco precisam de aprovação",
+          "label": "Padrão"
         },
         "inherit": {
-          "desc": "Follow the global default (currently \"Default\" mode)",
-          "label": "Inherit Global"
+          "desc": "Seguir o padrão global (atualmente modo \"Default\")",
+          "label": "Herdar global"
         },
         "smart": {
-          "desc": "Judge model or model self-confidence decides approvals",
-          "label": "Smart Approval"
+          "desc": "Modelo juiz ou autoconfiança do modelo decide aprovações",
+          "label": "Aprovação inteligente"
         },
         "yolo": {
-          "desc": "All tools run without approval (protected paths still audit-log)",
-          "label": "YOLO"
+          "desc": "Todas as ferramentas rodam sem aprovação (caminhos protegidos ainda geram auditoria)",
+          "label": "Modo YOLO"
         }
       },
       "toolDescs": {
-        "acp_spawn": "Launch an external ACP subagent process",
-        "agents_list": "List all configured agents",
-        "browser": "Drive a browser via CDP for UI automation",
-        "get_settings": "Read application settings",
-        "image_generate": "Generate images via a paid API",
-        "list_settings_backups": "List configuration backup history",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "session_status": "Query the current state of a session",
-        "sessions_history": "Read message history from other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_send": "Send a message to another session to trigger work",
-        "update_settings": "Modify AppConfig settings",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine"
+        "acp_spawn": "Iniciar um processo externo de subagente ACP",
+        "agents_list": "Listar todos os agentes configurados",
+        "browser": "Controlar um navegador via CDP para automação de UI",
+        "get_settings": "Ler configurações do aplicativo",
+        "image_generate": "Gerar imagens por uma API paga",
+        "list_settings_backups": "Listar histórico de backups de configurações",
+        "peek_sessions": "Ver atividade ao vivo em outras sessões",
+        "process": "Gerenciar sessões exec em segundo plano (kill/write/clear/remove)",
+        "restore_settings_backup": "Reverter para um backup histórico de configurações",
+        "send_attachment": "Enviar um arquivo anexo para canais IM",
+        "session_status": "Consultar o estado atual de uma sessão",
+        "sessions_history": "Ler histórico de mensagens de outras sessões",
+        "sessions_list": "Listar metadados de todas as sessões",
+        "sessions_send": "Enviar mensagem para outra sessão para acionar trabalho",
+        "update_settings": "Modificar configurações AppConfig",
+        "web_fetch": "Buscar uma URL e extrair conteúdo legível",
+        "web_search": "Consultar por um mecanismo de busca"
       },
       "toolNames": {
-        "acp_spawn": "ACP Subagent",
-        "agents_list": "List Agents",
-        "browser": "Browser Control",
-        "get_settings": "Read Settings",
-        "image_generate": "Image Generation",
-        "list_settings_backups": "List Settings Backups",
-        "peek_sessions": "Peek Sessions",
-        "process": "Background Processes",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "session_status": "Session Status",
-        "sessions_history": "Session History",
-        "sessions_list": "List Sessions",
-        "sessions_send": "Cross-Session Send",
-        "update_settings": "Update Settings",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search"
+        "acp_spawn": "Subagente ACP",
+        "agents_list": "Listar agentes",
+        "browser": "Controle do navegador",
+        "get_settings": "Ler configurações",
+        "image_generate": "Geração de imagens",
+        "list_settings_backups": "Backups de configurações",
+        "peek_sessions": "Espiar sessões",
+        "process": "Processos em segundo plano",
+        "restore_settings_backup": "Restaurar backup de configurações",
+        "send_attachment": "Enviar anexo",
+        "session_status": "Status da sessão",
+        "sessions_history": "Histórico da sessão",
+        "sessions_list": "Listar sessões",
+        "sessions_send": "Envio entre sessões",
+        "update_settings": "Atualizar configurações",
+        "web_fetch": "Busca web",
+        "web_search": "Pesquisa web"
       }
     },
-    "agentApprovalTab": "Approval",
+    "agentApprovalTab": "Aprovação",
     "agentAsyncToolPolicy": {
       "title": "Execução em background de ferramentas assíncronas",
       "desc": "Quando ferramentas async-capable (exec / web_search / image_generate) são desacopladas para tarefas em segundo plano. Independente da aprovação.",
@@ -2321,54 +2321,54 @@
     "agentsDesc": "Defina e gerencie Agentes de IA. Cada Agente pode ter identidade, capacidades e comportamento diferentes.",
     "appearance": "Aparência",
     "appearanceDesc": "Escolha o modo de aparência do tema",
-    "approvalNav": "Permission",
+    "approvalNav": "Permissões",
     "approvalPanel": {
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "editCommandsTitle": "Edit Commands",
-      "empty": "No entries — add a pattern to enable",
+      "dangerousCommandsDesc": "Força aprovação e não pode ser Permitir sempre. O modo YOLO ignora, mas ainda escreve logs de auditoria.",
+      "dangerousCommandsPlaceholder": "ex.: rm -rf /, git push --force",
+      "dangerousCommandsTitle": "Comandos perigosos",
+      "editCommandsDesc": "No modo Default, chamadas exec que correspondem a estes padrões precisam de aprovação (substring sem diferenciar maiúsculas); Permitir sempre está disponível.",
+      "editCommandsPlaceholder": "ex.: rm , git commit, npm install",
+      "editCommandsTitle": "Comandos de edição",
+      "empty": "Sem entradas — adicione um padrão para ativar",
       "fallbacks": {
-        "allow": "Force allow",
-        "ask": "Force prompt",
-        "default": "Fall back to Default mode"
+        "allow": "Forçar permitir",
+        "ask": "Forçar pergunta",
+        "default": "Voltar ao modo Default"
       },
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "protectedPathsTitle": "Protected Paths",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartFallback": "Fallback When Unavailable",
-      "smartStrategy": "Decision Strategy",
-      "smartTitle": "Smart Approval Mode",
+      "intro": "Alternância global YOLO, listas de padrões de caminhos protegidos / comandos de edição / comandos perigosos e configuração do modo de aprovação inteligente.",
+      "judgeExtraPromptPlaceholder": "Opcional: instruções extras para o juiz (listas de caminhos permitidos, comandos confiáveis...)",
+      "judgeModelPlaceholder": "Modelo (ex.: claude-haiku-4-5)",
+      "judgeModelTitle": "Configuração do modelo juiz",
+      "judgeProviderPlaceholder": "ID do provedor (ex.: anthropic-1)",
+      "protectedPathsDesc": "Chamadas de ferramentas que atingem estes caminhos forçam aprovação e não podem ser Permitir sempre. Suporta expansão ~/, prefixo de diretório (barra final) e globs *.pattern.",
+      "protectedPathsPlaceholder": "ex.: ~/.ssh/, .env, *.pem",
+      "protectedPathsTitle": "Caminhos protegidos",
+      "restoreDefaults": "Restaurar padrões",
+      "restoredDefaults": "Restaurado para os padrões",
+      "smartDesc": "No modo de sessão Smart, a etiqueta de autoconfiança do modelo ou um modelo juiz independente decide as aprovações.",
+      "smartFallback": "Fallback quando indisponível",
+      "smartStrategy": "Estratégia de decisão",
+      "smartTitle": "Modo de aprovação inteligente",
       "strategies": {
-        "both": "Judge first, self-tag fallback",
-        "judge_model": "Judge Model",
-        "self_confidence": "Model Self-Tag"
+        "both": "Juiz primeiro, autotag como fallback",
+        "judge_model": "Modelo juiz",
+        "self_confidence": "Autotag do modelo"
       },
-      "timeoutAction": "Timeout Action",
+      "timeoutAction": "Ação no timeout",
       "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
+        "deny": "Bloquear execução",
+        "proceed": "Prosseguir"
       },
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutHint": "0 = wait forever",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "title": "Permission",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloTitle": "Global YOLO (Skip All Approvals)"
+      "timeoutDesc": "Quando o usuário não responde dentro destes segundos, usa a ação abaixo. 0 = esperar para sempre.",
+      "timeoutHint": "0 = esperar para sempre",
+      "timeoutSeconds": "Segundos de timeout",
+      "timeoutTitle": "Timeout do diálogo de aprovação",
+      "title": "Permissão",
+      "yoloCliActive": "⚠️ A flag CLI --dangerously-skip-all-approvals está ativa e não pode ser desativada pela GUI.",
+      "yoloDesc": "Quando ligado, todas as ferramentas rodam sem aprovação; só o Plan Mode ainda pode bloquear. Caminhos protegidos / comandos perigosos registram aviso, mas executam.",
+      "yoloDisabled": "YOLO global desativado",
+      "yoloEnabled": "YOLO global ativado",
+      "yoloTitle": "YOLO global (ignorar todas as aprovações)"
     },
     "approvalTimeout": "Timeout de espera de aprovação",
     "approvalTimeoutAction": "Ação ao expirar a aprovação",
@@ -3320,150 +3320,150 @@
       "title": "Controle do Mac"
     },
     "permissionGroups": {
-      "controlCapture": "Control & Capture",
-      "deviceNetwork": "Devices & Network",
-      "fileAccess": "File Access",
-      "personalData": "Personal Data",
-      "systemServices": "System Services"
+      "controlCapture": "Controle e captura",
+      "deviceNetwork": "Dispositivos e rede",
+      "fileAccess": "Acesso a arquivos",
+      "personalData": "Dados pessoais",
+      "systemServices": "Serviços do sistema"
     },
     "permissionItems": {
       "accessibility": {
-        "label": "Accessibility",
-        "usage": "Control the mouse, keyboard, and other application windows."
+        "label": "Acessibilidade",
+        "usage": "Controlar mouse, teclado e janelas de outros aplicativos."
       },
       "app_management": {
-        "label": "App Management",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Manage or update other applications only when a tool explicitly needs it."
+        "label": "Gerenciamento de apps",
+        "note": "O macOS não expõe uma API pública confiável de status por app.",
+        "usage": "Gerenciar ou atualizar outros aplicativos somente quando uma ferramenta precisar explicitamente."
       },
       "automation_messages": {
-        "label": "Automation: Messages",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of Messages when messaging workflows need it."
+        "label": "Automação: Mensagens",
+        "note": "O consentimento de automação é armazenado por app de destino; Ajustes do Sistema é a fonte de verdade mais confiável.",
+        "usage": "Permitir automação do Mensagens via Apple Events quando fluxos de mensagem precisarem."
       },
       "automation_system_events": {
-        "label": "Automation: System Events",
-        "note": "Automation consent is stored per target app; System Settings is the most reliable source of truth.",
-        "usage": "Allow Apple Events automation of System Events."
+        "label": "Automação: Eventos do Sistema",
+        "note": "O consentimento de automação é armazenado por app de destino; Ajustes do Sistema é a fonte de verdade mais confiável.",
+        "usage": "Permitir automação do System Events via Apple Events."
       },
       "bluetooth": {
-        "label": "Bluetooth",
-        "usage": "Discover and connect to Bluetooth devices when a workflow needs it."
+        "label": "Bluetooth (dispositivos)",
+        "usage": "Descobrir e conectar dispositivos Bluetooth quando um fluxo precisar."
       },
       "calendar": {
-        "label": "Calendars",
-        "usage": "Read or write calendar events when scheduling workflows need it."
+        "label": "Calendários",
+        "usage": "Ler ou gravar eventos de calendário quando fluxos de agenda precisarem."
       },
       "camera": {
-        "label": "Camera",
-        "usage": "Use the camera for visual input only when explicitly requested."
+        "label": "Câmera",
+        "usage": "Usar a câmera para entrada visual somente quando solicitado explicitamente."
       },
       "contacts": {
-        "label": "Contacts",
-        "usage": "Read contacts only when a user workflow explicitly asks for it."
+        "label": "Contatos",
+        "usage": "Ler contatos somente quando um fluxo do usuário pedir explicitamente."
       },
       "desktop_folder": {
-        "label": "Desktop Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files on the Desktop when requested by the user."
+        "label": "Pasta Mesa",
+        "note": "O macOS expõe isso por Arquivos e Pastas; o status é sondado.",
+        "usage": "Ler e gravar arquivos na Mesa quando solicitado pelo usuário."
       },
       "developer_tools": {
-        "label": "Developer Tools",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Use developer tooling that macOS protects behind Developer Tools consent."
+        "label": "Ferramentas de desenvolvedor",
+        "note": "O macOS não expõe uma API pública confiável de status por app.",
+        "usage": "Usar ferramentas de desenvolvimento que o macOS protege pelo consentimento de Ferramentas de desenvolvedor."
       },
       "documents_folder": {
-        "label": "Documents Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Documents when requested by the user."
+        "label": "Pasta Documentos",
+        "note": "O macOS expõe isso por Arquivos e Pastas; o status é sondado.",
+        "usage": "Ler e gravar arquivos em Documentos quando solicitado pelo usuário."
       },
       "downloads_folder": {
-        "label": "Downloads Folder",
-        "note": "macOS exposes this through Files & Folders; status is probed.",
-        "usage": "Read and write files in Downloads when requested by the user."
+        "label": "Pasta Downloads",
+        "note": "O macOS expõe isso por Arquivos e Pastas; o status é sondado.",
+        "usage": "Ler e gravar arquivos em Downloads quando solicitado pelo usuário."
       },
       "focus_status": {
-        "label": "Focus Status",
-        "note": "macOS does not expose a reliable public per-app status API.",
-        "usage": "Read Focus status only for workflows that adapt notifications or interruptions."
+        "label": "Estado de Foco",
+        "note": "O macOS não expõe uma API pública confiável de status por app.",
+        "usage": "Ler o estado de Foco apenas para fluxos que adaptam notificações ou interrupções."
       },
       "full_disk_access": {
-        "label": "Full Disk Access",
-        "note": "Detected with a conservative filesystem probe; absence is shown as manual confirmation.",
-        "usage": "Read protected files that normal Files & Folders consent does not cover."
+        "label": "Acesso total ao disco",
+        "note": "Detectado com uma sondagem conservadora do sistema de arquivos; ausência aparece como confirmação manual.",
+        "usage": "Ler arquivos protegidos que o consentimento normal de Arquivos e Pastas não cobre."
       },
       "homekit": {
-        "label": "HomeKit",
-        "note": "Hope Agent does not currently use HomeKit workflows.",
-        "usage": "Access Home data only if future HomeKit workflows are enabled."
+        "label": "HomeKit (casa)",
+        "note": "Hope Agent não usa fluxos HomeKit atualmente.",
+        "usage": "Acessar dados da Casa somente se futuros fluxos HomeKit forem habilitados."
       },
       "input_monitoring": {
-        "label": "Input Monitoring",
-        "usage": "Listen for keyboard and pointer events needed by desktop automation."
+        "label": "Monitoramento de entrada",
+        "usage": "Escutar eventos de teclado e ponteiro necessários para automação de desktop."
       },
       "local_network": {
-        "label": "Local Network",
-        "note": "macOS Local Network privacy has no reliable public status API.",
-        "usage": "Discover and connect to devices on the local network."
+        "label": "Rede local",
+        "note": "A privacidade de Rede Local do macOS não tem uma API pública confiável de status.",
+        "usage": "Descobrir e conectar dispositivos na rede local."
       },
       "location": {
-        "label": "Location Services",
-        "usage": "Use device location for local weather and location-aware workflows."
+        "label": "Serviços de localização",
+        "usage": "Usar a localização do dispositivo para clima local e fluxos cientes de localização."
       },
       "media_library": {
-        "label": "Media Library",
-        "note": "No reliable public status API is available for this app surface.",
-        "usage": "Access the media library only when a media workflow explicitly needs it."
+        "label": "Biblioteca de mídia",
+        "note": "Não há API pública confiável de status para esta superfície do app.",
+        "usage": "Acessar a biblioteca de mídia somente quando um fluxo de mídia precisar explicitamente."
       },
       "microphone": {
-        "label": "Microphone",
-        "usage": "Use the microphone for voice input only when explicitly requested."
+        "label": "Microfone",
+        "usage": "Usar o microfone para entrada de voz somente quando solicitado explicitamente."
       },
       "network_volumes": {
-        "label": "Network Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access mounted network volumes when the user asks the app to work there."
+        "label": "Volumes de rede",
+        "note": "Não há API pública confiável de status por volume.",
+        "usage": "Acessar volumes de rede montados quando o usuário pedir para trabalhar neles."
       },
       "notifications": {
-        "label": "Notifications",
-        "note": "Notification configuration stays on the Notifications settings page.",
-        "usage": "Show system notifications."
+        "label": "Notificações",
+        "note": "A configuração de notificações permanece na página de ajustes de Notificações.",
+        "usage": "Mostrar notificações do sistema."
       },
       "photos": {
-        "label": "Photos",
-        "usage": "Access the Photos library only when the user asks for photo workflows."
+        "label": "Fotos",
+        "usage": "Acessar a biblioteca de Fotos somente quando o usuário pedir fluxos de fotos."
       },
       "reminders": {
-        "label": "Reminders",
-        "usage": "Read or write reminders when planning workflows need it."
+        "label": "Lembretes",
+        "usage": "Ler ou gravar lembretes quando fluxos de planejamento precisarem."
       },
       "removable_volumes": {
-        "label": "Removable Volumes",
-        "note": "No reliable public per-volume status API is available.",
-        "usage": "Access removable drives when the user asks the app to work there."
+        "label": "Volumes removíveis",
+        "note": "Não há API pública confiável de status por volume.",
+        "usage": "Acessar unidades removíveis quando o usuário pedir para trabalhar nelas."
       },
       "screen_recording": {
-        "label": "Screen Recording",
-        "usage": "Capture screen contents for visual understanding and UI automation."
+        "label": "Gravação de tela",
+        "usage": "Capturar conteúdo da tela para compreensão visual e automação de UI."
       },
       "speech_recognition": {
-        "label": "Speech Recognition",
-        "usage": "Use speech recognition when a voice workflow asks for transcription."
+        "label": "Reconhecimento de fala",
+        "usage": "Usar reconhecimento de fala quando um fluxo de voz pedir transcrição."
       },
       "system_audio_capture": {
-        "label": "System Audio Capture",
-        "note": "macOS does not expose a reliable public preflight API for this permission.",
-        "usage": "Capture system audio when a future workflow explicitly needs it."
+        "label": "Captura de áudio do sistema",
+        "note": "O macOS não expõe uma API pública confiável de pré-verificação para esta permissão.",
+        "usage": "Capturar áudio do sistema quando um fluxo futuro precisar explicitamente."
       }
     },
     "permissionStatuses": {
-      "granted": "Granted",
-      "manualCheck": "Manual check",
-      "notApplicable": "Not applicable",
-      "notDetermined": "Not determined",
-      "notGranted": "Not granted",
-      "notUsed": "Not used",
-      "restricted": "Restricted"
+      "granted": "Concedido",
+      "manualCheck": "Verificação manual",
+      "notApplicable": "Não aplicável",
+      "notDetermined": "Não determinado",
+      "notGranted": "Não concedido",
+      "notUsed": "Não usado",
+      "restricted": "Restrito"
     },
     "permissions": "Permissões",
     "personaModeDesc": "Preencha os campos estruturados ou escreva um markdown SOUL.md diretamente. O arquivo SOUL.md é compartilhado com o modo de compatibilidade openclaw.",
@@ -3690,7 +3690,9 @@
         "noClusters": "Scanned {{count}} drafts. No obvious overlap found.",
         "foundN": "Found {{proposals}} overlap cluster(s) across {{scanned}} drafts.",
         "clusterMeta": "{{members}} drafts · min similarity {{similarity}}",
-        "apply": "Keep this, discard the other {{n}}"
+        "apply": "Keep this, discard the other {{n}}",
+        "autoNoticeTitle": "Auto-curator encontrou sugestões de mesclagem",
+        "autoNoticeBody": "{{proposals}} grupo(s) em {{scanned}} rascunhos estão prontos para revisão abaixo."
       },
       "resetAll": {
         "label": "Reset everything",
@@ -3795,6 +3797,14 @@
         "reviewSystemOverride": {
           "label": "Override review system prompt",
           "help": "Replaces the built-in review system prompt verbatim; leave empty to use the built-in. Backend hard floors still apply."
+        },
+        "autoCuratorEnabled": {
+          "label": "Executar curator em agenda",
+          "help": "Quando ativado, o Hope Agent verifica periodicamente rascunhos de skills em busca de sobreposição e mostra sugestões de mesclagem aqui."
+        },
+        "autoCuratorIntervalDays": {
+          "label": "Intervalo do curator",
+          "help": "Dias entre verificações automáticas de consolidação de rascunhos. O backend relê essa configuração a cada ciclo."
         }
       }
     },
@@ -4490,6 +4500,48 @@
       "errBaseUrlMustBeHttp": "Este provedor usa HTTP — a Base URL deve começar com http:// ou https://",
       "errApiKeyRequired": "A API Key é obrigatória",
       "errExtraFieldRequired": "Campo obrigatório ausente: {{field}}"
+    }
+  },
+  "askUserDialog": {
+    "browserEvaluate": {
+      "context": "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
+      "text": "Run this JavaScript in the browser?\n\n{{preview}}",
+      "header": "Browser evaluate",
+      "runIt": "Run it",
+      "cancel": "Cancel"
+    },
+    "appUpdate": {
+      "rollback": {
+        "context": "Hope Agent rollback — restore the previous binary from ~/.hope-agent/updater/backup/ and restart the service.",
+        "text": "Roll back to the previously-installed Hope Agent binary? The service will restart immediately after the swap.",
+        "header": "Hope Agent rollback",
+        "confirm": "Roll back now",
+        "cancel": "Cancel"
+      },
+      "install": {
+        "context": "Hope Agent self-update confirmation. Install source: {{installSource}}. Recommended path: {{path}}.",
+        "header": "Hope Agent {{from}} → {{to}}",
+        "text": {
+          "packageManager": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: package manager ({{installSource}}){{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "selfContained": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: download bare binary, verify Minisign signature, atomically swap.{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "tauri": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: Tauri bundled updater (signed installer).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first.",
+          "manualPrompt": "Upgrade Hope Agent {{from}} → {{to}}?\nRoute: manual download (no automated path matches).{{notes}}\n\nThe user-level service will restart immediately after the binary swap (typically 1-2 seconds of downtime). Any in-flight chat turn, cron job, or IM stream will be cancelled — pause non-trivial work first."
+        },
+        "confirm": "Upgrade now",
+        "cancel": "Not now"
+      },
+      "manual": {
+        "dockerContext": "Hope Agent is running in a Docker container. Self-update can't replace the image — upgrade by pulling a new tag and recreating the container.",
+        "dockerText": "Hope Agent is running in a Docker container ({{from}} → {{to}}).\n\nUpgrade by pulling the new image and recreating the container:\n\n    docker pull ghcr.io/shiwenwen/hope-agent:v{{to}}\n    docker compose up -d\n\nor pin to `latest` if your compose file uses it.",
+        "dockerHeader": "Docker upgrade required",
+        "context": "Hope Agent cannot pick an automated upgrade path for this install. Decide how to proceed.",
+        "text": "No automated upgrade path is available for Hope Agent {{from}} → {{to}}. Install source detected as: {{installSource}}. Pick a recovery:",
+        "header": "Manual upgrade required",
+        "openReleases": "Open release page in browser",
+        "openReleasesManual": "Open release page in browser (manual download)",
+        "forceSelfContained": "Try the self-contained bare-binary swap anyway",
+        "abort": "Abort upgrade"
+      }
     }
   }
 }

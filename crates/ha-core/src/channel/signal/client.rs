@@ -40,6 +40,27 @@ impl SignalClient {
         cache.get(message_id).cloned()
     }
 
+    /// Check whether the signal-cli HTTP daemon is ready to accept requests.
+    pub async fn check_ready(&self) -> Result<()> {
+        let url = format!("{}/api/v1/check", self.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(1))
+            .send()
+            .await
+            .context("Signal daemon readiness check request failed")?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "Signal daemon readiness check returned HTTP {}",
+                resp.status()
+            )
+        }
+    }
+
     /// Make a JSON-RPC 2.0 call to the signal-cli daemon.
     async fn rpc(&self, method: &str, params: Value) -> Result<Value> {
         let id = uuid::Uuid::new_v4().to_string();
@@ -110,29 +131,19 @@ impl SignalClient {
     pub async fn send_message(
         &self,
         recipient: &str,
-        message: &str,
-        _attachments: &[String],
+        message: Option<&str>,
+        attachments: &[String],
         quote_timestamp: Option<i64>,
         quote_author: Option<&str>,
     ) -> Result<Value> {
-        let mut params = serde_json::json!({
-            "account": self.account,
-            "message": message,
-        });
-
-        // Determine if this is a group or DM
-        if is_group_id(recipient) {
-            params["groupId"] = Value::String(recipient.to_string());
-        } else {
-            params["recipient"] = serde_json::json!([recipient]);
-        }
-
-        // signal-cli quote 必须有 timestamp + author 才生效
-        if let (Some(ts), Some(author)) = (quote_timestamp, quote_author) {
-            params["quoteTimestamp"] = Value::Number(serde_json::Number::from(ts));
-            params["quoteAuthor"] = Value::String(author.to_string());
-        }
-
+        let params = build_send_params(
+            &self.account,
+            recipient,
+            message,
+            attachments,
+            quote_timestamp,
+            quote_author,
+        );
         self.rpc("send", params).await
     }
 
@@ -302,10 +313,9 @@ impl SignalClient {
                                     current_data.clear();
                                 } else if line.starts_with(':') {
                                     // SSE comment, ignore
-                                } else if let Some(value) = line.strip_prefix("event:") {
+                                } else if let Some(value) = sse_field_value(&line, "event") {
                                     current_event = value.trim().to_string();
-                                } else if let Some(value) = line.strip_prefix("data:") {
-                                    let value = value.strip_prefix(' ').unwrap_or(value);
+                                } else if let Some(value) = sse_field_value(&line, "data") {
                                     if current_data.is_empty() {
                                         current_data = value.to_string();
                                     } else {
@@ -473,6 +483,54 @@ impl SignalClient {
     }
 }
 
+fn sse_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(field)?;
+    if rest.is_empty() {
+        return Some("");
+    }
+    rest.strip_prefix(':').map(|value| value.trim_start())
+}
+
+fn build_send_params(
+    account: &str,
+    recipient: &str,
+    message: Option<&str>,
+    attachments: &[String],
+    quote_timestamp: Option<i64>,
+    quote_author: Option<&str>,
+) -> Value {
+    let mut params = serde_json::json!({
+        "account": account,
+    });
+
+    if let Some(message) = message.filter(|s| !s.is_empty()) {
+        params["message"] = Value::String(message.to_string());
+    }
+
+    if !attachments.is_empty() {
+        params["attachments"] = Value::Array(
+            attachments
+                .iter()
+                .map(|path| Value::String(path.clone()))
+                .collect(),
+        );
+    }
+
+    if is_group_id(recipient) {
+        params["groupId"] = Value::String(recipient.to_string());
+    } else {
+        params["recipient"] = serde_json::json!([recipient]);
+    }
+
+    // signal-cli quote 必须有 timestamp + author 才生效
+    if let (Some(ts), Some(author)) = (quote_timestamp, quote_author) {
+        params["quoteTimestamp"] = Value::Number(serde_json::Number::from(ts));
+        params["quoteAuthor"] = Value::String(author.to_string());
+    }
+
+    params
+}
+
 /// 判断 recipient 是否是 Signal 群组 ID。
 ///
 /// Signal recipient 形态：
@@ -540,5 +598,71 @@ mod tests {
     fn is_group_id_rejects_random_strings() {
         // 短而不像 group id
         assert!(!is_group_id("short"));
+    }
+
+    #[test]
+    fn sse_field_value_accepts_optional_and_extra_spaces() {
+        assert_eq!(
+            sse_field_value("data:{\"hello\":true}", "data"),
+            Some("{\"hello\":true}")
+        );
+        assert_eq!(
+            sse_field_value("data: {\"hello\":true}", "data"),
+            Some("{\"hello\":true}")
+        );
+        assert_eq!(
+            sse_field_value("data:   {\"hello\":true}", "data"),
+            Some("{\"hello\":true}")
+        );
+        assert_eq!(sse_field_value("data", "data"), Some(""));
+        assert_eq!(sse_field_value("database: nope", "data"), None);
+    }
+
+    #[test]
+    fn send_params_include_attachments_without_blank_message() {
+        let params = build_send_params(
+            "+10000000000",
+            "+15551234567",
+            None,
+            &["/tmp/a.png".to_string(), "/tmp/b.pdf".to_string()],
+            None,
+            None,
+        );
+
+        assert_eq!(params["account"], "+10000000000");
+        assert_eq!(params["recipient"], serde_json::json!(["+15551234567"]));
+        assert_eq!(
+            params["attachments"],
+            serde_json::json!(["/tmp/a.png", "/tmp/b.pdf"])
+        );
+        assert!(params.get("message").is_none());
+    }
+
+    #[test]
+    fn send_params_include_quote_only_when_complete() {
+        let params = build_send_params(
+            "+10000000000",
+            "group.AbCdEfGh1234567890==",
+            Some("hello"),
+            &[],
+            Some(1_234),
+            Some("+15551234567"),
+        );
+
+        assert_eq!(params["groupId"], "group.AbCdEfGh1234567890==");
+        assert_eq!(params["message"], "hello");
+        assert_eq!(params["quoteTimestamp"], 1_234);
+        assert_eq!(params["quoteAuthor"], "+15551234567");
+
+        let incomplete = build_send_params(
+            "+10000000000",
+            "+15551234567",
+            Some("hello"),
+            &[],
+            Some(1_234),
+            None,
+        );
+        assert!(incomplete.get("quoteTimestamp").is_none());
+        assert!(incomplete.get("quoteAuthor").is_none());
     }
 }

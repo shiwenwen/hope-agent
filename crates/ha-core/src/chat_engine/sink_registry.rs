@@ -3,9 +3,8 @@
 //! `ChatEngineParams.event_sink` is a single `Arc<dyn EventSink>` for the
 //! turn's primary consumer (Tauri ChannelSink for desktop / HTTP, the
 //! channel worker's `ChannelStreamSink` for IM). Live GUI ↔ IM mirroring
-//! (currently a follow-up — see `docs/plans/review-followups.md` F-066)
-//! needs a second sink to receive the same stream events: a desktop turn
-//! would attach an IM-side sink here so the IM chat sees the typewriter.
+//! attaches a second sink here so an IM chat can receive the same typewriter
+//! stream while the desktop / HTTP client remains the primary consumer.
 //!
 //! `SinkRegistry` is an opt-in side channel: extra sinks register here for a
 //! session, `emit_stream_event` fans every event out to them after the

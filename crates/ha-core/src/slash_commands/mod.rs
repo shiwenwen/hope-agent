@@ -650,6 +650,35 @@ mod tests {
     }
 
     #[test]
+    fn command_action_serializes_variant_fields_as_camel_case() {
+        let recap = serde_json::to_value(CommandAction::RecapCard {
+            report_id: "report-1".into(),
+        })
+        .expect("serialize recap action");
+        assert_eq!(
+            recap,
+            serde_json::json!({
+                "type": "recapCard",
+                "reportId": "report-1",
+            })
+        );
+
+        let skill = serde_json::to_value(CommandAction::SkillFork {
+            run_id: "run-1".into(),
+            skill_name: "drawio".into(),
+        })
+        .expect("serialize skill action");
+        assert_eq!(
+            skill,
+            serde_json::json!({
+                "type": "skillFork",
+                "runId": "run-1",
+                "skillName": "drawio",
+            })
+        );
+    }
+
+    #[test]
     fn pass_through_slash_history_stays_on_normal_chat_path() {
         assert!(!should_persist_slash_history(Some(
             &CommandAction::PassThrough {

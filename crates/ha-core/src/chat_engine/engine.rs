@@ -237,7 +237,7 @@ fn emit_stream_event(
         enveloped
     };
     // Fan-out to any extra sinks attached to this session (live GUI ↔ IM
-    // mirror is the planned consumer — F-066). The primary `event_sink`
+    // mirror is the primary consumer). The primary `event_sink`
     // above is intentionally not registered, so each consumer fires once.
     sink_registry::sink_registry().emit(session_id, &payload);
     true

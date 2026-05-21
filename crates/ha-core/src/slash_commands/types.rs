@@ -54,7 +54,11 @@ pub struct CommandResult {
 /// Each channel (desktop UI, Telegram, Discord, etc.) handles these
 /// appropriately for its context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum CommandAction {
     /// A new session was created.
     NewSession { session_id: String },

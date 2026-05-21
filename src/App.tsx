@@ -69,6 +69,8 @@ export default function App() {
     undefined,
   )
   const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
+  const [dashboardInitialTab, setDashboardInitialTab] = useState<string | undefined>(undefined)
+  const [dashboardInitialReportId, setDashboardInitialReportId] = useState<string | null>(null)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   // PlansView pushes `@plan:<short_id>:v<n>` tokens here; ChatInput appends and clears.
@@ -156,6 +158,11 @@ export default function App() {
     setSettingsInitialSection(section)
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
+  }, [])
+  const handleOpenDashboard = useCallback((tab?: string, reportId?: string | null) => {
+    setDashboardInitialTab(tab)
+    setDashboardInitialReportId(reportId ?? null)
+    setView("dashboard")
   }, [])
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -436,7 +443,7 @@ export default function App() {
                   setView("profile")
                 }}
                 onOpenCalendar={() => setView("calendar")}
-                onOpenDashboard={() => setView("dashboard")}
+                onOpenDashboard={() => handleOpenDashboard()}
                 onOpenPlans={() => setView("plans")}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
@@ -532,6 +539,8 @@ export default function App() {
                   <DashboardView
                     onBack={() => setView("chat")}
                     onOpenSettings={handleOpenSettings}
+                    initialTab={dashboardInitialTab}
+                    initialRecapReportId={dashboardInitialReportId}
                   />
                 </Suspense>
               )}
@@ -566,6 +575,7 @@ export default function App() {
                   initialSessionId={pendingSessionId}
                   onSessionNavigated={() => setPendingSessionId(undefined)}
                   onUnreadCountChange={setTotalUnreadCount}
+                  onOpenDashboardTab={handleOpenDashboard}
                   sessionsRefreshTrigger={sessionsRefreshTrigger}
                   pendingChatInsert={pendingChatInsert}
                   onChatInsertConsumed={() => setPendingChatInsert(undefined)}

@@ -42,9 +42,9 @@ jobs:
           # `continue-on-error: true` did not help — Actions `needs:` waits
           # for queued/running jobs regardless of `continue-on-error`, so
           # patch-manifest still blocked on macos-x64. Long-term recovery
-          # (cross-compile on macos-14 or a self-hosted Intel runner)
-          # tracked as F-088. Intel Mac users continue to run the arm64
-          # bundle through Rosetta 2 (same as v0.1.x).
+          # needs either cross-compile on macos-14 or a self-hosted Intel
+          # runner. Intel Mac users continue to run the arm64 bundle through
+          # Rosetta 2 (same as v0.1.x).
           # Linux x64 — AppImage + deb.
           # ubuntu-24.04 is required because xcap (screen capture) pulls
           # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The

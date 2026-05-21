@@ -160,25 +160,15 @@ fn bind_pdfium() -> Result<pdfium_render::prelude::Pdfium> {
     use pdfium_render::prelude::*;
 
     let bindings = Pdfium::bind_to_system_library()
-        .or_else(|_| {
-            #[cfg(target_os = "macos")]
-            {
-                Pdfium::bind_to_library("/usr/local/lib/libpdfium.dylib")
-                    .or_else(|_| Pdfium::bind_to_library("/opt/homebrew/lib/libpdfium.dylib"))
+        .or_else(|system_err| {
+            let mut last_err = system_err;
+            for candidate in crate::platform::pdfium_library_candidates() {
+                match Pdfium::bind_to_library(candidate) {
+                    Ok(bindings) => return Ok(bindings),
+                    Err(err) => last_err = err,
+                }
             }
-            #[cfg(target_os = "linux")]
-            {
-                Pdfium::bind_to_library("/usr/lib/libpdfium.so")
-                    .or_else(|_| Pdfium::bind_to_library("/usr/local/lib/libpdfium.so"))
-            }
-            #[cfg(target_os = "windows")]
-            {
-                Pdfium::bind_to_library("pdfium.dll")
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-            {
-                Err(PdfiumError::NoBindingsAvailable)
-            }
+            Err(last_err)
         })
         .map_err(|e| anyhow::anyhow!("PDFium library not found: {:?}", e))?;
 

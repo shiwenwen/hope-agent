@@ -18,6 +18,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import { SKILLS_EVENTS } from "@/types/skills"
 import type { SkillSummary } from "../types"
 import DraftReviewSection from "./DraftReviewSection"
 
@@ -116,6 +117,8 @@ export default function SkillEvolutionView({
   const [curatorBusy, setCuratorBusy] = useState(false)
   const [merging, setMerging] = useState<Record<string, boolean>>({})
   const [keepSelections, setKeepSelections] = useState<Record<string, string>>({})
+  const [autoCuratorNotice, setAutoCuratorNotice] =
+    useState<CuratorReport | null>(null)
   const [openSection, setOpenSection] = useState<Record<string, boolean>>({
     trigger: false,
     quality: false,
@@ -240,6 +243,30 @@ export default function SkillEvolutionView({
     }
   }, [])
 
+  const seedKeepSelections = useCallback((report: CuratorReport) => {
+    const defaults: Record<string, string> = {}
+    for (const p of report.proposals) {
+      if (p.members.length > 0) defaults[p.id] = p.members[0].skillId
+    }
+    setKeepSelections((s) => ({ ...defaults, ...s }))
+  }, [])
+
+  useEffect(() => {
+    const unlisten = getTransport().listen(
+      SKILLS_EVENTS.curatorProposalsReady,
+      (raw) => {
+        const report = normalizeCuratorReport(raw)
+        if (!report) return
+        setCurator(report)
+        seedKeepSelections(report)
+        if (report.proposals.length > 0) {
+          setAutoCuratorNotice(report)
+        }
+      },
+    )
+    return unlisten
+  }, [seedKeepSelections])
+
   const runCurator = useCallback(async () => {
     setCuratorBusy(true)
     try {
@@ -247,12 +274,8 @@ export default function SkillEvolutionView({
         "run_skills_curator_now",
       )
       setCurator(next)
-      // seed `keepSelections` with the cluster's first member as default
-      const defaults: Record<string, string> = {}
-      for (const p of next.proposals) {
-        if (p.members.length > 0) defaults[p.id] = p.members[0].skillId
-      }
-      setKeepSelections((s) => ({ ...defaults, ...s }))
+      seedKeepSelections(next)
+      setAutoCuratorNotice(null)
     } catch (e) {
       logger.error(
         "settings",
@@ -263,7 +286,7 @@ export default function SkillEvolutionView({
     } finally {
       setCuratorBusy(false)
     }
-  }, [])
+  }, [seedKeepSelections])
 
   const applyMerge = useCallback(
     async (proposal: MergeProposal) => {
@@ -284,6 +307,11 @@ export default function SkillEvolutionView({
               }
             : c,
         )
+        setAutoCuratorNotice((n) => {
+          if (!n) return n
+          const proposals = n.proposals.filter((p) => p.id !== proposal.id)
+          return proposals.length > 0 ? { ...n, proposals } : null
+        })
       } catch (e) {
         logger.error(
           "settings",
@@ -342,6 +370,33 @@ export default function SkillEvolutionView({
         onDiscard={onDiscardDraft}
         onSelectSkill={onSelectSkill}
       />
+
+      {autoCuratorNotice && autoCuratorNotice.proposals.length > 0 ? (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-foreground">
+              {t("settings.skillsEvolution.curator.autoNoticeTitle", {
+                count: autoCuratorNotice.proposals.length,
+              })}
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {t("settings.skillsEvolution.curator.autoNoticeBody", {
+                proposals: autoCuratorNotice.proposals.length,
+                scanned: autoCuratorNotice.draftsScanned,
+              })}
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setAutoCuratorNotice(null)}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ) : null}
 
       {/* ── Hero: master switch ─────────────────────────────────────── */}
       <div className="overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-500/10 via-fuchsia-500/8 to-pink-500/5 dark:border-violet-400/30 dark:from-violet-500/15 dark:via-fuchsia-500/12 dark:to-pink-500/8">
@@ -510,6 +565,36 @@ export default function SkillEvolutionView({
             )}
             {t("settings.skillsEvolution.curator.run")}
           </Button>
+        </div>
+        <div className="mb-3 grid gap-3 rounded-lg border border-border/60 bg-background/40 p-3">
+          <BoolField
+            label={t(
+              "settings.skillsEvolution.fields.autoCuratorEnabled.label",
+            )}
+            help={t("settings.skillsEvolution.fields.autoCuratorEnabled.help")}
+            value={cfg.autoCuratorEnabled}
+            onChange={(v) => void patchField("autoCuratorEnabled", v)}
+            onReset={() => void resetField("autoCuratorEnabled")}
+            status={saveStatus.autoCuratorEnabled}
+            disabled={!autoReviewEnabled}
+          />
+          <NumField
+            label={t(
+              "settings.skillsEvolution.fields.autoCuratorIntervalDays.label",
+            )}
+            help={t(
+              "settings.skillsEvolution.fields.autoCuratorIntervalDays.help",
+            )}
+            value={cfg.autoCuratorIntervalDays}
+            onChange={(v) => void patchField("autoCuratorIntervalDays", v)}
+            onReset={() => void resetField("autoCuratorIntervalDays")}
+            status={saveStatus.autoCuratorIntervalDays}
+            min={1}
+            max={90}
+            step={1}
+            unit={t("settings.skillsEvolution.units.days")}
+            disabled={!autoReviewEnabled || !cfg.autoCuratorEnabled}
+          />
         </div>
         {curator == null ? (
           <div className="text-xs text-muted-foreground py-2">
@@ -918,12 +1003,14 @@ function FieldRow({
   status,
   onReset,
   children,
+  disabled,
 }: {
   label: string
   help: string
   status?: SaveStatus
   onReset: () => void
   children: React.ReactNode
+  disabled?: boolean
 }) {
   const { t } = useTranslation()
   return (
@@ -941,6 +1028,7 @@ function FieldRow({
               size="icon"
               className="h-7 w-7 text-muted-foreground/50 hover:text-foreground"
               onClick={onReset}
+              disabled={disabled}
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
@@ -967,6 +1055,7 @@ function BoolField({
   onChange,
   onReset,
   status,
+  disabled,
 }: {
   label: string
   help: string
@@ -974,10 +1063,17 @@ function BoolField({
   onChange: (v: boolean) => void
   onReset: () => void
   status?: SaveStatus
+  disabled?: boolean
 }) {
   return (
-    <FieldRow label={label} help={help} status={status} onReset={onReset}>
-      <Switch checked={value} onCheckedChange={onChange} />
+    <FieldRow
+      label={label}
+      help={help}
+      status={status}
+      onReset={onReset}
+      disabled={disabled}
+    >
+      <Switch checked={value} onCheckedChange={onChange} disabled={disabled} />
     </FieldRow>
   )
 }
@@ -994,6 +1090,7 @@ function NumField({
   step,
   unit,
   isFloat,
+  disabled,
 }: {
   label: string
   help: string
@@ -1006,13 +1103,20 @@ function NumField({
   step?: number
   unit?: string
   isFloat?: boolean
+  disabled?: boolean
 }) {
   const [local, setLocal] = useState(String(value))
   useEffect(() => {
     setLocal(String(value))
   }, [value])
   return (
-    <FieldRow label={label} help={help} status={status} onReset={onReset}>
+    <FieldRow
+      label={label}
+      help={help}
+      status={status}
+      onReset={onReset}
+      disabled={disabled}
+    >
       <div className="flex items-center gap-2">
         <Input
           type="number"
@@ -1027,6 +1131,7 @@ function NumField({
             else setLocal(String(value))
           }}
           className="h-8 w-32 font-mono"
+          disabled={disabled}
         />
         {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
@@ -1172,4 +1277,12 @@ function translateReason(
   const key = `settings.skillsEvolution.rejectReasons.${reason}`
   const translated = t(key)
   return translated === key ? reason : translated
+}
+
+function normalizeCuratorReport(raw: unknown): CuratorReport | null {
+  if (!raw || typeof raw !== "object") return null
+  const value = raw as Partial<CuratorReport>
+  if (!Array.isArray(value.proposals)) return null
+  if (typeof value.draftsScanned !== "number") return null
+  return value as CuratorReport
 }

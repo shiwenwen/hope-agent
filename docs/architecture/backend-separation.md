@@ -280,6 +280,7 @@ sequenceDiagram
 |--------|------|------|
 | `skill_activated` / `skill_used` / `skill_created` / `skill_patched` / `skill_discarded` | skills/* | Skill 生命周期与 Learning 埋点 |
 | `skills:auto_review_complete` | skills/* | Draft 审核完成 |
+| `skills:curator_proposals_ready` | skills/auto_review/curator.rs | Auto-curator 周期扫描产出草稿合并建议 |
 | `mcp:servers_changed` (`EV_SERVERS_CHANGED`) | mcp/events.rs | MCP 服务器列表变更 |
 | `mcp:server_status_changed` | mcp/events.rs | MCP 单个 server 状态切换（Ready / NeedsAuth / Failed 等） |
 | `mcp:catalog_refreshed` | mcp/events.rs | MCP tool catalog 重建 |

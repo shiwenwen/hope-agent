@@ -93,13 +93,26 @@ impl IrcPlugin {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let sasl_username = credentials
+            .get("saslUsername")
+            .or_else(|| credentials.get("account"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let sasl_password = credentials
+            .get("saslPassword")
+            .or_else(|| credentials.get("nickservPassword"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         let channels: Vec<String> = credentials
             .get("channels")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+            .filter_map(normalize_channel_name)
             .collect();
 
         Ok(IrcCredentials {
@@ -111,8 +124,25 @@ impl IrcPlugin {
             realname,
             password,
             nickserv_password,
+            sasl_username,
+            sasl_password,
             channels,
         })
+    }
+}
+
+fn normalize_channel_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if matches!(
+        trimmed.as_bytes().first().copied(),
+        Some(b'#' | b'&' | b'+' | b'!')
+    ) {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!("#{trimmed}"))
     }
 }
 
@@ -262,5 +292,37 @@ impl ChannelPlugin for IrcPlugin {
         let creds = Self::extract_credentials(credentials)?;
         let nick = IrcClient::probe(&creds).await?;
         Ok(nick)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_channel_name_adds_hash_for_plain_names() {
+        assert_eq!(normalize_channel_name("hope"), Some("#hope".to_string()));
+        assert_eq!(normalize_channel_name(" #hope "), Some("#hope".to_string()));
+        assert_eq!(normalize_channel_name("&local"), Some("&local".to_string()));
+        assert_eq!(
+            normalize_channel_name("+modeless"),
+            Some("+modeless".to_string())
+        );
+        assert_eq!(normalize_channel_name(""), None);
+    }
+
+    #[test]
+    fn extract_credentials_uses_nickserv_as_sasl_plain_fallback() {
+        let creds = IrcPlugin::extract_credentials(&serde_json::json!({
+            "server": "irc.example.test",
+            "nick": "hopebot",
+            "nickservPassword": "secret",
+            "channels": "hope,#already"
+        }))
+        .unwrap();
+
+        assert_eq!(creds.sasl_username.as_deref(), None);
+        assert_eq!(creds.sasl_password.as_deref(), Some("secret"));
+        assert_eq!(creds.channels, vec!["#hope", "#already"]);
     }
 }

@@ -1,11 +1,20 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
-import { Brain } from "lucide-react"
+import {
+  Brain,
+  ClipboardList,
+  GitCompare,
+  Globe,
+  Monitor,
+  MousePointer2,
+  Users,
+  type LucideIcon,
+} from "lucide-react"
 import type {
   ActiveModel,
   AvailableModel,
@@ -30,6 +39,7 @@ import { TeamPanel } from "@/components/team/TeamPanel"
 import TeamMiniIndicator from "@/components/team/TeamMiniIndicator"
 import { useActiveTeam } from "@/components/team/useTeam"
 import SessionSearchBar from "@/components/chat/SessionSearchBar"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -67,6 +77,7 @@ import {
   CHAT_SIDEBAR_MIN_WIDTH,
   CHAT_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./sidebar/types"
+import { generateClientId } from "./chatScrollKeys"
 import type { Project, ProjectMeta } from "@/types/project"
 
 interface ChatScreenProps {
@@ -75,6 +86,7 @@ interface ChatScreenProps {
   initialSessionId?: string
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
+  onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
   /** Free-form text to append to the chat input on next render (e.g. `@plan:abcd:v0`). */
   pendingChatInsert?: string
@@ -82,8 +94,60 @@ interface ChatScreenProps {
   onChatInsertConsumed?: () => void
 }
 
+type ExclusiveRightPanel = "diff" | "plan" | "browser" | "mac-control" | "canvas" | "team"
+type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
+
+const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
+  "diff",
+  "plan",
+  "browser",
+  "mac-control",
+  "canvas",
+  "team",
+]
+
+const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
+  diff: false,
+  plan: false,
+  browser: false,
+  "mac-control": false,
+  canvas: false,
+  team: false,
+}
+
+const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
+  diff: GitCompare,
+  plan: ClipboardList,
+  browser: Globe,
+  "mac-control": MousePointer2,
+  canvas: Monitor,
+  team: Users,
+}
+
+const DEFAULT_RIGHT_PANEL_WIDTH = 520
+
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
+}
+
+function isSessionMode(value: unknown): value is SessionMode {
+  return value === "default" || value === "smart" || value === "yolo"
+}
+
+function readActionString(action: object, camelKey: string, snakeKey: string): string | null {
+  const record = action as Record<string, unknown>
+  const value = record[camelKey] ?? record[snakeKey]
+  return typeof value === "string" && value.length > 0 ? value : null
+}
+
+type ClientEventMessage = Omit<Message, "role" | "_clientId">
+
+function makeClientEventMessage(message: ClientEventMessage): Message {
+  return {
+    role: "event",
+    _clientId: generateClientId(),
+    ...message,
+  }
 }
 
 export default function ChatScreen({
@@ -92,6 +156,7 @@ export default function ChatScreen({
   initialSessionId,
   onSessionNavigated,
   onUnreadCountChange,
+  onOpenDashboardTab,
   sessionsRefreshTrigger,
   pendingChatInsert,
   onChatInsertConsumed,
@@ -177,12 +242,9 @@ export default function ChatScreen({
     }
   }, [])
 
-  // Right panel widths (resizable)
-  const [planPanelWidth, setPlanPanelWidth] = useState(520)
-  const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
+  // Right panel width (shared by all switchable right panels)
+  const [rightPanelWidth, setRightPanelWidth] = useState(DEFAULT_RIGHT_PANEL_WIDTH)
   const [canvasPanelOpen, setCanvasPanelOpen] = useState(false)
-  const [browserPanelWidth, setBrowserPanelWidth] = useState(480)
-  const [macControlPanelWidth, setMacControlPanelWidth] = useState(480)
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
@@ -295,8 +357,7 @@ export default function ChatScreen({
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
   const displayModeSessionKey = currentSessionId ?? "draft"
-  const displayMode =
-    sessionDisplayModeOverrides[displayModeSessionKey] ?? defaultDisplayMode
+  const displayMode = sessionDisplayModeOverrides[displayModeSessionKey] ?? defaultDisplayMode
   const previousDisplayModeSessionKeyRef = useRef(displayModeSessionKey)
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
@@ -319,9 +380,7 @@ export default function ChatScreen({
   const handleDisplayModeChange = useCallback(
     (mode: ChatDisplayMode) => {
       setSessionDisplayModeOverrides((prev) =>
-        prev[displayModeSessionKey] === mode
-          ? prev
-          : { ...prev, [displayModeSessionKey]: mode },
+        prev[displayModeSessionKey] === mode ? prev : { ...prev, [displayModeSessionKey]: mode },
       )
     },
     [displayModeSessionKey],
@@ -404,7 +463,6 @@ export default function ChatScreen({
   // ── Team ──────────────────────────────────────────────────
   const activeTeamId = useActiveTeam(currentSessionId ?? null)
   const [showTeamPanel, setShowTeamPanel] = useState(false)
-  const [teamPanelWidth, setTeamPanelWidth] = useState(420)
 
   const refreshRuntimeModelState = useCallback(async () => {
     try {
@@ -869,6 +927,23 @@ export default function ChatScreen({
     draftWorkingDir,
   })
 
+  useEffect(() => {
+    return getTransport().listen("permission:mode_changed", (payload) => {
+      const data = payload as { sessionId?: unknown; mode?: unknown }
+      if (typeof data.sessionId !== "string" || !isSessionMode(data.mode)) return
+      const sessionId = data.sessionId
+      const mode = data.mode
+
+      updateSessionMeta(sessionId, (prev) =>
+        prev.permissionMode === mode ? prev : { ...prev, permissionMode: mode },
+      )
+      if (sessionId === currentSessionId) {
+        stream.setPermissionMode(mode)
+      }
+      void reloadSessions()
+    })
+  }, [currentSessionId, reloadSessions, stream.setPermissionMode, updateSessionMeta])
+
   // Restore the per-session permission mode on session switch. The ref
   // guards against re-applying when `sessions` later reloads with the same
   // sid — that would clobber the user's in-session edits. When `sid` becomes
@@ -927,10 +1002,7 @@ export default function ChatScreen({
 
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
-  const taskProgressSnapshot = useTaskProgressSnapshot(
-    session.currentSessionId,
-    session.messages,
-  )
+  const taskProgressSnapshot = useTaskProgressSnapshot(session.currentSessionId, session.messages)
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -984,29 +1056,38 @@ export default function ChatScreen({
         action?.type !== "switchAgent" &&
         action?.type !== "passThrough" &&
         !result._isSkillPassThrough
+      const actionRendersResult =
+        action?.type === "showProjectPicker" ||
+        action?.type === "showSessionPicker" ||
+        action?.type === "recapCard" ||
+        action?.type === "skillFork"
+      const shouldAppendResultContent = result.content && !actionRendersResult
       const slashHistoryMessages: Message[] = []
       if (shouldShowSlashHistory && result._slashCommandText) {
         const now = new Date().toISOString()
-        slashHistoryMessages.push({
-          role: "event",
-          content: result._slashCommandText,
-          timestamp: now,
-          slashEvent: { kind: "command", displayAs: "user" },
-        })
-        if (result.content) {
-          slashHistoryMessages.push({
-            role: "event",
-            content: result.content,
+        slashHistoryMessages.push(
+          makeClientEventMessage({
+            content: result._slashCommandText,
             timestamp: now,
-            slashEvent: { kind: "result", command: result._slashCommandText },
-          })
+            slashEvent: { kind: "command", displayAs: "user" },
+          }),
+        )
+        if (shouldAppendResultContent) {
+          slashHistoryMessages.push(
+            makeClientEventMessage({
+              content: result.content,
+              timestamp: now,
+              slashEvent: { kind: "result", command: result._slashCommandText },
+            }),
+          )
         }
-      } else if (result.content && shouldShowSlashHistory) {
-        slashHistoryMessages.push({
-          role: "event",
-          content: result.content,
-          timestamp: new Date().toISOString(),
-        })
+      } else if (shouldAppendResultContent && shouldShowSlashHistory) {
+        slashHistoryMessages.push(
+          makeClientEventMessage({
+            content: result.content,
+            timestamp: new Date().toISOString(),
+          }),
+        )
       }
       if (slashHistoryMessages.length > 0) {
         session.setMessages((prev) => [...prev, ...slashHistoryMessages])
@@ -1070,8 +1151,7 @@ export default function ChatScreen({
         case "exportFile":
           try {
             const ext = (action.filename.split(".").pop() ?? "md").toLowerCase()
-            const filterName =
-              ext === "json" ? "JSON" : ext === "html" ? "HTML" : "Markdown"
+            const filterName = ext === "json" ? "JSON" : ext === "html" ? "HTML" : "Markdown"
             const filePath = await save({
               defaultPath: action.filename,
               filters: [{ name: filterName, extensions: [ext] }],
@@ -1093,8 +1173,7 @@ export default function ChatScreen({
           // Already handled above by adding event message
           break
         case "showModelPicker": {
-          const pickerMsg: Message = {
-            role: "event",
+          const pickerMsg: Message = makeClientEventMessage({
             content: "",
             timestamp: new Date().toISOString(),
             modelPickerData: {
@@ -1102,7 +1181,7 @@ export default function ChatScreen({
               activeProviderId: action.activeProviderId,
               activeModelId: action.activeModelId,
             },
-          }
+          })
           session.setMessages((prev) => [...prev, pickerMsg])
           break
         }
@@ -1128,12 +1207,11 @@ export default function ChatScreen({
           loadSystemPrompt()
           break
         case "showContextBreakdown": {
-          const contextMsg: Message = {
-            role: "event",
+          const contextMsg: Message = makeClientEventMessage({
             content: "",
             timestamp: new Date().toISOString(),
             contextBreakdownData: action.breakdown,
-          }
+          })
           session.setMessages((prev) => [...prev, contextMsg])
           break
         }
@@ -1148,11 +1226,10 @@ export default function ChatScreen({
           }
           lines.push("")
           lines.push(`> \`/project <${t("project.projectName")}>\``)
-          const pickerMsg: Message = {
-            role: "event",
+          const pickerMsg: Message = makeClientEventMessage({
             content: lines.join("\n"),
             timestamp: new Date().toISOString(),
-          }
+          })
           session.setMessages((prev) => [...prev, pickerMsg])
           break
         }
@@ -1187,11 +1264,10 @@ export default function ChatScreen({
           }
           lines.push("")
           lines.push("> `/session <id>` · `/sessions <query>`")
-          const pickerMsg: Message = {
-            role: "event",
+          const pickerMsg: Message = makeClientEventMessage({
             content: lines.join("\n"),
             timestamp: new Date().toISOString(),
-          }
+          })
           session.setMessages((prev) => [...prev, pickerMsg])
           break
         }
@@ -1206,11 +1282,10 @@ export default function ChatScreen({
         case "detachFromSession": {
           // GUI has no IM-attach to release. Surface a hint so /session exit
           // typed from the desktop slash menu doesn't appear silent.
-          const msg: Message = {
-            role: "event",
+          const msg: Message = makeClientEventMessage({
             content: t("chat.detachOnDesktopNoop"),
             timestamp: new Date().toISOString(),
-          }
+          })
           session.setMessages((prev) => [...prev, msg])
           break
         }
@@ -1226,28 +1301,57 @@ export default function ChatScreen({
               chatId: action.chatId,
               threadId: action.threadId ?? null,
             })
-            const msg: Message = {
-              role: "event",
+            const msg: Message = makeClientEventMessage({
               content: t("chat.handover.done"),
               timestamp: new Date().toISOString(),
-            }
+            })
             session.setMessages((prev) => [...prev, msg])
           } catch (e) {
-            const msg: Message = {
-              role: "event",
+            const msg: Message = makeClientEventMessage({
               content: t("chat.handover.failed", { error: String(e) }),
               timestamp: new Date().toISOString(),
-            }
+            })
             session.setMessages((prev) => [...prev, msg])
           }
           break
         }
-        // result.content (rendered above as an event chip) is the only
-        // user-facing surface today; richer wiring tracked in F-033.
-        case "recapCard":
-        case "openDashboardTab":
-        case "skillFork":
+        case "recapCard": {
+          const reportId = readActionString(action, "reportId", "report_id")
+          if (!reportId) {
+            logger.warn("chat", "ChatScreen::slashRecapCard", "Missing report id", action)
+            break
+          }
+          const msg: Message = makeClientEventMessage({
+            content: "",
+            timestamp: new Date().toISOString(),
+            recapCardData: { reportId },
+          })
+          session.setMessages((prev) => [...prev, msg])
           break
+        }
+        case "openDashboardTab":
+          onOpenDashboardTab?.(action.tab)
+          break
+        case "skillFork": {
+          const runId = readActionString(action, "runId", "run_id")
+          if (!runId) {
+            logger.warn("chat", "ChatScreen::slashSkillFork", "Missing run id", action)
+            break
+          }
+          const skillName =
+            readActionString(action, "skillName", "skill_name") ??
+            t("skills.defaultName", { defaultValue: "skill" })
+          const msg: Message = makeClientEventMessage({
+            content: "",
+            timestamp: new Date().toISOString(),
+            skillForkData: {
+              runId,
+              skillName,
+            },
+          })
+          session.setMessages((prev) => [...prev, msg])
+          break
+        }
       }
     },
     [
@@ -1260,6 +1364,7 @@ export default function ChatScreen({
       loadSystemPrompt,
       handleNewChatInProject,
       refreshUnreadState,
+      onOpenDashboardTab,
       t,
     ],
   )
@@ -1309,20 +1414,56 @@ export default function ChatScreen({
     planMode.showPanel &&
     planMode.planState !== "off" &&
     (planMode.planState === "planning" || planMode.planContent.trim().length > 0)
-  const rightPanelKey =
-    diffPanel.showPanel && diffPanel.activeChanges.length > 0
-      ? "diff"
-      : shouldShowPlanPanel
-        ? "plan"
-        : showBrowserPanel
-          ? "browser"
-          : showMacControlPanel
-            ? "mac-control"
-            : canvasPanelOpen
-              ? "canvas"
-              : activeTeamId && showTeamPanel
-                ? "team"
-                : null
+  const isDiffPanelVisible = diffPanel.showPanel && diffPanel.activeChanges.length > 0
+  const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
+    useState<ExclusiveRightPanel | null>(null)
+  const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
+    () => ({
+      diff: isDiffPanelVisible,
+      plan: shouldShowPlanPanel,
+      browser: showBrowserPanel,
+      "mac-control": showMacControlPanel,
+      canvas: canvasPanelOpen,
+      team: !!activeTeamId && showTeamPanel,
+    }),
+    [
+      activeTeamId,
+      canvasPanelOpen,
+      isDiffPanelVisible,
+      shouldShowPlanPanel,
+      showBrowserPanel,
+      showMacControlPanel,
+      showTeamPanel,
+    ],
+  )
+  const openExclusiveRightPanels = useMemo(
+    () => EXCLUSIVE_RIGHT_PANEL_ORDER.filter((panel) => rightPanelVisibility[panel]),
+    [rightPanelVisibility],
+  )
+  const renderedExclusiveRightPanel =
+    activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
+      ? activeExclusiveRightPanel
+      : (openExclusiveRightPanels[0] ?? null)
+  const getRightPanelLabel = useCallback(
+    (panel: ExclusiveRightPanel) => {
+      switch (panel) {
+        case "diff":
+          return t("diffPanel.title", "Diff")
+        case "plan":
+          return t("planMode.panelTitle", "Plan")
+        case "browser":
+          return t("browser.panelTitle", "Browser")
+        case "mac-control":
+          return t("macControl.panelTitle", "Mac Control")
+        case "canvas":
+          return t("canvas.panelTitle", "Canvas")
+        case "team":
+          return t("team.panelTitle", "Team")
+      }
+    },
+    [t],
+  )
+  const rightPanelKey = renderedExclusiveRightPanel
   const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
 
   useEffect(() => {
@@ -1332,39 +1473,29 @@ export default function ChatScreen({
     lastRightPanelKeyRef.current = rightPanelKey
   }, [rightPanelKey])
 
-  // Right-side panels (Plan / Diff / Browser / Mac Control / Canvas) are
-  // mutually exclusive at the visual level — opening one closes the others
-  // but keeps their internal state so re-toggling restores the prior view.
-  useEffect(() => {
-    if (diffPanel.showPanel) {
-      planMode.setShowPanel(false)
-      setShowBrowserPanel(false)
-      setShowMacControlPanel(false)
-    }
-  }, [diffPanel.showPanel, planMode])
+  // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
+  // rail. Track rising edges so the panel that just opened wins while the
+  // others remain open in the background and can be switched back to.
+  const previousRightPanelVisibilityRef = useRef<ExclusiveRightPanelVisibility>(
+    EMPTY_RIGHT_PANEL_VISIBILITY,
+  )
+  useLayoutEffect(() => {
+    const previous = previousRightPanelVisibilityRef.current
+    const newlyOpened =
+      EXCLUSIVE_RIGHT_PANEL_ORDER.find(
+        (panel) => rightPanelVisibility[panel] && !previous[panel],
+      ) ?? null
+    const stillActive =
+      activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
+        ? activeExclusiveRightPanel
+        : null
+    const active = newlyOpened ?? stillActive ?? openExclusiveRightPanels[0] ?? null
 
-  useEffect(() => {
-    if (showBrowserPanel) {
-      planMode.setShowPanel(false)
-      diffPanel.closeDiff?.()
-      setShowMacControlPanel(false)
-      // CanvasPanel owns its own `canvas` state — fire a window event so it
-      // can clear itself. Keeps the mutex contract this whole effect block
-      // is documenting.
-      window.dispatchEvent(new CustomEvent("hope-agent:close-canvas"))
+    previousRightPanelVisibilityRef.current = rightPanelVisibility
+    if (activeExclusiveRightPanel !== active) {
+      setActiveExclusiveRightPanel(active)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showBrowserPanel])
-
-  useEffect(() => {
-    if (showMacControlPanel) {
-      planMode.setShowPanel(false)
-      diffPanel.closeDiff?.()
-      setShowBrowserPanel(false)
-      window.dispatchEvent(new CustomEvent("hope-agent:close-canvas"))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showMacControlPanel])
+  }, [activeExclusiveRightPanel, openExclusiveRightPanels, rightPanelVisibility])
 
   // Reset dismissal flags (and any open panel state) on session switch so each
   // session gets a fresh chance to auto-open live mirror panels.
@@ -1609,7 +1740,7 @@ export default function ChatScreen({
               loading={session.loading}
               executionState={
                 session.currentSessionId
-                  ? stream.executionStateBySession.get(session.currentSessionId) ?? null
+                  ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
                   : null
               }
               agents={session.agents}
@@ -1626,9 +1757,7 @@ export default function ChatScreen({
               onScrollTargetHandled={session.clearPendingScrollIntent}
               pendingQuestionGroup={planMode.pendingQuestionGroup}
               onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
-              planCardData={
-                planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null
-              }
+              planCardData={planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null}
               planState={planMode.planState}
               onOpenPlanPanel={planMode.openPlanPanel}
               onApprovePlan={handlePlanApprove}
@@ -1636,6 +1765,7 @@ export default function ChatScreen({
               planSubagentRunning={planMode.planSubagentRunning}
               onSwitchModel={handleMessageSwitchModel}
               onViewSystemPrompt={loadSystemPrompt}
+              onOpenDashboardTab={onOpenDashboardTab}
               onSwitchSession={(sid) => {
                 void session.handleSwitchSession(sid)
               }}
@@ -1647,8 +1777,8 @@ export default function ChatScreen({
             />
 
             {/* Memory extraction toast — absolute-positioned above ChatInput
-               * so it doesn't shrink the MessageList scroll container when it
-               * appears/disappears. */}
+             * so it doesn't shrink the MessageList scroll container when it
+             * appears/disappears. */}
             {!isCronSession && !isSubagentSession && (
               <div
                 className={cn(
@@ -1725,7 +1855,7 @@ export default function ChatScreen({
                     taskProgressSnapshot={taskProgressSnapshot}
                     executionState={
                       session.currentSessionId
-                        ? stream.executionStateBySession.get(session.currentSessionId) ?? null
+                        ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
                         : null
                     }
                     hero={emptySessionInputHero}
@@ -1735,11 +1865,42 @@ export default function ChatScreen({
             )}
           </div>
 
-          {/* Diff panel (right side; mutually exclusive with PlanPanel) */}
-          {diffPanel.showPanel && diffPanel.activeChanges.length > 0 && (
+          {openExclusiveRightPanels.length > 1 && (
+            <div className="flex h-full shrink-0 items-start py-3 pl-1">
+              <div className="flex flex-col gap-1 rounded-lg border border-border-soft bg-surface-panel/95 p-1 shadow-panel">
+                {openExclusiveRightPanels.map((panel) => {
+                  const PanelIcon = EXCLUSIVE_RIGHT_PANEL_ICONS[panel]
+                  const label = getRightPanelLabel(panel)
+                  const isActive = renderedExclusiveRightPanel === panel
+
+                  return (
+                    <IconTip key={panel} label={label} side="left">
+                      <button
+                        type="button"
+                        aria-label={label}
+                        aria-pressed={isActive}
+                        onClick={() => setActiveExclusiveRightPanel(panel)}
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+                          isActive
+                            ? "bg-secondary text-foreground shadow-sm"
+                            : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                        )}
+                      >
+                        <PanelIcon className="h-4 w-4" />
+                      </button>
+                    </IconTip>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Diff panel (right side, selected from the shared panel rail) */}
+          {renderedExclusiveRightPanel === "diff" && (
             <RightPanelShell
-              width={diffPanel.panelWidth}
-              onWidthChange={diffPanel.setPanelWidth}
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
               resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
               maxWidth={860}
             >
@@ -1754,10 +1915,10 @@ export default function ChatScreen({
           )}
 
           {/* Plan workspace (right side, integrated under the shared title bar) */}
-          {shouldShowPlanPanel && (
+          {renderedExclusiveRightPanel === "plan" && (
             <RightPanelShell
-              width={planPanelWidth}
-              onWidthChange={setPlanPanelWidth}
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
               resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
               maxWidth={860}
             >
@@ -1778,18 +1939,19 @@ export default function ChatScreen({
 
           {/* Canvas Preview Panel */}
           <CanvasPanel
-            panelWidth={canvasPanelWidth}
-            onPanelWidthChange={setCanvasPanelWidth}
+            panelWidth={rightPanelWidth}
+            onPanelWidthChange={setRightPanelWidth}
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
+            visible={renderedExclusiveRightPanel === "canvas"}
           />
 
           {/* Browser live-mirror panel — open on first `browser:frame` push,
-              close-only by user. Mutex with Plan / Diff / Canvas above. */}
-          {showBrowserPanel && (
+              close-only by user, then switchable from the shared panel rail. */}
+          {renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
-              panelWidth={browserPanelWidth}
-              onPanelWidthChange={setBrowserPanelWidth}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
@@ -1800,10 +1962,10 @@ export default function ChatScreen({
           {/* Mac Control live-mirror panel — open on first `mac_control:frame`
               push. The panel remains read-only while `wait`/target matching
               lands in Phase 2C. */}
-          {showMacControlPanel && (
+          {renderedExclusiveRightPanel === "mac-control" && (
             <MacControlPanel
-              panelWidth={macControlPanelWidth}
-              onPanelWidthChange={setMacControlPanelWidth}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
@@ -1812,11 +1974,11 @@ export default function ChatScreen({
           )}
 
           {/* Team Panel */}
-          {activeTeamId && showTeamPanel && (
+          {renderedExclusiveRightPanel === "team" && activeTeamId && (
             <TeamPanel
               teamId={activeTeamId}
-              panelWidth={teamPanelWidth}
-              onPanelWidthChange={setTeamPanelWidth}
+              panelWidth={rightPanelWidth}
+              onPanelWidthChange={setRightPanelWidth}
               onClose={() => setShowTeamPanel(false)}
               onSwitchSession={session.handleSwitchSession}
             />

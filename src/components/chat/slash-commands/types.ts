@@ -27,7 +27,12 @@ export type CommandAction =
   | { type: "exportFile"; content: string; filename: string }
   | { type: "setToolPermission"; mode: "default" | "smart" | "yolo" }
   | { type: "displayOnly" }
-  | { type: "showModelPicker"; models: ModelPickerItem[]; activeProviderId?: string; activeModelId?: string }
+  | {
+      type: "showModelPicker"
+      models: ModelPickerItem[]
+      activeProviderId?: string
+      activeModelId?: string
+    }
   | { type: "enterPlanMode" }
   | { type: "exitPlanMode"; planContent?: string }
   | { type: "approvePlan"; planContent?: string }
@@ -51,8 +56,8 @@ export type CommandAction =
       chatId: string
       threadId?: string | null
     }
-  | { type: "skillFork"; runId: string; skillName: string }
-  | { type: "recapCard"; reportId: string }
+  | { type: "skillFork"; runId?: string; run_id?: string; skillName?: string; skill_name?: string }
+  | { type: "recapCard"; reportId?: string; report_id?: string }
   | { type: "openDashboardTab"; tab: string }
 
 /** Per-category context window usage snapshot (mirrors Rust `ContextBreakdown`). */
