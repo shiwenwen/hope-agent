@@ -182,7 +182,7 @@ for (const dep of downstreamArtifactDeps) {
 // release.yml must include at least the 4 platforms required for the
 // updater manifest's bare_binary entries to be useful: macos-arm64,
 // linux-x64, linux-arm64, windows-x64. macos-x64 is currently optional
-// (temporarily removed in v0.2.0; recovery tracked as F-088).
+// while Intel runner capacity remains unreliable.
 const requiredPlatforms = ["macos-arm64", "linux-x64", "linux-arm64", "windows-x64"]
 for (const p of requiredPlatforms) {
   if (!matrixPlatforms.has(p)) {

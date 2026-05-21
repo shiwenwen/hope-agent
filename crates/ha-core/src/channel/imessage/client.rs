@@ -543,7 +543,12 @@ fn build_send_params(
     let mut params = serde_json::Map::new();
     let trimmed_target = target.trim();
 
-    if let Ok(chat_id) = trimmed_target.parse::<i64>() {
+    let numeric_chat_id = (!trimmed_target.is_empty()
+        && trimmed_target.chars().all(|c| c.is_ascii_digit()))
+    .then(|| trimmed_target.parse::<i64>())
+    .and_then(Result::ok);
+
+    if let Some(chat_id) = numeric_chat_id {
         params.insert("chat_id".to_string(), Value::Number(chat_id.into()));
     } else if trimmed_target.starts_with("iMessage;") || trimmed_target.starts_with("SMS;") {
         params.insert(

@@ -506,7 +506,7 @@ sequenceDiagram
 
 #### WeChat AES streaming（commit 14）
 
-WeChat 的特殊性是密文必须经 AES-128-ECB + PKCS#7 解密。旧实现 `response.bytes()` + `decrypt(&buf)` 在内存里同时持有密文 + 明文两份 buffer，100 MB 文件 → ≥ 200 MB 峰值 RSS。F-082 改成磁盘缓冲二段法：
+WeChat 的特殊性是密文必须经 AES-128-ECB + PKCS#7 解密。旧实现 `response.bytes()` + `decrypt(&buf)` 在内存里同时持有密文 + 明文两份 buffer，100 MB 文件 → ≥ 200 MB 峰值 RSS。现实现改成磁盘缓冲二段法：
 
 ```
 Stage 1  stream_to_disk(url → <ts>-<msg>.enc)        // 16 KiB read / 64 KiB write buffer
@@ -770,7 +770,7 @@ turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处
 
 mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to_native` → `chunk_message`),三种 `ImReplyMode` 的路径覆盖详见本节末尾[消息分段(chunking)契约](#消息分段chunking契约)表。
 
-> 历史:本能力之前是 follow-up F-066(详见 [`docs/plans/review-followups.md`](../plans/review-followups.md));旧版 `attach_im_mirrors` / `finalize_im_mirrors` 走「turn 末尾一次性 send_message」,与 src-tauri `chat.rs` 的 `relay_to_channel` 还存在 double-send。F-066 落地后 live mirror 完整接管 IM 投递,`relay_to_channel` 已删除。
+> 历史:旧版 `attach_im_mirrors` / `finalize_im_mirrors` 走「turn 末尾一次性 send_message」,与 src-tauri `chat.rs` 的 `relay_to_channel` 还存在 double-send。live mirror 落地后完整接管 IM 投递,`relay_to_channel` 已删除。
 
 ### Attach catch-up:接管已有会话立刻看到上一轮
 
@@ -1433,7 +1433,7 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 ### Smart 模式判官说明
 
-当会话处于 Smart 模式（`SessionMode::Smart`）且 `judge_model` 返回 `Ask` 时，`ApprovalReasonPayload { kind: SmartJudge, detail: rationale }` 会经 EventBus 事件 `approval_required` 一并落到 IM 端。`format_approval_text` / `format_text_approval` 在 command preview 后追加一行 `💭 Smart Judge: {rationale}`（UTF-8 安全截断到 280 字节，文本 fallback 路径置于 `Reply: 1 / 2 / 3` 数字列表前以避免破坏数字解析）。其它 `AskReason` kind（保护路径命中、危险命令命中等）当前在 IM 端只渲染基础 `command` 预览，已登记 review-followups。
+当会话处于 Smart 模式（`SessionMode::Smart`）且 `judge_model` 返回 `Ask` 时，`ApprovalReasonPayload { kind: SmartJudge, detail: rationale }` 会经 EventBus 事件 `approval_required` 一并落到 IM 端。`format_approval_text` / `format_text_approval` 在 command preview 后追加一行 `💭 Smart Judge: {rationale}`（UTF-8 安全截断到 280 字节，文本 fallback 路径置于 `Reply: 1 / 2 / 3` 数字列表前以避免破坏数字解析）。其它 `AskReason` kind 会渲染对应安全摘要；保护路径等敏感细节只展示命中类别，不回显具体路径。
 
 ### `/permission` 切换会话权限模式
 

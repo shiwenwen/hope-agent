@@ -24,6 +24,7 @@ const GATEWAY_INTENTS: u64 = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
 
 const MAX_RECONNECT_ATTEMPTS: usize = 50;
 
+#[cfg(test)]
 const DISCORD_CHANNEL_TYPE_GUILD_TEXT: u64 = 0;
 const DISCORD_CHANNEL_TYPE_DM: u64 = 1;
 const DISCORD_CHANNEL_TYPE_GROUP_DM: u64 = 3;
@@ -773,7 +774,7 @@ fn chat_type_from_channel(
     let chat_type = match info.channel_type {
         DISCORD_CHANNEL_TYPE_GUILD_FORUM | DISCORD_CHANNEL_TYPE_GUILD_MEDIA => ChatType::Forum,
         DISCORD_CHANNEL_TYPE_GUILD_NEWS => ChatType::Channel,
-        DISCORD_CHANNEL_TYPE_GUILD_TEXT | _ => ChatType::Group,
+        _ => ChatType::Group,
     };
     (chat_type, None, channel_id.to_string())
 }

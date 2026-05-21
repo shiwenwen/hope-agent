@@ -146,38 +146,6 @@ fn normalize_channel_name(raw: &str) -> Option<String> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_channel_name_adds_hash_for_plain_names() {
-        assert_eq!(normalize_channel_name("hope"), Some("#hope".to_string()));
-        assert_eq!(normalize_channel_name(" #hope "), Some("#hope".to_string()));
-        assert_eq!(normalize_channel_name("&local"), Some("&local".to_string()));
-        assert_eq!(
-            normalize_channel_name("+modeless"),
-            Some("+modeless".to_string())
-        );
-        assert_eq!(normalize_channel_name(""), None);
-    }
-
-    #[test]
-    fn extract_credentials_uses_nickserv_as_sasl_plain_fallback() {
-        let creds = IrcPlugin::extract_credentials(&serde_json::json!({
-            "server": "irc.example.test",
-            "nick": "hopebot",
-            "nickservPassword": "secret",
-            "channels": "hope,#already"
-        }))
-        .unwrap();
-
-        assert_eq!(creds.sasl_username.as_deref(), None);
-        assert_eq!(creds.sasl_password.as_deref(), Some("secret"));
-        assert_eq!(creds.channels, vec!["#hope", "#already"]);
-    }
-}
-
 #[async_trait]
 impl ChannelPlugin for IrcPlugin {
     fn meta(&self) -> ChannelMeta {
@@ -324,5 +292,37 @@ impl ChannelPlugin for IrcPlugin {
         let creds = Self::extract_credentials(credentials)?;
         let nick = IrcClient::probe(&creds).await?;
         Ok(nick)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_channel_name_adds_hash_for_plain_names() {
+        assert_eq!(normalize_channel_name("hope"), Some("#hope".to_string()));
+        assert_eq!(normalize_channel_name(" #hope "), Some("#hope".to_string()));
+        assert_eq!(normalize_channel_name("&local"), Some("&local".to_string()));
+        assert_eq!(
+            normalize_channel_name("+modeless"),
+            Some("+modeless".to_string())
+        );
+        assert_eq!(normalize_channel_name(""), None);
+    }
+
+    #[test]
+    fn extract_credentials_uses_nickserv_as_sasl_plain_fallback() {
+        let creds = IrcPlugin::extract_credentials(&serde_json::json!({
+            "server": "irc.example.test",
+            "nick": "hopebot",
+            "nickservPassword": "secret",
+            "channels": "hope,#already"
+        }))
+        .unwrap();
+
+        assert_eq!(creds.sasl_username.as_deref(), None);
+        assert_eq!(creds.sasl_password.as_deref(), Some("secret"));
+        assert_eq!(creds.channels, vec!["#hope", "#already"]);
     }
 }

@@ -20,8 +20,7 @@ name: Build macOS x64 (best-effort backfill)
 # queues after the default 24h timeout), the release simply ships
 # without an Intel DMG for that version — `update-homebrew-tap.yml`
 # already handles the missing-x64.dmg case by rendering the arm-only
-# cask template (see F-089). Intel Mac users can install when the
-# next release succeeds.
+# cask template. Intel Mac users can install when the next release succeeds.
 #
 # Triggers:
 #   - release.published — fires automatically right after the manual
@@ -213,7 +212,7 @@ jobs:
       # run that fired before this workflow finished) to the dual-arch
       # template (now that Hope.Agent_<v>_x64.dmg exists in the
       # release). update-homebrew-tap.yml already detects which DMGs
-      # are present and picks the right template — F-089.
+      # are present and picks the right template.
       #
       # --ref main pins this dispatch to whatever update-homebrew-tap
       # logic is on the default branch at the time of backfill, not

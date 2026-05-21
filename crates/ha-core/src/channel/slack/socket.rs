@@ -459,8 +459,9 @@ async fn handle_interactive_payload(
             );
             continue;
         }
+        let callback_id = action_callback_id(action).unwrap_or(action_id);
 
-        if let Some(rest) = action_id.strip_prefix("slash:") {
+        if let Some(rest) = callback_id.strip_prefix("slash:") {
             let chat_id = payload
                 .pointer("/channel/id")
                 .and_then(|v| v.as_str())
@@ -511,7 +512,7 @@ async fn handle_interactive_payload(
                 .and_then(|v| v.as_str())
                 .filter(|tid| !tid.is_empty() && *tid != message_id);
             crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-                action_id,
+                callback_id,
                 "slack::socket",
                 Some(
                     crate::channel::worker::ask_user::InteractiveCallbackSource::new(
@@ -644,6 +645,14 @@ fn should_skip_message_subtype(subtype: Option<&str>) -> bool {
     )
 }
 
+fn action_callback_id(action: &serde_json::Value) -> Option<&str> {
+    action
+        .get("value")
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.is_empty())
+        .or_else(|| action.get("action_id").and_then(|v| v.as_str()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -673,5 +682,18 @@ mod tests {
     fn file_share_subtype_is_not_skipped() {
         assert!(!should_skip_message_subtype(Some("file_share")));
         assert!(should_skip_message_subtype(Some("bot_message")));
+    }
+
+    #[test]
+    fn interactive_payload_prefers_button_value_over_action_id() {
+        let action = serde_json::json!({
+            "action_id": "ha_button:0",
+            "value": "ask_user:req:select:q:long-option-value",
+        });
+
+        assert_eq!(
+            action_callback_id(&action),
+            Some("ask_user:req:select:q:long-option-value")
+        );
     }
 }

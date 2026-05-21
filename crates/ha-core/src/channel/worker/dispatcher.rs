@@ -668,7 +668,7 @@ async fn handle_inbound_message(
     //
     // Conservative `all` rather than `primary-only`: engine returns
     // `Result<_, String>` and erases which model in the chain actually
-    // failed (see F-072). With a mixed chain (e.g. OpenAI primary +
+    // failed. With a mixed chain (e.g. OpenAI primary +
     // Codex fallback) we'd guess wrong either way — falling through to
     // the generic Auth headline ("re-check the API key in settings") is
     // strictly better than directing the user to re-auth Codex when the
@@ -1444,9 +1444,11 @@ pub(crate) async fn deliver_media_to_chat(
                     it.name,
                     r.error.unwrap_or_default()
                 );
+                fallback_items.push(*it);
             }
             Err(e) => {
                 app_error!("channel", "worker", "Media send error ({}): {}", it.name, e);
+                fallback_items.push(*it);
             }
             Ok(_) => {}
         }
@@ -1618,6 +1620,7 @@ mod tests {
         max_bytes: usize,
         sends: Mutex<Vec<String>>,
         send_count: AtomicUsize,
+        fail_media: bool,
     }
 
     impl CountingPlugin {
@@ -1626,6 +1629,16 @@ mod tests {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
+                fail_media: false,
+            }
+        }
+
+        fn failing_media(max_bytes: usize) -> Self {
+            Self {
+                max_bytes,
+                sends: Mutex::new(Vec::new()),
+                send_count: AtomicUsize::new(0),
+                fail_media: true,
             }
         }
     }
@@ -1668,6 +1681,9 @@ mod tests {
             payload: &ReplyPayload,
         ) -> Result<DeliveryResult> {
             let n = self.send_count.fetch_add(1, Ordering::SeqCst) + 1;
+            if !payload.media.is_empty() && self.fail_media {
+                return Ok(DeliveryResult::err("native media failed"));
+            }
             if let Some(text) = payload.text.as_ref() {
                 self.sends.lock().unwrap().push(text.clone());
             }
@@ -1748,5 +1764,20 @@ mod tests {
         let prefinal_chunks: String = sends.iter().take(sends.len() - 1).cloned().collect();
         assert_eq!(prefinal_chunks, pre_final_text);
         assert_eq!(sends.last().unwrap(), "final.");
+    }
+
+    #[tokio::test]
+    async fn deliver_media_falls_back_when_native_send_fails() {
+        let plugin_concrete = Arc::new(CountingPlugin::failing_media(4096));
+        let plugin: Arc<dyn ChannelPlugin> = plugin_concrete.clone();
+        let items = vec![mk_item("x.pdf", "application/pdf", MediaKind::File)];
+        let caps = caps(vec![MediaType::Document]);
+
+        deliver_media_to_chat(&plugin, "acc", "chat", None, &items, &caps).await;
+
+        let sends = plugin_concrete.sends.lock().unwrap().clone();
+        assert_eq!(sends.len(), 1);
+        assert!(sends[0].contains("Attachments"));
+        assert!(sends[0].contains("x.pdf"));
     }
 }

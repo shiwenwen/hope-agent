@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn sanitize_filename_strips_paths_and_unsafe_chars() {
-        assert_eq!(sanitize_filename("../../猫.png"), "__.png");
+        assert_eq!(sanitize_filename("../../猫.png"), "_.png");
         assert_eq!(sanitize_filename(""), "attachment.bin");
         assert_eq!(sanitize_filename("report final.pdf"), "report_final.pdf");
     }

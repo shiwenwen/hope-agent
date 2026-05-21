@@ -25,6 +25,7 @@ use api::SlackApi;
 
 /// Slack Block Kit `action_id` fields are limited to 255 characters.
 pub(crate) const SLACK_ACTION_ID_MAX_CHARS: usize = 255;
+const SLACK_BUTTON_ACTION_PREFIX: &str = "ha_button";
 
 /// Running account state.
 struct RunningAccount {
@@ -89,19 +90,30 @@ impl SlackPlugin {
     }
 }
 
-fn slack_action_id(button: &InlineButton) -> String {
-    let action_id = button.callback_id();
-    if action_id.chars().count() <= SLACK_ACTION_ID_MAX_CHARS {
-        return action_id.to_string();
+fn slack_action_id(index: usize) -> String {
+    format!("{SLACK_BUTTON_ACTION_PREFIX}:{index}")
+}
+
+fn slack_button_element(button: &InlineButton, index: usize) -> serde_json::Value {
+    let callback = button.callback_id();
+    if callback.chars().count() > 2000 {
+        app_warn!(
+            "channel",
+            "slack",
+            "Slack button value exceeds 2000 characters; Slack may reject the block"
+        );
     }
 
-    app_warn!(
-        "channel",
-        "slack",
-        "Slack action_id exceeds {} characters; truncating",
-        SLACK_ACTION_ID_MAX_CHARS
-    );
-    action_id.chars().take(SLACK_ACTION_ID_MAX_CHARS).collect()
+    let mut element = serde_json::json!({
+        "type": "button",
+        "text": {"type": "plain_text", "text": &button.text},
+        "action_id": slack_action_id(index),
+        "value": callback,
+    });
+    if let Some(url) = button.url.as_deref().filter(|url| !url.is_empty()) {
+        element["url"] = serde_json::Value::String(url.to_string());
+    }
+    element
 }
 
 #[async_trait]
@@ -259,13 +271,8 @@ impl ChannelPlugin for SlackPlugin {
                     .buttons
                     .iter()
                     .flatten()
-                    .map(|b| {
-                        serde_json::json!({
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": &b.text},
-                            "action_id": slack_action_id(b),
-                        })
-                    })
+                    .enumerate()
+                    .map(|(idx, b)| slack_button_element(b, idx))
                     .collect();
                 let actions_block = serde_json::json!({
                     "type": "actions",
@@ -461,25 +468,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slack_action_id_keeps_short_callback() {
+    fn slack_button_uses_short_action_id_and_full_callback_value() {
+        let callback = format!("ask_user:req:select:q:{}", "x".repeat(300));
         let button = InlineButton {
             text: "Pick".to_string(),
-            callback_data: Some("slash:model gpt-5.4".to_string()),
+            callback_data: Some(callback.clone()),
             url: None,
         };
 
-        assert_eq!(slack_action_id(&button), "slash:model gpt-5.4");
+        let element = slack_button_element(&button, 7);
+
+        assert_eq!(element["action_id"], "ha_button:7");
+        assert_eq!(element["value"], callback);
     }
 
     #[test]
-    fn slack_action_id_truncates_to_slack_limit() {
+    fn slack_button_preserves_url() {
         let button = InlineButton {
-            text: "x".repeat(SLACK_ACTION_ID_MAX_CHARS + 10),
+            text: "Docs".to_string(),
             callback_data: None,
-            url: None,
+            url: Some("https://example.com".to_string()),
         };
-        let action_id = slack_action_id(&button);
+        let element = slack_button_element(&button, 0);
 
-        assert_eq!(action_id.chars().count(), SLACK_ACTION_ID_MAX_CHARS);
+        assert_eq!(element["url"], "https://example.com");
+        assert_eq!(element["value"], "Docs");
     }
 }

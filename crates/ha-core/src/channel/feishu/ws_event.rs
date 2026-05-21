@@ -654,27 +654,33 @@ async fn send_ack(
     response_data: Option<&serde_json::Value>,
     started_at: TokioInstant,
 ) -> anyhow::Result<()> {
+    let ack = build_ack_frame(src, code, response_data, started_at.elapsed().as_millis());
+
+    conn.send_binary(encode_frame(&ack)).await
+}
+
+fn build_ack_frame(
+    src: Frame,
+    code: i32,
+    response_data: Option<&serde_json::Value>,
+    biz_rt_ms: u128,
+) -> Frame {
     let mut headers = src.headers;
-    headers.push(header(
-        HK_BIZ_RT,
-        started_at.elapsed().as_millis().to_string(),
-    ));
+    headers.push(header(HK_BIZ_RT, biz_rt_ms.to_string()));
 
     let payload = build_ack_payload(code, response_data);
 
-    let ack = Frame {
+    Frame {
         seq_id: src.seq_id,
         log_id: src.log_id,
         service: src.service,
         method: METHOD_DATA,
         headers,
-        payload_encoding: src.payload_encoding,
-        payload_type: src.payload_type,
+        payload_encoding: String::new(),
+        payload_type: String::new(),
         payload,
         log_id_new: src.log_id_new,
-    };
-
-    conn.send_binary(encode_frame(&ack)).await
+    }
 }
 
 fn build_ack_payload(code: i32, response_data: Option<&serde_json::Value>) -> Vec<u8> {
@@ -1084,6 +1090,29 @@ mod tests {
         let decoded_json: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
 
         assert_eq!(decoded_json, response);
+    }
+
+    #[test]
+    fn ack_frame_declares_plain_payload_encoding() {
+        let src = Frame {
+            seq_id: 7,
+            log_id: 9,
+            service: 1,
+            method: METHOD_DATA,
+            headers: vec![header(HK_TYPE, TY_CARD)],
+            payload_encoding: "gzip".to_string(),
+            payload_type: "event".to_string(),
+            payload: b"ignored".to_vec(),
+            log_id_new: "log-new".to_string(),
+        };
+
+        let ack = build_ack_frame(src, 200, None, 12);
+
+        assert_eq!(ack.payload_encoding, "");
+        assert_eq!(ack.payload_type, "");
+        assert_eq!(find_header(&ack, HK_BIZ_RT), Some("12"));
+        let parsed: serde_json::Value = serde_json::from_slice(&ack.payload).unwrap();
+        assert_eq!(parsed["code"], 200);
     }
 
     // ── card.action.trigger value extraction ─────────────────────────

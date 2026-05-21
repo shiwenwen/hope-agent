@@ -297,10 +297,8 @@ export function usePlanMode(
         return
       }
       // Fallback only when the event arrived without content (older backend
-      // builds, or future emit paths that skip the embed). See F-039 in
-      // review-followups.md for the open "panel doesn't refresh on rapid
-      // re-submit" investigation — root cause not yet pinned to React state
-      // vs event timing, so the refetch here is a safety net not a fix.
+      // builds, or future emit paths that skip the embed). The refetch keeps
+      // rapid re-submit paths from depending entirely on event timing.
       getTransport()
         .call<unknown>("get_plan_content", { sessionId: payload.sessionId })
         .then((rawContent) => {

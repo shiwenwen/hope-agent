@@ -1062,9 +1062,7 @@ mod tests {
     // remove` for `#tag` suffix). They deliberately do NOT call
     // `try_handle_approval_reply` end-to-end because that requires a live
     // `tools::approval::PENDING_APPROVALS` entry (which would need a
-    // `pub(crate)` test hook into a private struct). End-to-end routing
-    // coverage is registered as a follow-up in
-    // `docs/plans/review-followups.md`.
+    // `pub(crate)` test hook into a private struct).
 
     #[tokio::test]
     async fn text_pending_list_pop_is_lifo_for_bare_verb() {

@@ -158,7 +158,7 @@ fn persist_channel_media_to_session(
         return Some(dest.to_string_lossy().to_string());
     }
     // Move (rename) the inbound-temp file into the session attachments dir so
-    // the source doesn't accumulate forever (per F-081). Cross-fs renames fall
+    // the source doesn't accumulate forever. Cross-fs renames fall
     // back to copy + remove. canonicalize() above + the channels_root prefix
     // check still gates path traversal — only files genuinely living under
     // ~/.hope-agent/channels/<id>/ are eligible.
@@ -344,8 +344,8 @@ mod tests {
     use super::*;
     use std::io::Write as _;
 
-    /// F-081: persist must move (not copy) inbound-temp files into the
-    /// session attachments dir, so the source doesn't accumulate forever.
+    /// Persist must move (not copy) inbound-temp files into the session
+    /// attachments dir, so the source doesn't accumulate forever.
     /// Uses `HA_DATA_DIR` to redirect channels_dir into a tempdir so the
     /// safety check (`canonical_src starts_with channels_root`) passes.
     #[test]
@@ -380,10 +380,7 @@ mod tests {
 
             let dest = std::path::PathBuf::from(&dest_path);
             assert!(dest.exists(), "destination file should exist after move");
-            assert!(
-                !src.exists(),
-                "source file should be gone after move (F-081)"
-            );
+            assert!(!src.exists(), "source file should be gone after move");
             let content = std::fs::read(&dest).unwrap();
             assert_eq!(content, b"hello world");
         });

@@ -532,8 +532,8 @@ mod tests {
         }
     }
 
-    /// Per F-075: read-receipt fan-out should share one Arc<Value> for `raw`
-    /// across N messages instead of deep-cloning the payload N times. A 100-msg
+    /// Read-receipt fan-out should share one Arc<Value> for `raw` across N
+    /// messages instead of deep-cloning the payload N times. A 100-msg
     /// batch used to allocate ~100 KB; now it allocates once + N pointer bumps.
     /// Calls `parse_read_receipt_list` directly to avoid the mpsc(8) bottleneck
     /// in `dispatch_and_collect` that would deadlock on 100-event fan-out.
