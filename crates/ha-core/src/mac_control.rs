@@ -1,8 +1,9 @@
 //! macOS desktop control bridge and readiness model.
 //!
-//! Phase 4 exposes status / permissions, Accessibility snapshots, primary-display
-//! screenshot frames, wait/target matching, app focus/launch, window operations,
-//! AX-first element actions, dialogs, and menu inspection/clicks.
+//! Exposes status / permissions, Accessibility snapshots, scored element
+//! search, display/window screenshot frames, wait/target matching, app
+//! focus/launch, window operations, AX-first element actions, clipboard text,
+//! dialogs, and menu inspection/clicks.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -32,11 +33,16 @@ const HARD_SNAPSHOT_MAX_DEPTH: usize = 16;
 const MAX_SNAPSHOT_CACHE: usize = 20;
 const MAX_SCREENSHOT_FILES: usize = 100;
 const MAX_ERROR_STATS: usize = 20;
+const DEFAULT_ELEMENTS_LIMIT: usize = 20;
+const HARD_ELEMENTS_LIMIT: usize = 100;
 const DEFAULT_WAIT_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_WAIT_POLL_MS: u64 = 500;
 const HARD_WAIT_TIMEOUT_MS: u64 = 60_000;
 const MIN_WAIT_POLL_MS: u64 = 100;
 const HARD_WAIT_POLL_MS: u64 = 5_000;
+const DEFAULT_CLIPBOARD_MAX_CHARS: usize = 4_000;
+const HARD_CLIPBOARD_MAX_CHARS: usize = 20_000;
+const HARD_CLIPBOARD_SET_CHARS: usize = 200_000;
 pub const EVENT_MAC_CONTROL_FRAME: &str = "mac_control:frame";
 
 #[async_trait]
@@ -46,6 +52,10 @@ pub trait MacControlBridge: Send + Sync {
         &self,
         request: MacControlSnapshotRequest,
     ) -> Result<MacControlSnapshot, String>;
+    async fn elements(
+        &self,
+        request: MacControlElementsRequest,
+    ) -> Result<MacControlElementsResult, String>;
     async fn capture_frame(&self) -> Result<MacControlFramePayload, String>;
     async fn apps(&self, request: MacControlAppsRequest) -> Result<MacControlAppsResult, String>;
     async fn windows(
@@ -54,6 +64,10 @@ pub trait MacControlBridge: Send + Sync {
     ) -> Result<MacControlWindowsResult, String>;
     async fn act(&self, request: MacControlActRequest) -> Result<MacControlActResult, String>;
     async fn menu(&self, request: MacControlMenuRequest) -> Result<MacControlMenuResult, String>;
+    async fn clipboard(
+        &self,
+        request: MacControlClipboardRequest,
+    ) -> Result<MacControlClipboardResult, String>;
     async fn dialog(
         &self,
         request: MacControlDialogRequest,
@@ -140,6 +154,12 @@ pub struct MacControlPermissionsResponse {
 pub struct MacControlSnapshotRequest {
     #[serde(default)]
     pub include_screenshot: bool,
+    #[serde(default)]
+    pub screenshot_target: MacControlScreenshotTarget,
+    #[serde(default)]
+    pub display_id: Option<u32>,
+    #[serde(default)]
+    pub window_id: Option<String>,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
     #[serde(default = "default_snapshot_max_depth")]
@@ -150,6 +170,9 @@ impl Default for MacControlSnapshotRequest {
     fn default() -> Self {
         Self {
             include_screenshot: false,
+            screenshot_target: MacControlScreenshotTarget::Display,
+            display_id: None,
+            window_id: None,
             max_elements: DEFAULT_SNAPSHOT_MAX_ELEMENTS,
             max_depth: DEFAULT_SNAPSHOT_MAX_DEPTH,
         }
@@ -158,6 +181,7 @@ impl Default for MacControlSnapshotRequest {
 
 impl MacControlSnapshotRequest {
     pub fn clamped(mut self) -> Self {
+        self.window_id = normalize_optional_string(self.window_id);
         if self.max_elements == 0 {
             self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
         }
@@ -170,6 +194,16 @@ impl MacControlSnapshotRequest {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlScreenshotTarget {
+    #[serde(alias = "screen")]
+    #[default]
+    Display,
+    #[serde(alias = "frontmost_window")]
+    Window,
+}
+
 fn default_snapshot_max_elements() -> usize {
     DEFAULT_SNAPSHOT_MAX_ELEMENTS
 }
@@ -178,12 +212,88 @@ fn default_snapshot_max_depth() -> usize {
     DEFAULT_SNAPSHOT_MAX_DEPTH
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementsRequest {
+    #[serde(default)]
+    pub op: MacControlElementsOp,
+    #[serde(default)]
+    pub target: MacControlTargetQuery,
+    #[serde(default = "default_elements_limit")]
+    pub limit: usize,
+    #[serde(default = "default_snapshot_max_elements")]
+    pub max_elements: usize,
+    #[serde(default = "default_snapshot_max_depth")]
+    pub max_depth: usize,
+}
+
+impl MacControlElementsRequest {
+    pub fn clamped(mut self) -> Self {
+        self.target = self.target.normalized();
+        if self.limit == 0 {
+            self.limit = DEFAULT_ELEMENTS_LIMIT;
+        }
+        if self.max_elements == 0 {
+            self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
+        }
+        if self.max_depth == 0 {
+            self.max_depth = DEFAULT_SNAPSHOT_MAX_DEPTH;
+        }
+        self.limit = self.limit.min(HARD_ELEMENTS_LIMIT);
+        self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
+        self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
+        self
+    }
+}
+
+fn default_elements_limit() -> usize {
+    DEFAULT_ELEMENTS_LIMIT
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlElementsOp {
+    #[default]
+    Find,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlSnapshotResponse {
     pub status: MacControlStatus,
     pub snapshot: Option<MacControlSnapshot>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementsResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlElementsResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementsResult {
+    pub op: MacControlElementsOp,
+    pub target: MacControlTargetQuery,
+    pub snapshot_id: String,
+    pub created_at: String,
+    pub frontmost_app: Option<MacControlAppSummary>,
+    pub total_matches: usize,
+    pub elements: Vec<MacControlElementCandidate>,
+    pub truncated: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlElementCandidate {
+    pub element: MacControlElementSummary,
+    pub window: Option<MacControlWindowSummary>,
+    pub score: u8,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -255,6 +365,7 @@ pub struct MacControlWindowsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MacControlWindowsResult {
     pub op: MacControlWindowsOp,
+    pub window_scope: MacControlWindowsScope,
     pub frontmost_app: Option<MacControlAppSummary>,
     pub windows: Vec<MacControlWindowSummary>,
     pub acted_window: Option<MacControlWindowSummary>,
@@ -288,6 +399,14 @@ pub struct MacControlMenuResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MacControlClipboardResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlClipboardResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MacControlDialogResponse {
     pub status: MacControlStatus,
     pub result: Option<MacControlDialogResult>,
@@ -298,6 +417,7 @@ pub struct MacControlDialogResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MacControlMenuResult {
     pub op: MacControlMenuOp,
+    pub scope: MacControlMenuScope,
     pub path: Vec<String>,
     pub items: Vec<MacControlMenuItemSummary>,
     pub clicked: Option<MacControlMenuItemSummary>,
@@ -307,9 +427,22 @@ pub struct MacControlMenuResult {
 #[serde(rename_all = "camelCase")]
 pub struct MacControlMenuItemSummary {
     pub title: Option<String>,
+    pub description: Option<String>,
+    pub value: Option<String>,
     pub role: Option<String>,
     pub enabled: Option<bool>,
+    pub actions: Vec<String>,
     pub children: Vec<MacControlMenuItemSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlClipboardResult {
+    pub op: MacControlClipboardOp,
+    pub text: Option<String>,
+    pub text_len: usize,
+    pub truncated: bool,
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -429,6 +562,12 @@ pub struct MacControlScreenshotSummary {
     pub path: String,
     pub width_px: u32,
     pub height_px: u32,
+    pub target: MacControlScreenshotTarget,
+    pub display_id: Option<u32>,
+    pub window_id: Option<String>,
+    pub window_title: Option<String>,
+    pub bounds_points: Option<MacControlBounds>,
+    pub scale: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -440,6 +579,12 @@ pub struct MacControlFramePayload {
     pub jpeg_base64: String,
     pub width_px: u32,
     pub height_px: u32,
+    pub target: MacControlScreenshotTarget,
+    pub display_id: Option<u32>,
+    pub window_id: Option<String>,
+    pub window_title: Option<String>,
+    pub bounds_points: Option<MacControlBounds>,
+    pub scale: Option<f64>,
     pub captured_at: i64,
     pub frontmost_app: Option<MacControlAppSummary>,
 }
@@ -515,6 +660,8 @@ pub struct MacControlWindowsRequest {
     #[serde(default)]
     pub op: MacControlWindowsOp,
     #[serde(default)]
+    pub window_scope: MacControlWindowsScope,
+    #[serde(default)]
     pub target: MacControlTargetQuery,
     #[serde(default)]
     pub window_id: Option<String>,
@@ -560,6 +707,14 @@ pub enum MacControlWindowsOp {
     Close,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlWindowsScope {
+    #[default]
+    Frontmost,
+    All,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlActRequest {
@@ -583,6 +738,8 @@ pub struct MacControlActRequest {
     pub delta_x: Option<f64>,
     #[serde(default)]
     pub delta_y: Option<f64>,
+    #[serde(default)]
+    pub include_snapshot: bool,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
     #[serde(default = "default_snapshot_max_depth")]
@@ -617,10 +774,12 @@ impl MacControlActRequest {
 pub enum MacControlActOp {
     #[default]
     Click,
+    DryRun,
     ClickPoint,
     DoubleClick,
     RightClick,
     Type,
+    Paste,
     SetValue,
     Hotkey,
     Scroll,
@@ -632,6 +791,8 @@ pub enum MacControlActOp {
 pub struct MacControlMenuRequest {
     #[serde(default)]
     pub op: MacControlMenuOp,
+    #[serde(default)]
+    pub scope: MacControlMenuScope,
     #[serde(default)]
     pub path: Vec<String>,
     #[serde(default = "default_menu_max_depth")]
@@ -665,6 +826,62 @@ pub enum MacControlMenuOp {
     Click,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlMenuScope {
+    #[default]
+    App,
+    System,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlClipboardRequest {
+    #[serde(default)]
+    pub op: MacControlClipboardOp,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default = "default_clipboard_max_chars")]
+    pub max_chars: usize,
+    #[serde(skip)]
+    pub text_original_len: Option<usize>,
+    #[serde(skip)]
+    pub text_truncated: bool,
+}
+
+impl MacControlClipboardRequest {
+    pub fn clamped(mut self) -> Self {
+        if self.max_chars == 0 {
+            self.max_chars = DEFAULT_CLIPBOARD_MAX_CHARS;
+        }
+        self.max_chars = self.max_chars.min(HARD_CLIPBOARD_MAX_CHARS);
+        if let Some(text) = self.text.as_mut() {
+            if self.text_original_len.is_none() {
+                let original_len = text.chars().count();
+                self.text_original_len = Some(original_len);
+                self.text_truncated = original_len > HARD_CLIPBOARD_SET_CHARS;
+            }
+            if self.text_truncated {
+                *text = text.chars().take(HARD_CLIPBOARD_SET_CHARS).collect();
+            }
+        }
+        self
+    }
+}
+
+fn default_clipboard_max_chars() -> usize {
+    DEFAULT_CLIPBOARD_MAX_CHARS
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlClipboardOp {
+    #[default]
+    Get,
+    Set,
+    Clear,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlDialogRequest {
@@ -674,6 +891,8 @@ pub struct MacControlDialogRequest {
     pub target: MacControlTargetQuery,
     #[serde(default)]
     pub button_text: Option<String>,
+    #[serde(default)]
+    pub include_snapshot: bool,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
     #[serde(default = "default_snapshot_max_depth")]
@@ -712,6 +931,8 @@ pub struct MacControlWaitRequest {
     pub op: MacControlWaitOp,
     #[serde(default)]
     pub target: MacControlTargetQuery,
+    #[serde(default)]
+    pub include_snapshot: bool,
     #[serde(default = "default_wait_timeout_ms")]
     pub timeout_ms: u64,
     #[serde(default = "default_wait_poll_ms")]
@@ -920,6 +1141,45 @@ pub async fn snapshot(request: MacControlSnapshotRequest) -> MacControlSnapshotR
     }
 }
 
+pub async fn elements(request: MacControlElementsRequest) -> MacControlElementsResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_elements_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlElementsResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if !permission_granted(&system_permissions, "accessibility") {
+        return MacControlElementsResponse {
+            status,
+            result: None,
+            error: Some("mac_control elements.find requires Accessibility permission.".to_string()),
+        };
+    }
+
+    match bridge.elements(request).await {
+        Ok(result) => MacControlElementsResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => {
+            record_error("elements", &error);
+            MacControlElementsResponse {
+                status,
+                result: None,
+                error: Some(error),
+            }
+        }
+    }
+}
+
 pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
     let request = request.clamped();
     let target = request.target.clone();
@@ -984,6 +1244,7 @@ pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
                 include_screenshot: false,
                 max_elements: request.max_elements,
                 max_depth: request.max_depth,
+                ..Default::default()
             })
             .await
         {
@@ -1001,12 +1262,14 @@ pub async fn wait(request: MacControlWaitRequest) -> MacControlWaitResponse {
                         attempts,
                         target,
                         matches,
-                        snapshot: Some(snapshot),
+                        snapshot: request.include_snapshot.then_some(snapshot),
                         error: None,
                     };
                 }
                 last_matches = matches;
-                last_snapshot = Some(snapshot);
+                if request.include_snapshot {
+                    last_snapshot = Some(snapshot);
+                }
             }
             Err(error) => {
                 record_error("wait.snapshot", &error);
@@ -1236,6 +1499,45 @@ pub async fn menu(request: MacControlMenuRequest) -> MacControlMenuResponse {
     }
 }
 
+pub async fn clipboard(request: MacControlClipboardRequest) -> MacControlClipboardResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_clipboard_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlClipboardResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if let Some(error) = validate_clipboard_request(&request) {
+        return MacControlClipboardResponse {
+            status,
+            result: None,
+            error: Some(error),
+        };
+    }
+
+    match bridge.clipboard(request).await {
+        Ok(result) => MacControlClipboardResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => {
+            record_error("clipboard", &error);
+            MacControlClipboardResponse {
+                status,
+                result: None,
+                error: Some(error),
+            }
+        }
+    }
+}
+
 pub async fn dialog(request: MacControlDialogRequest) -> MacControlDialogResponse {
     let request = request.clamped();
     let Some(bridge) = available_bridge() else {
@@ -1347,6 +1649,12 @@ pub fn store_screenshot_jpeg(
         path: path.display().to_string(),
         width_px,
         height_px,
+        target: MacControlScreenshotTarget::Display,
+        display_id: None,
+        window_id: None,
+        window_title: None,
+        bounds_points: None,
+        scale: None,
     })
 }
 
@@ -1413,6 +1721,14 @@ pub fn unsupported_snapshot_response(message: &str) -> MacControlSnapshotRespons
     }
 }
 
+pub fn unsupported_elements_response(message: &str) -> MacControlElementsResponse {
+    MacControlElementsResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
 pub fn unsupported_wait_response(
     message: &str,
     op: MacControlWaitOp,
@@ -1457,6 +1773,14 @@ pub fn unsupported_act_response(message: &str) -> MacControlActResponse {
 
 pub fn unsupported_menu_response(message: &str) -> MacControlMenuResponse {
     MacControlMenuResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
+pub fn unsupported_clipboard_response(message: &str) -> MacControlClipboardResponse {
+    MacControlClipboardResponse {
         status: unsupported_status(message),
         result: None,
         error: Some(message.to_string()),
@@ -1546,6 +1870,13 @@ fn validate_windows_request(request: &MacControlWindowsRequest) -> Option<String
     None
 }
 
+fn validate_clipboard_request(request: &MacControlClipboardRequest) -> Option<String> {
+    if request.op == MacControlClipboardOp::Set && request.text.is_none() {
+        return Some("mac_control clipboard.set requires text.".to_string());
+    }
+    None
+}
+
 fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
     match request.op {
         MacControlActOp::Click => {
@@ -1554,6 +1885,11 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                     "mac_control act.click requires a target; use act.click_point for raw x/y coordinates."
                         .to_string(),
                 );
+            }
+        }
+        MacControlActOp::DryRun => {
+            if request.target.is_empty() {
+                return Some("mac_control act.dry_run requires a target.".to_string());
             }
         }
         MacControlActOp::ClickPoint => {
@@ -1572,9 +1908,12 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                 ));
             }
         }
-        MacControlActOp::Type => {
+        MacControlActOp::Type | MacControlActOp::Paste => {
             if request.text.is_none() {
-                return Some("mac_control act.type requires text.".to_string());
+                return Some(format!(
+                    "mac_control act.{} requires text.",
+                    act_op_name(request.op)
+                ));
             }
         }
         MacControlActOp::SetValue => {
@@ -1616,10 +1955,12 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
 fn act_op_name(op: MacControlActOp) -> &'static str {
     match op {
         MacControlActOp::Click => "click",
+        MacControlActOp::DryRun => "dry_run",
         MacControlActOp::ClickPoint => "click_point",
         MacControlActOp::DoubleClick => "double_click",
         MacControlActOp::RightClick => "right_click",
         MacControlActOp::Type => "type",
+        MacControlActOp::Paste => "paste",
         MacControlActOp::SetValue => "set_value",
         MacControlActOp::Hotkey => "hotkey",
         MacControlActOp::Scroll => "scroll",
@@ -2249,12 +2590,53 @@ mod tests {
             include_screenshot: true,
             max_elements: 10_000,
             max_depth: 100,
+            ..Default::default()
         }
         .clamped();
 
         assert!(request.include_screenshot);
         assert_eq!(request.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(request.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
+    }
+
+    #[test]
+    fn snapshot_request_normalizes_screenshot_target_fields() {
+        let request = MacControlSnapshotRequest {
+            include_screenshot: true,
+            screenshot_target: MacControlScreenshotTarget::Window,
+            window_id: Some(" win_2 ".to_string()),
+            display_id: Some(42),
+            ..Default::default()
+        }
+        .clamped();
+
+        assert!(request.include_screenshot);
+        assert_eq!(
+            request.screenshot_target,
+            MacControlScreenshotTarget::Window
+        );
+        assert_eq!(request.window_id.as_deref(), Some("win_2"));
+        assert_eq!(request.display_id, Some(42));
+    }
+
+    #[test]
+    fn snapshot_request_accepts_screenshot_target_aliases() {
+        let screen: MacControlSnapshotRequest = serde_json::from_value(serde_json::json!({
+            "includeScreenshot": true,
+            "screenshotTarget": "screen"
+        }))
+        .unwrap();
+        let window: MacControlSnapshotRequest = serde_json::from_value(serde_json::json!({
+            "includeScreenshot": true,
+            "screenshotTarget": "frontmost_window"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            screen.screenshot_target,
+            MacControlScreenshotTarget::Display
+        );
+        assert_eq!(window.screenshot_target, MacControlScreenshotTarget::Window);
     }
 
     #[test]
@@ -2273,6 +2655,14 @@ mod tests {
         assert_eq!(request.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(request.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
         assert_eq!(request.op, MacControlWaitOp::Present);
+        assert!(!request.include_snapshot);
+        let wait_with_snapshot: MacControlWaitRequest = serde_json::from_value(serde_json::json!({
+            "op": "present",
+            "includeSnapshot": true,
+            "target": { "text": "Ready" }
+        }))
+        .expect("wait includeSnapshot request");
+        assert!(wait_with_snapshot.include_snapshot);
     }
 
     #[test]
@@ -2370,6 +2760,7 @@ mod tests {
     #[test]
     fn phase3_requests_normalize_and_validate() {
         let windows = MacControlWindowsRequest {
+            window_scope: MacControlWindowsScope::All,
             target: MacControlTargetQuery {
                 window_title: Some(" Notes ".to_string()),
                 ..Default::default()
@@ -2380,7 +2771,12 @@ mod tests {
         }
         .clamped();
         assert!(windows_request_has_target(&windows));
+        assert_eq!(windows.window_scope, MacControlWindowsScope::All);
         assert_eq!(windows.target.window_title.as_deref(), Some("Notes"));
+        assert_eq!(
+            MacControlWindowsRequest::default().window_scope,
+            MacControlWindowsScope::Frontmost
+        );
         let close_window = MacControlWindowsRequest {
             op: MacControlWindowsOp::Close,
             target: MacControlTargetQuery {
@@ -2402,7 +2798,26 @@ mod tests {
         .clamped();
         assert_eq!(act.key, None);
         assert_eq!(act.keys, vec!["cmd".to_string(), "n".to_string()]);
+        assert!(!act.include_snapshot);
         assert!(validate_act_request(&act).is_none());
+
+        let act_with_snapshot: MacControlActRequest = serde_json::from_value(serde_json::json!({
+            "op": "click",
+            "includeSnapshot": true,
+            "target": { "elementId": "el_20" }
+        }))
+        .expect("act includeSnapshot request");
+        assert!(act_with_snapshot.include_snapshot);
+
+        let paste_without_text = MacControlActRequest {
+            op: MacControlActOp::Paste,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(
+            validate_act_request(&paste_without_text).as_deref(),
+            Some("mac_control act.paste requires text.")
+        );
 
         let default_origin_click = MacControlActRequest {
             op: MacControlActOp::Click,
@@ -2439,6 +2854,28 @@ mod tests {
         assert_eq!(targeted_click.x, Some(0.0));
         assert_eq!(targeted_click.y, Some(0.0));
         assert!(validate_act_request(&targeted_click).is_none());
+
+        let dry_run = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            target: MacControlTargetQuery {
+                text: Some(" Open ".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(dry_run.target.text.as_deref(), Some("Open"));
+        assert!(validate_act_request(&dry_run).is_none());
+
+        let dry_run_without_target = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(
+            validate_act_request(&dry_run_without_target).as_deref(),
+            Some("mac_control act.dry_run requires a target.")
+        );
 
         let ambiguous_click_point = MacControlActRequest {
             op: MacControlActOp::ClickPoint,
@@ -2490,24 +2927,97 @@ mod tests {
 
         let menu = MacControlMenuRequest {
             op: MacControlMenuOp::Click,
+            scope: MacControlMenuScope::System,
             path: vec![" File ".to_string(), "".to_string(), "New".to_string()],
             max_depth: 100,
         }
         .clamped();
+        assert_eq!(menu.scope, MacControlMenuScope::System);
         assert_eq!(menu.path, vec!["File".to_string(), "New".to_string()]);
         assert_eq!(menu.max_depth, 8);
+
+        assert_eq!(
+            MacControlMenuRequest::default().scope,
+            MacControlMenuScope::App
+        );
+
+        let clipboard = MacControlClipboardRequest {
+            op: MacControlClipboardOp::Get,
+            max_chars: 0,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(clipboard.max_chars, DEFAULT_CLIPBOARD_MAX_CHARS);
+
+        let big_clipboard = MacControlClipboardRequest {
+            op: MacControlClipboardOp::Get,
+            max_chars: 1_000_000,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(big_clipboard.max_chars, HARD_CLIPBOARD_MAX_CHARS);
+
+        let oversized_set = MacControlClipboardRequest {
+            op: MacControlClipboardOp::Set,
+            text: Some("x".repeat(HARD_CLIPBOARD_SET_CHARS + 1)),
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(
+            oversized_set.text_original_len,
+            Some(HARD_CLIPBOARD_SET_CHARS + 1)
+        );
+        assert!(oversized_set.text_truncated);
+        assert_eq!(
+            oversized_set.text.as_deref().map(str::len),
+            Some(HARD_CLIPBOARD_SET_CHARS)
+        );
+
+        let reclamped_set = oversized_set.clamped();
+        assert_eq!(
+            reclamped_set.text_original_len,
+            Some(HARD_CLIPBOARD_SET_CHARS + 1)
+        );
+        assert!(reclamped_set.text_truncated);
+
+        assert!(validate_clipboard_request(&MacControlClipboardRequest {
+            op: MacControlClipboardOp::Set,
+            ..Default::default()
+        })
+        .is_some());
 
         let dialog = MacControlDialogRequest {
             op: MacControlDialogOp::Accept,
             button_text: Some(" OK ".to_string()),
+            include_snapshot: true,
             max_elements: 10_000,
             max_depth: 100,
             ..Default::default()
         }
         .clamped();
         assert_eq!(dialog.button_text.as_deref(), Some("OK"));
+        assert!(dialog.include_snapshot);
         assert_eq!(dialog.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(dialog.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
+
+        let elements = MacControlElementsRequest {
+            target: MacControlTargetQuery {
+                text: Some(" Search ".to_string()),
+                enabled: Some(false),
+                ..Default::default()
+            },
+            limit: 10_000,
+            max_elements: 10_000,
+            max_depth: 100,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(elements.op, MacControlElementsOp::Find);
+        assert_eq!(elements.target.text.as_deref(), Some("Search"));
+        assert_eq!(elements.target.enabled, None);
+        assert_eq!(elements.limit, HARD_ELEMENTS_LIMIT);
+        assert_eq!(elements.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
+        assert_eq!(elements.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
     }
 
     #[test]
@@ -2559,10 +3069,20 @@ mod tests {
         assert!(act.result.is_none());
         assert_eq!(act.error.as_deref(), Some("no act bridge"));
 
+        let elements = unsupported_elements_response("no elements bridge");
+        assert_eq!(elements.status.readiness, MacControlReadiness::Unsupported);
+        assert!(elements.result.is_none());
+        assert_eq!(elements.error.as_deref(), Some("no elements bridge"));
+
         let menu = unsupported_menu_response("no menu bridge");
         assert_eq!(menu.status.readiness, MacControlReadiness::Unsupported);
         assert!(menu.result.is_none());
         assert_eq!(menu.error.as_deref(), Some("no menu bridge"));
+
+        let clipboard = unsupported_clipboard_response("no clipboard bridge");
+        assert_eq!(clipboard.status.readiness, MacControlReadiness::Unsupported);
+        assert!(clipboard.result.is_none());
+        assert_eq!(clipboard.error.as_deref(), Some("no clipboard bridge"));
 
         let dialog = unsupported_dialog_response("no dialog bridge");
         assert_eq!(dialog.status.readiness, MacControlReadiness::Unsupported);

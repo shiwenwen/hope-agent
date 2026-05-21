@@ -39,6 +39,21 @@ pub async fn snapshot(
     )))
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementsBody {
+    pub options: Option<ha_core::mac_control::MacControlElementsRequest>,
+}
+
+pub async fn elements(
+    body: Option<Json<ElementsBody>>,
+) -> Result<Json<ha_core::mac_control::MacControlElementsResponse>, AppError> {
+    let _requested = body.and_then(|Json(body)| body.options).unwrap_or_default();
+    Ok(Json(ha_core::mac_control::unsupported_elements_response(
+        HTTP_UNSUPPORTED_MESSAGE,
+    )))
+}
+
 pub async fn capture_frame() -> Result<Json<ha_core::mac_control::MacControlFrameResponse>, AppError>
 {
     Ok(Json(ha_core::mac_control::unsupported_frame_response(

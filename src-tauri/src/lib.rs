@@ -481,6 +481,7 @@ pub fn run() {
             tauri_wrappers::mac_control_status,
             tauri_wrappers::mac_control_permissions,
             tauri_wrappers::mac_control_snapshot,
+            tauri_wrappers::mac_control_elements,
             tauri_wrappers::mac_control_capture_frame,
             // Session management
             commands::session::create_session_cmd,

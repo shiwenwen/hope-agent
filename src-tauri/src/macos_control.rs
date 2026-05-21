@@ -1,8 +1,9 @@
 //! Desktop macOS control bridge.
 //!
-//! Phase 4 registers the authorized desktop process and exposes Accessibility
-//! snapshots, primary-display JPEG frames, app launch/focus, window operations,
-//! AX-first element actions, dialogs, and menu inspection/clicks.
+//! Registers the authorized desktop process and exposes Accessibility
+//! snapshots, scored element search, display/window JPEG frames, app
+//! launch/focus, window operations, AX-first element actions, dialogs, and menu
+//! inspection/clicks.
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -22,23 +23,26 @@ mod imp {
     use ha_core::mac_control::{
         MacControlActOp, MacControlActRequest, MacControlActResult, MacControlAppNameMatch,
         MacControlAppSummary, MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult,
-        MacControlBounds, MacControlBridge, MacControlDialogOp, MacControlDialogRequest,
+        MacControlBounds, MacControlBridge, MacControlClipboardOp, MacControlClipboardRequest,
+        MacControlClipboardResult, MacControlDialogOp, MacControlDialogRequest,
         MacControlDialogResult, MacControlDialogSummary, MacControlDisplaySummary,
-        MacControlElementSummary, MacControlFramePayload, MacControlInstalledApp,
+        MacControlElementCandidate, MacControlElementSummary, MacControlElementsRequest,
+        MacControlElementsResult, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
-        MacControlRunningApp, MacControlScreenshotSummary, MacControlSnapshot,
-        MacControlSnapshotRequest, MacControlStringMatch, MacControlTargetQuery,
-        MacControlWindowSummary, MacControlWindowsOp, MacControlWindowsRequest,
-        MacControlWindowsResult,
+        MacControlMenuScope, MacControlRunningApp, MacControlScreenshotSummary,
+        MacControlScreenshotTarget, MacControlSnapshot, MacControlSnapshotRequest,
+        MacControlStringMatch, MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
+        MacControlWindowsRequest, MacControlWindowsResult, MacControlWindowsScope,
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
     use objc2_app_kit::{
-        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication,
-        NSWorkspace,
+        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSPasteboard,
+        NSPasteboardItem, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
     };
-    use objc2_foundation::{NSBundle, NSString};
-    use xcap::Monitor;
+    use objc2_foundation::{NSArray, NSBundle, NSString};
+    use xcap::{Monitor, Window};
 
     struct TauriMacControlBridge;
 
@@ -55,6 +59,15 @@ mod imp {
             tokio::task::spawn_blocking(move || capture_ax_snapshot(request))
                 .await
                 .map_err(|e| format!("macOS snapshot worker failed: {e}"))?
+        }
+
+        async fn elements(
+            &self,
+            request: MacControlElementsRequest,
+        ) -> Result<MacControlElementsResult, String> {
+            tokio::task::spawn_blocking(move || handle_elements(request))
+                .await
+                .map_err(|e| format!("macOS elements worker failed: {e}"))?
         }
 
         async fn capture_frame(&self) -> Result<MacControlFramePayload, String> {
@@ -94,6 +107,15 @@ mod imp {
             tokio::task::spawn_blocking(move || handle_menu(request))
                 .await
                 .map_err(|e| format!("macOS menu worker failed: {e}"))?
+        }
+
+        async fn clipboard(
+            &self,
+            request: MacControlClipboardRequest,
+        ) -> Result<MacControlClipboardResult, String> {
+            tokio::task::spawn_blocking(move || handle_clipboard(request))
+                .await
+                .map_err(|e| format!("macOS clipboard worker failed: {e}"))?
         }
 
         async fn dialog(
@@ -173,6 +195,7 @@ mod imp {
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+        fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
         fn AXUIElementCopyAttributeValue(
             element: AXUIElementRef,
             attribute: CFStringRef,
@@ -273,6 +296,12 @@ mod imp {
         jpeg: Vec<u8>,
         width_px: u32,
         height_px: u32,
+        target: MacControlScreenshotTarget,
+        display_id: Option<u32>,
+        window_id: Option<String>,
+        window_title: Option<String>,
+        bounds_points: Option<MacControlBounds>,
+        scale: Option<f64>,
     }
 
     fn capture_ax_snapshot(
@@ -293,20 +322,6 @@ mod imp {
         match display_summaries() {
             Ok(displays) => snapshot.displays = displays,
             Err(error) => snapshot.warnings.push(error),
-        }
-        if request.include_screenshot {
-            match capture_desktop_frame_with_id(
-                &snapshot.snapshot_id,
-                snapshot.frontmost_app.clone(),
-            ) {
-                Ok((frame, screenshot)) => {
-                    snapshot.screenshot = Some(screenshot);
-                    ha_core::mac_control::emit_frame(&frame);
-                }
-                Err(error) => snapshot.warnings.push(format!(
-                    "Screenshot capture failed; returning AX-only snapshot: {error}"
-                )),
-            }
         }
 
         let mut state = CaptureState {
@@ -340,6 +355,17 @@ mod imp {
                 "AX snapshot was truncated; increase maxElements/maxDepth for more context."
                     .to_string(),
             );
+        }
+        if request.include_screenshot {
+            match capture_desktop_frame_with_id(&snapshot, &request) {
+                Ok((frame, screenshot)) => {
+                    snapshot.screenshot = Some(screenshot);
+                    ha_core::mac_control::emit_frame(&frame);
+                }
+                Err(error) => snapshot.warnings.push(format!(
+                    "Screenshot capture failed; returning AX-only snapshot: {error}"
+                )),
+            }
         }
         Ok(snapshot)
     }
@@ -464,12 +490,8 @@ mod imp {
         request: MacControlWindowsRequest,
     ) -> Result<MacControlWindowsResult, String> {
         let request = request.clamped();
-        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
-            include_screenshot: false,
-            max_elements: request.max_elements,
-            max_depth: request.max_depth,
-        })?;
-        let mut windows = snapshot.windows.clone();
+        let frontmost_app = focused_app_summary();
+        let mut windows = list_windows_for_request(&request)?;
         let mut execution = None;
         let acted_window = if request.op == MacControlWindowsOp::List {
             None
@@ -512,6 +534,12 @@ mod imp {
                     set_ax_bool(window.as_ptr() as AXUIElementRef, "AXMinimized", true)?;
                 }
                 MacControlWindowsOp::Close => {
+                    let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+                        include_screenshot: false,
+                        max_elements: request.max_elements,
+                        max_depth: request.max_depth,
+                        ..Default::default()
+                    })?;
                     execution = Some(close_window(
                         window.as_ptr() as AXUIElementRef,
                         &summary,
@@ -534,11 +562,237 @@ mod imp {
         }
         Ok(MacControlWindowsResult {
             op: request.op,
-            frontmost_app: snapshot.frontmost_app,
+            window_scope: request.window_scope,
+            frontmost_app,
             windows,
             acted_window,
             execution,
         })
+    }
+
+    fn handle_elements(
+        request: MacControlElementsRequest,
+    ) -> Result<MacControlElementsResult, String> {
+        let request = request.clamped();
+        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
+            include_screenshot: false,
+            max_elements: request.max_elements,
+            max_depth: request.max_depth,
+            ..Default::default()
+        })?;
+        let mut warnings = snapshot.warnings.clone();
+        let (total_matches, elements) = if frontmost_app_matches_act_target(
+            &snapshot,
+            &request.target,
+        ) {
+            let mut candidates = snapshot
+                .elements
+                .iter()
+                .filter(|element| element_matches_query(element, &request.target, &snapshot))
+                .map(|element| element_candidate(element, &request.target, &snapshot))
+                .collect::<Vec<_>>();
+            candidates.sort_by(|left, right| {
+                right
+                    .score
+                    .cmp(&left.score)
+                    .then_with(|| left.element.id.cmp(&right.element.id))
+            });
+            let total_matches = candidates.len();
+            if total_matches > request.limit {
+                warnings.push(format!(
+                    "elements.find matched {total_matches} candidates; returning top {}.",
+                    request.limit
+                ));
+            }
+            candidates.truncate(request.limit);
+            (total_matches, candidates)
+        } else {
+            warnings.push(
+                "Frontmost app did not match the elements.find target; activate the target app first."
+                    .to_string(),
+            );
+            (0, Vec::new())
+        };
+
+        Ok(MacControlElementsResult {
+            op: request.op,
+            target: request.target,
+            snapshot_id: snapshot.snapshot_id,
+            created_at: snapshot.created_at,
+            frontmost_app: snapshot.frontmost_app,
+            total_matches,
+            elements,
+            truncated: snapshot.truncated,
+            warnings,
+        })
+    }
+
+    fn element_candidate(
+        element: &MacControlElementSummary,
+        target: &MacControlTargetQuery,
+        snapshot: &MacControlSnapshot,
+    ) -> MacControlElementCandidate {
+        let window = element
+            .window_id
+            .as_deref()
+            .and_then(|window_id| {
+                snapshot
+                    .windows
+                    .iter()
+                    .find(|window| window.id == window_id)
+            })
+            .cloned();
+        MacControlElementCandidate {
+            element: element.clone(),
+            window: window.clone(),
+            score: element_target_score(element, target),
+            reasons: element_candidate_reasons(element, target, window.as_ref()),
+        }
+    }
+
+    fn element_candidate_reasons(
+        element: &MacControlElementSummary,
+        target: &MacControlTargetQuery,
+        window: Option<&MacControlWindowSummary>,
+    ) -> Vec<String> {
+        let mut reasons = Vec::new();
+        if target
+            .element_id
+            .as_deref()
+            .is_some_and(|query| !query.is_empty() && query == element.id)
+        {
+            reasons.push("elementId".to_string());
+        }
+        if let Some(query) = target.text.as_deref().filter(|query| !query.is_empty()) {
+            if optional_eq_ci(element.label.as_deref(), query)
+                || optional_eq_ci(element.value.as_deref(), query)
+            {
+                reasons.push("text:exact".to_string());
+            } else {
+                reasons.push("text:contains".to_string());
+            }
+        }
+        if target
+            .role
+            .as_deref()
+            .is_some_and(|query| !query.is_empty())
+        {
+            reasons.push("role".to_string());
+        }
+        if target
+            .window_title
+            .as_deref()
+            .is_some_and(|query| !query.is_empty())
+            && window.is_some()
+        {
+            reasons.push("windowTitle".to_string());
+        }
+        if element.focused {
+            reasons.push("focused".to_string());
+        }
+        if element.enabled == Some(true) {
+            reasons.push("enabled".to_string());
+        }
+        if element.actions.iter().any(|action| action == "AXPress") {
+            reasons.push("pressable".to_string());
+        }
+        if element.bounds_points.is_some() {
+            reasons.push("hasBounds".to_string());
+        }
+        if reasons.is_empty() {
+            reasons.push("snapshot".to_string());
+        }
+        reasons
+    }
+
+    fn list_windows_for_request(
+        request: &MacControlWindowsRequest,
+    ) -> Result<Vec<MacControlWindowSummary>, String> {
+        let windows = match request.window_scope {
+            MacControlWindowsScope::Frontmost => frontmost_window_summaries()?,
+            MacControlWindowsScope::All => all_window_summaries(&request.target)?,
+        };
+        if request
+            .window_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            || request
+                .target
+                .window_title
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
+        {
+            Ok(windows
+                .into_iter()
+                .filter(|window| window_matches_request(window, request))
+                .collect())
+        } else {
+            Ok(windows)
+        }
+    }
+
+    fn frontmost_window_summaries() -> Result<Vec<MacControlWindowSummary>, String> {
+        let app = focused_app_element()?;
+        let pid = ax_pid(app.as_ptr() as AXUIElementRef);
+        let windows = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows")
+            .ok_or_else(|| "Focused app does not expose AXWindows.".to_string())?;
+        Ok(cf_array_values(windows.as_ptr())
+            .into_iter()
+            .enumerate()
+            .map(|(idx, window_ref)| {
+                window_summary_for_app(
+                    window_ref as AXUIElementRef,
+                    &format!("win_{}", idx + 1),
+                    pid,
+                )
+            })
+            .collect())
+    }
+
+    fn all_window_summaries(
+        target: &MacControlTargetQuery,
+    ) -> Result<Vec<MacControlWindowSummary>, String> {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let mut running = workspace.runningApplications().to_vec();
+        if let Some(frontmost) = workspace.frontmostApplication() {
+            if running
+                .iter()
+                .all(|app| app.processIdentifier() != frontmost.processIdentifier())
+            {
+                running.insert(0, frontmost);
+            }
+        }
+
+        let mut seen = BTreeSet::new();
+        let mut windows = Vec::new();
+        for app in running {
+            let summary = running_app_summary(&app);
+            if !seen.insert(summary.pid) {
+                continue;
+            }
+            if target_has_app_filter(target)
+                && !running_app_summary_matches_target(&summary, target)
+            {
+                continue;
+            }
+            let Some(app_element) = app_element_for_pid(summary.pid) else {
+                continue;
+            };
+            let Some(ax_windows) =
+                copy_attribute(app_element.as_ptr() as AXUIElementRef, "AXWindows")
+            else {
+                continue;
+            };
+            for (idx, window_ref) in cf_array_values(ax_windows.as_ptr()).into_iter().enumerate() {
+                let id = format!("win_{}_{}", summary.pid, idx + 1);
+                windows.push(window_summary_for_app(
+                    window_ref as AXUIElementRef,
+                    &id,
+                    Some(summary.pid),
+                ));
+            }
+        }
+        Ok(windows)
     }
 
     fn ensure_external_window_mutation(
@@ -576,6 +830,19 @@ mod imp {
         let request = request.clamped();
         let mut target = None;
         let execution = match request.op {
+            MacControlActOp::DryRun => {
+                if target_query_is_empty(&request.target) {
+                    return Err("act.dry_run requires a target.".to_string());
+                }
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.dry_run",
+                )?;
+                target = Some(summary);
+                "DryRun".to_string()
+            }
             MacControlActOp::Click => {
                 if target_query_is_empty(&request.target) {
                     return Err(
@@ -583,8 +850,12 @@ mod imp {
                             .to_string(),
                     );
                 }
-                let (element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.click",
+                )?;
                 let element_ref = element.as_ptr() as AXUIElementRef;
                 target = Some(summary.clone());
                 if summary.actions.iter().any(|action| action == "AXPress") {
@@ -613,8 +884,12 @@ mod imp {
                 if target_query_is_empty(&request.target) {
                     return Err("act.double_click requires a target.".to_string());
                 }
-                let (_element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.double_click",
+                )?;
                 let point = point_for_element(&summary, "act.double_click target")?;
                 post_double_click(point)?;
                 target = Some(summary);
@@ -624,8 +899,12 @@ mod imp {
                 if target_query_is_empty(&request.target) {
                     return Err("act.right_click requires a target.".to_string());
                 }
-                let (_element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.right_click",
+                )?;
                 let point = point_for_element(&summary, "act.right_click target")?;
                 post_mouse_click(point, MouseButton::Right)?;
                 target = Some(summary);
@@ -645,6 +924,7 @@ mod imp {
                         &request.target,
                         request.max_elements,
                         request.max_depth,
+                        "act.type",
                     )?;
                     (element, summary)
                 };
@@ -652,13 +932,36 @@ mod imp {
                 target = Some(summary);
                 "AXSetValue".to_string()
             }
+            MacControlActOp::Paste => {
+                let text = request
+                    .text
+                    .as_deref()
+                    .ok_or_else(|| "act.paste requires text.".to_string())?;
+                if target_query_is_empty(&request.target) {
+                    target = focused_element().map(|(_, summary)| summary);
+                } else {
+                    let (element, summary, _) = resolve_type_element(
+                        &request.target,
+                        request.max_elements,
+                        request.max_depth,
+                        "act.paste",
+                    )?;
+                    focus_text_element_for_paste(element.as_ptr() as AXUIElementRef, &summary)?;
+                    target = Some(summary);
+                }
+                paste_text_via_clipboard(text)?
+            }
             MacControlActOp::SetValue => {
                 let value = request
                     .value
                     .as_deref()
                     .ok_or_else(|| "act.set_value requires value.".to_string())?;
-                let (element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.set_value",
+                )?;
                 set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", value)?;
                 target = Some(summary);
                 "AXSetValue".to_string()
@@ -686,8 +989,12 @@ mod imp {
                 let (Some(x), Some(y)) = (request.x, request.y) else {
                     return Err("act.drag requires destination x and y.".to_string());
                 };
-                let (_element, summary, _) =
-                    resolve_element(&request.target, request.max_elements, request.max_depth)?;
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.drag",
+                )?;
                 let from = point_for_element(&summary, "act.drag source target")?;
                 let to = screen_point(x, y, "act.drag destination")?;
                 post_mouse_drag(from, to)?;
@@ -695,12 +1002,17 @@ mod imp {
                 "CGEventDrag".to_string()
             }
         };
-        let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
-            include_screenshot: false,
-            max_elements: request.max_elements,
-            max_depth: request.max_depth,
-        })
-        .ok();
+        let snapshot = if request.op == MacControlActOp::DryRun || !request.include_snapshot {
+            None
+        } else {
+            capture_ax_snapshot(MacControlSnapshotRequest {
+                include_screenshot: false,
+                max_elements: request.max_elements,
+                max_depth: request.max_depth,
+                ..Default::default()
+            })
+            .ok()
+        };
         Ok(MacControlActResult {
             op: request.op,
             execution,
@@ -711,25 +1023,215 @@ mod imp {
 
     fn handle_menu(request: MacControlMenuRequest) -> Result<MacControlMenuResult, String> {
         let request = request.clamped();
-        let app = focused_app_element()?;
-        let menu_bar = copy_attribute(app.as_ptr() as AXUIElementRef, "AXMenuBar")
-            .ok_or_else(|| "Focused app does not expose an AXMenuBar.".to_string())?;
-        let items = menu_children(menu_bar.as_ptr() as AXUIElementRef, request.max_depth);
+        let menu_bar = menu_root_for_scope(request.scope)?;
+        let menu_bar_ref = menu_bar.as_ptr() as AXUIElementRef;
+        let items = menu_children(menu_bar_ref, request.max_depth);
         let clicked = if request.op == MacControlMenuOp::Click {
-            Some(click_menu_path(
-                menu_bar.as_ptr() as AXUIElementRef,
-                &request.path,
-            )?)
+            Some(click_menu_path(menu_bar_ref, &request.path)?)
         } else {
             None
         };
 
         Ok(MacControlMenuResult {
             op: request.op,
+            scope: request.scope,
             path: request.path,
             items,
             clicked,
         })
+    }
+
+    fn menu_root_for_scope(scope: MacControlMenuScope) -> Result<CfOwned, String> {
+        match scope {
+            MacControlMenuScope::App => {
+                let app = focused_app_element()?;
+                copy_attribute(app.as_ptr() as AXUIElementRef, "AXMenuBar")
+                    .ok_or_else(|| "Focused app does not expose an AXMenuBar.".to_string())
+            }
+            MacControlMenuScope::System => {
+                let system = unsafe { AXUIElementCreateSystemWide() };
+                let system = CfOwned::new(system as CFTypeRef).ok_or_else(|| {
+                    "Unable to create the system Accessibility element.".to_string()
+                })?;
+                copy_attribute(system.as_ptr() as AXUIElementRef, "AXExtrasMenuBar").ok_or_else(
+                    || "System menu bar extras are unavailable through Accessibility.".to_string(),
+                )
+            }
+        }
+    }
+
+    fn handle_clipboard(
+        request: MacControlClipboardRequest,
+    ) -> Result<MacControlClipboardResult, String> {
+        let request = request.clamped();
+        let mut clipboard =
+            arboard::Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
+        match request.op {
+            MacControlClipboardOp::Get => {
+                let text = clipboard
+                    .get_text()
+                    .map_err(|e| format!("Clipboard does not contain UTF-8 text: {e}"))?;
+                let (text, text_len, truncated) = truncate_clipboard_text(text, request.max_chars);
+                Ok(MacControlClipboardResult {
+                    op: request.op,
+                    text: Some(text),
+                    text_len,
+                    truncated,
+                    changed: false,
+                })
+            }
+            MacControlClipboardOp::Set => {
+                let text = request
+                    .text
+                    .ok_or_else(|| "clipboard.set requires text.".to_string())?;
+                let text_len = request
+                    .text_original_len
+                    .unwrap_or_else(|| text.chars().count());
+                let truncated = request.text_truncated;
+                clipboard
+                    .set_text(text)
+                    .map_err(|e| format!("Failed to set clipboard text: {e}"))?;
+                Ok(MacControlClipboardResult {
+                    op: request.op,
+                    text: None,
+                    text_len,
+                    truncated,
+                    changed: true,
+                })
+            }
+            MacControlClipboardOp::Clear => {
+                clipboard
+                    .clear()
+                    .map_err(|e| format!("Failed to clear clipboard: {e}"))?;
+                Ok(MacControlClipboardResult {
+                    op: request.op,
+                    text: None,
+                    text_len: 0,
+                    truncated: false,
+                    changed: true,
+                })
+            }
+        }
+    }
+
+    fn truncate_clipboard_text(text: String, max_chars: usize) -> (String, usize, bool) {
+        let text_len = text.chars().count();
+        if text_len <= max_chars {
+            return (text, text_len, false);
+        }
+        (text.chars().take(max_chars).collect(), text_len, true)
+    }
+
+    fn focus_text_element_for_paste(
+        element: AXUIElementRef,
+        summary: &MacControlElementSummary,
+    ) -> Result<(), String> {
+        if set_ax_bool(element, "AXFocused", true).is_ok() {
+            thread::sleep(Duration::from_millis(40));
+            return Ok(());
+        }
+        let point = point_for_element(summary, "act.paste target")?;
+        post_mouse_click(point, MouseButton::Left)?;
+        thread::sleep(Duration::from_millis(80));
+        Ok(())
+    }
+
+    fn paste_text_via_clipboard(text: &str) -> Result<String, String> {
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let previous_items = copy_pasteboard_items(&pasteboard)?;
+        if let Err(error) = stage_text_on_pasteboard(&pasteboard, text) {
+            let restore_status = restore_pasteboard_items(&pasteboard, &previous_items);
+            return Err(format!(
+                "Failed to stage paste text on clipboard ({restore_status}): {error}"
+            ));
+        }
+
+        let paste_result = post_hotkey(&["cmd".to_string(), "v".to_string()]);
+        thread::sleep(Duration::from_millis(120));
+        let restore_status = restore_pasteboard_items(&pasteboard, &previous_items);
+
+        match paste_result {
+            Ok(()) => Ok(format!(
+                "PasteboardCommandV(clipboard_restore={restore_status})"
+            )),
+            Err(error) => Err(format!(
+                "Paste hotkey failed after clipboard staging ({restore_status}): {error}"
+            )),
+        }
+    }
+
+    fn copy_pasteboard_items(
+        pasteboard: &NSPasteboard,
+    ) -> Result<Vec<Retained<NSPasteboardItem>>, String> {
+        let Some(items) = pasteboard.pasteboardItems() else {
+            return Ok(Vec::new());
+        };
+        let mut copies = Vec::new();
+        for item in items.to_vec() {
+            let copy = NSPasteboardItem::new();
+            let types = item.types().to_vec();
+            if types.is_empty() {
+                return Err(
+                    "act.paste cannot safely preserve a pasteboard item with no declared types."
+                        .to_string(),
+                );
+            }
+            for pasteboard_type in types {
+                let data = item.dataForType(&pasteboard_type).ok_or_else(|| {
+                    "act.paste cannot safely preserve the current pasteboard item data.".to_string()
+                })?;
+                if !copy.setData_forType(&data, &pasteboard_type) {
+                    return Err(
+                        "act.paste failed to copy current pasteboard item data.".to_string()
+                    );
+                }
+            }
+            copies.push(copy);
+        }
+        Ok(copies)
+    }
+
+    fn stage_text_on_pasteboard(pasteboard: &NSPasteboard, text: &str) -> Result<(), String> {
+        let item = NSPasteboardItem::new();
+        let text = NSString::from_str(text);
+        let string_type = NSString::from_str("public.utf8-plain-text");
+        if !item.setString_forType(&text, &string_type) {
+            return Err("NSPasteboardItem refused the staged UTF-8 text.".to_string());
+        }
+        pasteboard.clearContents();
+        let items = vec![item];
+        if write_pasteboard_items(pasteboard, &items) {
+            Ok(())
+        } else {
+            Err("NSPasteboard refused the staged UTF-8 text item.".to_string())
+        }
+    }
+
+    fn restore_pasteboard_items(
+        pasteboard: &NSPasteboard,
+        items: &[Retained<NSPasteboardItem>],
+    ) -> &'static str {
+        pasteboard.clearContents();
+        if items.is_empty() {
+            return "restored_empty";
+        }
+        if write_pasteboard_items(pasteboard, items) {
+            "restored_items"
+        } else {
+            "restore_failed"
+        }
+    }
+
+    fn write_pasteboard_items(
+        pasteboard: &NSPasteboard,
+        items: &[Retained<NSPasteboardItem>],
+    ) -> bool {
+        let writing_items = items
+            .iter()
+            .map(|item| ProtocolObject::<dyn NSPasteboardWriting>::from_ref(&**item))
+            .collect::<Vec<_>>();
+        let objects = NSArray::from_slice(&writing_items);
+        pasteboard.writeObjects(&objects)
     }
 
     fn handle_dialog(request: MacControlDialogRequest) -> Result<MacControlDialogResult, String> {
@@ -738,6 +1240,7 @@ mod imp {
             include_screenshot: false,
             max_elements: request.max_elements,
             max_depth: request.max_depth,
+            ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, &request.target) {
             return Err("Frontmost app did not match the dialog target.".to_string());
@@ -767,7 +1270,7 @@ mod imp {
             op: request.op,
             dialogs,
             acted_button,
-            snapshot: Some(snapshot),
+            snapshot: request.include_snapshot.then_some(snapshot),
             execution,
         })
     }
@@ -1699,24 +2202,106 @@ mod imp {
     fn resolve_window(
         request: &MacControlWindowsRequest,
     ) -> Result<(CfOwned, MacControlWindowSummary), String> {
+        let candidates = window_candidate_apps(request)?;
+        let mut matches = Vec::new();
+        for candidate in candidates {
+            let Some(windows) =
+                copy_attribute(candidate.element.as_ptr() as AXUIElementRef, "AXWindows")
+            else {
+                continue;
+            };
+            for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
+                let id = if candidate.all_scope_ids {
+                    format!("win_{}_{}", candidate.pid, idx + 1)
+                } else {
+                    format!("win_{}", idx + 1)
+                };
+                let summary =
+                    window_summary_for_app(window_ref as AXUIElementRef, &id, Some(candidate.pid));
+                if window_matches_request(&summary, request) {
+                    let retained = unsafe { CFRetain(window_ref as CFTypeRef) };
+                    let window = CfOwned::new(retained)
+                        .ok_or_else(|| "Unable to retain matched AX window.".to_string())?;
+                    matches.push((window, summary));
+                }
+            }
+        }
+        match matches.len() {
+            0 => Err("No macOS window matched the request.".to_string()),
+            1 => Ok(matches.remove(0)),
+            count => Err(format!(
+                "{count} macOS windows matched the request; retry with a precise windowId or app target."
+            )),
+        }
+    }
+
+    struct WindowCandidateApp {
+        element: CfOwned,
+        pid: i32,
+        all_scope_ids: bool,
+    }
+
+    fn window_candidate_apps(
+        request: &MacControlWindowsRequest,
+    ) -> Result<Vec<WindowCandidateApp>, String> {
+        if let Some(pid) = window_id_all_scope_pid(request.window_id.as_deref()) {
+            let element = app_element_for_pid(pid).ok_or_else(|| {
+                format!("Unable to create Accessibility app element for pid {pid}.")
+            })?;
+            return Ok(vec![WindowCandidateApp {
+                element,
+                pid,
+                all_scope_ids: true,
+            }]);
+        }
+
+        if request.window_scope == MacControlWindowsScope::All
+            || target_has_app_filter(&request.target)
+        {
+            return all_window_candidate_apps(&request.target);
+        }
+
         let app = focused_app_element()?;
         let summary = app_summary(app.as_ptr() as AXUIElementRef);
         if !app_matches_target(&summary, &request.target) {
             return Err("Frontmost app did not match the windows target.".to_string());
         }
-        let windows = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows")
-            .ok_or_else(|| "Focused app does not expose AXWindows.".to_string())?;
-        for (idx, window_ref) in cf_array_values(windows.as_ptr()).into_iter().enumerate() {
-            let id = format!("win_{}", idx + 1);
-            let summary = window_summary(window_ref as AXUIElementRef, &id);
-            if window_matches_request(&summary, request) {
-                let retained = unsafe { CFRetain(window_ref as CFTypeRef) };
-                let window = CfOwned::new(retained)
-                    .ok_or_else(|| "Unable to retain matched AX window.".to_string())?;
-                return Ok((window, summary));
+        Ok(vec![WindowCandidateApp {
+            element: app,
+            pid: summary.pid,
+            all_scope_ids: false,
+        }])
+    }
+
+    fn all_window_candidate_apps(
+        target: &MacControlTargetQuery,
+    ) -> Result<Vec<WindowCandidateApp>, String> {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let mut seen = BTreeSet::new();
+        let mut candidates = Vec::new();
+        for app in workspace.runningApplications().to_vec() {
+            let summary = running_app_summary(&app);
+            if !seen.insert(summary.pid) {
+                continue;
+            }
+            if target_has_app_filter(target)
+                && !running_app_summary_matches_target(&summary, target)
+            {
+                continue;
+            }
+            if let Some(element) = app_element_for_pid(summary.pid) {
+                candidates.push(WindowCandidateApp {
+                    element,
+                    pid: summary.pid,
+                    all_scope_ids: true,
+                });
             }
         }
-        Err("No frontmost-app window matched the request.".to_string())
+        if candidates.is_empty() {
+            Err("No running macOS app matched the windows target.".to_string())
+        } else {
+            Ok(candidates)
+        }
     }
 
     fn window_matches_request(
@@ -1727,33 +2312,72 @@ mod imp {
             .window_id
             .as_deref()
             .filter(|query| !query.is_empty())
-            .is_some_and(|query| query != window.id)
+            .is_some_and(|query| !window_id_matches(query, &window.id))
         {
             return false;
         }
         window_title_matches(window.title.as_deref(), &request.target)
     }
 
+    fn window_id_matches(query: &str, actual: &str) -> bool {
+        if query == actual {
+            return true;
+        }
+        let Some(query_idx) = legacy_window_id_index(query) else {
+            return false;
+        };
+        all_scope_window_id_parts(actual).is_some_and(|(_, actual_idx)| actual_idx == query_idx)
+    }
+
+    fn legacy_window_id_index(value: &str) -> Option<usize> {
+        let mut parts = value.split('_');
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some("win"), Some(idx), None) => idx.parse::<usize>().ok(),
+            _ => None,
+        }
+    }
+
+    fn window_id_all_scope_pid(value: Option<&str>) -> Option<i32> {
+        value.and_then(|value| all_scope_window_id_parts(value).map(|(pid, _)| pid))
+    }
+
+    fn all_scope_window_id_parts(value: &str) -> Option<(i32, usize)> {
+        let mut parts = value.split('_');
+        match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some("win"), Some(pid), Some(idx), None) => {
+                Some((pid.parse::<i32>().ok()?, idx.parse::<usize>().ok()?))
+            }
+            _ => None,
+        }
+    }
+
     fn resolve_element(
         target: &MacControlTargetQuery,
         max_elements: usize,
         max_depth: usize,
+        op_label: &str,
     ) -> Result<(CfOwned, MacControlElementSummary, MacControlSnapshot), String> {
         let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
             include_screenshot: false,
             max_elements,
             max_depth,
+            ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, target) {
-            return Err("Frontmost app did not match the act target.".to_string());
+            return Err(format!(
+                "Frontmost app did not match the {op_label} target."
+            ));
         }
-        let summary = snapshot
+        let candidates = snapshot
             .elements
             .iter()
             .filter(|element| element_matches_query(element, target, &snapshot))
-            .max_by_key(|element| element_target_score(element, target))
-            .cloned()
-            .ok_or_else(|| "No AX element matched the act target.".to_string())?;
+            .map(|element| ScoredElementMatch {
+                score: element_target_score(element, target),
+                summary: element.clone(),
+            })
+            .collect();
+        let summary = select_element_match(candidates, target, op_label, "AX element")?;
         let element = resolve_element_by_summary(&summary, max_elements, max_depth)?;
         Ok((element, summary, snapshot))
     }
@@ -1762,24 +2386,106 @@ mod imp {
         target: &MacControlTargetQuery,
         max_elements: usize,
         max_depth: usize,
+        op_label: &str,
     ) -> Result<(CfOwned, MacControlElementSummary, MacControlSnapshot), String> {
         let snapshot = capture_ax_snapshot(MacControlSnapshotRequest {
             include_screenshot: false,
             max_elements,
             max_depth,
+            ..Default::default()
         })?;
         if !frontmost_app_matches_act_target(&snapshot, target) {
-            return Err("Frontmost app did not match the act.type target.".to_string());
+            return Err(format!(
+                "Frontmost app did not match the {op_label} target."
+            ));
         }
-        let summary = snapshot
+        let candidates = snapshot
             .elements
             .iter()
             .filter(|element| text_element_matches_query(element, target, &snapshot))
-            .max_by_key(|element| type_target_score(element, target))
-            .cloned()
-            .ok_or_else(|| "No text input element matched the act.type target.".to_string())?;
+            .map(|element| ScoredElementMatch {
+                score: type_target_score(element, target),
+                summary: element.clone(),
+            })
+            .collect();
+        let summary = select_element_match(candidates, target, op_label, "text input element")?;
         let element = resolve_element_by_summary(&summary, max_elements, max_depth)?;
         Ok((element, summary, snapshot))
+    }
+
+    #[derive(Clone)]
+    struct ScoredElementMatch {
+        score: u8,
+        summary: MacControlElementSummary,
+    }
+
+    fn select_element_match(
+        mut candidates: Vec<ScoredElementMatch>,
+        target: &MacControlTargetQuery,
+        op_label: &str,
+        target_label: &str,
+    ) -> Result<MacControlElementSummary, String> {
+        if candidates.is_empty() {
+            return Err(format!("No {target_label} matched the {op_label} target."));
+        }
+        if target
+            .element_id
+            .as_deref()
+            .is_some_and(|element_id| !element_id.is_empty())
+        {
+            return Ok(candidates.remove(0).summary);
+        }
+        candidates.sort_by(|left, right| right.score.cmp(&left.score));
+        let top_score = candidates[0].score;
+        let equal_top_count = candidates
+            .iter()
+            .take_while(|candidate| candidate.score == top_score)
+            .count();
+        if equal_top_count > 1 {
+            let preview = candidates
+                .iter()
+                .take(equal_top_count.min(5))
+                .map(|candidate| element_candidate_hint(&candidate.summary))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(format!(
+                "{equal_top_count} {target_label}s matched the {op_label} target equally; retry with elementId from snapshot, target.windowTitle, target.role, or more specific target.text. Candidates: {preview}"
+            ));
+        }
+        Ok(candidates.remove(0).summary)
+    }
+
+    fn element_candidate_hint(element: &MacControlElementSummary) -> String {
+        let mut parts = vec![element.id.clone()];
+        if let Some(role) = element.role.as_deref().filter(|value| !value.is_empty()) {
+            parts.push(format!("role={role}"));
+        }
+        if let Some(label) = element.label.as_deref().filter(|value| !value.is_empty()) {
+            parts.push(format!("label=\"{}\"", truncate_for_error(label, 48)));
+        }
+        if let Some(window_id) = element
+            .window_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            parts.push(format!("windowId={window_id}"));
+        }
+        parts.join(" ")
+    }
+
+    fn truncate_for_error(value: &str, max_chars: usize) -> String {
+        let mut chars = value.chars();
+        let mut truncated = String::new();
+        for _ in 0..max_chars {
+            let Some(ch) = chars.next() else {
+                return value.to_string();
+            };
+            truncated.push(ch);
+        }
+        if chars.next().is_some() {
+            truncated.push_str("...");
+        }
+        truncated
     }
 
     fn frontmost_app_matches_act_target(
@@ -1814,6 +2520,29 @@ mod imp {
             return contains_ci(app.bundle_id.as_deref(), Some(bundle_id));
         }
         true
+    }
+
+    fn running_app_summary_matches_target(
+        app: &MacControlRunningApp,
+        target: &MacControlTargetQuery,
+    ) -> bool {
+        let app = MacControlAppSummary {
+            pid: app.pid,
+            bundle_id: app.bundle_id.clone(),
+            name: app.name.clone(),
+        };
+        app_matches_target(&app, target)
+    }
+
+    fn target_has_app_filter(target: &MacControlTargetQuery) -> bool {
+        target
+            .app_name
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            || target
+                .bundle_id
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
     }
 
     fn text_element_matches_query(
@@ -2238,9 +2967,13 @@ mod imp {
         if let Ok(method) = press_window_close_button(window, summary) {
             return Ok(method);
         }
-        let Some(app) = snapshot.frontmost_app.as_ref() else {
+        let app = summary
+            .app_pid
+            .and_then(app_summary_for_pid)
+            .or_else(|| snapshot.frontmost_app.clone());
+        let Some(app) = app.as_ref() else {
             return Err(
-                "AXClose and close-button fallback failed; no frontmost app was available for Apple Events fallback."
+                "AXClose and close-button fallback failed; no app target was available for Apple Events fallback."
                     .to_string(),
             );
         };
@@ -2600,8 +3333,11 @@ mod imp {
     fn menu_item_summary(element: AXUIElementRef, max_depth: usize) -> MacControlMenuItemSummary {
         MacControlMenuItemSummary {
             title: attribute_string(element, "AXTitle"),
+            description: attribute_string(element, "AXDescription"),
+            value: attribute_string(element, "AXValue"),
             role: attribute_string(element, "AXRole"),
             enabled: attribute_bool(element, "AXEnabled"),
+            actions: action_names(element),
             children: menu_children(element, max_depth),
         }
     }
@@ -2635,7 +3371,14 @@ mod imp {
         let child_refs = cf_array_values(children.as_ptr());
         for child_ref in &child_refs {
             let child = *child_ref as AXUIElementRef;
-            if contains_ci(attribute_string(child, "AXTitle").as_deref(), Some(title)) {
+            if menu_item_matches_exact(child, title) {
+                let retained = unsafe { CFRetain(*child_ref as CFTypeRef) };
+                return CfOwned::new(retained);
+            }
+        }
+        for child_ref in &child_refs {
+            let child = *child_ref as AXUIElementRef;
+            if menu_item_matches_contains(child, title) {
                 let retained = unsafe { CFRetain(*child_ref as CFTypeRef) };
                 return CfOwned::new(retained);
             }
@@ -2649,6 +3392,26 @@ mod imp {
             }
         }
         None
+    }
+
+    fn menu_item_matches_exact(element: AXUIElementRef, query: &str) -> bool {
+        menu_item_match_strings(element)
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case(query))
+    }
+
+    fn menu_item_matches_contains(element: AXUIElementRef, query: &str) -> bool {
+        menu_item_match_strings(element)
+            .iter()
+            .any(|value| contains_ci(Some(value.as_str()), Some(query)))
+    }
+
+    fn menu_item_match_strings(element: AXUIElementRef) -> Vec<String> {
+        ["AXTitle", "AXDescription", "AXValue"]
+            .into_iter()
+            .filter_map(|attribute| attribute_string(element, attribute))
+            .filter(|value| !value.trim().is_empty())
+            .collect()
     }
 
     fn is_transparent_menu_container(element: AXUIElementRef) -> bool {
@@ -2778,7 +3541,7 @@ mod imp {
     fn capture_desktop_frame() -> Result<MacControlFramePayload, String> {
         let snapshot_id = ha_core::mac_control::new_snapshot_id();
         let frontmost_app = focused_app_summary();
-        let captured = capture_desktop_frame_bytes()?;
+        let captured = capture_display_frame_bytes(None)?;
         Ok(build_frame_payload(
             &snapshot_id,
             frontmost_app,
@@ -2788,30 +3551,106 @@ mod imp {
     }
 
     fn capture_desktop_frame_with_id(
-        snapshot_id: &str,
-        frontmost_app: Option<MacControlAppSummary>,
+        snapshot: &MacControlSnapshot,
+        request: &MacControlSnapshotRequest,
     ) -> Result<(MacControlFramePayload, MacControlScreenshotSummary), String> {
-        let captured = capture_desktop_frame_bytes()?;
-        let screenshot = ha_core::mac_control::store_screenshot_jpeg(
-            snapshot_id,
+        let captured = match request.screenshot_target {
+            MacControlScreenshotTarget::Display => capture_display_frame_bytes(request.display_id)?,
+            MacControlScreenshotTarget::Window => {
+                capture_window_frame_bytes(request.window_id.as_deref(), snapshot)?
+            }
+        };
+        let mut screenshot = ha_core::mac_control::store_screenshot_jpeg(
+            &snapshot.snapshot_id,
             &captured.jpeg,
             captured.width_px,
             captured.height_px,
         )?;
-        let frame = build_frame_payload(snapshot_id, frontmost_app, &captured, Some(&screenshot));
+        apply_capture_metadata_to_screenshot(&mut screenshot, &captured);
+        let frame = build_frame_payload(
+            &snapshot.snapshot_id,
+            snapshot.frontmost_app.clone(),
+            &captured,
+            Some(&screenshot),
+        );
         Ok((frame, screenshot))
     }
 
-    fn capture_desktop_frame_bytes() -> Result<CapturedDesktopFrame, String> {
+    fn capture_display_frame_bytes(
+        display_id: Option<u32>,
+    ) -> Result<CapturedDesktopFrame, String> {
         let monitors = Monitor::all().map_err(|e| format!("Failed to list macOS displays: {e}"))?;
-        let monitor = monitors
-            .iter()
-            .find(|monitor| monitor.is_primary().unwrap_or(false))
-            .or_else(|| monitors.first())
-            .ok_or_else(|| "No macOS displays detected.".to_string())?;
+        let monitor = if let Some(display_id) = display_id {
+            monitors
+                .iter()
+                .find(|monitor| monitor.id().ok() == Some(display_id))
+                .ok_or_else(|| format!("Display id {display_id} was not found."))?
+        } else {
+            monitors
+                .iter()
+                .find(|monitor| monitor.is_primary().unwrap_or(false))
+                .or_else(|| monitors.first())
+                .ok_or_else(|| "No macOS displays detected.".to_string())?
+        };
+        let display = monitor_display_summary(monitor);
         let rgba_image = monitor.capture_image().map_err(|e| {
             format!("Desktop capture failed; Screen Recording permission may be missing: {e}")
         })?;
+        let (jpeg, width_px, height_px) = encode_rgba_as_jpeg(rgba_image, "macOS display frame")?;
+        Ok(CapturedDesktopFrame {
+            jpeg,
+            width_px,
+            height_px,
+            target: MacControlScreenshotTarget::Display,
+            display_id: display.as_ref().map(|display| display.id),
+            window_id: None,
+            window_title: None,
+            bounds_points: display.as_ref().map(|display| display.frame_points),
+            scale: display.as_ref().map(|display| display.scale),
+        })
+    }
+
+    fn capture_window_frame_bytes(
+        window_id: Option<&str>,
+        snapshot: &MacControlSnapshot,
+    ) -> Result<CapturedDesktopFrame, String> {
+        let summary = select_snapshot_window_for_capture(window_id, snapshot)?;
+        let window = find_xcap_window_for_summary(summary)?;
+        let display = display_for_window(summary, snapshot).or_else(|| {
+            window
+                .current_monitor()
+                .ok()
+                .and_then(|monitor| monitor_display_summary(&monitor))
+        });
+        let rgba_image = window.capture_image().map_err(|e| {
+            format!(
+                "Window capture failed for {}{}; Screen Recording permission may be missing: {e}",
+                summary.id,
+                summary
+                    .title
+                    .as_deref()
+                    .map(|title| format!(" ({title})"))
+                    .unwrap_or_default()
+            )
+        })?;
+        let (jpeg, width_px, height_px) = encode_rgba_as_jpeg(rgba_image, "macOS window frame")?;
+        Ok(CapturedDesktopFrame {
+            jpeg,
+            width_px,
+            height_px,
+            target: MacControlScreenshotTarget::Window,
+            display_id: display.as_ref().map(|display| display.id),
+            window_id: Some(summary.id.clone()),
+            window_title: summary.title.clone(),
+            bounds_points: summary.bounds_points,
+            scale: display.as_ref().map(|display| display.scale),
+        })
+    }
+
+    fn encode_rgba_as_jpeg(
+        rgba_image: image::RgbaImage,
+        label: &str,
+    ) -> Result<(Vec<u8>, u32, u32), String> {
         let width_px = rgba_image.width();
         let height_px = rgba_image.height();
         let rgb_image = image::DynamicImage::ImageRgba8(rgba_image).to_rgb8();
@@ -2819,13 +3658,9 @@ mod imp {
         let mut encoder = JpegEncoder::new_with_quality(&mut jpeg, 70);
         encoder
             .encode_image(&rgb_image)
-            .map_err(|e| format!("Failed to encode macOS frame as JPEG: {e}"))?;
+            .map_err(|e| format!("Failed to encode {label} as JPEG: {e}"))?;
 
-        Ok(CapturedDesktopFrame {
-            jpeg,
-            width_px,
-            height_px,
-        })
+        Ok((jpeg, width_px, height_px))
     }
 
     fn build_frame_payload(
@@ -2843,9 +3678,175 @@ mod imp {
             jpeg_base64,
             width_px: captured.width_px,
             height_px: captured.height_px,
+            target: captured.target,
+            display_id: captured.display_id,
+            window_id: captured.window_id.clone(),
+            window_title: captured.window_title.clone(),
+            bounds_points: captured.bounds_points,
+            scale: captured.scale,
             captured_at: chrono::Utc::now().timestamp_millis(),
             frontmost_app,
         }
+    }
+
+    fn apply_capture_metadata_to_screenshot(
+        screenshot: &mut MacControlScreenshotSummary,
+        captured: &CapturedDesktopFrame,
+    ) {
+        screenshot.target = captured.target;
+        screenshot.display_id = captured.display_id;
+        screenshot.window_id = captured.window_id.clone();
+        screenshot.window_title = captured.window_title.clone();
+        screenshot.bounds_points = captured.bounds_points;
+        screenshot.scale = captured.scale;
+    }
+
+    fn select_snapshot_window_for_capture<'a>(
+        window_id: Option<&str>,
+        snapshot: &'a MacControlSnapshot,
+    ) -> Result<&'a MacControlWindowSummary, String> {
+        if let Some(window_id) = window_id {
+            return snapshot
+                .windows
+                .iter()
+                .find(|window| window.id == window_id)
+                .ok_or_else(|| {
+                    format!(
+                        "Snapshot window id '{window_id}' was not found; retry with a fresh snapshot."
+                    )
+                });
+        }
+        snapshot
+            .windows
+            .iter()
+            .find(|window| window.focused)
+            .or_else(|| {
+                snapshot
+                    .windows
+                    .iter()
+                    .find(|window| window.bounds_points.is_some())
+            })
+            .ok_or_else(|| {
+                "No frontmost window is available for window screenshot capture.".to_string()
+            })
+    }
+
+    fn find_xcap_window_for_summary(summary: &MacControlWindowSummary) -> Result<Window, String> {
+        let windows =
+            Window::all().map_err(|e| format!("Failed to list capturable windows: {e}"))?;
+        let mut best: Option<(i64, Window)> = None;
+        for window in windows {
+            let Some(score) = xcap_window_score(&window, summary) else {
+                continue;
+            };
+            if best
+                .as_ref()
+                .is_none_or(|(best_score, _)| score > *best_score)
+            {
+                best = Some((score, window));
+            }
+        }
+        best.map(|(_, window)| window).ok_or_else(|| {
+            format!(
+                "Unable to match AX window '{}'{} to a capturable macOS window.",
+                summary.id,
+                summary
+                    .title
+                    .as_deref()
+                    .map(|title| format!(" ({title})"))
+                    .unwrap_or_default()
+            )
+        })
+    }
+
+    fn xcap_window_score(window: &Window, summary: &MacControlWindowSummary) -> Option<i64> {
+        let mut score = 0_i64;
+        if let Some(pid) = summary.app_pid {
+            let window_pid = window.pid().ok()?;
+            if window_pid != pid as u32 {
+                return None;
+            }
+            score += 1_000;
+        }
+
+        let window_title = window.title().unwrap_or_default();
+        if let Some(expected_title) = summary.title.as_deref().filter(|title| !title.is_empty()) {
+            if window_title.eq_ignore_ascii_case(expected_title) {
+                score += 300;
+            } else if !window_title.is_empty()
+                && (contains_ci(Some(&window_title), Some(expected_title))
+                    || contains_ci(Some(expected_title), Some(&window_title)))
+            {
+                score += 120;
+            } else if summary.app_pid.is_none() {
+                return None;
+            }
+        }
+
+        if let Some(expected_bounds) = summary.bounds_points {
+            if let Some(actual_bounds) = xcap_window_bounds(window) {
+                let distance = bounds_distance(expected_bounds, actual_bounds).round() as i64;
+                if distance <= 12 {
+                    score += 240;
+                } else if distance <= 80 {
+                    score += 120_i64.saturating_sub(distance);
+                } else if summary.app_pid.is_none()
+                    && summary.title.as_deref().is_none_or(str::is_empty)
+                {
+                    return None;
+                }
+            }
+        }
+
+        (score > 0).then_some(score)
+    }
+
+    fn xcap_window_bounds(window: &Window) -> Option<MacControlBounds> {
+        Some(MacControlBounds {
+            x: f64::from(window.x().ok()?),
+            y: f64::from(window.y().ok()?),
+            width: f64::from(window.width().ok()?),
+            height: f64::from(window.height().ok()?),
+        })
+    }
+
+    fn bounds_distance(a: MacControlBounds, b: MacControlBounds) -> f64 {
+        (a.x - b.x).abs()
+            + (a.y - b.y).abs()
+            + (a.width - b.width).abs()
+            + (a.height - b.height).abs()
+    }
+
+    fn display_for_window(
+        window: &MacControlWindowSummary,
+        snapshot: &MacControlSnapshot,
+    ) -> Option<MacControlDisplaySummary> {
+        let bounds = window.bounds_points?;
+        let center_x = bounds.x + bounds.width / 2.0;
+        let center_y = bounds.y + bounds.height / 2.0;
+        snapshot
+            .displays
+            .iter()
+            .find(|display| point_in_bounds(center_x, center_y, display.frame_points))
+            .cloned()
+            .or_else(|| {
+                snapshot
+                    .displays
+                    .iter()
+                    .find(|display| bounds_intersect(bounds, display.frame_points))
+                    .cloned()
+            })
+    }
+
+    fn point_in_bounds(x: f64, y: f64, bounds: MacControlBounds) -> bool {
+        x >= bounds.x
+            && y >= bounds.y
+            && x <= bounds.x + bounds.width
+            && y <= bounds.y + bounds.height
+    }
+
+    fn bounds_intersect(a: MacControlBounds, b: MacControlBounds) -> bool {
+        a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
     }
 
     fn display_summaries() -> Result<Vec<MacControlDisplaySummary>, String> {
@@ -2875,6 +3876,24 @@ mod imp {
         let system = CfOwned::new(system as CFTypeRef)?;
         let app = copy_attribute(system.as_ptr() as AXUIElementRef, "AXFocusedApplication")?;
         Some(app_summary(app.as_ptr() as AXUIElementRef))
+    }
+
+    fn app_summary_for_pid(pid: i32) -> Option<MacControlAppSummary> {
+        let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
+        let summary = running_app_summary(&app);
+        Some(MacControlAppSummary {
+            pid: summary.pid,
+            bundle_id: summary.bundle_id,
+            name: summary.name,
+        })
+    }
+
+    fn app_element_for_pid(pid: i32) -> Option<CfOwned> {
+        if pid <= 0 {
+            return None;
+        }
+        let app = unsafe { AXUIElementCreateApplication(pid) };
+        CfOwned::new(app as CFTypeRef)
     }
 
     fn app_summary(app: AXUIElementRef) -> MacControlAppSummary {
@@ -2910,6 +3929,18 @@ mod imp {
             focused: attribute_bool(window, "AXFocused").unwrap_or(false),
             bounds_points: element_bounds(window),
         }
+    }
+
+    fn window_summary_for_app(
+        window: AXUIElementRef,
+        id: &str,
+        app_pid: Option<i32>,
+    ) -> MacControlWindowSummary {
+        let mut summary = window_summary(window, id);
+        if summary.app_pid.is_none() {
+            summary.app_pid = app_pid;
+        }
+        summary
     }
 
     fn traverse_element(
