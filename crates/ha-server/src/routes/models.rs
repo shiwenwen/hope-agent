@@ -108,8 +108,8 @@ pub async fn set_fallback_models(
 
 /// `POST /api/models/reasoning-effort` — validate and persist the current
 /// Think / reasoning effort. When `sessionId` is supplied, it is stored as a
-/// session-scoped override; when `agentId` can be resolved, it is also stored
-/// as that agent's default for future conversations.
+/// session-scoped override; when `agentId` is supplied, it is also stored as
+/// that agent's default for future conversations.
 pub async fn set_reasoning_effort(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<SetReasoningEffortBody>,
@@ -130,13 +130,8 @@ pub async fn set_reasoning_effort(
         .agent_id
         .as_deref()
         .map(str::trim)
-        .filter(|id| !id.trim().is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            session_id
-                .and_then(|sid| ctx.session_db.get_session(sid).ok().flatten())
-                .map(|meta| meta.agent_id)
-        });
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
 
     if session_id.is_some() || agent_id.is_none() {
         if let Some(cell) = ha_core::get_reasoning_effort_cell() {

@@ -307,12 +307,7 @@ pub async fn set_reasoning_effort(
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            session_id
-                .and_then(|sid| state.session_db.get_session(sid).ok().flatten())
-                .map(|meta| meta.agent_id)
-        });
+        .map(str::to_string);
 
     if session_id.is_some() || agent_id.is_none() {
         set_reasoning_effort_core(&effort, &state).await?;

@@ -428,11 +428,12 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
             result.snippet
         ));
     }
+    let cache_output = output.clone();
     append_provider_diagnostics(&mut output, &no_result_providers, &provider_errors);
 
     // Write to cache
     let ck = search_cache_key(&used_provider, query, count, &params);
-    write_search_cache(ck, output.clone(), config.cache_ttl_minutes);
+    write_search_cache(ck, cache_output, config.cache_ttl_minutes);
 
     Ok(output)
 }
