@@ -89,7 +89,8 @@ Standard visual loop:
 
 ```
 visual.observe screenshotTarget="window" | "display"
-read the returned image and choose an image pixel point
+visual.ocr or visual.find_text text="..."      # when the target is visible text
+read the returned image and choose an image pixel point # when OCR is not enough
 visual.point snapshotId=... coordinateSpace="image_pixels" x=... y=...
 act.click_point x=<suggestedAction.x> y=<suggestedAction.y>
 verify with snapshot, visual.observe, wait, or elements.find
@@ -98,10 +99,14 @@ verify with snapshot, visual.observe, wait, or elements.find
 Rules:
 
 - `visual.observe` is read-only. It returns an image file marker for model vision plus a compact JSON payload with `snapshotId`, screenshot metadata, displays, and windows.
+- `visual.ocr` is read-only. Use it when visible text matters but you do not need to filter for one phrase yet.
+- `visual.find_text` is read-only. Use it before coordinate clicking visible words or text-only buttons; pass `textMatch="contains"` only for intentional partial text.
+- `visual.find_text` returns OCR `textMatches` with center points, AX `hitElements` / `nearestElements`, and a top-level `suggestedAction`.
 - Image pixel coordinates use the screenshot top-left as origin. `(0, 0)` is valid. Never pass image pixels directly to `act.click_point`.
 - Always call `visual.point` before coordinate clicks chosen from a screenshot. It converts image pixels to macOS screen points and returns AX `hitElements` / `nearestElements`.
-- Prefer `suggestedAction.x/y` from `visual.point` for `act.click_point`. If `insideFrame=false`, do not click; adjust the point or observe again.
+- Prefer `suggestedAction.x/y` from `visual.point` or `visual.find_text` for `act.click_point`. If `insideFrame=false`, do not click; adjust the point or observe again.
 - If `hitElements[0]` is a clear AX target, prefer `act.click target.elementId=...` over raw `act.click_point`.
+- If OCR returns no match, do not click blindly. Retry with `textMatch="contains"`, OCR `languages`, a fresh window screenshot, or use image-pixel visual positioning.
 - If the snapshot expired or lacks screenshot metadata, call `visual.observe` again instead of reusing old points.
 
 ### Menus

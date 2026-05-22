@@ -73,6 +73,10 @@ pub trait MacControlBridge: Send + Sync {
         &self,
         request: MacControlDialogRequest,
     ) -> Result<MacControlDialogResult, String>;
+    async fn ocr(
+        &self,
+        request: MacControlOcrRequest,
+    ) -> Result<Vec<MacControlOcrRawTextBlock>, String>;
 }
 
 static MAC_CONTROL_BRIDGE: OnceLock<Arc<dyn MacControlBridge>> = OnceLock::new();
@@ -266,6 +270,10 @@ pub struct MacControlVisualRequest {
     #[serde(default)]
     pub snapshot_id: Option<String>,
     #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub text_match: MacControlStringMatch,
+    #[serde(default)]
     pub coordinate_space: MacControlCoordinateSpace,
     #[serde(default)]
     pub x: Option<f64>,
@@ -283,12 +291,29 @@ pub struct MacControlVisualRequest {
     pub max_depth: usize,
     #[serde(default = "default_visual_limit")]
     pub limit: usize,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub min_confidence: Option<f32>,
+    #[serde(default)]
+    pub recognition_level: MacControlOcrRecognitionLevel,
 }
 
 impl MacControlVisualRequest {
     pub fn clamped(mut self) -> Self {
         self.snapshot_id = normalize_optional_string(self.snapshot_id);
+        self.text = normalize_optional_string(self.text);
         self.window_id = normalize_optional_string(self.window_id);
+        self.languages = self
+            .languages
+            .into_iter()
+            .filter_map(|language| normalize_optional_string(Some(language)))
+            .take(16)
+            .collect();
+        self.min_confidence = self
+            .min_confidence
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(0.0, 1.0));
         if self.max_elements == 0 {
             self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
         }
@@ -315,6 +340,8 @@ pub enum MacControlVisualOp {
     #[default]
     Observe,
     Point,
+    Ocr,
+    FindText,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -323,6 +350,14 @@ pub enum MacControlCoordinateSpace {
     #[default]
     ImagePixels,
     ScreenPoints,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlOcrRecognitionLevel {
+    Fast,
+    #[default]
+    Accurate,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -502,6 +537,8 @@ pub struct MacControlVisualResult {
     pub inside_frame: Option<bool>,
     pub hit_elements: Vec<MacControlVisualElementMatch>,
     pub nearest_elements: Vec<MacControlVisualElementMatch>,
+    pub text_blocks: Vec<MacControlOcrTextBlock>,
+    pub text_matches: Vec<MacControlOcrTextMatch>,
     pub suggested_action: Option<MacControlSuggestedAction>,
     pub warnings: Vec<String>,
 }
@@ -520,6 +557,43 @@ pub struct MacControlVisualElementMatch {
     pub window: Option<MacControlWindowSummary>,
     pub contains_point: bool,
     pub distance_points: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlOcrTextBlock {
+    pub id: String,
+    pub text: String,
+    pub confidence: f32,
+    pub image_bounds: MacControlBounds,
+    pub screen_bounds: MacControlBounds,
+    pub image_point: MacControlPoint,
+    pub screen_point: MacControlPoint,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlOcrTextMatch {
+    pub block: MacControlOcrTextBlock,
+    pub score: u8,
+    pub reasons: Vec<String>,
+    pub hit_elements: Vec<MacControlVisualElementMatch>,
+    pub nearest_elements: Vec<MacControlVisualElementMatch>,
+    pub suggested_action: Option<MacControlSuggestedAction>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MacControlOcrRequest {
+    pub screenshot: MacControlScreenshotSummary,
+    pub languages: Vec<String>,
+    pub recognition_level: MacControlOcrRecognitionLevel,
+}
+
+#[derive(Debug, Clone)]
+pub struct MacControlOcrRawTextBlock {
+    pub text: String,
+    pub confidence: f32,
+    pub image_bounds: MacControlBounds,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1700,6 +1774,8 @@ pub async fn visual(request: MacControlVisualRequest) -> MacControlVisualRespons
     match request.op {
         MacControlVisualOp::Observe => visual_observe(request).await,
         MacControlVisualOp::Point => visual_point(request).await,
+        MacControlVisualOp::Ocr => visual_ocr(request).await,
+        MacControlVisualOp::FindText => visual_find_text(request).await,
     }
 }
 
@@ -1828,6 +1904,159 @@ async fn visual_point(request: MacControlVisualRequest) -> MacControlVisualRespo
             result: None,
             error: Some(error),
         },
+    }
+}
+
+async fn visual_ocr(request: MacControlVisualRequest) -> MacControlVisualResponse {
+    visual_ocr_or_find_text(request, false).await
+}
+
+async fn visual_find_text(request: MacControlVisualRequest) -> MacControlVisualResponse {
+    visual_ocr_or_find_text(request, true).await
+}
+
+async fn visual_ocr_or_find_text(
+    request: MacControlVisualRequest,
+    find_text: bool,
+) -> MacControlVisualResponse {
+    let Some(bridge) = available_bridge() else {
+        return unsupported_visual_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlVisualResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if !permission_granted(&system_permissions, "screen_recording") {
+        return MacControlVisualResponse {
+            status,
+            result: None,
+            error: Some("mac_control visual OCR requires Screen Recording permission.".to_string()),
+        };
+    }
+    if find_text && !permission_granted(&system_permissions, "accessibility") {
+        return MacControlVisualResponse {
+            status,
+            result: None,
+            error: Some(
+                "mac_control visual.find_text requires Accessibility permission.".to_string(),
+            ),
+        };
+    }
+    if request.snapshot_id.is_none() && !permission_granted(&system_permissions, "accessibility") {
+        return MacControlVisualResponse {
+            status,
+            result: None,
+            error: Some(
+                "mac_control visual OCR without snapshotId requires Accessibility permission to capture a fresh snapshot."
+                    .to_string(),
+            ),
+        };
+    }
+    if find_text && request.text.is_none() {
+        return MacControlVisualResponse {
+            status,
+            result: None,
+            error: Some("mac_control visual.find_text requires text.".to_string()),
+        };
+    }
+
+    let snapshot = match visual_snapshot_for_ocr(&*bridge, &request).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            record_error("visual", &error);
+            return MacControlVisualResponse {
+                status,
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
+    let screenshot = match snapshot.screenshot.clone() {
+        Some(screenshot) => screenshot,
+        None => {
+            return MacControlVisualResponse {
+                status,
+                result: None,
+                error: Some(format!(
+                    "mac_control visual OCR snapshotId '{}' has no screenshot metadata; call visual.observe or omit snapshotId.",
+                    snapshot.snapshot_id
+                )),
+            };
+        }
+    };
+
+    let raw_blocks = match bridge
+        .ocr(MacControlOcrRequest {
+            screenshot: screenshot.clone(),
+            languages: request.languages.clone(),
+            recognition_level: request.recognition_level,
+        })
+        .await
+    {
+        Ok(blocks) => blocks,
+        Err(error) => {
+            record_error("visual.ocr", &error);
+            return MacControlVisualResponse {
+                status,
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let text_blocks = match resolve_ocr_text_blocks(&snapshot, raw_blocks, request.min_confidence) {
+        Ok(blocks) => blocks,
+        Err(error) => {
+            return MacControlVisualResponse {
+                status,
+                result: None,
+                error: Some(error),
+            };
+        }
+    };
+    let text_matches = if find_text {
+        resolve_ocr_text_matches(
+            &snapshot,
+            &text_blocks,
+            request.text.as_deref().unwrap_or_default(),
+            request.text_match,
+            request.limit,
+        )
+    } else {
+        Vec::new()
+    };
+    let suggested_action = text_matches
+        .first()
+        .and_then(|candidate| candidate.suggested_action.clone());
+
+    MacControlVisualResponse {
+        status,
+        result: Some(MacControlVisualResult {
+            op: if find_text {
+                MacControlVisualOp::FindText
+            } else {
+                MacControlVisualOp::Ocr
+            },
+            snapshot_id: Some(snapshot.snapshot_id),
+            snapshot: None,
+            screenshot: Some(screenshot),
+            coordinate_space: None,
+            image_point: None,
+            screen_point: None,
+            inside_frame: None,
+            hit_elements: Vec::new(),
+            nearest_elements: Vec::new(),
+            text_blocks,
+            text_matches,
+            suggested_action,
+            warnings: snapshot.warnings,
+        }),
+        error: None,
     }
 }
 
@@ -2469,9 +2698,37 @@ fn visual_observe_result(snapshot: MacControlSnapshot) -> MacControlVisualResult
         inside_frame: None,
         hit_elements: Vec::new(),
         nearest_elements: Vec::new(),
+        text_blocks: Vec::new(),
+        text_matches: Vec::new(),
         suggested_action: None,
         warnings,
     }
+}
+
+async fn visual_snapshot_for_ocr(
+    bridge: &dyn MacControlBridge,
+    request: &MacControlVisualRequest,
+) -> Result<MacControlSnapshot, String> {
+    if let Some(snapshot_id) = request.snapshot_id.as_deref() {
+        return cached_snapshot(snapshot_id).ok_or_else(|| {
+            format!(
+                "mac_control visual OCR snapshotId '{snapshot_id}' was not found or expired; call visual.observe again."
+            )
+        });
+    }
+
+    let snapshot = bridge
+        .snapshot(MacControlSnapshotRequest {
+            include_screenshot: true,
+            screenshot_target: request.screenshot_target,
+            display_id: request.display_id,
+            window_id: request.window_id.clone(),
+            max_elements: request.max_elements,
+            max_depth: request.max_depth,
+        })
+        .await?;
+    record_snapshot(snapshot.clone());
+    Ok(snapshot)
 }
 
 fn resolve_visual_point(
@@ -2553,6 +2810,8 @@ fn resolve_visual_point(
         inside_frame: Some(inside_frame),
         hit_elements,
         nearest_elements,
+        text_blocks: Vec::new(),
+        text_matches: Vec::new(),
         suggested_action,
         warnings: if inside_frame {
             Vec::new()
@@ -2560,6 +2819,213 @@ fn resolve_visual_point(
             vec!["The resolved point is outside the captured screenshot frame.".to_string()]
         },
     })
+}
+
+fn resolve_ocr_text_blocks(
+    snapshot: &MacControlSnapshot,
+    raw_blocks: Vec<MacControlOcrRawTextBlock>,
+    min_confidence: Option<f32>,
+) -> Result<Vec<MacControlOcrTextBlock>, String> {
+    let (screenshot, frame, scale) = visual_screenshot_metadata(snapshot, "visual OCR")?;
+    let min_confidence = min_confidence.unwrap_or(0.0);
+    let mut blocks = raw_blocks
+        .into_iter()
+        .filter_map(|block| {
+            let text = block.text.trim().to_string();
+            if text.is_empty() || !block.confidence.is_finite() || block.confidence < min_confidence
+            {
+                return None;
+            }
+            let image_bounds = clamp_image_bounds(
+                block.image_bounds,
+                screenshot.width_px as f64,
+                screenshot.height_px as f64,
+            )?;
+            let screen_bounds = image_bounds_to_screen_bounds(image_bounds, frame, scale);
+            Some((text, block.confidence, image_bounds, screen_bounds))
+        })
+        .collect::<Vec<_>>();
+
+    blocks.sort_by(|a, b| {
+        a.2.y
+            .partial_cmp(&b.2.y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                a.2.x
+                    .partial_cmp(&b.2.x)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    Ok(blocks
+        .into_iter()
+        .enumerate()
+        .map(
+            |(idx, (text, confidence, image_bounds, screen_bounds))| MacControlOcrTextBlock {
+                id: format!("txt_{}", idx + 1),
+                text,
+                confidence,
+                image_bounds,
+                screen_bounds,
+                image_point: bounds_center(image_bounds),
+                screen_point: bounds_center(screen_bounds),
+            },
+        )
+        .collect())
+}
+
+fn resolve_ocr_text_matches(
+    snapshot: &MacControlSnapshot,
+    text_blocks: &[MacControlOcrTextBlock],
+    query: &str,
+    strategy: MacControlStringMatch,
+    limit: usize,
+) -> Vec<MacControlOcrTextMatch> {
+    let limit = limit.max(1);
+    let mut matches = text_blocks
+        .iter()
+        .filter_map(|block| {
+            if !string_matches(Some(&block.text), query, strategy) {
+                return None;
+            }
+            let exact = block.text.eq_ignore_ascii_case(query);
+            let score = if exact { 100 } else { 80 };
+            let mut reasons = vec![match strategy {
+                MacControlStringMatch::Exact => "text_exact".to_string(),
+                MacControlStringMatch::Contains => "text_contains".to_string(),
+            }];
+            if block.confidence >= 0.8 {
+                reasons.push("high_confidence".to_string());
+            }
+            Some((block.clone(), score, reasons))
+        })
+        .collect::<Vec<_>>();
+
+    matches.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| {
+                b.0.confidence
+                    .partial_cmp(&a.0.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                bounds_area(a.0.screen_bounds)
+                    .partial_cmp(&bounds_area(b.0.screen_bounds))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.0.id.cmp(&b.0.id))
+    });
+
+    matches
+        .into_iter()
+        .take(limit)
+        .map(|(block, score, reasons)| {
+            let (hit_elements, nearest_elements) =
+                visual_element_matches(snapshot, block.screen_point, limit, true);
+            let suggested_action = Some(MacControlSuggestedAction {
+                action: "act".to_string(),
+                op: MacControlActOp::ClickPoint,
+                x: block.screen_point.x,
+                y: block.screen_point.y,
+            });
+            MacControlOcrTextMatch {
+                block,
+                score,
+                reasons,
+                hit_elements,
+                nearest_elements,
+                suggested_action,
+            }
+        })
+        .collect()
+}
+
+fn visual_screenshot_metadata<'a>(
+    snapshot: &'a MacControlSnapshot,
+    operation: &str,
+) -> Result<(&'a MacControlScreenshotSummary, MacControlBounds, f64), String> {
+    let screenshot = snapshot.screenshot.as_ref().ok_or_else(|| {
+        format!(
+            "mac_control {operation} snapshotId '{}' has no screenshot metadata; call visual.observe or snapshot includeScreenshot=true.",
+            snapshot.snapshot_id
+        )
+    })?;
+    let frame = screenshot.bounds_points.ok_or_else(|| {
+        format!(
+            "mac_control {operation} snapshotId '{}' has no screenshot bounds metadata.",
+            snapshot.snapshot_id
+        )
+    })?;
+    let scale = screenshot.scale.ok_or_else(|| {
+        format!(
+            "mac_control {operation} snapshotId '{}' has no screenshot scale metadata.",
+            snapshot.snapshot_id
+        )
+    })?;
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err(format!(
+            "mac_control {operation} snapshotId '{}' has invalid screenshot scale.",
+            snapshot.snapshot_id
+        ));
+    }
+    if frame.width <= 0.0 || frame.height <= 0.0 {
+        return Err(format!(
+            "mac_control {operation} snapshotId '{}' has invalid screenshot bounds.",
+            snapshot.snapshot_id
+        ));
+    }
+    Ok((screenshot, frame, scale))
+}
+
+fn clamp_image_bounds(
+    bounds: MacControlBounds,
+    width_px: f64,
+    height_px: f64,
+) -> Option<MacControlBounds> {
+    if !bounds.x.is_finite()
+        || !bounds.y.is_finite()
+        || !bounds.width.is_finite()
+        || !bounds.height.is_finite()
+        || width_px <= 0.0
+        || height_px <= 0.0
+    {
+        return None;
+    }
+    let x1 = bounds.x.max(0.0).min(width_px);
+    let y1 = bounds.y.max(0.0).min(height_px);
+    let x2 = (bounds.x + bounds.width).max(0.0).min(width_px);
+    let y2 = (bounds.y + bounds.height).max(0.0).min(height_px);
+    (x2 > x1 && y2 > y1).then_some(MacControlBounds {
+        x: x1,
+        y: y1,
+        width: x2 - x1,
+        height: y2 - y1,
+    })
+}
+
+fn image_bounds_to_screen_bounds(
+    image_bounds: MacControlBounds,
+    frame: MacControlBounds,
+    scale: f64,
+) -> MacControlBounds {
+    MacControlBounds {
+        x: frame.x + image_bounds.x / scale,
+        y: frame.y + image_bounds.y / scale,
+        width: image_bounds.width / scale,
+        height: image_bounds.height / scale,
+    }
+}
+
+fn bounds_center(bounds: MacControlBounds) -> MacControlPoint {
+    MacControlPoint {
+        x: bounds.x + bounds.width / 2.0,
+        y: bounds.y + bounds.height / 2.0,
+    }
+}
+
+fn bounds_area(bounds: MacControlBounds) -> f64 {
+    bounds.width.max(0.0) * bounds.height.max(0.0)
 }
 
 fn visual_element_matches(
@@ -3165,6 +3631,12 @@ mod tests {
             max_elements: 10_000,
             max_depth: 100,
             limit: 0,
+            languages: vec![
+                " zh-Hans ".to_string(),
+                " ".to_string(),
+                "en-US".to_string(),
+            ],
+            min_confidence: Some(2.0),
             ..Default::default()
         }
         .clamped();
@@ -3177,6 +3649,8 @@ mod tests {
         assert_eq!(request.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(request.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
         assert_eq!(request.limit, DEFAULT_VISUAL_LIMIT);
+        assert_eq!(request.languages, vec!["zh-Hans", "en-US"]);
+        assert_eq!(request.min_confidence, Some(1.0));
 
         let point: MacControlVisualRequest = serde_json::from_value(serde_json::json!({
             "op": "point",
@@ -3198,6 +3672,25 @@ mod tests {
         assert_eq!(point.limit, HARD_ELEMENTS_LIMIT);
         assert_eq!(point.x, Some(0.0));
         assert_eq!(point.y, Some(0.0));
+
+        let find_text: MacControlVisualRequest = serde_json::from_value(serde_json::json!({
+            "op": "find_text",
+            "text": " Save ",
+            "textMatch": "contains",
+            "recognitionLevel": "fast",
+            "minConfidence": 0.42
+        }))
+        .expect("visual find_text request");
+        let find_text = find_text.clamped();
+
+        assert_eq!(find_text.op, MacControlVisualOp::FindText);
+        assert_eq!(find_text.text.as_deref(), Some("Save"));
+        assert_eq!(find_text.text_match, MacControlStringMatch::Contains);
+        assert_eq!(
+            find_text.recognition_level,
+            MacControlOcrRecognitionLevel::Fast
+        );
+        assert_eq!(find_text.min_confidence, Some(0.42));
     }
 
     #[test]
@@ -3312,6 +3805,102 @@ mod tests {
         .expect_err("missing screenshot should fail");
 
         assert!(error.contains("has no screenshot metadata"));
+    }
+
+    #[test]
+    fn visual_ocr_maps_image_bounds_to_screen_points() {
+        let snapshot = sample_snapshot();
+        let blocks = resolve_ocr_text_blocks(
+            &snapshot,
+            vec![MacControlOcrRawTextBlock {
+                text: " 保存 ".to_string(),
+                confidence: 0.91,
+                image_bounds: MacControlBounds {
+                    x: 0.0,
+                    y: 20.0,
+                    width: 40.0,
+                    height: 20.0,
+                },
+            }],
+            None,
+        )
+        .expect("ocr blocks");
+
+        assert_eq!(blocks.len(), 1);
+        let block = &blocks[0];
+        assert_eq!(block.id, "txt_1");
+        assert_eq!(block.text, "保存");
+        assert_eq!(block.image_point.x, 20.0);
+        assert_eq!(block.image_point.y, 30.0);
+        assert_eq!(block.screen_bounds.x, 50.0);
+        assert_eq!(block.screen_bounds.y, 90.0);
+        assert_eq!(block.screen_bounds.width, 20.0);
+        assert_eq!(block.screen_bounds.height, 10.0);
+        assert_eq!(block.screen_point.x, 60.0);
+        assert_eq!(block.screen_point.y, 95.0);
+    }
+
+    #[test]
+    fn visual_find_text_filters_and_returns_suggested_action() {
+        let snapshot = sample_snapshot();
+        let blocks = resolve_ocr_text_blocks(
+            &snapshot,
+            vec![
+                MacControlOcrRawTextBlock {
+                    text: "Open".to_string(),
+                    confidence: 0.95,
+                    image_bounds: MacControlBounds {
+                        x: 140.0,
+                        y: 90.0,
+                        width: 80.0,
+                        height: 30.0,
+                    },
+                },
+                MacControlOcrRawTextBlock {
+                    text: "Ignored".to_string(),
+                    confidence: 0.1,
+                    image_bounds: MacControlBounds {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 20.0,
+                        height: 10.0,
+                    },
+                },
+            ],
+            Some(0.5),
+        )
+        .expect("ocr blocks");
+        let matches = resolve_ocr_text_matches(
+            &snapshot,
+            &blocks,
+            "pen",
+            MacControlStringMatch::Contains,
+            5,
+        );
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].block.text, "Open");
+        assert!(matches[0]
+            .hit_elements
+            .iter()
+            .any(|hit| hit.element.id == "el_1"));
+        let action = matches[0]
+            .suggested_action
+            .as_ref()
+            .expect("suggested action");
+        assert_eq!(action.op, MacControlActOp::ClickPoint);
+        assert_eq!(action.x, matches[0].block.screen_point.x);
+        assert_eq!(action.y, matches[0].block.screen_point.y);
+
+        let none = resolve_ocr_text_matches(
+            &snapshot,
+            &blocks,
+            "Cancel",
+            MacControlStringMatch::Exact,
+            5,
+        );
+        assert!(none.is_empty());
     }
 
     #[test]

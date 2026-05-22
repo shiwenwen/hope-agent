@@ -29,19 +29,25 @@ mod imp {
         MacControlElementCandidate, MacControlElementSummary, MacControlElementsRequest,
         MacControlElementsResult, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
-        MacControlMenuScope, MacControlRunningApp, MacControlScreenshotSummary,
+        MacControlMenuScope, MacControlOcrRawTextBlock, MacControlOcrRecognitionLevel,
+        MacControlOcrRequest, MacControlRunningApp, MacControlScreenshotSummary,
         MacControlScreenshotTarget, MacControlSnapshot, MacControlSnapshotRequest,
         MacControlStringMatch, MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
         MacControlWindowsRequest, MacControlWindowsResult, MacControlWindowsScope,
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
-    use objc2::runtime::ProtocolObject;
+    use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{sel, AnyThread};
     use objc2_app_kit::{
         NSApplicationActivationOptions, NSApplicationActivationPolicy, NSPasteboard,
         NSPasteboardItem, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
     };
-    use objc2_foundation::{NSArray, NSBundle, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSDictionary, NSString, NSURL};
+    use objc2_vision::{
+        VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
+        VNRequestTextRecognitionLevel,
+    };
     use xcap::{Monitor, Window};
 
     struct TauriMacControlBridge;
@@ -125,6 +131,15 @@ mod imp {
             tokio::task::spawn_blocking(move || handle_dialog(request))
                 .await
                 .map_err(|e| format!("macOS dialog worker failed: {e}"))?
+        }
+
+        async fn ocr(
+            &self,
+            request: MacControlOcrRequest,
+        ) -> Result<Vec<MacControlOcrRawTextBlock>, String> {
+            tokio::task::spawn_blocking(move || handle_ocr(request))
+                .await
+                .map_err(|e| format!("macOS OCR worker failed: {e}"))?
         }
     }
 
@@ -3548,6 +3563,79 @@ mod imp {
             &captured,
             None,
         ))
+    }
+
+    fn handle_ocr(request: MacControlOcrRequest) -> Result<Vec<MacControlOcrRawTextBlock>, String> {
+        if !Path::new(&request.screenshot.path).is_file() {
+            return Err(format!(
+                "mac_control visual OCR screenshot file was not found: {}",
+                request.screenshot.path
+            ));
+        }
+
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&request.screenshot.path));
+        let vision_request = VNRecognizeTextRequest::new();
+        vision_request.setRecognitionLevel(match request.recognition_level {
+            MacControlOcrRecognitionLevel::Fast => VNRequestTextRecognitionLevel::Fast,
+            MacControlOcrRecognitionLevel::Accurate => VNRequestTextRecognitionLevel::Accurate,
+        });
+        vision_request.setUsesLanguageCorrection(true);
+        if vision_request.respondsToSelector(sel!(setAutomaticallyDetectsLanguage:)) {
+            vision_request.setAutomaticallyDetectsLanguage(true);
+        }
+
+        if !request.languages.is_empty() {
+            let languages = request
+                .languages
+                .iter()
+                .map(|language| NSString::from_str(language))
+                .collect::<Vec<_>>();
+            let languages = NSArray::from_retained_slice(&languages);
+            vision_request.setRecognitionLanguages(&languages);
+        }
+
+        let request_for_array: Retained<VNRequest> =
+            vision_request.clone().into_super().into_super();
+        let requests = NSArray::from_retained_slice(&[request_for_array]);
+        let options = NSDictionary::<VNImageOption, AnyObject>::new();
+        let handler = unsafe {
+            VNImageRequestHandler::initWithURL_options(
+                VNImageRequestHandler::alloc(),
+                &url,
+                &options,
+            )
+        };
+        handler
+            .performRequests_error(&requests)
+            .map_err(|error| format!("Vision OCR failed: {}", error.localizedDescription()))?;
+
+        let Some(observations) = vision_request.results() else {
+            return Ok(Vec::new());
+        };
+        let width_px = request.screenshot.width_px as f64;
+        let height_px = request.screenshot.height_px as f64;
+        let mut blocks = Vec::new();
+        for observation in observations.to_vec() {
+            let candidates = observation.topCandidates(1);
+            let Some(candidate) = candidates.to_vec().into_iter().next() else {
+                continue;
+            };
+            let text = candidate.string().to_string();
+            let confidence = candidate.confidence();
+            let bbox = unsafe { observation.boundingBox() };
+            let image_bounds = MacControlBounds {
+                x: bbox.origin.x * width_px,
+                y: (1.0 - bbox.origin.y - bbox.size.height) * height_px,
+                width: bbox.size.width * width_px,
+                height: bbox.size.height * height_px,
+            };
+            blocks.push(MacControlOcrRawTextBlock {
+                text,
+                confidence,
+                image_bounds,
+            });
+        }
+        Ok(blocks)
     }
 
     fn capture_desktop_frame_with_id(

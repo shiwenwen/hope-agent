@@ -444,6 +444,7 @@ mod tests {
                 "status",
                 "permissions",
                 "snapshot",
+                "visual",
                 "elements",
                 "wait",
                 "apps",

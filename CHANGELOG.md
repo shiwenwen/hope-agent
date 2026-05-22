@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。 (#231)
 - **macOS Control 视觉定位 v1**：新增 `mac_control.visual.observe/point`。`observe` 将 display/window 受管截图作为 `__IMAGE_FILE__` 视觉输入返回模型，`point` 把截图像素点或 macOS screen point 映射为可点击 screen point，并返回 AX 命中/最近候选与 `act.click_point` 建议参数；真正点击仍走现有 `act` 审批链。 (#239)
+- **macOS Control OCR 定位 v1**：新增 `mac_control.visual.ocr/find_text`，基于 macOS Vision Framework 识别受管截图中的文字，并返回 OCR 文字块、image pixel / screen point 坐标、AX 命中候选与 `act.click_point` 建议参数；无匹配时返回空候选而不是盲点。 (#239)
 - **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。 (#231)
 - **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。 (#231)
 - **macOS Control 剪贴板文本**：`mac_control.clipboard` 新增 `get/set/clear` 三个文本操作；`get` 支持 `maxChars` 截断，`set` 不在结果中回显写入内容，三者均作为隐私/副作用动作走审批，避免模型静默读取或改写用户剪贴板。 (#231)
