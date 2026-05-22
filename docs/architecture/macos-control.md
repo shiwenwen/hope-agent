@@ -273,7 +273,7 @@ Hit-test 规则：
 - 缺 `snapshotId`、`x`、`y` 或坐标不是有限数字：返回明确 `error`，不猜测。
 - snapshot 不在 cache：返回 `snapshotId ... was not found or expired`，模型应重新 `visual.observe`。
 - snapshot 缺 `screenshot.boundsPoints` 或 `scale`：返回 metadata error，模型应重新采集截图。
-- 坐标落在截图外：`error=null`、`insideFrame=false`、`suggestedAction=null`，并返回 nearest candidates。
+- 坐标落在截图外：`error=null`、`insideFrame=false`、`hitElements=[]`、`suggestedAction=null`，并返回 nearest candidates。
 
 ### apps
 

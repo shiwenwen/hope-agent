@@ -2534,7 +2534,7 @@ fn resolve_visual_point(
         && image_point.x < screenshot.width_px as f64
         && image_point.y < screenshot.height_px as f64;
     let (hit_elements, nearest_elements) =
-        visual_element_matches(snapshot, screen_point, limit.max(1));
+        visual_element_matches(snapshot, screen_point, limit.max(1), inside_frame);
     let suggested_action = inside_frame.then_some(MacControlSuggestedAction {
         action: "act".to_string(),
         op: MacControlActOp::ClickPoint,
@@ -2566,6 +2566,7 @@ fn visual_element_matches(
     snapshot: &MacControlSnapshot,
     point: MacControlPoint,
     limit: usize,
+    allow_hits: bool,
 ) -> (
     Vec<MacControlVisualElementMatch>,
     Vec<MacControlVisualElementMatch>,
@@ -2590,15 +2591,19 @@ fn visual_element_matches(
         .collect::<Vec<_>>();
 
     matches.sort_by(visual_match_order);
-    let hit_elements = matches
-        .iter()
-        .filter(|item| item.contains_point)
-        .take(limit)
-        .cloned()
-        .collect::<Vec<_>>();
+    let hit_elements = if allow_hits {
+        matches
+            .iter()
+            .filter(|item| item.contains_point)
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let nearest_elements = matches
         .into_iter()
-        .filter(|item| !item.contains_point)
+        .filter(|item| allow_hits || !item.contains_point)
         .take(limit)
         .collect::<Vec<_>>();
     (hit_elements, nearest_elements)
