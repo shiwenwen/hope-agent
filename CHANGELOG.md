@@ -5,19 +5,35 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-05-22
 
 ### Added
 
-- **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。
-- **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。
-- **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。
-- **macOS Control 剪贴板文本**：`mac_control.clipboard` 新增 `get/set/clear` 三个文本操作；`get` 支持 `maxChars` 截断，`set` 不在结果中回显写入内容，三者均作为隐私/副作用动作走审批，避免模型静默读取或改写用户剪贴板。
-- **macOS Control 粘贴输入**：`mac_control.act` 新增 `op=paste`，用于长文本或 `AXValue` 不稳定的输入场景；执行时临时写入 pasteboard、触发系统粘贴，并备份/恢复原 pasteboard items，结果只报告恢复状态、不回显旧剪贴板或待粘贴文本。
-- **macOS Control 目标消歧**：`mac_control.act` 在 AX 元素候选最高分并列时不再默认操作第一个匹配项，而是返回带候选提示的歧义错误，要求模型用 `elementId`、窗口标题、role 或更具体文本重试，降低点错相似按钮/输入框的风险。
-- **macOS Control 元素检索**：`mac_control.elements.find` 新增只读 AX 元素检索，按 target 过滤并返回排序候选、score、reasons 和所在窗口，方便模型在点击/输入前先确认 `elementId`。
-- **macOS Control 动作预解析**：`mac_control.act.dry_run` 新增只读目标解析，可在点击、设置值或拖拽前验证将命中的 AX 元素和歧义状态，不产生 UI 副作用。
-- **macOS Control 结果收敛**：`mac_control.act`、`wait`、`dialog` 默认不再返回完整 AX snapshot，只返回目标、命中或对话框摘要；调试或确需完整树时可显式传 `includeSnapshot=true`。
+- **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。 (#231)
+- **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。 (#231)
+- **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。 (#231)
+- **macOS Control 剪贴板文本**：`mac_control.clipboard` 新增 `get/set/clear` 三个文本操作；`get` 支持 `maxChars` 截断，`set` 不在结果中回显写入内容，三者均作为隐私/副作用动作走审批，避免模型静默读取或改写用户剪贴板。 (#231)
+- **macOS Control 粘贴输入**：`mac_control.act` 新增 `op=paste`，用于长文本或 `AXValue` 不稳定的输入场景；执行时临时写入 pasteboard、触发系统粘贴，并备份/恢复原 pasteboard items，结果只报告恢复状态、不回显旧剪贴板或待粘贴文本。 (#231)
+- **macOS Control 目标消歧**：`mac_control.act` 在 AX 元素候选最高分并列时不再默认操作第一个匹配项，而是返回带候选提示的歧义错误，要求模型用 `elementId`、窗口标题、role 或更具体文本重试，降低点错相似按钮/输入框的风险。 (#231)
+- **macOS Control 元素检索**：`mac_control.elements.find` 新增只读 AX 元素检索，按 target 过滤并返回排序候选、score、reasons 和所在窗口，方便模型在点击/输入前先确认 `elementId`。 (#231)
+- **macOS Control 动作预解析**：`mac_control.act.dry_run` 新增只读目标解析，可在点击、设置值或拖拽前验证将命中的 AX 元素和歧义状态，不产生 UI 副作用。 (#231)
+- **macOS Control 结果收敛**：`mac_control.act`、`wait`、`dialog` 默认不再返回完整 AX snapshot，只返回目标、命中或对话框摘要；调试或确需完整树时可显式传 `includeSnapshot=true`。 (#231)
+- **IM 渠道媒体附件发送**：Signal / Slack / iMessage / WhatsApp 渠道新增媒体附件发送，并支持把公共媒体链接直接路由给渠道。 (#232)
+- **聊天斜杠命令动作卡片**：斜杠命令动作结果以卡片形式渲染，新增 Recap 进度卡片与 Skill Fork 状态卡片。 (#232)
+- **后台聊天完成系统通知**：GUI 聊天在窗口失焦或切到其它会话时于后台完成后，发送系统通知提醒。 (#229)
+- **主窗口尺寸与位置持久化**：关闭重开应用后记住上次主窗口的大小与位置。 (#228)
+- **询问对话框 12 语言本地化**：`ask_user_question` 弹窗文案补齐全部 12 种语言。 (#232)
+
+### Changed
+
+- **聊天右侧面板交互统一**：Browser / Plan / Diff / Canvas / Team / Mac Control 面板强制互斥、可在已打开面板间一键切换并共享同一宽度。 (#232)
+- **IM 渠道稳定性整体加固**：Discord gateway 状态、Slack socket 断线重连、QQ Bot gateway 元数据、Signal daemon 就绪轮询、IRCv3 能力协商、iMessage RPC、LINE push 幂等重试、WhatsApp 轮询退避、Telegram 请求节流、飞书 token singleflight 与卡片动作 toast、IM callback origin 校验等多渠道修复。 (#232)
+
+### Fixed
+
+- **聊天「停止」状态稳定保留**：重做 chat engine 活动 turn / 持久化 / 流序号管线，按下停止后会话状态正确保留，不再丢失或错乱（覆盖 failover 与 subagent 路径）。 (#230)
+- **流式 JSON 渲染修复**：流式输出过程中的 JSON 代码块渲染正确，不再中途错乱。 (#233)
+- **review followup 杂项修复**：IM 审批原因渲染、斜杠命令选择器去重、权限模式事件同步、NSIS 中文安装语言恢复、Release webview 右键菜单抑制等。 (#232)
 
 ## [0.3.0] - 2026-05-19
 
