@@ -32,6 +32,23 @@ function parseMediaItemsHeader(result: string): MediaItem[] | undefined {
   return undefined
 }
 
+/** Parse tool media persisted in `messages.attachments_meta`. Realtime stream
+ *  events carry `media_items` directly; this path restores the same FileCard /
+ *  image preview after history reload. */
+function parseToolMediaItemsMeta(metaJson: string | null | undefined): MediaItem[] | undefined {
+  if (!metaJson) return undefined
+  try {
+    const meta = JSON.parse(metaJson)
+    const items = meta?.tool_media_items
+    if (Array.isArray(items) && items.length > 0) {
+      return items as MediaItem[]
+    }
+  } catch {
+    /* malformed — ignore */
+  }
+  return undefined
+}
+
 /** True when a message should render as a centered system chip (event,
  *  sub-agent result, cron trigger, plan-mode approve/resume) rather than as
  *  a user/assistant bubble. */
@@ -121,19 +138,44 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
-/** Extract file paths modified by tool calls (write/edit/apply_patch) */
-export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
-  const files = new Set<string>()
+export type MessageFileAttachment =
+  | { kind: "path"; path: string }
+  | { kind: "media"; item: MediaItem }
+
+/** Extract files produced by tool calls for the assistant message footer. */
+export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFileAttachment[] {
+  const pathItems = new Map<string, MessageFileAttachment>()
+  const mediaItems = new Map<string, MessageFileAttachment>()
+  const mediaLocalPaths = new Set<string>()
+
+  const addPath = (path: string | null | undefined) => {
+    const trimmed = path?.trim()
+    if (!trimmed || mediaLocalPaths.has(trimmed)) return
+    if (!pathItems.has(trimmed)) pathItems.set(trimmed, { kind: "path", path: trimmed })
+  }
+
+  const addMedia = (item: MediaItem) => {
+    const key = item.localPath || item.url || item.name
+    if (!key || mediaItems.has(key)) return
+    if (item.localPath) {
+      mediaLocalPaths.add(item.localPath)
+      pathItems.delete(item.localPath)
+    }
+    mediaItems.set(key, { kind: "media", item })
+  }
+
   for (const block of blocks) {
     if (block.type !== "tool_call") continue
     const { name, arguments: args, result } = block.tool
     const metadata = block.tool.metadata
+    block.tool.mediaItems?.forEach(addMedia)
+    block.tool.mediaUrls?.forEach(addPath)
 
     if (metadata?.kind === "file_change") {
-      if (metadata.action !== "delete") files.add(metadata.path)
+      if (metadata.action !== "delete") addPath(metadata.path)
     } else if (metadata?.kind === "file_changes") {
       for (const change of metadata.changes) {
-        if (change.action !== "delete") files.add(change.path)
+        if (change.action !== "delete") addPath(change.path)
       }
     }
 
@@ -146,7 +188,7 @@ export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
       try {
         const parsed = JSON.parse(args)
         const p = parsed.path || parsed.file_path
-        if (p) files.add(p)
+        addPath(p)
       } catch {
         /* ignore */
       }
@@ -157,7 +199,7 @@ export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
       try {
         const parsed = JSON.parse(args)
         const p = parsed.path || parsed.file_path
-        if (p) files.add(p)
+        addPath(p)
       } catch {
         /* ignore */
       }
@@ -170,12 +212,19 @@ export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
         for (const entry of match[1].split(", ")) {
           const arrow = entry.indexOf(" -> ")
           const filePath = arrow >= 0 ? entry.slice(arrow + 4).trim() : entry.trim()
-          if (filePath) files.add(filePath)
+          addPath(filePath)
         }
       }
     }
   }
-  return Array.from(files)
+  return [...pathItems.values(), ...mediaItems.values()]
+}
+
+/** Extract file paths modified by tool calls (write/edit/apply_patch). */
+export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
+  return extractMessageFileAttachments(blocks)
+    .filter((item): item is { kind: "path"; path: string } => item.kind === "path")
+    .map((item) => item.path)
 }
 
 /** Parse DB SessionMessage[] into display Message[] */
@@ -252,9 +301,9 @@ export function parseSessionMessages(
       //   - image_generate still uses the old "Saved to:" text lines (mediaUrls)
       //   - send_attachment and future tools emit a `__MEDIA_ITEMS__<json>` header
       let mediaUrls: string[] | undefined
-      let mediaItems: MediaItem[] | undefined
+      let mediaItems: MediaItem[] | undefined = parseToolMediaItemsMeta(msg.attachmentsMeta)
       if (msg.toolResult) {
-        mediaItems = parseMediaItemsHeader(msg.toolResult)
+        if (!mediaItems) mediaItems = parseMediaItemsHeader(msg.toolResult)
         if (msg.toolName === "image_generate" && !mediaItems) {
           const paths = msg.toolResult
             .split("\n")

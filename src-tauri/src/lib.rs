@@ -230,6 +230,7 @@ pub fn run() {
             commands::filesystem::fs_search_files,
             // Agent management
             commands::agent_mgmt::list_agents,
+            commands::agent_mgmt::reorder_agents,
             commands::agent_mgmt::get_agent_config,
             commands::agent_mgmt::get_agent_markdown,
             commands::agent_mgmt::save_agent_config_cmd,
@@ -505,6 +506,7 @@ pub fn run() {
             commands::session::purge_session_if_incognito,
             commands::session::delete_session_cmd,
             commands::session::rename_session_cmd,
+            commands::session::set_session_pinned_cmd,
             commands::session::mark_session_read_cmd,
             commands::session::mark_session_read_batch_cmd,
             commands::session::mark_all_sessions_read_cmd,

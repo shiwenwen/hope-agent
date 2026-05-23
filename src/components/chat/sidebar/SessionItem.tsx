@@ -30,6 +30,8 @@ import {
   Ghost,
   CircleAlert,
   Download,
+  Pin,
+  PinOff,
 } from "lucide-react"
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
@@ -55,6 +57,7 @@ interface SessionItemProps {
   onCommitRename: () => void
   onCancelRename: () => void
   onMarkAllRead?: () => void
+  onTogglePinned?: (sessionId: string, pinned: boolean) => void
   /**
    * Move this session to a project (or remove from current project when
    * `projectId` is `null`). Only rendered when this callback is provided.
@@ -81,6 +84,7 @@ export default function SessionItem({
   onCommitRename,
   onCancelRename,
   onMarkAllRead,
+  onTogglePinned,
   onMoveToProject,
   getAgentInfo,
   formatRelativeTime,
@@ -220,6 +224,13 @@ export default function SessionItem({
                   </span>
                 </IconTip>
               )}
+              {session.pinnedAt && (
+                <IconTip label={t("chat.pinSession")}>
+                  <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-primary/10 text-primary">
+                    <Pin className="w-2.5 h-2.5" />
+                  </span>
+                </IconTip>
+              )}
               {renamingSessionId === session.id ? (
                 <input
                   ref={renameInputRef}
@@ -285,6 +296,18 @@ export default function SessionItem({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onTogglePinned && (
+          <ContextMenuItem
+            onClick={() => onTogglePinned(session.id, !session.pinnedAt)}
+          >
+            {session.pinnedAt ? (
+              <PinOff className="h-4 w-4 mr-2" />
+            ) : (
+              <Pin className="h-4 w-4 mr-2" />
+            )}
+            {session.pinnedAt ? t("chat.unpinSession") : t("chat.pinSession")}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem
           onClick={() => onStartRename(session.id, session.title || t("chat.newChat") || "New Chat")}
         >

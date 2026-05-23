@@ -497,7 +497,10 @@ fn get_all_overview() -> Result<String> {
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
         "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
-        "notification": { "enabled": cfg.notification.enabled },
+        "notification": {
+            "enabled": cfg.notification.enabled,
+            "showChatContent": cfg.notification.show_chat_content,
+        },
         "proxy": {
             "mode": cfg.proxy.mode,
             "url": cfg.proxy.url,

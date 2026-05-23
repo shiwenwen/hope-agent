@@ -10,6 +10,7 @@ use crate::plan::PlanModeState;
 // the frontend).
 pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
 pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
+pub const ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: &str = "tool_media_items";
 
 /// Resolve the `attachments_meta` value for a user-message coming from the
 /// `chat` API surface (Tauri command + HTTP route). Centralizes the
@@ -28,6 +29,15 @@ pub fn build_chat_user_attachments_meta(
     } else {
         user_attachments
     }
+}
+
+/// Persist structured media emitted by a tool result in `attachments_meta`
+/// without polluting `tool_result`, which is replayed back into model context.
+pub fn build_tool_media_items_attachments_meta(media_items: &Value) -> Option<String> {
+    if media_items.as_array().is_none_or(|items| items.is_empty()) {
+        return None;
+    }
+    Some(json!({ ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: media_items }).to_string())
 }
 
 // ── Data Structures ──────────────────────────────────────────────
@@ -49,6 +59,9 @@ pub struct SessionMeta {
     pub reasoning_effort: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// When set, the sidebar sorts this session above unpinned sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<String>,
     pub message_count: i64,
     pub unread_count: i64,
     /// Whether the latest persisted message is marked as an error.
@@ -488,6 +501,7 @@ mod tests {
             reasoning_effort: None,
             created_at: "2026-05-01T00:00:00Z".to_string(),
             updated_at: "2026-05-01T00:00:00Z".to_string(),
+            pinned_at: None,
             message_count: 0,
             unread_count: 0,
             has_error: false,
