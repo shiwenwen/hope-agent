@@ -499,6 +499,22 @@ fn build_router_with_cors(
             "/config/web-search",
             put(routes::config::save_web_search_config),
         )
+        .route(
+            "/config/issue-reporting",
+            get(routes::config::get_issue_reporting_config),
+        )
+        .route(
+            "/config/issue-reporting",
+            put(routes::config::save_issue_reporting_config),
+        )
+        .route(
+            "/config/issue-reporting/token",
+            put(routes::config::save_issue_reporting_token),
+        )
+        .route(
+            "/config/issue-reporting/test",
+            post(routes::config::test_issue_reporting_connection),
+        )
         .route("/config/proxy", get(routes::config::get_proxy_config))
         .route("/config/proxy", put(routes::config::save_proxy_config))
         .route(

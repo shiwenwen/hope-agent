@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent 自我诊断与 Issue Reporting**：新增内置 `ha-self-diagnosis` skill 与核心 `issue_report` 工具，支持自查源码 / 架构文档 / 配置 / 日志并整理 bug、需求或改进 issue；Settings → Tools 新增 Issue Reporting 面板，可配置目标仓库、标签映射、GitHub token，并在无 token 时回退到已登录的 `gh` CLI。提交前强制用户确认，issue 正文与标题在截断前统一脱敏常见明文凭据。
 - **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。 (#231)
 - **macOS Control 视觉定位 v1**：新增 `mac_control.visual.observe/point`。`observe` 将 display/window 受管截图作为 `__IMAGE_FILE__` 视觉输入返回模型，`point` 把截图像素点或 macOS screen point 映射为可点击 screen point，并返回 AX 命中/最近候选与 `act.click_point` 建议参数；真正点击仍走现有 `act` 审批链。 (#239)
 - **macOS Control OCR 定位 v1**：新增 `mac_control.visual.ocr/find_text`，基于 macOS Vision Framework 识别受管截图中的文字，并返回 OCR 文字块、image pixel / screen point 坐标、AX 命中候选与 `act.click_point` 建议参数；无匹配时返回空候选而不是盲点。 (#239)
