@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const TRAY_STATUS_LINE_COUNT: usize = 5;
+const TRAY_STATUS_UPTIME_LINE_INDEX: usize = 2;
 const TRAY_SESSION_PREFIX: &str = "tray_session:";
 const TRAY_SESSION_MORE_ID: &str = "tray_session_more";
 /// Cap on dynamic active-session entries shown directly in the tray menu.
@@ -49,6 +50,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let icon_as_template = true;
     let show_menu_on_left_click = true;
     let initial_tooltip = build_tray_tooltip(&status_lines);
+    let initial_signature = TraySnapshotSig::from(&status_lines, &[], 0);
 
     let tray = TrayIconBuilder::new()
         .tooltip(&initial_tooltip)
@@ -152,7 +154,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let tray_handle = tray.clone();
         let loop_handle = app_handle.clone();
         tauri::async_runtime::spawn(async move {
-            let mut last_signature: Option<TraySnapshotSig> = None;
+            let mut last_signature: Option<TraySnapshotSig> = Some(initial_signature);
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let lines = current_tray_status_lines(&status_labels);
@@ -213,7 +215,10 @@ struct ActiveRegularSession {
 /// when the user is mid-interaction).
 #[derive(Debug, PartialEq, Eq)]
 struct TraySnapshotSig {
-    status_lines: Vec<String>,
+    /// Status lines that should cause a menu rebuild. Uptime is intentionally
+    /// excluded because it changes every poll and replacing an open native
+    /// tray menu closes it on macOS.
+    stable_status_lines: Vec<String>,
     active: Vec<(String, String)>,
     more: usize,
 }
@@ -221,7 +226,13 @@ struct TraySnapshotSig {
 impl TraySnapshotSig {
     fn from(lines: &[String], active: &[ActiveRegularSession], more: usize) -> Self {
         Self {
-            status_lines: lines.to_vec(),
+            stable_status_lines: lines
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, line)| {
+                    (idx != TRAY_STATUS_UPTIME_LINE_INDEX).then_some(line.clone())
+                })
+                .collect(),
             active: active
                 .iter()
                 .map(|s| (s.session_id.clone(), s.label.clone()))
@@ -606,6 +617,30 @@ mod tests {
                 "活跃连接: 1 (0 事件 · 0 会话 · 1 本机)".to_string(),
                 "活跃会话: 0".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn tray_signature_ignores_uptime_line() {
+        let mut first = vec![
+            "status".to_string(),
+            "addr".to_string(),
+            "uptime: 1s".to_string(),
+            "connections".to_string(),
+            "sessions".to_string(),
+        ];
+        let mut second = first.clone();
+        second[TRAY_STATUS_UPTIME_LINE_INDEX] = "uptime: 6s".to_string();
+
+        assert_eq!(
+            TraySnapshotSig::from(&first, &[], 0),
+            TraySnapshotSig::from(&second, &[], 0)
+        );
+
+        first[1] = "addr changed".to_string();
+        assert_ne!(
+            TraySnapshotSig::from(&first, &[], 0),
+            TraySnapshotSig::from(&second, &[], 0)
         );
     }
 
