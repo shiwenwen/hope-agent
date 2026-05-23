@@ -511,7 +511,7 @@ impl AssistantAgent {
     /// Build common hook-input fields from agent-level state, for hooks that
     /// fire outside a tool context (compaction, etc.). `cwd` is the session
     /// working dir (falling back to home); `permission_mode` defaults.
-    fn hook_common_input(&self, event: &str) -> crate::hooks::CommonHookInput {
+    pub(super) fn hook_common_input(&self, event: &str) -> crate::hooks::CommonHookInput {
         let session_id = self.session_id.clone().unwrap_or_default();
         // Empty session_id (a session-less agent) → no transcript path, rather
         // than a bogus shared `sessions/transcript.jsonl` (mirrors the guard in

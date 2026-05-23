@@ -270,6 +270,14 @@ pub enum HookInput {
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
     },
+    PostToolBatch {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Zero-based API round index.
+        round: u32,
+        /// Names of every tool that ran in this round.
+        tool_names: Vec<String>,
+    },
     SubagentStart {
         #[serde(flatten)]
         common: CommonHookInput,
@@ -300,6 +308,7 @@ impl HookInput {
             | Self::PreCompact { common, .. }
             | Self::PostCompact { common, .. }
             | Self::Notification { common, .. }
+            | Self::PostToolBatch { common, .. }
             | Self::SubagentStart { common, .. }
             | Self::SubagentStop { common, .. } => common,
         }
@@ -324,7 +333,8 @@ impl HookInput {
             Self::SubagentStart { subagent_id, .. } | Self::SubagentStop { subagent_id, .. } => {
                 Some(subagent_id.as_str())
             }
-            Self::UserPromptSubmit { .. } => None,
+            // No matcher target → only wildcard matchers fire.
+            Self::UserPromptSubmit { .. } | Self::PostToolBatch { .. } => None,
         }
     }
 }

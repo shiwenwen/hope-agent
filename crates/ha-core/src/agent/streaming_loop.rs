@@ -671,6 +671,29 @@ impl AssistantAgent {
                 });
             }
 
+            // PostToolBatch (observation): fires once per API round after every
+            // tool call in the round settles, before the round lands in
+            // history. Skipped for pure-text rounds (no tools). Any
+            // additionalContext is queued for the next round's reminder.
+            if !executed.is_empty()
+                && crate::hooks::registry::global()
+                    .has_handlers_for(crate::hooks::HookEvent::PostToolBatch)
+            {
+                let input = crate::hooks::HookInput::PostToolBatch {
+                    common: self.hook_common_input("PostToolBatch"),
+                    round,
+                    tool_names: executed.iter().map(|e| e.name.clone()).collect(),
+                };
+                let outcome = crate::hooks::HookDispatcher::dispatch(
+                    crate::hooks::HookEvent::PostToolBatch,
+                    input,
+                )
+                .await;
+                if let Some(extra) = outcome.merged_additional_context() {
+                    self.push_pending_hook_context(extra);
+                }
+            }
+
             // Adapter writes assistant + tool_results into history in its
             // native shape (Anthropic content blocks / OpenAI tool_calls /
             // Responses function_call+function_call_output items).
