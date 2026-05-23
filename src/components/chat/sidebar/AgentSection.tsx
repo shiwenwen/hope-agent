@@ -43,7 +43,12 @@ interface AgentSectionProps {
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onEditAgent?: (agentId: string) => void
   onReorderAgents?: (agentIds: string[]) => void
+  panelWidth: number
 }
+
+const AGENT_CARD_MIN_WIDTH_PX = 156
+const AGENT_GRID_GAP_PX = 4
+const AGENT_SECTION_HORIZONTAL_PADDING_PX = 24
 
 interface SortableAgentCardProps {
   agent: AgentSummaryForSidebar
@@ -78,14 +83,14 @@ function SortableAgentCard({
   }
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className="min-w-0">
       <ContextMenu>
         <Tooltip>
           <ContextMenuTrigger asChild>
             <TooltipTrigger asChild>
               <div
                 className={cn(
-                  "flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
+                  "group/agent relative flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors",
                   isSelected ? "bg-primary/10" : "hover:bg-secondary/60",
                 )}
               >
@@ -101,7 +106,7 @@ function SortableAgentCard({
                 )}
                 {/* Clickable area: single click = toggle filter, double click = new chat */}
                 <button
-                  className="flex items-center gap-2 flex-1 min-w-0"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left transition-[padding] group-hover/agent:pr-9"
                   onClick={() => {
                     if (clickTimerRef.current) {
                       clearTimeout(clickTimerRef.current)
@@ -142,37 +147,39 @@ function SortableAgentCard({
                   </div>
                   <span
                     className={cn(
-                      "truncate",
+                      "min-w-0 flex-1 truncate",
                       isSelected ? "text-primary font-medium" : "text-foreground/80",
                     )}
                   >
                     {agent.name}
                   </span>
                 </button>
-                {onEditAgent && (
-                  <IconTip label={t("common.settings")}>
+                <div className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/agent:pointer-events-auto group-hover/agent:opacity-100">
+                  {onEditAgent && (
+                    <IconTip label={t("common.settings")}>
+                      <button
+                        className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:!text-primary"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onEditAgent(agent.id)
+                        }}
+                      >
+                        <Settings className="h-3 w-3" />
+                      </button>
+                    </IconTip>
+                  )}
+                  <IconTip label={t("chat.newChat")}>
                     <button
-                      className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
+                      className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:!text-primary"
                       onClick={(e) => {
                         e.stopPropagation()
-                        onEditAgent(agent.id)
+                        onNewChat(agent.id)
                       }}
                     >
-                      <Settings className="h-3 w-3" />
+                      <MessageSquarePlus className="h-3 w-3" />
                     </button>
                   </IconTip>
-                )}
-                <IconTip label={t("chat.newChat")}>
-                  <button
-                    className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onNewChat(agent.id)
-                    }}
-                  >
-                    <MessageSquarePlus className="h-3 w-3" />
-                  </button>
-                </IconTip>
+                </div>
               </div>
             </TooltipTrigger>
           </ContextMenuTrigger>
@@ -204,10 +211,22 @@ export default function AgentSection({
   onNewChat,
   onEditAgent,
   onReorderAgents,
+  panelWidth,
 }: AgentSectionProps) {
   const { t } = useTranslation()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const agentGridWidth = Math.max(panelWidth - AGENT_SECTION_HORIZONTAL_PADDING_PX, 0)
+  const agentColumnCount = Math.max(
+    1,
+    Math.min(
+      agents.length || 1,
+      Math.floor(
+        (agentGridWidth + AGENT_GRID_GAP_PX) /
+          (AGENT_CARD_MIN_WIDTH_PX + AGENT_GRID_GAP_PX),
+      ),
+    ),
+  )
 
   const handleDragEnd = (event: DragEndEvent) => {
     if (!onReorderAgents) return
@@ -242,7 +261,7 @@ export default function AgentSection({
             <div
               className="grid gap-1 pb-2"
               style={{
-                gridTemplateColumns: "repeat(auto-fit, minmax(min(11rem, 100%), 1fr))",
+                gridTemplateColumns: `repeat(${agentColumnCount}, minmax(0, 1fr))`,
               }}
             >
               {agents.map((agent) => (
