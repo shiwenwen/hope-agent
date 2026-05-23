@@ -1486,6 +1486,8 @@
     "default": "Lalai",
     "globalDesc": "Terima pemberitahuan desktop asli untuk acara latar belakang",
     "globalToggle": "Dayakan pemberitahuan",
+    "showChatContentDesc": "Apabila sembang selesai, sertakan pratonton pendek balasan akhir pembantu dalam kandungan pemberitahuan. Dimatikan secara lalai untuk privasi.",
+    "showChatContentToggle": "Tunjuk teks balasan dalam pemberitahuan selesai",
     "mcpAuthRequired": "Pelayan MCP memerlukan kebenaran",
     "mcpAuthRequiredBody": "{{name}} perlu melengkapkan kebenaran OAuth",
     "mcpAuthRequiredFallback": "Pelayan MCP memerlukan kebenaran OAuth",

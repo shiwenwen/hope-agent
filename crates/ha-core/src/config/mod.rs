@@ -82,11 +82,17 @@ pub struct NotificationConfig {
     /// Global on/off toggle (default: true)
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
+    /// Include assistant reply previews in chat-completion notifications.
+    #[serde(default)]
+    pub show_chat_content: bool,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            show_chat_content: false,
+        }
     }
 }
 

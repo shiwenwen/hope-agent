@@ -1486,6 +1486,8 @@
     "default": "默認",
     "globalDesc": "接收後臺事件的原生桌面通知",
     "globalToggle": "啟用通知",
+    "showChatContentDesc": "對話完成時，在通知正文中顯示模型最後回覆的短預覽。預設關閉，避免在系統通知中暴露內容。",
+    "showChatContentToggle": "完成通知顯示回覆正文",
     "mcpAuthRequired": "MCP 伺服器需要授權",
     "mcpAuthRequiredBody": "{{name}} 需要完成 OAuth 授權",
     "mcpAuthRequiredFallback": "有 MCP 伺服器需要完成 OAuth 授權",

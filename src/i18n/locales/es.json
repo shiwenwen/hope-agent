@@ -1486,6 +1486,8 @@
     "default": "Por defecto",
     "globalDesc": "Recibir notificaciones de escritorio nativas para eventos en segundo plano",
     "globalToggle": "Activar notificaciones",
+    "showChatContentDesc": "Cuando una conversación termina, incluye una breve vista previa de la última respuesta del asistente en la notificación. Desactivado por defecto por privacidad.",
+    "showChatContentToggle": "Mostrar el texto de la respuesta en las notificaciones de finalización",
     "mcpAuthRequired": "El servidor MCP requiere autorización",
     "mcpAuthRequiredBody": "{{name}} necesita completar la autorización OAuth",
     "mcpAuthRequiredFallback": "Un servidor MCP necesita autorización OAuth",

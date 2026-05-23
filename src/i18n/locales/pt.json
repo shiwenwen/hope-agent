@@ -1486,6 +1486,8 @@
     "default": "Padrão",
     "globalDesc": "Receber notificações nativas da área de trabalho para eventos em segundo plano",
     "globalToggle": "Ativar notificações",
+    "showChatContentDesc": "Quando uma conversa termina, inclua uma prévia curta da resposta final do assistente no corpo da notificação. Desativado por padrão por privacidade.",
+    "showChatContentToggle": "Mostrar texto da resposta nas notificações de conclusão",
     "mcpAuthRequired": "Servidor MCP requer autorização",
     "mcpAuthRequiredBody": "{{name}} precisa concluir a autorização OAuth",
     "mcpAuthRequiredFallback": "Um servidor MCP precisa de autorização OAuth",

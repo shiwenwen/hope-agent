@@ -1486,6 +1486,8 @@
     "default": "Varsayılan",
     "globalDesc": "Arka plan olayları için yerel masaüstü bildirimleri al",
     "globalToggle": "Bildirimleri etkinleştir",
+    "showChatContentDesc": "Sohbet tamamlandığında, bildirimin gövdesine asistanın son yanıtının kısa bir önizlemesini ekler. Gizlilik için varsayılan olarak kapalıdır.",
+    "showChatContentToggle": "Tamamlanma bildirimlerinde yanıt metnini göster",
     "mcpAuthRequired": "MCP sunucusu yetkilendirme gerektiriyor",
     "mcpAuthRequiredBody": "{{name}} için OAuth yetkilendirmesini tamamlayın",
     "mcpAuthRequiredFallback": "Bir MCP sunucusu OAuth yetkilendirmesi gerektiriyor",

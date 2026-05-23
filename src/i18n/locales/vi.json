@@ -1486,6 +1486,8 @@
     "default": "Mặc định",
     "globalDesc": "Nhận thông báo desktop bản địa cho các sự kiện nền",
     "globalToggle": "Bật thông báo",
+    "showChatContentDesc": "Khi cuộc trò chuyện hoàn tất, đưa một đoạn xem trước ngắn của câu trả lời cuối cùng từ trợ lý vào nội dung thông báo. Mặc định tắt để bảo vệ quyền riêng tư.",
+    "showChatContentToggle": "Hiển thị nội dung trả lời trong thông báo hoàn tất",
     "mcpAuthRequired": "Máy chủ MCP cần ủy quyền",
     "mcpAuthRequiredBody": "{{name}} cần hoàn tất ủy quyền OAuth",
     "mcpAuthRequiredFallback": "Một máy chủ MCP cần ủy quyền OAuth",

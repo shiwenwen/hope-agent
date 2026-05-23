@@ -4,6 +4,7 @@ import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import {
+  getCachedConfig,
   loadNotificationConfig,
   isAgentNotifyEnabled,
   notify,
@@ -35,6 +36,7 @@ import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
+const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -48,6 +50,43 @@ function errorText(error: unknown): string {
 
 function isActiveStreamError(error: unknown): boolean {
   return errorText(error).includes(ACTIVE_STREAM_ERROR_CODE)
+}
+
+function normalizeNotificationText(text: string): string {
+  return text.replace(/\s+/g, " ").trim()
+}
+
+function truncateNotificationText(text: string): string {
+  if (text.length <= CHAT_NOTIFICATION_PREVIEW_MAX_CHARS) return text
+  return `${text.slice(0, CHAT_NOTIFICATION_PREVIEW_MAX_CHARS - 3).trimEnd()}...`
+}
+
+function assistantNotificationText(message: Message): string {
+  const blockText = message.contentBlocks
+    ?.filter((block) => block.type === "text")
+    .map((block) => block.content)
+    .join("\n\n")
+  return truncateNotificationText(normalizeNotificationText(blockText || message.content || ""))
+}
+
+function latestAssistantNotificationPreview(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message.role !== "assistant") continue
+    const text = assistantNotificationText(message)
+    if (text) return text
+  }
+  return null
+}
+
+function chatCompletionNotificationBody(
+  sessionTitle: string,
+  messages: Message[],
+  showChatContent: boolean,
+): string {
+  if (!showChatContent) return sessionTitle
+  const preview = latestAssistantNotificationPreview(messages)
+  return preview ? `${sessionTitle}\n${preview}` : sessionTitle
 }
 
 interface SendOptions {
@@ -914,10 +953,16 @@ export function useChatStream({
             status !== "interrupted" &&
             status !== "cancelling"
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
+          const notificationBody = chatCompletionNotificationBody(
+            sessionTitle,
+            sessionCacheRef.current.get(targetSessionId) ??
+              (currentSessionIdRef.current === targetSessionId ? messages : []),
+            getCachedConfig()?.showChatContent === true,
+          )
           if (completed && currentSessionIdRef.current !== targetSessionId) {
-            void notify(t("notification.chatCompleted"), sessionTitle)
+            void notify(t("notification.chatCompleted"), notificationBody)
           } else if (completed) {
-            void notifyIfBackground(t("notification.chatCompleted"), sessionTitle)
+            void notifyIfBackground(t("notification.chatCompleted"), notificationBody)
           }
         }
       }
