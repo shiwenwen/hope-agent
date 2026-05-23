@@ -132,9 +132,26 @@ export interface Transport {
   /**
    * Trigger the user-facing "open" action for a media item.
    * - Tauri: opens the file with the OS default handler.
-   * - HTTP:  downloads via a transient `<a download>`.
+   * - HTTP: opens the server route in a new browser tab; previewable MIME
+   *   types render inline and other files fall back to attachment download.
    */
   openMedia(item: MediaItem): Promise<void>;
+
+  /** Trigger a download for a media item even when its MIME type is previewable. */
+  downloadMedia(item: MediaItem): Promise<void>;
+
+  /**
+   * Open a filesystem path referenced by a session message.
+   * - Tauri: opens the local path with the OS default handler.
+   * - HTTP: serves it through a session-scoped, history-authorized route.
+   */
+  openFilePath(path: string, opts?: { sessionId?: string | null }): Promise<void>;
+
+  /** Download a filesystem path referenced by a session message. */
+  downloadFilePath(
+    path: string,
+    opts?: { sessionId?: string | null; filename?: string },
+  ): Promise<void>;
 
   /**
    * Show the media file in the OS file manager (Finder / Explorer).

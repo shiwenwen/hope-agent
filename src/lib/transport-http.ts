@@ -988,6 +988,44 @@ export class HttpTransport implements Transport {
     return null;
   }
 
+  private appendToken(url: string): string {
+    if (!this.apiKey) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`;
+  }
+
+  private addDownloadParam(href: string): string {
+    if (!href.startsWith(`${this.baseUrl}/api/`)) return href;
+    const url = new URL(href);
+    url.searchParams.set("download", "1");
+    return url.toString();
+  }
+
+  private clickHref(href: string, filename?: string): void {
+    const a = document.createElement("a");
+    a.href = href;
+    if (filename) a.download = filename;
+    a.rel = "noopener";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  private sessionFileUrl(
+    path: string,
+    sessionId: string | null | undefined,
+    forceDownload: boolean,
+  ): string | null {
+    if (!sessionId) return null;
+    const url = new URL(
+      `${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
+    );
+    url.searchParams.set("path", path);
+    if (forceDownload) url.searchParams.set("download", "1");
+    if (this.apiKey) url.searchParams.set("token", this.apiKey);
+    return url.toString();
+  }
+
   resolveAssetUrl(path: string | null | undefined): string | null {
     if (!path) return null;
     if (
@@ -1001,10 +1039,7 @@ export class HttpTransport implements Transport {
     // in the stored absolute path. Each category needs a matching
     // server-side route. Anything unrecognized returns `null` so callers
     // fall back gracefully (emoji / default icon / broken state).
-    const stamped = (url: string) =>
-      this.apiKey
-        ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
-        : url;
+    const stamped = (url: string) => this.appendToken(url);
 
     // Avatars: `~/.hope-agent/avatars/{file}` → `/api/avatars/{file}`
     const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/);
@@ -1045,14 +1080,28 @@ export class HttpTransport implements Transport {
     if (!href) return;
     // Transient anchor click so the browser honors the server's
     // Content-Disposition (inline preview vs download prompt).
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = item.name || "";
-    a.rel = "noopener";
-    a.target = "_blank";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    this.clickHref(href);
+  }
+
+  async downloadMedia(item: MediaItem): Promise<void> {
+    const href = this.resolveMediaUrl(item);
+    if (!href) return;
+    this.clickHref(this.addDownloadParam(href), item.name || undefined);
+  }
+
+  async openFilePath(path: string, opts?: { sessionId?: string | null }): Promise<void> {
+    const href = this.sessionFileUrl(path, opts?.sessionId, false);
+    if (!href) return;
+    this.clickHref(href);
+  }
+
+  async downloadFilePath(
+    path: string,
+    opts?: { sessionId?: string | null; filename?: string },
+  ): Promise<void> {
+    const href = this.sessionFileUrl(path, opts?.sessionId, true);
+    if (!href) return;
+    this.clickHref(href, opts?.filename);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

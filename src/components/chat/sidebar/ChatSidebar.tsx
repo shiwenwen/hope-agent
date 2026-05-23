@@ -476,6 +476,15 @@ export default function ChatSidebar({
             </div>
           </div>
         </div>
+        {/* Keep the resize affordance inside the sidebar bounds so hover/active
+            color does not occupy a strip of the conversation canvas. */}
+        <div
+          className={cn(
+            "absolute inset-y-0 right-0 z-20 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50",
+            sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+          )}
+          onMouseDown={handleDragStart}
+        />
       </div>
 
       {/* Delete session confirmation dialog */}
@@ -499,14 +508,6 @@ export default function ChatSidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* Drag Handle */}
-      <div
-        className={cn(
-          "shrink-0 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50",
-          sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
-        )}
-        onMouseDown={handleDragStart}
-      />
     </>
   )
 }

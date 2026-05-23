@@ -1690,14 +1690,55 @@ impl SessionDB {
         is_error: bool,
         metadata: Option<&str>,
     ) -> Result<()> {
+        self.update_tool_result_with_side_outputs(
+            session_id,
+            call_id,
+            result,
+            duration_ms,
+            is_error,
+            metadata,
+            None,
+        )
+    }
+
+    /// Same as [`Self::update_tool_result_with_metadata`] plus optional
+    /// `attachments_meta` side-output. This is used for file/media cards
+    /// emitted by tools (`send_attachment`, `image_generate`) so the UI can
+    /// restore them from history without feeding media JSON back into model
+    /// context via `tool_result`.
+    pub fn update_tool_result_with_side_outputs(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        result: &str,
+        duration_ms: Option<i64>,
+        is_error: bool,
+        metadata: Option<&str>,
+        attachments_meta: Option<&str>,
+    ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         // Mark `stream_status='completed'` so the next startup sweep
         // doesn't demote this row to `'orphaned'` (see `NewMessage::tool`).
-        match metadata {
-            Some(md) => {
+        match (metadata, attachments_meta) {
+            (Some(md), Some(att_meta)) => {
+                conn.execute(
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4, attachments_meta = ?5, stream_status = 'completed'
+                     WHERE session_id = ?6 AND tool_call_id = ?7",
+                    params![
+                        result,
+                        duration_ms,
+                        if is_error { 1i64 } else { 0i64 },
+                        md,
+                        att_meta,
+                        session_id,
+                        call_id
+                    ],
+                )?;
+            }
+            (Some(md), None) => {
                 conn.execute(
                     "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4, stream_status = 'completed'
                      WHERE session_id = ?5 AND tool_call_id = ?6",
@@ -1711,7 +1752,21 @@ impl SessionDB {
                     ],
                 )?;
             }
-            None => {
+            (None, Some(att_meta)) => {
+                conn.execute(
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, attachments_meta = ?4, stream_status = 'completed'
+                     WHERE session_id = ?5 AND tool_call_id = ?6",
+                    params![
+                        result,
+                        duration_ms,
+                        if is_error { 1i64 } else { 0i64 },
+                        att_meta,
+                        session_id,
+                        call_id
+                    ],
+                )?;
+            }
+            (None, None) => {
                 conn.execute(
                     "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, stream_status = 'completed'
                      WHERE session_id = ?4 AND tool_call_id = ?5",
@@ -3206,6 +3261,67 @@ mod tests {
 
         drop(stmt);
         drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn tool_media_items_persist_in_attachments_meta() {
+        let db_path = temp_db_path("session-tool-media-items");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let tool = crate::session::NewMessage::tool(
+            "call-media",
+            "send_attachment",
+            r#"{"path":"/Users/example/report.pdf"}"#,
+            "",
+            None,
+            false,
+        );
+        db.append_message(&session.id, &tool)
+            .expect("append tool row");
+
+        let media_meta =
+            crate::session::build_tool_media_items_attachments_meta(&serde_json::json!([{
+                "url": "/api/attachments/session/report.pdf",
+                "localPath": "/Users/example/.hope-agent/attachments/session/report.pdf",
+                "name": "report.pdf",
+                "mimeType": "application/pdf",
+                "sizeBytes": 42,
+                "kind": "file"
+            }]))
+            .expect("media attachments meta");
+
+        db.update_tool_result_with_side_outputs(
+            &session.id,
+            "call-media",
+            "Sent attachment \"report.pdf\" (42 B) to the user.",
+            Some(12),
+            false,
+            None,
+            Some(&media_meta),
+        )
+        .expect("update tool result");
+
+        let (messages, _, _) = db
+            .load_session_messages_latest(&session.id, 20)
+            .expect("load messages");
+        let tool_row = messages
+            .iter()
+            .find(|msg| msg.tool_call_id.as_deref() == Some("call-media"))
+            .expect("tool row");
+        assert_eq!(
+            tool_row.tool_result.as_deref(),
+            Some("Sent attachment \"report.pdf\" (42 B) to the user.")
+        );
+        let attachments_meta = tool_row
+            .attachments_meta
+            .as_deref()
+            .expect("attachments meta");
+        assert!(attachments_meta.contains("tool_media_items"));
+        assert!(attachments_meta.contains("report.pdf"));
+
         let _ = std::fs::remove_file(&db_path);
     }
 

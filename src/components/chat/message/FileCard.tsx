@@ -66,6 +66,27 @@ function resolveIconKey(mime: string, name: string): IconKey {
 
   const ext = name.split(".").pop()?.toLowerCase()
   switch (ext) {
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "svg":
+    case "bmp":
+    case "ico":
+      return "image"
+    case "mp3":
+    case "wav":
+    case "ogg":
+    case "flac":
+    case "m4a":
+      return "audio"
+    case "mp4":
+    case "mov":
+    case "webm":
+    case "mkv":
+    case "avi":
+      return "video"
     case "pdf":
       return "pdf"
     case "zip":
@@ -82,12 +103,46 @@ function resolveIconKey(mime: string, name: string): IconKey {
     case "doc":
     case "docx":
       return "doc"
+    case "ts":
+    case "tsx":
+    case "js":
+    case "jsx":
+    case "json":
+    case "rs":
+    case "py":
+    case "go":
+    case "java":
+    case "kt":
+    case "swift":
+    case "c":
+    case "cc":
+    case "cpp":
+    case "h":
+    case "hpp":
+    case "css":
+    case "scss":
+    case "html":
+    case "xml":
+    case "md":
+    case "toml":
+    case "yaml":
+    case "yml":
+    case "sh":
+      return "code"
     default:
       return "file"
   }
 }
 
-function FileMimeIcon({ mime, name, className }: { mime: string; name: string; className?: string }) {
+export function FileMimeIcon({
+  mime,
+  name,
+  className,
+}: {
+  mime: string
+  name: string
+  className?: string
+}) {
   const key = resolveIconKey(mime, name)
   switch (key) {
     case "image":
@@ -127,6 +182,14 @@ function FileCard({ item }: { item: MediaItem }) {
     }
   }, [item, transport])
 
+  const handleDownload = useCallback(async () => {
+    try {
+      await transport.downloadMedia(item)
+    } catch (e) {
+      logger.error("chat", "FileCard::download", "Failed to download attachment", e)
+    }
+  }, [item, transport])
+
   const handleReveal = useCallback(async () => {
     try {
       await transport.revealMedia(item)
@@ -155,10 +218,10 @@ function FileCard({ item }: { item: MediaItem }) {
         </span>
       </button>
       <div className="flex items-center gap-0.5 shrink-0">
-        <IconTip label={t("chat.openFile")}>
+        <IconTip label={t("localModels.actions.download", { defaultValue: "Download" })}>
           <button
             type="button"
-            onClick={handleOpen}
+            onClick={handleDownload}
             className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           >
             <Download className="h-3.5 w-3.5" />

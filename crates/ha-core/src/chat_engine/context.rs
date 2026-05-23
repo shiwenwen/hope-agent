@@ -107,13 +107,17 @@ pub fn persist_tool_event(
                     .get("tool_metadata")
                     .filter(|v| !v.is_null())
                     .and_then(|v| serde_json::to_string(v).ok());
-                let _ = db.update_tool_result_with_metadata(
+                let attachments_meta = event
+                    .get("media_items")
+                    .and_then(session::build_tool_media_items_attachments_meta);
+                let _ = db.update_tool_result_with_side_outputs(
                     session_id,
                     call_id,
                     result,
                     duration_ms,
                     is_error,
                     metadata_json.as_deref(),
+                    attachments_meta.as_deref(),
                 );
             }
             Some("tool_call") => {

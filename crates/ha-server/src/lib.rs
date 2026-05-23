@@ -173,6 +173,10 @@ fn build_router_with_cors(
             "/sessions/{id}/export",
             get(routes::sessions::export_session_http),
         )
+        .route(
+            "/sessions/{id}/files/by-path",
+            get(routes::sessions::download_session_file_by_path),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))

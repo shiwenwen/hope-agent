@@ -20,7 +20,7 @@ import {
   formatTokens,
   formatDuration,
   formatMessageTime,
-  extractModifiedFiles,
+  extractMessageFileAttachments,
   isUserAlignedMessage,
 } from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -298,9 +298,11 @@ function MessageBubbleInner({
   const [resultExpanded, setResultExpanded] = useState(false)
   const [contentRenderMode, setContentRenderMode] = useState<ContentRenderMode>("markdown")
 
-  const modifiedFiles = useMemo(
+  const messageFiles = useMemo(
     () =>
-      msg.role === "assistant" && msg.contentBlocks ? extractModifiedFiles(msg.contentBlocks) : [],
+      msg.role === "assistant" && msg.contentBlocks
+        ? extractMessageFileAttachments(msg.contentBlocks)
+        : [],
     [msg.role, msg.contentBlocks],
   )
 
@@ -653,9 +655,9 @@ function MessageBubbleInner({
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
           />
-          {modifiedFiles.length > 0 && (
+          {messageFiles.length > 0 && (
             <div className="ml-7">
-              <FileAttachments files={modifiedFiles} />
+              <FileAttachments files={messageFiles} sessionId={sessionId} />
             </div>
           )}
           {msg.timestamp && (
@@ -782,7 +784,9 @@ function MessageBubbleInner({
           {msg.content && !(loading && isLast) && (
             <MessageUrlPreviews content={msg.content} isStreaming={loading && isLast} />
           )}
-          {modifiedFiles.length > 0 && <FileAttachments files={modifiedFiles} />}
+          {messageFiles.length > 0 && (
+            <FileAttachments files={messageFiles} sessionId={sessionId} />
+          )}
           {msg.timestamp && (
             <div
               className={cn(
