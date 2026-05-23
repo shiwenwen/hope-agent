@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
@@ -63,6 +63,15 @@ interface SendOptions {
 interface PendingSend {
   text: string
   options?: SendOptions
+}
+
+interface InputDraft {
+  input: string
+  attachedFiles: File[]
+}
+
+function inputDraftKey(sessionId: string | null): string {
+  return sessionId ? `session:${sessionId}` : "draft"
 }
 
 export interface UseChatStreamOptions {
@@ -171,8 +180,79 @@ export function useChatStream({
   draftWorkingDir = null,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const { t } = useTranslation()
-  const [input, setInput] = useState("")
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [input, setInputState] = useState("")
+  const [attachedFiles, setAttachedFilesState] = useState<File[]>([])
+  const inputRef = useRef(input)
+  const attachedFilesRef = useRef(attachedFiles)
+  const inputDraftsRef = useRef<Map<string, InputDraft>>(new Map())
+  const activeInputDraftKeyRef = useRef(inputDraftKey(currentSessionId))
+
+  const saveInputDraft = useCallback((key: string, draft: InputDraft) => {
+    if (!draft.input && draft.attachedFiles.length === 0) {
+      inputDraftsRef.current.delete(key)
+      return
+    }
+    inputDraftsRef.current.set(key, draft)
+  }, [])
+
+  const setInput = useCallback<React.Dispatch<React.SetStateAction<string>>>(
+    (value) => {
+      setInputState((prev) => {
+        const next = typeof value === "function" ? (value as (p: string) => string)(prev) : value
+        inputRef.current = next
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: next,
+          attachedFiles: attachedFilesRef.current,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  const setAttachedFiles = useCallback<React.Dispatch<React.SetStateAction<File[]>>>(
+    (value) => {
+      setAttachedFilesState((prev) => {
+        const next =
+          typeof value === "function" ? (value as (p: File[]) => File[])(prev) : value
+        attachedFilesRef.current = next
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: inputRef.current,
+          attachedFiles: next,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  useLayoutEffect(() => {
+    const nextKey = inputDraftKey(currentSessionId)
+    const previousKey = activeInputDraftKeyRef.current
+    if (previousKey === nextKey) return
+
+    saveInputDraft(previousKey, {
+      input: inputRef.current,
+      attachedFiles: attachedFilesRef.current,
+    })
+
+    activeInputDraftKeyRef.current = nextKey
+    const nextDraft =
+      inputDraftsRef.current.get(nextKey) ??
+      (previousKey === "draft" ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
+        input: "",
+        attachedFiles: [],
+      }
+    if (previousKey === "draft" && !inputDraftsRef.current.has(nextKey)) {
+      saveInputDraft(nextKey, nextDraft)
+      inputDraftsRef.current.delete(previousKey)
+    }
+    inputRef.current = nextDraft.input
+    attachedFilesRef.current = nextDraft.attachedFiles
+    setInputState(nextDraft.input)
+    setAttachedFilesState(nextDraft.attachedFiles)
+  }, [currentSessionId, saveInputDraft])
+
   // Pending send queued while a response is streaming. Stores the LLM-bound
   // `text` plus the original `options` (displayText / planMode / isPlanTrigger)
   // so the replay path can resend with the exact same metadata — otherwise a
