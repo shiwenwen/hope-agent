@@ -437,7 +437,6 @@ export default function ChatSidebar({
                 onNewChat={onNewChat}
                 onEditAgent={onEditAgent}
                 onReorderAgents={onReorderAgents}
-                panelWidth={panelWidth}
               />
 
               {/* Session filter tabs + session list */}

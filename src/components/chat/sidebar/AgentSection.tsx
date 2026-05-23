@@ -43,7 +43,6 @@ interface AgentSectionProps {
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onEditAgent?: (agentId: string) => void
   onReorderAgents?: (agentIds: string[]) => void
-  panelWidth: number
 }
 
 interface SortableAgentCardProps {
@@ -205,7 +204,6 @@ export default function AgentSection({
   onNewChat,
   onEditAgent,
   onReorderAgents,
-  panelWidth,
 }: AgentSectionProps) {
   const { t } = useTranslation()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -242,10 +240,10 @@ export default function AgentSection({
         >
           <SortableContext items={agents.map((agent) => agent.id)} strategy={rectSortingStrategy}>
             <div
-              className={cn(
-                "pb-2 grid gap-1",
-                panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1",
-              )}
+              className="grid gap-1 pb-2"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(11rem, 100%), 1fr))",
+              }}
             >
               {agents.map((agent) => (
                 <SortableAgentCard
