@@ -7,6 +7,8 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import {
   Brain,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   GitCompare,
   Globe,
@@ -1416,6 +1418,7 @@ export default function ChatScreen({
   const isDiffPanelVisible = diffPanel.showPanel && diffPanel.activeChanges.length > 0
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       diff: isDiffPanelVisible,
@@ -1439,10 +1442,16 @@ export default function ChatScreen({
     () => EXCLUSIVE_RIGHT_PANEL_ORDER.filter((panel) => rightPanelVisibility[panel]),
     [rightPanelVisibility],
   )
+  const hasOpenExclusiveRightPanel = openExclusiveRightPanels.length > 0
   const renderedExclusiveRightPanel =
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
       : (openExclusiveRightPanels[0] ?? null)
+  const shouldRenderRightPanelContent =
+    !!renderedExclusiveRightPanel && !rightPanelCollapsed
+  const rightPanelToggleLabel = rightPanelCollapsed
+    ? t("chat.rightPanel.expand", "Expand right panel")
+    : t("chat.rightPanel.collapse", "Collapse right panel")
   const getRightPanelLabel = useCallback(
     (panel: ExclusiveRightPanel) => {
       switch (panel) {
@@ -1471,6 +1480,12 @@ export default function ChatScreen({
     }
     lastRightPanelKeyRef.current = rightPanelKey
   }, [rightPanelKey])
+
+  useEffect(() => {
+    if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
+      setRightPanelCollapsed(false)
+    }
+  }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
   // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
   // rail. Track rising edges so the panel that just opened wins while the
@@ -1864,39 +1879,61 @@ export default function ChatScreen({
             )}
           </div>
 
-          {openExclusiveRightPanels.length > 1 && (
+          {hasOpenExclusiveRightPanel && (
             <div className="flex h-full shrink-0 items-start py-3 pl-1">
               <div className="flex flex-col gap-1 rounded-lg border border-border-soft bg-surface-panel/95 p-1 shadow-panel">
-                {openExclusiveRightPanels.map((panel) => {
-                  const PanelIcon = EXCLUSIVE_RIGHT_PANEL_ICONS[panel]
-                  const label = getRightPanelLabel(panel)
-                  const isActive = renderedExclusiveRightPanel === panel
+                {openExclusiveRightPanels.length > 1 &&
+                  openExclusiveRightPanels.map((panel) => {
+                    const PanelIcon = EXCLUSIVE_RIGHT_PANEL_ICONS[panel]
+                    const label = getRightPanelLabel(panel)
+                    const isActive = renderedExclusiveRightPanel === panel
 
-                  return (
-                    <IconTip key={panel} label={label} side="left">
-                      <button
-                        type="button"
-                        aria-label={label}
-                        aria-pressed={isActive}
-                        onClick={() => setActiveExclusiveRightPanel(panel)}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
-                          isActive
-                            ? "bg-secondary text-foreground shadow-sm"
-                            : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
-                        )}
-                      >
-                        <PanelIcon className="h-4 w-4" />
-                      </button>
-                    </IconTip>
-                  )
-                })}
+                    return (
+                      <IconTip key={panel} label={label} side="left">
+                        <button
+                          type="button"
+                          aria-label={label}
+                          aria-pressed={isActive}
+                          onClick={() => {
+                            setActiveExclusiveRightPanel(panel)
+                            setRightPanelCollapsed(false)
+                          }}
+                          className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+                            isActive
+                              ? "bg-secondary text-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                          )}
+                        >
+                          <PanelIcon className="h-4 w-4" />
+                        </button>
+                      </IconTip>
+                    )
+                  })}
+                {openExclusiveRightPanels.length > 1 && (
+                  <div className="mx-1 my-0.5 h-px bg-border-soft" />
+                )}
+                <IconTip label={rightPanelToggleLabel} side="left">
+                  <button
+                    type="button"
+                    aria-label={rightPanelToggleLabel}
+                    aria-expanded={!rightPanelCollapsed}
+                    onClick={() => setRightPanelCollapsed((collapsed) => !collapsed)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                  >
+                    {rightPanelCollapsed ? (
+                      <ChevronLeft className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </button>
+                </IconTip>
               </div>
             </div>
           )}
 
           {/* Diff panel (right side, selected from the shared panel rail) */}
-          {renderedExclusiveRightPanel === "diff" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "diff" && (
             <RightPanelShell
               width={rightPanelWidth}
               onWidthChange={setRightPanelWidth}
@@ -1914,7 +1951,7 @@ export default function ChatScreen({
           )}
 
           {/* Plan workspace (right side, integrated under the shared title bar) */}
-          {renderedExclusiveRightPanel === "plan" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
             <RightPanelShell
               width={rightPanelWidth}
               onWidthChange={setRightPanelWidth}
@@ -1942,12 +1979,14 @@ export default function ChatScreen({
             onPanelWidthChange={setRightPanelWidth}
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
-            visible={renderedExclusiveRightPanel === "canvas"}
+            visible={
+              shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
+            }
           />
 
           {/* Browser live-mirror panel — open on first `browser:frame` push,
               close-only by user, then switchable from the shared panel rail. */}
-          {renderedExclusiveRightPanel === "browser" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
@@ -1961,7 +2000,7 @@ export default function ChatScreen({
           {/* Mac Control live-mirror panel — open on first `mac_control:frame`
               push. The panel remains read-only while `wait`/target matching
               lands in Phase 2C. */}
-          {renderedExclusiveRightPanel === "mac-control" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
             <MacControlPanel
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
@@ -1973,15 +2012,17 @@ export default function ChatScreen({
           )}
 
           {/* Team Panel */}
-          {renderedExclusiveRightPanel === "team" && activeTeamId && (
-            <TeamPanel
-              teamId={activeTeamId}
-              panelWidth={rightPanelWidth}
-              onPanelWidthChange={setRightPanelWidth}
-              onClose={() => setShowTeamPanel(false)}
-              onSwitchSession={session.handleSwitchSession}
-            />
-          )}
+          {shouldRenderRightPanelContent &&
+            renderedExclusiveRightPanel === "team" &&
+            activeTeamId && (
+              <TeamPanel
+                teamId={activeTeamId}
+                panelWidth={rightPanelWidth}
+                onPanelWidthChange={setRightPanelWidth}
+                onClose={() => setShowTeamPanel(false)}
+                onSwitchSession={session.handleSwitchSession}
+              />
+            )}
         </div>
       </div>
 

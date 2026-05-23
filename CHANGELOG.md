@@ -27,11 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **聊天模型默认值作用域优化**：Agent 级 Think / reasoning effort 默认值现在可随 Agent 配置持久化，并在桌面、HTTP、IM、Cron 与 Subagent 路径中按「会话覆盖 > Agent 默认 > 全局默认」解析；Quick Chat 与主聊天恢复会话时同步恢复对应模型与 Think 状态。 (#236)
 - **聊天右侧面板交互统一**：Browser / Plan / Diff / Canvas / Team / Mac Control 面板强制互斥、可在已打开面板间一键切换并共享同一宽度。 (#232)
 - **IM 渠道稳定性整体加固**：Discord gateway 状态、Slack socket 断线重连、QQ Bot gateway 元数据、Signal daemon 就绪轮询、IRCv3 能力协商、iMessage RPC、LINE push 幂等重试、WhatsApp 轮询退避、Telegram 请求节流、飞书 token singleflight 与卡片动作 toast、IM callback origin 校验等多渠道修复。 (#232)
 
 ### Fixed
 
+- **Web Search fallback 诊断不再污染缓存**：搜索 provider fallback 时会区分无结果与 provider 不可用，且临时失败 / 限流诊断只出现在本次响应中，不再写入结果缓存。 (#236)
 - **聊天「停止」状态稳定保留**：重做 chat engine 活动 turn / 持久化 / 流序号管线，按下停止后会话状态正确保留，不再丢失或错乱（覆盖 failover 与 subagent 路径）。 (#230)
 - **流式 JSON 渲染修复**：流式输出过程中的 JSON 代码块渲染正确，不再中途错乱。 (#233)
 - **review followup 杂项修复**：IM 审批原因渲染、斜杠命令选择器去重、权限模式事件同步、NSIS 中文安装语言恢复、Release webview 右键菜单抑制等。 (#232)
