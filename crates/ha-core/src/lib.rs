@@ -46,6 +46,7 @@ pub mod failover;
 pub mod file_extract;
 pub mod filesystem;
 pub mod guardian;
+pub mod issue_reporting;
 pub mod local_embedding;
 pub mod local_llm;
 pub mod local_model_jobs;

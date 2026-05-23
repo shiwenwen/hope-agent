@@ -74,6 +74,7 @@ fn risk_level(category: &str) -> &'static str {
         | "tool_result_disk_threshold"
         | "ask_user_question_timeout"
         | "plan"
+        | "issue_reporting"
         | "skills_auto_review"
         | "recall_summary"
         | "tool_call_narration"
@@ -140,6 +141,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "smart_mode" => Some(
             "Affects every Smart-mode session: changing strategy / judgeModel / fallback alters which tool calls are auto-approved. JudgeModel-based strategies issue an extra side_query per approvable call (5s hard timeout, 60s TTL cache)."
+        ),
+        "issue_reporting" => Some(
+            "Controls the default GitHub repository and label mapping used by issue_report. The GitHub token is stored separately in the Settings UI; issue_report(action=\"create\") still asks the user before submitting."
         ),
         "mcp_global" => Some(
             "MCP subsystem master switch + concurrency / backoff caps. Flipping enabled=false disconnects every MCP server; loosening backoff caps can cause retry storms; deniedServers prevents users from re-adding listed server names."
@@ -426,6 +430,10 @@ fn read_category(category: &str) -> Result<Value> {
         "tool_call_narration" => Ok(json!({
             "toolCallNarrationEnabled": cfg.tool_call_narration_enabled,
         })),
+        "issue_reporting" => Ok(json!({
+            "config": cfg.issue_reporting,
+            "hasToken": crate::issue_reporting::has_token(),
+        })),
         "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
         "local_llm_auto_maintenance" => Ok(serde_json::to_value(&cfg.local_llm)?),
         "smart_mode" => Ok(serde_json::to_value(&cfg.permission.smart)?),
@@ -502,6 +510,12 @@ fn get_all_overview() -> Result<String> {
         },
         "sessionTitle": cfg.session_title,
         "asyncTools": { "enabled": cfg.async_tools.enabled },
+        "issueReporting": {
+            "enabled": cfg.issue_reporting.enabled,
+            "owner": cfg.issue_reporting.owner,
+            "repo": cfg.issue_reporting.repo,
+            "hasToken": crate::issue_reporting::has_token(),
+        },
         "deferredTools": {
             "enabled": cfg.deferred_tools.enabled,
             "toolNames": cfg.deferred_tools.tool_names,
@@ -563,7 +577,7 @@ fn get_all_overview() -> Result<String> {
             "mmr", "multimodal", "dreaming", "recap", "awareness", "web_fetch", "web_search",
             "deferred_tools", "async_tools", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
-            "skills_auto_review", "recall_summary", "tool_call_narration",
+            "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
             "teams", "im_auto_transcribe"
         ],
         "high": [
@@ -889,6 +903,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.tool_call_narration_enabled = v;
             }
         }
+        "issue_reporting" => merge_field(&mut store.issue_reporting, values)?,
         "smart_mode" => merge_field(&mut store.permission.smart, values)?,
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,

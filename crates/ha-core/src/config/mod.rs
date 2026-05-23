@@ -540,6 +540,10 @@ pub struct AppConfig {
     /// Image generation configuration
     #[serde(default)]
     pub image_generate: crate::tools::image_generate::ImageGenConfig,
+    /// GitHub issue reporting target and defaults. Token lives separately under
+    /// `~/.hope-agent/credentials/github-issue.json`.
+    #[serde(default)]
+    pub issue_reporting: crate::issue_reporting::IssueReportingConfig,
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
@@ -762,6 +766,7 @@ impl Default for AppConfig {
             notification: NotificationConfig::default(),
             startup_notification: StartupNotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
+            issue_reporting: crate::issue_reporting::IssueReportingConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
             browser: None,
             image: crate::tools::image::ImageToolConfig::default(),
