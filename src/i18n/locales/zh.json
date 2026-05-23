@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "全部已读",
     "markAsRead": "标记已读",
+    "pinSession": "置顶",
+    "unpinSession": "取消置顶",
     "minutesAgo": "{{count}}分钟前",
     "modelsCount": "{{count}} 个模型",
     "modifiedFiles": "生成/修改的文件",

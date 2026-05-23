@@ -122,7 +122,7 @@ pub async fn list_project_sessions_cmd(
     state: State<'_, AppState>,
 ) -> Result<(Vec<SessionMeta>, u32), CmdError> {
     use ha_core::session::ProjectFilter;
-    let (mut sessions, total) = state.session_db.list_sessions_paged(
+    let (mut sessions, total) = state.session_db.list_sessions_paged_for_sidebar(
         None,
         ProjectFilter::InProject(&id),
         limit,

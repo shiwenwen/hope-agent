@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "すべて既読にする",
     "markAsRead": "既読にする",
+    "pinSession": "ピン留め",
+    "unpinSession": "ピン留め解除",
     "minutesAgo": "{{count}}分前",
     "modelsCount": "{{count}} モデル",
     "modifiedFiles": "変更されたファイル",

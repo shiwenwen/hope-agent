@@ -49,6 +49,9 @@ pub struct SessionMeta {
     pub reasoning_effort: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// When set, the sidebar sorts this session above unpinned sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<String>,
     pub message_count: i64,
     pub unread_count: i64,
     /// Whether the latest persisted message is marked as an error.
@@ -488,6 +491,7 @@ mod tests {
             reasoning_effort: None,
             created_at: "2026-05-01T00:00:00Z".to_string(),
             updated_at: "2026-05-01T00:00:00Z".to_string(),
+            pinned_at: None,
             message_count: 0,
             unread_count: 0,
             has_error: false,

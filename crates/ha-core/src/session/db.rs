@@ -50,7 +50,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir, s.title_source, s.reasoning_effort
+           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -87,7 +87,8 @@ impl SessionDB {
                 is_cron INTEGER NOT NULL DEFAULT 0,
                 parent_session_id TEXT,
                 incognito INTEGER NOT NULL DEFAULT 0,
-                title_source TEXT NOT NULL DEFAULT 'manual'
+                title_source TEXT NOT NULL DEFAULT 'manual',
+                pinned_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -122,6 +123,7 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_messages_session_role ON messages(session_id, role);
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);
 
             -- Sub-agent runs
             CREATE TABLE IF NOT EXISTS subagent_runs (
@@ -409,6 +411,18 @@ impl SessionDB {
         if !has_permission_mode {
             conn.execute_batch(
                 "ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';",
+            )?;
+        }
+
+        // Migration: optional sidebar pin timestamp. NULL means unpinned;
+        // non-NULL sorts above normal sessions without changing updated_at.
+        let has_pinned_at = conn
+            .prepare("SELECT pinned_at FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_pinned_at {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN pinned_at TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);",
             )?;
         }
 
@@ -933,6 +947,7 @@ impl SessionDB {
             reasoning_effort: None,
             created_at: now.clone(),
             updated_at: now,
+            pinned_at: None,
             message_count: 0,
             unread_count: 0,
             has_error: false,
@@ -1020,6 +1035,47 @@ impl SessionDB {
         offset: Option<u32>,
         active_session_id: Option<&str>,
     ) -> Result<(Vec<SessionMeta>, u32)> {
+        self.list_sessions_paged_inner(
+            agent_id,
+            project_filter,
+            limit,
+            offset,
+            active_session_id,
+            "s.updated_at DESC",
+        )
+    }
+
+    /// Sidebar-facing session list. Pinned sessions sort above the normal
+    /// updated-at ordering; internal "recent session" callers should keep
+    /// using [`Self::list_sessions_paged`] so old pins cannot crowd out fresh
+    /// activity from a limited candidate window.
+    pub fn list_sessions_paged_for_sidebar(
+        &self,
+        agent_id: Option<&str>,
+        project_filter: ProjectFilter<'_>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+        active_session_id: Option<&str>,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
+        self.list_sessions_paged_inner(
+            agent_id,
+            project_filter,
+            limit,
+            offset,
+            active_session_id,
+            "s.pinned_at IS NULL ASC, s.pinned_at DESC, s.updated_at DESC",
+        )
+    }
+
+    fn list_sessions_paged_inner(
+        &self,
+        agent_id: Option<&str>,
+        project_filter: ProjectFilter<'_>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+        active_session_id: Option<&str>,
+        order_by: &str,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self
             .conn
             .lock()
@@ -1081,8 +1137,8 @@ impl SessionDB {
 
         let count_sql = format!("{}{}", count_base, where_sql);
         let sql = format!(
-            "{}{} ORDER BY s.updated_at DESC{}",
-            base_sql, where_sql, pagination_clause
+            "{}{} ORDER BY {}{}",
+            base_sql, where_sql, order_by, pagination_clause
         );
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
@@ -1491,6 +1547,7 @@ impl SessionDB {
             provider_name: row.get(4)?,
             model_id: row.get(5)?,
             reasoning_effort: row.get(24).ok().flatten(),
+            pinned_at: row.get(25).ok().flatten(),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
@@ -1913,6 +1970,22 @@ impl SessionDB {
             title,
             crate::session_title::TITLE_SOURCE_MANUAL,
         )
+    }
+
+    /// Pin or unpin a session in sidebar listings. This intentionally does
+    /// not bump `updated_at` — pinning is an ordering preference, not chat
+    /// activity.
+    pub fn set_session_pinned(&self, session_id: &str, pinned: bool) -> Result<()> {
+        let pinned_at = pinned.then(|| chrono::Utc::now().to_rfc3339());
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET pinned_at = ?1 WHERE id = ?2",
+            params![pinned_at, session_id],
+        )?;
+        Ok(())
     }
 
     /// Update session title and record its source.

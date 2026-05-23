@@ -455,6 +455,10 @@ pub struct AppConfig {
     /// session/project/channel specifies one. Defaults to `"ha-main"`.
     #[serde(default = "default_default_agent_id")]
     pub default_agent_id: Option<String>,
+    /// User-defined display order for agent pickers and sidebar lists. Missing
+    /// or newly-created agents fall back to the default main-first ordering.
+    #[serde(default)]
+    pub agent_order: Vec<String>,
     /// Extra directories to scan for skills
     #[serde(default)]
     pub extra_skills_dirs: Vec<String>,
@@ -737,6 +741,7 @@ impl Default for AppConfig {
             active_model: None,
             fallback_models: Vec::new(),
             default_agent_id: default_default_agent_id(),
+            agent_order: Vec::new(),
             extra_skills_dirs: Vec::new(),
             disabled_skills: Vec::new(),
             skill_env_check: true,

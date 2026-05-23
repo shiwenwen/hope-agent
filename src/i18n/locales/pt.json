@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "Marcar tudo como lido",
     "markAsRead": "Marcar como lido",
+    "pinSession": "Fixar",
+    "unpinSession": "Desafixar",
     "minutesAgo": "{{count}}min atrás",
     "modelsCount": "{{count}} modelos",
     "modifiedFiles": "Arquivos modificados",

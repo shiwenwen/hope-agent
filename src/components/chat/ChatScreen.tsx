@@ -1575,6 +1575,8 @@ export default function ChatScreen({
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
+        onToggleSessionPinned={session.handleToggleSessionPinned}
+        onReorderAgents={session.handleReorderAgents}
         onMarkAllRead={refreshUnreadState}
         onRenameSession={handleRenameSession}
         hasMoreSessions={session.hasMoreSessions}

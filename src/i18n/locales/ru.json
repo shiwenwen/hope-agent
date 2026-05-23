@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "Отметить всё как прочитанное",
     "markAsRead": "Отметить как прочитанное",
+    "pinSession": "Закрепить",
+    "unpinSession": "Открепить",
     "minutesAgo": "{{count}} мин назад",
     "modelsCount": "{{count}} моделей",
     "modifiedFiles": "Изменённые файлы",

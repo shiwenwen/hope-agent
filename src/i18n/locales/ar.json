@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "تحديد الكل كمقروء",
     "markAsRead": "تحديد كمقروء",
+    "pinSession": "تثبيت",
+    "unpinSession": "إلغاء التثبيت",
     "minutesAgo": "منذ {{count}} دقيقة",
     "modelsCount": "{{count}} نماذج",
     "modifiedFiles": "الملفات المعدّلة",

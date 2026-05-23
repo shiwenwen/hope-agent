@@ -10,6 +10,15 @@ pub async fn list_agents() -> Result<Vec<agent_config::AgentSummary>, CmdError> 
 }
 
 #[tauri::command]
+pub async fn reorder_agents(agent_ids: Vec<String>) -> Result<(), CmdError> {
+    agent_loader::reorder_agents(agent_ids, "ui")?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "kind": "reordered" }));
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_agent_config(id: String) -> Result<agent_config::AgentConfig, CmdError> {
     let def = agent_loader::load_agent(&id)?;
     Ok(def.config)

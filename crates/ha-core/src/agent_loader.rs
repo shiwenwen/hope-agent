@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::agent_config::{AgentConfig, AgentDefinition, AgentSummary};
@@ -411,14 +412,60 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
         });
     }
 
-    // Sort: main agent first, then alphabetical
-    summaries.sort_by(|a, b| {
-        let a_default = a.id == DEFAULT_AGENT_ID;
-        let b_default = b.id == DEFAULT_AGENT_ID;
-        b_default.cmp(&a_default).then(a.id.cmp(&b.id))
-    });
+    sort_agent_summaries(&mut summaries);
 
     Ok(summaries)
+}
+
+fn sort_agent_summaries(summaries: &mut [AgentSummary]) {
+    let order = crate::config::cached_config().agent_order.clone();
+    if order.is_empty() {
+        summaries.sort_by(default_agent_summary_order);
+        return;
+    }
+
+    let positions: HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(idx, id)| (id.as_str(), idx))
+        .collect();
+    summaries.sort_by(
+        |a, b| match (positions.get(a.id.as_str()), positions.get(b.id.as_str())) {
+            (Some(a_idx), Some(b_idx)) => a_idx.cmp(b_idx),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => default_agent_summary_order(a, b),
+        },
+    );
+}
+
+fn default_agent_summary_order(a: &AgentSummary, b: &AgentSummary) -> std::cmp::Ordering {
+    let a_default = a.id == DEFAULT_AGENT_ID;
+    let b_default = b.id == DEFAULT_AGENT_ID;
+    b_default.cmp(&a_default).then(a.id.cmp(&b.id))
+}
+
+/// Persist the display order used by `list_agents`. Unknown ids are ignored
+/// and newly-created agents keep falling through to the default tail order.
+pub fn reorder_agents(agent_ids: Vec<String>, source: &'static str) -> Result<()> {
+    let existing = list_agent_ids()?;
+    let mut seen = HashSet::new();
+    let normalized: Vec<String> = agent_ids
+        .into_iter()
+        .filter_map(|id| {
+            if existing.contains(&id) && seen.insert(id.clone()) {
+                Some(id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    crate::config::mutate_config(("agents.reorder", source), move |cfg| {
+        cfg.agent_order = normalized;
+        Ok(())
+    })?;
+    Ok(())
 }
 
 /// Lightweight variant of [`list_agents`] that only returns directory names.

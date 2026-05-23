@@ -62,6 +62,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
   create_session_cmd:              { method: "POST",   path: "/api/sessions" },
   get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
+  set_session_pinned_cmd:          { method: "PATCH",  path: "/api/sessions/{sessionId}/pinned" },
   set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },
   set_session_working_dir:         { method: "PATCH",  path: "/api/sessions/{sessionId}/working-dir" },
   update_session_agent_cmd:        { method: "PATCH",  path: "/api/sessions/{sessionId}/agent" },
@@ -149,6 +150,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Agents --
   list_agents:                     { method: "GET",    path: "/api/agents" },
+  reorder_agents:                  { method: "POST",   path: "/api/agents/reorder" },
   get_agent_template:              { method: "GET",    path: "/api/agents/template" },
   initialize_agent:                { method: "POST",   path: "/api/agents/initialize" },
   get_agent_config:                { method: "GET",    path: "/api/agents/{id}" },

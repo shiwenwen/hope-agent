@@ -82,6 +82,8 @@ export interface UseChatSessionReturn {
   // Handlers
   reloadSessions: () => Promise<void>
   reloadAgents: () => Promise<void>
+  handleToggleSessionPinned: (sessionId: string, pinned: boolean) => Promise<void>
+  handleReorderAgents: (agentIds: string[]) => Promise<void>
   handleSwitchSession: (
     sessionId: string,
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
@@ -118,6 +120,15 @@ interface UseChatSessionOptions {
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
   onSidebarAggregatesChanged?: () => void
+}
+
+function sortSessionsForSidebar(sessions: SessionMeta[]): SessionMeta[] {
+  return sessions.slice().sort((a, b) => {
+    const aPinned = a.pinnedAt ? Date.parse(a.pinnedAt) || 0 : 0
+    const bPinned = b.pinnedAt ? Date.parse(b.pinnedAt) || 0 : 0
+    if (aPinned !== bPinned) return bPinned - aPinned
+    return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+  })
 }
 
 export function useChatSession({
@@ -419,6 +430,48 @@ export function useChatSession({
       logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e)
     }
   }, [])
+
+  const handleToggleSessionPinned = useCallback(
+    async (sessionId: string, pinned: boolean) => {
+      const pinnedAt = pinned ? new Date().toISOString() : null
+      setSessions((prev) =>
+        sortSessionsForSidebar(
+          prev.map((session) =>
+            session.id === sessionId ? { ...session, pinnedAt } : session,
+          ),
+        ),
+      )
+      try {
+        await getTransport().call("set_session_pinned_cmd", { sessionId, pinned })
+        await reloadSessions()
+      } catch (e) {
+        logger.error("ui", "ChatScreen::pinSession", "Failed to update session pin", e)
+        notify(t("common.saveFailed"), String(e))
+        await reloadSessions()
+      }
+    },
+    [reloadSessions, t],
+  )
+
+  const handleReorderAgents = useCallback(
+    async (agentIds: string[]) => {
+      const current = agents
+      const byId = new Map(current.map((agent) => [agent.id, agent]))
+      const next = [
+        ...agentIds.map((id) => byId.get(id)).filter((agent): agent is AgentSummaryForSidebar => !!agent),
+        ...current.filter((agent) => !agentIds.includes(agent.id)),
+      ]
+      setAgents(next)
+      try {
+        await getTransport().call("reorder_agents", { agentIds: next.map((agent) => agent.id) })
+      } catch (e) {
+        logger.error("ui", "ChatScreen::reorderAgents", "Failed to reorder agents", e)
+        notify(t("common.saveFailed"), String(e))
+        setAgents(current)
+      }
+    },
+    [agents, t],
+  )
 
   useEffect(() => {
     reloadSessions()
@@ -938,6 +991,8 @@ export function useChatSession({
     touchSessionCacheLru,
     reloadSessions,
     reloadAgents,
+    handleToggleSessionPinned,
+    handleReorderAgents,
     handleSwitchSession,
     handleNewChat,
     handleNewChatInProject,

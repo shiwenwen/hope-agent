@@ -64,6 +64,8 @@ export default function ChatSidebar({
   onNewChat,
   onDeleteSession,
   onEditAgent,
+  onToggleSessionPinned,
+  onReorderAgents,
   onMarkAllRead,
   onRenameSession,
   hasMoreSessions,
@@ -419,6 +421,7 @@ export default function ChatSidebar({
                   onCommitRename={commitRename}
                   onCancelRename={cancelRename}
                   onMoveSessionToProject={onMoveSessionToProject}
+                  onToggleSessionPinned={onToggleSessionPinned}
                   getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
                 />
@@ -433,6 +436,7 @@ export default function ChatSidebar({
                 toggleAgentFilter={toggleAgentFilter}
                 onNewChat={onNewChat}
                 onEditAgent={onEditAgent}
+                onReorderAgents={onReorderAgents}
                 panelWidth={panelWidth}
               />
 
@@ -466,6 +470,7 @@ export default function ChatSidebar({
                 agents={agents}
                 projects={projects}
                 onMoveToProject={onMoveSessionToProject}
+                onToggleSessionPinned={onToggleSessionPinned}
                 searchFocusSignal={sidebarCollapsed ? 0 : searchFocusSignal}
               />
             </div>

@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "Đánh dấu tất cả là đã đọc",
     "markAsRead": "Đánh dấu là đã đọc",
+    "pinSession": "Ghim",
+    "unpinSession": "Bỏ ghim",
     "minutesAgo": "{{count}} phút trước",
     "modelsCount": "{{count}} mô hình",
     "modifiedFiles": "Tệp đã sửa đổi",

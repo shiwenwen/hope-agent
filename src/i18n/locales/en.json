@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "Mark all as read",
     "markAsRead": "Mark as read",
+    "pinSession": "Pin",
+    "unpinSession": "Unpin",
     "minutesAgo": "{{count}}min ago",
     "modelsCount": "{{count}} models",
     "modifiedFiles": "Generated/modified files",

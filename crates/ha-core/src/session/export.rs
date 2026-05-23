@@ -424,6 +424,7 @@ mod tests {
             reasoning_effort: None,
             created_at: "2026-05-10T10:00:00Z".into(),
             updated_at: "2026-05-10T10:30:00Z".into(),
+            pinned_at: None,
             message_count: 4,
             unread_count: 0,
             has_error: false,

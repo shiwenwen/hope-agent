@@ -236,6 +236,7 @@ mod tests {
             reasoning_effort: None,
             created_at: "2025-01-01T00:00:00Z".into(),
             updated_at: "2025-01-01T00:00:00Z".into(),
+            pinned_at: None,
             message_count: 0,
             unread_count: 0,
             has_error: false,

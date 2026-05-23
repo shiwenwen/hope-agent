@@ -376,6 +376,8 @@
     "mainAgent": "Main Agent",
     "markAllRead": "모두 읽음으로 표시",
     "markAsRead": "읽음으로 표시",
+    "pinSession": "고정",
+    "unpinSession": "고정 해제",
     "minutesAgo": "{{count}}분 전",
     "modelsCount": "모델 {{count}}개",
     "modifiedFiles": "수정된 파일",

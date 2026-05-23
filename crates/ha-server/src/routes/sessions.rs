@@ -83,6 +83,12 @@ pub struct RenameSessionBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionPinnedBody {
+    pub pinned: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AwarenessOverrideBody {
     /// JSON string. `None` or empty clears the override.
     pub json: Option<String>,
@@ -166,7 +172,7 @@ pub async fn list_sessions(
         ha_core::session::ProjectFilter::All
     };
 
-    let (mut sessions, total) = ctx.session_db.list_sessions_paged(
+    let (mut sessions, total) = ctx.session_db.list_sessions_paged_for_sidebar(
         q.agent_id.as_deref(),
         project_filter,
         q.limit,
@@ -208,6 +214,16 @@ pub async fn rename_session(
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db.update_session_title(&id, &body.title)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+/// `PATCH /api/sessions/:id/pinned` — pin/unpin a session in sidebar lists.
+pub async fn set_session_pinned(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionPinnedBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db.set_session_pinned(&id, body.pinned)?;
+    Ok(Json(json!({ "updated": true, "pinned": body.pinned })))
 }
 
 /// `PATCH /api/sessions/:id/incognito` — toggle per-session incognito mode.
