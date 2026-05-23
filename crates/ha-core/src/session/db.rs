@@ -50,7 +50,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir, s.title_source, s.reasoning_effort
+           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -87,7 +87,8 @@ impl SessionDB {
                 is_cron INTEGER NOT NULL DEFAULT 0,
                 parent_session_id TEXT,
                 incognito INTEGER NOT NULL DEFAULT 0,
-                title_source TEXT NOT NULL DEFAULT 'manual'
+                title_source TEXT NOT NULL DEFAULT 'manual',
+                pinned_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -411,6 +412,18 @@ impl SessionDB {
                 "ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';",
             )?;
         }
+
+        // Migration: optional sidebar pin timestamp. NULL means unpinned;
+        // non-NULL sorts above normal sessions without changing updated_at.
+        let has_pinned_at = conn
+            .prepare("SELECT pinned_at FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_pinned_at {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN pinned_at TEXT;")?;
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);",
+        )?;
 
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
@@ -933,6 +946,7 @@ impl SessionDB {
             reasoning_effort: None,
             created_at: now.clone(),
             updated_at: now,
+            pinned_at: None,
             message_count: 0,
             unread_count: 0,
             has_error: false,
@@ -1020,6 +1034,47 @@ impl SessionDB {
         offset: Option<u32>,
         active_session_id: Option<&str>,
     ) -> Result<(Vec<SessionMeta>, u32)> {
+        self.list_sessions_paged_inner(
+            agent_id,
+            project_filter,
+            limit,
+            offset,
+            active_session_id,
+            "s.updated_at DESC",
+        )
+    }
+
+    /// Sidebar-facing session list. Pinned sessions sort above the normal
+    /// updated-at ordering; internal "recent session" callers should keep
+    /// using [`Self::list_sessions_paged`] so old pins cannot crowd out fresh
+    /// activity from a limited candidate window.
+    pub fn list_sessions_paged_for_sidebar(
+        &self,
+        agent_id: Option<&str>,
+        project_filter: ProjectFilter<'_>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+        active_session_id: Option<&str>,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
+        self.list_sessions_paged_inner(
+            agent_id,
+            project_filter,
+            limit,
+            offset,
+            active_session_id,
+            "s.pinned_at IS NULL ASC, s.pinned_at DESC, s.updated_at DESC",
+        )
+    }
+
+    fn list_sessions_paged_inner(
+        &self,
+        agent_id: Option<&str>,
+        project_filter: ProjectFilter<'_>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+        active_session_id: Option<&str>,
+        order_by: &str,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self
             .conn
             .lock()
@@ -1081,8 +1136,8 @@ impl SessionDB {
 
         let count_sql = format!("{}{}", count_base, where_sql);
         let sql = format!(
-            "{}{} ORDER BY s.updated_at DESC{}",
-            base_sql, where_sql, pagination_clause
+            "{}{} ORDER BY {}{}",
+            base_sql, where_sql, order_by, pagination_clause
         );
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
@@ -1491,6 +1546,7 @@ impl SessionDB {
             provider_name: row.get(4)?,
             model_id: row.get(5)?,
             reasoning_effort: row.get(24).ok().flatten(),
+            pinned_at: row.get(25).ok().flatten(),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
@@ -1634,14 +1690,55 @@ impl SessionDB {
         is_error: bool,
         metadata: Option<&str>,
     ) -> Result<()> {
+        self.update_tool_result_with_side_outputs(
+            session_id,
+            call_id,
+            result,
+            duration_ms,
+            is_error,
+            metadata,
+            None,
+        )
+    }
+
+    /// Same as [`Self::update_tool_result_with_metadata`] plus optional
+    /// `attachments_meta` side-output. This is used for file/media cards
+    /// emitted by tools (`send_attachment`, `image_generate`) so the UI can
+    /// restore them from history without feeding media JSON back into model
+    /// context via `tool_result`.
+    pub fn update_tool_result_with_side_outputs(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        result: &str,
+        duration_ms: Option<i64>,
+        is_error: bool,
+        metadata: Option<&str>,
+        attachments_meta: Option<&str>,
+    ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         // Mark `stream_status='completed'` so the next startup sweep
         // doesn't demote this row to `'orphaned'` (see `NewMessage::tool`).
-        match metadata {
-            Some(md) => {
+        match (metadata, attachments_meta) {
+            (Some(md), Some(att_meta)) => {
+                conn.execute(
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4, attachments_meta = ?5, stream_status = 'completed'
+                     WHERE session_id = ?6 AND tool_call_id = ?7",
+                    params![
+                        result,
+                        duration_ms,
+                        if is_error { 1i64 } else { 0i64 },
+                        md,
+                        att_meta,
+                        session_id,
+                        call_id
+                    ],
+                )?;
+            }
+            (Some(md), None) => {
                 conn.execute(
                     "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4, stream_status = 'completed'
                      WHERE session_id = ?5 AND tool_call_id = ?6",
@@ -1655,7 +1752,21 @@ impl SessionDB {
                     ],
                 )?;
             }
-            None => {
+            (None, Some(att_meta)) => {
+                conn.execute(
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, attachments_meta = ?4, stream_status = 'completed'
+                     WHERE session_id = ?5 AND tool_call_id = ?6",
+                    params![
+                        result,
+                        duration_ms,
+                        if is_error { 1i64 } else { 0i64 },
+                        att_meta,
+                        session_id,
+                        call_id
+                    ],
+                )?;
+            }
+            (None, None) => {
                 conn.execute(
                     "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, stream_status = 'completed'
                      WHERE session_id = ?4 AND tool_call_id = ?5",
@@ -1913,6 +2024,22 @@ impl SessionDB {
             title,
             crate::session_title::TITLE_SOURCE_MANUAL,
         )
+    }
+
+    /// Pin or unpin a session in sidebar listings. This intentionally does
+    /// not bump `updated_at` — pinning is an ordering preference, not chat
+    /// activity.
+    pub fn set_session_pinned(&self, session_id: &str, pinned: bool) -> Result<()> {
+        let pinned_at = pinned.then(|| chrono::Utc::now().to_rfc3339());
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET pinned_at = ?1 WHERE id = ?2",
+            params![pinned_at, session_id],
+        )?;
+        Ok(())
     }
 
     /// Update session title and record its source.
@@ -3019,6 +3146,7 @@ impl SessionDB {
 #[cfg(test)]
 mod tests {
     use super::SessionDB;
+    use rusqlite::Connection;
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
         // Mirror the production schema in `ChannelDB::migrate` (1:1 attach).
@@ -3077,6 +3205,123 @@ mod tests {
 
         drop(stmt);
         drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn open_migrates_legacy_sessions_without_pinned_at() {
+        let db_path = temp_db_path("session-legacy-no-pinned-at");
+        let legacy_conn = Connection::open(&db_path).expect("open legacy db");
+        legacy_conn
+            .execute_batch(
+                "CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    title TEXT,
+                    agent_id TEXT NOT NULL DEFAULT 'ha-main',
+                    provider_id TEXT,
+                    provider_name TEXT,
+                    model_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    context_json TEXT,
+                    last_read_message_id INTEGER DEFAULT 0,
+                    is_cron INTEGER NOT NULL DEFAULT 0,
+                    parent_session_id TEXT
+                );
+                INSERT INTO sessions (id, title, agent_id, created_at, updated_at)
+                VALUES ('legacy-session', 'Legacy', 'ha-main', '2026-05-23T00:00:00Z', '2026-05-23T00:00:00Z');",
+            )
+            .expect("create legacy schema");
+        drop(legacy_conn);
+
+        let db = SessionDB::open(&db_path).expect("open migrated session db");
+        let conn = db.conn.lock().expect("lock connection");
+
+        assert!(
+            conn.prepare("SELECT pinned_at FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected pinned_at column to be added before pinned index creation"
+        );
+
+        let mut stmt = conn
+            .prepare("PRAGMA index_list(sessions)")
+            .expect("prepare index list");
+        let indexes: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query index list")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect indexes");
+        assert!(
+            indexes
+                .iter()
+                .any(|index| index == "idx_sessions_pinned_at"),
+            "expected pinned_at index after migration, got {:?}",
+            indexes
+        );
+
+        drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn tool_media_items_persist_in_attachments_meta() {
+        let db_path = temp_db_path("session-tool-media-items");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let tool = crate::session::NewMessage::tool(
+            "call-media",
+            "send_attachment",
+            r#"{"path":"/Users/example/report.pdf"}"#,
+            "",
+            None,
+            false,
+        );
+        db.append_message(&session.id, &tool)
+            .expect("append tool row");
+
+        let media_meta =
+            crate::session::build_tool_media_items_attachments_meta(&serde_json::json!([{
+                "url": "/api/attachments/session/report.pdf",
+                "localPath": "/Users/example/.hope-agent/attachments/session/report.pdf",
+                "name": "report.pdf",
+                "mimeType": "application/pdf",
+                "sizeBytes": 42,
+                "kind": "file"
+            }]))
+            .expect("media attachments meta");
+
+        db.update_tool_result_with_side_outputs(
+            &session.id,
+            "call-media",
+            "Sent attachment \"report.pdf\" (42 B) to the user.",
+            Some(12),
+            false,
+            None,
+            Some(&media_meta),
+        )
+        .expect("update tool result");
+
+        let (messages, _, _) = db
+            .load_session_messages_latest(&session.id, 20)
+            .expect("load messages");
+        let tool_row = messages
+            .iter()
+            .find(|msg| msg.tool_call_id.as_deref() == Some("call-media"))
+            .expect("tool row");
+        assert_eq!(
+            tool_row.tool_result.as_deref(),
+            Some("Sent attachment \"report.pdf\" (42 B) to the user.")
+        );
+        let attachments_meta = tool_row
+            .attachments_meta
+            .as_deref()
+            .expect("attachments meta");
+        assert!(attachments_meta.contains("tool_media_items"));
+        assert!(attachments_meta.contains("report.pdf"));
+
         let _ = std::fs::remove_file(&db_path);
     }
 

@@ -67,6 +67,7 @@ interface ProjectSectionProps {
   onCommitRename: () => void
   onCancelRename: () => void
   onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void
+  onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
 }
@@ -268,6 +269,7 @@ function ProjectGroup({
   onCommitRename,
   onCancelRename,
   onMoveSessionToProject,
+  onToggleSessionPinned,
   getAgentInfo,
   formatRelativeTime,
   projects,
@@ -458,6 +460,7 @@ function ProjectGroup({
                 onCancelRename={onCancelRename}
                 onMarkAllRead={onMarkAllRead}
                 onMoveToProject={onMoveSessionToProject}
+                onTogglePinned={onToggleSessionPinned}
                 getAgentInfo={getAgentInfo}
                 formatRelativeTime={formatRelativeTime}
               />

@@ -13,6 +13,21 @@ pub async fn list_agents() -> Result<Json<Vec<ha_core::agent_config::AgentSummar
     Ok(Json(agents))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderAgentsBody {
+    pub agent_ids: Vec<String>,
+}
+
+/// `POST /api/agents/reorder` -- persist the sidebar / picker agent order.
+pub async fn reorder_agents(Json(body): Json<ReorderAgentsBody>) -> Result<Json<Value>, AppError> {
+    ha_core::agent_loader::reorder_agents(body.agent_ids, "http")?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "kind": "reordered" }));
+    }
+    Ok(Json(json!({ "reordered": true })))
+}
+
 /// `GET /api/agents/{id}` -- get a single agent's config.
 pub async fn get_agent(
     Path(id): Path<String>,

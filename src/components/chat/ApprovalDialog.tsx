@@ -99,7 +99,8 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
   const isStrict =
     reason?.kind === "protected_path" ||
     reason?.kind === "dangerous_command" ||
-    reason?.kind === "mac_control_dangerous_action"
+    reason?.kind === "mac_control_dangerous_action" ||
+    reason?.kind === "plan_mode_ask"
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -210,39 +211,64 @@ function CountdownRing({
   const c = 2 * Math.PI * r
   const offset = c * (1 - ratio)
   const color = isUrgent ? "stroke-destructive" : "stroke-primary"
+  const timeLabel = formatCountdownTime(remaining)
 
   return (
     <div
-      className="relative shrink-0"
+      className="flex shrink-0 items-center gap-1.5"
       title={t("approval.countdownTooltip", {
         seconds: remaining,
         action: t(`approval.countdownAction.${autoAction}`),
       })}
     >
-      <svg width={size} height={size} className="rotate-[-90deg]">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          strokeWidth={stroke}
-          className="stroke-secondary fill-none"
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          strokeWidth={stroke}
-          strokeDasharray={c}
-          strokeDashoffset={offset}
-          className={`${color} fill-none transition-[stroke-dashoffset]`}
-          strokeLinecap="round"
-        />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <Clock className={`h-3 w-3 ${isUrgent ? "text-destructive" : "text-muted-foreground"}`} />
+      <span
+        className={`min-w-9 text-right text-[11px] font-medium tabular-nums ${
+          isUrgent ? "text-destructive" : "text-muted-foreground"
+        }`}
+      >
+        {timeLabel}
+      </span>
+      <div className="relative h-7 w-7 shrink-0">
+        <svg width={size} height={size} className="rotate-[-90deg]">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            strokeWidth={stroke}
+            className="stroke-secondary fill-none"
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            strokeWidth={stroke}
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            className={`${color} fill-none transition-[stroke-dashoffset]`}
+            strokeLinecap="round"
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Clock className={`h-3 w-3 ${isUrgent ? "text-destructive" : "text-muted-foreground"}`} />
+        </div>
       </div>
     </div>
   )
+}
+
+function formatCountdownTime(seconds: number): string {
+  const safe = Math.max(0, Math.ceil(seconds))
+  const s = safe % 60
+  const m = Math.floor(safe / 60) % 60
+  const h = Math.floor(safe / 3600)
+
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+  }
+  if (safe >= 60) {
+    return `${m}:${s.toString().padStart(2, "0")}`
+  }
+  return `${safe}s`
 }
 
 // ── ReasonBanner ───────────────────────────────────────────────────

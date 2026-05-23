@@ -17,7 +17,6 @@ type AnimatePlugin = ReturnType<typeof createAnimatePlugin>
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
 import {
-  File as FileIcon,
   FileArchive,
   FileAudio,
   FileCode,
@@ -26,6 +25,7 @@ import {
   FileText,
   FileType,
   FileVideo,
+  FolderOpen,
   Globe,
   Hash,
   Link2,
@@ -263,6 +263,7 @@ type LinkKind =
   | "data"
   | "document"
   | "file"
+  | "folder"
   | "image"
   | "link"
   | "mail"
@@ -303,7 +304,7 @@ function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo
   if (extension && CONFIG_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "config" }
   if (extension && DATA_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "data" }
   if (extension && CODE_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "code" }
-  if (local) return { Icon: FileIcon, kind: "file" }
+  if (local) return { Icon: FolderOpen, kind: "folder" }
   if (href.startsWith("mailto:")) return { Icon: Mail, kind: "mail" }
   if (href.startsWith("#")) return { Icon: Hash, kind: "anchor" }
   if (/^https?:\/\//i.test(href)) return { Icon: Globe, kind: "web" }

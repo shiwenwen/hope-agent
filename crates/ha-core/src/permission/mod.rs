@@ -81,6 +81,7 @@ impl AskReason {
             AskReason::ProtectedPath { .. }
                 | AskReason::DangerousCommand { .. }
                 | AskReason::MacControlDangerousAction { .. }
+                | AskReason::PlanModeAsk
         )
     }
 }

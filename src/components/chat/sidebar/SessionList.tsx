@@ -79,6 +79,7 @@ interface SessionListProps {
   // Projects — drives the per-session "Move to project" submenu
   projects?: ProjectMeta[]
   onMoveToProject?: (sessionId: string, projectId: string | null) => void
+  onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
   /** Monotonic counter — focuses + selects the search input on each tick.
    *  Driven by `Cmd+Shift+F` in `ChatScreen`. */
   searchFocusSignal?: number
@@ -113,6 +114,7 @@ export default function SessionList({
   agents,
   projects = [],
   onMoveToProject,
+  onToggleSessionPinned,
   searchFocusSignal,
 }: SessionListProps) {
   const { t } = useTranslation()
@@ -357,6 +359,7 @@ export default function SessionList({
                   onCancelRename={onCancelRename}
                   onMarkAllRead={onMarkAllRead}
                   onMoveToProject={onMoveToProject}
+                  onTogglePinned={onToggleSessionPinned}
                   getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
                 />

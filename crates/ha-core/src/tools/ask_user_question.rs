@@ -134,13 +134,27 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     let request_id = create_session_id();
 
-    // Route to parent session if this is a plan sub-agent. Cache the lookup
-    // so the `source` tag can reuse it without a second DB round-trip.
+    // Route to the visible parent session when the question is raised inside
+    // a sub-agent. Child sessions are intentionally hidden from the main chat
+    // UI, so emitting the question against the child would leave the user with
+    // no confirmation card to answer.
     let plan_owner = crate::plan::get_plan_owner_session_id(sid).await;
-    let effective_sid = plan_owner.clone().unwrap_or_else(|| sid.to_string());
+    let subagent_owner = if plan_owner.is_none() {
+        crate::globals::get_session_db()
+            .and_then(|db| db.get_session(sid).ok().flatten())
+            .and_then(|meta| meta.parent_session_id)
+    } else {
+        None
+    };
+    let effective_sid = plan_owner
+        .clone()
+        .or_else(|| subagent_owner.clone())
+        .unwrap_or_else(|| sid.to_string());
     let source = Some(
         if plan_owner.is_some() {
             "plan"
+        } else if subagent_owner.is_some() {
+            "subagent"
         } else {
             "normal"
         }

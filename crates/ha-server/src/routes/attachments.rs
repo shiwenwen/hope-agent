@@ -13,8 +13,9 @@
 
 use std::path::PathBuf;
 
-use axum::extract::{Path, Request};
+use axum::extract::{Path, Query, Request};
 use axum::response::{IntoResponse, Response};
+use serde::Deserialize;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -27,9 +28,15 @@ use crate::routes::file_serve::{
     HeaderOpts, MimeOpts,
 };
 
+#[derive(Debug, Deserialize)]
+pub struct AttachmentDownloadQuery {
+    pub download: Option<String>,
+}
+
 /// `GET /api/attachments/{session_id}/{filename}` — binary file download.
 pub async fn download(
     Path((session_id, filename)): Path<(String, String)>,
+    Query(q): Query<AttachmentDownloadQuery>,
     request: Request,
 ) -> Result<Response, AppError> {
     validate_session_id(&session_id)?;
@@ -50,7 +57,12 @@ pub async fn download(
     )
     .await;
 
-    let disposition_kind = if mime.starts_with("image/")
+    let force_download = q.download.as_deref().map(str::trim).is_some_and(|v| {
+        v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+    });
+    let disposition_kind = if force_download {
+        "attachment"
+    } else if mime.starts_with("image/")
         || mime.starts_with("video/")
         || mime.starts_with("audio/")
         || mime == "application/pdf"

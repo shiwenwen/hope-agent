@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **会话列表置顶与 Agent 排序**：会话列表支持右键置顶 / 取消置顶，Agent 筛选列表支持拖拽排序，方便把常用 Agent 固定在前面。 (#242)
+- **模型消息文件附件体验**：模型消息下方挂载的文件现在会收集 `send_attachment`、`image_generate` 等工具产物；桌面与 HTTP/Web 模式都支持点击预览或下载，可预览文件也保留下载入口。 (#242)
+- **Agent 自我诊断与 Issue Reporting**：新增内置 `ha-self-diagnosis` skill 与核心 `issue_report` 工具，支持自查源码 / 架构文档 / 配置 / 日志并整理 bug、需求或改进 issue；Settings → Tools 新增 Issue Reporting 面板，可配置目标仓库、标签映射、GitHub token，并在无 token 时回退到已登录的 `gh` CLI。提交前强制用户确认，issue 正文与标题在截断前统一脱敏常见明文凭据。
 - **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。 (#231)
 - **macOS Control 视觉定位 v1**：新增 `mac_control.visual.observe/point`。`observe` 将 display/window 受管截图作为 `__IMAGE_FILE__` 视觉输入返回模型，`point` 把截图像素点或 macOS screen point 映射为可点击 screen point，并返回 AX 命中/最近候选与 `act.click_point` 建议参数；真正点击仍走现有 `act` 审批链。 (#239)
 - **macOS Control 标注截图**：`mac_control.visual.observe` 新增 `annotate=true` 与 `uiMapLimit`，可返回带 AX element id 边框的标注截图和紧凑 `uiMap`，让模型优先用 `elementId` 精确点击，减少盲坐标操作。
@@ -33,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **菜单栏图标交互**：单击菜单栏小图标时与右键一致打开托盘菜单，不再直接唤起主窗口；动态状态刷新不再因为 uptime 变化打断已展开的菜单。 (#242)
+- **审批弹层倒计时**：审批弹层的倒计时圆环左侧新增剩余时间文字，超时前状态更直观。 (#242)
+- **会话输入草稿保留**：切换会话时会保留每个会话输入区里的文字和待发送附件，切回后继续编辑；未发送的新会话草稿也会保留。 (#242)
+- **完成通知正文隐私开关**：通知设置新增「完成通知显示回复正文」开关，默认关闭；开启后后台完成通知会同时显示会话名和最后一条模型回复短预览。 (#242)
+- **聊天文件与界面视觉细节**：文件 chip 会按文件类型展示不同图标，Markdown 本地文件夹链接改用更清晰的文件夹图标；对话窗口与顶部标题栏恢复白色背景，左侧拖拽分隔线不再溢出到对话区。 (#242)
 - **聊天模型默认值作用域优化**：Agent 级 Think / reasoning effort 默认值现在可随 Agent 配置持久化，并在桌面、HTTP、IM、Cron 与 Subagent 路径中按「会话覆盖 > Agent 默认 > 全局默认」解析；Quick Chat 与主聊天恢复会话时同步恢复对应模型与 Think 状态。 (#236)
 - **聊天右侧面板交互统一**：Browser / Plan / Diff / Canvas / Team / Mac Control 面板强制互斥、可在已打开面板间一键切换并共享同一宽度。 (#232)
 - **IM 渠道稳定性整体加固**：Discord gateway 状态、Slack socket 断线重连、QQ Bot gateway 元数据、Signal daemon 就绪轮询、IRCv3 能力协商、iMessage RPC、LINE push 幂等重试、WhatsApp 轮询退避、Telegram 请求节流、飞书 token singleflight 与卡片动作 toast、IM callback origin 校验等多渠道修复。 (#232)
@@ -42,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS Control 共享 schema 参数预检**：`mac_control` 现在在权限判断和审批前会按 `action/op` sanitize + preflight 参数，避免 `spaces.switch direction=right` 这类调用被 Provider 默认补出的 `spaceIndex=1` 污染成冲突参数，也避免缺少必要目标的无效突变弹出审批后才失败。
 - **macOS Control Spaces 切换可靠性**：`spaces.switch direction=left|right` 和相邻 `spaceIndex/spaceId` 现在优先走 Mission Control `Control+Left/Right`，避免 SkyLight/CGS 只改内部 active id 却不切可见桌面；非相邻精确目标再 fallback 到 Control+数字或 SkyLight/CGS，执行后校验 current Space，未切到目标时返回明确 warning。
 - **macOS Control Spaces 当前状态修正**：`spaces.list` 不再用 `defaults export com.apple.spaces` 作为首选 current Space 来源，避免偏好文件里的 `Current Space` 与肉眼桌面状态不同步；现在优先用 `CGSGetActiveSpace` 判定 current，并用 `CGSCopyManagedDisplaySpaces` / `CGSCopySpaces` 枚举实时状态。
+- **会话置顶迁移兼容**：旧 session 数据库启动时会补齐 `pinned_at` 列后再创建索引，避免升级后因缺列导致应用无法打开。 (#242)
 - **Web Search fallback 诊断不再污染缓存**：搜索 provider fallback 时会区分无结果与 provider 不可用，且临时失败 / 限流诊断只出现在本次响应中，不再写入结果缓存。 (#236)
 - **聊天「停止」状态稳定保留**：重做 chat engine 活动 turn / 持久化 / 流序号管线，按下停止后会话状态正确保留，不再丢失或错乱（覆盖 failover 与 subagent 路径）。 (#230)
 - **流式 JSON 渲染修复**：流式输出过程中的 JSON 代码块渲染正确，不再中途错乱。 (#233)

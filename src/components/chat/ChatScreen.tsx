@@ -1583,6 +1583,8 @@ export default function ChatScreen({
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
+        onToggleSessionPinned={session.handleToggleSessionPinned}
+        onReorderAgents={session.handleReorderAgents}
         onMarkAllRead={refreshUnreadState}
         onRenameSession={handleRenameSession}
         hasMoreSessions={session.hasMoreSessions}
@@ -1699,7 +1701,7 @@ export default function ChatScreen({
       />
 
       {/* Conversation workspace */}
-      <div className="flex-1 flex flex-col min-w-0 bg-surface-app">
+      <div className="flex-1 flex flex-col min-w-0 bg-background">
         <ChatTitleBar
           agentName={session.agentName}
           currentAgentId={session.currentAgentId}

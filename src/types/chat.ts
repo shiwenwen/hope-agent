@@ -272,6 +272,7 @@ export interface SessionMeta {
   reasoningEffort?: string | null
   createdAt: string
   updatedAt: string
+  pinnedAt?: string | null
   messageCount: number
   unreadCount: number
   hasError: boolean

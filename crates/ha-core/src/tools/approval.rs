@@ -220,38 +220,12 @@ fn load_allowlist() -> Result<Vec<String>> {
     }
 }
 
-async fn save_allowlist(list: &[String]) -> Result<()> {
-    let data = serde_json::to_string_pretty(list)?;
-    tokio::fs::write(allowlist_path(), data).await?;
-    Ok(())
-}
-
 /// Check if command is in the allowlist
 pub(crate) async fn is_command_allowed(command: &str) -> bool {
     let list = get_allowlist().lock().await;
     let cmd_trimmed = command.trim();
     list.iter()
         .any(|pattern| cmd_trimmed.starts_with(pattern) || cmd_trimmed == *pattern)
-}
-
-/// Add command prefix to allowlist
-pub(crate) async fn add_to_allowlist(command: &str) {
-    let mut list = get_allowlist().lock().await;
-    let prefix = extract_command_prefix(command);
-    if !list.contains(&prefix) {
-        list.push(prefix);
-        let _ = save_allowlist(&list).await;
-    }
-}
-
-/// Extract a meaningful command prefix for the allowlist
-fn extract_command_prefix(command: &str) -> String {
-    let trimmed = command.trim();
-    trimmed
-        .split_whitespace()
-        .next()
-        .unwrap_or(trimmed)
-        .to_string()
 }
 
 pub(crate) fn approval_timeout_secs() -> u64 {

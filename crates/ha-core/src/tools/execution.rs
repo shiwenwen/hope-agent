@@ -6,6 +6,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use super::app_update;
+use super::issue_report;
 use super::project_read_file;
 use super::send_attachment;
 use super::skill;
@@ -22,13 +23,13 @@ use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
     TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
-    TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON,
-    TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
-    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
-    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL,
+    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ,
+    TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY,
+    TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
+    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -93,6 +94,7 @@ pub(super) async fn resolve_tool_permission(
         session_id: ctx.session_id.as_deref(),
         project_id: ctx.project_id.as_deref(),
         agent_id: ctx.agent_id.as_deref(),
+        default_path: Some(ctx.default_path()),
         is_internal_tool,
         smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
     };
@@ -284,6 +286,16 @@ impl ToolExecContext {
             .as_deref()
             .or(self.home_dir.as_deref())
             .unwrap_or(".")
+    }
+
+    pub fn allowlist_grant_context(&self) -> crate::permission::allowlist::GrantContext<'_> {
+        crate::permission::allowlist::GrantContext {
+            session_id: self.session_id.as_deref(),
+            project_id: self.project_id.as_deref(),
+            agent_id: self.agent_id.as_deref(),
+            default_path: Some(self.default_path()),
+            home_dir: self.home_dir.as_deref(),
+        }
     }
 
     /// Returns the default cwd for process tools: session working dir, then
@@ -664,12 +676,27 @@ pub async fn execute_tool_with_context(
                                 reason
                             );
                         } else {
-                            // Multi-scope (project / session / agent_home /
-                            // global) AllowAlways persistence is wired in by
-                            // the approval dialog upgrade. For now `exec`
-                            // still uses the legacy command-prefix store
-                            // inside `tool_exec`.
-                            app_info!("tool", "approval", "Tool '{}' approved (always)", name);
+                            match crate::permission::allowlist::add_allow_always_for_call(
+                                name,
+                                args,
+                                ctx.allowlist_grant_context(),
+                            ) {
+                                Ok(grant) => app_info!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' approved (always, scope={}, rule={:?})",
+                                    name,
+                                    grant.scope.as_str(),
+                                    grant.rule
+                                ),
+                                Err(e) => app_warn!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' AllowAlways persistence failed; approved for this call only: {}",
+                                    name,
+                                    e
+                                ),
+                            }
                         }
                         restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
                     }
@@ -874,6 +901,7 @@ pub async fn execute_tool_with_context(
             TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, dispatch_ctx)).await,
             TOOL_IMAGE => image::tool_image(args).await,
             TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args, dispatch_ctx).await,
+            TOOL_ISSUE_REPORT => issue_report::tool_issue_report(args, dispatch_ctx).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,

@@ -82,11 +82,17 @@ pub struct NotificationConfig {
     /// Global on/off toggle (default: true)
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
+    /// Include assistant reply previews in chat-completion notifications.
+    #[serde(default)]
+    pub show_chat_content: bool,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            show_chat_content: false,
+        }
     }
 }
 
@@ -455,6 +461,10 @@ pub struct AppConfig {
     /// session/project/channel specifies one. Defaults to `"ha-main"`.
     #[serde(default = "default_default_agent_id")]
     pub default_agent_id: Option<String>,
+    /// User-defined display order for agent pickers and sidebar lists. Missing
+    /// or newly-created agents fall back to the default main-first ordering.
+    #[serde(default)]
+    pub agent_order: Vec<String>,
     /// Extra directories to scan for skills
     #[serde(default)]
     pub extra_skills_dirs: Vec<String>,
@@ -540,6 +550,10 @@ pub struct AppConfig {
     /// Image generation configuration
     #[serde(default)]
     pub image_generate: crate::tools::image_generate::ImageGenConfig,
+    /// GitHub issue reporting target and defaults. Token lives separately under
+    /// `~/.hope-agent/credentials/github-issue.json`.
+    #[serde(default)]
+    pub issue_reporting: crate::issue_reporting::IssueReportingConfig,
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
@@ -737,6 +751,7 @@ impl Default for AppConfig {
             active_model: None,
             fallback_models: Vec::new(),
             default_agent_id: default_default_agent_id(),
+            agent_order: Vec::new(),
             extra_skills_dirs: Vec::new(),
             disabled_skills: Vec::new(),
             skill_env_check: true,
@@ -762,6 +777,7 @@ impl Default for AppConfig {
             notification: NotificationConfig::default(),
             startup_notification: StartupNotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
+            issue_reporting: crate::issue_reporting::IssueReportingConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
             browser: None,
             image: crate::tools::image::ImageToolConfig::default(),

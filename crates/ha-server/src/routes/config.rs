@@ -89,6 +89,52 @@ pub async fn save_web_search_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Issue Reporting Config ──────────────────────────────────────
+
+/// `GET /api/config/issue-reporting` -- get issue reporting config and token status.
+pub async fn get_issue_reporting_config(
+) -> Result<Json<ha_core::issue_reporting::IssueReportingConfigStatus>, AppError> {
+    Ok(Json(ha_core::issue_reporting::get_config_status()))
+}
+
+/// `PUT /api/config/issue-reporting` -- save issue reporting config.
+pub async fn save_issue_reporting_config(
+    Json(body): Json<ConfigBody<ha_core::issue_reporting::IssueReportingConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("issue_reporting", "http"), |store| {
+        store.issue_reporting = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IssueReportingTokenBody {
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+/// `PUT /api/config/issue-reporting/token` -- save or clear the GitHub token.
+pub async fn save_issue_reporting_token(
+    Json(body): Json<IssueReportingTokenBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::issue_reporting::save_token(body.token)?;
+    Ok(Json(json!({
+        "saved": true,
+        "hasToken": ha_core::issue_reporting::has_token(),
+    })))
+}
+
+/// `POST /api/config/issue-reporting/test` -- test token reachability.
+pub async fn test_issue_reporting_connection(
+) -> Result<Json<ha_core::issue_reporting::IssueReportingTestResult>, AppError> {
+    let cfg = ha_core::config::cached_config().issue_reporting.clone();
+    let result = ha_core::issue_reporting::test_connection(&cfg)
+        .await
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(result))
+}
+
 // ── Proxy Config ────────────────────────────────────────────────
 
 /// `GET /api/config/proxy` -- get proxy config.
