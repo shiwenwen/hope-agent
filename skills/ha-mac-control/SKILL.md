@@ -140,6 +140,7 @@ Rules:
 
 - After `apps.launch` / `apps.activate`, verify `frontmost` before menu or input actions.
 - After any action that changes UI, re-snapshot or call the relevant list/inspect command before using old ids.
+- Tool approval restores the previously frontmost app before the approved `mac_control` mutation runs, but treat it as best-effort. After an approval, verify `frontmost` or take a fresh observation before chaining another focus-sensitive action.
 - If an element becomes stale, take a fresh snapshot and reselect by role + label/text + window.
 - If `act.perform_action` says the target does not advertise the requested action, do not retry the same call. Use fresh `elements.find` / `snapshot` and choose an action from that element's `actions[]`.
 - If `dialog.inspect` returns empty but the UI visibly has a sheet, retry with `maxElements: 300` or `500` and confirm the frontmost app.

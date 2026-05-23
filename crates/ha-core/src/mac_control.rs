@@ -152,6 +152,13 @@ pub struct MacControlRuntimeStats {
     pub recent_errors: Vec<MacControlErrorStat>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacControlFocusAnchor {
+    pub pid: i32,
+    pub bundle_id: Option<String>,
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacControlErrorStat {
@@ -1608,6 +1615,73 @@ pub async fn apps(request: MacControlAppsRequest) -> MacControlAppsResponse {
             }
         }
     }
+}
+
+pub async fn capture_focus_anchor() -> Option<MacControlFocusAnchor> {
+    let response = apps(MacControlAppsRequest {
+        op: MacControlAppsOp::Frontmost,
+        limit: 1,
+        ..Default::default()
+    })
+    .await;
+    response.result?.frontmost.map(|app| MacControlFocusAnchor {
+        pid: app.pid,
+        bundle_id: app.bundle_id,
+        name: app.name,
+    })
+}
+
+pub async fn restore_focus_anchor(anchor: &MacControlFocusAnchor) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for request in focus_anchor_activate_requests(anchor) {
+        let response = apps(request).await;
+        if let Some(result) = response.result {
+            if result.activated.is_some() {
+                return Ok(());
+            }
+        }
+        if let Some(error) = response.error {
+            errors.push(error);
+        }
+    }
+
+    if errors.is_empty() {
+        Err("mac_control approval focus restore did not activate any app.".to_string())
+    } else {
+        Err(format!(
+            "mac_control approval focus restore failed: {}",
+            errors.join("; ")
+        ))
+    }
+}
+
+fn focus_anchor_activate_requests(anchor: &MacControlFocusAnchor) -> Vec<MacControlAppsRequest> {
+    let mut requests = Vec::new();
+    if anchor.pid > 0 {
+        requests.push(MacControlAppsRequest {
+            op: MacControlAppsOp::Activate,
+            pid: Some(anchor.pid),
+            limit: 1,
+            ..Default::default()
+        });
+    }
+    if let Some(bundle_id) = anchor.bundle_id.as_ref().filter(|value| !value.is_empty()) {
+        requests.push(MacControlAppsRequest {
+            op: MacControlAppsOp::Activate,
+            bundle_id: Some(bundle_id.clone()),
+            limit: 1,
+            ..Default::default()
+        });
+    }
+    if let Some(name) = anchor.name.as_ref().filter(|value| !value.is_empty()) {
+        requests.push(MacControlAppsRequest {
+            op: MacControlAppsOp::Activate,
+            app_name: Some(name.clone()),
+            limit: 1,
+            ..Default::default()
+        });
+    }
+    requests
 }
 
 pub async fn windows(request: MacControlWindowsRequest) -> MacControlWindowsResponse {
@@ -4601,6 +4675,25 @@ mod tests {
             pid: Some(123),
             ..Default::default()
         }));
+    }
+
+    #[test]
+    fn focus_anchor_restore_requests_prefer_pid_then_bundle_then_name() {
+        let anchor = MacControlFocusAnchor {
+            pid: 42,
+            bundle_id: Some("com.apple.TextEdit".to_string()),
+            name: Some("TextEdit".to_string()),
+        };
+
+        let requests = focus_anchor_activate_requests(&anchor);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].op, MacControlAppsOp::Activate);
+        assert_eq!(requests[0].pid, Some(42));
+        assert_eq!(requests[0].bundle_id, None);
+        assert_eq!(requests[1].bundle_id.as_deref(), Some("com.apple.TextEdit"));
+        assert_eq!(requests[1].pid, None);
+        assert_eq!(requests[2].app_name.as_deref(), Some("TextEdit"));
+        assert_eq!(requests[2].app_name_match, MacControlAppNameMatch::Exact);
     }
 
     #[test]

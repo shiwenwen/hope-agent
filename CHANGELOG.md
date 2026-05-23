@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS Control 视觉定位 v1**：新增 `mac_control.visual.observe/point`。`observe` 将 display/window 受管截图作为 `__IMAGE_FILE__` 视觉输入返回模型，`point` 把截图像素点或 macOS screen point 映射为可点击 screen point，并返回 AX 命中/最近候选与 `act.click_point` 建议参数；真正点击仍走现有 `act` 审批链。 (#239)
 - **macOS Control 标注截图**：`mac_control.visual.observe` 新增 `annotate=true` 与 `uiMapLimit`，可返回带 AX element id 边框的标注截图和紧凑 `uiMap`，让模型优先用 `elementId` 精确点击，减少盲坐标操作。
 - **macOS Control AX action 执行**：`mac_control.act.perform_action` 新增白名单式命名 AX action 调用，允许对明确目标执行其 `actions[]` 已声明支持的 `AXPress`、`AXShowMenu`、`AXIncrement`、`AXDecrement` 等动作，并继续走普通 macOS 控制审批。
+- **macOS Control 审批焦点恢复**：`mac_control` 触发工具审批前会捕获当前前台 App，审批通过或超时继续后在真正执行动作前按 `pid -> bundleId -> appName` best-effort 恢复焦点，避免审批窗口让 Hope Agent 抢前台后把键盘、菜单或 frontmost 依赖动作送错窗口。
 - **macOS Control OCR 定位 v1**：新增 `mac_control.visual.ocr/find_text`，基于 macOS Vision Framework 识别受管截图中的文字，并返回 OCR 文字块、image pixel / screen point 坐标、AX 命中候选与 `act.click_point` 建议参数；无匹配时返回空候选而不是盲点。 (#239)
 - **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。 (#231)
 - **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。 (#231)

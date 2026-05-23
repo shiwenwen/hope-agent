@@ -533,6 +533,8 @@ OCR 规则：
 
 审批弹窗应展示 action/op、目标 App、窗口、元素 label、菜单 path、hotkey 或输入摘要。文本输入需要截断和脱敏，不能展示密码字段值。
 
+`mac_control` 进入审批前，执行层会记录当前 frontmost App 作为焦点锚点；用户 AllowOnce / AllowAlways 或审批超时按 `proceed` 继续时，工具真正执行前会按 `pid -> bundleId -> appName` 顺序 best-effort 激活原 App，避免审批弹窗让 Hope Agent 抢前台后导致后续 `frontmost` / 键盘 / 菜单动作落到错误窗口。原 App 已退出或恢复失败时只写 warning，不阻断工具执行。
+
 ## EventBus 与前端面板
 
 事件：

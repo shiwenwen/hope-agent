@@ -534,6 +534,32 @@ fn needs_permission_engine(
         && (name != TOOL_EXEC || exec_skip_blocked_by_plan)
 }
 
+async fn capture_mac_control_approval_focus_anchor(
+    name: &str,
+) -> Option<crate::mac_control::MacControlFocusAnchor> {
+    if name == TOOL_MAC_CONTROL {
+        crate::mac_control::capture_focus_anchor().await
+    } else {
+        None
+    }
+}
+
+async fn restore_mac_control_approval_focus_anchor(
+    anchor: Option<crate::mac_control::MacControlFocusAnchor>,
+) {
+    let Some(anchor) = anchor else {
+        return;
+    };
+    if let Err(error) = crate::mac_control::restore_focus_anchor(&anchor).await {
+        app_warn!(
+            "tool",
+            "approval_focus",
+            "Failed to restore macOS focus after approval: {}",
+            error
+        );
+    }
+}
+
 /// Execute a tool with additional context (model info, etc.)
 pub async fn execute_tool_with_context(
     name: &str,
@@ -593,6 +619,8 @@ pub async fn execute_tool_with_context(
                 ));
             }
             crate::permission::Decision::Ask { reason } => {
+                let mac_control_focus_anchor =
+                    capture_mac_control_approval_focus_anchor(name).await;
                 let desc = format!("tool: {} {}", name, {
                     let s = args.to_string();
                     if s.len() > 200 {
@@ -613,6 +641,7 @@ pub async fn execute_tool_with_context(
                 {
                     Ok(approval::ApprovalResponse::AllowOnce) => {
                         app_info!("tool", "approval", "Tool '{}' approved (once)", name);
+                        restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
                     }
                     Ok(approval::ApprovalResponse::AllowAlways) => {
                         if reason.forbids_allow_always() {
@@ -631,6 +660,7 @@ pub async fn execute_tool_with_context(
                             // inside `tool_exec`.
                             app_info!("tool", "approval", "Tool '{}' approved (always)", name);
                         }
+                        restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
                     }
                     Ok(approval::ApprovalResponse::Deny) => {
                         return Err(super::rejection::ToolRejection::denied_by_user(name));
@@ -658,6 +688,8 @@ pub async fn execute_tool_with_context(
                                     name,
                                     timeout_secs
                                 );
+                                restore_mac_control_approval_focus_anchor(mac_control_focus_anchor)
+                                    .await;
                             }
                         }
                     }
