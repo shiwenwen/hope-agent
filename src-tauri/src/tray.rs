@@ -7,7 +7,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
@@ -47,7 +47,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/menu.png")).unwrap();
     let icon_as_template = true;
-    let show_menu_on_left_click = false;
+    let show_menu_on_left_click = true;
     let initial_tooltip = build_tray_tooltip(&status_lines);
 
     let tray = TrayIconBuilder::new()
@@ -121,7 +121,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 _ => {}
             }
         })
-        .on_tray_icon_event(|tray, event| {
+        .on_tray_icon_event(|_tray, event| {
             if let TrayIconEvent::Click {
                 button,
                 button_state,
@@ -135,10 +135,6 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     button,
                     button_state
                 );
-
-                if button == MouseButton::Left && button_state == MouseButtonState::Up {
-                    show_main_window(tray.app_handle());
-                }
             }
         })
         .build(app)?;
