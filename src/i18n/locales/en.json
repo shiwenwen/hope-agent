@@ -33,7 +33,7 @@
   },
   "approval": {
     "allowAlways": "Always Allow",
-    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
+    "allowAlwaysDisabled": "Cannot Always-Allow — this approval reason requires per-call confirmation",
     "allowOnce": "Allow Once",
     "command": "Command",
     "countdownAction": {

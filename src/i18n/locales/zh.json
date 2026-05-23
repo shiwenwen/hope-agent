@@ -33,7 +33,7 @@
   },
   "approval": {
     "allowAlways": "始终允许",
-    "allowAlwaysDisabled": "命中保护路径或危险命令时无法选择「始终允许」",
+    "allowAlwaysDisabled": "该审批原因要求每次确认，无法选择「始终允许」",
     "allowOnce": "允许一次",
     "command": "命令",
     "countdownAction": {

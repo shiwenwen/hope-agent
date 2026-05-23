@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// A bag of rules at one scope (e.g. a project's allowlist file, or the
 /// global allowlist). The engine collects multiple bags from different
 /// scopes and merges them by priority.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionRules {
     /// Allow without prompting.
@@ -37,7 +37,7 @@ impl PermissionRules {
 
 /// A single rule. Either matches by tool name alone, or by tool name plus
 /// a parameter-level matcher (path prefix, command prefix, domain glob…).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum RuleSpec {
     /// Match the tool by name regardless of args.
@@ -58,18 +58,33 @@ impl RuleSpec {
     /// Does this rule match the given tool call? `args` is the tool_call args
     /// JSON, used to extract path / command / domain when applicable.
     pub fn matches(&self, name: &str, args: &serde_json::Value) -> bool {
+        self.matches_with_default_path(name, args, None)
+    }
+
+    /// Context-aware variant of [`Self::matches`]. Path-aware matchers use
+    /// `default_path` to resolve relative tool paths the same way execution
+    /// does, so an AllowAlways grant for a workspace also covers future
+    /// relative paths inside that workspace.
+    pub fn matches_with_default_path(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+        default_path: Option<&Path>,
+    ) -> bool {
         if self.tool_name() != name {
             return false;
         }
         match self {
             Self::Tool { .. } => true,
-            Self::ToolPattern { matcher, .. } => matcher.matches(name, args),
+            Self::ToolPattern { matcher, .. } => {
+                matcher.matches_with_default_path(name, args, default_path)
+            }
         }
     }
 }
 
 /// Parameter-level matcher. Each variant knows where in `args` to look.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ArgMatcher {
     /// `args.path` (or `cwd` for `exec`) starts with this prefix.
@@ -84,14 +99,40 @@ pub enum ArgMatcher {
     /// Generic substring match against the JSON-stringified args. Use sparingly
     /// — prefer one of the structured variants when possible.
     Substring { needle: String },
+    /// Top-level JSON string field equals this value.
+    FieldEquals { field: String, value: String },
+    /// All child matchers must match. Used for action/op pairs.
+    All { matchers: Vec<ArgMatcher> },
 }
 
 impl ArgMatcher {
     pub fn matches(&self, tool: &str, args: &serde_json::Value) -> bool {
+        self.matches_with_default_path(tool, args, None)
+    }
+
+    pub fn matches_with_default_path(
+        &self,
+        tool: &str,
+        args: &serde_json::Value,
+        default_path: Option<&Path>,
+    ) -> bool {
         match self {
             Self::PathPrefix { prefix } => {
+                let resolved_prefix = normalize_lexical(prefix);
+                if tool == crate::tools::TOOL_APPLY_PATCH {
+                    let Some(patch) = args.get("input").and_then(|v| v.as_str()) else {
+                        return false;
+                    };
+                    let paths = paths_in_patch_directives(patch);
+                    return !paths.is_empty()
+                        && paths.iter().all(|path| {
+                            let resolved_path = resolve_path_with_default(path, default_path);
+                            path_starts_with(&resolved_path, &resolved_prefix)
+                        });
+                }
                 if let Some(path) = extract_path_arg(tool, args) {
-                    path_starts_with(&path, prefix)
+                    let resolved_path = resolve_path_with_default(&path, default_path);
+                    path_starts_with(&resolved_path, &resolved_prefix)
                 } else {
                     false
                 }
@@ -111,6 +152,14 @@ impl ArgMatcher {
                 }
             }
             Self::Substring { needle } => args.to_string().contains(needle),
+            Self::FieldEquals { field, value } => args
+                .get(field)
+                .and_then(|v| v.as_str())
+                .map(|s| s == value)
+                .unwrap_or(false),
+            Self::All { matchers } => matchers
+                .iter()
+                .all(|m| m.matches_with_default_path(tool, args, default_path)),
         }
     }
 }
@@ -120,10 +169,9 @@ impl ArgMatcher {
 /// + the protected-paths gate.
 pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf> {
     // The tool registry uses `path` for read/write/edit/ls/grep/find and
-    // `cwd` for exec / process. `apply_patch` operates on multiple paths
-    // embedded in the patch body — we don't currently inspect those at the
-    // permission layer (the patch body is opaque text), so apply_patch
-    // matches on optional `cwd` only.
+    // `cwd` for exec / process. `apply_patch` also has directive paths inside
+    // its patch body; those are handled by `paths_in_patch_directives`, while
+    // this helper still returns optional `cwd` for generic path checks.
     let candidate = match tool {
         "read" | "write" | "edit" | "ls" | "grep" | "find" => args
             .get("path")
@@ -163,6 +211,43 @@ pub fn extract_domain_arg(args: &serde_json::Value) -> Option<String> {
 /// returns `String` for tool-arg parsing.
 pub fn expand_tilde(s: &str) -> PathBuf {
     PathBuf::from(crate::tools::expand_tilde(s))
+}
+
+/// Resolve a possibly-relative path against the current tool default path,
+/// then lexically normalize the result. This mirrors
+/// `ToolExecContext::resolve_path` closely enough for permission matching
+/// without making the rules module depend on the tools execution context.
+pub fn resolve_path_with_default(path: &Path, default_path: Option<&Path>) -> PathBuf {
+    let normalized = normalize_lexical(path);
+    if normalized.is_absolute() {
+        return normalized;
+    }
+    match default_path {
+        Some(base) => {
+            normalize_lexical(&expand_tilde(base.to_string_lossy().as_ref()).join(normalized))
+        }
+        None => normalized,
+    }
+}
+
+/// Pull each `*** Add File: ` / `*** Delete File: ` / `*** Update File: ` /
+/// `*** Move to: ` directive target out of an `apply_patch` body.
+pub fn paths_in_patch_directives(patch: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for line in patch.lines() {
+        let trimmed = line.trim_start();
+        for prefix in [
+            "*** Add File: ",
+            "*** Delete File: ",
+            "*** Update File: ",
+            "*** Move to: ",
+        ] {
+            if let Some(path) = trimmed.strip_prefix(prefix) {
+                out.push(normalize_lexical(&expand_tilde(path.trim())));
+            }
+        }
+    }
+    out
 }
 
 /// Lexically resolve `..` and `.` segments without touching the filesystem.

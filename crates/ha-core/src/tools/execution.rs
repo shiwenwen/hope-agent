@@ -94,6 +94,7 @@ pub(super) async fn resolve_tool_permission(
         session_id: ctx.session_id.as_deref(),
         project_id: ctx.project_id.as_deref(),
         agent_id: ctx.agent_id.as_deref(),
+        default_path: Some(ctx.default_path()),
         is_internal_tool,
         smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
     };
@@ -285,6 +286,16 @@ impl ToolExecContext {
             .as_deref()
             .or(self.home_dir.as_deref())
             .unwrap_or(".")
+    }
+
+    pub fn allowlist_grant_context(&self) -> crate::permission::allowlist::GrantContext<'_> {
+        crate::permission::allowlist::GrantContext {
+            session_id: self.session_id.as_deref(),
+            project_id: self.project_id.as_deref(),
+            agent_id: self.agent_id.as_deref(),
+            default_path: Some(self.default_path()),
+            home_dir: self.home_dir.as_deref(),
+        }
     }
 
     /// Returns the default cwd for process tools: session working dir, then
@@ -625,12 +636,27 @@ pub async fn execute_tool_with_context(
                                 reason
                             );
                         } else {
-                            // Multi-scope (project / session / agent_home /
-                            // global) AllowAlways persistence is wired in by
-                            // the approval dialog upgrade. For now `exec`
-                            // still uses the legacy command-prefix store
-                            // inside `tool_exec`.
-                            app_info!("tool", "approval", "Tool '{}' approved (always)", name);
+                            match crate::permission::allowlist::add_allow_always_for_call(
+                                name,
+                                args,
+                                ctx.allowlist_grant_context(),
+                            ) {
+                                Ok(grant) => app_info!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' approved (always, scope={}, rule={:?})",
+                                    name,
+                                    grant.scope.as_str(),
+                                    grant.rule
+                                ),
+                                Err(e) => app_warn!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' AllowAlways persistence failed; approved for this call only: {}",
+                                    name,
+                                    e
+                                ),
+                            }
                         }
                     }
                     Ok(approval::ApprovalResponse::Deny) => {

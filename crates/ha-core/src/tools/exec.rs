@@ -10,8 +10,8 @@ use crate::process_registry::{
 };
 
 use super::approval::{
-    add_to_allowlist, approval_timeout_action, check_and_request_approval, is_command_allowed,
-    ApprovalCheckError, ApprovalResponse,
+    approval_timeout_action, check_and_request_approval, is_command_allowed, ApprovalCheckError,
+    ApprovalResponse,
 };
 use super::TOOL_EXEC;
 
@@ -469,7 +469,20 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         Ok(ApprovalResponse::AllowAlways) => {
                             if allow_always_ok {
                                 app_info!("tool", "exec", "Command approved (always): {}", command);
-                                add_to_allowlist(command).await;
+                                if let Err(e) =
+                                    crate::permission::allowlist::add_allow_always_for_call(
+                                        TOOL_EXEC,
+                                        args,
+                                        ctx.allowlist_grant_context(),
+                                    )
+                                {
+                                    app_warn!(
+                                        "tool",
+                                        "exec",
+                                        "Command AllowAlways persistence failed: {}",
+                                        e
+                                    );
+                                }
                             } else {
                                 app_info!(
                                     "tool",

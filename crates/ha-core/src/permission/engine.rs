@@ -50,6 +50,8 @@ pub struct ResolveContext<'a> {
     pub project_id: Option<&'a str>,
     /// Optional agent ID used for agent_home-scoped allowlist lookup.
     pub agent_id: Option<&'a str>,
+    /// Default path used to resolve relative AllowAlways path matchers.
+    pub default_path: Option<&'a str>,
     /// `true` if the tool is internal (per `ToolDefinition.internal`); these
     /// always bypass approval regardless of mode.
     pub is_internal_tool: bool,
@@ -158,12 +160,23 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
     if let Some(reason) = check_dangerous_command(ctx) {
         return Decision::Ask { reason };
     }
-    if let Some(reason) = check_mac_control_action(ctx) {
+    if let Some(reason) = check_mac_control_action(ctx).filter(AskReason::forbids_allow_always) {
         return Decision::Ask { reason };
     }
 
-    // AllowAlways file-backed scopes (project / session / agent_home / global)
-    // will be queried here once the GUI editor lands.
+    if super::allowlist::allows_tool_call(
+        ctx.tool_name,
+        ctx.args,
+        ctx.session_id,
+        ctx.project_id,
+        ctx.agent_id,
+        ctx.default_path,
+    ) {
+        return Decision::Allow;
+    }
+    if let Some(reason) = check_mac_control_action(ctx) {
+        return Decision::Ask { reason };
+    }
 
     match ctx.session_mode {
         SessionMode::Default => resolve_default_mode(ctx),
@@ -308,8 +321,9 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
 }
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    use super::rules::normalize_lexical;
+    use super::rules::resolve_path_with_default;
     let patterns = super::protected_paths::current_patterns();
+    let default_path = ctx.default_path.map(std::path::Path::new);
 
     // Standard arg-level path (read/write/edit/ls/grep/find — and the cwd of
     // exec/process/apply_patch). Lex-normalize after expand_tilde so a
@@ -317,7 +331,7 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     // `~/.ssh/id_rsa` before the prefix matcher runs — otherwise the prefix
     // mismatch ("…/Documents/../…" vs "…/.ssh") silently slips past.
     if let Some(path) = extract_path_arg(ctx.tool_name, ctx.args) {
-        let normalized = normalize_lexical(&path);
+        let normalized = resolve_path_with_default(&path, default_path);
         if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
             return Some(AskReason::ProtectedPath {
                 matched_path: matched,
@@ -332,7 +346,8 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     if ctx.tool_name == "exec" {
         if let Some(cmd) = ctx.args.get("command").and_then(|v| v.as_str()) {
             for token in path_like_tokens_in_command(cmd) {
-                if let Some(matched) = super::protected_paths::matches(&token, &patterns) {
+                let normalized = resolve_path_with_default(&token, default_path);
+                if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
                     return Some(AskReason::ProtectedPath {
                         matched_path: matched,
                     });
@@ -346,8 +361,9 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     // pull each declared path and check it against the protected list.
     if ctx.tool_name == "apply_patch" {
         if let Some(patch) = ctx.args.get("input").and_then(|v| v.as_str()) {
-            for path in paths_in_patch_directives(patch) {
-                if let Some(matched) = super::protected_paths::matches(&path, &patterns) {
+            for path in super::rules::paths_in_patch_directives(patch) {
+                let normalized = resolve_path_with_default(&path, default_path);
+                if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
                     return Some(AskReason::ProtectedPath {
                         matched_path: matched,
                     });
@@ -395,30 +411,6 @@ fn path_like_tokens_in_command(command: &str) -> Vec<std::path::PathBuf> {
         })
         .map(|tok| normalize_lexical(&expand_tilde(tok)))
         .collect()
-}
-
-/// Pull each `*** Add File: ` / `*** Delete File: ` / `*** Update File: ` /
-/// `*** Move to: ` directive target out of an `apply_patch` body. Note the
-/// asymmetric naming — the parser in `tools::apply_patch` uses `*** Move to: `
-/// (not `Move File:`); the patch protected-path scan must match the same
-/// strings or rename targets slip through unchecked.
-fn paths_in_patch_directives(patch: &str) -> Vec<std::path::PathBuf> {
-    use crate::permission::rules::{expand_tilde, normalize_lexical};
-    let mut out = Vec::new();
-    for line in patch.lines() {
-        let trimmed = line.trim_start();
-        for prefix in [
-            "*** Add File: ",
-            "*** Delete File: ",
-            "*** Update File: ",
-            "*** Move to: ",
-        ] {
-            if let Some(path) = trimmed.strip_prefix(prefix) {
-                out.push(normalize_lexical(&expand_tilde(path.trim())));
-            }
-        }
-    }
-    out
 }
 
 fn check_dangerous_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
@@ -587,6 +579,7 @@ mod tests {
             session_id: None,
             project_id: None,
             agent_id: None,
+            default_path: Some("/tmp/project"),
             is_internal_tool: false,
             smart_config: None,
         }
@@ -1031,6 +1024,37 @@ mod tests {
     }
 
     #[test]
+    fn relative_path_resolves_before_protected_path_check() {
+        let args = json!({"path": "hosts"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        c.default_path = Some("/etc");
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath ask, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_patch_relative_directive_resolves_before_protected_path_check() {
+        let patch = "*** Begin Patch\n*** Update File: hosts\n@@ ...\n*** End Patch\n";
+        let args = json!({"input": patch});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("apply_patch", &args, SessionMode::Default, &plan, &custom);
+        c.default_path = Some("/etc");
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath ask, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn internal_tools_skip_all_gates() {
         let args = json!({"path": "/tmp/foo"});
         let plan: Vec<String> = vec![];
@@ -1070,6 +1094,71 @@ mod tests {
         let custom: Vec<String> = vec![];
         let c = ctx("read", &args, SessionMode::Yolo, &plan, &custom);
         assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn allowalways_preempts_default_edit_layer() {
+        let args = json!({"path": "src/lib.rs"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        c.project_id = Some("project-allow");
+        c.default_path = Some("/tmp/project-allow");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            super::super::allowlist::clear_caches_for_tests();
+            super::super::allowlist::add_allow_always_for_call(
+                "write",
+                &args,
+                super::super::allowlist::GrantContext {
+                    session_id: c.session_id,
+                    project_id: c.project_id,
+                    agent_id: c.agent_id,
+                    default_path: c.default_path,
+                    home_dir: None,
+                },
+            )
+            .expect("persist allow grant");
+
+            assert_eq!(resolve(&c), Decision::Allow);
+            super::super::allowlist::clear_caches_for_tests();
+        });
+    }
+
+    #[test]
+    fn allowalways_preempts_non_dangerous_mac_control_action() {
+        let args = json!({"action": "act", "op": "click", "x": 1, "y": 2});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx(
+            crate::tools::TOOL_MAC_CONTROL,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        c.agent_id = Some("agent-allow");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            super::super::allowlist::clear_caches_for_tests();
+            super::super::allowlist::add_allow_always_for_call(
+                crate::tools::TOOL_MAC_CONTROL,
+                &args,
+                super::super::allowlist::GrantContext {
+                    session_id: c.session_id,
+                    project_id: c.project_id,
+                    agent_id: c.agent_id,
+                    default_path: c.default_path,
+                    home_dir: None,
+                },
+            )
+            .expect("persist allow grant");
+
+            assert_eq!(resolve(&c), Decision::Allow);
+            super::super::allowlist::clear_caches_for_tests();
+        });
     }
 
     #[test]
