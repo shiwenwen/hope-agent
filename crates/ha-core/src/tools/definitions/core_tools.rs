@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE,
+    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
     TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
     TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
@@ -1223,6 +1223,58 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── Issue Reporting ───────────────────────────────────
+        ToolDefinition {
+            name: TOOL_ISSUE_REPORT.into(),
+            description: "Search, draft, or create GitHub issues for Hope Agent bugs, feature requests, and improvements. `draft` needs no token. `create` uses the configured Issue Reporting token and always asks the user to confirm before submitting.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
+            internal: false,
+            concurrent_safe: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "draft", "create"],
+                        "description": "search existing open issues, draft an issue payload, or create it after user confirmation"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["bug", "feature", "improvement"],
+                        "description": "Issue type. Required for draft/create; defaults to bug if omitted."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search text for action=search. If omitted, title is used."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Issue title for draft/create, or fallback search query."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Markdown issue body. Include summary, motivation, expected behavior, acceptance criteria, and relevant modules."
+                    },
+                    "evidence": {
+                        "type": "string",
+                        "description": "Optional diagnostic evidence such as redacted logs, version/platform, session/tool failures, or reproduction notes. The tool redacts and truncates before submission."
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional label override. If omitted, labelsByKind from Issue Reporting settings are used."
+                    },
+                    "duplicateIssueUrls": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional URLs of possible duplicates that were checked."
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
         // ── Settings ────────────────────────────────────────────
         ToolDefinition {
             name: TOOL_GET_SETTINGS.into(),
@@ -1251,6 +1303,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
+                            "issue_reporting",
                             "security", "security.ssrf", "smart_mode",
                             "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
@@ -1290,6 +1343,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
+                            "issue_reporting",
                             "security", "security.ssrf", "smart_mode",
                             "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",

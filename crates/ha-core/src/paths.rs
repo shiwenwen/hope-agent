@@ -71,6 +71,11 @@ pub fn mcp_credential_path(server_id: &str) -> Result<PathBuf> {
     Ok(mcp_credentials_dir()?.join(format!("{server_id}.json")))
 }
 
+/// GitHub token used only by the Issue Reporting tool.
+pub fn github_issue_credential_path() -> Result<PathBuf> {
+    Ok(credentials_dir()?.join("github-issue.json"))
+}
+
 // ── Channels ─────────────────────────────────────────────────────
 
 /// Channels runtime state directory: ~/.hope-agent/channels/

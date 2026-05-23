@@ -60,6 +60,37 @@ pub async fn save_web_fetch_config(
 }
 
 #[tauri::command]
+pub async fn get_issue_reporting_config(
+) -> Result<ha_core::issue_reporting::IssueReportingConfigStatus, CmdError> {
+    Ok(ha_core::issue_reporting::get_config_status())
+}
+
+#[tauri::command]
+pub async fn save_issue_reporting_config(
+    config: ha_core::issue_reporting::IssueReportingConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("issue_reporting", "settings-ui"), |store| {
+        store.issue_reporting = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn save_issue_reporting_token(token: Option<String>) -> Result<(), CmdError> {
+    ha_core::issue_reporting::save_token(token).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn test_issue_reporting_connection(
+) -> Result<ha_core::issue_reporting::IssueReportingTestResult, CmdError> {
+    let cfg = ha_core::config::cached_config().issue_reporting.clone();
+    ha_core::issue_reporting::test_connection(&cfg)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_ssrf_config() -> Result<ha_core::security::ssrf::SsrfConfig, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.ssrf)

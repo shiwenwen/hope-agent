@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent 自我诊断与 Issue Reporting**：新增内置 `ha-self-diagnosis` skill 与核心 `issue_report` 工具，支持自查源码 / 架构文档 / 配置 / 日志并整理 bug、需求或改进 issue；Settings → Tools 新增 Issue Reporting 面板，可配置目标仓库、标签映射、GitHub token，并在无 token 时回退到已登录的 `gh` CLI。提交前强制用户确认，issue 正文与标题在截断前统一脱敏常见明文凭据。
 - **macOS Control 截图能力 v2**：`mac_control.snapshot(includeScreenshot=true)` 支持 `screenshotTarget=display|window`，可按 `displayId` 采集指定显示器，或按 `windowId`/当前前台窗口采集窗口截图；截图与右侧镜像 frame 现在返回目标类型、display/window id、窗口标题、bounds 与 scale，便于模型区分多屏、Retina 和窗口级视觉上下文。 (#231)
 - **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。 (#231)
 - **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。 (#231)

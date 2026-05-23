@@ -357,6 +357,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Web search --
   get_web_search_config:           { method: "GET",    path: "/api/config/web-search" },
   save_web_search_config:          { method: "PUT",    path: "/api/config/web-search" },
+  get_issue_reporting_config:      { method: "GET",    path: "/api/config/issue-reporting" },
+  save_issue_reporting_config:     { method: "PUT",    path: "/api/config/issue-reporting" },
+  save_issue_reporting_token:      { method: "PUT",    path: "/api/config/issue-reporting/token" },
+  test_issue_reporting_connection: { method: "POST",   path: "/api/config/issue-reporting/test" },
 
   // -- Web fetch --
   get_web_fetch_config:            { method: "GET",    path: "/api/config/web-fetch" },
