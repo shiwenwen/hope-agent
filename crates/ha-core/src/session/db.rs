@@ -123,7 +123,6 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_messages_session_role ON messages(session_id, role);
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);
 
             -- Sub-agent runs
             CREATE TABLE IF NOT EXISTS subagent_runs (
@@ -420,11 +419,11 @@ impl SessionDB {
             .prepare("SELECT pinned_at FROM sessions LIMIT 1")
             .is_ok();
         if !has_pinned_at {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN pinned_at TEXT;
-                 CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);",
-            )?;
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN pinned_at TEXT;")?;
         }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);",
+        )?;
 
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
@@ -3092,6 +3091,7 @@ impl SessionDB {
 #[cfg(test)]
 mod tests {
     use super::SessionDB;
+    use rusqlite::Connection;
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
         // Mirror the production schema in `ChannelDB::migrate` (1:1 attach).
@@ -3146,6 +3146,62 @@ mod tests {
             columns.iter().any(|c| c == "incognito"),
             "expected incognito column in sessions table, got {:?}",
             columns
+        );
+
+        drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn open_migrates_legacy_sessions_without_pinned_at() {
+        let db_path = temp_db_path("session-legacy-no-pinned-at");
+        let legacy_conn = Connection::open(&db_path).expect("open legacy db");
+        legacy_conn
+            .execute_batch(
+                "CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    title TEXT,
+                    agent_id TEXT NOT NULL DEFAULT 'ha-main',
+                    provider_id TEXT,
+                    provider_name TEXT,
+                    model_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    context_json TEXT,
+                    last_read_message_id INTEGER DEFAULT 0,
+                    is_cron INTEGER NOT NULL DEFAULT 0,
+                    parent_session_id TEXT
+                );
+                INSERT INTO sessions (id, title, agent_id, created_at, updated_at)
+                VALUES ('legacy-session', 'Legacy', 'ha-main', '2026-05-23T00:00:00Z', '2026-05-23T00:00:00Z');",
+            )
+            .expect("create legacy schema");
+        drop(legacy_conn);
+
+        let db = SessionDB::open(&db_path).expect("open migrated session db");
+        let conn = db.conn.lock().expect("lock connection");
+
+        assert!(
+            conn.prepare("SELECT pinned_at FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected pinned_at column to be added before pinned index creation"
+        );
+
+        let mut stmt = conn
+            .prepare("PRAGMA index_list(sessions)")
+            .expect("prepare index list");
+        let indexes: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query index list")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect indexes");
+        assert!(
+            indexes
+                .iter()
+                .any(|index| index == "idx_sessions_pinned_at"),
+            "expected pinned_at index after migration, got {:?}",
+            indexes
         );
 
         drop(stmt);
