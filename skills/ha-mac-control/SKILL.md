@@ -88,7 +88,8 @@ Use visual positioning when AX labels are missing, the UI is canvas-like, or the
 Standard visual loop:
 
 ```
-visual.observe screenshotTarget="window" | "display"
+visual.observe screenshotTarget="window" | "display" annotate=true
+act.click target.elementId="el_..."          # when the annotated id is clear
 visual.ocr or visual.find_text text="..."      # when the target is visible text
 read the returned image and choose an image pixel point # when OCR is not enough
 visual.point snapshotId=... coordinateSpace="image_pixels" x=... y=...
@@ -99,6 +100,8 @@ verify with snapshot, visual.observe, wait, or elements.find
 Rules:
 
 - `visual.observe` is read-only. It returns an image file marker for model vision plus a compact JSON payload with `snapshotId`, screenshot metadata, displays, and windows.
+- Prefer `visual.observe annotate=true` for ambiguous visual UI. The returned image is labeled with AX element ids and includes `uiMap`; when an id clearly identifies the target, use `act.click target.elementId=...` instead of a coordinate click.
+- If the annotated id is unclear or the target is not in `uiMap`, use OCR or image-pixel positioning.
 - `visual.ocr` is read-only. Use it when visible text matters but you do not need to filter for one phrase yet.
 - `visual.find_text` is read-only. Use it before coordinate clicking visible words or text-only buttons; pass `textMatch="contains"` only for intentional partial text.
 - `visual.find_text` returns OCR `textMatches` with center points, AX `hitElements` / `nearestElements`, and a top-level `suggestedAction`.

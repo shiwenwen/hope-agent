@@ -44,6 +44,8 @@ const DEFAULT_CLIPBOARD_MAX_CHARS: usize = 4_000;
 const HARD_CLIPBOARD_MAX_CHARS: usize = 20_000;
 const HARD_CLIPBOARD_SET_CHARS: usize = 200_000;
 const DEFAULT_VISUAL_LIMIT: usize = 5;
+const DEFAULT_UI_MAP_LIMIT: usize = 80;
+const HARD_UI_MAP_LIMIT: usize = 200;
 pub const EVENT_MAC_CONTROL_FRAME: &str = "mac_control:frame";
 
 #[async_trait]
@@ -297,6 +299,10 @@ pub struct MacControlVisualRequest {
     pub min_confidence: Option<f32>,
     #[serde(default)]
     pub recognition_level: MacControlOcrRecognitionLevel,
+    #[serde(default)]
+    pub annotate: bool,
+    #[serde(default = "default_ui_map_limit")]
+    pub ui_map_limit: usize,
 }
 
 impl MacControlVisualRequest {
@@ -323,15 +329,23 @@ impl MacControlVisualRequest {
         if self.limit == 0 {
             self.limit = DEFAULT_VISUAL_LIMIT;
         }
+        if self.ui_map_limit == 0 {
+            self.ui_map_limit = DEFAULT_UI_MAP_LIMIT;
+        }
         self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
         self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
         self.limit = self.limit.min(HARD_ELEMENTS_LIMIT);
+        self.ui_map_limit = self.ui_map_limit.min(HARD_UI_MAP_LIMIT);
         self
     }
 }
 
 fn default_visual_limit() -> usize {
     DEFAULT_VISUAL_LIMIT
+}
+
+fn default_ui_map_limit() -> usize {
+    DEFAULT_UI_MAP_LIMIT
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -531,6 +545,8 @@ pub struct MacControlVisualResult {
     pub snapshot_id: Option<String>,
     pub snapshot: Option<MacControlSnapshot>,
     pub screenshot: Option<MacControlScreenshotSummary>,
+    pub annotated_screenshot: Option<MacControlScreenshotSummary>,
+    pub ui_map: Vec<MacControlUiMapItem>,
     pub coordinate_space: Option<MacControlCoordinateSpace>,
     pub image_point: Option<MacControlPoint>,
     pub screen_point: Option<MacControlPoint>,
@@ -557,6 +573,20 @@ pub struct MacControlVisualElementMatch {
     pub window: Option<MacControlWindowSummary>,
     pub contains_point: bool,
     pub distance_points: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlUiMapItem {
+    pub id: String,
+    pub window_id: Option<String>,
+    pub role: Option<String>,
+    pub text: Option<String>,
+    pub enabled: Option<bool>,
+    pub focused: bool,
+    pub bounds_points: MacControlBounds,
+    pub image_bounds: MacControlBounds,
+    pub actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1780,6 +1810,8 @@ pub async fn visual(request: MacControlVisualRequest) -> MacControlVisualRespons
 }
 
 async fn visual_observe(request: MacControlVisualRequest) -> MacControlVisualResponse {
+    let annotate = request.annotate;
+    let ui_map_limit = request.ui_map_limit;
     let response = snapshot(MacControlSnapshotRequest {
         include_screenshot: true,
         screenshot_target: request.screenshot_target,
@@ -1798,7 +1830,7 @@ async fn visual_observe(request: MacControlVisualRequest) -> MacControlVisualRes
         };
     };
 
-    let result = visual_observe_result(snapshot);
+    let result = visual_observe_result(snapshot, annotate, ui_map_limit);
     let error = if result.screenshot.is_none() {
         Some(
             "mac_control visual.observe requires a screenshot; check Screen Recording permission or screenshot target metadata."
@@ -2045,6 +2077,8 @@ async fn visual_ocr_or_find_text(
             snapshot_id: Some(snapshot.snapshot_id),
             snapshot: None,
             screenshot: Some(screenshot),
+            annotated_screenshot: None,
+            ui_map: Vec::new(),
             coordinate_space: None,
             image_point: None,
             screen_point: None,
@@ -2684,14 +2718,31 @@ pub fn cached_snapshot(snapshot_id: &str) -> Option<MacControlSnapshot> {
         .cloned()
 }
 
-fn visual_observe_result(snapshot: MacControlSnapshot) -> MacControlVisualResult {
+fn visual_observe_result(
+    snapshot: MacControlSnapshot,
+    annotate: bool,
+    ui_map_limit: usize,
+) -> MacControlVisualResult {
     let screenshot = snapshot.screenshot.clone();
-    let warnings = snapshot.warnings.clone();
+    let mut warnings = snapshot.warnings.clone();
+    let (annotated_screenshot, ui_map) = if annotate {
+        match build_visual_annotations(&snapshot, ui_map_limit) {
+            Ok(annotations) => annotations,
+            Err(error) => {
+                warnings.push(error);
+                (None, Vec::new())
+            }
+        }
+    } else {
+        (None, Vec::new())
+    };
     MacControlVisualResult {
         op: MacControlVisualOp::Observe,
         snapshot_id: Some(snapshot.snapshot_id.clone()),
         snapshot: Some(snapshot),
         screenshot,
+        annotated_screenshot,
+        ui_map,
         coordinate_space: None,
         image_point: None,
         screen_point: None,
@@ -2729,6 +2780,457 @@ async fn visual_snapshot_for_ocr(
         .await?;
     record_snapshot(snapshot.clone());
     Ok(snapshot)
+}
+
+fn build_visual_annotations(
+    snapshot: &MacControlSnapshot,
+    limit: usize,
+) -> Result<
+    (
+        Option<MacControlScreenshotSummary>,
+        Vec<MacControlUiMapItem>,
+    ),
+    String,
+> {
+    let ui_map = build_ui_map(snapshot, limit)?;
+    let screenshot = render_annotated_screenshot(snapshot, &ui_map)?;
+    Ok((Some(screenshot), ui_map))
+}
+
+fn build_ui_map(
+    snapshot: &MacControlSnapshot,
+    limit: usize,
+) -> Result<Vec<MacControlUiMapItem>, String> {
+    let (screenshot, frame, scale) =
+        visual_screenshot_metadata(snapshot, "visual.observe annotate")?;
+    let limit = limit.max(1).min(HARD_UI_MAP_LIMIT);
+    let mut items = snapshot
+        .elements
+        .iter()
+        .filter_map(|element| {
+            let bounds = element.bounds_points?;
+            let image_bounds =
+                screen_bounds_to_image_bounds(bounds, frame, scale).and_then(|bounds| {
+                    clamp_image_bounds(
+                        bounds,
+                        screenshot.width_px as f64,
+                        screenshot.height_px as f64,
+                    )
+                })?;
+            if image_bounds.width < 4.0 || image_bounds.height < 4.0 {
+                return None;
+            }
+            if !should_include_ui_map_element(element, image_bounds, screenshot) {
+                return None;
+            }
+            let item = MacControlUiMapItem {
+                id: element.id.clone(),
+                window_id: element.window_id.clone(),
+                role: element.role.clone(),
+                text: ui_map_text(element),
+                enabled: element.enabled,
+                focused: element.focused,
+                bounds_points: bounds,
+                image_bounds,
+                actions: element.actions.clone(),
+            };
+            Some((
+                ui_map_priority(element, image_bounds),
+                image_bounds.y,
+                image_bounds.x,
+                item,
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    items.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.3.id.cmp(&b.3.id))
+    });
+    items.truncate(limit);
+    items.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.3.id.cmp(&b.3.id))
+    });
+
+    Ok(items.into_iter().map(|(_, _, _, item)| item).collect())
+}
+
+fn should_include_ui_map_element(
+    element: &MacControlElementSummary,
+    image_bounds: MacControlBounds,
+    screenshot: &MacControlScreenshotSummary,
+) -> bool {
+    let role = element.role.as_deref().unwrap_or_default();
+    let role_lc = role.to_ascii_lowercase();
+    if role_lc == "axwindow" {
+        return false;
+    }
+    let area = bounds_area(image_bounds);
+    let screenshot_area = f64::from(screenshot.width_px) * f64::from(screenshot.height_px);
+    if screenshot_area > 0.0
+        && area > screenshot_area * 0.75
+        && !element.focused
+        && !actionable_element(element)
+    {
+        return false;
+    }
+    actionable_element(element)
+        || element.focused
+        || matches!(
+            role,
+            "AXButton"
+                | "AXCheckBox"
+                | "AXRadioButton"
+                | "AXPopUpButton"
+                | "AXMenuButton"
+                | "AXComboBox"
+                | "AXTextField"
+                | "AXTextArea"
+                | "AXSearchField"
+                | "AXSlider"
+                | "AXTab"
+                | "AXLink"
+        )
+}
+
+fn ui_map_priority(element: &MacControlElementSummary, image_bounds: MacControlBounds) -> i32 {
+    let mut priority = 0;
+    if actionable_element(element) {
+        priority += 100;
+    }
+    if element.focused {
+        priority += 40;
+    }
+    if element.enabled == Some(false) {
+        priority -= 30;
+    }
+    if ui_map_text(element).is_some() {
+        priority += 10;
+    }
+    if bounds_area(image_bounds) <= 120_000.0 {
+        priority += 5;
+    }
+    priority
+}
+
+fn ui_map_text(element: &MacControlElementSummary) -> Option<String> {
+    element
+        .label
+        .as_deref()
+        .or(element.value.as_deref())
+        .and_then(|text| normalize_optional_string(Some(text.to_string())))
+        .map(|text| truncate_chars(&text, 80))
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let keep = max_chars.saturating_sub(3);
+    format!("{}...", text.chars().take(keep).collect::<String>())
+}
+
+fn render_annotated_screenshot(
+    snapshot: &MacControlSnapshot,
+    ui_map: &[MacControlUiMapItem],
+) -> Result<MacControlScreenshotSummary, String> {
+    let screenshot = snapshot.screenshot.as_ref().ok_or_else(|| {
+        format!(
+            "mac_control visual.observe annotate snapshotId '{}' has no screenshot metadata.",
+            snapshot.snapshot_id
+        )
+    })?;
+    let mut image = image::open(&screenshot.path)
+        .map_err(|e| {
+            format!(
+                "Unable to open macOS control screenshot {} for annotation: {e}",
+                screenshot.path
+            )
+        })?
+        .to_rgba8();
+    let palette = annotation_palette();
+    for (idx, item) in ui_map.iter().enumerate() {
+        let color = palette[idx % palette.len()];
+        draw_rect_outline(&mut image, item.image_bounds, color, 2);
+        draw_label(&mut image, item.image_bounds, &item.id, color);
+    }
+
+    let mut bytes = Vec::new();
+    let rgb = image::DynamicImage::ImageRgba8(image).to_rgb8();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 86);
+    encoder
+        .encode_image(&rgb)
+        .map_err(|e| format!("Unable to encode annotated macOS control screenshot: {e}"))?;
+    store_annotated_screenshot_jpeg(screenshot, &bytes)
+}
+
+fn store_annotated_screenshot_jpeg(
+    original: &MacControlScreenshotSummary,
+    bytes: &[u8],
+) -> Result<MacControlScreenshotSummary, String> {
+    let media_id = sanitize_media_id(&format!("{}_annotated", original.media_id))?;
+    let dir = crate::paths::mac_control_snapshots_dir()
+        .map_err(|e| format!("Unable to resolve macOS control snapshots directory: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| {
+        format!(
+            "Unable to create macOS control snapshots directory {}: {e}",
+            dir.display()
+        )
+    })?;
+    let path = dir.join(format!("{media_id}.jpg"));
+    fs::write(&path, bytes).map_err(|e| {
+        format!(
+            "Unable to write annotated macOS control screenshot {}: {e}",
+            path.display()
+        )
+    })?;
+    prune_screenshot_files(&dir);
+
+    let mut summary = original.clone();
+    summary.media_id = media_id;
+    summary.path = path.display().to_string();
+    Ok(summary)
+}
+
+fn screen_bounds_to_image_bounds(
+    screen_bounds: MacControlBounds,
+    frame: MacControlBounds,
+    scale: f64,
+) -> Option<MacControlBounds> {
+    if !screen_bounds.x.is_finite()
+        || !screen_bounds.y.is_finite()
+        || !screen_bounds.width.is_finite()
+        || !screen_bounds.height.is_finite()
+        || !scale.is_finite()
+        || scale <= 0.0
+    {
+        return None;
+    }
+    Some(MacControlBounds {
+        x: (screen_bounds.x - frame.x) * scale,
+        y: (screen_bounds.y - frame.y) * scale,
+        width: screen_bounds.width * scale,
+        height: screen_bounds.height * scale,
+    })
+}
+
+fn draw_rect_outline(
+    image: &mut image::RgbaImage,
+    bounds: MacControlBounds,
+    color: image::Rgba<u8>,
+    thickness: u32,
+) {
+    let Some((x0, y0, x1, y1)) = image_bounds_to_pixel_rect(bounds, image.width(), image.height())
+    else {
+        return;
+    };
+    let thickness = thickness.max(1);
+    for offset in 0..thickness {
+        let top = y0.saturating_add(offset).min(y1);
+        let bottom = y1.saturating_sub(offset).max(y0);
+        for x in x0..=x1 {
+            put_pixel_checked(image, x, top, color);
+            put_pixel_checked(image, x, bottom, color);
+        }
+        let left = x0.saturating_add(offset).min(x1);
+        let right = x1.saturating_sub(offset).max(x0);
+        for y in y0..=y1 {
+            put_pixel_checked(image, left, y, color);
+            put_pixel_checked(image, right, y, color);
+        }
+    }
+}
+
+fn draw_label(
+    image: &mut image::RgbaImage,
+    bounds: MacControlBounds,
+    label: &str,
+    color: image::Rgba<u8>,
+) {
+    let Some((x0, y0, _, _)) = image_bounds_to_pixel_rect(bounds, image.width(), image.height())
+    else {
+        return;
+    };
+    let scale = 2;
+    let padding = 3;
+    let text_width = bitmap_text_width(label, scale);
+    let box_width = (text_width + padding * 2).min(image.width().max(1));
+    let box_height = 7 * scale + padding * 2;
+    let label_x = x0.min(image.width().saturating_sub(box_width));
+    let label_y = if y0 > box_height + 1 {
+        y0 - box_height - 1
+    } else {
+        y0
+    }
+    .min(image.height().saturating_sub(box_height));
+    fill_rect(image, label_x, label_y, box_width, box_height, color);
+    draw_bitmap_text(
+        image,
+        label_x + padding,
+        label_y + padding,
+        label,
+        scale,
+        image::Rgba([255, 255, 255, 255]),
+    );
+}
+
+fn image_bounds_to_pixel_rect(
+    bounds: MacControlBounds,
+    width: u32,
+    height: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let clamped = clamp_image_bounds(bounds, f64::from(width), f64::from(height))?;
+    let x0 = clamped.x.floor().max(0.0).min(f64::from(width - 1)) as u32;
+    let y0 = clamped.y.floor().max(0.0).min(f64::from(height - 1)) as u32;
+    let x1 = (clamped.x + clamped.width)
+        .ceil()
+        .max(1.0)
+        .min(f64::from(width)) as u32;
+    let y1 = (clamped.y + clamped.height)
+        .ceil()
+        .max(1.0)
+        .min(f64::from(height)) as u32;
+    (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - 1, y1 - 1))
+}
+
+fn fill_rect(
+    image: &mut image::RgbaImage,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    color: image::Rgba<u8>,
+) {
+    for yy in y..y.saturating_add(height).min(image.height()) {
+        for xx in x..x.saturating_add(width).min(image.width()) {
+            put_pixel_checked(image, xx, yy, color);
+        }
+    }
+}
+
+fn draw_bitmap_text(
+    image: &mut image::RgbaImage,
+    x: u32,
+    y: u32,
+    text: &str,
+    scale: u32,
+    color: image::Rgba<u8>,
+) {
+    let mut cursor = x;
+    for ch in text.chars() {
+        draw_bitmap_char(image, cursor, y, ch, scale, color);
+        cursor = cursor.saturating_add((5 * scale) + scale);
+    }
+}
+
+fn draw_bitmap_char(
+    image: &mut image::RgbaImage,
+    x: u32,
+    y: u32,
+    ch: char,
+    scale: u32,
+    color: image::Rgba<u8>,
+) {
+    for (row_idx, row) in bitmap_glyph(ch).iter().enumerate() {
+        for (col_idx, bit) in row.as_bytes().iter().enumerate() {
+            if *bit != b'1' {
+                continue;
+            }
+            let px = x + (col_idx as u32 * scale);
+            let py = y + (row_idx as u32 * scale);
+            for yy in py..py.saturating_add(scale) {
+                for xx in px..px.saturating_add(scale) {
+                    put_pixel_checked(image, xx, yy, color);
+                }
+            }
+        }
+    }
+}
+
+fn bitmap_text_width(text: &str, scale: u32) -> u32 {
+    let chars = text.chars().count() as u32;
+    if chars == 0 {
+        0
+    } else {
+        chars * 5 * scale + chars.saturating_sub(1) * scale
+    }
+}
+
+fn put_pixel_checked(image: &mut image::RgbaImage, x: u32, y: u32, color: image::Rgba<u8>) {
+    if x < image.width() && y < image.height() {
+        image.put_pixel(x, y, color);
+    }
+}
+
+fn annotation_palette() -> [image::Rgba<u8>; 8] {
+    [
+        image::Rgba([0, 122, 255, 255]),
+        image::Rgba([255, 45, 85, 255]),
+        image::Rgba([52, 199, 89, 255]),
+        image::Rgba([255, 149, 0, 255]),
+        image::Rgba([175, 82, 222, 255]),
+        image::Rgba([90, 200, 250, 255]),
+        image::Rgba([255, 204, 0, 255]),
+        image::Rgba([255, 59, 48, 255]),
+    ]
+}
+
+fn bitmap_glyph(ch: char) -> [&'static str; 7] {
+    match ch.to_ascii_lowercase() {
+        '0' => [
+            "01110", "10001", "10011", "10101", "11001", "10001", "01110",
+        ],
+        '1' => [
+            "00100", "01100", "00100", "00100", "00100", "00100", "01110",
+        ],
+        '2' => [
+            "01110", "10001", "00001", "00010", "00100", "01000", "11111",
+        ],
+        '3' => [
+            "11110", "00001", "00001", "01110", "00001", "00001", "11110",
+        ],
+        '4' => [
+            "00010", "00110", "01010", "10010", "11111", "00010", "00010",
+        ],
+        '5' => [
+            "11111", "10000", "10000", "11110", "00001", "00001", "11110",
+        ],
+        '6' => [
+            "01110", "10000", "10000", "11110", "10001", "10001", "01110",
+        ],
+        '7' => [
+            "11111", "00001", "00010", "00100", "01000", "01000", "01000",
+        ],
+        '8' => [
+            "01110", "10001", "10001", "01110", "10001", "10001", "01110",
+        ],
+        '9' => [
+            "01110", "10001", "10001", "01111", "00001", "00001", "01110",
+        ],
+        'e' => [
+            "00000", "01110", "10001", "11111", "10000", "10001", "01110",
+        ],
+        'l' => [
+            "11000", "01000", "01000", "01000", "01000", "01000", "11100",
+        ],
+        '_' => [
+            "00000", "00000", "00000", "00000", "00000", "00000", "11111",
+        ],
+        '-' => [
+            "00000", "00000", "00000", "11111", "00000", "00000", "00000",
+        ],
+        _ => [
+            "11111", "10001", "00010", "00100", "00100", "00000", "00100",
+        ],
+    }
 }
 
 fn resolve_visual_point(
@@ -2804,6 +3306,8 @@ fn resolve_visual_point(
         snapshot_id: Some(snapshot.snapshot_id.clone()),
         snapshot: None,
         screenshot: Some(screenshot.clone()),
+        annotated_screenshot: None,
+        ui_map: Vec::new(),
         coordinate_space: Some(coordinate_space),
         image_point: Some(image_point),
         screen_point: Some(screen_point),
@@ -3631,6 +4135,7 @@ mod tests {
             max_elements: 10_000,
             max_depth: 100,
             limit: 0,
+            ui_map_limit: 999,
             languages: vec![
                 " zh-Hans ".to_string(),
                 " ".to_string(),
@@ -3649,6 +4154,7 @@ mod tests {
         assert_eq!(request.max_elements, HARD_SNAPSHOT_MAX_ELEMENTS);
         assert_eq!(request.max_depth, HARD_SNAPSHOT_MAX_DEPTH);
         assert_eq!(request.limit, DEFAULT_VISUAL_LIMIT);
+        assert_eq!(request.ui_map_limit, HARD_UI_MAP_LIMIT);
         assert_eq!(request.languages, vec!["zh-Hans", "en-US"]);
         assert_eq!(request.min_confidence, Some(1.0));
 
@@ -3691,6 +4197,30 @@ mod tests {
             MacControlOcrRecognitionLevel::Fast
         );
         assert_eq!(find_text.min_confidence, Some(0.42));
+    }
+
+    #[test]
+    fn visual_ui_map_maps_bounds_to_image_pixels() {
+        let snapshot = sample_snapshot();
+        let ui_map = build_ui_map(&snapshot, 10).expect("ui map");
+
+        assert!(ui_map.iter().all(|item| item.id != "el_window"));
+        let button = ui_map
+            .iter()
+            .find(|item| item.id == "el_1")
+            .expect("button item");
+        assert_eq!(button.text.as_deref(), Some("Open"));
+        assert_eq!(button.image_bounds.x, 140.0);
+        assert_eq!(button.image_bounds.y, 100.0);
+        assert_eq!(button.image_bounds.width, 160.0);
+        assert_eq!(button.image_bounds.height, 60.0);
+
+        let text = ui_map
+            .iter()
+            .find(|item| item.id == "el_2")
+            .expect("text item");
+        assert_eq!(text.text.as_deref(), Some("Search Downloads"));
+        assert!(text.focused);
     }
 
     #[test]

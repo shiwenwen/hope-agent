@@ -217,6 +217,8 @@ Transport 结果类型：
 | `screenshotTarget` | `"display" \| "window"` | `snapshot.includeScreenshot=true` 时选择显示器或窗口 |
 | `displayId` | number | `snapshot` display 截图目标显示器 |
 | `includeSnapshot` | boolean | `act`、`wait`、`dialog` 是否在结果中带完整 AX snapshot，默认 `false` |
+| `annotate` | boolean | `visual.observe` 是否生成带 AX 元素 id 边框的标注截图和 `uiMap`，默认 `false` |
+| `uiMapLimit` | number | `visual.observe annotate=true` 的标注元素上限，默认 80，硬上限 200 |
 | `maxElements` / `maxDepth` | number | AX 树遍历上限 |
 | `timeoutMs` / `pollMs` | number | `wait` 总超时和轮询间隔 |
 | `maxChars` | number | `clipboard.get` 返回文本上限 |
@@ -249,7 +251,7 @@ Transport 结果类型：
 
 | action / op | 入参 | 出参 `result` | 说明 |
 | --- | --- | --- | --- |
-| `visual.observe` | `action="visual"`、`op="observe"`；可选 `screenshotTarget`、`displayId`、`windowId`、`maxElements`、`maxDepth` | `op="observe"`、`snapshotId`、`screenshot`、`snapshot?`、`warnings[]`；tool result 额外包含 `__IMAGE_FILE__{"mime":"image/jpeg","path":"..."}` marker | 采集 AX snapshot + display/window JPEG。截图写入 `~/.hope-agent/mac-control/snapshots/`，并进入模型视觉输入；snapshot 同时进入短生命周期 cache 供 `visual.point` hit-test |
+| `visual.observe` | `action="visual"`、`op="observe"`；可选 `screenshotTarget`、`displayId`、`windowId`、`annotate`、`uiMapLimit`、`maxElements`、`maxDepth` | `op="observe"`、`snapshotId`、`screenshot`、`annotatedScreenshot?`、`uiMap[]`、`snapshot?`、`warnings[]`；tool result 额外包含 `__IMAGE_FILE__{"mime":"image/jpeg","path":"..."}` marker | 采集 AX snapshot + display/window JPEG。`annotate=true` 时 marker 指向带 AX element id 边框的标注图，并返回紧凑 `uiMap`；snapshot 同时进入短生命周期 cache 供 `visual.point` hit-test |
 | `visual.point` | `action="visual"`、`op="point"`、`snapshotId`、`x`、`y`；可选 `coordinateSpace="image_pixels" \| "screen_points"`、`limit` | `snapshotId`、`screenshot`、`coordinateSpace`、`imagePoint`、`screenPoint`、`insideFrame`、`hitElements[]`、`nearestElements[]`、`suggestedAction?`、`warnings[]` | 只读解析坐标并做 AX hit-test。`suggestedAction` 可直接作为后续 `mac_control action="act" op="click_point"` 的 `x/y` 来源 |
 | `visual.ocr` | `action="visual"`、`op="ocr"`；可选 `snapshotId`、`screenshotTarget`、`displayId`、`windowId`、`languages`、`minConfidence`、`recognitionLevel`、`maxElements`、`maxDepth` | `snapshotId`、`screenshot`、`textBlocks[]`、`warnings[]` | 对截图运行 macOS Vision OCR。传 `snapshotId` 时复用 cached screenshot；不传时先采集新截图。文字块含 `imageBounds`、`screenBounds`、中心点和置信度 |
 | `visual.find_text` | `action="visual"`、`op="find_text"`、`text`；可选 `textMatch`、`snapshotId`、`limit`、OCR 参数同上 | `snapshotId`、`screenshot`、`textBlocks[]`、`textMatches[]`、`suggestedAction?`、`warnings[]` | 按 OCR 文本找可点击位置。每个 match 带 AX `hitElements` / `nearestElements`；顶层 `suggestedAction` 来自第一候选中心点 |
@@ -273,6 +275,13 @@ Hit-test 规则：
 - `hitElements[]` 按“包含点、距离、面积更小、可操作、id”排序；第一个候选优先是最小命中元素，避免父级窗口/容器盖过真实控件。
 - 无命中时 `nearestElements[]` 返回最近候选和 `distancePoints`，供模型改点或改用 AX target。
 - `visual.point` 不会把图片像素直接传给点击；模型必须使用返回的 `screenPoint` 或 `suggestedAction.x/y`。
+
+Annotated UI Map 规则：
+
+- `visual.observe annotate=true` 会在 `~/.hope-agent/mac-control/snapshots/` 下额外写一张标注 JPEG，`annotatedScreenshot` 复用原截图的 target、bounds 和 scale 元数据。
+- 标注图只画经过过滤的可操作/聚焦/常见控件元素，默认最多 80 个，避免把整棵 AX 树画满屏；`uiMapLimit` 可调，硬上限 200。
+- `uiMap[]` 项包含 `id`、`role`、可读 `text`、`enabled`、`focused`、`boundsPoints`、`imageBounds` 和 `actions`。模型看到清晰 element id 时应优先用 `act.click target.elementId`，不清晰时再走 `visual.point`。
+- 标注只改变模型看到的图片，不改变坐标系；标注截图与原截图尺寸一致，`visual.point coordinateSpace="image_pixels"` 仍按原始截图像素解释。
 
 OCR 规则：
 
@@ -356,8 +365,9 @@ OCR 规则：
 | `MacControlWindowSummary` | `id`、`appPid?`、`role?`、`subrole?`、`title?`、`focused`、`boundsPoints?` |
 | `MacControlElementSummary` | `id`、`windowId?`、`role?`、`label?`、`value?`、`enabled?`、`focused`、`boundsPoints?`、`actions[]` |
 | `MacControlElementCandidate` | `element`、`window?`、`score`、`reasons[]` |
-| `MacControlVisualResult` | `op`、`snapshotId?`、`snapshot?`、`screenshot?`、`coordinateSpace?`、`imagePoint?`、`screenPoint?`、`insideFrame?`、`hitElements[]`、`nearestElements[]`、`textBlocks[]`、`textMatches[]`、`suggestedAction?`、`warnings[]` |
+| `MacControlVisualResult` | `op`、`snapshotId?`、`snapshot?`、`screenshot?`、`annotatedScreenshot?`、`uiMap[]`、`coordinateSpace?`、`imagePoint?`、`screenPoint?`、`insideFrame?`、`hitElements[]`、`nearestElements[]`、`textBlocks[]`、`textMatches[]`、`suggestedAction?`、`warnings[]` |
 | `MacControlVisualElementMatch` | `element`、`window?`、`containsPoint`、`distancePoints` |
+| `MacControlUiMapItem` | `id`、`windowId?`、`role?`、`text?`、`enabled?`、`focused`、`boundsPoints`、`imageBounds`、`actions[]` |
 | `MacControlOcrTextBlock` | `id`、`text`、`confidence`、`imageBounds`、`screenBounds`、`imagePoint`、`screenPoint` |
 | `MacControlOcrTextMatch` | `block`、`score`、`reasons[]`、`hitElements[]`、`nearestElements[]`、`suggestedAction?` |
 | `MacControlSuggestedAction` | `action="act"`、`op="click_point"`、`x`、`y`，坐标单位为 macOS screen point |
@@ -382,6 +392,7 @@ OCR 规则：
 - `includeSnapshot` 默认为 `false`；`act` / `wait` / `dialog` 默认只返回摘要字段，显式传 `includeSnapshot=true` 才返回完整 AX snapshot。`act.dry_run` 始终保持轻量。
 - 合法坐标 `0` 不能被全局吞掉；裸坐标点击只能通过 `act.click_point` 表达。
 - `visual.observe` 默认采集 display 截图；`screenshotTarget="window"` 可采集当前前台窗口或 `windowId` 指定窗口。
+- `visual.observe annotate=true` 默认最多标注 80 个元素，`uiMapLimit` 硬上限 200；标注失败只进入 `warnings[]`，不会影响原始截图和 snapshot。
 - `visual.point.coordinateSpace` 默认为 `image_pixels`，返回的 `screenPoint` / `suggestedAction.x/y` 才能用于 `act.click_point`。
 - `visual.find_text.textMatch` 默认为 `exact`；只有显式传 `contains` 才按 OCR 子串匹配。
 - `visual.ocr/find_text.recognitionLevel` 默认为 `accurate`；`languages` 最多保留 16 个非空语言标签；`minConfidence` 会归一到 `0..1`。
@@ -577,7 +588,7 @@ status -> snapshot/elements.find/wait -> apps/windows/act/menu/clipboard/dialog 
 - 有副作用操作前尽量先确认前台 App 和目标窗口。
 - 相似按钮或输入框较多时先用 `elements.find` 选候选，再用 `elementId` 执行。
 - 对高不确定性的点击/设置值，先用 `act.dry_run` 验证目标解析结果。
-- 视觉定位走 `visual.observe/ocr -> find_text 或读取图片选 image pixel -> visual.point -> act.click_point -> verify`；不要把截图像素坐标直接传给 `act.click_point`。
+- 视觉定位优先走 `visual.observe annotate=true -> uiMap elementId`；没有清晰 AX id 时走 `visual.ocr/find_text` 或读取图片选 image pixel -> `visual.point` -> `act.click_point` -> verify。不要把截图像素坐标直接传给 `act.click_point`。
 - App 名称找不到时先用 `apps.search` / `apps.installed` 查候选。
 - 名称匹配不稳定时改用 `bundleId`、`pid`、`windowId` 或 `elementId`。
 - 点击 AX 元素用 `act.click`；点击屏幕坐标用 `act.click_point`。

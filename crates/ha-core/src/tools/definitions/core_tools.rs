@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer visual.find_text/visual.point/elements.find/snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -735,7 +735,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "action": {
                         "type": "string",
                         "enum": ["status", "permissions", "snapshot", "visual", "elements", "wait", "apps", "windows", "act", "menu", "clipboard", "dialog"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `visual` observes a screenshot for model vision, runs OCR text positioning, or maps a visual point to macOS screen points and AX hit candidates. `elements` finds and ranks AX element candidates without mutating UI. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `visual` observes a screenshot for model vision, optionally returns an annotated AX UI map, runs OCR text positioning, or maps a visual point to macOS screen points and AX hit candidates. `elements` finds and ranks AX element candidates without mutating UI. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
                     },
                     "op": {
                         "type": "string",
@@ -872,6 +872,16 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "includeSnapshot": {
                         "type": "boolean",
                         "description": "For `act`, `wait`, or `dialog`: include the full AX snapshot used for the operation in the result. Defaults to false to keep results compact. `act.dry_run` stays compact; use `snapshot` or `elements.find` for full tree context."
+                    },
+                    "annotate": {
+                        "type": "boolean",
+                        "description": "For `visual.observe`: when true, return an annotated screenshot with AX element ids overlaid plus a compact uiMap. Defaults to false."
+                    },
+                    "uiMapLimit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200,
+                        "description": "For `visual.observe annotate=true`: maximum annotated/uiMap AX elements. Defaults to 80 and is hard-capped at 200."
                     },
                     "screenshotTarget": {
                         "type": "string",
@@ -1569,5 +1579,7 @@ mod tests {
         assert!(tool.parameters["properties"].get("textMatch").is_some());
         assert!(tool.parameters["properties"].get("languages").is_some());
         assert!(tool.parameters["properties"].get("minConfidence").is_some());
+        assert!(tool.parameters["properties"].get("annotate").is_some());
+        assert!(tool.parameters["properties"].get("uiMapLimit").is_some());
     }
 }
