@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer elements.find/snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer visual.find_text/visual.point/elements.find/snapshot/wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,13 +734,13 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions", "snapshot", "elements", "wait", "apps", "windows", "act", "menu", "clipboard", "dialog"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `elements` finds and ranks AX element candidates without mutating UI. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
+                        "enum": ["status", "permissions", "snapshot", "visual", "elements", "wait", "apps", "windows", "act", "menu", "clipboard", "dialog"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `visual` observes a screenshot for model vision, runs OCR text positioning, or maps a visual point to macOS screen points and AX hit candidates. `elements` finds and ranks AX element candidates without mutating UI. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
                     },
                     "op": {
                         "type": "string",
-                        "enum": ["find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "dry_run", "click", "click_point", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "scroll", "drag", "get", "set", "clear", "inspect", "accept", "dismiss"],
-                        "description": "Sub-operation. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|paste|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: inspect|accept|dismiss."
+                        "enum": ["observe", "point", "ocr", "find_text", "find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "dry_run", "click", "click_point", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "scroll", "drag", "get", "set", "clear", "inspect", "accept", "dismiss"],
+                        "description": "Sub-operation. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|paste|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: inspect|accept|dismiss."
                     },
                     "scope": {
                         "type": "string",
@@ -773,19 +773,28 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 100,
-                        "description": "For `apps.list`: maximum running apps returned, default 50. For `elements.find`: maximum ranked candidates returned, default 20. Hard-capped at 100."
+                        "description": "For `apps.list`: maximum running apps returned, default 50. For `elements.find`: maximum ranked candidates returned, default 20. For `visual.point`: maximum hit/nearest AX candidates returned, default 5. For `visual.find_text`: maximum OCR matches returned, default 5. Hard-capped at 100."
                     },
                     "windowId": {
                         "type": "string",
-                        "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1 or all-scope win_<pid>_<index>. Prefer all-scope ids when operating background app windows. For `snapshot` window screenshots: capture this AX window id; omit to capture the focused/frontmost window."
+                        "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1 or all-scope win_<pid>_<index>. Prefer all-scope ids when operating background app windows. For `snapshot` or `visual.observe` window screenshots: capture this AX window id; omit to capture the focused/frontmost window."
+                    },
+                    "snapshotId": {
+                        "type": "string",
+                        "description": "For `visual.point`, `visual.ocr`, or `visual.find_text`: snapshot id returned by `visual.observe` or `snapshot includeScreenshot=true`. Omit for visual.ocr/find_text to capture a fresh screenshot first."
+                    },
+                    "coordinateSpace": {
+                        "type": "string",
+                        "enum": ["image_pixels", "screen_points"],
+                        "description": "For `visual.point`: `image_pixels` means x/y are pixels from the screenshot's top-left origin; `screen_points` means x/y are macOS global screen points. Defaults to image_pixels."
                     },
                     "x": {
                         "type": "number",
-                        "description": "For `windows.move` or `act.click_point`: x position in macOS screen points. For `act.drag`: destination x point; the source is target center."
+                        "description": "For `visual.point`: x in coordinateSpace (`image_pixels` by default, 0 is valid). For `windows.move` or `act.click_point`: x position in macOS screen points. For `act.drag`: destination x point; the source is target center."
                     },
                     "y": {
                         "type": "number",
-                        "description": "For `windows.move` or `act.click_point`: y position in macOS screen points. For `act.drag`: destination y point; the source is target center."
+                        "description": "For `visual.point`: y in coordinateSpace (`image_pixels` by default, 0 is valid). For `windows.move` or `act.click_point`: y position in macOS screen points. For `act.drag`: destination y point; the source is target center."
                     },
                     "width": {
                         "type": "number",
@@ -797,7 +806,28 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "text": {
                         "type": "string",
-                        "description": "For `act.type`: text to set/type through Accessibility. For `act.paste`: text to paste via the pasteboard without echoing it in the result. For `clipboard.set`: text to place on the clipboard; the result does not echo it back. For target matching, use target.text."
+                        "description": "For `visual.find_text`: OCR text query. For `act.type`: text to set/type through Accessibility. For `act.paste`: text to paste via the pasteboard without echoing it in the result. For `clipboard.set`: text to place on the clipboard; the result does not echo it back. For target matching, use target.text."
+                    },
+                    "textMatch": {
+                        "type": "string",
+                        "enum": ["exact", "contains"],
+                        "description": "For `visual.find_text`: OCR text matching strategy. Defaults to exact; use contains for partial visible text."
+                    },
+                    "languages": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "For `visual.ocr` and `visual.find_text`: optional Vision recognition languages such as [\"zh-Hans\", \"en-US\"]. Omit to let Vision auto-detect."
+                    },
+                    "minConfidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "description": "For `visual.ocr` and `visual.find_text`: discard OCR blocks below this confidence. Defaults to 0."
+                    },
+                    "recognitionLevel": {
+                        "type": "string",
+                        "enum": ["accurate", "fast"],
+                        "description": "For `visual.ocr` and `visual.find_text`: Vision recognition level. Defaults to accurate."
                     },
                     "maxChars": {
                         "type": "integer",
@@ -846,11 +876,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "screenshotTarget": {
                         "type": "string",
                         "enum": ["display", "window"],
-                        "description": "For `snapshot.includeScreenshot=true`: capture a display (default) or the frontmost/specified window."
+                        "description": "For `snapshot.includeScreenshot=true` or `visual.observe`: capture a display (default) or the frontmost/specified window."
                     },
                     "displayId": {
                         "type": "integer",
-                        "description": "For `snapshot` display screenshots: display id from snapshot.displays. Omit to capture the primary display."
+                        "description": "For `snapshot` or `visual.observe` display screenshots: display id from snapshot.displays. Omit to capture the primary display."
                     },
                     "maxElements": {
                         "type": "integer",
@@ -1556,4 +1586,42 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     // ── Cross-Session Peek (deferred, read-only) ──
     tools.push(crate::awareness::peek_sessions_schema());
     tools
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_available_tools;
+
+    #[test]
+    fn mac_control_schema_includes_visual_ops() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_MAC_CONTROL)
+            .expect("mac_control schema");
+        let action_enum = tool.parameters["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum");
+        assert!(action_enum
+            .iter()
+            .any(|value| value.as_str() == Some("visual")));
+
+        let op_enum = tool.parameters["properties"]["op"]["enum"]
+            .as_array()
+            .expect("op enum");
+        assert!(op_enum
+            .iter()
+            .any(|value| value.as_str() == Some("observe")));
+        assert!(op_enum.iter().any(|value| value.as_str() == Some("point")));
+        assert!(op_enum.iter().any(|value| value.as_str() == Some("ocr")));
+        assert!(op_enum
+            .iter()
+            .any(|value| value.as_str() == Some("find_text")));
+        assert!(tool.parameters["properties"].get("snapshotId").is_some());
+        assert!(tool.parameters["properties"]
+            .get("coordinateSpace")
+            .is_some());
+        assert!(tool.parameters["properties"].get("textMatch").is_some());
+        assert!(tool.parameters["properties"].get("languages").is_some());
+        assert!(tool.parameters["properties"].get("minConfidence").is_some());
+    }
 }

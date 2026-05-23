@@ -1,6 +1,6 @@
 ---
 name: ha-mac-control
-description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / snapshot / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, 关闭窗口, 菜单点击."
+description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / snapshot / visual / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, visually locate UI, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, 关闭窗口, 菜单点击, 视觉定位."
 version: 1.0.0
 author: Hope Agent
 license: MIT
@@ -19,7 +19,7 @@ Use this loop unless the user explicitly asks for a single read-only query:
 ```
 1. mac_control(action="status")
 2. mac_control(action="apps", op="frontmost" | "search" | "installed")
-3. observe: snapshot / elements.find / windows.list / menu.list / dialog.inspect
+3. observe: snapshot / visual.observe / elements.find / windows.list / menu.list / dialog.inspect
 4. act: apps.activate/launch, windows.*, act.*, menu.click, dialog.*
 5. verify: wait, snapshot, windows.list, or dialog.inspect
 ```
@@ -80,6 +80,34 @@ wait or snapshot                       # verify the expected change
 - Use `act.paste` for long text or apps that do not accept `AXValue` reliably. It stages text on the pasteboard, invokes paste, and reports only clipboard restore status.
 - `act`, `wait`, and `dialog` results are compact by default and do not return a full AX snapshot. Set `includeSnapshot=true` only when full AX tree debugging is needed; otherwise verify with `wait`, `elements.find`, `windows.list`, or `dialog.inspect`.
 - Do not type passwords, OTPs, or private credentials unless the user explicitly supplied them in the current flow.
+
+### Visual Positioning
+
+Use visual positioning when AX labels are missing, the UI is canvas-like, or the user refers to something visible on screen rather than a stable element.
+
+Standard visual loop:
+
+```
+visual.observe screenshotTarget="window" | "display"
+visual.ocr or visual.find_text text="..."      # when the target is visible text
+read the returned image and choose an image pixel point # when OCR is not enough
+visual.point snapshotId=... coordinateSpace="image_pixels" x=... y=...
+act.click_point x=<suggestedAction.x> y=<suggestedAction.y>
+verify with snapshot, visual.observe, wait, or elements.find
+```
+
+Rules:
+
+- `visual.observe` is read-only. It returns an image file marker for model vision plus a compact JSON payload with `snapshotId`, screenshot metadata, displays, and windows.
+- `visual.ocr` is read-only. Use it when visible text matters but you do not need to filter for one phrase yet.
+- `visual.find_text` is read-only. Use it before coordinate clicking visible words or text-only buttons; pass `textMatch="contains"` only for intentional partial text.
+- `visual.find_text` returns OCR `textMatches` with center points, AX `hitElements` / `nearestElements`, and a top-level `suggestedAction`.
+- Image pixel coordinates use the screenshot top-left as origin. `(0, 0)` is valid. Never pass image pixels directly to `act.click_point`.
+- Always call `visual.point` before coordinate clicks chosen from a screenshot. It converts image pixels to macOS screen points and returns AX `hitElements` / `nearestElements`.
+- Prefer `suggestedAction.x/y` from `visual.point` or `visual.find_text` for `act.click_point`. If `insideFrame=false`, do not click; adjust the point or observe again.
+- If `hitElements[0]` is a clear AX target, prefer `act.click target.elementId=...` over raw `act.click_point`.
+- If OCR returns no match, do not click blindly. Retry with `textMatch="contains"`, OCR `languages`, a fresh window screenshot, or use image-pixel visual positioning.
+- If the snapshot expired or lacks screenshot metadata, call `visual.observe` again instead of reusing old points.
 
 ### Menus
 

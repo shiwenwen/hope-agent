@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -128,6 +129,11 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 }
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
+
+interface MacControlFrameOpenHint {
+  mediaId?: string | null
+  path?: string | null
+}
 
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
@@ -1537,9 +1543,11 @@ export default function ChatScreen({
   }, [])
 
   useEffect(() => {
-    const unlisten = getTransport().listen("mac_control:frame", () => {
+    const unlisten = getTransport().listen("mac_control:frame", (raw) => {
       if (macControlPanelDismissedRef.current) return
-      setShowMacControlPanel((prev) => (prev ? prev : true))
+      const payload = parsePayload<MacControlFrameOpenHint>(raw)
+      const isToolScreenshotFrame = !!(payload?.mediaId || payload?.path)
+      setShowMacControlPanel((prev) => (prev ? prev : isToolScreenshotFrame))
     })
     return () => {
       try {
@@ -1997,9 +2005,9 @@ export default function ChatScreen({
             />
           )}
 
-          {/* Mac Control live-mirror panel — open on first `mac_control:frame`
-              push. The panel remains read-only while `wait`/target matching
-              lands in Phase 2C. */}
+          {/* Mac Control live-mirror panel — opens on tool-produced managed
+              screenshot frames; panel polling frames only refresh an already
+              open panel and must not re-open after a session switch. */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
             <MacControlPanel
               panelWidth={rightPanelWidth}

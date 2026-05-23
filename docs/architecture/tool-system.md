@@ -732,7 +732,7 @@ Screenshot captured (...)
 
 安全边界：
 
-- 只允许 Hope Agent 受管媒体目录下的路径，例如 `~/.hope-agent/attachments/` 和 `~/.hope-agent/tool_results/`
+- 只允许 Hope Agent 受管媒体目录下的路径，例如 `~/.hope-agent/attachments/`、`~/.hope-agent/tool_results/` 和 `~/.hope-agent/mac-control/snapshots/`
 - 路径必须 canonicalize 后仍在允许目录内，防止 `../` 或 symlink 逃逸
 - 文件 MIME 必须由魔数校验为图片，且与 marker 声明 MIME 一致
 - 文件大小必须受上限保护，避免把超大本地文件读入 Provider 请求
@@ -756,6 +756,7 @@ Screenshot captured (...)
 | `crates/ha-core/src/tools/execution.rs` | 大工具结果落盘；对图片 marker 做完整性保护，避免截断后继续作为图片发送 |
 | `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 截断时保护图片 marker，避免压缩阶段制造半截图片载荷 |
 | `crates/ha-core/src/tools/browser/snapshot.rs` | browser 截图保存为 session attachment，并用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
+| `crates/ha-core/src/tools/mac_control.rs` | `visual.observe` 把 macOS 受管截图包装为 `__IMAGE_FILE__`，供模型视觉定位 |
 
 ### 端到端流程图
 
