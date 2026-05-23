@@ -13,9 +13,10 @@
   - Hope Agent 现状：主要是 `click` / `set_value` / `type` / `paste` / `hotkey` / `scroll` / `drag` 等封装动作。
   - Hope Agent 已完成：`act.perform_action` + `axAction`，白名单 AX action，要求目标 `actions[]` 声明支持，已接入权限审批、schema、Tauri bridge、文档与测试。
 
-- [ ] 3. Dock / Spaces
+- [x] 3. Dock / Spaces
   - Peekaboo 有 Dock 和 Space 能力：列 Dock、启动 Dock app、隐藏/显示 Dock、切换 Space、移动窗口到 Space。
-  - Hope Agent 现状：没有 Dock 专用接口，也没有 Mission Control / Spaces 管理。
+  - Hope Agent 已完成：`dock.list/launch/hide/show`、`spaces.list/switch`，接入 schema、权限审批、Tauri bridge、文档与测试。
+  - 已知边界：`spaces.move_window` 因 macOS 无稳定公开 API 先返回显式 unsupported；后续若找到可靠路径再单独补。
 
 - [ ] 4. Dialog 专项能力细化
   - Peekaboo 的 dialog 能做 `list` / `click` / `input` / `file` / `dismiss`。

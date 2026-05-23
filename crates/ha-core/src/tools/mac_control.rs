@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use serde_json::Value;
 
 pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
+    let args = crate::mac_control::sanitize_tool_args(args);
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -48,6 +49,24 @@ pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
                 )?;
             Ok(serde_json::to_string_pretty(
                 &crate::mac_control::apps(request).await,
+            )?)
+        }
+        "dock" => {
+            let request =
+                serde_json::from_value::<crate::mac_control::MacControlDockRequest>(
+                    args.clone(),
+                )?;
+            Ok(serde_json::to_string_pretty(
+                &crate::mac_control::dock(request).await,
+            )?)
+        }
+        "spaces" => {
+            let request =
+                serde_json::from_value::<crate::mac_control::MacControlSpacesRequest>(
+                    args.clone(),
+                )?;
+            Ok(serde_json::to_string_pretty(
+                &crate::mac_control::spaces(request).await,
             )?)
         }
         "windows" => {
@@ -97,7 +116,7 @@ pub(crate) async fn tool_mac_control(args: &Value) -> Result<String> {
             Ok(format_visual_response(&response)?)
         }
         other => bail!(
-            "Unsupported mac_control action '{}'. Supported actions: 'status', 'permissions', 'snapshot', 'elements', 'wait', 'apps', 'windows', 'act', 'menu', 'clipboard', 'dialog', 'visual'.",
+            "Unsupported mac_control action '{}'. Supported actions: 'status', 'permissions', 'snapshot', 'elements', 'wait', 'apps', 'dock', 'spaces', 'windows', 'act', 'menu', 'clipboard', 'dialog', 'visual'.",
             other
         ),
     }

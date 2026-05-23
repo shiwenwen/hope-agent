@@ -7,7 +7,7 @@
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::ffi::{CStr, CString};
     use std::fs;
     use std::os::raw::{c_char, c_void};
@@ -26,15 +26,18 @@ mod imp {
         MacControlAppsResult, MacControlBounds, MacControlBridge, MacControlClipboardOp,
         MacControlClipboardRequest, MacControlClipboardResult, MacControlDialogOp,
         MacControlDialogRequest, MacControlDialogResult, MacControlDialogSummary,
-        MacControlDisplaySummary, MacControlElementCandidate, MacControlElementSummary,
-        MacControlElementsRequest, MacControlElementsResult, MacControlFramePayload,
-        MacControlInstalledApp, MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest,
-        MacControlMenuResult, MacControlMenuScope, MacControlOcrRawTextBlock,
-        MacControlOcrRecognitionLevel, MacControlOcrRequest, MacControlRunningApp,
-        MacControlScreenshotSummary, MacControlScreenshotTarget, MacControlSnapshot,
-        MacControlSnapshotRequest, MacControlStringMatch, MacControlTargetQuery,
-        MacControlWindowSummary, MacControlWindowsOp, MacControlWindowsRequest,
-        MacControlWindowsResult, MacControlWindowsScope,
+        MacControlDisplaySummary, MacControlDockItem, MacControlDockOp, MacControlDockRequest,
+        MacControlDockResult, MacControlDockSection, MacControlElementCandidate,
+        MacControlElementSummary, MacControlElementsRequest, MacControlElementsResult,
+        MacControlFramePayload, MacControlInstalledApp, MacControlMenuItemSummary,
+        MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult, MacControlMenuScope,
+        MacControlOcrRawTextBlock, MacControlOcrRecognitionLevel, MacControlOcrRequest,
+        MacControlRunningApp, MacControlScreenshotSummary, MacControlScreenshotTarget,
+        MacControlSnapshot, MacControlSnapshotRequest, MacControlSpaceDirection,
+        MacControlSpaceSummary, MacControlSpacesDisplay, MacControlSpacesOp,
+        MacControlSpacesRequest, MacControlSpacesResult, MacControlStringMatch,
+        MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
+        MacControlWindowsRequest, MacControlWindowsResult, MacControlWindowsScope,
     };
     use image::codecs::jpeg::JpegEncoder;
     use objc2::rc::Retained;
@@ -49,6 +52,8 @@ mod imp {
         VNImageOption, VNImageRequestHandler, VNRecognizeTextRequest, VNRequest,
         VNRequestTextRecognitionLevel,
     };
+    use quick_xml::events::{BytesStart, Event};
+    use quick_xml::Reader;
     use xcap::{Monitor, Window};
 
     struct TauriMacControlBridge;
@@ -90,6 +95,22 @@ mod imp {
             tokio::task::spawn_blocking(move || handle_apps(request))
                 .await
                 .map_err(|e| format!("macOS apps worker failed: {e}"))?
+        }
+
+        async fn dock(
+            &self,
+            request: MacControlDockRequest,
+        ) -> Result<MacControlDockResult, String> {
+            tokio::task::spawn_blocking(move || handle_dock(request))
+                .await
+                .map_err(|e| format!("macOS Dock worker failed: {e}"))?
+        }
+
+        async fn spaces(
+            &self,
+            request: MacControlSpacesRequest,
+        ) -> Result<MacControlSpacesResult, String> {
+            handle_spaces_on_main_thread(request).await
         }
 
         async fn windows(
@@ -156,6 +177,7 @@ mod imp {
     type CFTypeRef = *const c_void;
     type CFStringRef = *const c_void;
     type CFArrayRef = *const c_void;
+    type CFDataRef = *const c_void;
     type AXUIElementRef = *const c_void;
     type AXValueRef = *const c_void;
     type CGEventRef = *const c_void;
@@ -163,9 +185,11 @@ mod imp {
 
     const AX_ERROR_SUCCESS: AXError = 0;
     const K_CFSTRING_ENCODING_UTF8: u32 = 0x0800_0100;
+    const K_CF_PROPERTY_LIST_XML_FORMAT_V1_0: u32 = 100;
     const K_AXVALUE_CGPOINT_TYPE: i32 = 1;
     const K_AXVALUE_CGSIZE_TYPE: i32 = 2;
     const K_AXVALUE_CGRECT_TYPE: i32 = 3;
+    const K_CGS_ALL_SPACES_MASK: usize = (1 << 0) | (1 << 1) | (1 << 2);
     const K_CG_HID_EVENT_TAP: u32 = 0;
     const K_CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
     const K_CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
@@ -180,6 +204,11 @@ mod imp {
     const K_CG_EVENT_FLAG_MASK_CONTROL: u64 = 0x0004_0000;
     const K_CG_EVENT_FLAG_MASK_ALTERNATE: u64 = 0x0008_0000;
     const K_CG_EVENT_FLAG_MASK_COMMAND: u64 = 0x0010_0000;
+    const K_CG_EVENT_SOURCE_STATE_HID_SYSTEM_STATE: i32 = 1;
+    const K_VK_COMMAND: u16 = 55;
+    const K_VK_SHIFT: u16 = 56;
+    const K_VK_OPTION: u16 = 58;
+    const K_VK_CONTROL: u16 = 59;
 
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
@@ -206,6 +235,12 @@ mod imp {
     enum MouseButton {
         Left,
         Right,
+    }
+
+    #[derive(Clone, Copy)]
+    struct HotkeyModifier {
+        key_code: u16,
+        flag: u64,
     }
 
     #[link(name = "ApplicationServices", kind = "framework")]
@@ -239,6 +274,7 @@ mod imp {
             virtual_key: u16,
             key_down: bool,
         ) -> CGEventRef;
+        fn CGEventSourceCreate(state_id: i32) -> CGEventSourceRef;
         fn CGEventCreateScrollWheelEvent(
             source: CGEventSourceRef,
             units: u32,
@@ -276,6 +312,16 @@ mod imp {
         fn CFArrayGetCount(the_array: CFArrayRef) -> CFIndex;
         fn CFArrayGetValueAtIndex(the_array: CFArrayRef, idx: CFIndex) -> *const c_void;
         fn CFBooleanGetValue(boolean: CFTypeRef) -> Boolean;
+        fn CFPropertyListCreateData(
+            allocator: *const c_void,
+            property_list: CFTypeRef,
+            format: u32,
+            options: u64,
+            error: *mut CFTypeRef,
+        ) -> CFDataRef;
+        fn CFDataGetBytePtr(the_data: CFDataRef) -> *const u8;
+        fn CFDataGetLength(the_data: CFDataRef) -> CFIndex;
+        fn CFErrorCopyDescription(error: CFTypeRef) -> CFStringRef;
     }
 
     struct CfOwned(CFTypeRef);
@@ -500,6 +546,1367 @@ mod imp {
             quit,
             execution,
         })
+    }
+
+    fn handle_dock(request: MacControlDockRequest) -> Result<MacControlDockResult, String> {
+        let request = request.clamped();
+        let mut dock = read_dock_state()?;
+        let mut launched = None;
+        let mut execution = None;
+        let mut warnings = Vec::new();
+
+        match request.op {
+            MacControlDockOp::List => {}
+            MacControlDockOp::Launch => {
+                let item = resolve_dock_item(&dock.items, &request)?.clone();
+                launch_dock_item(&item)?;
+                execution = Some("NSWorkspace.openURL".to_string());
+                launched = Some(item);
+                dock = read_dock_state().unwrap_or_else(|error| {
+                    warnings.push(format!("Unable to refresh Dock after launch: {error}"));
+                    dock
+                });
+            }
+            MacControlDockOp::Hide => {
+                set_dock_autohide(true)?;
+                execution = Some("defaults.write+killall.Dock".to_string());
+                dock.autohide = Some(true);
+            }
+            MacControlDockOp::Show => {
+                set_dock_autohide(false)?;
+                execution = Some("defaults.write+killall.Dock".to_string());
+                dock.autohide = Some(false);
+            }
+        }
+
+        let items = dock
+            .items
+            .into_iter()
+            .filter(|item| dock_item_matches_request(item, &request))
+            .take(request.limit)
+            .collect();
+
+        Ok(MacControlDockResult {
+            op: request.op,
+            autohide: dock.autohide,
+            orientation: dock.orientation,
+            items,
+            launched,
+            execution,
+            warnings,
+        })
+    }
+
+    async fn handle_spaces_on_main_thread(
+        request: MacControlSpacesRequest,
+    ) -> Result<MacControlSpacesResult, String> {
+        let app = crate::globals::get_app_handle()
+            .ok_or_else(|| "Tauri AppHandle is unavailable for macOS Spaces control.".to_string())?
+            .clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let _ = tx.send(handle_spaces(request));
+        })
+        .map_err(|error| {
+            format!("Failed to dispatch macOS Spaces control to main thread: {error}")
+        })?;
+        rx.await
+            .map_err(|_| "macOS Spaces main-thread worker was canceled.".to_string())?
+    }
+
+    fn handle_spaces(request: MacControlSpacesRequest) -> Result<MacControlSpacesResult, String> {
+        let request = request.clamped();
+        let mut spaces = read_spaces_state()?;
+        let mut switched = None;
+        let mut execution = None;
+        let mut warnings = std::mem::take(&mut spaces.warnings);
+
+        match request.op {
+            MacControlSpacesOp::List => {}
+            MacControlSpacesOp::Switch => {
+                if request.direction.is_some() {
+                    let before = current_space_from_displays(&spaces.displays);
+                    let (keys, label) = spaces_switch_hotkey(&request, &spaces.displays)?;
+                    let label = label.replacen("CGEventHotkey", "MissionControlHotkey", 1);
+                    execution = Some(post_mission_control_hotkey(&keys, &label, &mut warnings)?);
+                    thread::sleep(Duration::from_millis(650));
+                    refresh_spaces_after_action(&mut spaces, &mut switched, &mut warnings);
+                    if same_space_summary(before.as_ref(), switched.as_ref()) {
+                        warnings.push(
+                            "Mission Control hotkey did not change the current Space; the visible desktop may already be at that edge, or the macOS shortcut is unavailable to Hope Agent."
+                                .to_string(),
+                        );
+                    }
+                } else {
+                    let target = resolve_spaces_switch_target(&request, &spaces.displays)?;
+                    let mut mission_control_hotkey = None;
+                    if let Some((keys, label)) =
+                        preferred_spaces_switch_hotkey(&request, &spaces.displays, &target.space)
+                    {
+                        if keys.is_empty() {
+                            execution = Some(label);
+                        } else {
+                            execution =
+                                Some(post_mission_control_hotkey(&keys, &label, &mut warnings)?);
+                            mission_control_hotkey = Some(keys);
+                        }
+                    } else if let Some(space_id) = target.space.id {
+                        match switch_visible_space_with_cgs(space_id) {
+                            Ok(()) => {
+                                execution = Some(format!(
+                                    "CGSManagedDisplaySetCurrentSpace kCGSPackagesMainDisplayIdentifier space={space_id}"
+                                ));
+                            }
+                            Err(error) => {
+                                warnings.push(format!(
+                                    "CGS Spaces switch failed; falling back to Mission Control hotkey: {error}"
+                                ));
+                                let (keys, label) =
+                                    spaces_switch_hotkey(&request, &spaces.displays)?;
+                                let label = format!(
+                                    "{} fallback",
+                                    label.replacen("CGEventHotkey", "MissionControlHotkey", 1)
+                                );
+                                execution = Some(post_mission_control_hotkey(
+                                    &keys,
+                                    &label,
+                                    &mut warnings,
+                                )?);
+                                mission_control_hotkey = Some(keys);
+                            }
+                        }
+                    } else {
+                        let (keys, label) = spaces_switch_hotkey(&request, &spaces.displays)?;
+                        let label = format!(
+                            "{} fallback",
+                            label.replacen("CGEventHotkey", "MissionControlHotkey", 1)
+                        );
+                        execution =
+                            Some(post_mission_control_hotkey(&keys, &label, &mut warnings)?);
+                        mission_control_hotkey = Some(keys);
+                        warnings.push(
+                            "Target Space has no ManagedSpaceID; fell back to Mission Control hotkey."
+                                .to_string(),
+                        );
+                    }
+                    thread::sleep(Duration::from_millis(650));
+                    let mut matched = refresh_spaces_after_switch(
+                        &mut spaces,
+                        &mut switched,
+                        &mut warnings,
+                        &target.space,
+                    );
+                    if !matched && mission_control_hotkey.is_some() {
+                        if let Some(space_id) = target.space.id {
+                            warnings.push(
+                                "Mission Control hotkey was sent, but the current Space could not be verified as the requested target; trying CGS fallback."
+                                    .to_string(),
+                            );
+                            match switch_visible_space_with_cgs(space_id) {
+                                Ok(()) => {
+                                    execution = Some(format!(
+                                        "{} -> CGSManagedDisplaySetCurrentSpace fallback space={space_id}",
+                                        execution.as_deref().unwrap_or("MissionControlHotkey")
+                                    ));
+                                    thread::sleep(Duration::from_millis(650));
+                                    matched = refresh_spaces_after_switch(
+                                        &mut spaces,
+                                        &mut switched,
+                                        &mut warnings,
+                                        &target.space,
+                                    );
+                                }
+                                Err(error) => warnings.push(format!(
+                                    "CGS fallback after Mission Control hotkey failed: {error}"
+                                )),
+                            }
+                        } else {
+                            warnings.push(
+                                "Mission Control hotkey was sent, but the current Space could not be verified and the target has no ManagedSpaceID for CGS fallback."
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    if !matched && mission_control_hotkey.is_some() {
+                        warnings.push(
+                            "Mission Control hotkey/CGS fallback did not verify the requested Space."
+                                .to_string(),
+                        );
+                    }
+                    if !space_matches_summary(switched.as_ref(), &target.space) {
+                        warnings.push(format!(
+                            "Requested Space index={} id={:?}, but current Space after switch is index={} id={:?}.",
+                            target.space.index,
+                            target.space.id,
+                            switched.as_ref().map(|space| space.index).unwrap_or_default(),
+                            switched.as_ref().and_then(|space| space.id)
+                        ));
+                    } else if !matched {
+                        warnings.push(
+                            "Spaces state matched the requested target only after fallback refresh."
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+            MacControlSpacesOp::MoveWindow => {
+                return Err(
+                    "mac_control spaces.move_window is not implemented: macOS does not provide a stable public API for moving windows between Spaces. Use spaces.switch plus window focus/manual confirmation for now."
+                        .to_string(),
+                );
+            }
+        }
+
+        Ok(MacControlSpacesResult {
+            op: request.op,
+            displays: spaces.displays,
+            switched,
+            moved_window: None,
+            execution,
+            warnings,
+        })
+    }
+
+    #[derive(Debug, Clone)]
+    struct DockState {
+        autohide: Option<bool>,
+        orientation: Option<String>,
+        items: Vec<MacControlDockItem>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct SpacesState {
+        displays: Vec<MacControlSpacesDisplay>,
+        warnings: Vec<String>,
+    }
+
+    struct SpacesSwitchTarget {
+        space: MacControlSpaceSummary,
+    }
+
+    #[derive(Debug, Clone)]
+    enum PlistValue {
+        Dict(BTreeMap<String, PlistValue>),
+        Array(Vec<PlistValue>),
+        String(String),
+        Integer(i64),
+        Real,
+        Bool(bool),
+        Data,
+    }
+
+    fn read_dock_state() -> Result<DockState, String> {
+        let root = read_defaults_domain("com.apple.dock")?;
+        let autohide = plist_get(&root, "autohide").and_then(plist_bool);
+        let orientation = plist_get(&root, "orientation")
+            .and_then(plist_string)
+            .map(ToString::to_string);
+        let running = NSWorkspace::sharedWorkspace()
+            .runningApplications()
+            .to_vec();
+        let mut items = Vec::new();
+        append_dock_items(
+            &mut items,
+            plist_get(&root, "persistent-apps"),
+            MacControlDockSection::PersistentApps,
+            &running,
+        );
+        append_dock_items(
+            &mut items,
+            plist_get(&root, "persistent-others"),
+            MacControlDockSection::PersistentOthers,
+            &running,
+        );
+        Ok(DockState {
+            autohide,
+            orientation,
+            items,
+        })
+    }
+
+    fn append_dock_items(
+        out: &mut Vec<MacControlDockItem>,
+        value: Option<&PlistValue>,
+        section: MacControlDockSection,
+        running: &[Retained<NSRunningApplication>],
+    ) {
+        let Some(items) = value.and_then(plist_array) else {
+            return;
+        };
+        for item in items {
+            let Some(dict) = plist_dict(item) else {
+                continue;
+            };
+            let tile_data = dict.get("tile-data").and_then(plist_dict);
+            let guid = dict.get("GUID").and_then(plist_integer);
+            let tile_type = dict
+                .get("tile-type")
+                .and_then(plist_string)
+                .map(ToString::to_string);
+            let label = tile_data
+                .and_then(|tile| tile.get("file-label"))
+                .and_then(plist_string)
+                .map(ToString::to_string);
+            let bundle_id = tile_data
+                .and_then(|tile| tile.get("bundle-identifier"))
+                .and_then(plist_string)
+                .map(ToString::to_string);
+            let path = tile_data
+                .and_then(|tile| tile.get("file-data"))
+                .and_then(plist_dict)
+                .and_then(|file_data| file_data.get("_CFURLString"))
+                .and_then(plist_string)
+                .and_then(dock_url_to_path);
+            let running_app =
+                running_app_for_installed(bundle_id.as_deref(), path.as_deref(), running);
+            let running_summary = running_app.as_deref().map(running_app_summary);
+            let index = out.len() + 1;
+            out.push(MacControlDockItem {
+                id: guid
+                    .map(|guid| format!("dock_{guid}"))
+                    .unwrap_or_else(|| format!("dock_{index}")),
+                index,
+                section,
+                tile_type,
+                label: running_summary
+                    .as_ref()
+                    .and_then(|app| app.name.clone())
+                    .or(label),
+                bundle_id: bundle_id.or_else(|| {
+                    running_summary
+                        .as_ref()
+                        .and_then(|app| app.bundle_id.clone())
+                }),
+                path,
+                running: running_summary.is_some(),
+                pid: running_summary.as_ref().map(|app| app.pid),
+                active: running_summary.as_ref().is_some_and(|app| app.active),
+                hidden: running_summary.as_ref().is_some_and(|app| app.hidden),
+            });
+        }
+    }
+
+    fn resolve_dock_item<'a>(
+        items: &'a [MacControlDockItem],
+        request: &MacControlDockRequest,
+    ) -> Result<&'a MacControlDockItem, String> {
+        let matches = items
+            .iter()
+            .filter(|item| dock_item_matches_request(item, request))
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => Err("No Dock item matched the launch request.".to_string()),
+            [item] => Ok(item),
+            _ => Err(format!(
+                "Dock launch request matched {} items; retry with dockItemId or bundleId.",
+                matches.len()
+            )),
+        }
+    }
+
+    fn dock_item_matches_request(
+        item: &MacControlDockItem,
+        request: &MacControlDockRequest,
+    ) -> bool {
+        if request
+            .dock_item_id
+            .as_deref()
+            .is_some_and(|id| item.id != id)
+        {
+            return false;
+        }
+        if !contains_ci(item.bundle_id.as_deref(), request.bundle_id.as_deref()) {
+            return false;
+        }
+        if request
+            .item_path
+            .as_deref()
+            .is_some_and(|path| item.path.as_deref() != Some(path))
+        {
+            return false;
+        }
+        if let Some(app_name) = request.app_name.as_deref() {
+            let path_name = item
+                .path
+                .as_deref()
+                .and_then(|path| app_bundle_name(Path::new(path)));
+            return app_name_matches_values(
+                request.app_name_match,
+                app_name,
+                [
+                    item.label.as_deref(),
+                    item.bundle_id
+                        .as_deref()
+                        .and_then(|bundle_id| bundle_id.rsplit('.').next()),
+                    path_name.as_deref(),
+                    item.bundle_id.as_deref(),
+                ],
+            );
+        }
+        true
+    }
+
+    fn launch_dock_item(item: &MacControlDockItem) -> Result<(), String> {
+        let workspace = NSWorkspace::sharedWorkspace();
+        if let Some(bundle_id) = item.bundle_id.as_deref() {
+            let request = MacControlAppsRequest {
+                op: MacControlAppsOp::Launch,
+                bundle_id: Some(bundle_id.to_string()),
+                limit: 1,
+                ..Default::default()
+            };
+            let app = launch_app(&request)?;
+            activate_running_app(&app)?;
+            return Ok(());
+        }
+        let path = item
+            .path
+            .as_deref()
+            .ok_or_else(|| "Dock item has no bundleId or path to launch.".to_string())?;
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        if workspace.openURL(&url) {
+            Ok(())
+        } else {
+            Err(format!("macOS refused to open Dock item path '{path}'."))
+        }
+    }
+
+    fn set_dock_autohide(value: bool) -> Result<(), String> {
+        let bool_arg = if value { "true" } else { "false" };
+        let output = Command::new("/usr/bin/defaults")
+            .args(["write", "com.apple.dock", "autohide", "-bool", bool_arg])
+            .output()
+            .map_err(|e| format!("Failed to update Dock autohide preference: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "defaults write com.apple.dock autohide failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let kill_output = Command::new("/usr/bin/killall")
+            .arg("Dock")
+            .output()
+            .map_err(|e| format!("Failed to restart Dock after autohide update: {e}"))?;
+        if !kill_output.status.success() {
+            return Err(format!(
+                "killall Dock failed after autohide update: {}",
+                String::from_utf8_lossy(&kill_output.stderr).trim()
+            ));
+        }
+        Ok(())
+    }
+
+    fn read_spaces_state() -> Result<SpacesState, String> {
+        match read_spaces_state_cgs() {
+            Ok(state) => return Ok(state),
+            Err(cgs_error) => {
+                let mut state = read_spaces_state_defaults()?;
+                state.warnings.insert(
+                    0,
+                    format!(
+                        "Unable to read live CGS Spaces state; fell back to com.apple.spaces defaults: {cgs_error}"
+                    ),
+                );
+                Ok(state)
+            }
+        }
+    }
+
+    fn read_spaces_state_cgs() -> Result<SpacesState, String> {
+        type CGSDefaultConnectionFn = unsafe extern "C" fn() -> u32;
+        type CGSCopyManagedDisplaySpacesFn = unsafe extern "C" fn(u32) -> CFArrayRef;
+        type CGSGetActiveSpaceFn = unsafe extern "C" fn(u32) -> usize;
+
+        let handle = load_private_framework(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+        )?;
+        let connection_fn: CGSDefaultConnectionFn =
+            unsafe { load_private_symbol(handle.0, "_CGSDefaultConnection")? };
+        let copy_spaces: CGSCopyManagedDisplaySpacesFn =
+            unsafe { load_private_symbol(handle.0, "CGSCopyManagedDisplaySpaces")? };
+        let get_active_space: CGSGetActiveSpaceFn =
+            unsafe { load_private_symbol(handle.0, "CGSGetActiveSpace")? };
+        let connection = unsafe { connection_fn() };
+        let active_space_id = match unsafe { get_active_space(connection) } {
+            0 => None,
+            id => Some(id as u64),
+        };
+        let spaces_ref = unsafe { copy_spaces(connection) };
+        let spaces = CfOwned::new(spaces_ref as CFTypeRef)
+            .ok_or_else(|| "CGSCopyManagedDisplaySpaces returned null.".to_string())?;
+        let root = plist_from_cf_property_list(spaces.as_ptr())?;
+        let mut displays = plist_array(&root)
+            .ok_or_else(|| "CGSCopyManagedDisplaySpaces did not return an array.".to_string())?
+            .iter()
+            .filter_map(|value| spaces_display_from_plist(value, active_space_id))
+            .collect::<Vec<_>>();
+        let mut warnings = Vec::new();
+        if displays.is_empty() {
+            if let Some(display) =
+                read_cgs_copy_spaces_display(handle.0, connection, active_space_id)?
+            {
+                displays.push(display);
+            } else {
+                warnings.push("No Spaces displays were found in live CGS state.".to_string());
+            }
+        } else if let Some(active_space_id) = active_space_id {
+            let active_missing = !displays.iter().any(|display| {
+                display
+                    .spaces
+                    .iter()
+                    .any(|space| space.id == Some(active_space_id))
+            });
+            if active_missing {
+                match read_cgs_copy_spaces_display(handle.0, connection, Some(active_space_id)) {
+                    Ok(Some(display)) => {
+                        warnings.push(format!(
+                            "CGSGetActiveSpace returned Space id {active_space_id}, but it was not present in CGSCopyManagedDisplaySpaces; using CGSCopySpaces ordering instead."
+                        ));
+                        displays = vec![display];
+                    }
+                    Ok(None) => warnings.push(format!(
+                        "CGSGetActiveSpace returned Space id {active_space_id}, but it was not present in CGSCopyManagedDisplaySpaces."
+                    )),
+                    Err(error) => warnings.push(format!(
+                        "CGSGetActiveSpace returned Space id {active_space_id}, but it was not present in CGSCopyManagedDisplaySpaces and CGSCopySpaces fallback failed: {error}"
+                    )),
+                }
+            }
+        }
+        Ok(SpacesState { displays, warnings })
+    }
+
+    fn read_cgs_copy_spaces_display(
+        handle: *mut c_void,
+        connection: u32,
+        active_space_id: Option<u64>,
+    ) -> Result<Option<MacControlSpacesDisplay>, String> {
+        type CGSCopySpacesFn = unsafe extern "C" fn(u32, usize) -> CFArrayRef;
+
+        let copy_spaces: CGSCopySpacesFn = unsafe { load_private_symbol(handle, "CGSCopySpaces")? };
+        let spaces_ref = unsafe { copy_spaces(connection, K_CGS_ALL_SPACES_MASK) };
+        let spaces = CfOwned::new(spaces_ref as CFTypeRef)
+            .ok_or_else(|| "CGSCopySpaces returned null.".to_string())?;
+        let root = plist_from_cf_property_list(spaces.as_ptr())?;
+        let spaces = plist_array(&root)
+            .map(|items| {
+                items
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, item)| {
+                        cgs_space_summary_from_value(item, idx + 1, active_space_id)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if spaces.is_empty() {
+            return Ok(None);
+        }
+        let current_space = spaces.iter().find(|space| space.current).cloned();
+        Ok(Some(MacControlSpacesDisplay {
+            display_identifier: Some("kCGSPackagesMainDisplayIdentifier".to_string()),
+            current_space,
+            spaces,
+            collapsed_space: None,
+        }))
+    }
+
+    fn read_spaces_state_defaults() -> Result<SpacesState, String> {
+        let root = read_defaults_domain("com.apple.spaces")?;
+        let monitors = plist_get(&root, "SpacesDisplayConfiguration")
+            .and_then(plist_dict)
+            .and_then(|config| config.get("Management Data"))
+            .and_then(plist_dict)
+            .and_then(|management| management.get("Monitors"))
+            .and_then(plist_array)
+            .ok_or_else(|| {
+                "Unable to read Mission Control Spaces from com.apple.spaces.".to_string()
+            })?;
+        let displays = monitors
+            .iter()
+            .filter_map(|value| spaces_display_from_plist(value, None))
+            .collect::<Vec<_>>();
+        let warnings = if displays.is_empty() {
+            vec!["No Spaces displays were found in com.apple.spaces.".to_string()]
+        } else {
+            Vec::new()
+        };
+        Ok(SpacesState { displays, warnings })
+    }
+
+    fn plist_from_cf_property_list(value: CFTypeRef) -> Result<PlistValue, String> {
+        let mut error: CFTypeRef = ptr::null();
+        let data = unsafe {
+            CFPropertyListCreateData(
+                ptr::null(),
+                value,
+                K_CF_PROPERTY_LIST_XML_FORMAT_V1_0,
+                0,
+                &mut error,
+            )
+        };
+        if data.is_null() {
+            let detail = if error.is_null() {
+                "unknown CoreFoundation error".to_string()
+            } else {
+                let error = CfOwned::new(error).expect("non-null CFError");
+                let description = unsafe { CFErrorCopyDescription(error.as_ptr()) };
+                CfOwned::new(description as CFTypeRef)
+                    .and_then(|description| cf_value_string(description.as_ptr()))
+                    .unwrap_or_else(|| "unknown CoreFoundation error".to_string())
+            };
+            return Err(format!("CFPropertyListCreateData failed: {detail}"));
+        }
+
+        let data = CfOwned::new(data as CFTypeRef)
+            .ok_or_else(|| "CFPropertyListCreateData returned null.".to_string())?;
+        let len = unsafe { CFDataGetLength(data.as_ptr() as CFDataRef) };
+        if len < 0 {
+            return Err("CFPropertyListCreateData returned a negative data length.".to_string());
+        }
+        let bytes = unsafe {
+            let ptr = CFDataGetBytePtr(data.as_ptr() as CFDataRef);
+            if ptr.is_null() {
+                return Err("CFDataGetBytePtr returned null.".to_string());
+            }
+            std::slice::from_raw_parts(ptr, len as usize)
+        };
+        let xml = std::str::from_utf8(bytes)
+            .map_err(|error| format!("CGS Spaces property list was not UTF-8 XML: {error}"))?;
+        parse_plist_xml(xml)
+    }
+
+    fn spaces_display_from_plist(
+        value: &PlistValue,
+        active_space_id: Option<u64>,
+    ) -> Option<MacControlSpacesDisplay> {
+        let dict = plist_dict(value)?;
+        let display_identifier = dict
+            .get("Display Identifier")
+            .and_then(plist_string)
+            .map(ToString::to_string);
+        let current_id = dict
+            .get("Current Space")
+            .and_then(space_summary_id_from_value)
+            .or(active_space_id);
+        let spaces = dict
+            .get("Spaces")
+            .and_then(plist_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, item)| space_summary_from_value(item, idx + 1, current_id))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let current_space = spaces
+            .iter()
+            .find(|space| space.current)
+            .cloned()
+            .or_else(|| {
+                dict.get("Current Space")
+                    .and_then(|value| space_summary_from_value(value, 1, current_id))
+            });
+        let collapsed_space = dict
+            .get("Collapsed Space")
+            .and_then(|value| space_summary_from_value(value, 1, current_id));
+        Some(MacControlSpacesDisplay {
+            display_identifier,
+            current_space,
+            spaces,
+            collapsed_space,
+        })
+    }
+
+    fn space_summary_from_value(
+        value: &PlistValue,
+        index: usize,
+        current_id: Option<u64>,
+    ) -> Option<MacControlSpaceSummary> {
+        let dict = plist_dict(value)?;
+        let id = space_summary_id(dict);
+        Some(MacControlSpaceSummary {
+            id,
+            uuid: dict
+                .get("uuid")
+                .and_then(plist_string)
+                .map(ToString::to_string)
+                .filter(|value| !value.is_empty()),
+            index,
+            kind: dict
+                .get("type")
+                .and_then(plist_integer)
+                .map(|kind| kind.to_string()),
+            current: id.is_some() && id == current_id,
+        })
+    }
+
+    fn cgs_space_summary_from_value(
+        value: &PlistValue,
+        index: usize,
+        current_id: Option<u64>,
+    ) -> Option<MacControlSpaceSummary> {
+        if let PlistValue::Integer(id) = value {
+            let id = u64::try_from(*id).ok();
+            return Some(MacControlSpaceSummary {
+                id,
+                uuid: None,
+                index,
+                kind: None,
+                current: id.is_some() && id == current_id,
+            });
+        }
+        space_summary_from_value(value, index, current_id)
+    }
+
+    fn space_summary_id_from_value(value: &PlistValue) -> Option<u64> {
+        plist_dict(value).and_then(space_summary_id)
+    }
+
+    fn space_summary_id(dict: &BTreeMap<String, PlistValue>) -> Option<u64> {
+        dict.get("ManagedSpaceID")
+            .or_else(|| dict.get("id64"))
+            .or_else(|| dict.get("wsid"))
+            .and_then(plist_integer)
+            .and_then(|value| u64::try_from(value).ok())
+    }
+
+    fn resolve_spaces_switch_target(
+        request: &MacControlSpacesRequest,
+        displays: &[MacControlSpacesDisplay],
+    ) -> Result<SpacesSwitchTarget, String> {
+        if let Some(space_id) = request.space_id {
+            return displays
+                .iter()
+                .find_map(|display| {
+                    display
+                        .spaces
+                        .iter()
+                        .find(|space| space.id == Some(space_id))
+                        .cloned()
+                        .map(|space| SpacesSwitchTarget { space })
+                })
+                .ok_or_else(|| {
+                    format!("Space id {space_id} was not found in spaces.list output.")
+                });
+        }
+
+        if let Some(index) = request.space_index {
+            let preferred = current_spaces_display(displays)
+                .or_else(|| displays.iter().find(|display| !display.spaces.is_empty()));
+            if let Some(display) = preferred {
+                if let Some(space) = display
+                    .spaces
+                    .iter()
+                    .find(|space| space.index == index)
+                    .cloned()
+                {
+                    return Ok(SpacesSwitchTarget { space });
+                }
+            }
+            return displays
+                .iter()
+                .find_map(|display| {
+                    display
+                        .spaces
+                        .iter()
+                        .find(|space| space.index == index)
+                        .cloned()
+                        .map(|space| SpacesSwitchTarget { space })
+                })
+                .ok_or_else(|| {
+                    format!("Space index {index} was not found in spaces.list output.")
+                });
+        }
+
+        let Some(direction) = request.direction else {
+            return Err("spaces.switch requires spaceId, spaceIndex, or direction.".to_string());
+        };
+        let display = current_spaces_display(displays)
+            .ok_or_else(|| "Unable to resolve the current Spaces display.".to_string())?;
+        let current_id = display.current_space.as_ref().and_then(|space| space.id);
+        let current_pos = display
+            .spaces
+            .iter()
+            .position(|space| space.current || (current_id.is_some() && space.id == current_id))
+            .ok_or_else(|| {
+                "Unable to resolve the current Space within the current display.".to_string()
+            })?;
+        let target_pos = match direction {
+            MacControlSpaceDirection::Left => current_pos.checked_sub(1),
+            MacControlSpaceDirection::Right => current_pos.checked_add(1),
+        }
+        .filter(|index| *index < display.spaces.len())
+        .ok_or_else(|| {
+            let label = match direction {
+                MacControlSpaceDirection::Left => "left",
+                MacControlSpaceDirection::Right => "right",
+            };
+            format!("No Space exists to the {label} of the current Space.")
+        })?;
+
+        Ok(SpacesSwitchTarget {
+            space: display.spaces[target_pos].clone(),
+        })
+    }
+
+    fn current_spaces_display(
+        displays: &[MacControlSpacesDisplay],
+    ) -> Option<&MacControlSpacesDisplay> {
+        displays
+            .iter()
+            .find(|display| {
+                display
+                    .current_space
+                    .as_ref()
+                    .is_some_and(|space| space.current)
+                    || display.spaces.iter().any(|space| space.current)
+            })
+            .or_else(|| {
+                displays.iter().find(|display| {
+                    display
+                        .current_space
+                        .as_ref()
+                        .is_some_and(|space| space.id.is_some())
+                })
+            })
+    }
+
+    fn preferred_spaces_switch_hotkey(
+        request: &MacControlSpacesRequest,
+        displays: &[MacControlSpacesDisplay],
+        target: &MacControlSpaceSummary,
+    ) -> Option<(Vec<String>, String)> {
+        if request.direction.is_some() {
+            return spaces_switch_hotkey(request, displays)
+                .ok()
+                .map(|(keys, label)| {
+                    (
+                        keys,
+                        label.replacen("CGEventHotkey", "MissionControlHotkey", 1),
+                    )
+                });
+        }
+
+        let display = current_spaces_display(displays)?;
+        let current_id = display.current_space.as_ref().and_then(|space| space.id);
+        let current_pos = display
+            .spaces
+            .iter()
+            .position(|space| space.current || (current_id.is_some() && space.id == current_id))?;
+        let target_pos = display
+            .spaces
+            .iter()
+            .position(|space| space_matches_summary(Some(space), target))?;
+
+        if target_pos == current_pos {
+            if let Some(index) = request.space_index.filter(|index| (1..=9).contains(index)) {
+                return Some((
+                    vec!["ctrl".to_string(), index.to_string()],
+                    format!("MissionControlHotkey ctrl+{index}"),
+                ));
+            }
+            return Some((Vec::new(), "NoOp already on requested Space".to_string()));
+        }
+        if target_pos + 1 == current_pos {
+            return Some((
+                vec!["ctrl".to_string(), "left".to_string()],
+                "MissionControlHotkey ctrl+left".to_string(),
+            ));
+        }
+        if target_pos == current_pos + 1 {
+            return Some((
+                vec!["ctrl".to_string(), "right".to_string()],
+                "MissionControlHotkey ctrl+right".to_string(),
+            ));
+        }
+
+        let index = request.space_index.unwrap_or(target.index);
+        (1..=9).contains(&index).then(|| {
+            (
+                vec!["ctrl".to_string(), index.to_string()],
+                format!("MissionControlHotkey ctrl+{index}"),
+            )
+        })
+    }
+
+    fn refresh_spaces_after_action(
+        spaces: &mut SpacesState,
+        switched: &mut Option<MacControlSpaceSummary>,
+        warnings: &mut Vec<String>,
+    ) -> bool {
+        match read_spaces_state() {
+            Ok(next) => {
+                *switched = current_space_from_displays(&next.displays);
+                spaces.displays = next.displays;
+                warnings.extend(next.warnings);
+                true
+            }
+            Err(error) => {
+                warnings.push(format!("Unable to refresh Spaces after switch: {error}"));
+                false
+            }
+        }
+    }
+
+    fn refresh_spaces_after_switch(
+        spaces: &mut SpacesState,
+        switched: &mut Option<MacControlSpaceSummary>,
+        warnings: &mut Vec<String>,
+        target: &MacControlSpaceSummary,
+    ) -> bool {
+        match read_spaces_state() {
+            Ok(next) => {
+                *switched = current_space_from_displays(&next.displays);
+                spaces.displays = next.displays;
+                warnings.extend(next.warnings);
+                space_matches_summary(switched.as_ref(), target)
+            }
+            Err(error) => {
+                warnings.push(format!("Unable to refresh Spaces after switch: {error}"));
+                false
+            }
+        }
+    }
+
+    fn same_space_summary(
+        left: Option<&MacControlSpaceSummary>,
+        right: Option<&MacControlSpaceSummary>,
+    ) -> bool {
+        let (Some(left), Some(right)) = (left, right) else {
+            return false;
+        };
+        space_matches_summary(Some(left), right)
+    }
+
+    fn space_matches_summary(
+        actual: Option<&MacControlSpaceSummary>,
+        expected: &MacControlSpaceSummary,
+    ) -> bool {
+        let Some(actual) = actual else {
+            return false;
+        };
+        match (actual.id, expected.id) {
+            (Some(actual_id), Some(expected_id)) => actual_id == expected_id,
+            _ => actual.index == expected.index,
+        }
+    }
+
+    fn post_mission_control_hotkey(
+        keys: &[String],
+        label: &str,
+        warnings: &mut Vec<String>,
+    ) -> Result<String, String> {
+        let suffix = label
+            .strip_prefix("MissionControlHotkey ")
+            .or_else(|| label.strip_prefix("CGEventHotkey "))
+            .unwrap_or(label);
+        match post_system_events_hotkey(keys) {
+            Ok(()) => Ok(format!("SystemEventsHotkey {suffix}")),
+            Err(system_events_error) => {
+                warnings.push(format!(
+                    "System Events Mission Control hotkey failed; falling back to CGEvent: {system_events_error}"
+                ));
+                post_hotkey(keys).map_err(|cg_event_error| {
+                    format!(
+                        "System Events Mission Control hotkey failed ({system_events_error}); CGEvent fallback failed ({cg_event_error})"
+                    )
+                })?;
+                Ok(format!("CGEventHotkey {suffix}"))
+            }
+        }
+    }
+
+    fn switch_visible_space_with_cgs(space_id: u64) -> Result<(), String> {
+        type CGSDefaultConnectionFn = unsafe extern "C" fn() -> u32;
+        type CGSManagedDisplaySetCurrentSpaceFn = unsafe extern "C" fn(u32, CFStringRef, usize);
+
+        let handle = load_private_framework(
+            "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+        )?;
+        let connection_fn: CGSDefaultConnectionFn =
+            unsafe { load_private_symbol(handle.0, "_CGSDefaultConnection")? };
+        let set_current_space: CGSManagedDisplaySetCurrentSpaceFn =
+            unsafe { load_private_symbol(handle.0, "CGSManagedDisplaySetCurrentSpace")? };
+        let display = unsafe {
+            load_private_cfstring_constant(handle.0, "kCGSPackagesMainDisplayIdentifier")?
+        };
+        let connection = unsafe { connection_fn() };
+        let space_id = usize::try_from(space_id)
+            .map_err(|_| format!("Space id {space_id} does not fit in CGSSpaceID."))?;
+        unsafe {
+            set_current_space(connection, display, space_id);
+        }
+        Ok(())
+    }
+
+    struct DlHandle(*mut c_void);
+
+    impl Drop for DlHandle {
+        fn drop(&mut self) {
+            unsafe {
+                libc::dlclose(self.0);
+            }
+        }
+    }
+
+    fn load_private_framework(path: &str) -> Result<DlHandle, String> {
+        let path = CString::new(path).map_err(|e| format!("invalid framework path: {e}"))?;
+        let handle = unsafe { libc::dlopen(path.as_ptr(), libc::RTLD_LAZY) };
+        if handle.is_null() {
+            return Err(format!("dlopen failed: {}", dl_error_message()));
+        }
+        Ok(DlHandle(handle as *mut c_void))
+    }
+
+    unsafe fn load_private_symbol<T>(handle: *mut c_void, symbol: &str) -> Result<T, String>
+    where
+        T: Copy,
+    {
+        let symbol = CString::new(symbol).map_err(|e| format!("invalid symbol name: {e}"))?;
+        let ptr = unsafe { libc::dlsym(handle as *mut libc::c_void, symbol.as_ptr()) };
+        if ptr.is_null() {
+            return Err(format!(
+                "dlsym({}) failed: {}",
+                symbol.to_string_lossy(),
+                dl_error_message()
+            ));
+        }
+        Ok(unsafe { std::mem::transmute_copy(&ptr) })
+    }
+
+    unsafe fn load_private_cfstring_constant(
+        handle: *mut c_void,
+        symbol: &str,
+    ) -> Result<CFStringRef, String> {
+        let symbol = CString::new(symbol).map_err(|e| format!("invalid symbol name: {e}"))?;
+        let ptr = unsafe { libc::dlsym(handle as *mut libc::c_void, symbol.as_ptr()) };
+        if ptr.is_null() {
+            return Err(format!(
+                "dlsym({}) failed: {}",
+                symbol.to_string_lossy(),
+                dl_error_message()
+            ));
+        }
+        let value = unsafe { *(ptr as *const CFStringRef) };
+        if value.is_null() {
+            return Err(format!(
+                "dlsym({}) returned a null CFString constant.",
+                symbol.to_string_lossy()
+            ));
+        }
+        let type_id = unsafe { CFGetTypeID(value as CFTypeRef) };
+        if type_id != unsafe { CFStringGetTypeID() } {
+            return Err(format!(
+                "dlsym({}) did not resolve to a CFString constant.",
+                symbol.to_string_lossy()
+            ));
+        }
+        Ok(value)
+    }
+
+    fn dl_error_message() -> String {
+        let error = unsafe { libc::dlerror() };
+        if error.is_null() {
+            "unknown dynamic loader error".to_string()
+        } else {
+            unsafe { CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
+    fn spaces_switch_hotkey(
+        request: &MacControlSpacesRequest,
+        displays: &[MacControlSpacesDisplay],
+    ) -> Result<(Vec<String>, String), String> {
+        if let Some(direction) = request.direction {
+            let key = match direction {
+                MacControlSpaceDirection::Left => "left",
+                MacControlSpaceDirection::Right => "right",
+            };
+            return Ok((
+                vec!["ctrl".to_string(), key.to_string()],
+                format!("CGEventHotkey ctrl+{key}"),
+            ));
+        }
+
+        let index = if let Some(index) = request.space_index {
+            index
+        } else if let Some(space_id) = request.space_id {
+            displays
+                .iter()
+                .flat_map(|display| display.spaces.iter())
+                .find(|space| space.id == Some(space_id))
+                .map(|space| space.index)
+                .ok_or_else(|| {
+                    format!("Space id {space_id} was not found in spaces.list output.")
+                })?
+        } else {
+            return Err("spaces.switch requires spaceId, spaceIndex, or direction.".to_string());
+        };
+
+        if !(1..=9).contains(&index) {
+            return Err(
+                "spaces.switch by index only supports 1..=9 because macOS exposes Control+number shortcuts for those Spaces."
+                    .to_string(),
+            );
+        }
+        Ok((
+            vec!["ctrl".to_string(), index.to_string()],
+            format!("CGEventHotkey ctrl+{index}"),
+        ))
+    }
+
+    fn current_space_from_displays(
+        displays: &[MacControlSpacesDisplay],
+    ) -> Option<MacControlSpaceSummary> {
+        displays
+            .iter()
+            .find_map(|display| {
+                display
+                    .current_space
+                    .as_ref()
+                    .filter(|space| space.current)
+                    .cloned()
+            })
+            .or_else(|| {
+                displays
+                    .iter()
+                    .flat_map(|display| display.spaces.iter())
+                    .find(|space| space.current)
+                    .cloned()
+            })
+            .or_else(|| {
+                displays
+                    .iter()
+                    .find_map(|display| display.current_space.clone())
+            })
+    }
+
+    fn read_defaults_domain(domain: &str) -> Result<PlistValue, String> {
+        let output = Command::new("/usr/bin/defaults")
+            .args(["export", domain, "-"])
+            .output()
+            .map_err(|e| format!("Failed to read defaults domain '{domain}': {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "defaults export {domain} failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let xml = String::from_utf8(output.stdout)
+            .map_err(|e| format!("defaults export {domain} returned non-UTF-8 XML: {e}"))?;
+        parse_plist_xml(&xml)
+    }
+
+    fn parse_plist_xml(xml: &str) -> Result<PlistValue, String> {
+        let mut reader = Reader::from_str(xml);
+        reader.config_mut().trim_text(true);
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"plist" => {
+                    return read_plist_child(&mut reader, b"plist");
+                }
+                Ok(Event::Eof) => return Err("plist XML ended before <plist>.".to_string()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("Unable to parse plist XML: {e}")),
+            }
+            buf.clear();
+        }
+    }
+
+    fn read_plist_child(reader: &mut Reader<&[u8]>, end: &[u8]) -> Result<PlistValue, String> {
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => return read_plist_value(reader, e),
+                Ok(Event::Empty(e)) => return read_empty_plist_value(e),
+                Ok(Event::End(e)) if e.local_name().as_ref() == end => {
+                    return Err(format!(
+                        "plist XML <{}> did not contain a value.",
+                        String::from_utf8_lossy(end)
+                    ));
+                }
+                Ok(Event::Eof) => return Err("plist XML ended unexpectedly.".to_string()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("Unable to parse plist XML: {e}")),
+            }
+            buf.clear();
+        }
+    }
+
+    fn read_plist_value(
+        reader: &mut Reader<&[u8]>,
+        start: BytesStart<'_>,
+    ) -> Result<PlistValue, String> {
+        match start.local_name().as_ref() {
+            b"dict" => read_plist_dict(reader),
+            b"array" => read_plist_array(reader),
+            b"string" | b"key" => {
+                read_plist_text(reader, start.local_name().as_ref()).map(PlistValue::String)
+            }
+            b"integer" => read_plist_text(reader, b"integer")
+                .map(|text| text.parse::<i64>().unwrap_or_default())
+                .map(PlistValue::Integer),
+            b"real" => read_plist_text(reader, b"real").map(|_| PlistValue::Real),
+            b"data" => {
+                let _ = read_plist_text(reader, b"data")?;
+                Ok(PlistValue::Data)
+            }
+            b"true" => {
+                consume_plist_end(reader, b"true")?;
+                Ok(PlistValue::Bool(true))
+            }
+            b"false" => {
+                consume_plist_end(reader, b"false")?;
+                Ok(PlistValue::Bool(false))
+            }
+            other => Err(format!(
+                "Unsupported plist element <{}>.",
+                String::from_utf8_lossy(other)
+            )),
+        }
+    }
+
+    fn read_empty_plist_value(start: BytesStart<'_>) -> Result<PlistValue, String> {
+        match start.local_name().as_ref() {
+            b"dict" => Ok(PlistValue::Dict(BTreeMap::new())),
+            b"array" => Ok(PlistValue::Array(Vec::new())),
+            b"string" | b"key" => Ok(PlistValue::String(String::new())),
+            b"true" => Ok(PlistValue::Bool(true)),
+            b"false" => Ok(PlistValue::Bool(false)),
+            b"data" => Ok(PlistValue::Data),
+            other => Err(format!(
+                "Unsupported empty plist element <{}>.",
+                String::from_utf8_lossy(other)
+            )),
+        }
+    }
+
+    fn read_plist_dict(reader: &mut Reader<&[u8]>) -> Result<PlistValue, String> {
+        let mut buf = Vec::new();
+        let mut map = BTreeMap::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) if e.local_name().as_ref() == b"key" => {
+                    let key = read_plist_text(reader, b"key")?;
+                    let value = read_plist_child(reader, b"dict")?;
+                    map.insert(key, value);
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"dict" => {
+                    return Ok(PlistValue::Dict(map));
+                }
+                Ok(Event::Eof) => return Err("plist dict ended unexpectedly.".to_string()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("Unable to parse plist dict: {e}")),
+            }
+            buf.clear();
+        }
+    }
+
+    fn read_plist_array(reader: &mut Reader<&[u8]>) -> Result<PlistValue, String> {
+        let mut buf = Vec::new();
+        let mut items = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => items.push(read_plist_value(reader, e)?),
+                Ok(Event::Empty(e)) => items.push(read_empty_plist_value(e)?),
+                Ok(Event::End(e)) if e.local_name().as_ref() == b"array" => {
+                    return Ok(PlistValue::Array(items));
+                }
+                Ok(Event::Eof) => return Err("plist array ended unexpectedly.".to_string()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("Unable to parse plist array: {e}")),
+            }
+            buf.clear();
+        }
+    }
+
+    fn read_plist_text(reader: &mut Reader<&[u8]>, end: &[u8]) -> Result<String, String> {
+        let mut buf = Vec::new();
+        let mut text = String::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Text(e)) => {
+                    text.push_str(
+                        &e.unescape()
+                            .map_err(|e| format!("Unable to unescape plist text: {e}"))?,
+                    );
+                }
+                Ok(Event::End(e)) if e.local_name().as_ref() == end => return Ok(text),
+                Ok(Event::Eof) => return Err("plist text ended unexpectedly.".to_string()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("Unable to parse plist text: {e}")),
+            }
+            buf.clear();
+        }
+    }
+
+    fn consume_plist_end(reader: &mut Reader<&[u8]>, end: &[u8]) -> Result<(), String> {
+        let mut buf = Vec::new();
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::End(e)) if e.local_name().as_ref() == end => return Ok(()),
+                Ok(Event::Eof) => return Err("plist XML ended unexpectedly.".to_string()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("Unable to parse plist XML: {e}")),
+            }
+            buf.clear();
+        }
+    }
+
+    fn plist_get<'a>(value: &'a PlistValue, key: &str) -> Option<&'a PlistValue> {
+        plist_dict(value).and_then(|dict| dict.get(key))
+    }
+
+    fn plist_dict(value: &PlistValue) -> Option<&BTreeMap<String, PlistValue>> {
+        match value {
+            PlistValue::Dict(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn plist_array(value: &PlistValue) -> Option<&[PlistValue]> {
+        match value {
+            PlistValue::Array(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn plist_string(value: &PlistValue) -> Option<&str> {
+        match value {
+            PlistValue::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn plist_integer(value: &PlistValue) -> Option<i64> {
+        match value {
+            PlistValue::Integer(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    fn plist_bool(value: &PlistValue) -> Option<bool> {
+        match value {
+            PlistValue::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    fn dock_url_to_path(value: &str) -> Option<String> {
+        if let Ok(url) = url::Url::parse(value) {
+            if url.scheme() == "file" {
+                return url
+                    .to_file_path()
+                    .ok()
+                    .map(|path| path.display().to_string());
+            }
+        }
+        Some(value.to_string()).filter(|value| !value.is_empty())
     }
 
     fn handle_windows(
@@ -3252,14 +4659,26 @@ mod imp {
     }
 
     fn post_hotkey(keys: &[String]) -> Result<(), String> {
-        let mut flags = 0_u64;
+        let mut modifiers = Vec::new();
         let mut key_code = None;
         for key in keys {
             match key.to_ascii_lowercase().as_str() {
-                "cmd" | "command" | "meta" => flags |= K_CG_EVENT_FLAG_MASK_COMMAND,
-                "shift" => flags |= K_CG_EVENT_FLAG_MASK_SHIFT,
-                "ctrl" | "control" => flags |= K_CG_EVENT_FLAG_MASK_CONTROL,
-                "alt" | "option" => flags |= K_CG_EVENT_FLAG_MASK_ALTERNATE,
+                "cmd" | "command" | "meta" => modifiers.push(HotkeyModifier {
+                    key_code: K_VK_COMMAND,
+                    flag: K_CG_EVENT_FLAG_MASK_COMMAND,
+                }),
+                "shift" => modifiers.push(HotkeyModifier {
+                    key_code: K_VK_SHIFT,
+                    flag: K_CG_EVENT_FLAG_MASK_SHIFT,
+                }),
+                "ctrl" | "control" => modifiers.push(HotkeyModifier {
+                    key_code: K_VK_CONTROL,
+                    flag: K_CG_EVENT_FLAG_MASK_CONTROL,
+                }),
+                "alt" | "option" => modifiers.push(HotkeyModifier {
+                    key_code: K_VK_OPTION,
+                    flag: K_CG_EVENT_FLAG_MASK_ALTERNATE,
+                }),
                 other => {
                     key_code = Some(
                         key_code_for(other)
@@ -3270,23 +4689,113 @@ mod imp {
         }
         let key_code =
             key_code.ok_or_else(|| "Hotkey requires one non-modifier key.".to_string())?;
-        post_key(key_code, flags)
+        let flags = modifiers
+            .iter()
+            .fold(0_u64, |flags, item| flags | item.flag);
+        if modifiers.is_empty() {
+            post_key(key_code, flags)
+        } else {
+            post_key_chord(key_code, &modifiers, flags)
+        }
+    }
+
+    fn post_system_events_hotkey(keys: &[String]) -> Result<(), String> {
+        let mut modifiers = Vec::new();
+        let mut key_code = None;
+        for key in keys {
+            match key.to_ascii_lowercase().as_str() {
+                "cmd" | "command" | "meta" => modifiers.push("command down"),
+                "shift" => modifiers.push("shift down"),
+                "ctrl" | "control" => modifiers.push("control down"),
+                "alt" | "option" => modifiers.push("option down"),
+                other => {
+                    key_code = Some(
+                        key_code_for(other)
+                            .ok_or_else(|| format!("Unsupported hotkey key '{other}'."))?,
+                    )
+                }
+            }
+        }
+        let key_code =
+            key_code.ok_or_else(|| "Hotkey requires one non-modifier key.".to_string())?;
+        let keystroke = if modifiers.is_empty() {
+            format!("key code {key_code}")
+        } else {
+            format!("key code {key_code} using {{{}}}", modifiers.join(", "))
+        };
+        let script = format!("tell application \"System Events\" to {keystroke}");
+        let output = Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|error| format!("Failed to run System Events hotkey: {error}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(if stderr.is_empty() {
+                "System Events hotkey failed with no stderr.".to_string()
+            } else {
+                stderr
+            })
+        }
     }
 
     fn post_key(key_code: u16, flags: u64) -> Result<(), String> {
-        let down = unsafe { CGEventCreateKeyboardEvent(ptr::null(), key_code, true) };
-        let up = unsafe { CGEventCreateKeyboardEvent(ptr::null(), key_code, false) };
-        let down = CfOwned::new(down as CFTypeRef)
-            .ok_or_else(|| "CGEventCreateKeyboardEvent(down) returned null.".to_string())?;
-        let up = CfOwned::new(up as CFTypeRef)
-            .ok_or_else(|| "CGEventCreateKeyboardEvent(up) returned null.".to_string())?;
-        unsafe {
-            CGEventSetFlags(down.as_ptr(), flags);
-            CGEventSetFlags(up.as_ptr(), flags);
-            CGEventPost(K_CG_HID_EVENT_TAP, down.as_ptr());
-            CGEventPost(K_CG_HID_EVENT_TAP, up.as_ptr());
+        let source = keyboard_event_source()?;
+        post_keyboard_event(source.as_ptr() as CGEventSourceRef, key_code, true, flags)?;
+        thread::sleep(Duration::from_millis(20));
+        post_keyboard_event(source.as_ptr() as CGEventSourceRef, key_code, false, flags)?;
+        Ok(())
+    }
+
+    fn post_key_chord(
+        key_code: u16,
+        modifiers: &[HotkeyModifier],
+        flags: u64,
+    ) -> Result<(), String> {
+        let source = keyboard_event_source()?;
+        let source = source.as_ptr() as CGEventSourceRef;
+        let mut active_flags = 0_u64;
+        for modifier in modifiers {
+            active_flags |= modifier.flag;
+            post_keyboard_event(source, modifier.key_code, true, active_flags)?;
+            thread::sleep(Duration::from_millis(12));
+        }
+
+        post_keyboard_event(source, key_code, true, flags)?;
+        thread::sleep(Duration::from_millis(35));
+        post_keyboard_event(source, key_code, false, flags)?;
+        thread::sleep(Duration::from_millis(12));
+
+        for modifier in modifiers.iter().rev() {
+            active_flags &= !modifier.flag;
+            post_keyboard_event(source, modifier.key_code, false, active_flags)?;
+            thread::sleep(Duration::from_millis(12));
         }
         Ok(())
+    }
+
+    fn post_keyboard_event(
+        source: CGEventSourceRef,
+        key_code: u16,
+        key_down: bool,
+        flags: u64,
+    ) -> Result<(), String> {
+        let event = unsafe { CGEventCreateKeyboardEvent(source, key_code, key_down) };
+        let event = CfOwned::new(event as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateKeyboardEvent returned null.".to_string())?;
+        unsafe {
+            CGEventSetFlags(event.as_ptr(), flags);
+            CGEventPost(K_CG_HID_EVENT_TAP, event.as_ptr());
+        }
+        Ok(())
+    }
+
+    fn keyboard_event_source() -> Result<CfOwned, String> {
+        let source = unsafe { CGEventSourceCreate(K_CG_EVENT_SOURCE_STATE_HID_SYSTEM_STATE) };
+        CfOwned::new(source as CFTypeRef)
+            .ok_or_else(|| "CGEventSourceCreate(HIDSystemState) returned null.".to_string())
     }
 
     fn post_scroll(delta_x: f64, delta_y: f64) -> Result<(), String> {

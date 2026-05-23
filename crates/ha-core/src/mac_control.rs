@@ -2,8 +2,8 @@
 //!
 //! Exposes status / permissions, Accessibility snapshots, scored element
 //! search, display/window screenshot frames, wait/target matching, app
-//! focus/launch, window operations, AX-first element actions, clipboard text,
-//! dialogs, and menu inspection/clicks.
+//! focus/launch, Dock and Spaces helpers, window operations, AX-first element
+//! actions, clipboard text, dialogs, and menu inspection/clicks.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -73,6 +73,11 @@ pub trait MacControlBridge: Send + Sync {
     ) -> Result<MacControlElementsResult, String>;
     async fn capture_frame(&self) -> Result<MacControlFramePayload, String>;
     async fn apps(&self, request: MacControlAppsRequest) -> Result<MacControlAppsResult, String>;
+    async fn dock(&self, request: MacControlDockRequest) -> Result<MacControlDockResult, String>;
+    async fn spaces(
+        &self,
+        request: MacControlSpacesRequest,
+    ) -> Result<MacControlSpacesResult, String>;
     async fn windows(
         &self,
         request: MacControlWindowsRequest,
@@ -464,6 +469,22 @@ pub struct MacControlAppsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MacControlDockResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlDockResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlSpacesResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlSpacesResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MacControlAppsResult {
     pub op: MacControlAppsOp,
     pub frontmost: Option<MacControlRunningApp>,
@@ -473,6 +494,71 @@ pub struct MacControlAppsResult {
     pub launched: Option<MacControlRunningApp>,
     pub quit: Option<MacControlRunningApp>,
     pub execution: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDockResult {
+    pub op: MacControlDockOp,
+    pub autohide: Option<bool>,
+    pub orientation: Option<String>,
+    pub items: Vec<MacControlDockItem>,
+    pub launched: Option<MacControlDockItem>,
+    pub execution: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDockItem {
+    pub id: String,
+    pub index: usize,
+    pub section: MacControlDockSection,
+    pub tile_type: Option<String>,
+    pub label: Option<String>,
+    pub bundle_id: Option<String>,
+    pub path: Option<String>,
+    pub running: bool,
+    pub pid: Option<i32>,
+    pub active: bool,
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlDockSection {
+    PersistentApps,
+    PersistentOthers,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlSpacesResult {
+    pub op: MacControlSpacesOp,
+    pub displays: Vec<MacControlSpacesDisplay>,
+    pub switched: Option<MacControlSpaceSummary>,
+    pub moved_window: Option<MacControlWindowSummary>,
+    pub execution: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlSpacesDisplay {
+    pub display_identifier: Option<String>,
+    pub current_space: Option<MacControlSpaceSummary>,
+    pub spaces: Vec<MacControlSpaceSummary>,
+    pub collapsed_space: Option<MacControlSpaceSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlSpaceSummary {
+    pub id: Option<u64>,
+    pub uuid: Option<String>,
+    pub index: usize,
+    pub kind: Option<String>,
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -886,6 +972,231 @@ pub enum MacControlAppNameMatch {
     #[default]
     Exact,
     Contains,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDockRequest {
+    #[serde(default)]
+    pub op: MacControlDockOp,
+    #[serde(default)]
+    pub dock_item_id: Option<String>,
+    #[serde(default)]
+    pub app_name: Option<String>,
+    #[serde(default)]
+    pub app_name_match: MacControlAppNameMatch,
+    #[serde(default)]
+    pub bundle_id: Option<String>,
+    #[serde(default)]
+    pub item_path: Option<String>,
+    #[serde(default = "default_dock_limit")]
+    pub limit: usize,
+}
+
+impl MacControlDockRequest {
+    pub fn clamped(mut self) -> Self {
+        self.dock_item_id = normalize_optional_string(self.dock_item_id);
+        self.app_name = normalize_optional_string(self.app_name);
+        self.bundle_id = normalize_optional_string(self.bundle_id);
+        self.item_path = normalize_optional_string(self.item_path);
+        if self.limit == 0 {
+            self.limit = default_dock_limit();
+        }
+        self.limit = self.limit.min(100);
+        self
+    }
+}
+
+fn default_dock_limit() -> usize {
+    100
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlDockOp {
+    #[default]
+    List,
+    Launch,
+    Hide,
+    Show,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlSpacesRequest {
+    #[serde(default)]
+    pub op: MacControlSpacesOp,
+    #[serde(default)]
+    pub space_id: Option<u64>,
+    #[serde(default)]
+    pub space_index: Option<usize>,
+    #[serde(default)]
+    pub direction: Option<MacControlSpaceDirection>,
+    #[serde(default)]
+    pub window_id: Option<String>,
+    #[serde(default)]
+    pub target: MacControlTargetQuery,
+    #[serde(default = "default_snapshot_max_elements")]
+    pub max_elements: usize,
+    #[serde(default = "default_snapshot_max_depth")]
+    pub max_depth: usize,
+}
+
+impl MacControlSpacesRequest {
+    pub fn clamped(mut self) -> Self {
+        if self.space_id == Some(0) {
+            self.space_id = None;
+        }
+        if self.space_index == Some(0) {
+            self.space_index = None;
+        }
+        self.window_id = normalize_optional_string(self.window_id);
+        self.target = self.target.normalized();
+        if self.max_elements == 0 {
+            self.max_elements = DEFAULT_SNAPSHOT_MAX_ELEMENTS;
+        }
+        if self.max_depth == 0 {
+            self.max_depth = DEFAULT_SNAPSHOT_MAX_DEPTH;
+        }
+        self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
+        self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
+        self
+    }
+}
+
+pub fn sanitize_tool_args(args: &serde_json::Value) -> serde_json::Value {
+    let Some(action) = args.get("action").and_then(|value| value.as_str()) else {
+        return args.clone();
+    };
+    let mut sanitized = args.clone();
+    if action == "spaces" {
+        sanitize_spaces_tool_args(&mut sanitized);
+    }
+    sanitized
+}
+
+fn sanitize_spaces_tool_args(args: &mut serde_json::Value) {
+    let Some(object) = args.as_object_mut() else {
+        return;
+    };
+    let op = object.get("op").and_then(|value| value.as_str());
+    if op != Some("switch") {
+        return;
+    }
+
+    let direction = object.get("direction").and_then(|value| value.as_str());
+    let space_id = object.get("spaceId").and_then(|value| value.as_u64());
+    let space_index = object.get("spaceIndex").and_then(|value| value.as_u64());
+
+    match (direction, space_id, space_index) {
+        // Legacy provider-filled default shape from the old schema:
+        // direction=right plus spaceIndex=1. Prefer the explicit relative
+        // direction so "switch right" from Space 1 still moves to Space 2.
+        (Some("right"), None | Some(0), Some(1)) => {
+            object.remove("spaceIndex");
+        }
+        // Exact targets win over a default direction. The schema now uses 0 as
+        // the unset numeric default, so non-zero id/index is treated as intent.
+        (Some(_), Some(id), _) if id > 0 => {
+            object.remove("direction");
+        }
+        (Some(_), None | Some(0), Some(index)) if index > 0 => {
+            object.remove("direction");
+        }
+        _ => {}
+    }
+}
+
+pub fn preflight_tool_args(args: &serde_json::Value) -> Option<String> {
+    let action = args.get("action").and_then(|value| value.as_str())?;
+    match action {
+        "apps" => {
+            let request = match parse_preflight_request::<MacControlAppsRequest>(args, "apps") {
+                Ok(request) => request.clamped(),
+                Err(error) => return Some(error),
+            };
+            if matches!(
+                request.op,
+                MacControlAppsOp::Activate | MacControlAppsOp::Quit
+            ) && !apps_request_has_target(&request)
+            {
+                return Some(format!(
+                    "mac_control apps.{} requires one of pid, bundleId, or appName.",
+                    apps_op_name(request.op)
+                ));
+            }
+            if request.op == MacControlAppsOp::Launch && !apps_launch_request_has_target(&request) {
+                return Some("mac_control apps.launch requires bundleId or appName.".to_string());
+            }
+            None
+        }
+        "dock" => {
+            let request = match parse_preflight_request::<MacControlDockRequest>(args, "dock") {
+                Ok(request) => request.clamped(),
+                Err(error) => return Some(error),
+            };
+            if request.op == MacControlDockOp::Launch && !dock_request_has_target(&request) {
+                return Some(
+                    "mac_control dock.launch requires dockItemId, bundleId, appName, or itemPath."
+                        .to_string(),
+                );
+            }
+            None
+        }
+        "spaces" => match parse_preflight_request::<MacControlSpacesRequest>(args, "spaces") {
+            Ok(request) => validate_spaces_request(&request.clamped()),
+            Err(error) => Some(error),
+        },
+        "windows" => match parse_preflight_request::<MacControlWindowsRequest>(args, "windows") {
+            Ok(request) => validate_windows_request(&request.clamped()),
+            Err(error) => Some(error),
+        },
+        "act" => match parse_preflight_request::<MacControlActRequest>(args, "act") {
+            Ok(request) => validate_act_request(&request.clamped()),
+            Err(error) => Some(error),
+        },
+        "clipboard" => {
+            match parse_preflight_request::<MacControlClipboardRequest>(args, "clipboard") {
+                Ok(request) => validate_clipboard_request(&request.clamped()),
+                Err(error) => Some(error),
+            }
+        }
+        "menu" => {
+            let request = match parse_preflight_request::<MacControlMenuRequest>(args, "menu") {
+                Ok(request) => request.clamped(),
+                Err(error) => return Some(error),
+            };
+            if request.op == MacControlMenuOp::Click && request.path.is_empty() {
+                return Some("mac_control menu.click requires a non-empty path.".to_string());
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn parse_preflight_request<T>(args: &serde_json::Value, label: &str) -> Result<T, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    serde_json::from_value::<T>(args.clone())
+        .map_err(|error| format!("Invalid mac_control {label} request: {error}"))
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlSpacesOp {
+    #[default]
+    List,
+    Switch,
+    MoveWindow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlSpaceDirection {
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -1609,6 +1920,98 @@ pub async fn apps(request: MacControlAppsRequest) -> MacControlAppsResponse {
         Err(error) => {
             record_error("apps", &error);
             MacControlAppsResponse {
+                status,
+                result: None,
+                error: Some(error),
+            }
+        }
+    }
+}
+
+pub async fn dock(request: MacControlDockRequest) -> MacControlDockResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_dock_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlDockResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if request.op == MacControlDockOp::Launch && !dock_request_has_target(&request) {
+        return MacControlDockResponse {
+            status,
+            result: None,
+            error: Some(
+                "mac_control dock.launch requires dockItemId, bundleId, appName, or itemPath."
+                    .to_string(),
+            ),
+        };
+    }
+
+    match bridge.dock(request).await {
+        Ok(result) => MacControlDockResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => {
+            record_error("dock", &error);
+            MacControlDockResponse {
+                status,
+                result: None,
+                error: Some(error),
+            }
+        }
+    }
+}
+
+pub async fn spaces(request: MacControlSpacesRequest) -> MacControlSpacesResponse {
+    let request = request.clamped();
+    let Some(bridge) = available_bridge() else {
+        return unsupported_spaces_response(unsupported_reason());
+    };
+    let system_permissions = bridge.system_permissions().await;
+    let status = status_from_system_permissions(true, true, system_permissions.clone());
+    if !system_permissions.supported {
+        return MacControlSpacesResponse {
+            status,
+            result: None,
+            error: Some("macOS control is unsupported in this runtime.".to_string()),
+        };
+    }
+    if request.op != MacControlSpacesOp::List
+        && !permission_granted(&system_permissions, "accessibility")
+    {
+        return MacControlSpacesResponse {
+            status,
+            result: None,
+            error: Some(
+                "mac_control spaces mutation requires Accessibility permission.".to_string(),
+            ),
+        };
+    }
+    if let Some(error) = validate_spaces_request(&request) {
+        return MacControlSpacesResponse {
+            status,
+            result: None,
+            error: Some(error),
+        };
+    }
+
+    match bridge.spaces(request).await {
+        Ok(result) => MacControlSpacesResponse {
+            status,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => {
+            record_error("spaces", &error);
+            MacControlSpacesResponse {
                 status,
                 result: None,
                 error: Some(error),
@@ -2383,6 +2786,22 @@ pub fn unsupported_apps_response(message: &str) -> MacControlAppsResponse {
     }
 }
 
+pub fn unsupported_dock_response(message: &str) -> MacControlDockResponse {
+    MacControlDockResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
+pub fn unsupported_spaces_response(message: &str) -> MacControlSpacesResponse {
+    MacControlSpacesResponse {
+        status: unsupported_status(message),
+        result: None,
+        error: Some(message.to_string()),
+    }
+}
+
 pub fn unsupported_windows_response(message: &str) -> MacControlWindowsResponse {
     MacControlWindowsResponse {
         status: unsupported_status(message),
@@ -2460,6 +2879,57 @@ fn apps_launch_request_has_target(request: &MacControlAppsRequest) -> bool {
             .app_name
             .as_deref()
             .is_some_and(|value| !value.is_empty())
+}
+
+fn dock_request_has_target(request: &MacControlDockRequest) -> bool {
+    request
+        .dock_item_id
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+        || request
+            .bundle_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        || request
+            .app_name
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        || request
+            .item_path
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+}
+
+fn validate_spaces_request(request: &MacControlSpacesRequest) -> Option<String> {
+    match request.op {
+        MacControlSpacesOp::List => None,
+        MacControlSpacesOp::Switch => {
+            let selectors = usize::from(request.space_id.is_some())
+                + usize::from(request.space_index.is_some())
+                + usize::from(request.direction.is_some());
+            if selectors != 1 {
+                return Some(
+                    "mac_control spaces.switch requires exactly one of spaceId, spaceIndex, or direction."
+                        .to_string(),
+                );
+            }
+            None
+        }
+        MacControlSpacesOp::MoveWindow => {
+            if request.space_id.is_none() && request.space_index.is_none() {
+                return Some(
+                    "mac_control spaces.move_window requires spaceId or spaceIndex.".to_string(),
+                );
+            }
+            if request.window_id.is_none() && request.target.window_title.is_none() {
+                return Some(
+                    "mac_control spaces.move_window requires windowId or target.windowTitle."
+                        .to_string(),
+                );
+            }
+            None
+        }
+    }
 }
 
 fn apps_op_name(op: MacControlAppsOp) -> &'static str {
@@ -4694,6 +5164,170 @@ mod tests {
         assert_eq!(requests[1].pid, None);
         assert_eq!(requests[2].app_name.as_deref(), Some("TextEdit"));
         assert_eq!(requests[2].app_name_match, MacControlAppNameMatch::Exact);
+    }
+
+    #[test]
+    fn dock_request_normalizes_targets_and_requires_launch_target() {
+        let request = MacControlDockRequest {
+            op: MacControlDockOp::Launch,
+            dock_item_id: Some(" dock_1 ".to_string()),
+            app_name: Some(" TextEdit ".to_string()),
+            bundle_id: Some(" com.apple.TextEdit ".to_string()),
+            item_path: Some(" /Applications/TextEdit.app ".to_string()),
+            limit: 0,
+            ..Default::default()
+        }
+        .clamped();
+
+        assert_eq!(request.dock_item_id.as_deref(), Some("dock_1"));
+        assert_eq!(request.app_name.as_deref(), Some("TextEdit"));
+        assert_eq!(request.bundle_id.as_deref(), Some("com.apple.TextEdit"));
+        assert_eq!(
+            request.item_path.as_deref(),
+            Some("/Applications/TextEdit.app")
+        );
+        assert_eq!(request.limit, 100);
+        assert!(dock_request_has_target(&request));
+        assert!(!dock_request_has_target(&MacControlDockRequest {
+            op: MacControlDockOp::Launch,
+            ..Default::default()
+        }));
+    }
+
+    #[test]
+    fn spaces_switch_requires_exactly_one_selector() {
+        let none = MacControlSpacesRequest {
+            op: MacControlSpacesOp::Switch,
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_spaces_request(&none)
+            .expect("validation error")
+            .contains("exactly one"));
+
+        let both = MacControlSpacesRequest {
+            op: MacControlSpacesOp::Switch,
+            space_index: Some(2),
+            direction: Some(MacControlSpaceDirection::Right),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_spaces_request(&both)
+            .expect("validation error")
+            .contains("exactly one"));
+
+        let valid = MacControlSpacesRequest {
+            op: MacControlSpacesOp::Switch,
+            space_index: Some(2),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_spaces_request(&valid).is_none());
+    }
+
+    #[test]
+    fn sanitize_spaces_switch_prefers_non_default_direction() {
+        let args = serde_json::json!({
+            "action": "spaces",
+            "op": "switch",
+            "direction": "right",
+            "spaceIndex": 1
+        });
+
+        let sanitized = sanitize_tool_args(&args);
+        assert!(sanitized.get("spaceIndex").is_none());
+        assert_eq!(
+            sanitized.get("direction").and_then(|value| value.as_str()),
+            Some("right")
+        );
+        assert!(preflight_tool_args(&sanitized).is_none());
+
+        let request: MacControlSpacesRequest = serde_json::from_value(sanitized).unwrap();
+        let request = request.clamped();
+        assert_eq!(request.direction, Some(MacControlSpaceDirection::Right));
+        assert_eq!(request.space_index, None);
+    }
+
+    #[test]
+    fn sanitize_spaces_switch_prefers_exact_index_over_default_left_direction() {
+        let args = serde_json::json!({
+            "action": "spaces",
+            "op": "switch",
+            "direction": "left",
+            "spaceIndex": 1,
+            "spaceId": 0
+        });
+
+        let sanitized = sanitize_tool_args(&args);
+        assert!(sanitized.get("direction").is_none());
+        assert_eq!(
+            sanitized.get("spaceIndex").and_then(|value| value.as_u64()),
+            Some(1)
+        );
+        assert!(preflight_tool_args(&sanitized).is_none());
+
+        let request: MacControlSpacesRequest = serde_json::from_value(sanitized).unwrap();
+        let request = request.clamped();
+        assert_eq!(request.direction, None);
+        assert_eq!(request.space_index, Some(1));
+        assert_eq!(request.space_id, None);
+    }
+
+    #[test]
+    fn sanitize_spaces_switch_prefers_index_when_direction_is_default_noise() {
+        let args = serde_json::json!({
+            "action": "spaces",
+            "op": "switch",
+            "direction": "left",
+            "spaceIndex": 2
+        });
+
+        let sanitized = sanitize_tool_args(&args);
+        assert!(sanitized.get("direction").is_none());
+        assert_eq!(
+            sanitized.get("spaceIndex").and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert!(preflight_tool_args(&sanitized).is_none());
+
+        let request: MacControlSpacesRequest = serde_json::from_value(sanitized).unwrap();
+        let request = request.clamped();
+        assert_eq!(request.direction, None);
+        assert_eq!(request.space_index, Some(2));
+    }
+
+    #[test]
+    fn sanitize_spaces_switch_prefers_index_over_default_right_direction() {
+        let args = serde_json::json!({
+            "action": "spaces",
+            "op": "switch",
+            "direction": "right",
+            "spaceIndex": 2
+        });
+
+        let sanitized = sanitize_tool_args(&args);
+        assert!(sanitized.get("direction").is_none());
+        assert_eq!(
+            sanitized.get("spaceIndex").and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert!(preflight_tool_args(&sanitized).is_none());
+
+        let request: MacControlSpacesRequest = serde_json::from_value(sanitized).unwrap();
+        let request = request.clamped();
+        assert_eq!(request.direction, None);
+        assert_eq!(request.space_index, Some(2));
+    }
+
+    #[test]
+    fn preflight_spaces_switch_blocks_missing_selector_before_approval() {
+        let args = serde_json::json!({
+            "action": "spaces",
+            "op": "switch"
+        });
+
+        let error = preflight_tool_args(&sanitize_tool_args(&args)).expect("preflight error");
+        assert!(error.contains("exactly one"));
     }
 
     #[test]

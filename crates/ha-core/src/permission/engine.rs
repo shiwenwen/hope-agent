@@ -456,6 +456,11 @@ fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let label = match (action, op) {
         ("apps", Some("activate")) => "apps.activate",
         ("apps", Some("launch")) => "apps.launch",
+        ("dock", Some("launch")) => "dock.launch",
+        ("dock", Some("hide")) => "dock.hide",
+        ("dock", Some("show")) => "dock.show",
+        ("spaces", Some("switch")) => "spaces.switch",
+        ("spaces", Some("move_window")) => "spaces.move_window",
         ("windows", Some("focus")) => "windows.focus",
         ("windows", Some("move")) => "windows.move",
         ("windows", Some("resize")) => "windows.resize",
@@ -830,6 +835,11 @@ mod tests {
             json!({"action": "clipboard", "op": "get"}),
             json!({"action": "clipboard", "op": "set", "text": "hello"}),
             json!({"action": "clipboard", "op": "clear"}),
+            json!({"action": "dock", "op": "launch", "bundleId": "com.apple.TextEdit"}),
+            json!({"action": "dock", "op": "hide"}),
+            json!({"action": "dock", "op": "show"}),
+            json!({"action": "spaces", "op": "switch", "direction": "right"}),
+            json!({"action": "spaces", "op": "move_window", "windowId": "win_1", "spaceIndex": 2}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert!(matches!(
@@ -850,6 +860,8 @@ mod tests {
             json!({"action": "visual", "op": "point", "snapshotId": "macsnap_1", "x": 0, "y": 0}),
             json!({"action": "visual", "op": "ocr", "snapshotId": "macsnap_1"}),
             json!({"action": "visual", "op": "find_text", "snapshotId": "macsnap_1", "text": "Save"}),
+            json!({"action": "dock", "op": "list"}),
+            json!({"action": "spaces", "op": "list"}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert_eq!(resolve(&c), Decision::Allow);

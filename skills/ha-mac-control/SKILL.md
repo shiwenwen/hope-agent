@@ -1,6 +1,6 @@
 ---
 name: ha-mac-control
-description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / snapshot / visual / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, visually locate UI, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, 关闭窗口, 菜单点击, 视觉定位."
+description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / dock / spaces / snapshot / visual / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, Dock, Spaces, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, visually locate UI, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, Dock, Space, 关闭窗口, 菜单点击, 视觉定位."
 version: 1.0.0
 author: Hope Agent
 license: MIT
@@ -19,8 +19,8 @@ Use this loop unless the user explicitly asks for a single read-only query:
 ```
 1. mac_control(action="status")
 2. mac_control(action="apps", op="frontmost" | "search" | "installed")
-3. observe: snapshot / visual.observe / elements.find / windows.list / menu.list / dialog.inspect
-4. act: apps.activate/launch, windows.*, act.*, menu.click, dialog.*
+3. observe: snapshot / visual.observe / elements.find / windows.list / dock.list / spaces.list / menu.list / dialog.inspect
+4. act: apps.activate/launch, dock.launch, spaces.switch, windows.*, act.*, menu.click, dialog.*
 5. verify: wait, snapshot, windows.list, or dialog.inspect
 ```
 
@@ -53,6 +53,14 @@ wait or snapshot                       # verify the expected change
 - Use `apps.activate bundleId=...` before operating an app that is not frontmost.
 - Use `apps.search` or `apps.installed` when launch/activate by name fails.
 - `apps.quit` is destructive. Verify the target app and prefer `bundleId`.
+
+### Dock and Spaces
+
+- Use `dock.list` before `dock.launch`; prefer `dockItemId` or `bundleId` over a loose app name.
+- `dock.hide` and `dock.show` change the user's Dock autohide setting and restart Dock, so be explicit before approval.
+- Use `spaces.list` before `spaces.switch` when targeting a numbered Space. `spaceIndex` is 1-based.
+- `spaces.switch direction="left"|"right"` / `spaceIndex` / `spaceId` pass exactly one selector. Direction and adjacent targets use Mission Control Control+Left/Right first; non-adjacent exact targets may fall back to Control+number or SkyLight/CGS. Verify with `spaces.list` or a fresh screenshot after switching.
+- `spaces.move_window` is currently a documented unsupported edge: macOS has no stable public API for moving windows between Spaces. Do not call it unless the user specifically asks to confirm that limitation.
 
 ### Windows
 
@@ -153,6 +161,8 @@ Treat these as higher risk and be extra explicit about the target:
 
 - `windows.close`
 - `apps.quit`
+- `dock.hide` / `dock.show`
+- `spaces.switch`
 - `menu.click` on destructive menu items
 - `clipboard.get` / `clipboard.set` / `clipboard.clear`
 - `dialog.accept` / explicit discard buttons

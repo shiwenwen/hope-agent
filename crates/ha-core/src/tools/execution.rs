@@ -576,6 +576,17 @@ pub async fn execute_tool_with_context(
         return Err(anyhow::anyhow!(err));
     }
 
+    let sanitized_args;
+    let args = if name == TOOL_MAC_CONTROL {
+        sanitized_args = crate::mac_control::sanitize_tool_args(args);
+        if let Some(error) = crate::mac_control::preflight_tool_args(&sanitized_args) {
+            return Err(anyhow::anyhow!(error));
+        }
+        &sanitized_args
+    } else {
+        args
+    };
+
     // Async-tool decision is computed up front but acted on after the
     // approval + plan-mode gates have run (so user-facing safeguards apply
     // once at submission time, then the work detaches).

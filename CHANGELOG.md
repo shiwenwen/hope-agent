@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS Control 标注截图**：`mac_control.visual.observe` 新增 `annotate=true` 与 `uiMapLimit`，可返回带 AX element id 边框的标注截图和紧凑 `uiMap`，让模型优先用 `elementId` 精确点击，减少盲坐标操作。
 - **macOS Control AX action 执行**：`mac_control.act.perform_action` 新增白名单式命名 AX action 调用，允许对明确目标执行其 `actions[]` 已声明支持的 `AXPress`、`AXShowMenu`、`AXIncrement`、`AXDecrement` 等动作，并继续走普通 macOS 控制审批。
 - **macOS Control 审批焦点恢复**：`mac_control` 触发工具审批前会捕获当前前台 App，审批通过或超时继续后在真正执行动作前按 `pid -> bundleId -> appName` best-effort 恢复焦点，避免审批窗口让 Hope Agent 抢前台后把键盘、菜单或 frontmost 依赖动作送错窗口。
+- **macOS Control Dock / Spaces 基础能力**：新增 `mac_control.dock.list/launch/hide/show` 与 `spaces.list/switch`。Dock 列表读取持久项并返回 `dockItemId`、label、bundleId、path、running/active 状态；Dock hide/show 写入 autohide 并重启 Dock；Spaces 列表优先读取 SkyLight/CGS 实时状态，切换相邻 Space 优先走 Mission Control `Control+Left/Right`，非相邻精确目标再 fallback 到 Control+数字或 SkyLight/CGS。`spaces.move_window` 因 macOS 无稳定公开 API 先返回显式 unsupported。
 - **macOS Control OCR 定位 v1**：新增 `mac_control.visual.ocr/find_text`，基于 macOS Vision Framework 识别受管截图中的文字，并返回 OCR 文字块、image pixel / screen point 坐标、AX 命中候选与 `act.click_point` 建议参数；无匹配时返回空候选而不是盲点。 (#239)
 - **macOS Control 菜单范围**：`mac_control.menu.list/click` 新增 `scope=app|system`，默认继续操作前台 App 菜单；`system` 用于读取和点击 macOS 菜单栏 extras/status items，并在菜单项摘要中补充 `description`、`value` 与可执行 actions，减少状态栏入口无标题时的误判。 (#231)
 - **macOS Control 跨 App 窗口发现**：`mac_control.windows.list` 新增 `windowScope=frontmost|all`，默认保持前台 App 行为；显式 `all` 时可列出所有运行中 App 的窗口，并返回可复用的 `win_<pid>_<index>` id，便于模型先发现后台窗口再聚焦、移动、缩放、最小化或关闭。 (#231)
@@ -37,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **macOS Control 共享 schema 参数预检**：`mac_control` 现在在权限判断和审批前会按 `action/op` sanitize + preflight 参数，避免 `spaces.switch direction=right` 这类调用被 Provider 默认补出的 `spaceIndex=1` 污染成冲突参数，也避免缺少必要目标的无效突变弹出审批后才失败。
+- **macOS Control Spaces 切换可靠性**：`spaces.switch direction=left|right` 和相邻 `spaceIndex/spaceId` 现在优先走 Mission Control `Control+Left/Right`，避免 SkyLight/CGS 只改内部 active id 却不切可见桌面；非相邻精确目标再 fallback 到 Control+数字或 SkyLight/CGS，执行后校验 current Space，未切到目标时返回明确 warning。
+- **macOS Control Spaces 当前状态修正**：`spaces.list` 不再用 `defaults export com.apple.spaces` 作为首选 current Space 来源，避免偏好文件里的 `Current Space` 与肉眼桌面状态不同步；现在优先用 `CGSGetActiveSpace` 判定 current，并用 `CGSCopyManagedDisplaySpaces` / `CGSCopySpaces` 枚举实时状态。
 - **Web Search fallback 诊断不再污染缓存**：搜索 provider fallback 时会区分无结果与 provider 不可用，且临时失败 / 限流诊断只出现在本次响应中，不再写入结果缓存。 (#236)
 - **聊天「停止」状态稳定保留**：重做 chat engine 活动 turn / 持久化 / 流序号管线，按下停止后会话状态正确保留，不再丢失或错乱（覆盖 failover 与 subagent 路径）。 (#230)
 - **流式 JSON 渲染修复**：流式输出过程中的 JSON 代码块渲染正确，不再中途错乱。 (#233)

@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/perform_action/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `dock` list/launch/hide/show, `spaces` list/switch, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/perform_action/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` inspect/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -734,13 +734,13 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "permissions", "snapshot", "visual", "elements", "wait", "apps", "windows", "act", "menu", "clipboard", "dialog"],
-                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `visual` observes a screenshot for model vision, optionally returns an annotated AX UI map, runs OCR text positioning, or maps a visual point to macOS screen points and AX hit candidates. `elements` finds and ranks AX element candidates without mutating UI. `wait` polls snapshots until a target query is present or gone. `apps`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
+                        "enum": ["status", "permissions", "snapshot", "visual", "elements", "wait", "apps", "dock", "spaces", "windows", "act", "menu", "clipboard", "dialog"],
+                        "description": "`status` returns bridge/platform/readiness summary. `permissions` includes macOS system permissions. `snapshot` returns a read-only frontmost-app/window/AX element summary and optional display/window screenshot. `visual` observes a screenshot for model vision, optionally returns an annotated AX UI map, runs OCR text positioning, or maps a visual point to macOS screen points and AX hit candidates. `elements` finds and ranks AX element candidates without mutating UI. `wait` polls snapshots until a target query is present or gone. `apps`, `dock`, `spaces`, `windows`, `act`, `menu`, `clipboard`, and `dialog` perform desktop operations."
                     },
                     "op": {
                         "type": "string",
-                        "enum": ["observe", "point", "ocr", "find_text", "find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "focus", "move", "resize", "minimize", "close", "dry_run", "perform_action", "click", "click_point", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "scroll", "drag", "get", "set", "clear", "inspect", "accept", "dismiss"],
-                        "description": "Sub-operation. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, perform_action runs a whitelisted AX action advertised by the target, click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|paste|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: inspect|accept|dismiss."
+                        "enum": ["observe", "point", "ocr", "find_text", "find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "hide", "show", "switch", "move_window", "focus", "move", "resize", "minimize", "close", "dry_run", "perform_action", "click", "click_point", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "scroll", "drag", "get", "set", "clear", "inspect", "accept", "dismiss"],
+                        "description": "Sub-operation. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `dock`: list|launch|hide|show. For `spaces`: list|switch; move_window is reserved and currently returns an explicit unsupported error on macOS because stable public APIs do not move windows across Spaces. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, perform_action runs a whitelisted AX action advertised by the target, click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|paste|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: inspect|accept|dismiss."
                     },
                     "scope": {
                         "type": "string",
@@ -754,16 +754,16 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "appName": {
                         "type": "string",
-                        "description": "For `apps`: app name query. By default this is an exact match against localized name, bundle id suffix, .app name, or executable name. If launch/activate by name is ambiguous or fails, call apps.search/installed and retry with bundleId."
+                        "description": "For `apps` or `dock.launch`: app name query. By default this is an exact match against localized name, bundle id suffix, .app name, executable name, or Dock label. If launch/activate by name is ambiguous or fails, call apps.search/installed or dock.list and retry with bundleId/dockItemId."
                     },
                     "appNameMatch": {
                         "type": "string",
                         "enum": ["exact", "contains"],
-                        "description": "For `apps` appName matching. Defaults to exact. Use contains only for read-only discovery such as apps.search/installed; prefer bundleId for mutations."
+                        "description": "For `apps` and `dock` appName matching. Defaults to exact. Use contains only for read-only discovery such as apps.search/installed or dock.list; prefer bundleId/dockItemId for mutations."
                     },
                     "bundleId": {
                         "type": "string",
-                        "description": "For `apps`: case-insensitive substring match against the running app bundle id."
+                        "description": "For `apps` or `dock.launch`: case-insensitive substring match against the app bundle id."
                     },
                     "pid": {
                         "type": "integer",
@@ -778,6 +778,32 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "windowId": {
                         "type": "string",
                         "description": "For `windows`: window id from the latest snapshot/list, e.g. win_1 or all-scope win_<pid>_<index>. Prefer all-scope ids when operating background app windows. For `snapshot` or `visual.observe` window screenshots: capture this AX window id; omit to capture the focused/frontmost window."
+                    },
+                    "dockItemId": {
+                        "type": "string",
+                        "description": "For `dock.launch`: exact Dock item id from `dock.list`, e.g. dock_123456789. Prefer this over appName when launching a Dock item."
+                    },
+                    "itemPath": {
+                        "type": "string",
+                        "description": "For `dock.launch`: exact filesystem path or file:// URL from a Dock item. Prefer dockItemId or bundleId for app launches."
+                    },
+                    "spaceId": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": "For `spaces.switch`: managed Space id from `spaces.list`. Prefer this for exact Space targeting; Hope Agent resolves it to a target ManagedSpaceID."
+                    },
+                    "spaceIndex": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9,
+                        "default": 0,
+                        "description": "For `spaces.switch`: 1-based Space index from `spaces.list`; use 0 or omit when not targeting by index. Pass exactly one of spaceId, spaceIndex, or direction."
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["left", "right"],
+                        "description": "For `spaces.switch`: switch to the adjacent Space. Pass exactly one of direction, spaceId, or spaceIndex."
                     },
                     "snapshotId": {
                         "type": "string",
@@ -1565,6 +1591,12 @@ mod tests {
         assert!(action_enum
             .iter()
             .any(|value| value.as_str() == Some("visual")));
+        assert!(action_enum
+            .iter()
+            .any(|value| value.as_str() == Some("dock")));
+        assert!(action_enum
+            .iter()
+            .any(|value| value.as_str() == Some("spaces")));
 
         let op_enum = tool.parameters["properties"]["op"]["enum"]
             .as_array()
@@ -1580,7 +1612,11 @@ mod tests {
         assert!(op_enum
             .iter()
             .any(|value| value.as_str() == Some("perform_action")));
+        assert!(op_enum.iter().any(|value| value.as_str() == Some("switch")));
         assert!(tool.parameters["properties"].get("snapshotId").is_some());
+        assert!(tool.parameters["properties"].get("dockItemId").is_some());
+        assert!(tool.parameters["properties"].get("spaceIndex").is_some());
+        assert!(tool.parameters["properties"].get("direction").is_some());
         assert!(tool.parameters["properties"]
             .get("coordinateSpace")
             .is_some());
