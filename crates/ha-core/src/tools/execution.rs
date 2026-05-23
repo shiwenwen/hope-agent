@@ -296,6 +296,37 @@ impl ToolExecContext {
             .unwrap_or_else(|| ".".to_string())
     }
 
+    /// Build the shared hook-input fields for a tool-event hook (design §5.4).
+    ///
+    /// `permission_mode` is a Phase 1.1 approximation: the ctx carries the Plan
+    /// Mode allow-list but not the full `SessionMode` / `PlanModeState` pair, so
+    /// a non-empty plan allow-list maps to `Plan`, otherwise `Default`. YOLO /
+    /// Smart aren't distinguishable here yet (hooks design §2.4 known gap).
+    pub fn common_hook_input(&self, event: &str) -> crate::hooks::CommonHookInput {
+        let session_id = self.session_id.clone().unwrap_or_default();
+        let transcript_path = crate::paths::session_dir(&session_id)
+            .map(|d| d.join("transcript.jsonl"))
+            .unwrap_or_default();
+        let permission_mode = if self.plan_mode_allowed_tools.is_empty() {
+            crate::hooks::PermissionMode::Default
+        } else {
+            crate::hooks::PermissionMode::Plan
+        };
+        crate::hooks::CommonHookInput {
+            session_id,
+            transcript_path,
+            cwd: std::path::PathBuf::from(self.default_cwd()),
+            permission_mode,
+            hook_event_name: event.to_string(),
+            agent_id: self.agent_id.clone(),
+            agent_type: if self.subagent_depth > 0 {
+                self.agent_id.clone()
+            } else {
+                None
+            },
+        }
+    }
+
     /// Resolve a user/model supplied file path against the current tool
     /// default. Absolute paths and `~` stay anchored where the caller asked;
     /// relative paths are rooted at the session working dir when one exists.

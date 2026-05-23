@@ -699,6 +699,13 @@ pub struct AppConfig {
     /// transcribe selection). See `crate::stt`.
     #[serde(default)]
     pub stt: crate::stt::SttConfig,
+    /// Hooks subsystem — event → pluggable handler dispatch (Claude Code
+    /// compatible). User scope only this phase. See `crate::hooks`.
+    #[serde(default)]
+    pub hooks: crate::hooks::HooksConfig,
+    /// Master kill switch for all hooks (`disableAllHooks` in the protocol).
+    #[serde(default)]
+    pub disable_all_hooks: bool,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -796,6 +803,8 @@ impl Default for AppConfig {
             mcp_global: crate::mcp::McpGlobalSettings::default(),
             local_llm: LocalLlmConfig::default(),
             stt: crate::stt::SttConfig::default(),
+            hooks: crate::hooks::HooksConfig::default(),
+            disable_all_hooks: false,
         }
     }
 }

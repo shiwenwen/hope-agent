@@ -236,10 +236,26 @@ pub async fn chat(
     })?;
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
+    let raw_prompt = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
+
+    // Preflight chokepoint: every user-message entry point routes through this
+    // before persisting. Pass-through in Phase 0.1; PR 1.2 runs the
+    // `UserPromptSubmit` hook here (may block / rewrite the prompt).
+    let effective_prompt = match ha_core::agent::preflight::user_prompt_preflight(
+        ha_core::agent::preflight::PreflightArgs {
+            session_id: &sid,
+            raw_prompt,
+        },
+    )
+    .await
+    {
+        ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+            effective_prompt
+        }
+    };
 
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(persisted_content)
+    let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Http);
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         body.is_plan_trigger.unwrap_or(false),
@@ -256,7 +272,7 @@ pub async fn chat(
     )?;
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
-    let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
+    let _ = session::ensure_first_message_title(&db, &sid, &effective_prompt);
 
     // Resolve model chain
     let agent_model_config = agent_def

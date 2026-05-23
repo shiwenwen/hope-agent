@@ -125,6 +125,12 @@ pub fn clear_token() -> Result<()> {
     if path.exists() {
         std::fs::remove_file(path)?;
     }
+    // SessionEnd(logout) hook (observation, app-global). Per-session fan-out is
+    // a later refinement; this fires one representative event.
+    // (auth_success Notification is intentionally not emitted from `save_token`
+    // — that is also called on token refresh; it belongs at the OAuth-flow
+    // completion site, deferred to a later phase.)
+    crate::hooks::fire_session_end("", "logout");
     Ok(())
 }
 

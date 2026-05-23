@@ -264,7 +264,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         codex_token,
         resolved_temperature,
         compact_config,
-        extra_system_context,
+        mut extra_system_context,
         reasoning_effort,
         cancel,
         plan_context_override,
@@ -347,6 +347,28 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         if source.broadcasts_to_user_ui() {
             stream_broadcast::broadcast_turn_started(&session_id, turn_id, Some(stream_id));
         }
+    }
+
+    // SessionStart hook (startup / resume). Observation event — any
+    // additionalContext is merged into `extra_system_context` so it rides this
+    // turn's system prompt and survives failover retries (which rebuild the
+    // agent from this same local). The helper is shared with the ACP turn loop
+    // (which runs `AssistantAgent::chat` directly, not this engine) so both
+    // entry points fire SessionStart and resolve cwd identically.
+    if let Some(extra) = crate::hooks::fire_session_start_observation(
+        &session_id,
+        &agent_id,
+        model_chain
+            .first()
+            .map(|m| m.model_id.as_str())
+            .unwrap_or_default(),
+    )
+    .await
+    {
+        extra_system_context = Some(match extra_system_context.take() {
+            Some(e) => format!("{e}\n\n{extra}"),
+            None => extra,
+        });
     }
 
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`

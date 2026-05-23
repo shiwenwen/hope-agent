@@ -44,6 +44,7 @@
 | ------------------------------------------- | --------------------------------- | --------------------- |
 | [Plan Mode](architecture/plan-mode.md)      | 5 状态机、plan = 设计契约 + task = 进度真相双轨分离、enter_plan_mode 模型主动入口、Git Checkpoint 回滚 | `plan/`, `tools/enter_plan_mode.rs`, `tools/submit_plan.rs`, `tools/task.rs` |
 | [权限/审批系统](architecture/permission-system.md) | 统一规则引擎 + Default/Smart/Yolo 三模式、Plan 正交、保护路径/危险命令/编辑命令三 list、Smart judge_model + self_confidence、审批弹窗倒计时 | `permission/`, `tools/approval.rs` |
+| [Hooks 系统](architecture/hooks.md)          | 事件 → 可拔插处理器，字段级对齐 Claude Code 协议；当前 6 个观察型事件 + `command` handler + 配置热重载 + JSONL transcript 镜像 | `hooks/`, `agent/preflight.rs` |
 | [Ask User](architecture/ask-user.md)        | 通用结构化问答工具、preview 并排对比、超时回退、IM 渠道集成    | `tools/ask_user_question.rs`, `plan/questions.rs`, `channel/worker/ask_user.rs` |
 | [技能系统](architecture/skill-system.md)        | SKILL.md 发现、懒加载、工具隔离、Fork 模式      | `skills/`             |
 | [子 Agent 系统](architecture/subagent.md)      | spawn + 结果注入、Mailbox 实时引导、深度/并发控制 | `subagent/`           |

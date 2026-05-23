@@ -25,12 +25,19 @@ mutate_config(("canvas", "settings-ui"), |cfg| {
     cfg.canvas.enabled = true;
     Ok(())
 })?;
+
+// 写（hooks）：改 hooks 字段后 emit config:changed →
+// hooks::registry::reload_from_config 热重载，下一次事件已用新配置。
+mutate_config(("hooks", "settings-ui"), |cfg| {
+    cfg.hooks.post_tool_use.push(matcher_group);
+    Ok(())
+})?;
 ```
 
 `mutate_config` 的 FnOnce 闭包返回 `anyhow::Result<T>`，错误从闭包透传出来（校验失败可以在闭包内直接 `Err(...)`，不落盘）。返回的 `T` 可以把 mutation 过程中算出的派生数据（比如新建的 ID）传回调用方。
 
 `reason: (&str, &str)` 是 `(category, source)` 的二元组：
-- `category` ——改的是哪个子系统（"image_generate" / "memory_budget" / "shortcuts" / "security.ssrf" / ...）
+- `category` ——改的是哪个子系统（"image_generate" / "memory_budget" / "shortcuts" / "security.ssrf" / "hooks" / ...）
 - `source` ——从哪触发的（"settings-ui" / "http" / "oauth-finalize" / "cron" / ...）
 
 两个字段会：

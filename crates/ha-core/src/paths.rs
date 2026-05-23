@@ -118,6 +118,28 @@ pub fn attachments_dir(session_id: &str) -> Result<PathBuf> {
     Ok(root_dir()?.join("attachments").join(session_id))
 }
 
+// ── Sessions (per-session artifacts: hook transcript mirror, …) ─────
+
+/// Root for per-session artifact directories: ~/.hope-agent/sessions/
+pub fn sessions_root() -> Result<PathBuf> {
+    Ok(root_dir()?.join("sessions"))
+}
+
+/// Per-session artifact directory: ~/.hope-agent/sessions/{session_id}/
+///
+/// Like [`attachments_dir`], this only computes the path — callers create it
+/// lazily (e.g. the hooks transcript mirror on first write).
+pub fn session_dir(session_id: &str) -> Result<PathBuf> {
+    Ok(sessions_root()?.join(session_id))
+}
+
+// ── Hooks ───────────────────────────────────────────────────────────
+
+/// Hooks working directory: ~/.hope-agent/hooks/ (overflow files, env files).
+pub fn hooks_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("hooks"))
+}
+
 // ── macOS Control ─────────────────────────────────────────────────
 
 /// macOS control snapshot image directory:

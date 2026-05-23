@@ -119,6 +119,7 @@ impl AssistantAgent {
         &self,
         messages: &mut Vec<serde_json::Value>,
         system_prompt: &str,
+        model: &str,
         max_tokens: u32,
         on_delta: &(impl Fn(&str) + Send),
     ) {
@@ -418,6 +419,13 @@ impl AssistantAgent {
         // Emit compaction event to frontend
         let tokens_after =
             context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+
+        // PostCompact + SessionStart(compact) hooks (observation): fire after a
+        // real compaction (tier ≥ 2; tier 0 returned early above). Queues any
+        // additionalContext for the next round's reminder suffix.
+        self.fire_compaction_hooks(compact_result.tier_applied, tokens_after, model)
+            .await;
+
         if let Ok(event) = serde_json::to_string(&json!({
             "type": "context_compacted",
             "data": {
@@ -429,6 +437,101 @@ impl AssistantAgent {
             }
         })) {
             on_delta(&event);
+        }
+    }
+
+    /// Append hook-injected context to the pending queue, drained into the next
+    /// round's reminder suffix. ArcSwap `rcu` so no `&mut self` is needed.
+    pub(super) fn push_pending_hook_context(&self, ctx: String) {
+        if ctx.trim().is_empty() {
+            return;
+        }
+        self.pending_hook_context.rcu(|cur| {
+            let mut v = Vec::with_capacity(cur.len() + 1);
+            v.extend(cur.iter().cloned());
+            v.push(ctx.clone());
+            v
+        });
+    }
+
+    /// Take and clear the pending hook context, joined into one block.
+    pub(super) fn drain_pending_hook_context(&self) -> Option<String> {
+        let taken = self
+            .pending_hook_context
+            .swap(std::sync::Arc::new(Vec::new()));
+        if taken.is_empty() {
+            None
+        } else {
+            Some(taken.join("\n\n"))
+        }
+    }
+
+    /// Build common hook-input fields from agent-level state, for hooks that
+    /// fire outside a tool context (compaction, etc.). `cwd` is the session
+    /// working dir (falling back to home); `permission_mode` defaults.
+    fn hook_common_input(&self, event: &str) -> crate::hooks::CommonHookInput {
+        let session_id = self.session_id.clone().unwrap_or_default();
+        let transcript_path = crate::paths::session_dir(&session_id)
+            .map(|d| d.join("transcript.jsonl"))
+            .unwrap_or_default();
+        let cwd = crate::session::effective_session_working_dir(self.session_id.as_deref())
+            .map(std::path::PathBuf::from)
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        crate::hooks::CommonHookInput {
+            session_id,
+            transcript_path,
+            cwd,
+            permission_mode: crate::hooks::PermissionMode::Default,
+            hook_event_name: event.to_string(),
+            agent_id: Some(self.agent_id.clone()),
+            agent_type: None,
+        }
+    }
+
+    /// Fire `PostCompact` + `SessionStart(source=compact)` after a real
+    /// compaction. Both observation events; any `additionalContext` they return
+    /// is queued for the next round's reminder suffix.
+    async fn fire_compaction_hooks(&self, tier: u8, tokens_after: u32, model: &str) {
+        use crate::hooks::{HookDispatcher, HookEvent, HookInput};
+
+        // Failover rebuilds the agent and re-runs compaction per retry; fire
+        // the user-facing compaction hooks only once per actual compaction.
+        let sid = self.session_id.clone().unwrap_or_default();
+        if !crate::hooks::claim_compaction_hooks(&sid) {
+            return;
+        }
+
+        // `usage_ratio` is the post-compaction context *fill* ratio (tokens /
+        // window), matching the protocol field hooks branch on (design §5.3.1,
+        // the same ≥0.95 metric that forces compaction) — not a before/after
+        // compression ratio.
+        let usage_ratio = if self.context_window > 0 {
+            tokens_after as f64 / self.context_window as f64
+        } else {
+            0.0
+        };
+
+        let post = HookInput::PostCompact {
+            common: self.hook_common_input("PostCompact"),
+            trigger: crate::hooks::CompactTrigger::Auto,
+            tier,
+            usage_ratio,
+        };
+        let out = HookDispatcher::dispatch(HookEvent::PostCompact, post).await;
+        if let Some(extra) = out.merged_additional_context() {
+            self.push_pending_hook_context(extra);
+        }
+
+        let start = HookInput::SessionStart {
+            common: self.hook_common_input("SessionStart"),
+            source: crate::hooks::SessionStartSource::Compact,
+            model: model.to_string(),
+            agent_type: None,
+        };
+        let out = HookDispatcher::dispatch(HookEvent::SessionStart, start).await;
+        if let Some(extra) = out.merged_additional_context() {
+            self.push_pending_hook_context(extra);
         }
     }
 

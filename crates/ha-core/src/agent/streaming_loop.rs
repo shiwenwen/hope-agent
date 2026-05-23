@@ -121,6 +121,67 @@ fn log_tool_output(call_id: &str, name: &str, result: &str, elapsed_ms: u64, rou
     }
 }
 
+/// Fire `PostToolUse` / `PostToolUseFailure` for one settled tool call and fold
+/// any `additionalContext` the hooks return into `clean_result`, so it rides
+/// into history attached to this tool's result on the next round (design
+/// §5.2.2). Observation events — non-blocking. No-op cost is near-zero when no
+/// hooks are configured (the dispatcher short-circuits on an empty registry).
+async fn fire_post_tool_use_hook(
+    ctx: &ToolExecContext,
+    call_id: &str,
+    name: &str,
+    arguments: &str,
+    clean_result: &mut String,
+    is_error: bool,
+    elapsed_ms: u64,
+) {
+    use crate::hooks::{HookDispatcher, HookEvent, HookInput};
+
+    let event = if is_error {
+        HookEvent::PostToolUseFailure
+    } else {
+        HookEvent::PostToolUse
+    };
+    // Hot-path gate: this fires per tool per round. Skip all input building
+    // (two serde parses, one over a possibly-large clean_result) when no hook
+    // listens for this event.
+    if !crate::hooks::registry::global().has_handlers_for(event) {
+        return;
+    }
+    let common = ctx.common_hook_input(event.as_str());
+    let tool_input = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+    let input = if is_error {
+        HookInput::PostToolUseFailure {
+            common,
+            tool_name: name.to_string(),
+            tool_input,
+            tool_use_id: call_id.to_string(),
+            error: clean_result.clone(),
+            // Phase 1.1: interrupt vs error not distinguished at this site.
+            is_interrupt: false,
+            duration_ms: elapsed_ms,
+        }
+    } else {
+        let tool_response = serde_json::from_str(clean_result)
+            .unwrap_or_else(|_| serde_json::Value::String(clean_result.clone()));
+        HookInput::PostToolUse {
+            common,
+            tool_name: name.to_string(),
+            tool_input,
+            tool_response,
+            tool_use_id: call_id.to_string(),
+        }
+    };
+    let outcome = HookDispatcher::dispatch(event, input).await;
+    if let Some(extra) = outcome.merged_additional_context() {
+        // Frame the injected context so the model can tell hook output apart
+        // from the tool's own result.
+        clean_result.push_str("\n\n<hook-context>\n");
+        clean_result.push_str(&extra);
+        clean_result.push_str("\n</hook-context>");
+    }
+}
+
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
 /// elapsed_ms, side_output)`. The side output carries structured metadata
 /// (file change before/after snapshots, line deltas, etc.) emitted by the
@@ -277,6 +338,7 @@ impl AssistantAgent {
         self.run_compaction(
             &mut messages,
             &system_prompt_for_budget,
+            model,
             MAX_OUTPUT_TOKENS,
             on_delta,
         )
@@ -386,6 +448,15 @@ impl AssistantAgent {
                 let tasks = db.list_tasks(sid).ok()?;
                 tools::task_reminder_text(&tasks)
             });
+            // Fold any pending hook context (PostCompact / SessionStart(compact)
+            // / Notification additionalContext, queued outside a round) into
+            // this round's reminder suffix so it reaches the LLM as a system
+            // reminder block. Drained once — subsequent rounds see it cleared.
+            let task_reminder = match (task_reminder, self.drain_pending_hook_context()) {
+                (Some(t), Some(h)) => Some(format!("{t}\n\n{h}")),
+                (None, Some(h)) => Some(h),
+                (other, None) => other,
+            };
 
             let req = RoundRequest {
                 system_prompt: round_system_prompt,
@@ -486,7 +557,7 @@ impl AssistantAgent {
                 for (call_id, name, arguments, result, elapsed_ms, side) in results {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
-                    let (clean_result, media_items) = extract_media_items(&result);
+                    let (mut clean_result, media_items) = extract_media_items(&result);
                     emit_tool_result(
                         on_delta,
                         &call_id,
@@ -497,6 +568,19 @@ impl AssistantAgent {
                         &media_items,
                         side.metadata.as_ref(),
                     );
+                    // PostToolUse / PostToolUseFailure (observation): fold any
+                    // hook additionalContext into the result so the LLM sees it
+                    // attached to this tool on the next round.
+                    fire_post_tool_use_hook(
+                        &tool_ctx,
+                        &call_id,
+                        &name,
+                        &arguments,
+                        &mut clean_result,
+                        is_error,
+                        elapsed_ms,
+                    )
+                    .await;
                     executed.push(ExecutedTool {
                         call_id,
                         name,
@@ -555,7 +639,7 @@ impl AssistantAgent {
 
                 log_tool_output(&tc.call_id, &tc.name, &result, elapsed_ms, round);
                 let is_error = result.starts_with("Tool error:");
-                let (clean_result, media_items) = extract_media_items(&result);
+                let (mut clean_result, media_items) = extract_media_items(&result);
                 emit_tool_result(
                     on_delta,
                     &tc.call_id,
@@ -566,6 +650,19 @@ impl AssistantAgent {
                     &media_items,
                     side.metadata.as_ref(),
                 );
+                // PostToolUse / PostToolUseFailure (observation): fold any hook
+                // additionalContext into the result so the LLM sees it attached
+                // to this tool on the next round.
+                fire_post_tool_use_hook(
+                    &tool_ctx,
+                    &tc.call_id,
+                    &tc.name,
+                    &tc.arguments,
+                    &mut clean_result,
+                    is_error,
+                    elapsed_ms,
+                )
+                .await;
                 executed.push(ExecutedTool {
                     call_id: tc.call_id.clone(),
                     name: tc.name.clone(),

@@ -332,6 +332,13 @@ pub(crate) async fn check_and_request_approval(
             }
         };
         bus.emit("approval_required", event_data);
+        // Notification hook (observation): bridge the permission prompt to user
+        // scripts / desktop notifications. Fire-and-forget.
+        crate::hooks::fire_notification(
+            session_id.unwrap_or_default(),
+            "permission_prompt",
+            command,
+        );
         app_info!(
             "tool",
             "approval",

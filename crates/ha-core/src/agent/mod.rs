@@ -12,6 +12,7 @@ pub(crate) use events::{extract_media_items, MEDIA_ITEMS_PREFIX};
 mod llm_adapter;
 pub mod migration;
 mod plan_context;
+pub mod preflight;
 mod providers;
 pub mod resolver;
 mod side_query;
@@ -130,6 +131,7 @@ impl AssistantAgent {
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
             plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            pending_hook_context: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
@@ -179,6 +181,7 @@ impl AssistantAgent {
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
             plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            pending_hook_context: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
@@ -353,6 +356,7 @@ impl AssistantAgent {
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
             plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            pending_hook_context: arc_swap::ArcSwap::from_pointee(Vec::new()),
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),

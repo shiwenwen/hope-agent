@@ -51,6 +51,8 @@ pub fn handle_clear(
 ) -> Result<CommandResult, String> {
     let sid = session_id.ok_or("No active session to clear")?;
     session_db.delete_session(sid).map_err(|e| e.to_string())?;
+    // SessionEnd(clear) hook (observation, fire-and-forget).
+    crate::hooks::fire_session_end(sid, "clear");
     Ok(CommandResult {
         content: "Session cleared.".into(),
         action: Some(CommandAction::SessionCleared),

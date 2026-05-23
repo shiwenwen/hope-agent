@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Hooks 系统（兼容 Claude Code）**：可在会话开始/结束、工具调用后、上下文压缩后等节点运行自定义 `command` 脚本注入上下文，字段级对齐 Claude Code hooks 协议，配置改动即时热重载。 (#PR)
+
 ## [0.4.0] - 2026-05-22
 
 ### Added

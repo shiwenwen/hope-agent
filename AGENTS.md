@@ -170,6 +170,17 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **SSRF 统一策略**：出站 HTTP 必须走 `security::ssrf::check_url`；**新出站入口严禁自写 IP 校验**
 - **文件 Diff 元数据**：`write` / `edit` / `apply_patch` / `read` 通过 `ToolExecContext.metadata_sink` 旁路传出 JSON；持久化到 `messages.tool_metadata` 列；前端右侧 `DiffPanel` 渲染（与 PlanPanel / CanvasPanel 视觉互斥）
 
+### Hooks
+
+详见 [`hooks.md`](docs/architecture/hooks.md)（当前能力）/ [`docs/plans/hooks-system-design.md`](docs/plans/hooks-system-design.md)（28 事件完整设计；附录 A 埋点位置写于主对话重构前，已过时，以代码为准）。
+
+- **字段级对齐 Claude Code hooks 协议**；核心全在 `ha-core::hooks`（**零 Tauri 依赖**），desktop / server / ACP 共用
+- **唯一入口 `HookDispatcher::dispatch(event, input)`**：内部封装 matcher 过滤 / 并发执行 / 去重 / 超时 / 聚合，调用方只读 `HookOutcome`；**严禁在业务代码里 match 具体 handler 类型**（command / http / …）
+- **当前落地**：6 个观察型事件（`SessionStart` / `SessionEnd` / `Notification` / `PostToolUse` / `PostToolUseFailure` / `PostCompact`，均不阻断，只注入 `additionalContext`）+ `command` handler。阻断型事件 / 其余 4 种 handler / 多 scope / GUI 见设计文档分阶段
+- **配置走 config contract**：读 `cached_config().hooks`，写 `mutate_config(("hooks", source), …)`；`config:changed` 触发 `registry::reload_from_config` 热重载。**本期仅 user scope**（`~/.hope-agent/config.json`）
+- **四入口统一 preflight**：Tauri / HTTP / IM / ACP 的 user message 持久化前过 [`agent::preflight::user_prompt_preflight`](crates/ha-core/src/agent/preflight.rs)（当前透传）；**新增 user message 入口必须走它**
+- **新增 hook 事件须埋点 + 测试**：阻断型构造 `HookInput` 调 `dispatch`，观察型走 `hooks::fire_*`（fire-and-forget）；审计统一 `category="hooks"`
+
 ### Plan Mode
 
 详见 [`plan-mode.md`](docs/architecture/plan-mode.md)。

@@ -338,10 +338,26 @@ pub async fn chat(
     };
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content = ha_core::non_empty_trim_or(display_text.as_deref(), &message);
+    let raw_prompt = ha_core::non_empty_trim_or(display_text.as_deref(), &message);
+
+    // Preflight chokepoint: every user-message entry point routes through this
+    // before persisting. Pass-through in Phase 0.1; PR 1.2 runs the
+    // `UserPromptSubmit` hook here (may block / rewrite the prompt).
+    let effective_prompt = match ha_core::agent::preflight::user_prompt_preflight(
+        ha_core::agent::preflight::PreflightArgs {
+            session_id: &sid,
+            raw_prompt,
+        },
+    )
+    .await
+    {
+        ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+            effective_prompt
+        }
+    };
 
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(persisted_content)
+    let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Desktop);
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
@@ -375,7 +391,7 @@ pub async fn chat(
 
     // Auto-generate fallback title from first user message if session has no title.
     // Prefer the displayed text so titles read naturally ("/drawio ..." rather than the expanded form).
-    let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
+    let _ = session::ensure_first_message_title(&db, &sid, &effective_prompt);
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
     if let Some(ref new_sid) = new_session_created {

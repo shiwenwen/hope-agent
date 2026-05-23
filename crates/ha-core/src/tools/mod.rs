@@ -14,7 +14,7 @@ pub(crate) mod diff_util;
 pub mod dispatch;
 mod edit;
 mod enter_plan_mode;
-mod exec;
+pub(crate) mod exec;
 mod execution;
 pub(crate) mod feishu;
 mod find;
