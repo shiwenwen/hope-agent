@@ -944,6 +944,11 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     stream_lifecycle.set_terminal(terminal_status, interrupt_reason, None);
                     stream_lifecycle.finish();
 
+                    // Stop hook: the agent finished responding (normal
+                    // completion, or a user-initiated stop that still drained
+                    // to here). Observation-only this phase.
+                    crate::hooks::fire_stop(&session_id, Some(&agent_id), terminal_status.as_str());
+
                     if post_turn_effects {
                         crate::session_title::maybe_schedule_after_success(
                             db.clone(),

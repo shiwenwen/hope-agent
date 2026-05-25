@@ -103,6 +103,12 @@ impl HookEvent {
                 | Self::PostToolBatch
                 | Self::SubagentStart
                 | Self::SubagentStop
+                // Stop / StopFailure fire fire-and-forget this phase (no
+                // block-to-continue), so a stray blocking decision is
+                // downgraded + logged like any other observation event. They
+                // move out of this list when block-to-continue lands.
+                | Self::Stop
+                | Self::StopFailure
         )
     }
 }
@@ -296,6 +302,25 @@ pub enum HookInput {
         /// Terminal status: `completed` / `failed` / `cancelled` / …
         status: String,
     },
+    Stop {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Terminal turn status: `completed` / `interrupted`.
+        status: String,
+        /// Claude Code's `stop_hook_active` — `true` when a Stop hook is
+        /// already in the continue loop. Block-to-continue is not implemented
+        /// yet, so always `false`; the field keeps the payload field-aligned.
+        stop_hook_active: bool,
+    },
+    StopFailure {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Failure category (matcher target): `provider_failed` /
+        /// `compaction_failed` / `shutdown` / `crash` / `no_profile` / `other`.
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
 }
 
 impl HookInput {
@@ -313,7 +338,9 @@ impl HookInput {
             | Self::Notification { common, .. }
             | Self::PostToolBatch { common, .. }
             | Self::SubagentStart { common, .. }
-            | Self::SubagentStop { common, .. } => common,
+            | Self::SubagentStop { common, .. }
+            | Self::Stop { common, .. }
+            | Self::StopFailure { common, .. } => common,
         }
     }
 
@@ -336,8 +363,10 @@ impl HookInput {
             Self::SubagentStart { subagent_id, .. } | Self::SubagentStop { subagent_id, .. } => {
                 Some(subagent_id.as_str())
             }
+            // StopFailure matches on its failure category (`provider_failed`, …).
+            Self::StopFailure { reason, .. } => Some(reason.as_str()),
             // No matcher target → only wildcard matchers fire.
-            Self::UserPromptSubmit { .. } | Self::PostToolBatch { .. } => None,
+            Self::UserPromptSubmit { .. } | Self::PostToolBatch { .. } | Self::Stop { .. } => None,
         }
     }
 }
@@ -573,10 +602,45 @@ mod tests {
         };
         assert_eq!(pre.matcher_target(), Some("Bash"));
         let ups = HookInput::UserPromptSubmit {
-            common,
+            common: common.clone(),
             prompt: "hi".into(),
         };
         assert_eq!(ups.matcher_target(), None);
+        // Stop has no matcher target; StopFailure matches on its category.
+        let stop = HookInput::Stop {
+            common: common.clone(),
+            status: "completed".into(),
+            stop_hook_active: false,
+        };
+        assert_eq!(stop.matcher_target(), None);
+        let fail = HookInput::StopFailure {
+            common,
+            reason: "provider_failed".into(),
+            error: Some("boom".into()),
+        };
+        assert_eq!(fail.matcher_target(), Some("provider_failed"));
+    }
+
+    #[test]
+    fn stop_failure_omits_none_error() {
+        let common = CommonHookInput {
+            session_id: "s".into(),
+            transcript_path: PathBuf::new(),
+            cwd: PathBuf::new(),
+            permission_mode: PermissionMode::Default,
+            hook_event_name: "StopFailure".into(),
+            agent_id: None,
+            agent_type: None,
+        };
+        let fail = HookInput::StopFailure {
+            common,
+            reason: "shutdown".into(),
+            error: None,
+        };
+        let v = serde_json::to_value(&fail).unwrap();
+        assert_eq!(v["reason"], "shutdown");
+        assert!(v.get("error").is_none());
+        assert_eq!(v["session_id"], "s");
     }
 
     #[test]

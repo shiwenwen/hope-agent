@@ -296,6 +296,20 @@ pub(crate) async fn finalize_turn_context(
 ) -> FinalizeOutcome {
     let mut outcome = apply_finalize(db, session_id, &reason, &partial, source);
     if !outcome.was_already_finalized {
+        // Stop / StopFailure hook (observation this phase). A user-initiated
+        // stop is a normal `Stop`; every other termination reason (provider /
+        // compaction failure, shutdown, crash, …) is a `StopFailure` carrying
+        // the failure category + error text. Mutually exclusive with the
+        // success-path `Stop` fired in the engine, so a turn fires exactly one.
+        if reason.is_user_initiated() {
+            crate::hooks::fire_stop(session_id, None, "interrupted");
+        } else {
+            crate::hooks::fire_stop_failure(
+                session_id,
+                reason.category_label(),
+                reason.to_error_text().as_deref(),
+            );
+        }
         if let Some(state) = im_mirror {
             let body = copy::im_notice(&reason);
             tokio::spawn(async move {

@@ -471,6 +471,33 @@ pub fn fire_subagent_stop(session_id: &str, subagent_id: &str, run_id: &str, sta
     fire_and_forget(HookEvent::SubagentStop, input);
 }
 
+/// Fire the `Stop` observation hook — a turn finished responding without an
+/// error (normal completion or a user-initiated stop). `status` is the terminal
+/// turn status (`completed` / `interrupted`). Fire-and-forget; block-to-continue
+/// is not implemented this phase.
+pub fn fire_stop(session_id: &str, agent_id: Option<&str>, status: &str) {
+    let mut common = observation_common("Stop", session_id);
+    common.agent_id = agent_id.map(|s| s.to_string());
+    let input = HookInput::Stop {
+        common,
+        status: status.to_string(),
+        stop_hook_active: false,
+    };
+    fire_and_forget(HookEvent::Stop, input);
+}
+
+/// Fire the `StopFailure` observation hook — a turn ended because of an error.
+/// `reason` is the failure category (matcher target, e.g. `provider_failed`);
+/// `error` is the message, when there is one.
+pub fn fire_stop_failure(session_id: &str, reason: &str, error: Option<&str>) {
+    let input = HookInput::StopFailure {
+        common: observation_common("StopFailure", session_id),
+        reason: reason.to_string(),
+        error: error.map(|s| s.to_string()),
+    };
+    fire_and_forget(HookEvent::StopFailure, input);
+}
+
 /// Initialize the hooks subsystem during `ha-core` startup. Best-effort: never
 /// panics — hooks are an additive capability.
 pub fn init() {
