@@ -547,6 +547,22 @@ pub fn fire_cwd_changed(session_id: &str, old_cwd: Option<&str>, new_cwd: Option
     fire_and_forget(HookEvent::CwdChanged, input);
 }
 
+/// Fire a `FileChanged` observation hook (a tool created / edited / patched a
+/// file). `path` is the matcher target (regex-matchable file pattern);
+/// `action` is `create` / `edit` / `delete` / `patch`. No-op fast path when no
+/// FileChanged hook is configured, so it's cheap to call on every file write.
+pub fn fire_file_changed(session_id: Option<&str>, path: &str, action: &str) {
+    if !registry::global().has_handlers_for(HookEvent::FileChanged) {
+        return;
+    }
+    let input = HookInput::FileChanged {
+        common: observation_common("FileChanged", session_id.unwrap_or("")),
+        path: path.to_string(),
+        action: action.to_string(),
+    };
+    fire_and_forget(HookEvent::FileChanged, input);
+}
+
 /// Initialize the hooks subsystem during `ha-core` startup. Best-effort: never
 /// panics — hooks are an additive capability.
 pub fn init() {

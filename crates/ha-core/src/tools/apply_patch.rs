@@ -420,6 +420,19 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
         .await;
     }
 
+    // FileChanged hook (observation): one per affected file, independent of the
+    // DiffPanel sink. `modified` may carry "src -> dst" for a move — fire on dst.
+    for p in &added {
+        crate::hooks::fire_file_changed(ctx.session_id.as_deref(), p, "create");
+    }
+    for p in &modified {
+        let path = p.rsplit(" -> ").next().unwrap_or(p);
+        crate::hooks::fire_file_changed(ctx.session_id.as_deref(), path, "patch");
+    }
+    for p in &deleted {
+        crate::hooks::fire_file_changed(ctx.session_id.as_deref(), p, "delete");
+    }
+
     let mut summary_parts = Vec::new();
     if !added.is_empty() {
         summary_parts.push(format!("Added: {}", added.join(", ")));

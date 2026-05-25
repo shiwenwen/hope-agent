@@ -113,6 +113,7 @@ impl HookEvent {
                 | Self::TaskCompleted
                 | Self::ConfigChange
                 | Self::CwdChanged
+                | Self::FileChanged
         )
     }
 }
@@ -357,6 +358,15 @@ pub enum HookInput {
         #[serde(skip_serializing_if = "Option::is_none")]
         new_cwd: Option<String>,
     },
+    FileChanged {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Absolute path of the changed file (matcher target — a regex matcher
+        /// like `.*\.rs$` scopes the hook to a file pattern).
+        path: String,
+        /// `create` / `edit` / `delete` / `patch`.
+        action: String,
+    },
 }
 
 impl HookInput {
@@ -380,7 +390,8 @@ impl HookInput {
             | Self::TaskCreated { common, .. }
             | Self::TaskCompleted { common, .. }
             | Self::ConfigChange { common, .. }
-            | Self::CwdChanged { common, .. } => common,
+            | Self::CwdChanged { common, .. }
+            | Self::FileChanged { common, .. } => common,
         }
     }
 
@@ -407,6 +418,8 @@ impl HookInput {
             Self::StopFailure { reason, .. } => Some(reason.as_str()),
             // ConfigChange matches on the config category (`hooks`, `permission`, …).
             Self::ConfigChange { category, .. } => Some(category.as_str()),
+            // FileChanged matches on the file path (regex matcher → file pattern).
+            Self::FileChanged { path, .. } => Some(path.as_str()),
             // No matcher target → only wildcard matchers fire. Task content is
             // freeform, so Task events match wildcard only.
             Self::UserPromptSubmit { .. }
