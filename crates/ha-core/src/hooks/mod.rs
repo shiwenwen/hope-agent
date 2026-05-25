@@ -498,6 +498,33 @@ pub fn fire_stop_failure(session_id: &str, reason: &str, error: Option<&str>) {
     fire_and_forget(HookEvent::StopFailure, input);
 }
 
+/// Fire a `TaskCreated` observation hook (one per task created in a
+/// `task_create` call). `batch_id` ties tasks from the same call together.
+pub fn fire_task_created(
+    session_id: &str,
+    content: &str,
+    active_form: Option<&str>,
+    batch_id: &str,
+) {
+    let input = HookInput::TaskCreated {
+        common: observation_common("TaskCreated", session_id),
+        content: content.to_string(),
+        active_form: active_form.map(|s| s.to_string()),
+        batch_id: batch_id.to_string(),
+    };
+    fire_and_forget(HookEvent::TaskCreated, input);
+}
+
+/// Fire a `TaskCompleted` observation hook (a task transitioned to completed).
+pub fn fire_task_completed(session_id: &str, task_id: i64, content: &str) {
+    let input = HookInput::TaskCompleted {
+        common: observation_common("TaskCompleted", session_id),
+        task_id,
+        content: content.to_string(),
+    };
+    fire_and_forget(HookEvent::TaskCompleted, input);
+}
+
 /// Initialize the hooks subsystem during `ha-core` startup. Best-effort: never
 /// panics — hooks are an additive capability.
 pub fn init() {

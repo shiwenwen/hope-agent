@@ -95,6 +95,10 @@ pub(crate) async fn tool_task_create(args: &Value, session_id: Option<&str>) -> 
 
     let tasks = db.list_tasks(&sid).unwrap_or_default();
     emit_snapshot(&sid, &tasks);
+    // TaskCreated hook (observation): one per task created in this call.
+    for (content, active_form) in &items {
+        crate::hooks::fire_task_created(&sid, content, active_form.as_deref(), &batch_id);
+    }
     render_snapshot(&tasks)
 }
 
@@ -132,6 +136,14 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
     emit_snapshot(&sid, &tasks);
 
     if matches!(status, Some(TaskStatus::Completed)) {
+        // TaskCompleted hook (observation). Look up the task's content from the
+        // fresh snapshot so the hook payload carries it.
+        let content = tasks
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.content.clone())
+            .unwrap_or_default();
+        crate::hooks::fire_task_completed(&sid, id, &content);
         crate::plan::maybe_complete_plan(&sid, &tasks).await;
     }
 

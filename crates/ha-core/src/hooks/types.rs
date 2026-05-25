@@ -109,6 +109,8 @@ impl HookEvent {
                 // move out of this list when block-to-continue lands.
                 | Self::Stop
                 | Self::StopFailure
+                | Self::TaskCreated
+                | Self::TaskCompleted
         )
     }
 }
@@ -321,6 +323,21 @@ pub enum HookInput {
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    TaskCreated {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_form: Option<String>,
+        /// Shared id for every task created in one `task_create` call.
+        batch_id: String,
+    },
+    TaskCompleted {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        task_id: i64,
+        content: String,
+    },
 }
 
 impl HookInput {
@@ -340,7 +357,9 @@ impl HookInput {
             | Self::SubagentStart { common, .. }
             | Self::SubagentStop { common, .. }
             | Self::Stop { common, .. }
-            | Self::StopFailure { common, .. } => common,
+            | Self::StopFailure { common, .. }
+            | Self::TaskCreated { common, .. }
+            | Self::TaskCompleted { common, .. } => common,
         }
     }
 
@@ -365,8 +384,13 @@ impl HookInput {
             }
             // StopFailure matches on its failure category (`provider_failed`, …).
             Self::StopFailure { reason, .. } => Some(reason.as_str()),
-            // No matcher target → only wildcard matchers fire.
-            Self::UserPromptSubmit { .. } | Self::PostToolBatch { .. } | Self::Stop { .. } => None,
+            // No matcher target → only wildcard matchers fire. Task content is
+            // freeform, so Task events match wildcard only.
+            Self::UserPromptSubmit { .. }
+            | Self::PostToolBatch { .. }
+            | Self::Stop { .. }
+            | Self::TaskCreated { .. }
+            | Self::TaskCompleted { .. } => None,
         }
     }
 }
