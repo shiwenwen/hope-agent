@@ -525,6 +525,28 @@ pub fn fire_task_completed(session_id: &str, task_id: i64, content: &str) {
     fire_and_forget(HookEvent::TaskCompleted, input);
 }
 
+/// Fire a `ConfigChange` observation hook (app config was written). App-global
+/// (no session). `category` is the matcher target (the config domain that
+/// changed); `source` is who triggered it.
+pub fn fire_config_change(category: &str, source: &str) {
+    let input = HookInput::ConfigChange {
+        common: observation_common("ConfigChange", ""),
+        category: category.to_string(),
+        source: source.to_string(),
+    };
+    fire_and_forget(HookEvent::ConfigChange, input);
+}
+
+/// Fire a `CwdChanged` observation hook (a session's working dir changed).
+pub fn fire_cwd_changed(session_id: &str, old_cwd: Option<&str>, new_cwd: Option<&str>) {
+    let input = HookInput::CwdChanged {
+        common: observation_common("CwdChanged", session_id),
+        old_cwd: old_cwd.map(|s| s.to_string()),
+        new_cwd: new_cwd.map(|s| s.to_string()),
+    };
+    fire_and_forget(HookEvent::CwdChanged, input);
+}
+
 /// Initialize the hooks subsystem during `ha-core` startup. Best-effort: never
 /// panics — hooks are an additive capability.
 pub fn init() {

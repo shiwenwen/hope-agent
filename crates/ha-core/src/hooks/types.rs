@@ -111,6 +111,8 @@ impl HookEvent {
                 | Self::StopFailure
                 | Self::TaskCreated
                 | Self::TaskCompleted
+                | Self::ConfigChange
+                | Self::CwdChanged
         )
     }
 }
@@ -338,6 +340,23 @@ pub enum HookInput {
         task_id: i64,
         content: String,
     },
+    ConfigChange {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        /// Config category (matcher target): `hooks` / `permission` /
+        /// `web_search` / `app` / …
+        category: String,
+        /// Who triggered the change (`user` / `skill` / `reload` / …).
+        source: String,
+    },
+    CwdChanged {
+        #[serde(flatten)]
+        common: CommonHookInput,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        old_cwd: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_cwd: Option<String>,
+    },
 }
 
 impl HookInput {
@@ -359,7 +378,9 @@ impl HookInput {
             | Self::Stop { common, .. }
             | Self::StopFailure { common, .. }
             | Self::TaskCreated { common, .. }
-            | Self::TaskCompleted { common, .. } => common,
+            | Self::TaskCompleted { common, .. }
+            | Self::ConfigChange { common, .. }
+            | Self::CwdChanged { common, .. } => common,
         }
     }
 
@@ -384,13 +405,16 @@ impl HookInput {
             }
             // StopFailure matches on its failure category (`provider_failed`, …).
             Self::StopFailure { reason, .. } => Some(reason.as_str()),
+            // ConfigChange matches on the config category (`hooks`, `permission`, …).
+            Self::ConfigChange { category, .. } => Some(category.as_str()),
             // No matcher target → only wildcard matchers fire. Task content is
             // freeform, so Task events match wildcard only.
             Self::UserPromptSubmit { .. }
             | Self::PostToolBatch { .. }
             | Self::Stop { .. }
             | Self::TaskCreated { .. }
-            | Self::TaskCompleted { .. } => None,
+            | Self::TaskCompleted { .. }
+            | Self::CwdChanged { .. } => None,
         }
     }
 }

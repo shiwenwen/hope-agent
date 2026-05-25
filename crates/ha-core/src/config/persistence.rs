@@ -142,6 +142,9 @@ where
     let mut snapshot = (*cached_config()).clone();
     let result = f(&mut snapshot)?;
     save_config(&snapshot)?;
+    // ConfigChange hook (observation): fire with the real category + source
+    // (`save_config`'s EventBus emit only carries the generic `app` category).
+    crate::hooks::fire_config_change(reason.0, reason.1);
     Ok(result)
 }
 

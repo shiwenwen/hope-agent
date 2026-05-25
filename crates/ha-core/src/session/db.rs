@@ -2156,10 +2156,20 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Read the prior value so the CwdChanged hook only fires on a real change.
+        let old: Option<String> = conn
+            .query_row(
+                "SELECT working_dir FROM sessions WHERE id = ?1",
+                params![session_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten();
         conn.execute(
             "UPDATE sessions SET working_dir = ?1 WHERE id = ?2",
             params![canonical, session_id],
         )?;
+        drop(conn);
         app_info!(
             "session",
             "update_session_working_dir",
@@ -2167,6 +2177,10 @@ impl SessionDB {
             session_id,
             canonical.as_deref().unwrap_or("<none>")
         );
+        // CwdChanged hook (observation): only when the path actually changed.
+        if old != canonical {
+            crate::hooks::fire_cwd_changed(session_id, old.as_deref(), canonical.as_deref());
+        }
         Ok(canonical)
     }
 
