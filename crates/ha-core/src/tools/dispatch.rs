@@ -468,13 +468,16 @@ mod tests {
         assert!(ops.contains(&"perform_action"));
         assert!(ops.contains(&"click"));
         assert!(ops.contains(&"click_point"));
+        assert!(ops.contains(&"move_cursor"));
         assert!(ops.contains(&"quit"));
         assert!(ops.contains(&"close"));
         assert!(ops.contains(&"double_click"));
         assert!(ops.contains(&"right_click"));
         assert!(ops.contains(&"type"));
         assert!(ops.contains(&"paste"));
+        assert!(ops.contains(&"press"));
         assert!(ops.contains(&"drag"));
+        assert!(ops.contains(&"swipe"));
         assert!(ops.contains(&"get"));
         assert!(ops.contains(&"set"));
         assert!(ops.contains(&"clear"));

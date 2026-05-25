@@ -23,10 +23,10 @@
   - Hope Agent 已完成：`dialog.list/click/input/file`，其中 `list` 返回按钮与字段摘要，`click` 按按钮文本点击，`input` 支持 field/fieldIndex/elementId 填写文本字段，`file` 支持文件选择器路径/文件名输入与指定按钮确认。
   - 已知边界：`dialog.file` v1 采用 macOS Go to Folder 快捷键 + AX filename field，未实现 Peekaboo 那套 Show Details/路径字段多策略验证。
 
-- [ ] 5. 人类化输入/鼠标动作
+- [x] 5. 人类化输入/鼠标动作
   - Peekaboo 有 `press`、`swipe`、move cursor、drag with duration/steps、人类输入 delay/profile。
-  - Hope Agent 现状：已有 `hotkey` / `type` / `paste` / `scroll` / `drag` / `click_point`。
-  - 缺口：专门的 cursor move、swipe、平滑鼠标轨迹、带节奏 typing profile。
+  - Hope Agent 已完成：`act.move_cursor`、`act.press`、`act.swipe`、`act.drag`/`act.move_cursor`/`act.swipe` 的 `durationMs` + `steps` + `motionProfile=linear|human` 轨迹控制，drag/swipe 坐标或 AX 元素双端点、拖拽期间 `modifiers`，以及 `act.type` 的 `typingProfile` / `typingDelayMs` 逐字符 CGEvent 输入。
+  - 已知边界：默认 `act.type` 仍保持 `AXSetValue` 语义，只有显式传 typing profile/delay 才走真实键盘事件；swipe 是鼠标拖拽语义，不模拟触控板惯性手势。
 
 - [ ] 6. Web 内容聚焦 fallback
   - Peekaboo `see` 对浏览器页面没有暴露 text field 时，会尝试聚焦 dominant `AXWebArea` 后重新遍历。

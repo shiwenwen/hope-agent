@@ -46,6 +46,12 @@ const HARD_CLIPBOARD_SET_CHARS: usize = 200_000;
 const DEFAULT_VISUAL_LIMIT: usize = 5;
 const DEFAULT_UI_MAP_LIMIT: usize = 80;
 const HARD_UI_MAP_LIMIT: usize = 200;
+const HARD_MOTION_STEPS: usize = 240;
+const HARD_MOTION_DURATION_MS: u64 = 10_000;
+const HARD_TYPING_DELAY_MS: u64 = 1_000;
+const HARD_PRESS_REPEAT: usize = 100;
+const HARD_PRESS_INTERVAL_MS: u64 = 5_000;
+const HARD_PRESS_HOLD_MS: u64 = 10_000;
 pub const ALLOWED_PERFORM_AX_ACTIONS: &[&str] = &[
     "AXPress",
     "AXShowMenu",
@@ -1293,9 +1299,15 @@ pub struct MacControlActRequest {
     #[serde(default)]
     pub target: MacControlTargetQuery,
     #[serde(default)]
+    pub to_target: MacControlTargetQuery,
+    #[serde(default)]
     pub ax_action: Option<String>,
     #[serde(default)]
     pub text: Option<String>,
+    #[serde(default)]
+    pub typing_profile: Option<MacControlTypingProfile>,
+    #[serde(default)]
+    pub typing_delay_ms: Option<u64>,
     #[serde(default)]
     pub value: Option<String>,
     #[serde(default)]
@@ -1311,6 +1323,28 @@ pub struct MacControlActRequest {
     #[serde(default)]
     pub delta_y: Option<f64>,
     #[serde(default)]
+    pub from_x: Option<f64>,
+    #[serde(default)]
+    pub from_y: Option<f64>,
+    #[serde(default)]
+    pub to_x: Option<f64>,
+    #[serde(default)]
+    pub to_y: Option<f64>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub steps: Option<usize>,
+    #[serde(default)]
+    pub motion_profile: Option<MacControlMotionProfile>,
+    #[serde(default)]
+    pub modifiers: Vec<String>,
+    #[serde(default)]
+    pub repeat: Option<usize>,
+    #[serde(default)]
+    pub interval_ms: Option<u64>,
+    #[serde(default)]
+    pub hold_ms: Option<u64>,
+    #[serde(default)]
     pub include_snapshot: bool,
     #[serde(default = "default_snapshot_max_elements")]
     pub max_elements: usize,
@@ -1321,12 +1355,21 @@ pub struct MacControlActRequest {
 impl MacControlActRequest {
     pub fn clamped(mut self) -> Self {
         self.target = self.target.normalized();
+        self.to_target = self.to_target.normalized();
         self.ax_action = normalize_optional_string(self.ax_action);
         self.text = normalize_optional_string(self.text);
+        self.typing_delay_ms = self
+            .typing_delay_ms
+            .map(|delay_ms| delay_ms.min(HARD_TYPING_DELAY_MS));
         self.value = normalize_optional_string(self.value);
         self.key = normalize_optional_string(self.key);
         self.keys = self
             .keys
+            .into_iter()
+            .filter_map(|value| normalize_optional_string(Some(value)))
+            .collect();
+        self.modifiers = self
+            .modifiers
             .into_iter()
             .filter_map(|value| normalize_optional_string(Some(value)))
             .collect();
@@ -1336,10 +1379,38 @@ impl MacControlActRequest {
         if self.max_depth == 0 {
             self.max_depth = DEFAULT_SNAPSHOT_MAX_DEPTH;
         }
+        self.duration_ms = self
+            .duration_ms
+            .map(|duration_ms| duration_ms.min(HARD_MOTION_DURATION_MS));
+        self.steps = self
+            .steps
+            .and_then(|steps| (steps > 0).then_some(steps.min(HARD_MOTION_STEPS)));
+        self.repeat = self
+            .repeat
+            .and_then(|repeat| (repeat > 0).then_some(repeat.min(HARD_PRESS_REPEAT)));
+        self.interval_ms = self
+            .interval_ms
+            .map(|interval_ms| interval_ms.min(HARD_PRESS_INTERVAL_MS));
+        self.hold_ms = self.hold_ms.map(|hold_ms| hold_ms.min(HARD_PRESS_HOLD_MS));
         self.max_elements = self.max_elements.min(HARD_SNAPSHOT_MAX_ELEMENTS);
         self.max_depth = self.max_depth.min(HARD_SNAPSHOT_MAX_DEPTH);
         self
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlTypingProfile {
+    Instant,
+    Steady,
+    Human,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlMotionProfile {
+    Linear,
+    Human,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -1350,14 +1421,17 @@ pub enum MacControlActOp {
     DryRun,
     PerformAction,
     ClickPoint,
+    MoveCursor,
     DoubleClick,
     RightClick,
     Type,
     Paste,
     SetValue,
     Hotkey,
+    Press,
     Scroll,
     Drag,
+    Swipe,
 }
 
 pub fn normalize_perform_ax_action(action: &str) -> Option<&'static str> {
@@ -3112,6 +3186,21 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                 return Some("mac_control act.click_point does not accept target; use act.click for AX element targets.".to_string());
             }
         }
+        MacControlActOp::MoveCursor => {
+            let has_point = request.x.is_some() || request.y.is_some();
+            let has_target = !request.target.is_empty();
+            if !has_target && (request.x.is_none() || request.y.is_none()) {
+                return Some(
+                    "mac_control act.move_cursor requires both x and y, or a target.".to_string(),
+                );
+            }
+            if has_target && has_point {
+                return Some(
+                    "mac_control act.move_cursor accepts either target or x/y, not both."
+                        .to_string(),
+                );
+            }
+        }
         MacControlActOp::DoubleClick | MacControlActOp::RightClick => {
             if request.target.is_empty() {
                 return Some(format!(
@@ -3141,21 +3230,108 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                 return Some("mac_control act.hotkey requires key or keys.".to_string());
             }
         }
+        MacControlActOp::Press => {
+            if request.key.is_none() && request.keys.is_empty() {
+                return Some("mac_control act.press requires key or keys.".to_string());
+            }
+        }
         MacControlActOp::Scroll => {
             if request.delta_x.unwrap_or(0.0) == 0.0 && request.delta_y.unwrap_or(0.0) == 0.0 {
                 return Some("mac_control act.scroll requires deltaX or deltaY.".to_string());
             }
         }
         MacControlActOp::Drag => {
-            if request.target.is_empty() {
+            let has_target_source = !request.target.is_empty();
+            let has_point_source = request.from_x.is_some() || request.from_y.is_some();
+            if !has_target_source && (request.from_x.is_none() || request.from_y.is_none()) {
                 return Some(
-                    "mac_control act.drag requires a source target; x/y are the destination point."
+                    "mac_control act.drag requires a source target or fromX/fromY.".to_string(),
+                );
+            }
+            if has_target_source && has_point_source {
+                return Some(
+                    "mac_control act.drag accepts either source target or fromX/fromY, not both."
                         .to_string(),
                 );
             }
-            if request.x.is_none() || request.y.is_none() {
+            let has_xy_destination = request.x.is_some() || request.y.is_some();
+            let has_to_point = request.to_x.is_some() || request.to_y.is_some();
+            let has_to_target = !request.to_target.is_empty();
+            let destination_count = usize::from(has_xy_destination)
+                + usize::from(has_to_point)
+                + usize::from(has_to_target);
+            if destination_count == 0 {
                 return Some(
-                    "mac_control act.drag requires destination x and y in macOS screen points."
+                    "mac_control act.drag requires destination x/y, toX/toY, or toTarget."
+                        .to_string(),
+                );
+            }
+            if destination_count > 1 {
+                return Some(
+                    "mac_control act.drag accepts only one destination: x/y, toX/toY, or toTarget."
+                        .to_string(),
+                );
+            }
+            if has_xy_destination && (request.x.is_none() || request.y.is_none()) {
+                return Some(
+                    "mac_control act.drag destination x/y requires both x and y.".to_string(),
+                );
+            }
+            if has_to_point && (request.to_x.is_none() || request.to_y.is_none()) {
+                return Some(
+                    "mac_control act.drag destination toX/toY requires both toX and toY."
+                        .to_string(),
+                );
+            }
+        }
+        MacControlActOp::Swipe => {
+            let has_point = request.x.is_some() || request.y.is_some();
+            let has_from_point = request.from_x.is_some() || request.from_y.is_some();
+            let has_target = !request.target.is_empty();
+            let source_count =
+                usize::from(has_target) + usize::from(has_point) + usize::from(has_from_point);
+            if source_count == 0 {
+                return Some(
+                    "mac_control act.swipe requires start x/y, fromX/fromY, or a target."
+                        .to_string(),
+                );
+            }
+            if source_count > 1 {
+                return Some(
+                    "mac_control act.swipe accepts only one source: target, x/y, or fromX/fromY."
+                        .to_string(),
+                );
+            }
+            if has_point && (request.x.is_none() || request.y.is_none()) {
+                return Some("mac_control act.swipe start x/y requires both x and y.".to_string());
+            }
+            if has_from_point && (request.from_x.is_none() || request.from_y.is_none()) {
+                return Some(
+                    "mac_control act.swipe start fromX/fromY requires both fromX and fromY."
+                        .to_string(),
+                );
+            }
+            let has_delta =
+                request.delta_x.unwrap_or(0.0) != 0.0 || request.delta_y.unwrap_or(0.0) != 0.0;
+            let has_to_point = request.to_x.is_some() || request.to_y.is_some();
+            let has_to_target = !request.to_target.is_empty();
+            let destination_count =
+                usize::from(has_delta) + usize::from(has_to_point) + usize::from(has_to_target);
+            if destination_count == 0 {
+                return Some(
+                    "mac_control act.swipe requires deltaX/deltaY, toX/toY, or toTarget."
+                        .to_string(),
+                );
+            }
+            if destination_count > 1 {
+                return Some(
+                    "mac_control act.swipe accepts only one destination: deltaX/deltaY, toX/toY, or toTarget."
+                        .to_string(),
+                );
+            }
+            if has_to_point && (request.to_x.is_none() || request.to_y.is_none()) {
+                return Some(
+                    "mac_control act.swipe destination toX/toY requires both toX and toY."
                         .to_string(),
                 );
             }
@@ -3170,14 +3346,17 @@ fn act_op_name(op: MacControlActOp) -> &'static str {
         MacControlActOp::DryRun => "dry_run",
         MacControlActOp::PerformAction => "perform_action",
         MacControlActOp::ClickPoint => "click_point",
+        MacControlActOp::MoveCursor => "move_cursor",
         MacControlActOp::DoubleClick => "double_click",
         MacControlActOp::RightClick => "right_click",
         MacControlActOp::Type => "type",
         MacControlActOp::Paste => "paste",
         MacControlActOp::SetValue => "set_value",
         MacControlActOp::Hotkey => "hotkey",
+        MacControlActOp::Press => "press",
         MacControlActOp::Scroll => "scroll",
         MacControlActOp::Drag => "drag",
+        MacControlActOp::Swipe => "swipe",
     }
 }
 
@@ -5504,6 +5683,37 @@ mod tests {
         .clamped();
         assert!(validate_act_request(&explicit_origin_click).is_none());
 
+        let move_cursor = MacControlActRequest {
+            op: MacControlActOp::MoveCursor,
+            x: Some(0.0),
+            y: Some(0.0),
+            steps: Some(999),
+            duration_ms: Some(99_999),
+            motion_profile: Some(MacControlMotionProfile::Human),
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(move_cursor.steps, Some(HARD_MOTION_STEPS));
+        assert_eq!(move_cursor.duration_ms, Some(HARD_MOTION_DURATION_MS));
+        assert_eq!(
+            move_cursor.motion_profile,
+            Some(MacControlMotionProfile::Human)
+        );
+        assert!(validate_act_request(&move_cursor).is_none());
+
+        let ambiguous_move_cursor = MacControlActRequest {
+            op: MacControlActOp::MoveCursor,
+            target: MacControlTargetQuery {
+                element_id: Some("el_20".to_string()),
+                ..Default::default()
+            },
+            x: Some(0.0),
+            y: Some(0.0),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&ambiguous_move_cursor).is_some());
+
         let targeted_click = MacControlActRequest {
             op: MacControlActOp::Click,
             target: MacControlTargetQuery {
@@ -5633,6 +5843,30 @@ mod tests {
         .clamped();
         assert!(validate_act_request(&right_click_without_target).is_some());
 
+        let press = MacControlActRequest {
+            op: MacControlActOp::Press,
+            key: Some(" enter ".to_string()),
+            modifiers: vec![" cmd ".to_string(), "".to_string()],
+            repeat: Some(999),
+            interval_ms: Some(99_999),
+            hold_ms: Some(99_999),
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(press.key.as_deref(), Some("enter"));
+        assert_eq!(press.modifiers, vec!["cmd".to_string()]);
+        assert_eq!(press.repeat, Some(HARD_PRESS_REPEAT));
+        assert_eq!(press.interval_ms, Some(HARD_PRESS_INTERVAL_MS));
+        assert_eq!(press.hold_ms, Some(HARD_PRESS_HOLD_MS));
+        assert!(validate_act_request(&press).is_none());
+
+        let press_without_key = MacControlActRequest {
+            op: MacControlActOp::Press,
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&press_without_key).is_some());
+
         let drag = MacControlActRequest {
             op: MacControlActOp::Drag,
             target: MacControlTargetQuery {
@@ -5645,6 +5879,81 @@ mod tests {
         }
         .clamped();
         assert!(validate_act_request(&drag).is_none());
+
+        let point_to_target_drag = MacControlActRequest {
+            op: MacControlActOp::Drag,
+            from_x: Some(10.0),
+            from_y: Some(20.0),
+            to_target: MacControlTargetQuery {
+                element_id: Some("el_21".to_string()),
+                ..Default::default()
+            },
+            modifiers: vec!["shift".to_string()],
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&point_to_target_drag).is_none());
+
+        let ambiguous_drag_destination = MacControlActRequest {
+            op: MacControlActOp::Drag,
+            from_x: Some(10.0),
+            from_y: Some(20.0),
+            x: Some(100.0),
+            y: Some(200.0),
+            to_x: Some(120.0),
+            to_y: Some(220.0),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&ambiguous_drag_destination).is_some());
+
+        let swipe = MacControlActRequest {
+            op: MacControlActOp::Swipe,
+            x: Some(0.0),
+            y: Some(0.0),
+            delta_x: Some(50.0),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&swipe).is_none());
+
+        let swipe_to_target = MacControlActRequest {
+            op: MacControlActOp::Swipe,
+            from_x: Some(0.0),
+            from_y: Some(0.0),
+            to_target: MacControlTargetQuery {
+                element_id: Some("el_21".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&swipe_to_target).is_none());
+
+        let swipe_without_delta = MacControlActRequest {
+            op: MacControlActOp::Swipe,
+            target: MacControlTargetQuery {
+                element_id: Some("el_20".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&swipe_without_delta).is_some());
+
+        let ambiguous_swipe_destination = MacControlActRequest {
+            op: MacControlActOp::Swipe,
+            x: Some(0.0),
+            y: Some(0.0),
+            delta_x: Some(20.0),
+            to_target: MacControlTargetQuery {
+                element_id: Some("el_21".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&ambiguous_swipe_destination).is_some());
 
         let menu = MacControlMenuRequest {
             op: MacControlMenuOp::Click,

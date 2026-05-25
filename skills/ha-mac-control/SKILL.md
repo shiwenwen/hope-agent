@@ -85,7 +85,11 @@ wait or snapshot                       # verify the expected change
 - Use `act.perform_action` only when the target element advertises the intended AX action in `actions[]`. It requires `target` and `axAction`, and supports only the built-in whitelist such as `AXPress`, `AXShowMenu`, `AXIncrement`, and `AXDecrement`.
 - `act.click` is for AX targets only. It requires `target` and should not consume raw `x/y`.
 - Use `act.click_point` only when the user explicitly wants a coordinate click or AX cannot represent the target. This includes valid coordinates like `(0, 0)`.
+- Use `act.move_cursor` when the user wants the pointer moved without clicking. It accepts either `x/y` or a target, and can smooth the path with `durationMs` / `steps` / `motionProfile`.
+- Use `act.press` for single-key or repeated key presses. Use `hotkey` for one chord such as Cmd+N; use `press` when you need sequential keys, repeat, holdMs, intervalMs, or shared modifiers.
+- Use `act.swipe` for smooth pointer drag gestures from `x/y`, `fromX/fromY`, or a target to `deltaX/deltaY`, `toX/toY`, or `toTarget`; use `act.drag` for deliberate drag/drop between coordinate or AX element endpoints. Pass `motionProfile="human"` only when the gesture benefits from eased, less mechanical pointer motion.
 - `act.type` and `act.set_value` should target text input roles (`AXTextArea`, `AXTextField`, `AXSearchField`, etc.).
+- `act.type` defaults to AXSetValue. Only pass `typingProfile` / `typingDelayMs` when the app needs real character-by-character keyboard input.
 - Use `act.paste` for long text or apps that do not accept `AXValue` reliably. It stages text on the pasteboard, invokes paste, and reports only clipboard restore status.
 - `act`, `wait`, and `dialog` results are compact by default and do not return a full AX snapshot. Set `includeSnapshot=true` only when full AX tree debugging is needed; otherwise verify with `wait`, `elements.find`, `windows.list`, or `dialog.inspect`.
 - Do not type passwords, OTPs, or private credentials unless the user explicitly supplied them in the current flow.
@@ -168,6 +172,6 @@ Treat these as higher risk and be extra explicit about the target:
 - `menu.click` on destructive menu items
 - `clipboard.get` / `clipboard.set` / `clipboard.clear`
 - `dialog.accept` / explicit discard buttons
-- raw coordinate clicks and drags
+- raw coordinate clicks, cursor moves, swipes, and drags
 
 The approval system will enforce policy, but the model should still choose precise targets and explain uncertainty before asking the user to approve.

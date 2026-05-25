@@ -31,12 +31,13 @@ mod imp {
         MacControlElementCandidate, MacControlElementSummary, MacControlElementsRequest,
         MacControlElementsResult, MacControlFramePayload, MacControlInstalledApp,
         MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuRequest, MacControlMenuResult,
-        MacControlMenuScope, MacControlOcrRawTextBlock, MacControlOcrRecognitionLevel,
-        MacControlOcrRequest, MacControlRunningApp, MacControlScreenshotSummary,
-        MacControlScreenshotTarget, MacControlSnapshot, MacControlSnapshotRequest,
-        MacControlSpaceDirection, MacControlSpaceSummary, MacControlSpacesDisplay,
-        MacControlSpacesOp, MacControlSpacesRequest, MacControlSpacesResult, MacControlStringMatch,
-        MacControlTargetQuery, MacControlWindowSummary, MacControlWindowsOp,
+        MacControlMenuScope, MacControlMotionProfile, MacControlOcrRawTextBlock,
+        MacControlOcrRecognitionLevel, MacControlOcrRequest, MacControlRunningApp,
+        MacControlScreenshotSummary, MacControlScreenshotTarget, MacControlSnapshot,
+        MacControlSnapshotRequest, MacControlSpaceDirection, MacControlSpaceSummary,
+        MacControlSpacesDisplay, MacControlSpacesOp, MacControlSpacesRequest,
+        MacControlSpacesResult, MacControlStringMatch, MacControlTargetQuery,
+        MacControlTypingProfile, MacControlWindowSummary, MacControlWindowsOp,
         MacControlWindowsRequest, MacControlWindowsResult, MacControlWindowsScope,
     };
     use image::codecs::jpeg::JpegEncoder;
@@ -195,6 +196,7 @@ mod imp {
     const K_CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
     const K_CG_EVENT_RIGHT_MOUSE_DOWN: u32 = 3;
     const K_CG_EVENT_RIGHT_MOUSE_UP: u32 = 4;
+    const K_CG_EVENT_MOUSE_MOVED: u32 = 5;
     const K_CG_EVENT_LEFT_MOUSE_DRAGGED: u32 = 6;
     const K_CG_MOUSE_BUTTON_LEFT: u32 = 0;
     const K_CG_MOUSE_BUTTON_RIGHT: u32 = 1;
@@ -243,6 +245,26 @@ mod imp {
         flag: u64,
     }
 
+    #[derive(Clone, Copy)]
+    struct MotionProfile {
+        steps: usize,
+        duration_ms: u64,
+        kind: MacControlMotionProfile,
+    }
+
+    #[derive(Clone, Copy)]
+    struct TypingMotionProfile {
+        base_delay_ms: u64,
+        human_jitter: bool,
+    }
+
+    const DEFAULT_MOTION_STEPS: usize = 12;
+    const DEFAULT_MOTION_DURATION_MS: u64 = 180;
+    const DEFAULT_DRAG_STEPS: usize = 5;
+    const DEFAULT_DRAG_DURATION_MS: u64 = 100;
+    const STEADY_TYPING_DELAY_MS: u64 = 25;
+    const HUMAN_TYPING_DELAY_MS: u64 = 45;
+
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         fn AXUIElementCreateSystemWide() -> AXUIElementRef;
@@ -274,6 +296,8 @@ mod imp {
             virtual_key: u16,
             key_down: bool,
         ) -> CGEventRef;
+        fn CGEventCreate(source: CGEventSourceRef) -> CGEventRef;
+        fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
         fn CGEventSourceCreate(state_id: i32) -> CGEventSourceRef;
         fn CGEventCreateScrollWheelEvent(
             source: CGEventSourceRef,
@@ -284,6 +308,11 @@ mod imp {
         ) -> CGEventRef;
         fn CGEventSetFlags(event: CGEventRef, flags: u64);
         fn CGEventSetIntegerValueField(event: CGEventRef, field: u32, value: i64);
+        fn CGEventKeyboardSetUnicodeString(
+            event: CGEventRef,
+            string_length: CFIndex,
+            unicode_string: *const u16,
+        );
         fn CGEventPost(tap: u32, event: CGEventRef);
     }
 
@@ -2348,6 +2377,34 @@ mod imp {
                 post_mouse_click(screen_point(x, y, "act.click_point")?, MouseButton::Left)?;
                 "CGEventClick".to_string()
             }
+            MacControlActOp::MoveCursor => {
+                let point = if target_query_is_empty(&request.target) {
+                    let (Some(x), Some(y)) = (request.x, request.y) else {
+                        return Err("act.move_cursor requires x and y or a target.".to_string());
+                    };
+                    screen_point(x, y, "act.move_cursor")?
+                } else {
+                    if request.x.is_some() || request.y.is_some() {
+                        return Err(
+                            "act.move_cursor accepts either target or x/y, not both.".to_string()
+                        );
+                    }
+                    let (_element, summary, _) = resolve_element(
+                        &request.target,
+                        request.max_elements,
+                        request.max_depth,
+                        "act.move_cursor",
+                    )?;
+                    let point = point_for_element(&summary, "act.move_cursor target")?;
+                    target = Some(summary);
+                    point
+                };
+                post_mouse_move(
+                    point,
+                    motion_profile(&request, DEFAULT_MOTION_STEPS, DEFAULT_MOTION_DURATION_MS),
+                )?;
+                "CGEventMoveCursor".to_string()
+            }
             MacControlActOp::DoubleClick => {
                 if target_query_is_empty(&request.target) {
                     return Err("act.double_click requires a target.".to_string());
@@ -2396,9 +2453,17 @@ mod imp {
                     )?;
                     (element, summary)
                 };
-                set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", text)?;
+                let execution =
+                    if request.typing_profile.is_some() || request.typing_delay_ms.is_some() {
+                        focus_text_element_for_paste(element.as_ptr() as AXUIElementRef, &summary)?;
+                        post_unicode_text(text, typing_motion_profile(&request))?;
+                        "CGEventUnicodeTyping"
+                    } else {
+                        set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", text)?;
+                        "AXSetValue"
+                    };
                 target = Some(summary);
-                "AXSetValue".to_string()
+                execution.to_string()
             }
             MacControlActOp::Paste => {
                 let text = request
@@ -2443,6 +2508,21 @@ mod imp {
                 post_hotkey(&keys)?;
                 "CGEventHotkey".to_string()
             }
+            MacControlActOp::Press => {
+                let keys = if request.keys.is_empty() {
+                    vec![request.key.clone().unwrap_or_default()]
+                } else {
+                    request.keys.clone()
+                };
+                post_press_sequence(
+                    &keys,
+                    &request.modifiers,
+                    request.repeat.unwrap_or(1),
+                    request.hold_ms.unwrap_or(20),
+                    request.interval_ms.unwrap_or(0),
+                )?;
+                "CGEventPress".to_string()
+            }
             MacControlActOp::Scroll => {
                 post_scroll(
                     request.delta_x.unwrap_or(0.0),
@@ -2451,23 +2531,30 @@ mod imp {
                 "CGEventScroll".to_string()
             }
             MacControlActOp::Drag => {
-                if target_query_is_empty(&request.target) {
-                    return Err("act.drag requires a source target.".to_string());
-                }
-                let (Some(x), Some(y)) = (request.x, request.y) else {
-                    return Err("act.drag requires destination x and y.".to_string());
-                };
-                let (_element, summary, _) = resolve_element(
-                    &request.target,
-                    request.max_elements,
-                    request.max_depth,
-                    "act.drag",
+                let (from, source_summary) = resolve_drag_source(&request)?;
+                let (to, destination_summary) = resolve_drag_destination(&request)?;
+                let modifiers = parse_modifier_keys(&request.modifiers, "act.drag modifiers")?;
+                post_mouse_drag(
+                    from,
+                    to,
+                    motion_profile(&request, DEFAULT_DRAG_STEPS, DEFAULT_DRAG_DURATION_MS),
+                    &modifiers,
                 )?;
-                let from = point_for_element(&summary, "act.drag source target")?;
-                let to = screen_point(x, y, "act.drag destination")?;
-                post_mouse_drag(from, to)?;
-                target = Some(summary);
+                target = source_summary.or(destination_summary);
                 "CGEventDrag".to_string()
+            }
+            MacControlActOp::Swipe => {
+                let (from, source_summary) = resolve_swipe_source(&request)?;
+                let (to, destination_summary) = resolve_swipe_destination(&request, from)?;
+                let modifiers = parse_modifier_keys(&request.modifiers, "act.swipe modifiers")?;
+                post_mouse_drag(
+                    from,
+                    to,
+                    motion_profile(&request, DEFAULT_MOTION_STEPS, DEFAULT_MOTION_DURATION_MS),
+                    &modifiers,
+                )?;
+                target = source_summary.or(destination_summary);
+                "CGEventSwipe".to_string()
             }
         };
         let snapshot = if request.op == MacControlActOp::DryRun || !request.include_snapshot {
@@ -4891,7 +4978,192 @@ mod imp {
         post_mouse_click_with_state(point, MouseButton::Left, 2)
     }
 
-    fn post_mouse_drag(from: CGPoint, to: CGPoint) -> Result<(), String> {
+    fn post_mouse_move(to: CGPoint, profile: MotionProfile) -> Result<(), String> {
+        let from = current_mouse_position()?;
+        for point in motion_points(from, to, profile) {
+            let moved = unsafe {
+                CGEventCreateMouseEvent(
+                    ptr::null(),
+                    K_CG_EVENT_MOUSE_MOVED,
+                    point,
+                    K_CG_MOUSE_BUTTON_LEFT,
+                )
+            };
+            let moved = CfOwned::new(moved as CFTypeRef)
+                .ok_or_else(|| "CGEventCreateMouseEvent(mouse moved) returned null.".to_string())?;
+            unsafe { CGEventPost(K_CG_HID_EVENT_TAP, moved.as_ptr()) };
+            sleep_motion_step(profile);
+        }
+        Ok(())
+    }
+
+    fn post_mouse_drag(
+        from: CGPoint,
+        to: CGPoint,
+        profile: MotionProfile,
+        modifiers: &[HotkeyModifier],
+    ) -> Result<(), String> {
+        let modifier_flags = modifier_flags(modifiers);
+        post_modifiers_down(modifiers)?;
+        let drag_result = post_mouse_drag_events(from, to, profile, modifier_flags);
+        let release_result = post_modifiers(modifiers, false);
+        drag_result.and(release_result)
+    }
+
+    fn resolve_drag_source(
+        request: &MacControlActRequest,
+    ) -> Result<(CGPoint, Option<MacControlElementSummary>), String> {
+        if !target_query_is_empty(&request.target) {
+            if request.from_x.is_some() || request.from_y.is_some() {
+                return Err(
+                    "act.drag accepts either source target or fromX/fromY, not both.".to_string(),
+                );
+            }
+            let (_element, summary, _) = resolve_element(
+                &request.target,
+                request.max_elements,
+                request.max_depth,
+                "act.drag source",
+            )?;
+            let point = point_for_element(&summary, "act.drag source target")?;
+            return Ok((point, Some(summary)));
+        }
+        let (Some(x), Some(y)) = (request.from_x, request.from_y) else {
+            return Err("act.drag requires a source target or fromX/fromY.".to_string());
+        };
+        Ok((screen_point(x, y, "act.drag source")?, None))
+    }
+
+    fn resolve_drag_destination(
+        request: &MacControlActRequest,
+    ) -> Result<(CGPoint, Option<MacControlElementSummary>), String> {
+        if !target_query_is_empty(&request.to_target) {
+            if request.x.is_some()
+                || request.y.is_some()
+                || request.to_x.is_some()
+                || request.to_y.is_some()
+            {
+                return Err(
+                    "act.drag accepts only one destination: x/y, toX/toY, or toTarget.".to_string(),
+                );
+            }
+            return resolve_motion_target(request, &request.to_target, "act.drag destination");
+        }
+        if request.to_x.is_some() || request.to_y.is_some() {
+            let (Some(x), Some(y)) = (request.to_x, request.to_y) else {
+                return Err("act.drag destination toX/toY requires both toX and toY.".to_string());
+            };
+            if request.x.is_some() || request.y.is_some() {
+                return Err(
+                    "act.drag accepts only one destination: x/y, toX/toY, or toTarget.".to_string(),
+                );
+            }
+            return Ok((screen_point(x, y, "act.drag destination")?, None));
+        }
+        let (Some(x), Some(y)) = (request.x, request.y) else {
+            return Err("act.drag requires destination x/y, toX/toY, or toTarget.".to_string());
+        };
+        Ok((screen_point(x, y, "act.drag destination")?, None))
+    }
+
+    fn resolve_swipe_source(
+        request: &MacControlActRequest,
+    ) -> Result<(CGPoint, Option<MacControlElementSummary>), String> {
+        if !target_query_is_empty(&request.target) {
+            if request.x.is_some()
+                || request.y.is_some()
+                || request.from_x.is_some()
+                || request.from_y.is_some()
+            {
+                return Err(
+                    "act.swipe accepts only one source: target, x/y, or fromX/fromY.".to_string(),
+                );
+            }
+            return resolve_motion_target(request, &request.target, "act.swipe source");
+        }
+        if request.from_x.is_some() || request.from_y.is_some() {
+            let (Some(x), Some(y)) = (request.from_x, request.from_y) else {
+                return Err(
+                    "act.swipe start fromX/fromY requires both fromX and fromY.".to_string()
+                );
+            };
+            if request.x.is_some() || request.y.is_some() {
+                return Err(
+                    "act.swipe accepts only one source: target, x/y, or fromX/fromY.".to_string(),
+                );
+            }
+            return Ok((screen_point(x, y, "act.swipe source")?, None));
+        }
+        let (Some(x), Some(y)) = (request.x, request.y) else {
+            return Err("act.swipe requires start x/y, fromX/fromY, or a target.".to_string());
+        };
+        Ok((screen_point(x, y, "act.swipe source")?, None))
+    }
+
+    fn resolve_swipe_destination(
+        request: &MacControlActRequest,
+        from: CGPoint,
+    ) -> Result<(CGPoint, Option<MacControlElementSummary>), String> {
+        if !target_query_is_empty(&request.to_target) {
+            if request.delta_x.unwrap_or(0.0) != 0.0
+                || request.delta_y.unwrap_or(0.0) != 0.0
+                || request.to_x.is_some()
+                || request.to_y.is_some()
+            {
+                return Err(
+                    "act.swipe accepts only one destination: deltaX/deltaY, toX/toY, or toTarget."
+                        .to_string(),
+                );
+            }
+            return resolve_motion_target(request, &request.to_target, "act.swipe destination");
+        }
+        if request.to_x.is_some() || request.to_y.is_some() {
+            let (Some(x), Some(y)) = (request.to_x, request.to_y) else {
+                return Err("act.swipe destination toX/toY requires both toX and toY.".to_string());
+            };
+            if request.delta_x.unwrap_or(0.0) != 0.0 || request.delta_y.unwrap_or(0.0) != 0.0 {
+                return Err(
+                    "act.swipe accepts only one destination: deltaX/deltaY, toX/toY, or toTarget."
+                        .to_string(),
+                );
+            }
+            return Ok((screen_point(x, y, "act.swipe destination")?, None));
+        }
+        let delta_x = request.delta_x.unwrap_or(0.0);
+        let delta_y = request.delta_y.unwrap_or(0.0);
+        if delta_x == 0.0 && delta_y == 0.0 {
+            return Err("act.swipe requires deltaX/deltaY, toX/toY, or toTarget.".to_string());
+        }
+        Ok((
+            CGPoint {
+                x: from.x + delta_x,
+                y: from.y + delta_y,
+            },
+            None,
+        ))
+    }
+
+    fn resolve_motion_target(
+        request: &MacControlActRequest,
+        target_query: &MacControlTargetQuery,
+        context: &str,
+    ) -> Result<(CGPoint, Option<MacControlElementSummary>), String> {
+        let (_element, summary, _) = resolve_element(
+            target_query,
+            request.max_elements,
+            request.max_depth,
+            context,
+        )?;
+        let point = point_for_element(&summary, context)?;
+        Ok((point, Some(summary)))
+    }
+
+    fn post_mouse_drag_events(
+        from: CGPoint,
+        to: CGPoint,
+        profile: MotionProfile,
+        modifier_flags: u64,
+    ) -> Result<(), String> {
         let down = unsafe {
             CGEventCreateMouseEvent(
                 ptr::null(),
@@ -4902,14 +5174,12 @@ mod imp {
         };
         let down = CfOwned::new(down as CFTypeRef)
             .ok_or_else(|| "CGEventCreateMouseEvent(drag down) returned null.".to_string())?;
-        unsafe { CGEventPost(K_CG_HID_EVENT_TAP, down.as_ptr()) };
+        unsafe {
+            CGEventSetFlags(down.as_ptr(), modifier_flags);
+            CGEventPost(K_CG_HID_EVENT_TAP, down.as_ptr());
+        }
 
-        for idx in 1..=5 {
-            let ratio = f64::from(idx) / 5.0;
-            let point = CGPoint {
-                x: from.x + (to.x - from.x) * ratio,
-                y: from.y + (to.y - from.y) * ratio,
-            };
+        for point in motion_points(from, to, profile) {
             let dragged = unsafe {
                 CGEventCreateMouseEvent(
                     ptr::null(),
@@ -4921,8 +5191,11 @@ mod imp {
             let dragged = CfOwned::new(dragged as CFTypeRef).ok_or_else(|| {
                 "CGEventCreateMouseEvent(left dragged) returned null.".to_string()
             })?;
-            unsafe { CGEventPost(K_CG_HID_EVENT_TAP, dragged.as_ptr()) };
-            thread::sleep(Duration::from_millis(20));
+            unsafe {
+                CGEventSetFlags(dragged.as_ptr(), modifier_flags);
+                CGEventPost(K_CG_HID_EVENT_TAP, dragged.as_ptr());
+            };
+            sleep_motion_step(profile);
         }
 
         let up = unsafe {
@@ -4935,8 +5208,264 @@ mod imp {
         };
         let up = CfOwned::new(up as CFTypeRef)
             .ok_or_else(|| "CGEventCreateMouseEvent(drag up) returned null.".to_string())?;
-        unsafe { CGEventPost(K_CG_HID_EVENT_TAP, up.as_ptr()) };
+        unsafe {
+            CGEventSetFlags(up.as_ptr(), modifier_flags);
+            CGEventPost(K_CG_HID_EVENT_TAP, up.as_ptr());
+        }
         Ok(())
+    }
+
+    fn current_mouse_position() -> Result<CGPoint, String> {
+        let event = unsafe { CGEventCreate(ptr::null()) };
+        let event = CfOwned::new(event as CFTypeRef)
+            .ok_or_else(|| "CGEventCreate(current mouse location) returned null.".to_string())?;
+        Ok(unsafe { CGEventGetLocation(event.as_ptr() as CGEventRef) })
+    }
+
+    fn motion_points(from: CGPoint, to: CGPoint, profile: MotionProfile) -> Vec<CGPoint> {
+        match profile.kind {
+            MacControlMotionProfile::Linear => linear_motion_points(from, to, profile.steps),
+            MacControlMotionProfile::Human => human_motion_points(from, to, profile.steps),
+        }
+    }
+
+    fn linear_motion_points(from: CGPoint, to: CGPoint, steps: usize) -> Vec<CGPoint> {
+        let steps = steps.max(1);
+        (1..=steps)
+            .map(|idx| {
+                let ratio = idx as f64 / steps as f64;
+                mix_point(from, to, ratio)
+            })
+            .collect()
+    }
+
+    fn human_motion_points(from: CGPoint, to: CGPoint, steps: usize) -> Vec<CGPoint> {
+        let steps = steps.max(1);
+        let distance = point_distance(from, to);
+        if steps <= 2 || distance <= f64::EPSILON {
+            return linear_motion_points(from, to, steps);
+        }
+
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        let unit_x = dx / distance;
+        let unit_y = dy / distance;
+        let normal_x = -unit_y;
+        let normal_y = unit_x;
+        let wobble_amplitude = (distance * 0.015).clamp(0.5, 6.0);
+        let overshoot = if distance >= 80.0 && steps >= 8 {
+            (distance * 0.025).clamp(2.0, 10.0)
+        } else {
+            0.0
+        };
+        let primary_to = CGPoint {
+            x: to.x + unit_x * overshoot,
+            y: to.y + unit_y * overshoot,
+        };
+        let primary_steps = if overshoot > 0.0 {
+            ((steps * 4) / 5).clamp(1, steps - 1)
+        } else {
+            steps
+        };
+        let mut points = Vec::with_capacity(steps);
+        for idx in 1..=primary_steps {
+            let t = idx as f64 / primary_steps as f64;
+            let eased = ease_in_out(t);
+            let envelope = 4.0 * t * (1.0 - t);
+            let wobble = deterministic_wobble(idx) * wobble_amplitude * envelope;
+            let base = mix_point(from, primary_to, eased);
+            points.push(CGPoint {
+                x: base.x + normal_x * wobble,
+                y: base.y + normal_y * wobble,
+            });
+        }
+
+        let correction_steps = steps - primary_steps;
+        for idx in 1..=correction_steps {
+            let t = idx as f64 / correction_steps as f64;
+            points.push(mix_point(primary_to, to, ease_out(t)));
+        }
+        if let Some(last) = points.last_mut() {
+            *last = to;
+        }
+        points
+    }
+
+    fn mix_point(from: CGPoint, to: CGPoint, ratio: f64) -> CGPoint {
+        CGPoint {
+            x: from.x + (to.x - from.x) * ratio,
+            y: from.y + (to.y - from.y) * ratio,
+        }
+    }
+
+    fn point_distance(from: CGPoint, to: CGPoint) -> f64 {
+        let dx = to.x - from.x;
+        let dy = to.y - from.y;
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    fn ease_in_out(t: f64) -> f64 {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    fn ease_out(t: f64) -> f64 {
+        let t = t.clamp(0.0, 1.0);
+        1.0 - (1.0 - t) * (1.0 - t)
+    }
+
+    fn deterministic_wobble(idx: usize) -> f64 {
+        (((idx * 37 + 17) % 101) as f64 / 50.0) - 1.0
+    }
+
+    fn motion_profile(
+        request: &MacControlActRequest,
+        default_steps: usize,
+        default_duration_ms: u64,
+    ) -> MotionProfile {
+        let steps = request.steps.unwrap_or(default_steps).max(1);
+        let duration_ms = request.duration_ms.unwrap_or(default_duration_ms);
+        let kind = request
+            .motion_profile
+            .unwrap_or(MacControlMotionProfile::Linear);
+        MotionProfile {
+            steps,
+            duration_ms,
+            kind,
+        }
+    }
+
+    fn sleep_motion_step(profile: MotionProfile) {
+        if profile.duration_ms == 0 {
+            return;
+        }
+        let delay_ms = profile.duration_ms / profile.steps.max(1) as u64;
+        if delay_ms > 0 {
+            thread::sleep(Duration::from_millis(delay_ms));
+        }
+    }
+
+    fn post_press_sequence(
+        keys: &[String],
+        modifiers: &[String],
+        repeat: usize,
+        hold_ms: u64,
+        interval_ms: u64,
+    ) -> Result<(), String> {
+        if keys.is_empty() {
+            return Err("act.press requires key or keys.".to_string());
+        }
+        let modifiers = parse_modifier_keys(modifiers, "act.press modifiers")?;
+        let key_codes = keys
+            .iter()
+            .map(|key| {
+                let key_name = key.to_ascii_lowercase();
+                key_code_for_press(&key_name)
+                    .ok_or_else(|| format!("Unsupported press key '{key}'."))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let repeat = repeat.max(1);
+        let flags = modifier_flags(&modifiers);
+        post_modifiers_down(&modifiers)?;
+        let sequence_result = (|| {
+            for repeat_idx in 0..repeat {
+                for (key_idx, key_code) in key_codes.iter().enumerate() {
+                    post_key_press(*key_code, flags, hold_ms)?;
+                    if interval_ms > 0 && (repeat_idx + 1 < repeat || key_idx + 1 < key_codes.len())
+                    {
+                        thread::sleep(Duration::from_millis(interval_ms));
+                    }
+                }
+            }
+            Ok(())
+        })();
+        let release_result = post_modifiers(&modifiers, false);
+        sequence_result.and(release_result)
+    }
+
+    fn post_key_press(key_code: u16, flags: u64, hold_ms: u64) -> Result<(), String> {
+        let source_owner = keyboard_event_source()?;
+        let source = source_owner.as_ptr() as CGEventSourceRef;
+        post_keyboard_event(source, key_code, true, flags)?;
+        if hold_ms > 0 {
+            thread::sleep(Duration::from_millis(hold_ms));
+        }
+        post_keyboard_event(source, key_code, false, flags)
+    }
+
+    fn post_modifiers_down(modifiers: &[HotkeyModifier]) -> Result<(), String> {
+        match post_modifiers(modifiers, true) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let _ = post_modifiers(modifiers, false);
+                Err(error)
+            }
+        }
+    }
+
+    fn post_modifiers(modifiers: &[HotkeyModifier], down: bool) -> Result<(), String> {
+        if modifiers.is_empty() {
+            return Ok(());
+        }
+        let source_owner = keyboard_event_source()?;
+        let source = source_owner.as_ptr() as CGEventSourceRef;
+        if down {
+            let mut active_flags = 0_u64;
+            for modifier in modifiers {
+                active_flags |= modifier.flag;
+                post_keyboard_event(source, modifier.key_code, true, active_flags)?;
+                thread::sleep(Duration::from_millis(8));
+            }
+        } else {
+            let mut active_flags = modifier_flags(modifiers);
+            for modifier in modifiers.iter().rev() {
+                active_flags &= !modifier.flag;
+                post_keyboard_event(source, modifier.key_code, false, active_flags)?;
+                thread::sleep(Duration::from_millis(8));
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_modifier_keys(keys: &[String], context: &str) -> Result<Vec<HotkeyModifier>, String> {
+        keys.iter()
+            .map(|key| {
+                modifier_for_key_name(&key.to_ascii_lowercase())
+                    .ok_or_else(|| format!("Unsupported {context} key '{key}'."))
+            })
+            .collect()
+    }
+
+    fn modifier_flags(modifiers: &[HotkeyModifier]) -> u64 {
+        modifiers
+            .iter()
+            .fold(0_u64, |flags, modifier| flags | modifier.flag)
+    }
+
+    fn modifier_for_key_name(key: &str) -> Option<HotkeyModifier> {
+        Some(match key {
+            "cmd" | "command" | "meta" => HotkeyModifier {
+                key_code: K_VK_COMMAND,
+                flag: K_CG_EVENT_FLAG_MASK_COMMAND,
+            },
+            "shift" => HotkeyModifier {
+                key_code: K_VK_SHIFT,
+                flag: K_CG_EVENT_FLAG_MASK_SHIFT,
+            },
+            "ctrl" | "control" => HotkeyModifier {
+                key_code: K_VK_CONTROL,
+                flag: K_CG_EVENT_FLAG_MASK_CONTROL,
+            },
+            "alt" | "option" => HotkeyModifier {
+                key_code: K_VK_OPTION,
+                flag: K_CG_EVENT_FLAG_MASK_ALTERNATE,
+            },
+            _ => return None,
+        })
+    }
+
+    fn key_code_for_press(key: &str) -> Option<u16> {
+        key_code_for(key).or_else(|| modifier_for_key_name(key).map(|modifier| modifier.key_code))
     }
 
     fn post_hotkey(keys: &[String]) -> Result<(), String> {
@@ -5035,8 +5564,8 @@ mod imp {
         modifiers: &[HotkeyModifier],
         flags: u64,
     ) -> Result<(), String> {
-        let source = keyboard_event_source()?;
-        let source = source.as_ptr() as CGEventSourceRef;
+        let source_owner = keyboard_event_source()?;
+        let source = source_owner.as_ptr() as CGEventSourceRef;
         let mut active_flags = 0_u64;
         for modifier in modifiers {
             active_flags |= modifier.flag;
@@ -5071,6 +5600,66 @@ mod imp {
             CGEventPost(K_CG_HID_EVENT_TAP, event.as_ptr());
         }
         Ok(())
+    }
+
+    fn post_unicode_text(text: &str, profile: TypingMotionProfile) -> Result<(), String> {
+        let source_owner = keyboard_event_source()?;
+        let source = source_owner.as_ptr() as CGEventSourceRef;
+        for (idx, ch) in text.chars().enumerate() {
+            let mut buf = [0_u16; 2];
+            let utf16 = ch.encode_utf16(&mut buf).to_vec();
+            post_unicode_key_event(source, &utf16, true)?;
+            post_unicode_key_event(source, &utf16, false)?;
+            sleep_typing_step(profile, idx);
+        }
+        Ok(())
+    }
+
+    fn post_unicode_key_event(
+        source: CGEventSourceRef,
+        utf16: &[u16],
+        key_down: bool,
+    ) -> Result<(), String> {
+        let event = unsafe { CGEventCreateKeyboardEvent(source, 0, key_down) };
+        let event = CfOwned::new(event as CFTypeRef)
+            .ok_or_else(|| "CGEventCreateKeyboardEvent(unicode) returned null.".to_string())?;
+        unsafe {
+            CGEventKeyboardSetUnicodeString(
+                event.as_ptr() as CGEventRef,
+                utf16.len() as CFIndex,
+                utf16.as_ptr(),
+            );
+            CGEventPost(K_CG_HID_EVENT_TAP, event.as_ptr());
+        }
+        Ok(())
+    }
+
+    fn typing_motion_profile(request: &MacControlActRequest) -> TypingMotionProfile {
+        let base_delay_ms = match request.typing_profile {
+            Some(MacControlTypingProfile::Instant) => 0,
+            Some(MacControlTypingProfile::Steady) => STEADY_TYPING_DELAY_MS,
+            Some(MacControlTypingProfile::Human) => HUMAN_TYPING_DELAY_MS,
+            None => request.typing_delay_ms.unwrap_or(0),
+        };
+        TypingMotionProfile {
+            base_delay_ms: request.typing_delay_ms.unwrap_or(base_delay_ms),
+            human_jitter: request.typing_profile == Some(MacControlTypingProfile::Human),
+        }
+    }
+
+    fn sleep_typing_step(profile: TypingMotionProfile, idx: usize) {
+        let mut delay_ms = profile.base_delay_ms;
+        if profile.human_jitter && delay_ms > 0 {
+            let jitter = ((idx as i64 * 17 + 11) % 23) - 11;
+            if jitter.is_negative() {
+                delay_ms = delay_ms.saturating_sub(jitter.unsigned_abs());
+            } else {
+                delay_ms = delay_ms.saturating_add(jitter as u64);
+            }
+        }
+        if delay_ms > 0 {
+            thread::sleep(Duration::from_millis(delay_ms));
+        }
     }
 
     fn keyboard_event_source() -> Result<CfOwned, String> {

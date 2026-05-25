@@ -209,17 +209,22 @@ Transport 结果类型：
 | `direction` | `"left" \| "right"` | `spaces.switch` 的相邻 Space 方向，映射到 Control+Left/Right |
 | `snapshotId` | string | `visual.point/ocr/find_text` 要解析的 snapshot id，来自 `visual.observe` 或 `snapshot includeScreenshot=true`；`ocr/find_text` 可省略以立即采集新截图 |
 | `coordinateSpace` | `"image_pixels" \| "screen_points"` | `visual.point` 的坐标空间，默认 `image_pixels` |
-| `x` / `y` | number | `visual.point` 待解析坐标、`windows.move` 目标位置、`act.click_point` 点击位置、`act.drag` 终点；合法 `0` 不得当缺省 |
+| `x` / `y` | number | `visual.point` 待解析坐标、`windows.move` 目标位置、`act.click_point` 点击位置、`act.move_cursor` 目标位置、`act.swipe` 起点、`act.drag` 终点；合法 `0` 不得当缺省 |
+| `fromX` / `fromY` / `toX` / `toY` | number | `act.drag` / `act.swipe` 的原始起点/终点坐标，用于无需 AX target 的端点 |
+| `toTarget` | object | `act.drag` / `act.swipe` 的终点 AX target，字段同 `target` |
 | `width` / `height` | number | `windows.resize` 目标尺寸 |
 | `text` | string | `visual.find_text` OCR 查询、`act.type` / `act.paste` 输入文本、`clipboard.set` 写入文本；目标文本匹配放在 `target.text` |
+| `typingProfile` / `typingDelayMs` | string / number | `act.type` 显式走逐字符 CGEvent 输入时的节奏配置；`instant/steady/human` 或每字符延迟 |
 | `textMatch` | `"exact" \| "contains"` | `visual.find_text` OCR 文本匹配策略，默认 `exact` |
 | `languages` | string[] | `visual.ocr/find_text` 可选 Vision 识别语言，例如 `zh-Hans`、`en-US`；省略时自动检测 |
 | `minConfidence` | number | `visual.ocr/find_text` OCR 置信度下限，范围 `0..1`，默认 `0` |
 | `recognitionLevel` | `"accurate" \| "fast"` | `visual.ocr/find_text` Vision 识别等级，默认 `accurate` |
 | `value` | string | `act.set_value` 写入值 |
 | `axAction` | string | `act.perform_action` 要执行的白名单 AX action；目标元素必须在 `actions[]` 中声明支持 |
-| `key` / `keys` | string / string[] | `act.hotkey` 单键或组合键 |
-| `deltaX` / `deltaY` | number | `act.scroll` 滚动增量 |
+| `key` / `keys` | string / string[] | `act.hotkey` 单键或组合键；`act.press` 单键或顺序按键 |
+| `modifiers` / `repeat` / `holdMs` / `intervalMs` | string[] / number | `act.press` 的修饰键、重复次数、按住时长、按键间隔；`act.drag` / `act.swipe` 可用 `modifiers` 在拖拽期间按住修饰键 |
+| `deltaX` / `deltaY` | number | `act.scroll` 滚动增量，或 `act.swipe` 从起点出发的移动距离 |
+| `durationMs` / `steps` / `motionProfile` | number / string | `act.move_cursor` / `act.drag` / `act.swipe` 平滑轨迹的时长、插值步数和轨迹类型；`motionProfile` 支持 `linear` / `human` |
 | `path` | string[] | `menu.click` 菜单路径 |
 | `buttonText` | string | `dialog.click/accept/dismiss/file` 指定按钮文案 |
 | `field` / `fieldIndex` | string / number | `dialog.input` 字段标签/元素 id 或 0-based 字段序号 |
@@ -354,14 +359,17 @@ OCR 规则：
 | `act.perform_action` | `action="act"`、`op="perform_action"`、`target`、`axAction` | `execution=<AX action>`、`performedAction=<AX action>`、`target?`、`snapshot?` | 对目标元素执行白名单命名 AX action；目标必须在 `actions[]` 中声明支持该 action |
 | `act.click` | `action="act"`、`op="click"`、`target` | `execution="AXPress"` 或 `"CGEventFallback"`、`target?`、`snapshot?` | AX target 点击；不消费裸 `x/y` |
 | `act.click_point` | `action="act"`、`op="click_point"`、`x`、`y`，且不能带 `target` | `execution="CGEventClick"`、`target=null`、`snapshot?` | 裸坐标点击，允许 `(0, 0)` |
+| `act.move_cursor` | `action="act"`、`op="move_cursor"`；`x/y` 或 `target` 二选一；可选 `durationMs` / `steps` / `motionProfile` | `execution="CGEventMoveCursor"`、`target?`、`snapshot?` | 平滑移动鼠标指针，不点击 |
 | `act.double_click` | `action="act"`、`op="double_click"`、`target` | `execution="CGEventDoubleClick"`、`target?`、`snapshot?` | 对目标元素中心双击 |
 | `act.right_click` | `action="act"`、`op="right_click"`、`target` | `execution="CGEventRightClick"`、`target?`、`snapshot?` | 对目标元素中心右键 |
-| `act.type` | `action="act"`、`op="type"`、`text`；可选 `target` | `execution="AXSetValue"`、`target?`、`snapshot?` | 对文本控件设置文本；未给 target 时使用当前 focused text element |
+| `act.type` | `action="act"`、`op="type"`、`text`；可选 `target` / `typingProfile` / `typingDelayMs` | `execution="AXSetValue"` 或 `"CGEventUnicodeTyping"`、`target?`、`snapshot?` | 默认对文本控件设置文本；显式 typing profile 时聚焦后逐字符输入 |
 | `act.paste` | `action="act"`、`op="paste"`、`text`；可选 `target` | `execution` 为 pasteboard 恢复状态、`target?`、`snapshot?` | 临时写 pasteboard 后触发系统粘贴；不回显 text |
 | `act.set_value` | `action="act"`、`op="set_value"`、`target`、`value` | `execution="AXSetValue"`、`target?`、`snapshot?` | 对明确 AX 元素设置值 |
 | `act.hotkey` | `action="act"`、`op="hotkey"`；`key` 或 `keys` | `execution="CGEventHotkey"`、`target=null`、`snapshot?` | 合成快捷键 |
+| `act.press` | `action="act"`、`op="press"`；`key` 或 `keys`；可选 `modifiers` / `repeat` / `holdMs` / `intervalMs` | `execution="CGEventPress"`、`target=null`、`snapshot?` | 合成单键或顺序按键，可重复、按住、带修饰键 |
 | `act.scroll` | `action="act"`、`op="scroll"`；`deltaX` / `deltaY` 之一非零 | `execution="CGEventScroll"`、`target=null`、`snapshot?` | 合成滚动 |
-| `act.drag` | `action="act"`、`op="drag"`、`target`、`x`、`y` | `execution="CGEventDrag"`、`target?`、`snapshot?` | 从目标元素中心拖拽到目标坐标 |
+| `act.drag` | `action="act"`、`op="drag"`；起点 `target` 或 `fromX/fromY` 二选一；终点 `x/y`、`toX/toY` 或 `toTarget` 三选一；可选 `durationMs` / `steps` / `motionProfile` / `modifiers` | `execution="CGEventDrag"`、`target?`、`snapshot?` | 在坐标/AX 元素端点之间平滑拖拽 |
+| `act.swipe` | `action="act"`、`op="swipe"`；起点 `x/y`、`fromX/fromY` 或 `target` 三选一；终点 `deltaX/deltaY`、`toX/toY` 或 `toTarget` 三选一；可选 `durationMs` / `steps` / `motionProfile` / `modifiers` | `execution="CGEventSwipe"`、`target?`、`snapshot?` | 从起点到终点平滑拖拽，适合滑动/拨动类操作 |
 
 `act` 默认 `snapshot=null`；显式 `includeSnapshot=true` 时，除 `dry_run` 外会返回完整后置 `snapshot`。
 
@@ -512,7 +520,8 @@ OCR 规则：
 - `act.dry_run` 用于 mutation 前确认目标元素；它只读返回解析结果，不附带完整 snapshot，不产生 UI 副作用。
 - `act.click` 只能点击 AX target，不读取 `x/y`。
 - 裸坐标点击必须使用 `act.click_point`。
-- `act.drag` 的起点来自 AX target 中心，终点来自 `x/y`。
+- `act.move_cursor` 不点击；`act.swipe` 的起点来自 `x/y`、`fromX/fromY` 或 AX target 中心，终点来自 `deltaX/deltaY`、`toX/toY` 或 `toTarget`。
+- `act.drag` 的起点来自 AX target 中心或 `fromX/fromY`，终点来自 `x/y`、`toX/toY` 或 `toTarget`，可用 `durationMs/steps/motionProfile` 控制轨迹；`motionProfile=human` 会使用缓动、轻微确定性偏移和长距离回正。
 - 每次坐标动作之后应重新 snapshot 验证结果。
 
 文本输入规则：

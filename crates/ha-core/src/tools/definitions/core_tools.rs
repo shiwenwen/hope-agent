@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `dock` list/launch/hide/show, `spaces` list/switch, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/perform_action/click/click_point/double_click/right_click/type/paste/set_value/hotkey/scroll/drag, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` list/inspect/click/input/file/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `dock` list/launch/hide/show, `spaces` list/switch, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/perform_action/click/click_point/move_cursor/double_click/right_click/type/paste/set_value/hotkey/press/scroll/drag/swipe, `menu` list/click for app menus or system menu bar extras, `clipboard` get/set/clear text, and `dialog` list/inspect/click/input/file/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -739,8 +739,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "op": {
                         "type": "string",
-                        "enum": ["observe", "point", "ocr", "find_text", "find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "hide", "show", "switch", "move_window", "focus", "move", "resize", "minimize", "close", "dry_run", "perform_action", "click", "click_point", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "scroll", "drag", "input", "file", "get", "set", "clear", "inspect", "accept", "dismiss"],
-                        "description": "Sub-operation. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `dock`: list|launch|hide|show. For `spaces`: list|switch; move_window is reserved and currently returns an explicit unsupported error on macOS because stable public APIs do not move windows across Spaces. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, perform_action runs a whitelisted AX action advertised by the target, click for AX target clicks, click_point for raw screen coordinates, double_click|right_click target clicks, type|paste|set_value|hotkey|scroll, drag from target center to x/y. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: list|inspect|click|input|file|accept|dismiss."
+                        "enum": ["observe", "point", "ocr", "find_text", "find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "hide", "show", "switch", "move_window", "focus", "move", "resize", "minimize", "close", "dry_run", "perform_action", "click", "click_point", "move_cursor", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "press", "scroll", "drag", "swipe", "input", "file", "get", "set", "clear", "inspect", "accept", "dismiss"],
+                        "description": "Sub-operation. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `dock`: list|launch|hide|show. For `spaces`: list|switch; move_window is reserved and currently returns an explicit unsupported error on macOS because stable public APIs do not move windows across Spaces. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, perform_action runs a whitelisted AX action advertised by the target, click for AX target clicks, click_point for raw screen coordinates, move_cursor to x/y or target center, double_click|right_click target clicks, type|paste|set_value|hotkey|press|scroll, drag/swipe between coordinate or AX element endpoints. For `menu`: list|click. For `clipboard`: get|set|clear text. For `dialog`: list|inspect|click|input|file|accept|dismiss."
                     },
                     "scope": {
                         "type": "string",
@@ -816,11 +816,27 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "x": {
                         "type": "number",
-                        "description": "For `visual.point`: x in coordinateSpace (`image_pixels` by default, 0 is valid). For `windows.move` or `act.click_point`: x position in macOS screen points. For `act.drag`: destination x point; the source is target center."
+                        "description": "For `visual.point`: x in coordinateSpace (`image_pixels` by default, 0 is valid). For `windows.move`, `act.click_point`, or `act.move_cursor`: x position in macOS screen points. For `act.drag`: destination x point. For `act.swipe`: start x point when using x/y source."
                     },
                     "y": {
                         "type": "number",
-                        "description": "For `visual.point`: y in coordinateSpace (`image_pixels` by default, 0 is valid). For `windows.move` or `act.click_point`: y position in macOS screen points. For `act.drag`: destination y point; the source is target center."
+                        "description": "For `visual.point`: y in coordinateSpace (`image_pixels` by default, 0 is valid). For `windows.move`, `act.click_point`, or `act.move_cursor`: y position in macOS screen points. For `act.drag`: destination y point. For `act.swipe`: start y point when using x/y source."
+                    },
+                    "fromX": {
+                        "type": "number",
+                        "description": "For `act.drag` or `act.swipe`: raw source x point when not using target. For backwards compatibility, `act.swipe` also accepts x/y as the source."
+                    },
+                    "fromY": {
+                        "type": "number",
+                        "description": "For `act.drag` or `act.swipe`: raw source y point when not using target. For backwards compatibility, `act.swipe` also accepts x/y as the source."
+                    },
+                    "toX": {
+                        "type": "number",
+                        "description": "For `act.drag` or `act.swipe`: raw destination x point when not using x/y, deltaX/deltaY, or toTarget."
+                    },
+                    "toY": {
+                        "type": "number",
+                        "description": "For `act.drag` or `act.swipe`: raw destination y point when not using x/y, deltaX/deltaY, or toTarget."
                     },
                     "width": {
                         "type": "number",
@@ -832,7 +848,18 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "text": {
                         "type": "string",
-                        "description": "For `visual.find_text`: OCR text query. For `act.type`: text to set/type through Accessibility. For `act.paste`: text to paste via the pasteboard without echoing it in the result. For `dialog.input`: text to enter into a dialog field. For `clipboard.set`: text to place on the clipboard; the result does not echo it back. For target matching, use target.text."
+                        "description": "For `visual.find_text`: OCR text query. For `act.type`: text to set through Accessibility, or to type character-by-character when typingProfile/typingDelayMs is provided. For `act.paste`: text to paste via the pasteboard without echoing it in the result. For `dialog.input`: text to enter into a dialog field. For `clipboard.set`: text to place on the clipboard; the result does not echo it back. For target matching, use target.text."
+                    },
+                    "typingProfile": {
+                        "type": "string",
+                        "enum": ["instant", "steady", "human"],
+                        "description": "For `act.type`: when provided, type text via CGEvent Unicode key events instead of AXSetValue. `steady` uses a short fixed delay, `human` adds small deterministic jitter, and `instant` posts characters without delay."
+                    },
+                    "typingDelayMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000,
+                        "description": "For `act.type`: explicit per-character delay in milliseconds when using CGEvent Unicode typing. Overrides typingProfile delay and is hard-capped at 1000."
                     },
                     "textMatch": {
                         "type": "string",
@@ -872,20 +899,60 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "key": {
                         "type": "string",
-                        "description": "For `act.hotkey`: single key name, e.g. n, Enter, Escape, Tab."
+                        "description": "For `act.hotkey` or `act.press`: single key name, e.g. n, Enter, Escape, Tab."
                     },
                     "keys": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "For `act.hotkey`: ordered keys/modifiers, e.g. [\"cmd\",\"n\"] or [\"cmd\",\"shift\",\"g\"]."
+                        "description": "For `act.hotkey`: ordered keys/modifiers, e.g. [\"cmd\",\"n\"] or [\"cmd\",\"shift\",\"g\"]. For `act.press`: ordered key names to press sequentially."
+                    },
+                    "modifiers": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "For `act.press`, `act.drag`, and `act.swipe`: modifier keys to hold during the action, e.g. [\"shift\"] or [\"cmd\",\"option\"]."
+                    },
+                    "repeat": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "For `act.press`: repeat count for the key sequence. Defaults to 1 and is hard-capped at 100."
+                    },
+                    "holdMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000,
+                        "description": "For `act.press`: how long to hold each key down in milliseconds. Defaults to a short key press and is hard-capped at 10000."
+                    },
+                    "intervalMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 5000,
+                        "description": "For `act.press`: delay between repeated or sequential key presses. Defaults to 0 and is hard-capped at 5000."
                     },
                     "deltaX": {
                         "type": "number",
-                        "description": "For `act.scroll`: horizontal scroll delta."
+                        "description": "For `act.scroll`: horizontal scroll delta. For `act.swipe`: horizontal movement from the start point."
                     },
                     "deltaY": {
                         "type": "number",
-                        "description": "For `act.scroll`: vertical scroll delta."
+                        "description": "For `act.scroll`: vertical scroll delta. For `act.swipe`: vertical movement from the start point."
+                    },
+                    "durationMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000,
+                        "description": "For `act.move_cursor`, `act.drag`, and `act.swipe`: optional motion duration in milliseconds. Defaults to a short smooth movement and is hard-capped at 10000."
+                    },
+                    "steps": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 240,
+                        "description": "For `act.move_cursor`, `act.drag`, and `act.swipe`: optional number of interpolation points. Defaults to a short smooth movement and is hard-capped at 240."
+                    },
+                    "motionProfile": {
+                        "type": "string",
+                        "enum": ["linear", "human"],
+                        "description": "For `act.move_cursor`, `act.drag`, and `act.swipe`: optional cursor path profile. `linear` preserves deterministic straight interpolation; `human` uses eased movement with small deterministic wobble and long-distance correction."
                     },
                     "path": {
                         "oneOf": [
@@ -1025,6 +1092,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             }
                         },
                         "additionalProperties": false
+                    },
+                    "toTarget": {
+                        "type": "object",
+                        "description": "Destination target query for `act.drag` and `act.swipe`, using the same fields as target: appName, bundleId, windowTitle, windowTitleMatch, elementId, text, role, enabled, focused. Runtime parsing uses the same strict target query type."
                     }
                 },
                 "required": ["action"],
