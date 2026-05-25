@@ -12,8 +12,11 @@ use async_trait::async_trait;
 use super::env::HookEnv;
 use super::types::HookInput;
 
+pub mod agent;
 pub mod command;
 pub mod http;
+pub mod mcp_tool;
+pub mod prompt;
 
 /// Raw output of running one handler, before protocol parsing.
 #[derive(Debug, Clone)]

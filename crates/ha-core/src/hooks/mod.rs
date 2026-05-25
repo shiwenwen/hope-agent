@@ -208,24 +208,20 @@ impl HookDispatcher {
     }
 }
 
-/// Build a runnable handler from config. This phase executes `command` only;
-/// other types are recognized but skipped (http/mcp/prompt/agent land later).
+/// Build a runnable handler from config — all five handler types are wired.
 fn build_handler(cfg: &HookHandlerConfig) -> Option<Box<dyn HookHandler>> {
     match cfg {
         HookHandlerConfig::Command(c) => {
             Some(Box::new(runner::command::CommandHandler::new(c.clone())))
         }
         HookHandlerConfig::Http(c) => Some(Box::new(runner::http::HttpHandler::new(c.clone()))),
-        HookHandlerConfig::McpTool(_)
-        | HookHandlerConfig::Prompt(_)
-        | HookHandlerConfig::Agent(_) => {
-            app_debug!(
-                "hooks",
-                "dispatch",
-                "skipping mcp_tool/prompt/agent handler (not supported yet)"
-            );
-            None
+        HookHandlerConfig::McpTool(c) => {
+            Some(Box::new(runner::mcp_tool::McpToolHandler::new(c.clone())))
         }
+        HookHandlerConfig::Prompt(c) => {
+            Some(Box::new(runner::prompt::PromptHandler::new(c.clone())))
+        }
+        HookHandlerConfig::Agent(c) => Some(Box::new(runner::agent::AgentHandler::new(c.clone()))),
     }
 }
 
