@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Puzzle,
   HeartPulse,
+  History,
   ScrollText,
   Server,
   Settings2,
@@ -59,6 +60,7 @@ import VoicePanel from "@/components/settings/voice-panel/VoicePanel"
 const DeveloperPanel = !import.meta.env.PROD
   ? lazy(() => import("@/components/settings/DeveloperPanel"))
   : null
+const UpdateHistoryPanel = lazy(() => import("@/components/settings/UpdateHistoryPanel"))
 import SandboxPanel from "@/components/settings/SandboxPanel"
 import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import ChannelPanel from "@/components/settings/channel-panel"
@@ -194,6 +196,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "about",
     icon: <Info className="h-4 w-4" />,
     labelKey: "settings.about",
+  },
+  {
+    id: "updates",
+    icon: <History className="h-4 w-4" />,
+    labelKey: "about.updateHistory",
   },
   // Developer entry only present in dev builds — see DeveloperPanel comment
   // above. The conditional spread + tree-shakeable `import.meta.env.PROD`
@@ -377,7 +384,14 @@ export default function SettingsView({
             {activeSection === "recap" && <RecapSettingsPanel />}
             {activeSection === "health" && <CrashHistoryPanel />}
             {activeSection === "logs" && <LogPanel />}
-            {activeSection === "about" && <AboutPanel />}
+            {activeSection === "about" && (
+              <AboutPanel onOpenUpdateHistory={() => setActiveSection("updates")} />
+            )}
+            {activeSection === "updates" && (
+              <Suspense fallback={null}>
+                <UpdateHistoryPanel />
+              </Suspense>
+            )}
             {activeSection === "server" && <ServerPanel />}
             {activeSection === "developer" && DeveloperPanel && (
               <Suspense fallback={null}>

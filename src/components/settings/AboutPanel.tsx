@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { LucideIcon } from "lucide-react"
-import { Brain, Download, ExternalLink, Globe, Loader2, Monitor, RefreshCw } from "lucide-react"
+import {
+  Brain,
+  Download,
+  ExternalLink,
+  Globe,
+  History,
+  Loader2,
+  Monitor,
+  RefreshCw,
+} from "lucide-react"
 import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -26,7 +35,11 @@ interface HighlightItem {
   iconClass: string
 }
 
-export default function AboutPanel() {
+export default function AboutPanel({
+  onOpenUpdateHistory,
+}: {
+  onOpenUpdateHistory?: () => void
+}) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
@@ -282,7 +295,7 @@ export default function AboutPanel() {
                       {updateStatus}
                     </p>
                     {pendingUpdate.body && (
-                      <div className="mt-1 max-h-48 overflow-auto text-xs leading-relaxed text-muted-foreground">
+                      <div className="update-notes-markdown mt-1 max-h-48 overflow-auto text-xs leading-relaxed text-muted-foreground">
                         <MarkdownRenderer content={pendingUpdate.body} />
                       </div>
                     )}
@@ -350,6 +363,12 @@ export default function AboutPanel() {
                 {t("about.releases")}
                 <ExternalLink className="ml-1.5 h-4 w-4" />
               </Button>
+              {onOpenUpdateHistory && (
+                <Button variant="outline" onClick={onOpenUpdateHistory}>
+                  <History className="mr-1.5 h-4 w-4" />
+                  {t("about.updateHistory")}
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => openExternal(HOPE_AGENT_URLS.feedback)}>
                 {t("about.feedback")}
                 <ExternalLink className="ml-1.5 h-4 w-4" />

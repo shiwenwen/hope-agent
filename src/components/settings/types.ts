@@ -18,6 +18,7 @@ export const SETTINGS_SECTION_IDS = [
   "logs",
   "health",
   "about",
+  "updates",
   "channels",
   "developer",
   "server",

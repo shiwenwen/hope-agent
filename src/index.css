@@ -638,6 +638,34 @@
   font-size: 1rem;
 }
 
+.update-notes-markdown .markdown-content {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.update-notes-markdown .markdown-content [data-streamdown^="heading-"] {
+  margin-block: 0.75rem 0.25rem;
+  line-height: 1.25;
+}
+
+.update-notes-markdown .markdown-content [data-streamdown="heading-1"] {
+  font-size: 1rem;
+}
+
+.update-notes-markdown .markdown-content [data-streamdown="heading-2"] {
+  font-size: 0.9375rem;
+}
+
+.update-notes-markdown .markdown-content [data-streamdown="heading-3"] {
+  font-size: 0.875rem;
+}
+
+.update-notes-markdown .markdown-content [data-streamdown="heading-4"],
+.update-notes-markdown .markdown-content [data-streamdown="heading-5"],
+.update-notes-markdown .markdown-content [data-streamdown="heading-6"] {
+  font-size: 0.8125rem;
+}
+
 .markdown-content [data-streamdown="horizontal-rule"] {
   margin-block: 0.75rem;
 }
