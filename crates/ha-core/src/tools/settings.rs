@@ -19,6 +19,11 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     "fallback_models",
     "channels",
     "mcp_servers",
+    // Hooks run arbitrary commands / HTTP / sub-agents on lifecycle events —
+    // letting the model write them is a privilege-escalation vector (it could
+    // persist its own command execution). Read-only via this tool; writes go
+    // through the GUI / scope config files under user supervision.
+    "hooks",
     // STT subsystem — providers carry API keys + provider-specific secrets
     // (e.g. Volcengine app_id / access_key, iFlytek app_id), and the active /
     // fallback selection writes coordinate with the desktop voice-input
@@ -91,6 +96,7 @@ fn risk_level(category: &str) -> &'static str {
         | "fallback_models"
         | "channels"
         | "mcp_servers"
+        | "hooks"
         | "stt_providers"
         | "active_stt_model"
         | "stt_fallback_models"
@@ -146,6 +152,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "mcp_servers" => Some(
             "Read-only via this tool. Server configs carry OAuth tokens, stdio command paths and trust acknowledgements; writes must go through Settings → MCP Servers which drives the trust dialog and writes credentials with 0600 permissions."
+        ),
+        "hooks" => Some(
+            "Read-only via this tool. Hooks run arbitrary commands / HTTP / LLM prompts / sub-agents on lifecycle events, so a writable category would let the model persist its own command execution. Edit hooks in Settings → Hooks or in the scope files (user: config.json; project: <working_dir>/.hope-agent/hooks.json; local: hooks.local.json; managed: /etc/hope-agent/hooks.json). get_settings redacts http handler header values."
         ),
         "multimodal" => Some(
             "Switching modalities or raising maxFileBytes affects which attachments embed: enabling without a multimodal-capable embedding provider will produce empty vectors."
@@ -255,6 +264,38 @@ fn redact_mcp_servers_value(mut value: Value) -> Value {
 /// Used to scrub `providers[*].api_key` style fields from web_search /
 /// image_generate read responses without dropping the structural metadata
 /// (id, enabled, baseUrl) that lets the model describe what's configured.
+/// Redact `http` hook handler header values (they can carry bearer tokens) from
+/// a serialized `HooksConfig` tree (`{ Event: [ { hooks: [ {type, headers} ] } ] }`).
+/// Non-secret fields (commands, urls, prompts, matchers) are preserved so the
+/// model can still describe what's configured.
+fn redact_hooks_value(mut value: Value) -> Value {
+    if let Some(events) = value.as_object_mut() {
+        for groups in events.values_mut() {
+            let Some(groups) = groups.as_array_mut() else {
+                continue;
+            };
+            for group in groups {
+                let Some(hooks) = group.get_mut("hooks").and_then(|h| h.as_array_mut()) else {
+                    continue;
+                };
+                for hook in hooks {
+                    if hook.get("type").and_then(|t| t.as_str()) != Some("http") {
+                        continue;
+                    }
+                    if let Some(headers) = hook.get_mut("headers").and_then(|h| h.as_object_mut()) {
+                        for v in headers.values_mut() {
+                            if v.as_str().is_some_and(|s| !s.is_empty()) {
+                                *v = Value::String("[REDACTED]".to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    value
+}
+
 fn redact_string_field(obj: &mut serde_json::Map<String, Value>, key: &str) {
     if let Some(existing) = obj.get(key) {
         let should_mask = match existing {
@@ -435,6 +476,13 @@ fn read_category(category: &str) -> Result<Value> {
         "mcp_servers" => Ok(redact_mcp_servers_value(serde_json::to_value(
             &cfg.mcp_servers,
         )?)),
+        "hooks" => {
+            let hooks = redact_hooks_value(serde_json::to_value(&cfg.hooks)?);
+            Ok(json!({
+                "disableAllHooks": cfg.disable_all_hooks,
+                "hooks": hooks,
+            }))
+        }
         "teams" => {
             let db = crate::globals::get_session_db()
                 .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
@@ -1291,6 +1339,27 @@ mod tests {
         assert_eq!(arr[0]["trust_level"], "trusted");
         // Server with no secret fields untouched.
         assert!(arr[1].get("env").is_none());
+    }
+
+    #[test]
+    fn redact_hooks_masks_http_headers_keeps_commands() {
+        let original = json!({
+            "PreToolUse": [
+                { "matcher": "Bash", "hooks": [
+                    { "type": "command", "command": "./audit.sh" },
+                    { "type": "http", "url": "https://h/x", "headers": { "Authorization": "Bearer leakme", "X-Empty": "" } }
+                ] }
+            ]
+        });
+        let redacted = redact_hooks_value(original);
+        let hook = &redacted["PreToolUse"][0]["hooks"];
+        // Command preserved (not a secret — it's what runs).
+        assert_eq!(hook[0]["command"], "./audit.sh");
+        // http header value with content redacted; empty header left as-is.
+        assert_eq!(hook[1]["headers"]["Authorization"], json!("[REDACTED]"));
+        assert_eq!(hook[1]["headers"]["X-Empty"], json!(""));
+        // url preserved.
+        assert_eq!(hook[1]["url"], "https://h/x");
     }
 
     #[test]
