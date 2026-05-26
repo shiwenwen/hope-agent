@@ -37,7 +37,8 @@ mod imp {
         MacControlSnapshot, MacControlSnapshotRequest, MacControlSpaceDirection,
         MacControlSpaceSummary, MacControlSpacesDisplay, MacControlSpacesOp,
         MacControlSpacesRequest, MacControlSpacesResult, MacControlStringMatch,
-        MacControlTargetQuery, MacControlTypingProfile, MacControlWindowSummary,
+        MacControlTargetQuery, MacControlTypingProfile, MacControlVerification,
+        MacControlVerificationCheck, MacControlVerificationStatus, MacControlWindowSummary,
         MacControlWindowsOp, MacControlWindowsRequest, MacControlWindowsResult,
         MacControlWindowsScope,
     };
@@ -213,6 +214,7 @@ mod imp {
     const K_VK_SHIFT: u16 = 56;
     const K_VK_OPTION: u16 = 58;
     const K_VK_CONTROL: u16 = 59;
+    const VERIFY_SETTLE_MS: u64 = 120;
 
     #[repr(C)]
     #[derive(Clone, Copy, Default)]
@@ -2457,6 +2459,7 @@ mod imp {
         let frontmost_app = focused_app_summary();
         let mut windows = list_windows_for_request(&request)?;
         let mut execution = None;
+        let mut verification = None;
         let acted_window = if request.op == MacControlWindowsOp::List {
             None
         } else {
@@ -2512,10 +2515,10 @@ mod imp {
                 }
                 MacControlWindowsOp::List => {}
             }
-            Some(window_summary(
-                window.as_ptr() as AXUIElementRef,
-                &summary.id,
-            ))
+            thread::sleep(Duration::from_millis(VERIFY_SETTLE_MS));
+            let acted = window_summary(window.as_ptr() as AXUIElementRef, &summary.id);
+            verification = Some(verify_window_action(&request, &summary, &acted));
+            Some(acted)
         };
         if let Some(acted) = acted_window.clone() {
             if let Some(existing) = windows.iter_mut().find(|window| window.id == acted.id) {
@@ -2531,7 +2534,304 @@ mod imp {
             windows,
             acted_window,
             execution,
+            verification,
         })
+    }
+
+    fn verify_window_action(
+        request: &MacControlWindowsRequest,
+        before: &MacControlWindowSummary,
+        after: &MacControlWindowSummary,
+    ) -> MacControlVerification {
+        match request.op {
+            MacControlWindowsOp::Focus => verification_from_checks(
+                "windows.focus verification",
+                vec![verification_check(
+                    "focused",
+                    Some("true".to_string()),
+                    Some(after.focused.to_string()),
+                    after.focused,
+                )],
+                Vec::new(),
+            ),
+            MacControlWindowsOp::Move => {
+                let expected_x = request.x;
+                let expected_y = request.y;
+                let actual = after.bounds_points;
+                verification_from_checks(
+                    "windows.move verification",
+                    vec![
+                        verification_check(
+                            "x",
+                            expected_x.map(format_number),
+                            actual.map(|bounds| format_number(bounds.x)),
+                            expected_x
+                                .zip(actual.map(|bounds| bounds.x))
+                                .is_some_and(|(expected, actual)| numbers_close(expected, actual)),
+                        ),
+                        verification_check(
+                            "y",
+                            expected_y.map(format_number),
+                            actual.map(|bounds| format_number(bounds.y)),
+                            expected_y
+                                .zip(actual.map(|bounds| bounds.y))
+                                .is_some_and(|(expected, actual)| numbers_close(expected, actual)),
+                        ),
+                    ],
+                    Vec::new(),
+                )
+            }
+            MacControlWindowsOp::Resize => {
+                let expected_width = request.width;
+                let expected_height = request.height;
+                let actual = after.bounds_points;
+                verification_from_checks(
+                    "windows.resize verification",
+                    vec![
+                        verification_check(
+                            "width",
+                            expected_width.map(format_number),
+                            actual.map(|bounds| format_number(bounds.width)),
+                            expected_width
+                                .zip(actual.map(|bounds| bounds.width))
+                                .is_some_and(|(expected, actual)| numbers_close(expected, actual)),
+                        ),
+                        verification_check(
+                            "height",
+                            expected_height.map(format_number),
+                            actual.map(|bounds| format_number(bounds.height)),
+                            expected_height
+                                .zip(actual.map(|bounds| bounds.height))
+                                .is_some_and(|(expected, actual)| numbers_close(expected, actual)),
+                        ),
+                    ],
+                    Vec::new(),
+                )
+            }
+            MacControlWindowsOp::Close => verify_window_closed(before),
+            MacControlWindowsOp::Minimize => MacControlVerification {
+                status: MacControlVerificationStatus::Unverified,
+                summary: "windows.minimize verification unavailable because AX summary does not expose minimized state.".to_string(),
+                checks: Vec::new(),
+                warnings: vec![
+                    "Use windows.list or a fresh snapshot if the next step depends on minimized state."
+                        .to_string(),
+                ],
+            },
+            MacControlWindowsOp::List => MacControlVerification {
+                status: MacControlVerificationStatus::Unverified,
+                summary: "windows.list is read-only and has no mutation to verify.".to_string(),
+                checks: Vec::new(),
+                warnings: Vec::new(),
+            },
+        }
+    }
+
+    fn verify_window_closed(before: &MacControlWindowSummary) -> MacControlVerification {
+        match window_still_present(before) {
+            Ok(false) => verification_from_checks(
+                "windows.close verification",
+                vec![verification_check(
+                    "windowGone",
+                    Some("true".to_string()),
+                    Some("true".to_string()),
+                    true,
+                )],
+                Vec::new(),
+            ),
+            Ok(true) => verification_from_checks(
+                "windows.close verification",
+                vec![verification_check(
+                    "windowGone",
+                    Some("true".to_string()),
+                    Some("false".to_string()),
+                    false,
+                )],
+                Vec::new(),
+            ),
+            Err(error) => MacControlVerification {
+                status: MacControlVerificationStatus::Unverified,
+                summary: "windows.close verification could not inspect windows after close."
+                    .to_string(),
+                checks: Vec::new(),
+                warnings: vec![error],
+            },
+        }
+    }
+
+    fn window_still_present(before: &MacControlWindowSummary) -> Result<bool, String> {
+        let Some(pid) = before.app_pid else {
+            return Err(
+                "windows.close verification requires the original window app pid.".to_string(),
+            );
+        };
+        let app = app_element_for_pid(pid).ok_or_else(|| {
+            format!("windows.close verification could not resolve app pid {pid}.")
+        })?;
+        let Some(windows) = copy_attribute(app.as_ptr() as AXUIElementRef, "AXWindows") else {
+            return Ok(false);
+        };
+        Ok(cf_array_values(windows.as_ptr())
+            .into_iter()
+            .enumerate()
+            .map(|(idx, window_ref)| {
+                window_summary_for_app(
+                    window_ref as AXUIElementRef,
+                    &format!("win_{idx}"),
+                    Some(pid),
+                )
+            })
+            .any(|candidate| window_fingerprint_matches(&candidate, before)))
+    }
+
+    fn window_fingerprint_matches(
+        candidate: &MacControlWindowSummary,
+        expected: &MacControlWindowSummary,
+    ) -> bool {
+        if candidate.role != expected.role || candidate.subrole != expected.subrole {
+            return false;
+        }
+        if candidate.title != expected.title {
+            return false;
+        }
+        match (candidate.bounds_points, expected.bounds_points) {
+            (Some(candidate), Some(expected)) => bounds_match(Some(candidate), Some(expected)),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
+    fn verification_from_checks(
+        summary: &str,
+        checks: Vec<MacControlVerificationCheck>,
+        warnings: Vec<String>,
+    ) -> MacControlVerification {
+        let status = if checks.is_empty() {
+            MacControlVerificationStatus::Unverified
+        } else if checks.iter().all(|check| check.passed) {
+            MacControlVerificationStatus::Verified
+        } else {
+            MacControlVerificationStatus::Failed
+        };
+        MacControlVerification {
+            status,
+            summary: match status {
+                MacControlVerificationStatus::Verified => format!("{summary}: verified"),
+                MacControlVerificationStatus::Failed => format!("{summary}: failed"),
+                MacControlVerificationStatus::Unverified => format!("{summary}: unverified"),
+            },
+            checks,
+            warnings,
+        }
+    }
+
+    fn verification_check(
+        name: &str,
+        expected: Option<String>,
+        actual: Option<String>,
+        passed: bool,
+    ) -> MacControlVerificationCheck {
+        MacControlVerificationCheck {
+            name: name.to_string(),
+            expected,
+            actual,
+            passed,
+        }
+    }
+
+    fn numbers_close(expected: f64, actual: f64) -> bool {
+        (expected - actual).abs() <= 4.0
+    }
+
+    fn format_number(value: f64) -> String {
+        if value.fract().abs() < f64::EPSILON {
+            format!("{value:.0}")
+        } else {
+            format!("{value:.2}")
+        }
+    }
+
+    enum AxValueVerificationMode {
+        Exact,
+        Append { before: Option<String> },
+    }
+
+    fn verify_ax_value(
+        element: AXUIElementRef,
+        expected: &str,
+        label: &str,
+        mode: AxValueVerificationMode,
+    ) -> MacControlVerification {
+        thread::sleep(Duration::from_millis(VERIFY_SETTLE_MS));
+        let actual = attribute_string(element, "AXValue");
+        let (check_name, passed, warnings) = match mode {
+            AxValueVerificationMode::Exact => (
+                "valueEquals",
+                actual.as_deref().is_some_and(|actual| actual == expected),
+                Vec::new(),
+            ),
+            AxValueVerificationMode::Append { before } => {
+                let Some(before) = before else {
+                    return MacControlVerification {
+                        status: MacControlVerificationStatus::Unverified,
+                        summary: format!("{label} value verification: unverified"),
+                        checks: vec![verification_check(
+                            "valueChangedAndContains",
+                            Some(expected.to_string()),
+                            actual,
+                            false,
+                        )],
+                        warnings: vec![
+                            "AXValue before input was unavailable, so append verification cannot prove the value changed.".to_string(),
+                        ],
+                    };
+                };
+                let passed = actual
+                    .as_deref()
+                    .is_some_and(|actual| actual != before && actual.contains(expected));
+                ("valueChangedAndContains", passed, Vec::new())
+            }
+        };
+        verification_from_checks(
+            &format!("{label} value verification"),
+            vec![verification_check(
+                check_name,
+                Some(expected.to_string()),
+                actual,
+                passed,
+            )],
+            warnings,
+        )
+    }
+
+    fn verify_pointer_position(expected: CGPoint, label: &str) -> MacControlVerification {
+        thread::sleep(Duration::from_millis(VERIFY_SETTLE_MS));
+        match current_mouse_position() {
+            Ok(actual) => verification_from_checks(
+                &format!("{label} pointer verification"),
+                vec![
+                    verification_check(
+                        "pointerX",
+                        Some(format_number(expected.x)),
+                        Some(format_number(actual.x)),
+                        numbers_close(expected.x, actual.x),
+                    ),
+                    verification_check(
+                        "pointerY",
+                        Some(format_number(expected.y)),
+                        Some(format_number(actual.y)),
+                        numbers_close(expected.y, actual.y),
+                    ),
+                ],
+                Vec::new(),
+            ),
+            Err(error) => MacControlVerification {
+                status: MacControlVerificationStatus::Unverified,
+                summary: format!("{label} pointer verification: unverified"),
+                checks: Vec::new(),
+                warnings: vec![error],
+            },
+        }
     }
 
     fn handle_elements(
@@ -2795,6 +3095,7 @@ mod imp {
         let request = request.clamped();
         let mut target = None;
         let mut performed_action = None;
+        let mut verification = None;
         let execution = match request.op {
             MacControlActOp::DryRun => {
                 if target_query_is_empty(&request.target) {
@@ -2894,6 +3195,7 @@ mod imp {
                     point,
                     motion_profile(&request, DEFAULT_MOTION_STEPS, DEFAULT_MOTION_DURATION_MS),
                 )?;
+                verification = Some(verify_pointer_position(point, "act.move_cursor"));
                 "CGEventMoveCursor".to_string()
             }
             MacControlActOp::DoubleClick => {
@@ -2944,15 +3246,30 @@ mod imp {
                     )?;
                     (element, summary)
                 };
-                let execution =
-                    if request.typing_profile.is_some() || request.typing_delay_ms.is_some() {
-                        focus_text_element_for_paste(element.as_ptr() as AXUIElementRef, &summary)?;
-                        post_unicode_text(text, typing_motion_profile(&request))?;
-                        "CGEventUnicodeTyping"
+                let element_ref = element.as_ptr() as AXUIElementRef;
+                let append_typing =
+                    request.typing_profile.is_some() || request.typing_delay_ms.is_some();
+                let before_value = append_typing.then(|| attribute_string(element_ref, "AXValue"));
+                let execution = if append_typing {
+                    focus_text_element_for_paste(element_ref, &summary)?;
+                    post_unicode_text(text, typing_motion_profile(&request))?;
+                    "CGEventUnicodeTyping"
+                } else {
+                    set_ax_string(element_ref, "AXValue", text)?;
+                    "AXSetValue"
+                };
+                verification = Some(verify_ax_value(
+                    element_ref,
+                    text,
+                    "act.type",
+                    if append_typing {
+                        AxValueVerificationMode::Append {
+                            before: before_value.flatten(),
+                        }
                     } else {
-                        set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", text)?;
-                        "AXSetValue"
-                    };
+                        AxValueVerificationMode::Exact
+                    },
+                ));
                 target = Some(summary);
                 execution.to_string()
             }
@@ -2961,8 +3278,15 @@ mod imp {
                     .text
                     .as_deref()
                     .ok_or_else(|| "act.paste requires text.".to_string())?;
+                let mut verify_element = None;
+                let mut before_value = None;
                 if target_query_is_empty(&request.target) {
-                    target = focused_element().map(|(_, summary)| summary);
+                    if let Some((element, summary)) = focused_element() {
+                        before_value =
+                            attribute_string(element.as_ptr() as AXUIElementRef, "AXValue");
+                        verify_element = Some(element);
+                        target = Some(summary);
+                    }
                 } else {
                     let (element, summary, _) = resolve_type_element(
                         &request.target,
@@ -2970,10 +3294,24 @@ mod imp {
                         request.max_depth,
                         "act.paste",
                     )?;
-                    focus_text_element_for_paste(element.as_ptr() as AXUIElementRef, &summary)?;
+                    let element_ref = element.as_ptr() as AXUIElementRef;
+                    before_value = attribute_string(element_ref, "AXValue");
+                    focus_text_element_for_paste(element_ref, &summary)?;
+                    verify_element = Some(element);
                     target = Some(summary);
                 }
-                paste_text_via_clipboard(text)?
+                let execution = paste_text_via_clipboard(text)?;
+                if let Some(element) = verify_element {
+                    verification = Some(verify_ax_value(
+                        element.as_ptr() as AXUIElementRef,
+                        text,
+                        "act.paste",
+                        AxValueVerificationMode::Append {
+                            before: before_value,
+                        },
+                    ));
+                }
+                execution
             }
             MacControlActOp::SetValue => {
                 let value = request
@@ -2987,6 +3325,12 @@ mod imp {
                     "act.set_value",
                 )?;
                 set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", value)?;
+                verification = Some(verify_ax_value(
+                    element.as_ptr() as AXUIElementRef,
+                    value,
+                    "act.set_value",
+                    AxValueVerificationMode::Exact,
+                ));
                 target = Some(summary);
                 "AXSetValue".to_string()
             }
@@ -3031,6 +3375,7 @@ mod imp {
                     motion_profile(&request, DEFAULT_DRAG_STEPS, DEFAULT_DRAG_DURATION_MS),
                     &modifiers,
                 )?;
+                verification = Some(verify_pointer_position(to, "act.drag"));
                 target = source_summary.or(destination_summary);
                 "CGEventDrag".to_string()
             }
@@ -3044,6 +3389,7 @@ mod imp {
                     motion_profile(&request, DEFAULT_MOTION_STEPS, DEFAULT_MOTION_DURATION_MS),
                     &modifiers,
                 )?;
+                verification = Some(verify_pointer_position(to, "act.swipe"));
                 target = source_summary.or(destination_summary);
                 "CGEventSwipe".to_string()
             }
@@ -3065,6 +3411,7 @@ mod imp {
             performed_action,
             target,
             snapshot,
+            verification,
         })
     }
 

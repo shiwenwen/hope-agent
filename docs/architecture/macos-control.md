@@ -417,6 +417,10 @@ OCR 规则：
 | `MacControlOcrTextMatch` | `block`、`score`、`reasons[]`、`hitElements[]`、`nearestElements[]`、`suggestedAction?` |
 | `MacControlSuggestedAction` | `action="act"`、`op="click_point"`、`x`、`y`，坐标单位为 macOS screen point |
 | `MacControlTargetMatches` | `app?`、`windows[]`、`elements[]` |
+| `MacControlWindowsResult` | `op`、`windowScope`、`frontmostApp?`、`windows[]`、`actedWindow?`、`execution?`、`verification?` |
+| `MacControlActResult` | `op`、`execution`、`performedAction?`、`target?`、`snapshot?`、`verification?` |
+| `MacControlVerification` | `status: verified\|failed\|unverified`、`summary`、`checks[]`、`warnings[]` |
+| `MacControlVerificationCheck` | `name`、`expected?`、`actual?`、`passed` |
 | `MacControlDockResult` | `op`、`autohide?`、`orientation?`、`items[]`、`launched?`、`menuItems[]`、`selectedMenuItem?`、`execution?`、`warnings[]` |
 | `MacControlDockItem` | `id`、`index`、`section`、`tileType?`、`label?`、`bundleId?`、`path?`、`running`、`pid?`、`active`、`hidden` |
 | `MacControlSpacesResult` | `op`、`displays[]`、`switched?`、`movedWindow?`、`execution?`、`warnings[]` |
@@ -513,6 +517,7 @@ OCR 规则：
 - `act.dry_run` 使用和 `act.click` / `act.perform_action` / `act.set_value` 相同的目标解析、前台 App 校验、歧义拒绝和 stale 检查，但不触发 AX action、CGEvent、键盘、剪贴板或窗口变化；结果 `snapshot=null`，避免把完整 AX 树塞回上下文。
 - `act.perform_action` 不再做固定白名单或 `actions[]` 包含校验；优先通过 `elements.find` 或 `snapshot` 查看候选支持的 actions，但允许对未列出的合法 AX action 做一次执行尝试。
 - mutation 前会刷新 snapshot 并按 target 重新解析，降低 stale element 引用风险。
+- 部分 mutation 会返回 `verification`：`act.type/paste/set_value` 校验写入后的 AXValue，其中 append 型 typing/paste 还要求 AXValue 相比执行前发生变化，`act.move_cursor/drag/swipe` 校验最终指针位置，`windows.focus/move/resize/close` 校验焦点、bounds 或窗口消失；没有明确可观测期望的动作保持 `unverified` 或不返回 verification，调用方仍可用 `wait/snapshot/elements.find` 做业务级确认。
 - mutation 成功后默认不返回完整后置 snapshot；模型应优先用 `wait`、`elements.find`、`windows.list` 或 `dialog.inspect` 做小结果验证。只有调试或需要完整树时才传 `includeSnapshot=true`。
 - `dialog.inspect/accept/dismiss` 默认返回 dialog/window/button/text 摘要，不返回完整 snapshot；需要调试完整 AX 树时传 `includeSnapshot=true`。
 - action target 必须符合当前前台 App 约束；跨 App 误点要被拒绝或要求先激活目标 App。

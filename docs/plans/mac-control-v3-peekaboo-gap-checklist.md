@@ -49,7 +49,11 @@
   - `elements.find` 产生的 snapshot 会进入短生命周期 cache。
   - mutation 前会用旧元素的 role/label/value/window/bounds/actions 指纹在当前 AX 树中重定位；snapshot 过期、旧 id 缺失、指纹无法唯一匹配时拒绝执行，避免 stale `el_N` 误点。
 
-- [ ] B. Observe → Act → Verify 事务层
+- [x] B. Observe → Act → Verify 事务层（首批）
+  - `act.type/paste/set_value` 返回 AXValue verification；append 型 typing/paste 需要执行后值发生变化且包含本次文本。
+  - `act.move_cursor/drag/swipe` 返回最终指针位置 verification。
+  - `windows.focus/move/resize/close` 返回焦点、bounds 或窗口消失 verification。
+  - 点击等无明确业务期望的动作不假装完成，仍要求调用方用 `wait/snapshot/elements.find/dialog.inspect` 做业务级确认。
 - [ ] C. 动作 fallback 策略统一化
 - [ ] D. 状态恢复与焦点保护加强
 - [ ] E. 测试与回放工具

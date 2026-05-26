@@ -602,6 +602,7 @@ pub struct MacControlWindowsResult {
     pub windows: Vec<MacControlWindowSummary>,
     pub acted_window: Option<MacControlWindowSummary>,
     pub execution: Option<String>,
+    pub verification: Option<MacControlVerification>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -620,6 +621,33 @@ pub struct MacControlActResult {
     pub performed_action: Option<String>,
     pub target: Option<MacControlElementSummary>,
     pub snapshot: Option<MacControlSnapshot>,
+    pub verification: Option<MacControlVerification>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlVerification {
+    pub status: MacControlVerificationStatus,
+    pub summary: String,
+    pub checks: Vec<MacControlVerificationCheck>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlVerificationStatus {
+    Verified,
+    Failed,
+    Unverified,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlVerificationCheck {
+    pub name: String,
+    pub expected: Option<String>,
+    pub actual: Option<String>,
+    pub passed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
