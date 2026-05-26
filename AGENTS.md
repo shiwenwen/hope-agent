@@ -172,14 +172,16 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 
 ### Hooks
 
-详见 [`hooks.md`](docs/architecture/hooks.md)（当前能力）/ [`docs/plans/hooks-system-design.md`](docs/plans/hooks-system-design.md)（28 事件完整设计；附录 A 埋点位置写于主对话重构前，已过时，以代码为准）。
+详见 [`hooks.md`](docs/architecture/hooks.md) / [`docs/plans/hooks-system-design.md`](docs/plans/hooks-system-design.md)（28 事件完整设计；附录 A 埋点位置写于主对话重构前，已过时，以代码为准）。
 
 - **字段级对齐 Claude Code hooks 协议**；核心全在 `ha-core::hooks`（**零 Tauri 依赖**），desktop / server / ACP 共用
-- **唯一入口 `HookDispatcher::dispatch(event, input)`**：内部封装 matcher 过滤 / 并发执行 / 去重 / 超时 / 聚合，调用方只读 `HookOutcome`；**严禁在业务代码里 match 具体 handler 类型**（command / http / …）
-- **当前落地**：6 个观察型事件（`SessionStart` / `SessionEnd` / `Notification` / `PostToolUse` / `PostToolUseFailure` / `PostCompact`，均不阻断，只注入 `additionalContext`）+ `command` handler。阻断型事件 / 其余 4 种 handler / 多 scope / GUI 见设计文档分阶段
-- **配置走 config contract**：读 `cached_config().hooks`，写 `mutate_config(("hooks", source), …)`；`config:changed` 触发 `registry::reload_from_config` 热重载。**本期仅 user scope**（`~/.hope-agent/config.json`）
-- **四入口统一 preflight**：Tauri / HTTP / IM / ACP 的 user message 持久化前过 [`agent::preflight::user_prompt_preflight`](crates/ha-core/src/agent/preflight.rs)（当前透传）；**新增 user message 入口必须走它**
-- **新增 hook 事件须埋点 + 测试**：阻断型构造 `HookInput` 调 `dispatch`，观察型走 `hooks::fire_*`（fire-and-forget）；审计统一 `category="hooks"`
+- **唯一入口 `HookDispatcher::dispatch(event, input)`** + `hooks::fire_*` 助手：内部封装 per-cwd scope 解析 / matcher 过滤 / 并发执行（catch_unwind 隔离）/ 去重 / 超时 / 聚合，调用方只读 `HookOutcome`；**严禁在业务代码里 match 具体 handler 类型**
+- **28 事件**：24 个真触发（阻断型 `UserPromptSubmit`/`PreToolUse`/`PreCompact` + 21 个观察型），4 个协议保留（`WorktreeCreate`/`WorktreeRemove`/`TeammateIdle`/`InstructionsLoaded`——无对应概念，可配置不 dispatch）。`is_observation_only` 列表里的事件 `block` 决策降级为非阻断 + log
+- **5 种 handler 全实现**：`command` / `http`（SSRF-gated）/ `mcp_tool` / `prompt`（side-query）/ `agent`（spawn 子 Agent）
+- **四层 scope UNION**（无覆盖）：user（`config.json`）+ managed（`/etc/hope-agent/hooks.json`）编进全局 registry；project（`<工作目录>/.hope-agent/hooks.json`）+ local（`hooks.local.json`）按会话工作目录经 [`scopes::resolve_for_cwd`](crates/ha-core/src/hooks/scopes.rs) 合并（per-cwd 缓存 + mtime/generation 失效）。fire 路径统一走 `scopes::any_handlers_for(event, cwd)`，project-only hook 也能触发。`disable_all_hooks` 关所有 scope
+- **配置走 config contract**：读 `cached_config().hooks`，user scope 写 `mutate_config(("hooks", source), …)`；`config:changed` 触发 `registry::reload_from_config`（user+managed 合并 + bump generation）。**`ha-settings` 技能只读 hooks**（写被 `BLOCKED_UPDATE_CATEGORIES` 拦截——可写=模型给自己装命令执行）
+- **四入口统一 preflight**：Tauri / HTTP / IM / ACP 的 user message 持久化前过 [`agent::preflight::user_prompt_preflight`](crates/ha-core/src/agent/preflight.rs)（`UserPromptSubmit` 阻断点）；**新增 user message 入口必须走它**。block 的 prompt 不入会话/LLM 上下文，落一条 `event` 行
+- **新增 hook 事件须埋点 + 测试**：阻断型构造 `HookInput` 调 `dispatch`，观察型走 `hooks::fire_*`；新事件须同步更新 `types.rs` 的 `common()`/`matcher_target()`/`is_observation_only()` 三处 match；审计统一 `category="hooks"`
 
 ### Plan Mode
 
@@ -351,6 +353,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - Rust 依赖变更后 `cargo check --workspace` 先行验证
 - 前端新增 invoke 调用须同步实现 Transport 的 Tauri + HTTP 两套适配
 - 新增/修改接口须同步更新 [`api-reference.md`](docs/architecture/api-reference.md)（Tauri ↔ HTTP 对齐单一真相源）
+- 新增 hook 事件：埋点（`dispatch` 或 `fire_*`）+ 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）+ 测试
 
 ## 设置（Settings）约定
 

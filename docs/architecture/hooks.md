@@ -1,52 +1,76 @@
 # Hooks 系统
 
-事件 → 可拔插处理器。在工具调用、会话生命周期、上下文压缩等关键节点执行用户自定义命令，**字段级对齐 Claude Code hooks 协议**——社区脚本 paste 即用。完整设计与 28 事件路线见 [`docs/plans/hooks-system-design.md`](../plans/hooks-system-design.md)；本文只描述**当前已落地**的能力与契约。
+事件 → 可拔插处理器。在工具调用、会话生命周期、上下文压缩、权限决策等关键节点执行用户自定义命令 / HTTP / LLM / 子 Agent，**字段级对齐 Claude Code hooks 协议**——社区脚本 paste 即用。完整设计见 [`docs/plans/hooks-system-design.md`](../plans/hooks-system-design.md)；本文描述**已落地**的能力与契约。
 
-## 当前能力（首个里程碑）
+## 能力总览
 
-- **6 个观察型事件**（均不阻断，只注入 `additionalContext`）：`SessionStart`（startup / resume / compact）、`SessionEnd`（clear / logout）、`Notification`（permission_prompt）、`PostToolUse`、`PostToolUseFailure`、`PostCompact`。
-- **`command` handler**：shell 子进程，stdin 收完整 hook 输入 JSON，按 exit code + stdout JSON 双通道返回。
-- **配置热重载**：改 `config.json` 的 `hooks` 字段后，下一次事件已用新配置，无需重启。
-- **JSONL transcript 镜像**：`transcript_path` 指向 `~/.hope-agent/sessions/{id}/transcript.jsonl`，官方脚本可 `jq` 读取。
+- **28 事件协议面**：枚举完整（`types.rs::HookEvent`）。其中 **24 个真触发**，4 个（`WorktreeCreate` / `WorktreeRemove` / `TeammateIdle` / `InstructionsLoaded`）协议保留——Hope Agent 无对应概念（instructions 是 per-turn 组装进 system prompt；无 git-worktree / teammate-idle），可配置但不 dispatch，待对应能力落地再 fire。
+- **5 种 handler**：`command`（shell 子进程）/ `http`（SSRF-gated POST）/ `mcp_tool`（调 MCP 工具）/ `prompt`（一次性 LLM side-query）/ `agent`（spawn 子 Agent）。
+- **四层配置 scope**（全部 UNION，无覆盖优先级）：见下「多 scope」。
+- **配置热重载**：`config:changed` 触发全局 registry 重建；project/local 文件按 mtime 失效。
+- **JSONL transcript 镜像**：`transcript_path` 指向 `~/.hope-agent/sessions/{id}/transcript.jsonl`，启动期 backfill + 持久化时 live 追加，官方脚本可 `jq`。
 
-> 阻断型事件（`PreToolUse` / `UserPromptSubmit` / `Stop` / `PreCompact` …）、`http`/`mcp_tool`/`prompt`/`agent` handler、多 scope 配置（project / local / managed）、GUI 面板与 `ha-settings` 技能集成尚未落地，见设计文档 §18 的分阶段计划。
+### 事件分类
+
+| 类型 | 事件 | 决策语义 |
+|------|------|---------|
+| **阻断型** | `UserPromptSubmit` / `PreToolUse` / `PreCompact` | `block`/`deny` 真阻断（prompt 不入会话 / 工具被拒 / 跳过压缩）|
+| **观察型** | `SessionStart` · `SessionEnd` / `Notification` / `PostToolUse` · `PostToolUseFailure` · `PostToolBatch` / `PostCompact` / `Stop` · `StopFailure` / `SubagentStart` · `SubagentStop` / `TaskCreated` · `TaskCompleted` / `ConfigChange` / `CwdChanged` / `FileChanged` / `PermissionRequest` · `PermissionDenied` / `UserPromptExpansion` / `Elicitation` · `ElicitationResult` | 只注入 `additionalContext` / 通知；`block` 降级为非阻断 + log（`is_observation_only`）|
+
+> `Stop` / `StopFailure` 当前 fire-and-forget 观察型（未实现 block-to-continue）；落地该语义时移出 `is_observation_only`。
+
+## 多 scope（design §4）
+
+| Scope | 位置 | 范围 |
+|-------|------|------|
+| **user** | `~/.hope-agent/config.json` 的 `hooks` | 全局，编进 `registry::global()` |
+| **managed** | `/etc/hope-agent/hooks.json`（Win: `%PROGRAMDATA%\hope-agent\hooks.json`）| 全局（企业下发），合进 `registry::global()` |
+| **project** | `<会话工作目录>/.hope-agent/hooks.json` | 随仓库共享，按 cwd 解析 |
+| **local** | `<会话工作目录>/.hope-agent/hooks.local.json` | git-ignored 开发者私有，按 cwd 解析 |
+
+- **UNION 语义**：所有 scope 命中的 hook 都跑，无覆盖。
+- project/local 依赖会话工作目录（`sessions.working_dir`，无 home 回退），在 dispatch 时经 [`scopes::resolve_for_cwd`](../../crates/ha-core/src/hooks/scopes.rs) 合并到全局之上，**per-cwd 缓存**（mtime + 全局 reload generation 失效）；无 project/local 文件时直接返回全局 registry（≤2 次 stat）。
+- 每条 fire 路径（dispatch / `fire_and_forget` / 各 gate）统一走 `scopes::any_handlers_for(event, cwd)`，所以 project-only hook 在 user/managed 为空时也能触发。
+- `disable_all_hooks` 主开关关闭**所有** scope。
 
 ## 模块（`crates/ha-core/src/hooks/`）
 
 | 文件 | 职责 |
 |------|------|
-| `mod.rs` | `HookDispatcher::dispatch`（匹配 → 并发执行 → 聚合 → 审计）+ `fire_and_forget` / `fire_notification` / `fire_session_end` + `init` |
+| `mod.rs` | `HookDispatcher::dispatch`（per-cwd 解析 → 匹配 → 并发执行（catch_unwind 隔离）→ 聚合 → 审计）+ `fire_*` 助手 + `init` |
 | `types.rs` | `HookEvent`（28 变体）/ `HookInput`（per-event，flatten common）/ `HookOutput` / `HookOutcome` / `HookDecision` / `PermissionMode` |
-| `config.rs` | `HooksConfig`（`AppConfig.hooks`）+ 5 种 `HookHandlerConfig` |
-| `matcher.rs` | 三语法判别：wildcard / 精确-或-pipe / regex（无效 regex → never-match） |
-| `registry.rs` | 全局 `ArcSwap<HookRegistry>` + `reload_from_config` 热重载 |
-| `runner/{mod,command}.rs` | `HookHandler` trait + `command` 子进程 spawner |
-| `parse.rs` | exit code + JSON / plaintext → `HookContribution` |
-| `decision.rs` | 多 hook 聚合（`deny > block > defer > ask > allow`，additionalContext 有序拼接） |
-| `env.rs` | `command` 环境变量组装（`CLAUDE_PROJECT_DIR` / `HOPE_*` / `CLAUDE_CODE_REMOTE` / `PATH`） |
-| `audit.rs` | `category="hooks"` 审计日志 + overflow 文件（10 000 字符注入上限） |
-| `transcript.rs` | JSONL 镜像写入 + 历史会话 backfill |
+| `config.rs` | `HooksConfig`（28×`Vec<HookMatcherGroup>`）+ 5 种 `HookHandlerConfig` + `merge_from`（scope 合并）|
+| `scopes.rs` | 多 scope 解析：managed 加载 / 全局合并配置缓存 + generation / per-cwd registry 缓存 / `resolve_for_cwd` / `any_handlers_for` |
+| `matcher.rs` | 三语法：wildcard / 精确-或-pipe / regex（无效 regex → never-match）|
+| `registry.rs` | 全局 `ArcSwap<HookRegistry>`；`reload_from_config`（user+managed 合并 + 喂 scopes + bump generation）|
+| `runner/{mod,command,http,mcp_tool,prompt,agent}.rs` | `HookHandler` trait + 5 种 handler |
+| `parse.rs` | exit code + JSON / plaintext → `HookContribution`；`permissionDecision` 仅 PreToolUse |
+| `decision.rs` | 多 hook 聚合（`deny > block > defer > ask > allow`，additionalContext 有序拼接 + 10000 字符上限 overflow）|
+| `env.rs` | `command` 环境变量（`CLAUDE_PROJECT_DIR` / `HOPE_*` / `CLAUDE_CODE_REMOTE` / `PATH`）|
+| `transcript.rs` | JSONL 镜像：`build_line` 共享 + backfill（跳 incognito）+ `append_persisted`（live）|
 
 ## 关键契约
 
 - **零 Tauri 依赖**：全在 `ha-core`，desktop / `server` / ACP 三模式共用。
-- **`additionalContext` 注入两路**：`SessionStart(startup/resume)` 走 `extra_system_context`（turn 级，跨 failover 存活）；`PostToolUse`/`PostToolUseFailure` append 到工具结果；`PostCompact` / `SessionStart(compact)` / `Notification` 走 agent 的 `pending_hook_context` → 下一轮 reminder suffix。
-- **`command` 默认超时 600s**；stdout/stderr 各截断 1 MiB；exit 2 = 阻断（观察型事件降级为非阻断 + log）。
-- **配置读写走 config contract**：读 `cached_config().hooks`，写 `mutate_config(("hooks", source), …)`（详见 [`config-system.md`](config-system.md)）。本期仅 user scope（`~/.hope-agent/config.json`）。
-- **四入口统一 preflight**：Tauri / HTTP / IM / ACP 的 user message 均经 [`agent::preflight::user_prompt_preflight`](../../crates/ha-core/src/agent/preflight.rs)（当前透传，`UserPromptSubmit` 落地后在此接 block）。
+- **统一入口**：业务代码只碰 `HookDispatcher::dispatch` / `fire_*` 助手，读 `HookOutcome`；匹配 / 并发 / 超时 / 去重 / 聚合 / panic 隔离全在内部。
+- **PreToolUse 接权限引擎**：name 可见性闸后、权限引擎前触发；`deny` 短路；`updatedInput` 影子参数让引擎重判；`permissionDecision:"allow"` 仅跳软 Ask（保护路径 / 危险命令 / Plan 永远弹窗）；`ask`/`defer` 强制弹窗。
+- **UserPromptSubmit 阻断**：在 [`agent::preflight::user_prompt_preflight`](../../crates/ha-core/src/agent/preflight.rs)（四入口统一 chokepoint）触发；`block`/`deny`/`continue:false` → prompt 不持久化为 user 消息（不入 LLM 上下文）、不跑 turn、各入口原生回话 + 落一条 `event` 行；非阻断的 `additionalContext` 暂存 session slot，turn 起始 drain 进 `extra_system_context`。
+- **`command` 默认超时 600s**（http 30s / prompt 60s / agent 120s）；stdout/stderr 各截断 1 MiB；exit 2 = 阻断（观察型降级为非阻断 + log）。
+- **配置读 `cached_config().hooks`**，user scope 写走 `mutate_config(("hooks", source), …)`（详见 [`config-system.md`](config-system.md)）；project/local/managed 是独立 scope 文件。
+- **`ha-settings` 技能只读**：`get_settings` 含 `hooks`（http header 脱敏），写被 `BLOCKED_UPDATE_CATEGORIES` 拦截——hooks 能跑任意命令，可写会让模型给自己装命令执行（特权升级）。
 
-## 配置示例（`~/.hope-agent/config.json` 顶层 `hooks` 键）
+## 配置示例
+
+user scope（`~/.hope-agent/config.json` 顶层 `hooks` 键）：
 
 ```json
 {
   "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "~/.hope-agent/hooks/guard.sh" } ] }
+    ],
     "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.hope-agent/hooks/fmt.sh", "async": true }
-        ]
-      }
+      { "matcher": "Write|Edit", "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.hope-agent/hooks/fmt.sh", "async": true } ] }
     ],
     "SessionStart": [
       { "matcher": "startup|resume", "hooks": [ { "type": "command", "command": "~/.hope-agent/hooks/load-context.sh" } ] }
@@ -55,10 +79,23 @@
 }
 ```
 
-## 已知差异 / 缺口（本期）
+project scope（`<仓库>/.hope-agent/hooks.json`，提交进仓库给团队共享，shape 与上面 `hooks` 对象一致）：
 
-- `permission_mode` 仅近似（plan allow-list 非空 → `plan`，否则 `default`；YOLO / Smart 未区分）。
-- `Notification` 的 `idle_prompt` / `auth_success`、`SessionEnd` 的 app-shutdown、多 session fan-out 尚未接入。
+```json
+{
+  "FileChanged": [
+    { "matcher": ".*\\.rs$", "hooks": [ { "type": "command", "command": "jq -r .path | xargs rustfmt", "async": true } ] }
+  ]
+}
+```
+
+> 事件数据（如 `FileChanged` 的 `path`）在 stdin 的 hook 输入 JSON 里，用 `jq` 读取；env 只携带 `CLAUDE_PROJECT_DIR` / `HOPE_*` 等通用变量（§11.1）。`matcher` 对 `FileChanged` 匹配文件**绝对路径**，故 `.*\.rs$` 命中所有 `.rs`。
+
+## 已知差异 / 缺口
+
+- `Stop` / `StopFailure` 暂为观察型（无 block-to-continue）。
 - `PostToolUse` 拿到的是工具结果预览（超大结果落盘后的 head+tail），非完整内容。
+- live transcript 仅在 user/managed scope 有 hook 时追加（避免每消息持久化热路径上的 stat）；project-only 会话退化为 backfill-only（§10.4 允许 drift）。
+- `prompt` / `agent` handler 在 dispatch 内跑 LLM / spawn 子 Agent，有成本与延迟——勿挂在 PreToolUse 等热路径。
 
 完整协议差异红线见设计文档 §2.4。
