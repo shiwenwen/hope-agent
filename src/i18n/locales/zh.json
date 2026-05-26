@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "推荐",
     "webSearchSaved": "已保存",
     "webSearchTimeout": "超时（秒）",
-    "webSearchTimeoutDesc": "搜索请求 HTTP 超时时间（5-120 秒）"
+    "webSearchTimeoutDesc": "搜索请求 HTTP 超时时间（5-120 秒）",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Hooks 自动化",
+      "intro": "在生命周期事件挂接自定义命令 / HTTP / 提示词 / 子 Agent，字段级兼容 Claude Code。",
+      "disableAll": "禁用全部 hooks",
+      "disableAllDesc": "总开关——关闭所有 scope 的全部 hook。",
+      "scopeNote": "本面板编辑 user scope hooks。project（.hope-agent/hooks.json，随仓库共享）、local（hooks.local.json）、managed（/etc/hope-agent/hooks.json）为文件配置，叠加合并。",
+      "pickEvent": "选择事件…",
+      "addHook": "添加 hook",
+      "empty": "尚未配置 hook。在上方选择事件添加。",
+      "addGroup": "添加 matcher 组",
+      "matcher": "matcher",
+      "matcherPlaceholder": "工具名 / 来源（支持正则），留空 = 全部",
+      "addHandler": "添加处理器",
+      "advanced": "高级"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",

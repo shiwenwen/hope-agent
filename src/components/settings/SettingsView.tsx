@@ -31,6 +31,7 @@ import {
   Mic,
   Plug,
   Users2,
+  Webhook,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -66,6 +67,7 @@ import McpServersPanel from "@/components/settings/mcp-panel/McpServersPanel"
 import ServerPanel from "@/components/settings/ServerPanel"
 import SecurityPanel from "@/components/settings/SecurityPanel"
 import ApprovalPanel from "@/components/settings/ApprovalPanel"
+import HooksPanel from "@/components/settings/HooksPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
@@ -169,6 +171,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "approval",
     icon: <ShieldCheck className="h-4 w-4" />,
     labelKey: "settings.approvalNav",
+  },
+  {
+    id: "hooks",
+    icon: <Webhook className="h-4 w-4" />,
+    labelKey: "settings.hooks.nav",
   },
   {
     id: "permissions",
@@ -369,6 +376,7 @@ export default function SettingsView({
               <ChannelPanel initialChannelId={initialChannelId} />
             )}
             {activeSection === "approval" && <ApprovalPanel />}
+            {activeSection === "hooks" && <HooksPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}

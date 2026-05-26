@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "Önerilen",
     "webSearchSaved": "Kaydedildi",
     "webSearchTimeout": "Zaman aşımı (saniye)",
-    "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)"
+    "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Hooks Otomasyonu",
+      "intro": "Yaşam döngüsü olaylarında özel komutlar / HTTP / istemler / alt ajanlar çalıştırın. Claude Code hooks ile alan düzeyinde uyumlu.",
+      "disableAll": "Tüm hook'ları devre dışı bırak",
+      "disableAllDesc": "Ana anahtar — tüm scope'lardaki her hook'u kapatır.",
+      "scopeNote": "Bu panel user kapsamındaki hook'ları düzenler. project (.hope-agent/hooks.json, depoyla paylaşılır), local (hooks.local.json) ve managed (/etc/hope-agent/hooks.json) kapsamları dosya tabanlıdır ve üste birleştirilir.",
+      "pickEvent": "Bir olay seçin…",
+      "addHook": "Hook ekle",
+      "empty": "Yapılandırılmış hook yok. Eklemek için yukarıdan bir olay seçin.",
+      "addGroup": "Matcher grubu ekle",
+      "matcher": "matcher",
+      "matcherPlaceholder": "araç adı / kaynak (regex olabilir), boş = tümü",
+      "addHandler": "İşleyici ekle",
+      "advanced": "Gelişmiş"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",

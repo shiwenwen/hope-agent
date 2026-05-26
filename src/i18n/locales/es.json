@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "Recomendado",
     "webSearchSaved": "Guardado",
     "webSearchTimeout": "Timeout (segundos)",
-    "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)"
+    "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Automatización de Hooks",
+      "intro": "Ejecuta comandos personalizados / HTTP / prompts / subagentes en eventos del ciclo de vida. Compatible a nivel de campo con los hooks de Claude Code.",
+      "disableAll": "Desactivar todos los hooks",
+      "disableAllDesc": "Interruptor maestro — desactiva todos los hooks en todos los ámbitos.",
+      "scopeNote": "Este panel edita los hooks del ámbito user. Los ámbitos project (.hope-agent/hooks.json, compartido por el repositorio), local (hooks.local.json) y managed (/etc/hope-agent/hooks.json) están basados en archivos y se fusionan encima.",
+      "pickEvent": "Selecciona un evento…",
+      "addHook": "Añadir hook",
+      "empty": "No hay hooks configurados. Selecciona un evento arriba para añadir uno.",
+      "addGroup": "Añadir grupo de matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "nombre de herramienta / origen (regex ok), vacío = todos",
+      "addHandler": "Añadir handler",
+      "advanced": "Avanzado"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",

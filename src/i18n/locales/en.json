@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "Recommended",
     "webSearchSaved": "Saved",
     "webSearchTimeout": "Timeout (seconds)",
-    "webSearchTimeoutDesc": "HTTP timeout for search requests (5-120s)"
+    "webSearchTimeoutDesc": "HTTP timeout for search requests (5-120s)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Hooks",
+      "intro": "Run custom commands, HTTP calls, prompts or sub-agents at lifecycle events. Field-level compatible with Claude Code hooks.",
+      "disableAll": "Disable all hooks",
+      "disableAllDesc": "Master switch — turns off every hook across all scopes.",
+      "scopeNote": "This panel edits user-scope hooks. Project (.hope-agent/hooks.json, repo-shared), local (hooks.local.json) and managed (/etc/hope-agent/hooks.json) scopes are file-based and merged on top.",
+      "pickEvent": "Select an event…",
+      "addHook": "Add hook",
+      "empty": "No hooks configured. Pick an event above to add one.",
+      "addGroup": "Add matcher group",
+      "matcher": "matcher",
+      "matcherPlaceholder": "tool name / source (regex ok), empty = all",
+      "addHandler": "Add handler",
+      "advanced": "Advanced"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",

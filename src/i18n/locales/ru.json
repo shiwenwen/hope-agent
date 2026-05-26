@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "Рекомендуется",
     "webSearchSaved": "Сохранено",
     "webSearchTimeout": "Таймаут (секунд)",
-    "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)"
+    "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Автоматизация Hooks",
+      "intro": "Запускайте пользовательские команды / HTTP / промпты / субагентов на событиях жизненного цикла. Совместимо на уровне полей с hooks Claude Code.",
+      "disableAll": "Отключить все hooks",
+      "disableAllDesc": "Главный переключатель — отключает все hooks во всех областях.",
+      "scopeNote": "Эта панель редактирует hooks области user. Области project (.hope-agent/hooks.json, общая через репозиторий), local (hooks.local.json) и managed (/etc/hope-agent/hooks.json) основаны на файлах и объединяются сверху.",
+      "pickEvent": "Выберите событие…",
+      "addHook": "Добавить hook",
+      "empty": "Hooks не настроены. Выберите событие выше, чтобы добавить.",
+      "addGroup": "Добавить группу matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "имя инструмента / источник (regex), пусто = все",
+      "addHandler": "Добавить обработчик",
+      "advanced": "Дополнительно"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",

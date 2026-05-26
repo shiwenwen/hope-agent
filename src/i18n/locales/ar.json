@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "موصى به",
     "webSearchSaved": "تم الحفظ",
     "webSearchTimeout": "المهلة (ثوانٍ)",
-    "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)"
+    "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "أتمتة Hooks",
+      "intro": "شغّل أوامر مخصصة / HTTP / مطالبات / وكلاء فرعيين عند أحداث دورة الحياة. متوافق على مستوى الحقول مع hooks في Claude Code.",
+      "disableAll": "تعطيل جميع الـ hooks",
+      "disableAllDesc": "مفتاح رئيسي — يوقف كل hook في جميع النطاقات.",
+      "scopeNote": "تحرّر هذه اللوحة hooks نطاق user. نطاقات project (.hope-agent/hooks.json، مشتركة عبر المستودع) وlocal (hooks.local.json) وmanaged (/etc/hope-agent/hooks.json) قائمة على الملفات وتُدمج فوقها.",
+      "pickEvent": "اختر حدثًا…",
+      "addHook": "إضافة hook",
+      "empty": "لا توجد hooks مهيأة. اختر حدثًا أعلاه للإضافة.",
+      "addGroup": "إضافة مجموعة matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "اسم الأداة / المصدر (regex مقبول)، فارغ = الكل",
+      "addHandler": "إضافة معالج",
+      "advanced": "متقدم"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",

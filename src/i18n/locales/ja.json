@@ -4140,7 +4140,23 @@
     "webSearchRecommended": "推奨",
     "webSearchSaved": "保存しました",
     "webSearchTimeout": "タイムアウト（秒）",
-    "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)"
+    "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Hooks 自動化",
+      "intro": "ライフサイクルイベントでカスタムコマンド / HTTP / プロンプト / サブエージェントを実行します。Claude Code の hooks とフィールドレベルで互換。",
+      "disableAll": "すべての hooks を無効化",
+      "disableAllDesc": "マスタースイッチ — すべての scope の hook を停止します。",
+      "scopeNote": "このパネルは user スコープの hooks を編集します。project（.hope-agent/hooks.json、リポジトリ共有）、local（hooks.local.json）、managed（/etc/hope-agent/hooks.json）はファイルベースで上に統合されます。",
+      "pickEvent": "イベントを選択…",
+      "addHook": "hook を追加",
+      "empty": "hook が未設定です。上でイベントを選んで追加してください。",
+      "addGroup": "matcher グループを追加",
+      "matcher": "matcher",
+      "matcherPlaceholder": "ツール名 / ソース（正規表現可）、空 = すべて",
+      "addHandler": "ハンドラーを追加",
+      "advanced": "詳細"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
