@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Hooks 系统（兼容 Claude Code）**：可在会话开始/结束、工具调用后、上下文压缩后等节点运行自定义 `command` 脚本注入上下文，字段级对齐 Claude Code hooks 协议，配置改动即时热重载。 (#PR)
+- **Hooks 系统（字段级兼容 Claude Code 协议）**：可在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，支持 `command` / `http` / `mcp_tool` / `prompt` / `agent` 五种处理器；配置分 user / managed / project / local 四层作用域并叠加合并，项目级 hooks 可随仓库共享给团队；提供可视化设置面板（设置 → Hooks），配置改动即时热重载。 (#PR)
 
 ## [0.4.0] - 2026-05-22
 
