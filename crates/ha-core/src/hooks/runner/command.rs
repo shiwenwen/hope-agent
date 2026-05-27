@@ -247,7 +247,11 @@ mod tests {
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: None,
-        });
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+});
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(0));
         assert_eq!(r.stdout, "hello");
@@ -261,7 +265,11 @@ mod tests {
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: None,
-        });
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+});
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(2));
         assert!(r.stderr.contains("oops"));
@@ -275,7 +283,11 @@ mod tests {
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: None,
-        });
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+});
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
         assert_eq!(r.exit_code, Some(0));
         assert!(r.stdout.contains("\"hook_event_name\":\"Notification\""));
@@ -289,7 +301,11 @@ mod tests {
             shell: Some(HookShell::Bash),
             timeout: Some(1),
             async_run: None,
-        });
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+});
         // 1s deadline against a 5s sleep.
         let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(1)).await;
         assert!(r.timed_out);
@@ -314,7 +330,11 @@ mod tests {
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: None,
-        });
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+});
         let r = h.run(&dummy_input(), &env, deadline(10)).await;
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(r.exit_code, Some(0));
@@ -332,7 +352,11 @@ mod tests {
             shell: Some(HookShell::Bash),
             timeout: None,
             async_run: None,
-        };
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+};
         let mut diff_shell = base.clone();
         diff_shell.shell = Some(HookShell::Powershell);
         let mut diff_timeout = base.clone();

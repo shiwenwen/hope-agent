@@ -442,6 +442,28 @@ impl HookInput {
         }
     }
 
+    /// The tool name for tool-lifecycle events (`PreToolUse` / `PostToolUse` /
+    /// `PostToolUseFailure`); `None` for every other event. Used by the `if`
+    /// condition gate — a non-tool event can't satisfy a `ToolName(...)` rule.
+    pub fn tool_name(&self) -> Option<&str> {
+        match self {
+            Self::PreToolUse { tool_name, .. }
+            | Self::PostToolUse { tool_name, .. }
+            | Self::PostToolUseFailure { tool_name, .. } => Some(tool_name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The tool input args for tool-lifecycle events; `None` otherwise.
+    pub fn tool_input(&self) -> Option<&serde_json::Value> {
+        match self {
+            Self::PreToolUse { tool_input, .. }
+            | Self::PostToolUse { tool_input, .. }
+            | Self::PostToolUseFailure { tool_input, .. } => Some(tool_input),
+            _ => None,
+        }
+    }
+
     /// The matcher target for this input (design doc §6.2): tool name / source
     /// / notification_type / trigger. `None` means "no target → only wildcard
     /// matchers fire".

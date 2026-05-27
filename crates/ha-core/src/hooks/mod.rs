@@ -10,6 +10,7 @@
 //! dedup, and aggregation are all internal.
 
 pub mod audit;
+pub mod condition;
 pub mod config;
 pub mod decision;
 pub mod env;
@@ -48,6 +49,23 @@ pub fn claim_session_start(session_id: &str) -> bool {
         guard.clear();
     }
     guard.insert(session_id.to_string())
+}
+
+/// `(session_id, handler_key)` pairs that have already run a `once: true`
+/// handler in this process. Same shape + CAP rationale as [`claim_session_start`].
+static ONCE_PER_SESSION_SEEN: OnceLock<Mutex<HashSet<(String, String)>>> = OnceLock::new();
+
+/// Returns `true` the first time `(session_id, handler_key)` runs a `once`
+/// handler (and records it), `false` afterwards. `handler_key` is the handler's
+/// `type|identity` so distinct handlers in the same session don't collide.
+pub fn claim_once_per_session(session_id: &str, handler_key: &str) -> bool {
+    const CAP: usize = 65536;
+    let seen = ONCE_PER_SESSION_SEEN.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = seen.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.len() >= CAP {
+        guard.clear();
+    }
+    guard.insert((session_id.to_string(), handler_key.to_string()))
 }
 
 /// Last time compaction hooks fired per session, for cross-retry de-dup.
@@ -200,6 +218,20 @@ impl HookDispatcher {
         let mut handlers: Vec<Box<dyn HookHandler>> = Vec::new();
         for cfg in configs {
             if let Some(h) = build_handler(cfg) {
+                // `if` condition: run only when the tool call matches the rule
+                // (non-tool events / mismatches skip — see `condition`).
+                if let Some(rule) = cfg.if_rule() {
+                    if !condition::if_matches(rule, &input) {
+                        continue;
+                    }
+                }
+                // `once`: skip if this handler already ran in this session.
+                if cfg.once() {
+                    let key = format!("{}|{}", h.handler_type(), h.identity());
+                    if !claim_once_per_session(&input.common().session_id, &key) {
+                        continue;
+                    }
+                }
                 if seen.insert((h.handler_type(), h.identity())) {
                     handlers.push(h);
                 }

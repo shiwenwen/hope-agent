@@ -210,6 +210,48 @@ pub enum HookHandlerConfig {
     Agent(AgentHookConfig),
 }
 
+impl HookHandlerConfig {
+    /// The `if` rule for conditional execution (run only when the tool call
+    /// matches), if set. Shared accessor so dispatch needn't match the variant.
+    pub fn if_rule(&self) -> Option<&str> {
+        match self {
+            Self::Command(c) => c.if_rule.as_deref(),
+            Self::Http(c) => c.if_rule.as_deref(),
+            Self::McpTool(c) => c.if_rule.as_deref(),
+            Self::Prompt(c) => c.if_rule.as_deref(),
+            Self::Agent(c) => c.if_rule.as_deref(),
+        }
+    }
+
+    /// Whether this handler runs at most once per session.
+    pub fn once(&self) -> bool {
+        match self {
+            Self::Command(c) => c.once,
+            Self::Http(c) => c.once,
+            Self::McpTool(c) => c.once,
+            Self::Prompt(c) => c.once,
+            Self::Agent(c) => c.once,
+        }
+        .unwrap_or(false)
+    }
+
+    /// Static status message shown to the user while the handler runs.
+    pub fn status_message(&self) -> Option<&str> {
+        match self {
+            Self::Command(c) => c.status_message.as_deref(),
+            Self::Http(c) => c.status_message.as_deref(),
+            Self::McpTool(c) => c.status_message.as_deref(),
+            Self::Prompt(c) => c.status_message.as_deref(),
+            Self::Agent(c) => c.status_message.as_deref(),
+        }
+    }
+
+    /// (command + async only) Inject stderr into the next turn on exit 2.
+    pub fn async_rewake(&self) -> bool {
+        matches!(self, Self::Command(c) if c.async_rewake == Some(true))
+    }
+}
+
 /// Which shell to run a `command` handler in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -228,6 +270,19 @@ pub struct CommandHookConfig {
     pub timeout: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "async")]
     pub async_run: Option<bool>,
+    /// Static message shown to the user while this handler runs (`statusMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
+    /// Run only when the tool call matches this rule, e.g. `exec(rm *)` (`if`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "if")]
+    pub if_rule: Option<String>,
+    /// Run at most once per session for this handler identity (`once`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub once: Option<bool>,
+    /// (async only) When the detached command exits 2, inject its stderr as a
+    /// system-reminder into the next turn (`asyncRewake`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub async_rewake: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +295,15 @@ pub struct HttpHookConfig {
     pub headers: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_env_vars: Vec<String>,
+    /// Static message shown to the user while this handler runs (`statusMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
+    /// Run only when the tool call matches this rule, e.g. `exec(rm *)` (`if`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "if")]
+    pub if_rule: Option<String>,
+    /// Run at most once per session for this handler identity (`once`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub once: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,6 +315,15 @@ pub struct McpToolHookConfig {
     pub input: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Static message shown to the user while this handler runs (`statusMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
+    /// Run only when the tool call matches this rule, e.g. `exec(rm *)` (`if`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "if")]
+    pub if_rule: Option<String>,
+    /// Run at most once per session for this handler identity (`once`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub once: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,6 +334,15 @@ pub struct PromptHookConfig {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Static message shown to the user while this handler runs (`statusMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
+    /// Run only when the tool call matches this rule, e.g. `exec(rm *)` (`if`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "if")]
+    pub if_rule: Option<String>,
+    /// Run at most once per session for this handler identity (`once`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub once: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,6 +357,15 @@ pub struct AgentHookConfig {
     pub timeout: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "async")]
     pub async_run: Option<bool>,
+    /// Static message shown to the user while this handler runs (`statusMessage`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_message: Option<String>,
+    /// Run only when the tool call matches this rule, e.g. `exec(rm *)` (`if`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "if")]
+    pub if_rule: Option<String>,
+    /// Run at most once per session for this handler identity (`once`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub once: Option<bool>,
 }
 
 /// Combined hooks settings payload for the Settings → Hooks GUI: the
