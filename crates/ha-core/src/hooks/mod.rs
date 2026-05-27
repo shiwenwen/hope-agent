@@ -233,6 +233,10 @@ impl HookDispatcher {
                     }
                 }
                 if seen.insert((h.handler_type(), h.identity())) {
+                    // `statusMessage`: this handler will run — surface its note.
+                    if let Some(msg) = cfg.status_message() {
+                        emit_hook_status(&input, msg, h.handler_type());
+                    }
                     handlers.push(h);
                 }
             }
@@ -299,6 +303,23 @@ impl HookDispatcher {
 }
 
 /// Build a runnable handler from config — all five handler types are wired.
+/// Emit a `hook:status` event so the GUI can surface a handler's
+/// `statusMessage` while it runs (design §20.7 → desktop toast). No-op when no
+/// event bus is wired (e.g. unit tests).
+fn emit_hook_status(input: &HookInput, message: &str, handler_type: &str) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "hook:status",
+            serde_json::json!({
+                "sessionId": input.common().session_id,
+                "hookEvent": input.common().hook_event_name,
+                "handlerType": handler_type,
+                "message": message,
+            }),
+        );
+    }
+}
+
 fn build_handler(cfg: &HookHandlerConfig) -> Option<Box<dyn HookHandler>> {
     match cfg {
         HookHandlerConfig::Command(c) => {
