@@ -443,11 +443,14 @@ mod tests {
             vec![
                 "status",
                 "permissions",
+                "diagnostics",
                 "snapshot",
                 "visual",
                 "elements",
                 "wait",
                 "apps",
+                "dock",
+                "spaces",
                 "windows",
                 "act",
                 "menu",
@@ -463,6 +466,8 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
+        assert!(ops.contains(&"summary"));
+        assert!(ops.contains(&"export"));
         assert!(ops.contains(&"find"));
         assert!(ops.contains(&"dry_run"));
         assert!(ops.contains(&"perform_action"));

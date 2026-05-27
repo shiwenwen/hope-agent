@@ -3147,17 +3147,7 @@ mod imp {
                 )?;
                 let element_ref = element.as_ptr() as AXUIElementRef;
                 target = Some(summary.clone());
-                if summary.actions.iter().any(|action| action == "AXPress") {
-                    perform_ax_action(element_ref, "AXPress")?;
-                    "AXPress".to_string()
-                } else {
-                    let bounds = summary.bounds_points.ok_or_else(|| {
-                        "act.click target has no AXPress action and no bounds for CGEvent fallback."
-                            .to_string()
-                    })?;
-                    post_mouse_click(center_point(bounds, "act.click target")?, MouseButton::Left)?;
-                    "CGEventFallback".to_string()
-                }
+                press_ax_or_click_center(element_ref, &summary, "act.click target")?
             }
             MacControlActOp::ClickPoint => {
                 let (Some(x), Some(y)) = (request.x, request.y) else {
@@ -3253,10 +3243,18 @@ mod imp {
                 let execution = if append_typing {
                     focus_text_element_for_paste(element_ref, &summary)?;
                     post_unicode_text(text, typing_motion_profile(&request))?;
-                    "CGEventUnicodeTyping"
+                    "CGEventUnicodeTyping".to_string()
                 } else {
-                    set_ax_string(element_ref, "AXValue", text)?;
-                    "AXSetValue"
+                    match set_ax_string(element_ref, "AXValue", text) {
+                        Ok(()) => "AXSetValue".to_string(),
+                        Err(error) => replace_text_via_clipboard(
+                            element_ref,
+                            &summary,
+                            text,
+                            "act.type fallback",
+                            Some(error),
+                        )?,
+                    }
                 };
                 verification = Some(verify_ax_value(
                     element_ref,
@@ -3271,7 +3269,7 @@ mod imp {
                     },
                 ));
                 target = Some(summary);
-                execution.to_string()
+                execution
             }
             MacControlActOp::Paste => {
                 let text = request
@@ -3324,15 +3322,32 @@ mod imp {
                     request.max_depth,
                     "act.set_value",
                 )?;
-                set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", value)?;
+                let element_ref = element.as_ptr() as AXUIElementRef;
+                let execution = match set_ax_string(element_ref, "AXValue", value) {
+                    Ok(()) => "AXSetValue".to_string(),
+                    Err(error) => {
+                        if !is_text_input_element(&summary) {
+                            return Err(format!(
+                                "act.set_value AXSetValue failed for non-text target; pasteboard replace fallback is only allowed for text input elements: {error}"
+                            ));
+                        }
+                        replace_text_via_clipboard(
+                            element_ref,
+                            &summary,
+                            value,
+                            "act.set_value fallback",
+                            Some(error),
+                        )?
+                    }
+                };
                 verification = Some(verify_ax_value(
-                    element.as_ptr() as AXUIElementRef,
+                    element_ref,
                     value,
                     "act.set_value",
                     AxValueVerificationMode::Exact,
                 ));
                 target = Some(summary);
-                "AXSetValue".to_string()
+                execution
             }
             MacControlActOp::Hotkey => {
                 let keys = if request.keys.is_empty() {
@@ -3968,6 +3983,29 @@ mod imp {
         }
     }
 
+    fn replace_text_via_clipboard(
+        element: AXUIElementRef,
+        summary: &MacControlElementSummary,
+        text: &str,
+        label: &str,
+        ax_error: Option<String>,
+    ) -> Result<String, String> {
+        focus_text_element_for_paste(element, summary)
+            .map_err(|error| format!("{label} could not focus target: {error}"))?;
+        post_hotkey(&["cmd".to_string(), "a".to_string()])
+            .map_err(|error| format!("{label} select-all failed: {error}"))?;
+        thread::sleep(Duration::from_millis(80));
+        let paste_execution = paste_text_via_clipboard(text)
+            .map_err(|error| format!("{label} paste fallback failed: {error}"))?;
+        Ok(match ax_error {
+            Some(error) => format!(
+                "AXSetValueFailed+PasteboardReplace({}; {paste_execution})",
+                truncate_for_error(&error, 96)
+            ),
+            None => format!("PasteboardReplace({paste_execution})"),
+        })
+    }
+
     fn copy_pasteboard_items(
         pasteboard: &NSPasteboard,
     ) -> Result<Vec<Retained<NSPasteboardItem>>, String> {
@@ -4095,8 +4133,16 @@ mod imp {
                     resolve_element_by_summary(&field, request.max_elements, request.max_depth)?;
                 let element_ref = element.as_ptr() as AXUIElementRef;
                 let action = if request.clear {
-                    set_ax_string(element_ref, "AXValue", text)?;
-                    "AXSetValue".to_string()
+                    match set_ax_string(element_ref, "AXValue", text) {
+                        Ok(()) => "AXSetValue".to_string(),
+                        Err(error) => replace_text_via_clipboard(
+                            element_ref,
+                            &field,
+                            text,
+                            "dialog.input fallback",
+                            Some(error),
+                        )?,
+                    }
                 } else {
                     focus_text_element_for_paste(element_ref, &field)?;
                     paste_text_via_clipboard(text)?
@@ -4696,11 +4742,21 @@ mod imp {
                 .ok_or_else(|| "dialog.file could not find a filename text field.".to_string())?;
             let element =
                 resolve_element_by_summary(&field, request.max_elements, request.max_depth)?;
-            set_ax_string(element.as_ptr() as AXUIElementRef, "AXValue", name)?;
+            let element_ref = element.as_ptr() as AXUIElementRef;
+            let set_name_execution = match set_ax_string(element_ref, "AXValue", name) {
+                Ok(()) => "AXSetFilename".to_string(),
+                Err(error) => replace_text_via_clipboard(
+                    element_ref,
+                    &field,
+                    name,
+                    "dialog.file filename fallback",
+                    Some(error),
+                )?,
+            };
             name_field = Some(field);
             path_navigation = Some(match path_navigation {
-                Some(existing) => format!("{existing}+AXSetFilename"),
-                None => "AXSetFilename".to_string(),
+                Some(existing) => format!("{existing}+{set_name_execution}"),
+                None => set_name_execution,
             });
         }
         let requested_button = request
@@ -4779,11 +4835,31 @@ mod imp {
         element: AXUIElementRef,
         summary: &MacControlElementSummary,
     ) -> Result<(), String> {
-        if summary.actions.iter().any(|action| action == "AXPress") {
-            return perform_ax_action(element, "AXPress");
+        press_ax_or_click_center(element, summary, "dialog button").map(|_| ())
+    }
+
+    fn press_ax_or_click_center(
+        element: AXUIElementRef,
+        summary: &MacControlElementSummary,
+        label: &str,
+    ) -> Result<String, String> {
+        match perform_ax_action(element, "AXPress") {
+            Ok(()) => Ok("AXPress".to_string()),
+            Err(ax_error) => {
+                let point = point_for_element(summary, label).map_err(|bounds_error| {
+                    format!(
+                        "AXPress failed: {ax_error}; CGEvent fallback unavailable: {bounds_error}"
+                    )
+                })?;
+                post_mouse_click(point, MouseButton::Left).map_err(|click_error| {
+                    format!("AXPress failed: {ax_error}; CGEvent fallback failed: {click_error}")
+                })?;
+                Ok(format!(
+                    "AXPressFailed+CGEventFallback({})",
+                    truncate_for_error(&ax_error, 96)
+                ))
+            }
         }
-        let point = point_for_element(summary, "dialog button")?;
-        post_mouse_click(point, MouseButton::Left)
     }
 
     fn dialog_op_name(op: MacControlDialogOp) -> &'static str {
@@ -7560,13 +7636,25 @@ mod imp {
     }
 
     fn perform_menu_click_action(element: AXUIElementRef) -> Result<(), String> {
-        let actions = action_names(element);
-        if actions.iter().any(|action| action == "AXShowMenu") {
-            if perform_ax_action(element, "AXShowMenu").is_ok() {
-                return Ok(());
+        let mut errors = Vec::new();
+        match perform_ax_action(element, "AXShowMenu") {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("AXShowMenu failed: {error}")),
+        }
+        match perform_ax_action(element, "AXPress") {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                errors.push(format!("AXPress failed: {error}"));
+                let bounds = element_bounds(element).ok_or_else(|| errors.join("; "))?;
+                let point = center_point(bounds, "menu item fallback")?;
+                post_mouse_click(point, MouseButton::Left).map_err(|click_error| {
+                    format!(
+                        "{}; CGEvent fallback failed: {click_error}",
+                        errors.join("; ")
+                    )
+                })
             }
         }
-        perform_ax_action(element, "AXPress")
     }
 
     fn find_menu_child(element: AXUIElementRef, title: &str) -> Option<CfOwned> {

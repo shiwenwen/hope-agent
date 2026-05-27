@@ -46,6 +46,8 @@ const HARD_CLIPBOARD_SET_CHARS: usize = 200_000;
 const DEFAULT_VISUAL_LIMIT: usize = 5;
 const DEFAULT_UI_MAP_LIMIT: usize = 80;
 const HARD_UI_MAP_LIMIT: usize = 200;
+const DEFAULT_DIAGNOSTICS_LIMIT: usize = 10;
+const HARD_DIAGNOSTICS_LIMIT: usize = 20;
 const HARD_MOTION_STEPS: usize = 240;
 const HARD_MOTION_DURATION_MS: u64 = 10_000;
 const HARD_TYPING_DELAY_MS: u64 = 1_000;
@@ -165,11 +167,14 @@ pub struct MacControlRuntimeStats {
     pub recent_errors: Vec<MacControlErrorStat>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MacControlFocusAnchor {
     pub pid: i32,
     pub bundle_id: Option<String>,
     pub name: Option<String>,
+    pub focused_window_id: Option<String>,
+    pub focused_window_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,6 +191,41 @@ pub struct MacControlErrorStat {
 pub struct MacControlPermissionsResponse {
     pub status: MacControlStatus,
     pub system_permissions: SystemPermissionsResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDiagnosticsResponse {
+    pub status: MacControlStatus,
+    pub result: Option<MacControlDiagnosticsResult>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDiagnosticsResult {
+    pub op: MacControlDiagnosticsOp,
+    pub generated_at: String,
+    pub snapshot_cache: Vec<MacControlCachedSnapshotSummary>,
+    pub recent_errors: Vec<MacControlErrorStat>,
+    pub focus_anchor: Option<MacControlFocusAnchor>,
+    pub export_path: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlCachedSnapshotSummary {
+    pub snapshot_id: String,
+    pub created_at: String,
+    pub frontmost_app: Option<MacControlAppSummary>,
+    pub display_count: usize,
+    pub window_count: usize,
+    pub element_count: usize,
+    pub has_screenshot: bool,
+    pub screenshot: Option<MacControlScreenshotSummary>,
+    pub truncated: bool,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -249,6 +289,46 @@ fn default_snapshot_max_elements() -> usize {
 
 fn default_snapshot_max_depth() -> usize {
     DEFAULT_SNAPSHOT_MAX_DEPTH
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlDiagnosticsRequest {
+    #[serde(default)]
+    pub op: MacControlDiagnosticsOp,
+    #[serde(default = "default_diagnostics_limit")]
+    pub limit: usize,
+}
+
+impl Default for MacControlDiagnosticsRequest {
+    fn default() -> Self {
+        Self {
+            op: MacControlDiagnosticsOp::Summary,
+            limit: DEFAULT_DIAGNOSTICS_LIMIT,
+        }
+    }
+}
+
+impl MacControlDiagnosticsRequest {
+    pub fn clamped(mut self) -> Self {
+        if self.limit == 0 {
+            self.limit = DEFAULT_DIAGNOSTICS_LIMIT;
+        }
+        self.limit = self.limit.min(HARD_DIAGNOSTICS_LIMIT);
+        self
+    }
+}
+
+fn default_diagnostics_limit() -> usize {
+    DEFAULT_DIAGNOSTICS_LIMIT
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MacControlDiagnosticsOp {
+    #[default]
+    Summary,
+    Export,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -1945,6 +2025,54 @@ pub async fn permissions() -> MacControlPermissionsResponse {
     }
 }
 
+pub async fn diagnostics(request: MacControlDiagnosticsRequest) -> MacControlDiagnosticsResponse {
+    let request = request.clamped();
+    let status = status().await;
+    let mut result = MacControlDiagnosticsResult {
+        op: request.op,
+        generated_at: Utc::now().to_rfc3339(),
+        snapshot_cache: snapshot_cache_summaries(request.limit),
+        recent_errors: runtime_stats().recent_errors,
+        focus_anchor: capture_focus_anchor().await,
+        export_path: None,
+        warnings: Vec::new(),
+    };
+
+    if request.op == MacControlDiagnosticsOp::Export {
+        match create_diagnostics_export_path() {
+            Ok(path) => {
+                result.export_path = Some(path.display().to_string());
+                if let Err(error) = write_diagnostics_bundle(&path, &status, &result) {
+                    result
+                        .warnings
+                        .push(format!("mac_control diagnostics export failed: {error}"));
+                    return MacControlDiagnosticsResponse {
+                        status,
+                        result: Some(result),
+                        error: Some(error),
+                    };
+                }
+            }
+            Err(error) => {
+                result
+                    .warnings
+                    .push(format!("mac_control diagnostics export failed: {error}"));
+                return MacControlDiagnosticsResponse {
+                    status,
+                    result: Some(result),
+                    error: Some(error),
+                };
+            }
+        }
+    }
+
+    MacControlDiagnosticsResponse {
+        status,
+        result: Some(result),
+        error: None,
+    }
+}
+
 pub async fn snapshot(request: MacControlSnapshotRequest) -> MacControlSnapshotResponse {
     let Some(bridge) = available_bridge() else {
         return unsupported_snapshot_response(unsupported_reason());
@@ -2299,20 +2427,98 @@ pub async fn capture_focus_anchor() -> Option<MacControlFocusAnchor> {
         ..Default::default()
     })
     .await;
+    let focused_window = capture_focus_anchor_window().await;
+    let focused_window_id = focused_window.as_ref().map(|window| window.id.clone());
+    let focused_window_title = focused_window
+        .as_ref()
+        .and_then(|window| window.title.clone());
     response.result?.frontmost.map(|app| MacControlFocusAnchor {
         pid: app.pid,
         bundle_id: app.bundle_id,
         name: app.name,
+        focused_window_id,
+        focused_window_title,
     })
 }
 
 pub async fn restore_focus_anchor(anchor: &MacControlFocusAnchor) -> Result<(), String> {
     let mut errors = Vec::new();
+    let mut app_restored = false;
     for request in focus_anchor_activate_requests(anchor) {
         let response = apps(request).await;
         if let Some(result) = response.result {
             if result.activated.is_some() {
+                app_restored = true;
+                break;
+            }
+        }
+        if let Some(error) = response.error {
+            errors.push(error);
+        }
+    }
+
+    if !app_restored {
+        return if errors.is_empty() {
+            Err("mac_control approval focus restore did not activate any app.".to_string())
+        } else {
+            Err(format!(
+                "mac_control approval focus restore failed: {}",
+                errors.join("; ")
+            ))
+        };
+    }
+
+    if let Err(error) = restore_focus_anchor_window(anchor).await {
+        app_warn!(
+            "mac_control",
+            "approval_focus",
+            "Failed to restore focused macOS window after approval: {}",
+            error
+        );
+    }
+
+    Ok(())
+}
+
+async fn capture_focus_anchor_window() -> Option<MacControlWindowSummary> {
+    let response = windows(MacControlWindowsRequest {
+        op: MacControlWindowsOp::List,
+        window_scope: MacControlWindowsScope::Frontmost,
+        max_elements: 20,
+        max_depth: 2,
+        ..Default::default()
+    })
+    .await;
+    let result = response.result?;
+    result
+        .windows
+        .iter()
+        .find(|window| window.focused)
+        .cloned()
+        .or_else(|| result.windows.into_iter().next())
+}
+
+async fn restore_focus_anchor_window(anchor: &MacControlFocusAnchor) -> Result<(), String> {
+    let requests = focus_anchor_window_requests(anchor);
+    if requests.is_empty() {
+        return Ok(());
+    }
+
+    let mut errors = Vec::new();
+    for request in requests {
+        let response = windows(request).await;
+        if let Some(result) = response.result {
+            if result.verification.as_ref().is_some_and(|verification| {
+                verification.status == MacControlVerificationStatus::Verified
+            }) || result
+                .acted_window
+                .as_ref()
+                .is_some_and(|window| window.focused)
+            {
                 return Ok(());
+            }
+            if let Some(verification) = result.verification {
+                errors.push(verification.summary);
             }
         }
         if let Some(error) = response.error {
@@ -2321,10 +2527,10 @@ pub async fn restore_focus_anchor(anchor: &MacControlFocusAnchor) -> Result<(), 
     }
 
     if errors.is_empty() {
-        Err("mac_control approval focus restore did not activate any app.".to_string())
+        Err("focused window restore did not match any previous window anchor.".to_string())
     } else {
         Err(format!(
-            "mac_control approval focus restore failed: {}",
+            "focused window restore failed: {}",
             errors.join("; ")
         ))
     }
@@ -2357,6 +2563,59 @@ fn focus_anchor_activate_requests(anchor: &MacControlFocusAnchor) -> Vec<MacCont
         });
     }
     requests
+}
+
+fn focus_anchor_window_requests(anchor: &MacControlFocusAnchor) -> Vec<MacControlWindowsRequest> {
+    let mut requests = Vec::new();
+    if let Some(window_id) = focus_anchor_scoped_window_id(anchor) {
+        requests.push(MacControlWindowsRequest {
+            op: MacControlWindowsOp::Focus,
+            window_scope: MacControlWindowsScope::All,
+            window_id: Some(window_id),
+            target: MacControlTargetQuery {
+                window_title: anchor.focused_window_title.clone(),
+                window_title_match: MacControlStringMatch::Exact,
+                ..Default::default()
+            },
+            max_elements: 20,
+            max_depth: 2,
+            ..Default::default()
+        });
+    }
+    if let Some(title) = anchor
+        .focused_window_title
+        .as_ref()
+        .filter(|value| !value.is_empty())
+    {
+        requests.push(MacControlWindowsRequest {
+            op: MacControlWindowsOp::Focus,
+            window_scope: MacControlWindowsScope::Frontmost,
+            target: MacControlTargetQuery {
+                window_title: Some(title.clone()),
+                window_title_match: MacControlStringMatch::Exact,
+                ..Default::default()
+            },
+            max_elements: 20,
+            max_depth: 2,
+            ..Default::default()
+        });
+    }
+    requests
+}
+
+fn focus_anchor_scoped_window_id(anchor: &MacControlFocusAnchor) -> Option<String> {
+    let window_id = anchor
+        .focused_window_id
+        .as_ref()
+        .filter(|value| !value.is_empty())?;
+    if let Some(index) = window_id
+        .strip_prefix("win_")
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|index| *index > 0)
+    {
+        return Some(format!("win_{}_{}", anchor.pid, index));
+    }
+    Some(window_id.clone())
 }
 
 pub async fn windows(request: MacControlWindowsRequest) -> MacControlWindowsResponse {
@@ -3731,6 +3990,71 @@ fn runtime_stats() -> MacControlRuntimeStats {
         screenshot_file_limit: MAX_SCREENSHOT_FILES,
         recent_errors,
     }
+}
+
+fn snapshot_cache_summaries(limit: usize) -> Vec<MacControlCachedSnapshotSummary> {
+    let limit = limit.max(1).min(HARD_DIAGNOSTICS_LIMIT);
+    snapshot_cache()
+        .lock()
+        .map(|cache| {
+            cache
+                .iter()
+                .rev()
+                .take(limit)
+                .map(cached_snapshot_summary)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn cached_snapshot_summary(snapshot: &MacControlSnapshot) -> MacControlCachedSnapshotSummary {
+    MacControlCachedSnapshotSummary {
+        snapshot_id: snapshot.snapshot_id.clone(),
+        created_at: snapshot.created_at.clone(),
+        frontmost_app: snapshot.frontmost_app.clone(),
+        display_count: snapshot.displays.len(),
+        window_count: snapshot.windows.len(),
+        element_count: snapshot.elements.len(),
+        has_screenshot: snapshot.screenshot.is_some(),
+        screenshot: snapshot.screenshot.clone(),
+        truncated: snapshot.truncated,
+        warnings: snapshot.warnings.clone(),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MacControlDiagnosticsBundle<'a> {
+    status: &'a MacControlStatus,
+    result: &'a MacControlDiagnosticsResult,
+}
+
+fn create_diagnostics_export_path() -> Result<PathBuf, String> {
+    let dir = crate::paths::mac_control_diagnostics_dir()
+        .map_err(|e| format!("Unable to resolve macOS control diagnostics directory: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| {
+        format!(
+            "Unable to create macOS control diagnostics directory {}: {e}",
+            dir.display()
+        )
+    })?;
+    Ok(dir.join(format!("macdiag_{}.json", Uuid::new_v4().simple())))
+}
+
+fn write_diagnostics_bundle(
+    path: &Path,
+    status: &MacControlStatus,
+    result: &MacControlDiagnosticsResult,
+) -> Result<(), String> {
+    let bundle = MacControlDiagnosticsBundle { status, result };
+    let bytes = serde_json::to_vec_pretty(&bundle)
+        .map_err(|e| format!("Unable to serialize macOS control diagnostics: {e}"))?;
+    fs::write(path, bytes).map_err(|e| {
+        format!(
+            "Unable to write macOS control diagnostics bundle {}: {e}",
+            path.display()
+        )
+    })
 }
 
 fn record_error(operation: &str, message: &str) {
@@ -5622,6 +5946,8 @@ mod tests {
             pid: 42,
             bundle_id: Some("com.apple.TextEdit".to_string()),
             name: Some("TextEdit".to_string()),
+            focused_window_id: None,
+            focused_window_title: None,
         };
 
         let requests = focus_anchor_activate_requests(&anchor);
@@ -5633,6 +5959,41 @@ mod tests {
         assert_eq!(requests[1].pid, None);
         assert_eq!(requests[2].app_name.as_deref(), Some("TextEdit"));
         assert_eq!(requests[2].app_name_match, MacControlAppNameMatch::Exact);
+    }
+
+    #[test]
+    fn focus_anchor_window_restore_requests_prefer_pid_scoped_id_then_title() {
+        let anchor = MacControlFocusAnchor {
+            pid: 42,
+            bundle_id: Some("com.apple.TextEdit".to_string()),
+            name: Some("TextEdit".to_string()),
+            focused_window_id: Some("win_2".to_string()),
+            focused_window_title: Some("Draft.txt".to_string()),
+        };
+
+        let requests = focus_anchor_window_requests(&anchor);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].op, MacControlWindowsOp::Focus);
+        assert_eq!(requests[0].window_scope, MacControlWindowsScope::All);
+        assert_eq!(requests[0].window_id.as_deref(), Some("win_42_2"));
+        assert_eq!(
+            requests[0].target.window_title.as_deref(),
+            Some("Draft.txt")
+        );
+        assert_eq!(
+            requests[0].target.window_title_match,
+            MacControlStringMatch::Exact
+        );
+        assert_eq!(requests[1].op, MacControlWindowsOp::Focus);
+        assert_eq!(requests[1].window_scope, MacControlWindowsScope::Frontmost);
+        assert_eq!(
+            requests[1].target.window_title.as_deref(),
+            Some("Draft.txt")
+        );
+        assert_eq!(
+            requests[1].target.window_title_match,
+            MacControlStringMatch::Exact
+        );
     }
 
     #[test]
@@ -6504,6 +6865,88 @@ mod tests {
             cache.back().map(|snapshot| snapshot.snapshot_id.as_str()),
             Some("macsnap_test_21")
         );
+    }
+
+    #[test]
+    fn diagnostics_request_clamps_limit() {
+        let defaulted = MacControlDiagnosticsRequest {
+            limit: 0,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(defaulted.limit, DEFAULT_DIAGNOSTICS_LIMIT);
+
+        let capped = MacControlDiagnosticsRequest {
+            limit: HARD_DIAGNOSTICS_LIMIT + 10,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(capped.limit, HARD_DIAGNOSTICS_LIMIT);
+    }
+
+    #[test]
+    fn diagnostics_snapshot_summary_stays_compact() {
+        let mut snapshot = MacControlSnapshot::new_empty();
+        snapshot.snapshot_id = "macsnap_diag".to_string();
+        snapshot.frontmost_app = Some(MacControlAppSummary {
+            pid: 42,
+            bundle_id: Some("com.example.App".to_string()),
+            name: Some("Example".to_string()),
+        });
+        snapshot.displays.push(MacControlDisplaySummary {
+            id: 1,
+            frame_points: MacControlBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 80.0,
+            },
+            scale: 2.0,
+        });
+        snapshot.windows.push(MacControlWindowSummary {
+            id: "win_1".to_string(),
+            app_pid: Some(42),
+            role: Some("AXWindow".to_string()),
+            subrole: None,
+            title: Some("Main".to_string()),
+            focused: true,
+            bounds_points: None,
+        });
+        snapshot.elements.push(MacControlElementSummary {
+            id: "el_1".to_string(),
+            window_id: Some("win_1".to_string()),
+            role: Some("AXButton".to_string()),
+            label: Some("OK".to_string()),
+            value: None,
+            enabled: Some(true),
+            focused: false,
+            bounds_points: None,
+            actions: vec!["AXPress".to_string()],
+        });
+        snapshot.screenshot = Some(MacControlScreenshotSummary {
+            media_id: "macsnap_diag".to_string(),
+            path: "/tmp/macsnap_diag.jpg".to_string(),
+            width_px: 200,
+            height_px: 160,
+            target: MacControlScreenshotTarget::Display,
+            display_id: Some(1),
+            window_id: None,
+            window_title: None,
+            bounds_points: None,
+            scale: Some(2.0),
+        });
+        snapshot.truncated = true;
+        snapshot.warnings.push("truncated".to_string());
+
+        let summary = cached_snapshot_summary(&snapshot);
+
+        assert_eq!(summary.snapshot_id, "macsnap_diag");
+        assert_eq!(summary.display_count, 1);
+        assert_eq!(summary.window_count, 1);
+        assert_eq!(summary.element_count, 1);
+        assert!(summary.has_screenshot);
+        assert!(summary.truncated);
+        assert_eq!(summary.warnings, vec!["truncated".to_string()]);
     }
 
     #[test]

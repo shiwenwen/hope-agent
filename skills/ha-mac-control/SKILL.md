@@ -1,6 +1,6 @@
 ---
 name: ha-mac-control
-description: "Hope Agent native macOS desktop control — the standard `mac_control` status / apps / dock / spaces / snapshot / visual / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, Dock, Spaces, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, visually locate UI, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, Dock, Space, 关闭窗口, 菜单点击, 视觉定位."
+description: "Hope Agent native macOS desktop control — the standard `mac_control` status / diagnostics / apps / dock / spaces / snapshot / visual / windows / menu / clipboard / dialog loop, target-first action rules, no-blind-coordinate policy, and recovery for stale AX/window/menu/dialog state. Load whenever using `mac_control`, or when the user asks to control local Mac apps, Dock, Spaces, click/type/menu/window/dialog/clipboard, automate Finder/TextEdit/System Settings, visually locate UI, or says 控制 Mac, macOS 自动化, 点按钮, 打开应用, Dock, Space, 关闭窗口, 菜单点击, 视觉定位."
 version: 1.0.0
 author: Hope Agent
 license: MIT
@@ -87,12 +87,14 @@ wait or snapshot                       # verify the expected change
 - Read mutation `verification` when present. `verified` means the low-level expected state was observed, `failed` means the action returned but the observed state did not match, and `unverified` means the tool could not prove the result. For ordinary clicks without a clear state change, still verify with `wait`, `snapshot`, `elements.find`, or `dialog.inspect`.
 - Use `act.perform_action` for a named AX action when a higher-level op is not enough. It requires `target` and `axAction`; common aliases such as `press` and `show_menu` normalize to AX names, while other valid AX action strings are attempted directly even if the target did not advertise them in `actions[]`.
 - `act.click` is for AX targets only. It requires `target` and should not consume raw `x/y`.
+- `act.click` first attempts `AXPress`; if that fails and the target has bounds, the runtime may click the target center and report an `AXPressFailed+CGEventFallback(...)` execution marker.
 - Use `act.click_point` only when the user explicitly wants a coordinate click or AX cannot represent the target. This includes valid coordinates like `(0, 0)`.
 - Use `act.move_cursor` when the user wants the pointer moved without clicking. It accepts either `x/y` or a target, and can smooth the path with `durationMs` / `steps` / `motionProfile`.
 - Use `act.press` for single-key or repeated key presses. Use `hotkey` for one chord such as Cmd+N; use `press` when you need sequential keys, repeat, holdMs, intervalMs, or shared modifiers.
 - Use `act.swipe` for smooth pointer drag gestures from `x/y`, `fromX/fromY`, or a target to `deltaX/deltaY`, `toX/toY`, or `toTarget`; use `act.drag` for deliberate drag/drop between coordinate or AX element endpoints. Pass `motionProfile="human"` only when the gesture benefits from eased, less mechanical pointer motion.
 - `act.type` and `act.set_value` should target text input roles (`AXTextArea`, `AXTextField`, `AXSearchField`, etc.).
 - `act.type` defaults to AXSetValue. Only pass `typingProfile` / `typingDelayMs` when the app needs real character-by-character keyboard input.
+- For replacement-style text entry, failed `AXSetValue` can fall back to focus + Cmd+A + protected pasteboard replace; still inspect the returned `verification` before assuming the text changed.
 - Use `act.paste` for long text or apps that do not accept `AXValue` reliably. It stages text on the pasteboard, invokes paste, and reports only clipboard restore status.
 - `act`, `wait`, and `dialog` results are compact by default and do not return a full AX snapshot. Set `includeSnapshot=true` only when full AX tree debugging is needed; otherwise verify with `wait`, `elements.find`, `windows.list`, or `dialog.inspect`.
 - Do not type passwords, OTPs, or private credentials unless the user explicitly supplied them in the current flow.
@@ -134,6 +136,7 @@ Rules:
 - `menu.scope` defaults to `app`, which targets the current frontmost app menu bar.
 - Use `menu.list scope="system"` before operating macOS menu bar extras/status items. System menu entries include 0-based `index`, optional `boundsPoints`, and may expose useful `description`, `value`, and `actions` even when `title` is empty.
 - For status items, prefer `menu.click scope="system" menuIndex=<index> verify=true` after listing when the title is empty or localized. Verification returns likely popovers and OCR screenshot metadata when available.
+- Menu clicks use a native chain before giving up: `AXShowMenu`, then `AXPress`, then center-point click when bounds are available.
 - After opening a status item or menu bar extra popover, use `menu.popover appHint="..."` to identify the floating panel. It ranks all-app AX windows with menu-bar geometry, host app hints, and optional OCR text; it does not click anything.
 - If a menu path fails, call `menu.list` with the same `scope` and check the localized titles/descriptions of the current menu surface.
 - If the user says "do not use shortcuts", never call `act.hotkey`. Use menus or AX actions.
@@ -152,6 +155,7 @@ Rules:
 - When several dialogs are present, target by dialog text/window or use the button id from the inspected result.
 - `dialog.click` requires `buttonText`; use the visible label. Examples: `取消`, `保存`, `删除`, `Cancel`, `Save`, `Don't Save`.
 - `dialog.input` requires `text`; use `field`, `fieldIndex`, or `target.elementId` when more than one dialog field exists. Set `clear=true` to replace the value.
+- Dialog button presses and `clear=true` text input share the same fallbacks as `act.click` / `act.set_value`.
 - `dialog.file` can enter `filePath`, set `fileName`, then click `selectButton` (or the default accept button). It returns `fileDialog.nameField`, `requestedButton`, and the actual `selectedButton` when clicked. Use `selectButton="none"` when you only want to fill path/name.
 - `dialog.dismiss` means a cancel/close-style action. If the user wants to discard changes, choose the explicit discard button such as `删除` or `Don't Save`, not a generic dismiss guess.
 
@@ -159,12 +163,13 @@ Rules:
 
 - After `apps.launch` / `apps.activate`, verify `frontmost` before menu or input actions.
 - After any action that changes UI, re-snapshot or call the relevant list/inspect command before using old ids.
-- Tool approval restores the previously frontmost app before the approved `mac_control` mutation runs, but treat it as best-effort. After an approval, verify `frontmost` or take a fresh observation before chaining another focus-sensitive action.
+- Tool approval restores the previously frontmost app and focused window before the approved `mac_control` mutation runs, but treat it as best-effort. After an approval, verify `frontmost` or take a fresh observation before chaining another focus-sensitive action.
 - If an element becomes stale, take a fresh snapshot and reselect by role + label/text + window.
 - If `act.perform_action` returns an AX unsupported/action error, do not retry the same call blindly. Use fresh `elements.find` / `snapshot` and choose a supported action, or switch to `act.click` / `act.click_point` fallback.
 - If `dialog.inspect` returns empty but the UI visibly has a sheet, retry with `maxElements: 300` or `500` and confirm the frontmost app.
 - If `menu.click` says a path component was not found, check frontmost app and `menu.list`; do not retry the same path blindly.
 - If a mutation succeeds but the expected state did not change, use `wait` or a fresh snapshot to verify before deciding the next action.
+- If a failure is hard to reproduce, call `diagnostics.summary` to inspect readiness, recent errors, cached snapshot summaries, and the focus anchor. Use `diagnostics.export` when the user/developer needs a managed JSON bundle under `~/.hope-agent/mac-control/diagnostics/` for replay analysis.
 
 ## Approval Awareness
 

@@ -895,6 +895,8 @@ mod tests {
             json!({"action": "menu", "op": "popover", "appHint": "Control Center"}),
             json!({"action": "dialog", "op": "inspect"}),
             json!({"action": "dialog", "op": "list"}),
+            json!({"action": "diagnostics", "op": "summary"}),
+            json!({"action": "diagnostics", "op": "export"}),
             json!({"action": "visual", "op": "observe"}),
             json!({"action": "visual", "op": "point", "snapshotId": "macsnap_1", "x": 0, "y": 0}),
             json!({"action": "visual", "op": "ocr", "snapshotId": "macsnap_1"}),

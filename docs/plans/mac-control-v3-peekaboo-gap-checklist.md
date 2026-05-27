@@ -54,7 +54,16 @@
   - `act.move_cursor/drag/swipe` 返回最终指针位置 verification。
   - `windows.focus/move/resize/close` 返回焦点、bounds 或窗口消失 verification。
   - 点击等无明确业务期望的动作不假装完成，仍要求调用方用 `wait/snapshot/elements.find/dialog.inspect` 做业务级确认。
-- [ ] C. 动作 fallback 策略统一化
-- [ ] D. 状态恢复与焦点保护加强
-- [ ] E. 测试与回放工具
+- [x] C. 动作 fallback 策略统一化（首批）
+  - `act.click` / dialog 按钮：优先 `AXPress`，失败且有 bounds 时回退 CGEvent 中心点点击，并在 execution 标记 fallback。
+  - `menu.click`：统一为 `AXShowMenu -> AXPress -> CGEvent center click`，避免单个 AX action 不可靠时直接失败。
+  - `act.type/set_value`、`dialog.input clear=true`、`dialog.file` 文件名：`AXSetValue` 失败后聚焦、Cmd+A、pasteboard replace；可验证的 act 路径继续返回 `verification`。
+  - 后续仍可继续加强：视觉/OCR 目标多策略、dialog 文件面板路径字段多策略、失败回放工具。
+- [x] D. 状态恢复与焦点保护加强（首批）
+  - 审批前 `mac_control` focus anchor 从 App 级扩展到 focused window 级。
+  - 审批通过 / AllowAlways / timeout proceed 后，执行前先按 `pid -> bundleId -> appName` 恢复 App，再按 pid-scoped window id 恢复窗口，失败时用窗口标题兜底。
+  - 窗口恢复失败只写 warning，不阻断原工具执行；后续链式动作仍应按 skill 要求用 `frontmost` / fresh observe 验证。
+- [x] E. 测试与回放工具（首批）
+  - 新增 `diagnostics.summary/export`：返回 readiness/status、compact snapshot cache 摘要、recent errors 和当前 focus anchor。
+  - `export` 会把同一份诊断 bundle 写到 `~/.hope-agent/mac-control/diagnostics/`，用于失败现场复盘；bundle 不包含截图 base64、完整 AX tree 或剪贴板原文。
 - [ ] F. dry_run / explain 体验层

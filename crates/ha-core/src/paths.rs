@@ -131,6 +131,12 @@ pub fn mac_control_snapshots_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("mac-control").join("snapshots"))
 }
 
+/// macOS control diagnostics bundle directory:
+/// ~/.hope-agent/mac-control/diagnostics/
+pub fn mac_control_diagnostics_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("mac-control").join("diagnostics"))
+}
+
 // ── Avatars ──────────────────────────────────────────────────────
 
 /// Avatars directory: ~/.hope-agent/avatars/
