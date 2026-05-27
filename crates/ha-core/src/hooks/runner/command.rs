@@ -124,9 +124,40 @@ impl HookHandler for CommandHandler {
 
         // `async: true` — fire-and-forget, doesn't affect the decision (§7.1).
         if self.config.async_run == Some(true) {
-            // The output is discarded anyway, so send stdout/stderr to
-            // /dev/null rather than piping: the kernel drops it, so a chatty or
-            // long-running hook (`yes`, a daemon, verbose logs) can neither
+            // `asyncRewake`: capture output (pipe, don't /dev/null) so an
+            // `exit 2` can inject the hook's stderr into the next turn (§7.1).
+            if self.config.async_rewake == Some(true) {
+                let session_id = input.common().session_id.clone();
+                if let Ok(mut child) = cmd.spawn() {
+                    let stdin = child.stdin.take();
+                    let task = async move {
+                        let write = async move {
+                            if let Some(mut s) = stdin {
+                                let _ = s.write_all(stdin_data.as_bytes()).await;
+                            }
+                        };
+                        let (_, output) = tokio::join!(write, child.wait_with_output());
+                        // Only exit 2 (the block code) rewakes; any other exit
+                        // is plain fire-and-forget.
+                        if let Ok(output) = output {
+                            if output.status.code() == Some(2) {
+                                let stderr = cap_utf8(&output.stderr);
+                                crate::hooks::rewake_inject(&session_id, &stderr).await;
+                            }
+                        }
+                    };
+                    if let Some(rt) = crate::hooks::fire_and_forget_runtime() {
+                        rt.spawn(task);
+                    } else if tokio::runtime::Handle::try_current().is_ok() {
+                        tokio::spawn(task);
+                    }
+                }
+                return RawHookResult::noop();
+            }
+
+            // Plain async: the output is discarded anyway, so send stdout/stderr
+            // to /dev/null rather than piping: the kernel drops it, so a chatty
+            // or long-running hook (`yes`, a daemon, verbose logs) can neither
             // deadlock on a full ~64 KiB stdout pipe nor grow hope-agent's
             // memory unboundedly (which buffering the output to discard it
             // would). Overrides the piped stdout/stderr `build_command` set.
@@ -367,5 +398,29 @@ mod tests {
         assert_ne!(id_base, CommandHandler::new(diff_timeout).identity());
         // Same config → same identity (dedup still collapses true duplicates).
         assert_eq!(id_base, CommandHandler::new(base).identity());
+    }
+
+    #[tokio::test]
+    async fn async_rewake_is_fire_and_forget() {
+        // An `asyncRewake` command is still fire-and-forget: `run` returns a
+        // no-op immediately (exit code None) without blocking on the child or
+        // the injection. The detached task captures output for the rewake path,
+        // but with no real session the injection is a harmless no-op.
+        let h = CommandHandler::new(CommandHookConfig {
+            command: "exit 2".into(),
+            shell: Some(HookShell::Bash),
+            timeout: None,
+            async_run: Some(true),
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: Some(true),
+        });
+        let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(10)).await;
+        // Fire-and-forget → immediate no-op (exit 0, no captured output, not a
+        // timeout); the child + injection run detached.
+        assert_eq!(r.exit_code, Some(0));
+        assert!(r.stdout.is_empty() && r.stderr.is_empty());
+        assert!(!r.timed_out);
     }
 }

@@ -320,6 +320,43 @@ fn emit_hook_status(input: &HookInput, message: &str, handler_type: &str) {
     }
 }
 
+/// `asyncRewake`: a detached command hook exited 2 — inject its stderr as a
+/// system-reminder into the session's next turn (design §7.1). Reuses the
+/// subagent injection pipeline (waits for the session to idle, appends a
+/// `ParentInjection` user message, runs one turn). No-op without a session /
+/// resolvable agent. **Note:** this lets a background hook spend tokens by
+/// starting a turn on its own — gated by the hook author setting `asyncRewake`
+/// *and* the hook deliberately exiting 2.
+pub(crate) async fn rewake_inject(session_id: &str, stderr: &str) {
+    let Some(db) = crate::globals::get_session_db().cloned() else {
+        return;
+    };
+    let Some(agent_id) = crate::session::lookup_session_meta(Some(session_id)).map(|m| m.agent_id)
+    else {
+        return;
+    };
+    let push = format!(
+        "<hook-async-result status=\"blocked-exit-2\">\n{}\n</hook-async-result>",
+        stderr.trim()
+    );
+    crate::app_info!(
+        "hooks",
+        "async_rewake",
+        "session={} injecting {}B of hook stderr into the next turn",
+        session_id,
+        stderr.len()
+    );
+    crate::subagent::injection::inject_and_run_parent(
+        session_id.to_string(),
+        agent_id.clone(),
+        agent_id,
+        format!("hook-rewake-{}", uuid::Uuid::new_v4()),
+        push,
+        db,
+    )
+    .await;
+}
+
 fn build_handler(cfg: &HookHandlerConfig) -> Option<Box<dyn HookHandler>> {
     match cfg {
         HookHandlerConfig::Command(c) => {
