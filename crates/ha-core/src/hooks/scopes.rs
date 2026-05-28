@@ -115,6 +115,15 @@ pub fn resolve_for_cwd(working_dir: Option<&Path>) -> Arc<HookRegistry> {
     )
 }
 
+/// A process-shared empty registry returned whenever the master kill switch is
+/// on. Reusing one `Arc` keeps the disable path allocation-free and lets it
+/// short-circuit synchronously — independent of whether the async
+/// `reload_from_config` listener has cleared the global registry yet.
+fn empty_registry() -> Arc<HookRegistry> {
+    static CELL: OnceLock<Arc<HookRegistry>> = OnceLock::new();
+    CELL.get_or_init(|| Arc::new(HookRegistry::empty())).clone()
+}
+
 /// Inner resolution with the two config flags injected, so unit tests can
 /// exercise the project-scope gate without touching the global cached config.
 fn resolve_for_cwd_inner(
@@ -122,13 +131,20 @@ fn resolve_for_cwd_inner(
     disable_all_hooks: bool,
     allow_project_scope: bool,
 ) -> Arc<HookRegistry> {
+    // Master kill switch FIRST — it has to short-circuit BEFORE the `Some(cwd)`
+    // check so a no-working-dir event (e.g. Notification with empty cwd) also
+    // honors it, and it has to return an empty registry rather than the cached
+    // global one. `reload_from_config` runs on the async `config:changed`
+    // listener; in the window between the user flipping `disable_all_hooks=true`
+    // and the listener firing, `registry::global()` still carries the old
+    // handlers, so returning it here would silently run hooks the user just
+    // disabled. Adversarial review HIGH.
+    if disable_all_hooks {
+        return empty_registry();
+    }
     let Some(cwd) = working_dir else {
         return registry::global();
     };
-    // Master kill switch disables every scope (global registry is empty too).
-    if disable_all_hooks {
-        return registry::global();
-    }
     // Project/local scope is opt-in (supply-chain guard): a repo's checked-in
     // hooks must not auto-execute just because the session cwd points at it.
     // Off (the default) → only the global user/managed scope applies.
@@ -235,6 +251,52 @@ mod tests {
                 .is_empty(),
             "project Bash matcher contributes a handler"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn disable_all_hooks_returns_empty_synchronously_regardless_of_cwd() {
+        // `reload_from_config` is async (config:changed listener). Between the
+        // user flipping the kill switch and the listener firing, the global
+        // registry still carries old handlers — so the kill switch HAS to be
+        // honored here, in the synchronous read path, by returning an empty
+        // registry. Covers both no-cwd (e.g. Notification) and cwd-present
+        // events.
+        //
+        // Seed the global config with a non-empty match-anything PreToolUse
+        // handler so any leak would show up immediately.
+        let cfg: HooksConfig = serde_json::from_str(
+            r#"{
+                "PreToolUse": [
+                    { "hooks": [
+                        { "type": "command", "command": "true" }
+                    ]}
+                ]
+            }"#,
+        )
+        .expect("seed kill-switch test config");
+        set_global_config(cfg);
+
+        // No cwd path: must NOT return the (populated) global registry — empty.
+        let reg = resolve_for_cwd_inner(None, true, false);
+        assert!(
+            !reg.has_handlers_for(HookEvent::PreToolUse),
+            "kill switch must short-circuit before the no-cwd return"
+        );
+
+        // Cwd present path: same outcome — empty.
+        let dir = std::env::temp_dir().join(format!("ha-hooks-kill-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let reg2 = resolve_for_cwd_inner(Some(&dir), true, true);
+        assert!(
+            !reg2.has_handlers_for(HookEvent::PreToolUse),
+            "kill switch must short-circuit on the cwd-present branch too"
+        );
+
+        // The empty registry is shared (cheap), so two disable-mode calls
+        // hand back the same Arc — no per-call allocation.
+        assert!(Arc::ptr_eq(&reg, &reg2));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
