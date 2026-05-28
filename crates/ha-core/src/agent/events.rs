@@ -37,6 +37,26 @@ pub(super) fn emit_tool_call(
     );
 }
 
+/// Fired after a `PreToolUse` hook rewrote the tool input via `updatedInput`.
+/// The frontend looks up the existing `tool_call` block by `call_id` and
+/// replaces its `arguments` so the UI shows what actually ran, not the
+/// pre-rewrite arguments the `tool_call` event delivered moments earlier.
+/// Skipped entirely when no rewrite happened (the common case).
+pub(super) fn emit_tool_call_args_rewritten(
+    on_delta: &(impl Fn(&str) + Send),
+    call_id: &str,
+    arguments: &str,
+) {
+    emit_event(
+        on_delta,
+        &json!({
+            "type": "tool_call_args_rewritten",
+            "call_id": call_id,
+            "arguments": arguments,
+        }),
+    );
+}
+
 /// Structured media items prefix — the single unified attachment channel for
 /// tool outputs (image_generate, send_attachment, future media tools).
 /// Carries filename, MIME, size, kind, `local_path`, and optional caption

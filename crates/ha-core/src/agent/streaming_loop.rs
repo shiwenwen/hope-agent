@@ -17,8 +17,8 @@ use serde_json::json;
 
 use super::api_types::FunctionCallItem;
 use super::events::{
-    emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_result, emit_usage,
-    extract_media_items,
+    emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_call_args_rewritten,
+    emit_tool_result, emit_usage, extract_media_items,
 };
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
 use super::types::{AssistantAgent, ChatUsage};
@@ -204,8 +204,15 @@ async fn execute_tool_with_cancel(
 ) {
     let sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
         Arc::new(tokio::sync::Mutex::new(None));
+    // Mirror sink for the `PreToolUse` `updatedInput` rewrite — populated by
+    // `execute_tool_with_context::emit_effective_args` and drained alongside
+    // `metadata` so the caller can route the effective args into the live
+    // UI delta, the persisted history row, and the `PostToolUse` hook input.
+    let effective_args_sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
     let mut local_ctx = ctx.clone();
     local_ctx.metadata_sink = Some(sink.clone());
+    local_ctx.effective_args_sink = Some(effective_args_sink.clone());
     local_ctx.tool_call_id = Some(call_id.to_string());
     let cancellation_token = tokio_util::sync::CancellationToken::new();
     local_ctx.cancellation_token = Some(cancellation_token.clone());
@@ -232,10 +239,18 @@ async fn execute_tool_with_cancel(
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
     let metadata = sink.lock().await.take();
+    let effective_arguments = effective_args_sink
+        .lock()
+        .await
+        .take()
+        .map(|v| v.to_string());
     (
         result,
         elapsed_ms,
-        super::streaming_adapter::ToolDispatchSideOutput { metadata },
+        super::streaming_adapter::ToolDispatchSideOutput {
+            metadata,
+            effective_arguments,
+        },
     )
 }
 
@@ -641,6 +656,23 @@ impl AssistantAgent {
                     ),
                 };
 
+                // If a `PreToolUse` hook rewrote the tool input via
+                // `updatedInput`, surface the effective args through the rest
+                // of the round so the UI block, the persisted history row, and
+                // the `PostToolUse` hook input all see what actually ran — not
+                // the model's pre-rewrite arguments. The pre-execution
+                // `emit_tool_call` already went out with the model's args, so
+                // we follow up with a typed delta the frontend can apply to the
+                // existing tool block in place (see
+                // `useStreamEventHandler.ts::tool_call_args_rewritten`).
+                let effective_args: &str = side
+                    .effective_arguments
+                    .as_deref()
+                    .inspect(|patched| {
+                        emit_tool_call_args_rewritten(on_delta, &tc.call_id, patched);
+                    })
+                    .unwrap_or(tc.arguments.as_str());
+
                 log_tool_output(&tc.call_id, &tc.name, &result, elapsed_ms, round);
                 let is_error = result.starts_with("Tool error:");
                 let (mut clean_result, media_items) = extract_media_items(&result);
@@ -656,12 +688,14 @@ impl AssistantAgent {
                 );
                 // PostToolUse / PostToolUseFailure (observation): fold any hook
                 // additionalContext into the result so the LLM sees it attached
-                // to this tool on the next round.
+                // to this tool on the next round. Pass the *effective* args
+                // (post-PreToolUse rewrite) so a validating PostToolUse hook
+                // can't be fooled by the pre-rewrite shape.
                 fire_post_tool_use_hook(
                     &tool_ctx,
                     &tc.call_id,
                     &tc.name,
-                    &tc.arguments,
+                    effective_args,
                     &mut clean_result,
                     is_error,
                     elapsed_ms,
@@ -670,7 +704,7 @@ impl AssistantAgent {
                 executed.push(ExecutedTool {
                     call_id: tc.call_id.clone(),
                     name: tc.name.clone(),
-                    arguments: tc.arguments.clone(),
+                    arguments: effective_args.to_string(),
                     clean_result,
                 });
             }

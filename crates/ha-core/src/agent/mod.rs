@@ -1425,6 +1425,7 @@ impl AssistantAgent {
             suppress_result_disk_persistence: false,
             cancellation_token: None,
             metadata_sink: None,
+            effective_args_sink: None,
         }
     }
 

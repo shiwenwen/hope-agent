@@ -248,6 +248,16 @@ pub struct ToolExecContext {
     /// constructs a single sink and shares it only with the helpers it spawns
     /// for that dispatch — exactly the pattern the rule allows.
     pub metadata_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
+    /// Per-dispatch sink for the *effective* tool arguments — populated by
+    /// [`execute_tool_with_context`] when a `PreToolUse` hook rewrites the
+    /// input via `updatedInput`. Same lifecycle as `metadata_sink`: the
+    /// orchestrator constructs the `Arc<Mutex<None>>` per dispatch, clones it
+    /// into the local context, and drains it after the tool returns so the
+    /// caller can surface the rewrite through the UI / persisted history /
+    /// `PostToolUse` hook input. None ⇒ no rewrite occurred (or the caller
+    /// doesn't care; the regular non-orchestrator callers of
+    /// `execute_tool_with_context` leave it `None`).
+    pub effective_args_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
 }
 
 impl ToolExecContext {
@@ -462,6 +472,15 @@ impl ToolExecContext {
     /// that don't care about structured side outputs).
     pub async fn emit_metadata(&self, value: Value) {
         if let Some(sink) = &self.metadata_sink {
+            *sink.lock().await = Some(value);
+        }
+    }
+
+    /// Push the effective (post-`PreToolUse` rewrite) tool arguments into the
+    /// per-dispatch sink. Called once at most, only when `updatedInput`
+    /// shadowed the model's args. No-op when no sink is wired up.
+    pub(crate) async fn emit_effective_args(&self, value: Value) {
+        if let Some(sink) = &self.effective_args_sink {
             *sink.lock().await = Some(value);
         }
     }
@@ -893,13 +912,20 @@ pub async fn execute_tool_with_context(
             } => {
                 pre_skip_prompt = skip_user_prompt;
                 pre_force_prompt = force_prompt;
-                if updated_input.is_some() {
+                if let Some(ref ui) = updated_input {
                     app_info!(
                         "hooks",
                         "dispatch",
                         "PreToolUse rewrote tool_input for '{}'",
                         name
                     );
+                    // Surface the rewrite to the orchestrator so the UI, the
+                    // persisted history, and the `PostToolUse` hook see the
+                    // effective args — not the model's pre-rewrite ones. The
+                    // sink is None for non-orchestrator callers
+                    // (`execute_tool` direct path, async-job re-entry, slash
+                    // commands), so this is free for them.
+                    ctx.emit_effective_args(ui.clone()).await;
                 }
                 updated_input
             }
@@ -1866,5 +1892,37 @@ mod tests {
             &inner_ctx,
             inner_ctx.local_auto_approve()
         ));
+    }
+
+    /// `ToolExecContext::emit_effective_args` is the bridge the streaming
+    /// loop uses to surface `PreToolUse` `updatedInput` rewrites to the UI /
+    /// history / `PostToolUse` hook input. Verify the sink is populated
+    /// exactly when wired up — non-wired contexts (slash commands,
+    /// async-job re-entry, the direct `execute_tool` helper) must remain
+    /// no-op so they don't pay the lock cost.
+    #[tokio::test]
+    async fn effective_args_sink_emits_only_when_wired() {
+        use std::sync::Arc;
+        use tokio::sync::Mutex as AsyncMutex;
+
+        // Wired sink: emit populates it.
+        let sink = Arc::new(AsyncMutex::new(None));
+        let ctx = ToolExecContext {
+            effective_args_sink: Some(sink.clone()),
+            ..ToolExecContext::default()
+        };
+        ctx.emit_effective_args(json!({ "command": "echo safe" }))
+            .await;
+        let drained = sink.lock().await.take();
+        assert_eq!(
+            drained.as_ref().and_then(|v| v.get("command")),
+            Some(&json!("echo safe")),
+        );
+
+        // No sink: emit is a no-op (no panic, nothing observable changes).
+        let bare = ToolExecContext::default();
+        bare.emit_effective_args(json!({ "ignored": true })).await;
+        // No assertion needed beyond "did not panic" — the bare context has
+        // no sink to inspect.
     }
 }
