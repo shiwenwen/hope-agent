@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 use super::super::config::{CommandHookConfig, HookShell};
@@ -140,18 +140,38 @@ impl HookHandler for CommandHandler {
                 }
                 if let Ok(mut child) = spawned {
                     let stdin = child.stdin.take();
+                    let stdout = child.stdout.take();
+                    let stderr = child.stderr.take();
                     let task = async move {
                         let write = async move {
                             if let Some(mut s) = stdin {
                                 let _ = s.write_all(stdin_data.as_bytes()).await;
                             }
                         };
-                        let (_, output) = tokio::join!(write, child.wait_with_output());
+                        // Bounded drain on both pipes so a chatty async hook
+                        // can't OOM the host while we wait for its exit code.
+                        // We only inject stderr on exit 2, but stdout still
+                        // needs draining to keep the pipe from blocking the
+                        // child.
+                        let read_stdout = async move {
+                            match stdout {
+                                Some(p) => drain_bounded(p, MAX_CAPTURE_BYTES).await,
+                                None => Vec::new(),
+                            }
+                        };
+                        let read_stderr = async move {
+                            match stderr {
+                                Some(p) => drain_bounded(p, MAX_CAPTURE_BYTES).await,
+                                None => Vec::new(),
+                            }
+                        };
+                        let (_, _stdout_buf, stderr_buf, status) =
+                            tokio::join!(write, read_stdout, read_stderr, child.wait());
                         // Only exit 2 (the block code) rewakes; any other exit
                         // is plain fire-and-forget.
-                        if let Ok(output) = output {
-                            if output.status.code() == Some(2) {
-                                let stderr = cap_utf8(&output.stderr);
+                        if let Ok(status) = status {
+                            if status.code() == Some(2) {
+                                let stderr = cap_utf8(&stderr_buf);
                                 crate::hooks::rewake_inject(&session_id, &stderr).await;
                             }
                         }
@@ -208,32 +228,53 @@ impl HookHandler for CommandHandler {
         };
         let child_pid = child.id();
 
-        // Write stdin CONCURRENTLY with draining stdout/stderr. Writing the
-        // whole payload before reading deadlocks once the child fills its
-        // stdout pipe (~64 KiB) and stops reading stdin — common for hooks
-        // that echo their input (`cat`, `jq .`, `tee`).
+        // Take all three pipe handles up front so we can drive stdin write +
+        // stdout/stderr drain concurrently with child.wait(). The bounded
+        // drain caps memory at `MAX_CAPTURE_BYTES` per stream regardless of
+        // how much the hook prints (a chatty or hostile hook can't OOM the
+        // host), while still draining the kernel pipe so the child never
+        // deadlocks once it overflows the ~64 KiB buffer.
         let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
         let write_stdin = async move {
             if let Some(mut s) = stdin {
                 let _ = s.write_all(stdin_data.as_bytes()).await;
                 // `s` dropped here → child sees EOF on stdin.
             }
         };
+        let read_stdout = async move {
+            match stdout {
+                Some(p) => drain_bounded(p, MAX_CAPTURE_BYTES).await,
+                None => Vec::new(),
+            }
+        };
+        let read_stderr = async move {
+            match stderr {
+                Some(p) => drain_bounded(p, MAX_CAPTURE_BYTES).await,
+                None => Vec::new(),
+            }
+        };
 
         let timeout = deadline.saturating_duration_since(Instant::now());
         let combined = async {
-            let (_, output) = tokio::join!(write_stdin, child.wait_with_output());
-            output
+            // Drive all four awaits concurrently. The drains naturally end at
+            // EOF (which happens when the child closes its stdio, i.e. when
+            // it exits or explicitly closes the FD), so `wait` then returns
+            // promptly with the exit status.
+            let (_, stdout_buf, stderr_buf, status) =
+                tokio::join!(write_stdin, read_stdout, read_stderr, child.wait());
+            (status, stdout_buf, stderr_buf)
         };
         match tokio::time::timeout(timeout, combined).await {
-            Ok(Ok(output)) => RawHookResult {
-                exit_code: output.status.code(),
-                stdout: cap_utf8(&output.stdout),
-                stderr: cap_utf8(&output.stderr),
+            Ok((Ok(status), stdout_buf, stderr_buf)) => RawHookResult {
+                exit_code: status.code(),
+                stdout: cap_utf8(&stdout_buf),
+                stderr: cap_utf8(&stderr_buf),
                 duration: start.elapsed(),
                 timed_out: false,
             },
-            Ok(Err(e)) => RawHookResult::non_blocking_error(format!("hook io error: {e}")),
+            Ok((Err(e), _, _)) => RawHookResult::non_blocking_error(format!("hook io error: {e}")),
             Err(_) => {
                 // Timed out. `kill_on_drop` reaps only the direct child when
                 // the cancelled future drops; explicitly kill the whole process
@@ -256,6 +297,37 @@ impl HookHandler for CommandHandler {
 fn cap_utf8(bytes: &[u8]) -> String {
     let s = String::from_utf8_lossy(bytes);
     crate::truncate_utf8(&s, MAX_CAPTURE_BYTES).to_string()
+}
+
+/// Stream-drain a child pipe into a `Vec<u8>` capped at `cap` bytes, then
+/// silently consume the rest until EOF. The bounded buffer caps memory
+/// regardless of how much the hook writes (defends against a misconfigured or
+/// hostile project hook OOM-ing the host), while keeping the pipe drained so
+/// the child never deadlocks on the ~64 KiB kernel buffer once the cap is hit.
+async fn drain_bounded<R>(mut reader: R, cap: usize) -> Vec<u8>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut buf: Vec<u8> = Vec::with_capacity(cap.min(8 * 1024));
+    let mut scratch = [0u8; 8 * 1024];
+    loop {
+        match reader.read(&mut scratch).await {
+            Ok(0) => break, // EOF — child closed its end of the pipe.
+            Ok(n) => {
+                let remaining = cap.saturating_sub(buf.len());
+                if remaining > 0 {
+                    let take = n.min(remaining);
+                    buf.extend_from_slice(&scratch[..take]);
+                }
+                // Past `cap`: discard the chunk but keep reading so the child
+                // never blocks on a full pipe buffer.
+            }
+            // Pipe read errors (closed early, interrupted) end the drain;
+            // whatever's in `buf` is the best-effort capture.
+            Err(_) => break,
+        }
+    }
+    buf
 }
 
 #[cfg(all(test, unix))]
@@ -436,6 +508,52 @@ mod tests {
         assert_eq!(r.exit_code, Some(0));
         assert!(r.stdout.is_empty() && r.stderr.is_empty());
         assert!(!r.timed_out);
+    }
+
+    #[tokio::test]
+    async fn stdout_over_capture_cap_is_bounded_not_oom() {
+        // A misconfigured (or hostile) hook prints far more than the 1 MiB cap.
+        // The bounded streaming drain must keep the captured bytes at the cap
+        // (the kernel pipe buffer is ~64 KiB, so even with the cap, the child
+        // would deadlock if we stopped reading — we keep draining to EOF).
+        //
+        // 4 MiB of `x`. With the old `wait_with_output` path the full 4 MiB
+        // would land in memory before `cap_utf8` trimmed it; with bounded
+        // streaming the in-memory capture is <= 1 MiB.
+        let bytes_to_print = 4 * 1024 * 1024;
+        let h = CommandHandler::new(CommandHookConfig {
+            // `head -c` is POSIX; `tr '\0' x` fills `/dev/zero` with `x`s.
+            command: format!("tr '\\0' 'x' < /dev/zero | head -c {bytes_to_print}"),
+            shell: Some(HookShell::Bash),
+            timeout: Some(30),
+            async_run: None,
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+        });
+        let r = h.run(&dummy_input(), &HookEnv::empty(), deadline(30)).await;
+        assert_eq!(r.exit_code, Some(0));
+        assert!(
+            !r.timed_out,
+            "the bounded drain must let the child run to exit"
+        );
+        // `cap_utf8` is a UTF-8-safe truncate at MAX_CAPTURE_BYTES; the drain
+        // already capped the underlying Vec, so the resulting String is <=
+        // MAX_CAPTURE_BYTES bytes.
+        assert!(
+            r.stdout.len() <= MAX_CAPTURE_BYTES,
+            "stdout capture must respect the cap, got {} bytes (cap = {})",
+            r.stdout.len(),
+            MAX_CAPTURE_BYTES,
+        );
+        // And we actually captured *something* — not a regression where the
+        // drain returned empty.
+        assert!(!r.stdout.is_empty(), "drain should capture up to the cap");
+        assert!(
+            r.stdout.chars().all(|c| c == 'x'),
+            "captured bytes match the input"
+        );
     }
 
     #[test]
