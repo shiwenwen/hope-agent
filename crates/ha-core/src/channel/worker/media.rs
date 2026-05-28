@@ -40,6 +40,7 @@ pub(super) fn convert_inbound_media_to_attachments(
                     attachments.push(crate::agent::Attachment {
                         name: m.file_id.clone(),
                         mime_type: mime,
+                        source: None,
                         data: Some(base64::engine::general_purpose::STANDARD.encode(&data)),
                         file_path: None,
                     });
@@ -59,6 +60,7 @@ pub(super) fn convert_inbound_media_to_attachments(
             attachments.push(crate::agent::Attachment {
                 name: m.file_id.clone(),
                 mime_type: mime,
+                source: None,
                 data: None,
                 file_path: Some(effective_path.to_string()),
             });
@@ -395,12 +397,14 @@ mod tests {
             crate::agent::Attachment {
                 name: "img".into(),
                 mime_type: "image/png".into(),
+                source: None,
                 data: Some("base64data".into()),
                 file_path: None,
             },
             crate::agent::Attachment {
                 name: "doc".into(),
                 mime_type: "application/pdf".into(),
+                source: None,
                 data: None,
                 file_path: Some("/tmp/doc.pdf".into()),
             },

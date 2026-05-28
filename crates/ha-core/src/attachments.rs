@@ -5,9 +5,12 @@
 //! the absolute path so the caller can hand it to the agent/chat engine.
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::path::{Path, PathBuf};
 
+use crate::agent::Attachment;
 use crate::paths;
 
 /// Pseudo-session id for pre-session attachments (uploads that predate a
@@ -125,6 +128,185 @@ pub fn save_attachment_bytes(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+/// Persist chat input attachments into the session attachment directory and
+/// return the JSON payload stored in `messages.attachments_meta`.
+///
+/// Images may arrive as base64 `data`; file attachments usually arrive as
+/// `file_path` pointing either at the session directory or the shared `_temp`
+/// bucket. The function updates each `Attachment.file_path` to the final path
+/// so the chat engine reads the same persisted bytes that the UI can recover
+/// from history.
+pub fn persist_chat_user_attachments_meta(
+    session_id: &str,
+    attachments: &mut [Attachment],
+) -> Result<Option<String>> {
+    if attachments.is_empty() {
+        return Ok(None);
+    }
+
+    let att_dir = paths::attachments_dir(session_id)?;
+    std::fs::create_dir_all(&att_dir)
+        .with_context(|| format!("create attachments dir {}", att_dir.display()))?;
+    let temp_dir = paths::root_dir()?.join("attachments").join(TEMP_SESSION_ID);
+    std::fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("create temp attachments dir {}", temp_dir.display()))?;
+    let canonical_att_dir = att_dir
+        .canonicalize()
+        .with_context(|| format!("canonicalize attachments dir {}", att_dir.display()))?;
+    let canonical_temp_dir = temp_dir
+        .canonicalize()
+        .with_context(|| format!("canonicalize temp attachments dir {}", temp_dir.display()))?;
+
+    let mut meta_list = Vec::new();
+    for att in attachments.iter_mut() {
+        let source = att.source.as_deref();
+        if !is_user_upload_source(source) {
+            continue;
+        }
+        if let Some(ref b64_data) = att.data {
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(b64_data)
+                .unwrap_or_default();
+            let path = match save_bytes_in_dir(&att_dir, &att.name, &decoded)
+                .with_context(|| format!("save image attachment {}", att.name))
+            {
+                Ok(path) => path,
+                Err(err) => {
+                    app_warn!("app", "chat", "Skipping attachment '{}': {}", att.name, err);
+                    continue;
+                }
+            };
+            att.file_path = Some(path.to_string_lossy().to_string());
+            meta_list.push(json!({
+                "name": att.name,
+                "mime_type": att.mime_type,
+                "size": decoded.len(),
+                "path": path.to_string_lossy(),
+            }));
+            continue;
+        }
+
+        let Some(ref fp) = att.file_path else {
+            continue;
+        };
+        let src_path = Path::new(fp);
+        let final_path = match resolve_persisted_user_attachment_path(
+            src_path,
+            &canonical_temp_dir,
+            &canonical_att_dir,
+            &att_dir,
+        ) {
+            Ok(path) => path,
+            Err(err) => {
+                app_warn!("app", "chat", "Skipping attachment '{}': {}", att.name, err);
+                continue;
+            }
+        };
+        let canonical_final_path = match final_path
+            .canonicalize()
+            .with_context(|| format!("canonicalize attachment {}", final_path.display()))
+        {
+            Ok(path) => path,
+            Err(err) => {
+                app_warn!("app", "chat", "Skipping attachment '{}': {}", att.name, err);
+                continue;
+            }
+        };
+        if !canonical_final_path.starts_with(&canonical_att_dir) {
+            app_warn!(
+                "app",
+                "chat",
+                "attachment path outside allowed attachment directories: {}",
+                src_path.display()
+            );
+            continue;
+        }
+
+        att.file_path = Some(canonical_final_path.to_string_lossy().to_string());
+        let size = std::fs::metadata(&canonical_final_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        meta_list.push(json!({
+            "name": att.name,
+            "mime_type": att.mime_type,
+            "size": size,
+            "path": canonical_final_path.to_string_lossy(),
+        }));
+    }
+
+    if meta_list.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(serde_json::to_string(&meta_list)?))
+    }
+}
+
+fn is_user_upload_source(source: Option<&str>) -> bool {
+    matches!(source, None | Some("upload"))
+}
+
+fn save_bytes_in_dir(att_dir: &Path, file_name: &str, data: &[u8]) -> Result<PathBuf> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let safe_name = file_name.replace(['/', '\\', ':'], "_");
+    let file_path = att_dir.join(format!("{}_{}", ts, safe_name));
+    std::fs::write(&file_path, data)
+        .with_context(|| format!("write attachment {}", file_path.display()))?;
+    Ok(file_path)
+}
+
+fn move_temp_attachment(src_path: &Path, att_dir: &Path) -> Result<PathBuf> {
+    let Some(fname) = src_path.file_name() else {
+        return Ok(src_path.to_path_buf());
+    };
+    let dest = att_dir.join(fname);
+    match std::fs::rename(src_path, &dest) {
+        Ok(()) => Ok(dest),
+        Err(rename_err) => {
+            std::fs::copy(src_path, &dest).with_context(|| {
+                format!(
+                    "move attachment {} to {} after rename failed: {}",
+                    src_path.display(),
+                    dest.display(),
+                    rename_err
+                )
+            })?;
+            let _ = std::fs::remove_file(src_path);
+            Ok(dest)
+        }
+    }
+}
+
+fn resolve_persisted_user_attachment_path(
+    src_path: &Path,
+    canonical_temp_dir: &Path,
+    canonical_att_dir: &Path,
+    att_dir: &Path,
+) -> Result<PathBuf> {
+    let canonical_src = src_path
+        .canonicalize()
+        .with_context(|| format!("canonicalize attachment {}", src_path.display()))?;
+    let metadata = std::fs::metadata(&canonical_src)
+        .with_context(|| format!("stat attachment {}", canonical_src.display()))?;
+    if !metadata.is_file() {
+        anyhow::bail!("attachment path is not a file: {}", src_path.display());
+    }
+
+    if canonical_src.starts_with(canonical_temp_dir) {
+        return move_temp_attachment(&canonical_src, att_dir);
+    }
+    if canonical_src.starts_with(canonical_att_dir) {
+        return Ok(canonical_src);
+    }
+
+    anyhow::bail!(
+        "attachment path outside allowed attachment directories: {}",
+        src_path.display()
+    );
+}
+
 // ── MIME Sniffing ───────────────────────────────────────────────
 
 /// Sniff a MIME type: try magic bytes first, then extension, then fall back
@@ -234,6 +416,7 @@ pub fn mime_from_extension(ext: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::Attachment;
 
     #[test]
     fn sniff_png_magic() {
@@ -265,5 +448,129 @@ mod tests {
             sniff_mime(b"\x00\x01\x02unknown", Path::new("/tmp/x")),
             "application/octet-stream"
         );
+    }
+
+    #[test]
+    fn persist_chat_user_attachments_meta_skips_temp_path_traversal() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let temp_dir = root.path().join("attachments").join(TEMP_SESSION_ID);
+            std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+            let outside = root.path().join("attachments").join("secret.txt");
+            std::fs::write(&outside, b"secret").expect("write outside file");
+
+            let traversal = temp_dir.join("..").join("secret.txt");
+            let mut attachments = vec![Attachment {
+                name: "secret.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                source: Some("upload".to_string()),
+                data: None,
+                file_path: Some(traversal.to_string_lossy().to_string()),
+            }];
+
+            let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("path traversal should be skipped without failing the chat request");
+            assert!(meta.is_none());
+            assert!(
+                !root
+                    .path()
+                    .join("attachments")
+                    .join("session-a")
+                    .join("secret.txt")
+                    .exists(),
+                "outside file must not be copied into the session attachments directory"
+            );
+        });
+    }
+
+    #[test]
+    fn persist_chat_user_attachments_meta_skips_missing_file_and_keeps_valid_attachment() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let saved = save_attachment_bytes(None, "note.txt", b"hello").expect("save temp");
+            let missing = root
+                .path()
+                .join("attachments")
+                .join(TEMP_SESSION_ID)
+                .join("missing.txt");
+            let mut attachments = vec![
+                Attachment {
+                    name: "missing.txt".to_string(),
+                    mime_type: "text/plain".to_string(),
+                    source: Some("upload".to_string()),
+                    data: None,
+                    file_path: Some(missing.to_string_lossy().to_string()),
+                },
+                Attachment {
+                    name: "note.txt".to_string(),
+                    mime_type: "text/plain".to_string(),
+                    source: Some("upload".to_string()),
+                    data: None,
+                    file_path: Some(saved.clone()),
+                },
+            ];
+
+            let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("missing file should not fail the whole request")
+                .expect("valid attachment should still produce metadata");
+
+            let missing_after = attachments[0].file_path.as_deref().expect("missing path");
+            assert_eq!(missing_after, missing.to_string_lossy());
+            let final_path = attachments[1].file_path.as_deref().expect("final path");
+            assert!(final_path.contains("/attachments/session-a/"));
+            assert!(!Path::new(&saved).exists(), "temp file should be moved");
+            assert_eq!(std::fs::read(final_path).expect("read final"), b"hello");
+            assert!(meta.contains("\"name\":\"note.txt\""));
+            assert!(!meta.contains("missing.txt"));
+        });
+    }
+
+    #[test]
+    fn persist_chat_user_attachments_meta_moves_temp_file_into_session_dir() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let saved = save_attachment_bytes(None, "note.txt", b"hello").expect("save temp");
+            let mut attachments = vec![Attachment {
+                name: "note.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                source: Some("upload".to_string()),
+                data: None,
+                file_path: Some(saved.clone()),
+            }];
+
+            let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("persist")
+                .expect("meta");
+
+            let final_path = attachments[0].file_path.as_deref().expect("final path");
+            assert!(final_path.contains("/attachments/session-a/"));
+            assert!(!Path::new(&saved).exists(), "temp file should be moved");
+            assert_eq!(std::fs::read(final_path).expect("read final"), b"hello");
+            assert!(meta.contains("\"name\":\"note.txt\""));
+            assert!(meta.contains("\"mime_type\":\"text/plain\""));
+        });
+    }
+
+    #[test]
+    fn persist_chat_user_attachments_meta_skips_mention_paths() {
+        let root = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let mentioned = root.path().join("project-note.md");
+            std::fs::write(&mentioned, b"project").expect("write mention file");
+            let original = mentioned.to_string_lossy().to_string();
+            let mut attachments = vec![Attachment {
+                name: "project-note.md".to_string(),
+                mime_type: "text/markdown".to_string(),
+                source: Some("mention".to_string()),
+                data: None,
+                file_path: Some(original.clone()),
+            }];
+
+            let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
+                .expect("mention path should not fail persistence");
+
+            assert!(meta.is_none());
+            assert_eq!(attachments[0].file_path.as_deref(), Some(original.as_str()));
+        });
     }
 }

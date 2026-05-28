@@ -315,6 +315,7 @@ export default function ChatInput({
 
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
+  const hasSendableContent = input.trim().length > 0 || attachedFiles.length > 0
 
   // Auto-resize textarea based on content
   const adjustTextareaHeight = useCallback(() => {
@@ -804,13 +805,13 @@ export default function ChatInput({
               </div>
             )}
 
-            <IconTip label={loading && input.trim() ? t("chat.queueMessage") : t("chat.send")}>
+            <IconTip label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}>
               <Button
                 size="icon"
                 className="h-8 w-8 rounded-full shrink-0"
                 onClick={onSend}
-                disabled={!input.trim() || (loading && !!pendingMessage)}
-                aria-label={loading && input.trim() ? t("chat.queueMessage") : t("chat.send")}
+                disabled={!hasSendableContent || (loading && !!pendingMessage)}
+                aria-label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
               >
                 <Send className="h-4 w-4" />
               </Button>

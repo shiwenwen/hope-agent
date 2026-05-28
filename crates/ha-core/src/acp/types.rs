@@ -548,6 +548,7 @@ pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<crate::agent::
             attachments.push(crate::agent::Attachment {
                 name: "image".to_string(),
                 mime_type: mime_type.clone().unwrap_or_else(|| "image/png".to_string()),
+                source: None,
                 data: Some(data.clone()),
                 file_path: None,
             });
