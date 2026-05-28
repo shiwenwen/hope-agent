@@ -74,6 +74,14 @@ pub struct ChatResponse {
     pub session_id: String,
     pub response: String,
     pub turn_id: String,
+    /// Set to the block reason when the `UserPromptSubmit` preflight hook
+    /// short-circuited the turn before a stream started. `None` on the
+    /// normal happy path. The HTTP transport reads this to synthesize a
+    /// stream notice for the UI so the user actually sees the block (the
+    /// stream end signal that normally carries the notice never fires when
+    /// no stream was opened).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -256,13 +264,17 @@ pub async fn chat(
         ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
             // A UserPromptSubmit hook blocked the prompt: record a UI-only event
             // marker (excluded from LLM context) and return the reason as the
-            // response — no user message persisted, no turn run.
+            // response — no user message persisted, no turn run. `blocked_reason`
+            // is the structured signal the HTTP transport reads to synthesize
+            // a stream notice (parity with the desktop path, which sends a
+            // `{"type":"text","text":notice}` event on the on_event channel).
             let notice = format!("🚫 {reason}");
             let _ = db.append_message(&sid, &session::NewMessage::event(&notice));
             return Ok(Json(ChatResponse {
                 session_id: sid,
-                response: notice,
+                response: notice.clone(),
                 turn_id,
+                blocked_reason: Some(notice),
             }));
         }
     };
@@ -442,6 +454,7 @@ pub async fn chat(
         session_id: sid,
         response: result.response,
         turn_id,
+        blocked_reason: None,
     }))
 }
 
