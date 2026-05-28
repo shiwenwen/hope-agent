@@ -276,6 +276,27 @@ pub async fn chat(
             // run as a turn — and crucially, no attachment file has been
             // written yet (we're upstream of all attachment IO).
             let notice = format!("🚫 {reason}");
+            // If this preflight ran against a freshly-auto-created session,
+            // emit `session_created` BEFORE the block notice so the frontend
+            // can register the new session and route the notice to it.
+            // Without this the empty session stays orphaned in the DB (no
+            // user message, no title, no sidebar entry) and the block text
+            // event has nowhere to dock — symmetric with the HTTP path,
+            // which returns `session_id` via `ChatResponse.blocked_reason`.
+            // Title is derived from the raw prompt so the user can find the
+            // session in the sidebar; ensure_first_message_title is the same
+            // helper the post-stream path uses, so the title shape stays
+            // consistent across blocked-first-message and normal flows.
+            if let Some(ref new_sid) = new_session_created {
+                let _ = ha_core::session::ensure_first_message_title(&db, new_sid, raw_prompt);
+                let event = serde_json::json!({
+                    "type": "session_created",
+                    "session_id": new_sid,
+                });
+                if let Ok(json_str) = serde_json::to_string(&event) {
+                    let _ = on_event.send(json_str);
+                }
+            }
             let _ = db.append_message(&sid, &session::NewMessage::event(&notice));
             let _ =
                 on_event.send(serde_json::json!({ "type": "text", "text": notice }).to_string());
