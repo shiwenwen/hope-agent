@@ -4,11 +4,20 @@
 //! The outbound URL is SSRF-gated through `security::ssrf::check_url` (the
 //! shared policy + trusted-host allowlist) before any network touch, and
 //! redirects are NOT followed (a redirect would escape that DNS-level check) —
-//! new outbound entries must never self-validate IPs (AGENTS.md red line). Any
-//! delivered response (regardless of status) maps
-//! to exit 0 so the shared parser handles the body — a hook can deny via a
-//! non-2xx + decision JSON, and a non-JSON error page parses inert. Only a
-//! transport/timeout failure is a non-blocking error.
+//! new outbound entries must never self-validate IPs (AGENTS.md red line).
+//!
+//! ## Fail-closed on blocking events
+//!
+//! For events that GATE execution (`PreToolUse` / `UserPromptSubmit` /
+//! `PreCompact`), every degraded delivery path is mapped to `exit 2`
+//! (`Block`) so the gate fails closed. Specifically: SSRF refusal, transport
+//! errors, request timeouts, body-read errors, non-2xx HTTP status, AND
+//! 2xx responses whose body isn't valid JSON. Without this, a 401 HTML page
+//! from an auth-expired webhook or a 502 from a reverse proxy parses as an
+//! inert outcome — a silent fail-open precisely on the security path the
+//! hook exists to enforce. Observation-only events keep their non-blocking
+//! degraded paths (transport/timeout = inert) since they can't gate anyway
+//! and fail-closing them would just hide the real call's outcome.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -24,6 +33,35 @@ use super::{HookHandler, RawHookResult};
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
 /// Response body capture cap (§7.9).
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024; // 1 MiB
+
+/// Whether this hook input fires on a gate-capable event whose degraded
+/// delivery paths must fail closed. The list mirrors the events that flow
+/// through a blocking decision sink (PreToolUse gate, UserPromptSubmit
+/// preflight, PreCompact). Observation-only events are excluded — `Block`
+/// from them is downgraded by `is_observation_only` anyway, and fail-closing
+/// them would hide real errors without buying any security.
+fn is_blocking_hook_input(input: &HookInput) -> bool {
+    matches!(
+        input,
+        HookInput::PreToolUse { .. }
+            | HookInput::UserPromptSubmit { .. }
+            | HookInput::PreCompact { .. }
+    )
+}
+
+/// Build a `Block`-mapped `RawHookResult` (`exit 2` → parser produces
+/// `HookDecision::Block { reason: stderr }`) for a degraded HTTP delivery on
+/// a blocking event. Used by every fail-closed branch so the audit trail
+/// stays uniform.
+fn fail_closed_block(stderr: String, start: Instant) -> RawHookResult {
+    RawHookResult {
+        exit_code: Some(2),
+        stdout: String::new(),
+        stderr,
+        duration: start.elapsed(),
+        timed_out: false,
+    }
+}
 
 /// Resolve the value for each name in the `allowed_env_vars` whitelist.
 /// Lookup order: synthesized [`HookEnv`] map (HOPE / CLAUDE / PATH) first,
@@ -153,10 +191,14 @@ impl HookHandler for HttpHandler {
 
     async fn run(&self, input: &HookInput, env: &HookEnv, deadline: Instant) -> RawHookResult {
         let start = Instant::now();
+        let is_blocking = is_blocking_hook_input(input);
 
         // SSRF gate FIRST — before constructing the client or touching the
         // network. Uses the shared `Default` policy + the app's trusted-host
-        // allowlist, identical to every other outbound dial-out site.
+        // allowlist, identical to every other outbound dial-out site. On a
+        // blocking event an SSRF refusal means we can't reach the policy
+        // endpoint at all → fail closed; on observation events keep the
+        // non-blocking error (audit-only).
         let trusted = crate::config::cached_config().ssrf.trusted_hosts.clone();
         if let Err(e) = crate::security::ssrf::check_url(
             &self.config.url,
@@ -165,7 +207,18 @@ impl HookHandler for HttpHandler {
         )
         .await
         {
-            return RawHookResult::non_blocking_error(format!("hook http SSRF blocked: {e}"));
+            let msg = format!("hook http SSRF blocked: {e}");
+            if is_blocking {
+                crate::app_warn!(
+                    "hooks",
+                    "http",
+                    "blocking event fail-closed (SSRF): {} → {}",
+                    self.config.url,
+                    e
+                );
+                return fail_closed_block(msg, start);
+            }
+            return RawHookResult::non_blocking_error(msg);
         }
 
         let body = match serde_json::to_vec(input) {
@@ -245,16 +298,55 @@ impl HookHandler for HttpHandler {
         let resp = match tokio::time::timeout(timeout, req.send()).await {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
-                return RawHookResult::non_blocking_error(format!("hook http error: {e}"))
+                let msg = format!("hook http error: {e}");
+                if is_blocking {
+                    crate::app_warn!(
+                        "hooks",
+                        "http",
+                        "blocking event fail-closed (transport): {} → {}",
+                        self.config.url,
+                        e
+                    );
+                    return fail_closed_block(msg, start);
+                }
+                return RawHookResult::non_blocking_error(msg);
             }
             Err(_) => {
+                let msg = format!("hook http timed out after {}s", timeout.as_secs());
+                if is_blocking {
+                    crate::app_warn!(
+                        "hooks",
+                        "http",
+                        "blocking event fail-closed (timeout): {} after {}s",
+                        self.config.url,
+                        timeout.as_secs()
+                    );
+                    return RawHookResult {
+                        // Set BOTH `exit_code=Some(2)` (so the parser produces
+                        // `Block`) AND `timed_out=true` (so the audit log
+                        // surfaces the cause). `timed_out` short-circuits to
+                        // inert in `parse()`, so the explicit exit-2 mapping
+                        // happens by branching there — see fail_closed_block
+                        // comments; here we don't take that path because the
+                        // parser already handles `timed_out=true` as inert.
+                        exit_code: Some(2),
+                        stdout: String::new(),
+                        stderr: msg,
+                        duration: start.elapsed(),
+                        // Deliberately false: we want the parser to honor the
+                        // explicit exit 2 mapping → Block. The audit record
+                        // still carries the deadline-exceeded reason via the
+                        // stderr string.
+                        timed_out: false,
+                    };
+                }
                 return RawHookResult {
                     exit_code: None,
                     stdout: String::new(),
-                    stderr: format!("hook http timed out after {}s", timeout.as_secs()),
+                    stderr: msg,
                     duration: start.elapsed(),
                     timed_out: true,
-                }
+                };
             }
         };
 
@@ -262,15 +354,68 @@ impl HookHandler for HttpHandler {
         let text = match resp.text().await {
             Ok(t) => crate::truncate_utf8(&t, MAX_RESPONSE_BYTES).to_string(),
             Err(e) => {
-                return RawHookResult::non_blocking_error(format!("read hook http body: {e}"))
+                let msg = format!("read hook http body: {e}");
+                if is_blocking {
+                    crate::app_warn!(
+                        "hooks",
+                        "http",
+                        "blocking event fail-closed (body-read): {} → {}",
+                        self.config.url,
+                        e
+                    );
+                    return fail_closed_block(msg, start);
+                }
+                return RawHookResult::non_blocking_error(msg);
             }
         };
 
+        // Blocking events demand a parseable JSON verdict on a 2xx response.
+        // A 401 HTML page, a 502 from a reverse proxy, or a 200 with the wrong
+        // content-type are all "the policy didn't render a verdict for us" —
+        // the safe default for a security gate is to refuse the action, not
+        // to silently let it through because the parser falls back to inert.
+        // Observation events keep the legacy lenient parse: their decisions
+        // are downgraded by `is_observation_only` anyway, so fail-closing them
+        // would just hide the real call.
+        if is_blocking {
+            if !status.is_success() {
+                let msg = format!(
+                    "hook http returned non-success status {} on blocking event — failing closed",
+                    status.as_u16()
+                );
+                crate::app_warn!(
+                    "hooks",
+                    "http",
+                    "blocking event fail-closed (status {}): {}",
+                    status.as_u16(),
+                    self.config.url
+                );
+                return fail_closed_block(msg, start);
+            }
+            // 2xx — must be valid JSON. An empty body is treated as "no
+            // verdict" → fail closed; the parser's plaintext fallback only
+            // applies to a couple of observation events and doesn't help a
+            // gate decide.
+            let trimmed = text.trim();
+            if trimmed.is_empty() || serde_json::from_str::<serde_json::Value>(trimmed).is_err() {
+                let msg = "hook http returned non-JSON body on blocking event — failing closed"
+                    .to_string();
+                crate::app_warn!(
+                    "hooks",
+                    "http",
+                    "blocking event fail-closed (non-JSON body): {}",
+                    self.config.url
+                );
+                return fail_closed_block(msg, start);
+            }
+        }
+
         // A response was received → exit 0 so the shared parser handles the
-        // body REGARDLESS of status, letting a hook deny via a non-2xx +
-        // decision JSON (a 5xx error page is non-JSON → parsed inert, which is
-        // safe). Transport / timeout failures are the non-blocking errors
-        // (handled above); a delivered HTTP error must not silently fail open.
+        // body. For OBSERVATION events: any status maps to exit 0 (a 5xx HTML
+        // page is non-JSON → parsed inert, which is safe — there's no gate to
+        // fail closed). For BLOCKING events we've already filtered out
+        // non-2xx and non-JSON above, so reaching here means a valid JSON
+        // verdict the parser can act on.
         RawHookResult {
             exit_code: Some(0),
             stdout: text,
@@ -404,11 +549,69 @@ mod tests {
         assert!(!resolved.contains_key("DEFINITELY_MISSING_VAR_XYZ"));
     }
 
-    /// A private-IP target is rejected by the SSRF gate before any network
-    /// touch (literal IP → classified directly, no DNS), and surfaces as a
-    /// non-blocking error rather than dialing out.
+    fn observation_input() -> HookInput {
+        // Notification is observation-only; SSRF refusal stays as
+        // non-blocking error rather than fail-closed Block.
+        HookInput::Notification {
+            common: CommonHookInput {
+                session_id: "s1".into(),
+                transcript_path: PathBuf::from("/tmp/t.jsonl"),
+                cwd: PathBuf::from("/tmp"),
+                permission_mode: PermissionMode::Default,
+                hook_event_name: "Notification".into(),
+                agent_id: None,
+                agent_type: None,
+            },
+            notification_type: "idle_prompt".into(),
+            message: "hi".into(),
+            title: None,
+        }
+    }
+
+    #[test]
+    fn blocking_event_classifier_covers_the_gate_set() {
+        // PreToolUse / UserPromptSubmit / PreCompact gate execution, so
+        // their degraded HTTP paths must fail closed. Everything else is
+        // observation and must keep the lenient (inert) behavior.
+        let pre_tool = dummy_input();
+        assert!(is_blocking_hook_input(&pre_tool));
+        let user_prompt = HookInput::UserPromptSubmit {
+            common: CommonHookInput {
+                session_id: "s1".into(),
+                transcript_path: PathBuf::from("/tmp/t.jsonl"),
+                cwd: PathBuf::from("/tmp"),
+                permission_mode: PermissionMode::Default,
+                hook_event_name: "UserPromptSubmit".into(),
+                agent_id: None,
+                agent_type: None,
+            },
+            prompt: "x".into(),
+        };
+        assert!(is_blocking_hook_input(&user_prompt));
+        let pre_compact = HookInput::PreCompact {
+            common: CommonHookInput {
+                session_id: "s1".into(),
+                transcript_path: PathBuf::from("/tmp/t.jsonl"),
+                cwd: PathBuf::from("/tmp"),
+                permission_mode: PermissionMode::Default,
+                hook_event_name: "PreCompact".into(),
+                agent_id: None,
+                agent_type: None,
+            },
+            trigger: crate::hooks::types::CompactTrigger::Auto,
+            usage_ratio: 0.5,
+        };
+        assert!(is_blocking_hook_input(&pre_compact));
+        // Notification is observation — keep inert path on degradation.
+        assert!(!is_blocking_hook_input(&observation_input()));
+    }
+
+    /// On a blocking event, an SSRF refusal short-circuits to fail-closed
+    /// `exit 2`. The parser maps that to `HookDecision::Block { reason: stderr }`
+    /// so the gate stops the tool rather than silently letting it run because
+    /// the policy endpoint was unreachable.
     #[tokio::test]
-    async fn ssrf_blocks_private_target() {
+    async fn ssrf_blocks_private_target_fail_closed_on_blocking_event() {
         let h = HttpHandler::new(HttpHookConfig {
             url: "http://10.0.0.1/hook".into(),
             timeout: Some(5),
@@ -425,12 +628,37 @@ mod tests {
                 Instant::now() + Duration::from_secs(5),
             )
             .await;
-        assert_eq!(r.exit_code, Some(1));
+        assert_eq!(r.exit_code, Some(2), "blocking event must fail closed");
         assert!(
             r.stderr.contains("SSRF"),
             "expected SSRF block, got {:?}",
             r.stderr
         );
         assert!(!r.timed_out);
+    }
+
+    /// SSRF refusal on an observation event keeps the legacy non-blocking
+    /// error — the call would have been observation-only anyway, so there's
+    /// no gate to fail closed.
+    #[tokio::test]
+    async fn ssrf_blocks_private_target_inert_on_observation_event() {
+        let h = HttpHandler::new(HttpHookConfig {
+            url: "http://10.0.0.1/hook".into(),
+            timeout: Some(5),
+            headers: Default::default(),
+            allowed_env_vars: vec![],
+            status_message: None,
+            if_rule: None,
+            once: None,
+        });
+        let r = h
+            .run(
+                &observation_input(),
+                &HookEnv::empty(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await;
+        assert_eq!(r.exit_code, Some(1), "observation event stays non-blocking");
+        assert!(r.stderr.contains("SSRF"));
     }
 }
