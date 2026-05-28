@@ -66,4 +66,6 @@
 - [x] E. 测试与回放工具（首批）
   - 新增 `diagnostics.summary/export`：返回 readiness/status、compact snapshot cache 摘要、recent errors 和当前 focus anchor。
   - `export` 会把同一份诊断 bundle 写到 `~/.hope-agent/mac-control/diagnostics/`，用于失败现场复盘；bundle 不包含截图 base64、完整 AX tree 或剪贴板原文。
-- [ ] F. dry_run / explain 体验层
+- [x] F. dry_run / explain 体验层（首批）
+  - `act.dry_run` 新增 `dryRunOp`，按目标真实 op 预演 target 解析，但不触发 AX action、CGEvent、键盘或剪贴板。
+  - `MacControlActResult.preview` 返回 executionPlan、fallbackPlan、verificationPlan、warnings 和 nextStep；`explain=true` 可把同一 preview 附到真实 act 结果上。

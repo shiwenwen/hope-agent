@@ -218,6 +218,8 @@ Transport 结果类型：
 | `width` / `height` | number | `windows.resize` 目标尺寸 |
 | `text` | string | `visual.find_text` OCR 查询、`act.type` / `act.paste` 输入文本、`clipboard.set` 写入文本；目标文本匹配放在 `target.text` |
 | `typingProfile` / `typingDelayMs` | string / number | `act.type` 显式走逐字符 CGEvent 输入时的节奏配置；`instant/steady/human` 或每字符延迟 |
+| `dryRunOp` | string | `act.dry_run` 要预演的真实 act op；默认 `click`，结果返回 `preview.executionPlan/fallbackPlan/verificationPlan/warnings` |
+| `explain` | boolean | `act` 执行结果额外返回结构化 `preview` 说明；执行前预演优先用 `op="dry_run"` + `dryRunOp` |
 | `textMatch` | `"exact" \| "contains"` | `visual.find_text` OCR 文本匹配策略，默认 `exact` |
 | `languages` | string[] | `visual.ocr/find_text` 与 `menu.popover includeOcr=true` 可选 Vision 识别语言，例如 `zh-Hans`、`en-US`；省略时自动检测 |
 | `minConfidence` | number | `visual.ocr/find_text` 与 `menu.popover includeOcr=true` OCR 置信度下限，范围 `0..1`，默认 `0` |
@@ -366,7 +368,7 @@ OCR 规则：
 
 | action / op | 入参 | 出参 `result` | 说明 |
 | --- | --- | --- | --- |
-| `act.dry_run` | `action="act"`、`op="dry_run"`、`target` | `op`、`execution="DryRun"`、`target?`、`snapshot=null` | 只解析目标，不执行 UI 操作 |
+| `act.dry_run` | `action="act"`、`op="dry_run"`、`target`；可选 `dryRunOp`、待预演 op 的相关字段 | `op`、`execution="DryRun"`、`target?`、`preview?`、`snapshot=null` | 只解析目标，不执行 UI 操作；`dryRunOp` 用同一目标解析器预演真实动作的执行步骤、fallback、验证建议和 warning |
 | `act.perform_action` | `action="act"`、`op="perform_action"`、`target`、`axAction` | `execution=<AX action>`、`performedAction=<AX action>`、`target?`、`snapshot?` | 对目标元素执行命名 AX action；不要求 `actions[]` 预声明，若系统返回 unsupported 会作为执行错误返回 |
 | `act.click` | `action="act"`、`op="click"`、`target` | `execution="AXPress"` 或 `"AXPressFailed+CGEventFallback(...)"`、`target?`、`snapshot?` | AX target 点击；先尝试 `AXPress`，失败且有 bounds 时回退中心点点击；不消费裸 `x/y` |
 | `act.click_point` | `action="act"`、`op="click_point"`、`x`、`y`，且不能带 `target` | `execution="CGEventClick"`、`target=null`、`snapshot?` | 裸坐标点击，允许 `(0, 0)` |
@@ -424,7 +426,8 @@ OCR 规则：
 | `MacControlCachedSnapshotSummary` | `snapshotId`、`createdAt`、`frontmostApp?`、`displayCount`、`windowCount`、`elementCount`、`hasScreenshot`、`screenshot?`、`truncated`、`warnings[]` |
 | `MacControlTargetMatches` | `app?`、`windows[]`、`elements[]` |
 | `MacControlWindowsResult` | `op`、`windowScope`、`frontmostApp?`、`windows[]`、`actedWindow?`、`execution?`、`verification?` |
-| `MacControlActResult` | `op`、`execution`、`performedAction?`、`target?`、`snapshot?`、`verification?` |
+| `MacControlActResult` | `op`、`execution`、`performedAction?`、`target?`、`snapshot?`、`verification?`、`preview?` |
+| `MacControlActPreview` | `intendedOp`、`dryRun`、`willMutate`、`executionPlan[]`、`fallbackPlan[]`、`verificationPlan[]`、`warnings[]`、`nextStep?` |
 | `MacControlVerification` | `status: verified\|failed\|unverified`、`summary`、`checks[]`、`warnings[]` |
 | `MacControlVerificationCheck` | `name`、`expected?`、`actual?`、`passed` |
 | `MacControlDockResult` | `op`、`autohide?`、`orientation?`、`items[]`、`launched?`、`menuItems[]`、`selectedMenuItem?`、`execution?`、`warnings[]` |
@@ -453,6 +456,8 @@ OCR 规则：
 - `clipboard.maxChars` 默认为 4000，硬上限 20000；`clipboard.set` 不修剪空白，但会硬截到 200000 字符。
 - `diagnostics.limit` 默认为 10，硬上限 20；`diagnostics.export` 只写受管 JSON bundle，不执行 UI mutation。
 - `includeSnapshot` 默认为 `false`；`act` / `wait` / `dialog` 默认只返回摘要字段，显式传 `includeSnapshot=true` 才返回完整 AX snapshot。`act.dry_run` 始终保持轻量。
+- `act.dry_run.dryRunOp` 默认为 `click`；传 `type/paste` 时会走文本输入目标解析，传 `set_value` 时会提示非文本 fallback 限制。
+- `act.explain=true` 会在真实动作结果里附带 `preview`，但它不会改变审批或执行行为。
 - `act.perform_action.axAction` 会把 `press` / `show_menu` 等常用别名规范化为 `AXPress` / `AXShowMenu`；其它 action 名称只做基本格式校验后直接交给 Accessibility 执行，不再要求目标元素 `actions[]` 预声明。若系统返回 unsupported，调用方应重新观察目标或改用其它 action。
 - `dock.select_menu` 同时收到 `menuItem` 和 `menuIndex` 时，sanitize 会移除 `menuIndex`，以 `menuItem` 作为审批和执行目标；`menu.click` 同时收到非空 `path[]` 和 `menuIndex` 时同理优先 `path[]`。
 - 合法坐标 `0` 不能被全局吞掉；裸坐标点击只能通过 `act.click_point` 表达。
@@ -521,7 +526,7 @@ OCR 规则：
 - 当 mutation 同时收到 `target.snapshotId + target.elementId` 时，执行层会从短生命周期 snapshot cache 取出旧元素的 role/label/value/window/bounds/actions 指纹，在当前 AX 树中重新定位唯一匹配；若 target 没有显式 `appName/bundleId`，还会要求当前前台 App 与旧 snapshot 前台 App 一致，避免跨 App 复用相似按钮；若 snapshot 已过期、旧 id 不存在、前台 App 已变化或指纹无法唯一匹配，会拒绝执行并要求 fresh observe。
 - `elements.find` 使用同一套 AX snapshot 与元素匹配规则，只读返回 `snapshotId`、`totalMatches`、候选 `element`、所在 `window`、`score` 和 `reasons`。模型应先用它确认候选，再把选中的 `element.id` 和结果 `snapshotId` 一起传给 `act.*`。
 - 浏览器或复杂 WebView 的 AX 树若包含 `AXWebArea` 但没有暴露文本输入控件，snapshot 采集会 best-effort 聚焦面积最大的 `AXWebArea` 后重遍历一次，并在 `warnings[]` 记录该 fallback；`snapshot`、`visual.observe`、`elements.find` 和 mutation 前 target 解析共享这一路径。
-- `act.dry_run` 使用和 `act.click` / `act.perform_action` / `act.set_value` 相同的目标解析、前台 App 校验、歧义拒绝和 stale 检查，但不触发 AX action、CGEvent、键盘、剪贴板或窗口变化；结果 `snapshot=null`，避免把完整 AX 树塞回上下文。
+- `act.dry_run` 使用和目标 `dryRunOp` 相匹配的目标解析、前台 App 校验、歧义拒绝和 stale 检查，但不触发 AX action、CGEvent、键盘、剪贴板或窗口变化；结果 `snapshot=null`，并返回 `preview` 说明 execution/fallback/verification plan，避免把完整 AX 树塞回上下文。
 - `act.perform_action` 不再做固定白名单或 `actions[]` 包含校验；优先通过 `elements.find` 或 `snapshot` 查看候选支持的 actions，但允许对未列出的合法 AX action 做一次执行尝试。
 - mutation 前会刷新 snapshot 并按 target 重新解析，降低 stale element 引用风险。
 - 部分 mutation 会返回 `verification`：`act.type/paste/set_value` 校验写入后的 AXValue，其中 append 型 typing/paste 还要求 AXValue 相比执行前发生变化，`act.move_cursor/drag/swipe` 校验最终指针位置，`windows.focus/move/resize/close` 校验焦点、bounds 或窗口消失；没有明确可观测期望的动作保持 `unverified` 或不返回 verification，调用方仍可用 `wait/snapshot/elements.find` 做业务级确认。
@@ -544,7 +549,7 @@ OCR 规则：
 
 坐标动作规则：
 
-- `act.dry_run` 用于 mutation 前确认目标元素；它只读返回解析结果，不附带完整 snapshot，不产生 UI 副作用。
+- `act.dry_run` 用于 mutation 前确认目标元素；它只读返回解析结果和 `preview`，不附带完整 snapshot，不产生 UI 副作用。
 - `act.click` 只能点击 AX target，不读取 `x/y`。
 - 裸坐标点击必须使用 `act.click_point`。
 - `act.move_cursor` 不点击；`act.swipe` 的起点来自 `x/y`、`fromX/fromY` 或 AX target 中心，终点来自 `deltaX/deltaY`、`toX/toY` 或 `toTarget`。
@@ -669,6 +674,7 @@ status -> snapshot/elements.find/wait -> apps/windows/act/menu/clipboard/dialog 
 - 相似按钮或输入框较多时先用 `elements.find` 选候选，再用 `elementId + snapshotId` 执行。
 - 浏览器/WebView 返回 `AXWebArea` fallback warning 时，优先重新查看 `elements.find` 或 `snapshot` 的新候选；如果仍没有文本输入控件，用 `visual.observe annotate=true` / OCR / `visual.point` 走视觉定位。
 - 对高不确定性的点击/设置值，先用 `act.dry_run` 验证目标解析结果。
+- 对需要审批或 fallback 的动作，传 `dryRunOp` 读取 `preview`，确认 executionPlan/fallbackPlan/verificationPlan 后再执行真实 op。
 - 视觉定位优先走 `visual.observe annotate=true -> uiMap elementId + snapshotId`；没有清晰 AX id 时走 `visual.ocr/find_text` 或读取图片选 image pixel -> `visual.point` -> `act.click_point` -> verify。不要把截图像素坐标直接传给 `act.click_point`。
 - App 名称找不到时先用 `apps.search` / `apps.installed` 查候选。
 - 名称匹配不稳定时改用 `bundleId`、`pid`、`windowId` 或 `elementId`。
@@ -700,6 +706,7 @@ status -> snapshot/elements.find/wait -> apps/windows/act/menu/clipboard/dialog 
 - `__IMAGE_FILE__` 只接受 `attachments`、`tool_results` 和 `mac-control/snapshots` 受管目录
 - snapshot LRU 和错误统计
 - diagnostics limit clamp、snapshot cache compact summary 和 export bundle shape
+- act.dry_run preview、dryRunOp normalization 和 explain schema
 
 手工 QA：
 

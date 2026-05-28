@@ -21,17 +21,18 @@ mod imp {
     use async_trait::async_trait;
     use base64::Engine;
     use ha_core::mac_control::{
-        normalize_perform_ax_action, MacControlActOp, MacControlActRequest, MacControlActResult,
-        MacControlAppNameMatch, MacControlAppSummary, MacControlAppsOp, MacControlAppsRequest,
-        MacControlAppsResult, MacControlBounds, MacControlBridge, MacControlClipboardOp,
-        MacControlClipboardRequest, MacControlClipboardResult, MacControlDialogFileResult,
-        MacControlDialogOp, MacControlDialogRequest, MacControlDialogResult,
-        MacControlDialogSummary, MacControlDisplaySummary, MacControlDockItem, MacControlDockOp,
-        MacControlDockRequest, MacControlDockResult, MacControlDockSection,
-        MacControlElementCandidate, MacControlElementSummary, MacControlElementsRequest,
-        MacControlElementsResult, MacControlFramePayload, MacControlInstalledApp,
-        MacControlMenuItemSummary, MacControlMenuOp, MacControlMenuPopoverCandidate,
-        MacControlMenuRequest, MacControlMenuResult, MacControlMenuScope, MacControlMotionProfile,
+        mac_control_act_preview, normalize_perform_ax_action, MacControlActOp,
+        MacControlActRequest, MacControlActResult, MacControlAppNameMatch, MacControlAppSummary,
+        MacControlAppsOp, MacControlAppsRequest, MacControlAppsResult, MacControlBounds,
+        MacControlBridge, MacControlClipboardOp, MacControlClipboardRequest,
+        MacControlClipboardResult, MacControlDialogFileResult, MacControlDialogOp,
+        MacControlDialogRequest, MacControlDialogResult, MacControlDialogSummary,
+        MacControlDisplaySummary, MacControlDockItem, MacControlDockOp, MacControlDockRequest,
+        MacControlDockResult, MacControlDockSection, MacControlElementCandidate,
+        MacControlElementSummary, MacControlElementsRequest, MacControlElementsResult,
+        MacControlFramePayload, MacControlInstalledApp, MacControlMenuItemSummary,
+        MacControlMenuOp, MacControlMenuPopoverCandidate, MacControlMenuRequest,
+        MacControlMenuResult, MacControlMenuScope, MacControlMotionProfile,
         MacControlOcrRawTextBlock, MacControlOcrRecognitionLevel, MacControlOcrRequest,
         MacControlRunningApp, MacControlScreenshotSummary, MacControlScreenshotTarget,
         MacControlSnapshot, MacControlSnapshotRequest, MacControlSpaceDirection,
@@ -3091,6 +3092,26 @@ mod imp {
         }
     }
 
+    fn act_op_name(op: MacControlActOp) -> &'static str {
+        match op {
+            MacControlActOp::DryRun => "dry_run",
+            MacControlActOp::PerformAction => "perform_action",
+            MacControlActOp::Click => "click",
+            MacControlActOp::ClickPoint => "click_point",
+            MacControlActOp::MoveCursor => "move_cursor",
+            MacControlActOp::DoubleClick => "double_click",
+            MacControlActOp::RightClick => "right_click",
+            MacControlActOp::Type => "type",
+            MacControlActOp::Paste => "paste",
+            MacControlActOp::SetValue => "set_value",
+            MacControlActOp::Hotkey => "hotkey",
+            MacControlActOp::Press => "press",
+            MacControlActOp::Scroll => "scroll",
+            MacControlActOp::Drag => "drag",
+            MacControlActOp::Swipe => "swipe",
+        }
+    }
+
     fn handle_act(request: MacControlActRequest) -> Result<MacControlActResult, String> {
         let request = request.clamped();
         let mut target = None;
@@ -3098,16 +3119,8 @@ mod imp {
         let mut verification = None;
         let execution = match request.op {
             MacControlActOp::DryRun => {
-                if target_query_is_empty(&request.target) {
-                    return Err("act.dry_run requires a target.".to_string());
-                }
-                let (_element, summary, _) = resolve_element(
-                    &request.target,
-                    request.max_elements,
-                    request.max_depth,
-                    "act.dry_run",
-                )?;
-                target = Some(summary);
+                let intended_op = request.dry_run_op.unwrap_or(MacControlActOp::Click);
+                target = resolve_dry_run_target(&request, intended_op)?;
                 "DryRun".to_string()
             }
             MacControlActOp::PerformAction => {
@@ -3409,6 +3422,11 @@ mod imp {
                 "CGEventSwipe".to_string()
             }
         };
+        let preview = if request.op == MacControlActOp::DryRun || request.explain {
+            Some(mac_control_act_preview(&request, target.as_ref()))
+        } else {
+            None
+        };
         let snapshot = if request.op == MacControlActOp::DryRun || !request.include_snapshot {
             None
         } else {
@@ -3427,7 +3445,135 @@ mod imp {
             target,
             snapshot,
             verification,
+            preview,
         })
+    }
+
+    fn resolve_dry_run_target(
+        request: &MacControlActRequest,
+        intended_op: MacControlActOp,
+    ) -> Result<Option<MacControlElementSummary>, String> {
+        match intended_op {
+            MacControlActOp::DryRun => Ok(None),
+            MacControlActOp::Click | MacControlActOp::PerformAction | MacControlActOp::SetValue => {
+                if target_query_is_empty(&request.target) {
+                    return Err(format!(
+                        "act.dry_run dryRunOp={} requires a target.",
+                        act_op_name(intended_op)
+                    ));
+                }
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.dry_run",
+                )?;
+                Ok(Some(summary))
+            }
+            MacControlActOp::DoubleClick | MacControlActOp::RightClick => {
+                if target_query_is_empty(&request.target) {
+                    return Err(format!(
+                        "act.dry_run dryRunOp={} requires a target.",
+                        act_op_name(intended_op)
+                    ));
+                }
+                let (_element, summary, _) = resolve_element(
+                    &request.target,
+                    request.max_elements,
+                    request.max_depth,
+                    "act.dry_run",
+                )?;
+                point_for_element(&summary, "act.dry_run target")?;
+                Ok(Some(summary))
+            }
+            MacControlActOp::Type => {
+                if target_query_is_empty(&request.target) {
+                    let (_element, summary) = focused_element().ok_or_else(|| {
+                        "act.dry_run dryRunOp=type requires a focused text element or explicit target."
+                            .to_string()
+                    })?;
+                    Ok(Some(summary))
+                } else {
+                    let (_element, summary, _) = resolve_type_element(
+                        &request.target,
+                        request.max_elements,
+                        request.max_depth,
+                        "act.dry_run",
+                    )?;
+                    Ok(Some(summary))
+                }
+            }
+            MacControlActOp::Paste => {
+                if target_query_is_empty(&request.target) {
+                    Ok(focused_element().map(|(_element, summary)| summary))
+                } else {
+                    let (_element, summary, _) = resolve_type_element(
+                        &request.target,
+                        request.max_elements,
+                        request.max_depth,
+                        "act.dry_run",
+                    )?;
+                    Ok(Some(summary))
+                }
+            }
+            MacControlActOp::ClickPoint => {
+                let (Some(x), Some(y)) = (request.x, request.y) else {
+                    return Err("act.dry_run dryRunOp=click_point requires x and y.".to_string());
+                };
+                screen_point(x, y, "act.dry_run click_point")?;
+                Ok(None)
+            }
+            MacControlActOp::MoveCursor => {
+                if target_query_is_empty(&request.target) {
+                    let (Some(x), Some(y)) = (request.x, request.y) else {
+                        return Err("act.dry_run dryRunOp=move_cursor requires x/y or a target."
+                            .to_string());
+                    };
+                    screen_point(x, y, "act.dry_run move_cursor")?;
+                    Ok(None)
+                } else {
+                    let (_element, summary, _) = resolve_element(
+                        &request.target,
+                        request.max_elements,
+                        request.max_depth,
+                        "act.dry_run",
+                    )?;
+                    point_for_element(&summary, "act.dry_run move_cursor target")?;
+                    Ok(Some(summary))
+                }
+            }
+            MacControlActOp::Hotkey => {
+                let keys = if request.keys.is_empty() {
+                    vec![request.key.clone().unwrap_or_default()]
+                } else {
+                    request.keys.clone()
+                };
+                validate_hotkey_keys(&keys)?;
+                Ok(None)
+            }
+            MacControlActOp::Press => {
+                let keys = if request.keys.is_empty() {
+                    vec![request.key.clone().unwrap_or_default()]
+                } else {
+                    request.keys.clone()
+                };
+                validate_press_keys(&keys, &request.modifiers)?;
+                Ok(None)
+            }
+            MacControlActOp::Scroll => Ok(None),
+            MacControlActOp::Drag => {
+                let (_from, source_summary) = resolve_drag_source(request)?;
+                let (_to, destination_summary) = resolve_drag_destination(request)?;
+                parse_modifier_keys(&request.modifiers, "act.drag modifiers")?;
+                Ok(source_summary.or(destination_summary))
+            }
+            MacControlActOp::Swipe => {
+                let (from, source_summary) = resolve_swipe_source(request)?;
+                let (_to, destination_summary) = resolve_swipe_destination(request, from)?;
+                parse_modifier_keys(&request.modifiers, "act.swipe modifiers")?;
+                Ok(source_summary.or(destination_summary))
+            }
+        }
     }
 
     fn handle_menu(request: MacControlMenuRequest) -> Result<MacControlMenuResult, String> {
@@ -7071,6 +7217,36 @@ mod imp {
         if delay_ms > 0 {
             thread::sleep(Duration::from_millis(delay_ms));
         }
+    }
+
+    fn validate_press_keys(keys: &[String], modifiers: &[String]) -> Result<(), String> {
+        if keys.is_empty() {
+            return Err("act.press requires key or keys.".to_string());
+        }
+        parse_modifier_keys(modifiers, "act.press modifiers")?;
+        for key in keys {
+            let key_name = key.to_ascii_lowercase();
+            key_code_for_press(&key_name)
+                .ok_or_else(|| format!("Unsupported press key '{key}'."))?;
+        }
+        Ok(())
+    }
+
+    fn validate_hotkey_keys(keys: &[String]) -> Result<(), String> {
+        let mut key_code = None;
+        for key in keys {
+            match key.to_ascii_lowercase().as_str() {
+                "cmd" | "command" | "meta" | "shift" | "ctrl" | "control" | "alt" | "option" => {}
+                other => {
+                    key_code = Some(
+                        key_code_for(other)
+                            .ok_or_else(|| format!("Unsupported hotkey key '{other}'."))?,
+                    );
+                }
+            }
+        }
+        key_code.ok_or_else(|| "Hotkey requires one non-modifier key.".to_string())?;
+        Ok(())
     }
 
     fn post_press_sequence(

@@ -702,6 +702,20 @@ pub struct MacControlActResult {
     pub target: Option<MacControlElementSummary>,
     pub snapshot: Option<MacControlSnapshot>,
     pub verification: Option<MacControlVerification>,
+    pub preview: Option<MacControlActPreview>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacControlActPreview {
+    pub intended_op: MacControlActOp,
+    pub dry_run: bool,
+    pub will_mutate: bool,
+    pub execution_plan: Vec<String>,
+    pub fallback_plan: Vec<String>,
+    pub verification_plan: Vec<String>,
+    pub warnings: Vec<String>,
+    pub next_step: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1463,6 +1477,10 @@ pub struct MacControlActRequest {
     #[serde(default)]
     pub op: MacControlActOp,
     #[serde(default)]
+    pub dry_run_op: Option<MacControlActOp>,
+    #[serde(default)]
+    pub explain: bool,
+    #[serde(default)]
     pub target: MacControlTargetQuery,
     #[serde(default)]
     pub to_target: MacControlTargetQuery,
@@ -1522,6 +1540,9 @@ impl MacControlActRequest {
     pub fn clamped(mut self) -> Self {
         self.target = self.target.normalized();
         self.to_target = self.to_target.normalized();
+        if self.dry_run_op == Some(MacControlActOp::DryRun) {
+            self.dry_run_op = None;
+        }
         self.ax_action = normalize_optional_string(self.ax_action);
         self.text = normalize_optional_string(self.text);
         self.typing_delay_ms = self
@@ -1626,6 +1647,285 @@ pub fn normalize_perform_ax_action(action: &str) -> Option<String> {
         _ => None,
     };
     Some(canonical.unwrap_or(action).to_string())
+}
+
+pub fn mac_control_act_preview(
+    request: &MacControlActRequest,
+    target: Option<&MacControlElementSummary>,
+) -> MacControlActPreview {
+    let intended_op = act_preview_op(request);
+    let mut execution_plan = Vec::new();
+    if preview_resolves_ax_target(request, intended_op) {
+        execution_plan.push(
+            "Resolve the target with the same app/window/element matching, stale snapshot checks, and ambiguity rejection used by the real act call.".to_string(),
+        );
+    }
+    let mut fallback_plan = Vec::new();
+    let mut verification_plan = Vec::new();
+    let mut warnings = Vec::new();
+
+    match intended_op {
+        MacControlActOp::DryRun => {}
+        MacControlActOp::Click => {
+            execution_plan.push("Run AXPress on the resolved target.".to_string());
+            fallback_plan.push(
+                "If AXPress fails and the target has bounds, click the target center with CGEvent."
+                    .to_string(),
+            );
+            verification_plan.push(
+                "Ordinary clicks have no built-in business verification; verify with wait, snapshot, elements.find, or dialog.inspect.".to_string(),
+            );
+            if target.and_then(|element| element.bounds_points).is_none() {
+                warnings.push(
+                    "Resolved target has no bounds, so CGEvent center-click fallback would be unavailable."
+                        .to_string(),
+                );
+            }
+        }
+        MacControlActOp::PerformAction => {
+            let action = request
+                .ax_action
+                .as_deref()
+                .and_then(normalize_perform_ax_action);
+            execution_plan.push(format!(
+                "Run named Accessibility action {} on the resolved target.",
+                action.as_deref().unwrap_or("<missing axAction>")
+            ));
+            verification_plan.push(
+                "Named AX actions are not assumed complete; verify the expected UI state with a fresh observation.".to_string(),
+            );
+            if action.is_none() {
+                warnings.push(
+                    "dryRunOp=perform_action needs axAction to preview the exact AX action."
+                        .to_string(),
+                );
+            }
+        }
+        MacControlActOp::ClickPoint => {
+            execution_plan
+                .push("Click the provided raw macOS screen point with CGEvent.".to_string());
+            verification_plan.push(
+                "Coordinate clicks have no built-in business verification; observe after clicking."
+                    .to_string(),
+            );
+            warnings.push(
+                "act.dry_run target resolution is not useful for click_point; use visual.point to preview image-to-screen coordinates instead.".to_string(),
+            );
+            if request.x.is_none() || request.y.is_none() {
+                warnings.push("dryRunOp=click_point needs x and y.".to_string());
+            }
+        }
+        MacControlActOp::MoveCursor => {
+            execution_plan.push(
+                "Move the pointer to x/y or to the resolved target center using the requested motion profile."
+                    .to_string(),
+            );
+            verification_plan.push("Verify final pointer position after the move.".to_string());
+            if target.and_then(|element| element.bounds_points).is_none()
+                && (request.x.is_none() || request.y.is_none())
+            {
+                warnings.push("move_cursor needs x/y or a target with bounds.".to_string());
+            }
+        }
+        MacControlActOp::DoubleClick => {
+            execution_plan
+                .push("Double-click the resolved target center with CGEvent.".to_string());
+            verification_plan
+                .push("Verify the expected UI state after the double-click.".to_string());
+            if target.and_then(|element| element.bounds_points).is_none() {
+                warnings.push("Resolved target has no bounds for double-click.".to_string());
+            }
+        }
+        MacControlActOp::RightClick => {
+            execution_plan.push("Right-click the resolved target center with CGEvent.".to_string());
+            verification_plan.push(
+                "Verify the context menu or expected UI state after the right-click.".to_string(),
+            );
+            if target.and_then(|element| element.bounds_points).is_none() {
+                warnings.push("Resolved target has no bounds for right-click.".to_string());
+            }
+        }
+        MacControlActOp::Type => {
+            if request.typing_profile.is_some() || request.typing_delay_ms.is_some() {
+                execution_plan.push(
+                    "Focus the resolved text target and type text with CGEvent Unicode key events."
+                        .to_string(),
+                );
+            } else {
+                execution_plan.push("Set AXValue on the resolved text target.".to_string());
+                fallback_plan.push(
+                    "If AXSetValue fails on a text input, focus it, send Cmd+A, then paste through protected pasteboard staging.".to_string(),
+                );
+            }
+            verification_plan
+                .push("Verify AXValue equals or contains the requested text.".to_string());
+            if request.text.is_none() {
+                warnings.push("dryRunOp=type needs text.".to_string());
+            }
+            warn_if_target_not_text_input(target, &mut warnings, "type");
+        }
+        MacControlActOp::Paste => {
+            execution_plan.push(
+                "Focus the resolved text target, stage text on the pasteboard, send Cmd+V, then restore previous pasteboard items.".to_string(),
+            );
+            verification_plan.push("Verify AXValue changed and contains the pasted text when the target exposes AXValue.".to_string());
+            if request.text.is_none() {
+                warnings.push("dryRunOp=paste needs text.".to_string());
+            }
+            warn_if_target_not_text_input(target, &mut warnings, "paste");
+        }
+        MacControlActOp::SetValue => {
+            execution_plan.push("Set AXValue on the resolved target.".to_string());
+            fallback_plan.push(
+                "Pasteboard replace fallback is allowed only when the resolved target is a text input."
+                    .to_string(),
+            );
+            verification_plan.push("Verify AXValue equals the requested value.".to_string());
+            if request.value.is_none() {
+                warnings.push("dryRunOp=set_value needs value.".to_string());
+            }
+            if let Some(element) = target {
+                if !preview_is_text_input_element(element) {
+                    warnings.push(
+                        "Resolved target does not look like a text input; AXSetValue failure will stay an error instead of falling back to paste."
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        MacControlActOp::Hotkey => {
+            execution_plan.push("Send the requested keyboard chord with CGEvent.".to_string());
+            warnings.push(
+                "act.dry_run target resolution is not useful for hotkey; verify key/key sequence directly."
+                    .to_string(),
+            );
+            if request.key.is_none() && request.keys.is_empty() {
+                warnings.push("dryRunOp=hotkey needs key or keys.".to_string());
+            }
+        }
+        MacControlActOp::Press => {
+            execution_plan.push(
+                "Send the requested key sequence with repeat/hold/interval options.".to_string(),
+            );
+            warnings.push(
+                "act.dry_run target resolution is not useful for press; verify key/key sequence directly."
+                    .to_string(),
+            );
+            if request.key.is_none() && request.keys.is_empty() {
+                warnings.push("dryRunOp=press needs key or keys.".to_string());
+            }
+        }
+        MacControlActOp::Scroll => {
+            execution_plan.push("Send a CGEvent scroll with deltaX/deltaY.".to_string());
+            verification_plan
+                .push("Verify visible scroll position with a fresh observation.".to_string());
+            if request.delta_x.unwrap_or(0.0) == 0.0 && request.delta_y.unwrap_or(0.0) == 0.0 {
+                warnings.push("dryRunOp=scroll needs non-zero deltaX or deltaY.".to_string());
+            }
+        }
+        MacControlActOp::Drag => {
+            execution_plan.push(
+                "Drag from a source point or resolved target center to x/y, toX/toY, or toTarget using the requested motion profile.".to_string(),
+            );
+            verification_plan.push(
+                "Verify final pointer position and the expected UI state after drag.".to_string(),
+            );
+            if target.and_then(|element| element.bounds_points).is_none()
+                && (request.from_x.is_none() || request.from_y.is_none())
+            {
+                warnings.push("drag needs fromX/fromY or a source target with bounds.".to_string());
+            }
+        }
+        MacControlActOp::Swipe => {
+            execution_plan.push(
+                "Swipe/drag from x/y, fromX/fromY, or a resolved target center to delta/to point/to target using the requested motion profile.".to_string(),
+            );
+            verification_plan.push(
+                "Verify final pointer position and the expected UI state after swipe.".to_string(),
+            );
+            let has_target = target.is_some();
+            let has_point = request.x.is_some() && request.y.is_some();
+            let has_from_point = request.from_x.is_some() && request.from_y.is_some();
+            if !has_target && !has_point && !has_from_point {
+                warnings.push("swipe needs a source target, x/y, or fromX/fromY.".to_string());
+            }
+        }
+    }
+
+    let will_mutate = intended_op != MacControlActOp::DryRun;
+    MacControlActPreview {
+        intended_op,
+        dry_run: request.op == MacControlActOp::DryRun,
+        will_mutate,
+        execution_plan,
+        fallback_plan,
+        verification_plan,
+        warnings,
+        next_step: if request.op == MacControlActOp::DryRun {
+            Some(format!(
+                "If this target and plan look correct, call mac_control action=\"act\" op=\"{}\" with the same precise target.",
+                act_op_name(intended_op)
+            ))
+        } else {
+            None
+        },
+    }
+}
+
+fn act_preview_op(request: &MacControlActRequest) -> MacControlActOp {
+    if request.op == MacControlActOp::DryRun {
+        request
+            .dry_run_op
+            .filter(|op| *op != MacControlActOp::DryRun)
+            .unwrap_or(MacControlActOp::Click)
+    } else {
+        request.op
+    }
+}
+
+fn preview_resolves_ax_target(request: &MacControlActRequest, op: MacControlActOp) -> bool {
+    match op {
+        MacControlActOp::Click
+        | MacControlActOp::PerformAction
+        | MacControlActOp::DoubleClick
+        | MacControlActOp::RightClick
+        | MacControlActOp::SetValue => true,
+        MacControlActOp::Type | MacControlActOp::Paste | MacControlActOp::MoveCursor => {
+            !request.target.is_empty()
+        }
+        MacControlActOp::Drag | MacControlActOp::Swipe => {
+            !request.target.is_empty() || !request.to_target.is_empty()
+        }
+        MacControlActOp::DryRun
+        | MacControlActOp::ClickPoint
+        | MacControlActOp::Hotkey
+        | MacControlActOp::Press
+        | MacControlActOp::Scroll => false,
+    }
+}
+
+fn warn_if_target_not_text_input(
+    target: Option<&MacControlElementSummary>,
+    warnings: &mut Vec<String>,
+    op: &str,
+) {
+    if let Some(element) = target {
+        if !preview_is_text_input_element(element) {
+            warnings.push(format!(
+                "Resolved target role does not look like a text input; act.{op} may fail."
+            ));
+        }
+    }
+}
+
+fn preview_is_text_input_element(element: &MacControlElementSummary) -> bool {
+    element.role.as_deref().is_some_and(|role| {
+        let role = role.to_ascii_lowercase();
+        role.contains("textfield")
+            || role.contains("textarea")
+            || role.contains("searchfield")
+            || role.contains("combobox")
+    })
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -3605,7 +3905,27 @@ fn validate_menu_request(request: &MacControlMenuRequest) -> Option<String> {
 }
 
 fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
-    match request.op {
+    if request.op == MacControlActOp::DryRun {
+        return validate_dry_run_request(request);
+    }
+    validate_act_operation(request, request.op)
+}
+
+fn validate_dry_run_request(request: &MacControlActRequest) -> Option<String> {
+    let intended_op = request.dry_run_op.unwrap_or(MacControlActOp::Click);
+    let error = validate_act_operation(request, intended_op)?;
+    if intended_op == MacControlActOp::Click && request.target.is_empty() {
+        return Some("mac_control act.dry_run requires a target.".to_string());
+    }
+    Some(format!(
+        "mac_control act.dry_run dryRunOp={} invalid: {}",
+        act_op_name(intended_op),
+        error.strip_prefix("mac_control ").unwrap_or(&error)
+    ))
+}
+
+fn validate_act_operation(request: &MacControlActRequest, op: MacControlActOp) -> Option<String> {
+    match op {
         MacControlActOp::Click => {
             if request.target.is_empty() {
                 return Some(
@@ -3614,11 +3934,7 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
                 );
             }
         }
-        MacControlActOp::DryRun => {
-            if request.target.is_empty() {
-                return Some("mac_control act.dry_run requires a target.".to_string());
-            }
-        }
+        MacControlActOp::DryRun => {}
         MacControlActOp::PerformAction => {
             if request.target.is_empty() {
                 return Some("mac_control act.perform_action requires a target.".to_string());
@@ -3660,7 +3976,7 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
             if request.target.is_empty() {
                 return Some(format!(
                     "mac_control act.{} requires a target.",
-                    act_op_name(request.op)
+                    act_op_name(op)
                 ));
             }
         }
@@ -3668,7 +3984,7 @@ fn validate_act_request(request: &MacControlActRequest) -> Option<String> {
             if request.text.is_none() {
                 return Some(format!(
                     "mac_control act.{} requires text.",
-                    act_op_name(request.op)
+                    act_op_name(op)
                 ));
             }
         }
@@ -6250,6 +6566,27 @@ mod tests {
         .expect("act includeSnapshot request");
         assert!(act_with_snapshot.include_snapshot);
 
+        let dry_run_preview: MacControlActRequest = serde_json::from_value(serde_json::json!({
+            "op": "dry_run",
+            "dryRunOp": "set_value",
+            "explain": true,
+            "value": "hello",
+            "target": { "elementId": "el_20" }
+        }))
+        .expect("act dryRunOp request");
+        let dry_run_preview = dry_run_preview.clamped();
+        assert_eq!(dry_run_preview.dry_run_op, Some(MacControlActOp::SetValue));
+        assert!(dry_run_preview.explain);
+
+        let nested_dry_run_preview: MacControlActRequest =
+            serde_json::from_value(serde_json::json!({
+                "op": "dry_run",
+                "dryRunOp": "dry_run",
+                "target": { "elementId": "el_20" }
+            }))
+            .expect("nested dryRunOp request");
+        assert_eq!(nested_dry_run_preview.clamped().dry_run_op, None);
+
         let paste_without_text = MacControlActRequest {
             op: MacControlActOp::Paste,
             ..Default::default()
@@ -6353,6 +6690,64 @@ mod tests {
             validate_act_request(&dry_run_without_target).as_deref(),
             Some("mac_control act.dry_run requires a target.")
         );
+
+        let dry_run_click_point = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            dry_run_op: Some(MacControlActOp::ClickPoint),
+            x: Some(0.0),
+            y: Some(0.0),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&dry_run_click_point).is_none());
+
+        let dry_run_hotkey = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            dry_run_op: Some(MacControlActOp::Hotkey),
+            keys: vec!["cmd".to_string(), "l".to_string()],
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&dry_run_hotkey).is_none());
+
+        let invalid_dry_run_drag = MacControlActRequest {
+            op: MacControlActOp::DryRun,
+            dry_run_op: Some(MacControlActOp::Drag),
+            from_x: Some(10.0),
+            from_y: Some(20.0),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(validate_act_request(&invalid_dry_run_drag)
+            .expect("validation error")
+            .contains("dryRunOp=drag"));
+
+        let preview = mac_control_act_preview(
+            &MacControlActRequest {
+                op: MacControlActOp::DryRun,
+                dry_run_op: Some(MacControlActOp::SetValue),
+                value: Some("hello".to_string()),
+                ..dry_run.clone()
+            },
+            Some(&MacControlElementSummary {
+                id: "el_1".to_string(),
+                window_id: Some("win_1".to_string()),
+                role: Some("AXButton".to_string()),
+                label: Some("Open".to_string()),
+                value: None,
+                enabled: Some(true),
+                focused: false,
+                bounds_points: None,
+                actions: vec!["AXPress".to_string()],
+            }),
+        );
+        assert_eq!(preview.intended_op, MacControlActOp::SetValue);
+        assert!(preview.dry_run);
+        assert!(preview.will_mutate);
+        assert!(preview
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("does not look like a text input")));
 
         let perform_action = MacControlActRequest {
             op: MacControlActOp::PerformAction,

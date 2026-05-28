@@ -724,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── macOS Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_MAC_CONTROL.into(),
-            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `diagnostics` summary/export for failure analysis, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `dock` list/launch/hide/show/menu/select_menu, `spaces` list/switch/move_window, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/perform_action/click/click_point/move_cursor/double_click/right_click/type/paste/set_value/hotkey/press/scroll/drag/swipe, `menu` list/click for app menus or system menu bar extras plus `menu.popover` for menu bar status popover detection, `clipboard` get/set/clear text, and `dialog` list/inspect/click/input/file/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
+            description: "Inspect and control the local macOS desktop through Hope Agent's native bridge. Supports `status`, `permissions`, `diagnostics` summary/export for failure analysis, `snapshot` with display/window screenshots, `visual.observe` screenshot-to-model context with optional annotated AX UI map, `visual.point` image-pixel/screen-point mapping with AX hit candidates, `visual.ocr/find_text` OCR text positioning, `elements.find` scored AX element search, `wait` present/gone, `apps` list/frontmost/installed/search/activate/launch/quit, `dock` list/launch/hide/show/menu/select_menu, `spaces` list/switch/move_window, `windows` list/focus/move/resize/minimize/close including all-app window discovery, `act` dry_run/perform_action/click/click_point/move_cursor/double_click/right_click/type/paste/set_value/hotkey/press/scroll/drag/swipe plus dryRunOp/explain previews, `menu` list/click for app menus or system menu bar extras plus `menu.popover` for menu bar status popover detection, `clipboard` get/set/clear text, and `dialog` list/inspect/click/input/file/accept/dismiss. Prefer visual.observe annotate=true, visual.find_text, visual.point, elements.find, snapshot, or wait before mutation. Destructive quit/close/dangerous menu/dialog actions use strict approval; clipboard actions require approval because clipboard content may be sensitive.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: false,
             concurrent_safe: false,
@@ -740,7 +740,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "op": {
                         "type": "string",
                         "enum": ["summary", "export", "observe", "point", "ocr", "find_text", "find", "present", "gone", "list", "frontmost", "installed", "search", "activate", "launch", "quit", "hide", "show", "menu", "select_menu", "switch", "move_window", "focus", "move", "resize", "minimize", "close", "dry_run", "perform_action", "click", "click_point", "move_cursor", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "press", "scroll", "drag", "swipe", "popover", "input", "file", "get", "set", "clear", "inspect", "accept", "dismiss"],
-                        "description": "Sub-operation. For `diagnostics`: summary|export. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `dock`: list|launch|hide|show|menu|select_menu. For `spaces`: list|switch|move_window. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation, perform_action runs a named AX action after basic format validation, click for AX target clicks, click_point for raw screen coordinates, move_cursor to x/y or target center, double_click|right_click target clicks, type|paste|set_value|hotkey|press|scroll, drag/swipe between coordinate or AX element endpoints. For `menu`: list|click|popover. For `clipboard`: get|set|clear text. For `dialog`: list|inspect|click|input|file|accept|dismiss."
+                        "description": "Sub-operation. For `diagnostics`: summary|export. For `visual`: observe|point|ocr|find_text. For `elements`: find. For `wait`: present|gone. For `apps`: list|frontmost|installed|search|activate|launch|quit. For `dock`: list|launch|hide|show|menu|select_menu. For `spaces`: list|switch|move_window. For `windows`: list|focus|move|resize|minimize|close. For `act`: dry_run resolves a target without mutation and can preview `dryRunOp`, perform_action runs a named AX action after basic format validation, click for AX target clicks, click_point for raw screen coordinates, move_cursor to x/y or target center, double_click|right_click target clicks, type|paste|set_value|hotkey|press|scroll, drag/swipe between coordinate or AX element endpoints. For `menu`: list|click|popover. For `clipboard`: get|set|clear text. For `dialog`: list|inspect|click|input|file|accept|dismiss."
                     },
                     "scope": {
                         "type": "string",
@@ -867,6 +867,15 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "enum": ["instant", "steady", "human"],
                         "description": "For `act.type`: when provided, type text via CGEvent Unicode key events instead of AXSetValue. `steady` uses a short fixed delay, `human` adds small deterministic jitter, and `instant` posts characters without delay."
+                    },
+                    "dryRunOp": {
+                        "type": "string",
+                        "enum": ["perform_action", "click", "click_point", "move_cursor", "double_click", "right_click", "type", "paste", "set_value", "hotkey", "press", "scroll", "drag", "swipe"],
+                        "description": "For `act.dry_run`: the real act op to preview after resolving the target. Defaults to click. The result includes `preview` with executionPlan/fallbackPlan/verificationPlan/warnings without mutating UI."
+                    },
+                    "explain": {
+                        "type": "boolean",
+                        "description": "For `act`: when true, include the same structured `preview` explanation with the result. For pre-mutation review, prefer `op=dry_run` plus dryRunOp."
                     },
                     "typingDelayMs": {
                         "type": "integer",
@@ -1016,7 +1025,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "includeSnapshot": {
                         "type": "boolean",
-                        "description": "For `act`, `wait`, or `dialog`: include the full AX snapshot used for the operation in the result. Defaults to false to keep results compact. `act.dry_run` stays compact; use `snapshot` or `elements.find` for full tree context."
+                        "description": "For `act`, `wait`, or `dialog`: include the full AX snapshot used for the operation in the result. Defaults to false to keep results compact. `act.dry_run` stays compact but can return a structured preview; use `snapshot` or `elements.find` for full tree context."
                     },
                     "includeOcr": {
                         "type": "boolean",
@@ -1813,6 +1822,8 @@ mod tests {
         assert!(op_enum.iter().any(|value| value.as_str() == Some("input")));
         assert!(op_enum.iter().any(|value| value.as_str() == Some("file")));
         assert!(tool.parameters["properties"].get("snapshotId").is_some());
+        assert!(tool.parameters["properties"].get("dryRunOp").is_some());
+        assert!(tool.parameters["properties"].get("explain").is_some());
         assert!(tool.parameters["properties"].get("dockItemId").is_some());
         assert!(tool.parameters["properties"].get("menuItem").is_some());
         assert!(tool.parameters["properties"].get("menuIndex").is_some());
