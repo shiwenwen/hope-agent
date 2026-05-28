@@ -64,6 +64,13 @@ pub fn if_matches(rule: &str, input: &HookInput) -> bool {
         "read" | "write" | "edit" | "ls" | "grep" | "find" => {
             extract_path_arg(tool, args).map(|p| p.to_string_lossy().into_owned())
         }
+        // Feishu drive upload/download touch local paths — same family as
+        // read/write, mirrored from `permission::rules::extract_path_arg`.
+        n if n == crate::tools::feishu::TOOL_DRIVE_UPLOAD_MEDIA
+            || n == crate::tools::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA =>
+        {
+            extract_path_arg(tool, args).map(|p| p.to_string_lossy().into_owned())
+        }
         "web_fetch" | "browser" => extract_domain_arg(args),
         _ => Some(args.to_string()),
     };

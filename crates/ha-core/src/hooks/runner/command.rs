@@ -95,11 +95,17 @@ impl CommandHandler {
 #[async_trait]
 impl HookHandler for CommandHandler {
     fn identity(&self) -> String {
-        // Include shell/timeout/async so two same-command hooks with different
-        // execution semantics aren't collapsed into one by dedup.
+        // Include shell/timeout/async/async_rewake so two same-command hooks with
+        // different execution semantics aren't collapsed into one by dedup
+        // (`async_rewake` flips whether the detached child's output is captured
+        // and injected on exit 2 — a real semantic difference).
         format!(
-            "{}|shell={:?}|timeout={:?}|async={:?}",
-            self.config.command, self.config.shell, self.config.timeout, self.config.async_run
+            "{}|shell={:?}|timeout={:?}|async={:?}|async_rewake={:?}",
+            self.config.command,
+            self.config.shell,
+            self.config.timeout,
+            self.config.async_run,
+            self.config.async_rewake,
         )
     }
 
@@ -128,7 +134,11 @@ impl HookHandler for CommandHandler {
             // `exit 2` can inject the hook's stderr into the next turn (§7.1).
             if self.config.async_rewake == Some(true) {
                 let session_id = input.common().session_id.clone();
-                if let Ok(mut child) = cmd.spawn() {
+                let spawned = cmd.spawn();
+                if let Err(ref e) = spawned {
+                    crate::app_warn!("hooks", "async_rewake", "spawn failed: {}", e);
+                }
+                if let Ok(mut child) = spawned {
                     let stdin = child.stdin.take();
                     let task = async move {
                         let write = async move {
@@ -162,7 +172,11 @@ impl HookHandler for CommandHandler {
             // memory unboundedly (which buffering the output to discard it
             // would). Overrides the piped stdout/stderr `build_command` set.
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            if let Ok(mut child) = cmd.spawn() {
+            let spawned = cmd.spawn();
+            if let Err(ref e) = spawned {
+                crate::app_warn!("hooks", "async_command", "spawn failed: {}", e);
+            }
+            if let Ok(mut child) = spawned {
                 let stdin = child.stdin.take();
                 let task = async move {
                     // Write stdin CONCURRENTLY with the wait so a large hook
@@ -422,5 +436,28 @@ mod tests {
         assert_eq!(r.exit_code, Some(0));
         assert!(r.stdout.is_empty() && r.stderr.is_empty());
         assert!(!r.timed_out);
+    }
+
+    #[test]
+    fn identity_distinguishes_async_rewake() {
+        // Two identical command hooks differing only in `async_rewake` have
+        // genuinely different execution semantics (capture + inject vs
+        // discard) — they must NOT collapse under dispatch's identity dedup.
+        let base = CommandHookConfig {
+            command: "x".into(),
+            shell: Some(HookShell::Bash),
+            timeout: None,
+            async_run: Some(true),
+            status_message: None,
+            if_rule: None,
+            once: None,
+            async_rewake: None,
+        };
+        let mut with_rewake = base.clone();
+        with_rewake.async_rewake = Some(true);
+        assert_ne!(
+            CommandHandler::new(base).identity(),
+            CommandHandler::new(with_rewake).identity(),
+        );
     }
 }

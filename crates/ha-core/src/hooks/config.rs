@@ -248,7 +248,12 @@ impl HookHandlerConfig {
 
     /// (command + async only) Inject stderr into the next turn on exit 2.
     pub fn async_rewake(&self) -> bool {
-        matches!(self, Self::Command(c) if c.async_rewake == Some(true))
+        // Exhaustive match — same contract as the sibling accessors: adding a
+        // new variant must fail to compile until each accessor is updated.
+        match self {
+            Self::Command(c) => c.async_rewake == Some(true),
+            Self::Http(_) | Self::McpTool(_) | Self::Prompt(_) | Self::Agent(_) => false,
+        }
     }
 }
 

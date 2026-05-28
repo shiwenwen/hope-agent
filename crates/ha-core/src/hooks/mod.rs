@@ -28,6 +28,24 @@ use std::time::{Duration, Instant};
 
 use runner::HookHandler;
 
+/// Hard cap on the per-session dedup sets [`claim_session_start`] /
+/// [`claim_once_per_session`] use — when reached we clear instead of grow
+/// unboundedly. Sized for "many sessions × many hooks"; the worst case after
+/// a wrap is one stale session re-firing once, vanishingly rare versus a leak.
+const SESSION_DEDUP_CAP: usize = 65536;
+
+/// Shared "claim a slot in a per-session HashSet, clear at the cap" used by
+/// both `SessionStart` once-per-session and `once: true` handler dedup.
+/// Returns `true` if `key` was newly inserted, `false` if already present.
+fn claim_in_dedup_set<K: Eq + std::hash::Hash>(seen: &OnceLock<Mutex<HashSet<K>>>, key: K) -> bool {
+    let set = seen.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = set.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.len() >= SESSION_DEDUP_CAP {
+        guard.clear();
+    }
+    guard.insert(key)
+}
+
 /// Sessions that have already fired `SessionStart` (startup/resume) in this
 /// process. `SessionStart` is a once-per-session event, but the engine runs
 /// per user turn — this gate prevents re-firing on turn 2+. (The `compact`
@@ -38,17 +56,7 @@ static SESSION_START_SEEN: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 /// (and records it), `false` afterwards. Used to fire `SessionStart`
 /// (startup/resume) once per session rather than once per turn.
 pub fn claim_session_start(session_id: &str) -> bool {
-    // Hard cap so a long-running server/desktop process that touches many
-    // sessions doesn't grow this set unboundedly. On overflow we clear it: the
-    // worst case is an old, still-active session re-firing SessionStart once —
-    // harmless and vanishingly rare versus the leak.
-    const CAP: usize = 8192;
-    let seen = SESSION_START_SEEN.get_or_init(|| Mutex::new(HashSet::new()));
-    let mut guard = seen.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.len() >= CAP {
-        guard.clear();
-    }
-    guard.insert(session_id.to_string())
+    claim_in_dedup_set(&SESSION_START_SEEN, session_id.to_string())
 }
 
 /// `(session_id, handler_key)` pairs that have already run a `once: true`
@@ -59,13 +67,10 @@ static ONCE_PER_SESSION_SEEN: OnceLock<Mutex<HashSet<(String, String)>>> = OnceL
 /// handler (and records it), `false` afterwards. `handler_key` is the handler's
 /// `type|identity` so distinct handlers in the same session don't collide.
 pub fn claim_once_per_session(session_id: &str, handler_key: &str) -> bool {
-    const CAP: usize = 65536;
-    let seen = ONCE_PER_SESSION_SEEN.get_or_init(|| Mutex::new(HashSet::new()));
-    let mut guard = seen.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.len() >= CAP {
-        guard.clear();
-    }
-    guard.insert((session_id.to_string(), handler_key.to_string()))
+    claim_in_dedup_set(
+        &ONCE_PER_SESSION_SEEN,
+        (session_id.to_string(), handler_key.to_string()),
+    )
 }
 
 /// Last time compaction hooks fired per session, for cross-retry de-dup.
@@ -218,23 +223,13 @@ impl HookDispatcher {
         let mut handlers: Vec<Box<dyn HookHandler>> = Vec::new();
         for cfg in configs {
             if let Some(h) = build_handler(cfg) {
-                // `if` condition: run only when the tool call matches the rule
-                // (non-tool events / mismatches skip — see `condition`).
-                if let Some(rule) = cfg.if_rule() {
-                    if !condition::if_matches(rule, &input) {
-                        continue;
-                    }
-                }
-                // `once`: skip if this handler already ran in this session.
-                if cfg.once() {
-                    let key = format!("{}|{}", h.handler_type(), h.identity());
-                    if !claim_once_per_session(&input.common().session_id, &key) {
-                        continue;
-                    }
+                if !should_run_handler(cfg, h.as_ref(), &input) {
+                    continue;
                 }
                 if seen.insert((h.handler_type(), h.identity())) {
-                    // `statusMessage`: this handler will run — surface its note.
-                    if let Some(msg) = cfg.status_message() {
+                    // `statusMessage`: surface a one-line toast while this
+                    // handler runs (empty string = unset, don't fire blank).
+                    if let Some(msg) = cfg.status_message().filter(|s| !s.is_empty()) {
                         emit_hook_status(&input, msg, h.handler_type());
                     }
                     handlers.push(h);
@@ -320,6 +315,24 @@ fn emit_hook_status(input: &HookInput, message: &str, handler_type: &str) {
     }
 }
 
+/// Minimal XML escape (`<` / `>` / `&` only) for text embedded inside a
+/// tag-bounded system-reminder. Prevents hook stderr containing a literal
+/// `</hook-async-result>` from breaking out of the reminder envelope —
+/// otherwise a hook author (or any tool the hook shells out to) could
+/// smuggle prompt-instruction text into the LLM's input.
+fn escape_xml_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// `asyncRewake`: a detached command hook exited 2 — inject its stderr as a
 /// system-reminder into the session's next turn (design §7.1). Reuses the
 /// subagent injection pipeline (waits for the session to idle, appends a
@@ -337,7 +350,7 @@ pub(crate) async fn rewake_inject(session_id: &str, stderr: &str) {
     };
     let push = format!(
         "<hook-async-result status=\"blocked-exit-2\">\n{}\n</hook-async-result>",
-        stderr.trim()
+        escape_xml_text(stderr.trim())
     );
     crate::app_info!(
         "hooks",
@@ -355,6 +368,28 @@ pub(crate) async fn rewake_inject(session_id: &str, stderr: &str) {
         db,
     )
     .await;
+}
+
+/// Apply per-handler gates before dispatch admits the handler:
+/// - `if`: skip when the rule doesn't match this tool call (non-tool events
+///   never match a `ToolName(...)` rule — fail-safe);
+/// - `once`: skip and claim a per-session slot if this handler already ran.
+///
+/// **Has a side effect**: a passing `once` check consumes the slot. Name
+/// reflects "should run AND claim" rather than a pure predicate.
+fn should_run_handler(cfg: &HookHandlerConfig, h: &dyn HookHandler, input: &HookInput) -> bool {
+    if let Some(rule) = cfg.if_rule() {
+        if !condition::if_matches(rule, input) {
+            return false;
+        }
+    }
+    if cfg.once() {
+        let key = format!("{}|{}", h.handler_type(), h.identity());
+        if !claim_once_per_session(&input.common().session_id, &key) {
+            return false;
+        }
+    }
+    true
 }
 
 fn build_handler(cfg: &HookHandlerConfig) -> Option<Box<dyn HookHandler>> {
