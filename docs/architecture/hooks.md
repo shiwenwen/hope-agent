@@ -60,6 +60,19 @@
 - **配置读 `cached_config().hooks`**，user scope 写走 `mutate_config(("hooks", source), …)`（详见 [`config-system.md`](config-system.md)）；project/local/managed 是独立 scope 文件。
 - **`ha-settings` 技能只读**：`get_settings` 含 `hooks`（http header 脱敏），写被 `BLOCKED_UPDATE_CATEGORIES` 拦截——hooks 能跑任意命令，可写会让模型给自己装命令执行（特权升级）。
 
+## Handler 通用字段
+
+每个 handler 都可带这些可选字段（`asyncRewake` 仅 `command`）；过滤在 `dispatch_with` 的 build 循环内、去重前完成，不改 `HookHandler` trait：
+
+| 字段 | 作用 |
+| --- | --- |
+| `timeout` | 单 handler 超时秒（默认值见上：command 600 / http 30 / prompt 60 / agent 120）|
+| `if` | 条件执行 `ToolName(pattern)`：**仅** `PreToolUse` / `PostToolUse` / `PostToolUseFailure` 这类带工具参数的事件求值，工具名或模式不匹配则跳过该 handler（其余事件直接跳过，fail-safe）。复用权限引擎的参数提取器 + glob（`*` 贪心、`**` 等价 `*`，不拆 Bash subcommand）；接受 Claude Code 工具别名（`Bash`→`exec`、`Write`→`write`、`Edit`→`edit`、`Read`→`read`、`WebFetch`→`web_fetch`）。例：`exec(rm *)` / `write(src/**)` / `web_fetch(*.github.com)` |
+| `once` | 该 handler 每会话只跑一次（per-process 内存去重，按 type + identity，进程重启重置，与 `SessionStart` once 同语义）|
+| `statusMessage` | handler 即将运行时在桌面 GUI 弹一句 toast（emit `hook:status` 事件，App 全局监听）。慢 handler（`async` / `agent` / `prompt`）才有感，快 `command` 一闪而过；IM 渠道暂不展示 |
+| `asyncRewake` | （仅 `command` + `async`）后台 hook `exit 2` 时，把 stderr 作为 `<hook-async-result>` system-reminder 注入**下一轮对话**（复用 `subagent::injection::inject_and_run_parent`）。**注意：这会让后台 hook 自主发起一轮 LLM（消耗 token）**——需作者显式配 `asyncRewake` 且 hook 主动 `exit 2`，审计 `category=hooks` |
+| `shell` / `async` | （`command`）`bash` / `powershell`；`async` = fire-and-forget，不影响决策 |
+
 ## 配置示例
 
 user scope（`~/.hope-agent/config.json` 顶层 `hooks` 键）：

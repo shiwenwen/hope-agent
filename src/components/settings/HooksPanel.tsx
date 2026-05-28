@@ -83,6 +83,7 @@ const FIELDS_BY_TYPE: Record<HandlerType, FieldDef[]> = {
     { key: "command", label: "command", kind: "textarea" },
     { key: "shell", label: "shell", kind: "shell" },
     { key: "async", label: "async", kind: "switch" },
+    { key: "asyncRewake", label: "asyncRewake (inject on exit 2)", kind: "switch" },
   ],
   http: [
     { key: "url", label: "url", kind: "text" },
@@ -107,7 +108,12 @@ const FIELDS_BY_TYPE: Record<HandlerType, FieldDef[]> = {
 }
 
 // Shared across every handler type (rendered under "advanced").
-const COMMON_FIELDS: FieldDef[] = [{ key: "timeout", label: "timeout (s)", kind: "number" }]
+const COMMON_FIELDS: FieldDef[] = [
+  { key: "timeout", label: "timeout (s)", kind: "number" },
+  { key: "if", label: "if (e.g. exec(rm *))", kind: "text" },
+  { key: "statusMessage", label: "statusMessage", kind: "text" },
+  { key: "once", label: "once", kind: "switch" },
+]
 
 function defaultHandler(type: HandlerType): Handler {
   switch (type) {

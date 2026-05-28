@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Hooks 系统（字段级兼容 Claude Code 协议）**：可在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，支持 `command` / `http` / `mcp_tool` / `prompt` / `agent` 五种处理器；配置分 user / managed / project / local 四层作用域并叠加合并，项目级 hooks 可随仓库共享给团队（出于供应链安全默认关闭，需在设置 → Hooks 中显式开启）；提供可视化设置面板（设置 → Hooks），配置改动即时热重载。 (#PR)
+- **Hooks 系统（字段级兼容 Claude Code 协议）**：可在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，支持 `command` / `http` / `mcp_tool` / `prompt` / `agent` 五种处理器；配置分 user / managed / project / local 四层作用域并叠加合并，项目级 hooks 可随仓库共享给团队（出于供应链安全默认关闭，需在设置 → Hooks 中显式开启）；提供可视化设置面板（设置 → Hooks），配置改动即时热重载。每个处理器还可配置条件执行（`if`，按工具 + 参数模式匹配）、每会话仅运行一次（`once`）、运行时桌面提示（`statusMessage`），以及 async 命令钩子在退出码 2 时把结果作为提醒回注下一轮对话（`asyncRewake`）。 (#PR)
 
 ## [0.4.0] - 2026-05-22
 
