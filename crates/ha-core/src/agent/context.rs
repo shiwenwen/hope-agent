@@ -194,11 +194,15 @@ impl AssistantAgent {
                     input,
                 )
                 .await;
+                // A blocking decision OR an explicit `continue:false` from any
+                // hook stops the compaction (same emergency-override band as a
+                // block). Aggregating both here keeps the gate aligned with the
+                // dispatcher's `outcome.continue_execution` fold.
                 let blocked = matches!(
                     outcome.decision,
                     crate::hooks::HookDecision::Deny { .. }
                         | crate::hooks::HookDecision::Block { .. }
-                );
+                ) || !outcome.continue_execution;
                 if blocked {
                     if usage_now >= CACHE_TTL_EMERGENCY_RATIO {
                         app_warn!(

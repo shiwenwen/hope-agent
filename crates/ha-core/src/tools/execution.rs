@@ -600,7 +600,7 @@ enum PreToolGate {
 
 /// Run the `PreToolUse` hook for this call. No-op fast path when no hook listens.
 async fn fire_pre_tool_use_hook(name: &str, args: &Value, ctx: &ToolExecContext) -> PreToolGate {
-    use crate::hooks::{HookDecision, HookDispatcher, HookEvent, HookInput};
+    use crate::hooks::{HookDispatcher, HookEvent, HookInput};
     // Resolve the same per-cwd scope the dispatcher will: project/local hooks
     // live under the session working dir, so this fast-path gate must use
     // `any_handlers_for(event, cwd)` (not the global-only registry) or a
@@ -628,6 +628,26 @@ async fn fire_pre_tool_use_hook(name: &str, args: &Value, ctx: &ToolExecContext)
         tool_use_id: ctx.tool_call_id.clone().unwrap_or_default(),
     };
     let outcome = HookDispatcher::dispatch(HookEvent::PreToolUse, input).await;
+    pre_tool_gate_from_outcome(outcome)
+}
+
+/// Pure mapping from a `PreToolUse` aggregate outcome to a [`PreToolGate`].
+///
+/// `continue:false` is treated as a top-level block ahead of the `decision`
+/// match — a Claude Code-style safety hook returning
+/// `{"continue":false,"stopReason":"..."}` (without an explicit
+/// `permissionDecision:"deny"`) must halt the call, not silently fall through
+/// the `Allow` arm. The `decision` match still wins inside `continue:true` so
+/// `Ask` / `Defer` keep their force-prompt semantics.
+fn pre_tool_gate_from_outcome(outcome: crate::hooks::HookOutcome) -> PreToolGate {
+    use crate::hooks::HookDecision;
+    if !outcome.continue_execution {
+        let reason = outcome
+            .stop_reason
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "Tool blocked by a PreToolUse hook (continue:false).".to_string());
+        return PreToolGate::Deny(reason);
+    }
     match outcome.decision {
         HookDecision::Deny { reason } | HookDecision::Block { reason } => PreToolGate::Deny(reason),
         // Skip the prompt only when the *aggregate* verdict is an explicit
@@ -645,6 +665,91 @@ async fn fire_pre_tool_use_hook(name: &str, args: &Value, ctx: &ToolExecContext)
             skip_user_prompt: false,
             force_prompt: true,
         },
+    }
+}
+
+#[cfg(test)]
+mod pre_tool_gate_tests {
+    use super::*;
+    use crate::hooks::{HookDecision, HookOutcome};
+
+    #[test]
+    fn continue_false_with_reason_maps_to_deny() {
+        let mut outcome = HookOutcome::noop();
+        outcome.continue_execution = false;
+        outcome.stop_reason = Some("blocked by safety hook".into());
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Deny(r) => assert_eq!(r, "blocked by safety hook"),
+            PreToolGate::Proceed { .. } => panic!("expected Deny on continue:false"),
+        }
+    }
+
+    #[test]
+    fn continue_false_without_reason_uses_default_message() {
+        let mut outcome = HookOutcome::noop();
+        outcome.continue_execution = false;
+        // stop_reason absent (None) or whitespace-only is treated identically.
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Deny(r) => {
+                assert!(
+                    r.contains("continue:false"),
+                    "default reason mentions cause, got {r:?}"
+                );
+            }
+            PreToolGate::Proceed { .. } => panic!("expected Deny on continue:false"),
+        }
+    }
+
+    #[test]
+    fn continue_false_overrides_explicit_allow_decision() {
+        // A hook can set `permissionDecision:"allow"` *and* `continue:false` —
+        // the loop-terminate signal must win over the auto-approve.
+        let mut outcome = HookOutcome::noop();
+        outcome.decision = HookDecision::Allow;
+        outcome.permission_allow = true;
+        outcome.continue_execution = false;
+        outcome.stop_reason = Some("halt".into());
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Deny(r) => assert_eq!(r, "halt"),
+            PreToolGate::Proceed { .. } => {
+                panic!("continue:false must not be overridden by permission_allow")
+            }
+        }
+    }
+
+    #[test]
+    fn allow_with_continue_true_proceeds() {
+        let mut outcome = HookOutcome::noop();
+        outcome.decision = HookDecision::Allow;
+        outcome.permission_allow = true;
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Proceed {
+                skip_user_prompt,
+                force_prompt,
+                ..
+            } => {
+                assert!(skip_user_prompt);
+                assert!(!force_prompt);
+            }
+            PreToolGate::Deny(_) => panic!("expected Proceed on Allow + continue:true"),
+        }
+    }
+
+    #[test]
+    fn ask_forces_prompt() {
+        let mut outcome = HookOutcome::noop();
+        outcome.decision = HookDecision::Ask;
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Proceed {
+                skip_user_prompt,
+                force_prompt,
+                ..
+            } => {
+                assert!(!skip_user_prompt);
+                assert!(force_prompt);
+            }
+            PreToolGate::Deny(_) => panic!("Ask must Proceed with force_prompt"),
+        }
     }
 }
 
