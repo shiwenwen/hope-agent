@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Bot, MessageSquarePlus, PanelLeftDashed, Rows3 } from "lucide-react"
+import { Bot, MessageSquarePlus, PanelLeftDashed, Rows2, Rows3 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -338,6 +338,8 @@ export default function ChatSidebar({
     }
   }
 
+  const SidebarDisplayModeIcon = sidebarDisplayMode === "compact" ? Rows2 : Rows3
+
   return (
     <>
       <div
@@ -382,12 +384,13 @@ export default function ChatSidebar({
                         ? t("chat.sidebarDetailedMode", "切换到详细模式")
                         : t("chat.sidebarCompactMode", "切换到简约模式")
                     }
+                    aria-pressed={sidebarDisplayMode === "compact"}
                     onClick={(e) => {
                       e.currentTarget.blur()
                       void toggleSidebarDisplayMode()
                     }}
                   >
-                    <Rows3 className="h-4 w-4" />
+                    <SidebarDisplayModeIcon className="h-4 w-4" />
                   </button>
                 </IconTip>
                 <IconTip label={t("chat.collapseSidebar")}>
