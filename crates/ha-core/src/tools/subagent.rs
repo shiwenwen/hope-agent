@@ -122,6 +122,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                     Some(crate::agent::Attachment {
                         name: name.to_string(),
                         mime_type: mime_type.to_string(),
+                        source: None,
                         data: Some(content.to_string()),
                         file_path: None,
                     })
@@ -134,6 +135,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                         Some(crate::agent::Attachment {
                             name: name.to_string(),
                             mime_type: mime_type.to_string(),
+                            source: None,
                             data: None,
                             file_path: Some(tmp_path.to_string_lossy().to_string()),
                         })

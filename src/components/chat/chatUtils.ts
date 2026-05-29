@@ -2,6 +2,7 @@ import type * as React from "react"
 import type {
   Message,
   ContentBlock,
+  MessageAttachment,
   MediaItem,
   ToolCall,
   SessionMessage,
@@ -142,6 +143,59 @@ export type MessageFileAttachment =
   | { kind: "path"; path: string }
   | { kind: "media"; item: MediaItem }
 
+function inferAttachmentKind(mimeType: string): MessageAttachment["kind"] {
+  return mimeType.toLowerCase().startsWith("image/") ? "image" : "file"
+}
+
+function stringField(obj: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = obj[key]
+    if (typeof value === "string" && value.trim()) return value
+  }
+  return undefined
+}
+
+function numberField(obj: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = obj[key]
+    if (typeof value === "number" && Number.isFinite(value)) return value
+  }
+  return 0
+}
+
+export function parseUserAttachmentsMeta(
+  metaJson: string | null | undefined,
+): MessageAttachment[] | undefined {
+  if (!metaJson) return undefined
+  try {
+    const parsed = JSON.parse(metaJson)
+    if (!Array.isArray(parsed) || parsed.length === 0) return undefined
+
+    const attachments: MessageAttachment[] = []
+    for (const item of parsed) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue
+      const obj = item as Record<string, unknown>
+      const name = stringField(obj, "name")
+      const mimeType = stringField(obj, "mime_type", "mimeType") ?? "application/octet-stream"
+      const localPath = stringField(obj, "path", "localPath")
+      const url = stringField(obj, "url")
+      if (!name || (!localPath && !url)) continue
+      attachments.push({
+        name,
+        mimeType,
+        sizeBytes: numberField(obj, "size", "sizeBytes"),
+        kind: inferAttachmentKind(mimeType),
+        ...(localPath ? { localPath } : {}),
+        ...(url ? { url } : {}),
+      })
+    }
+
+    return attachments.length > 0 ? attachments : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Extract files produced by tool calls for the assistant message footer. */
 export function extractMessageFileAttachments(blocks: ContentBlock[]): MessageFileAttachment[] {
   const pathItems = new Map<string, MessageFileAttachment>()
@@ -246,6 +300,7 @@ export function parseSessionMessages(
       let isPlanTrigger = false
       let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound: { channelId: string; senderName?: string } | undefined
+      const attachments = parseUserAttachmentsMeta(msg.attachmentsMeta)
       if (msg.attachmentsMeta) {
         try {
           const meta = JSON.parse(msg.attachmentsMeta)
@@ -295,6 +350,7 @@ export function parseSessionMessages(
         isPlanTrigger,
         planComment,
         channelInbound,
+        ...(attachments ? { attachments } : {}),
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
       // Extract media info from tool results (for DB-loaded history):
@@ -647,9 +703,41 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&
+    messageAttachmentsEqual(a.attachments, b.attachments) &&
     (a.contentBlocks?.length ?? 0) === (b.contentBlocks?.length ?? 0) &&
     (a.toolCalls?.length ?? 0) === (b.toolCalls?.length ?? 0)
   )
+}
+
+function messageAttachmentsEqual(
+  a: MessageAttachment[] | undefined,
+  b: MessageAttachment[] | undefined,
+): boolean {
+  const aItems = a ?? []
+  const bItems = b ?? []
+  if (aItems.length !== bItems.length) return false
+  return aItems.every((item, index) => {
+    const other = bItems[index]
+    return (
+      item.name === other.name &&
+      item.mimeType === other.mimeType &&
+      item.sizeBytes === other.sizeBytes &&
+      item.kind === other.kind &&
+      item.localPath === other.localPath &&
+      item.url === other.url &&
+      item.previewUrl === other.previewUrl
+    )
+  })
+}
+
+function transferPlaceholderState(fresh: Message, placeholder: Message): Message {
+  return {
+    ...fresh,
+    _clientId: placeholder._clientId,
+    ...(!fresh.attachments?.length && placeholder.attachments?.length
+      ? { attachments: placeholder.attachments }
+      : {}),
+  }
 }
 
 export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Message[] {
@@ -718,7 +806,7 @@ export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Mess
     for (let i = 0; i < newFresh.length; i++) {
       if (claimed.has(i)) continue
       if (newFresh[i].role !== placeholder.role) continue
-      newFresh[i] = { ...newFresh[i], _clientId: placeholder._clientId }
+      newFresh[i] = transferPlaceholderState(newFresh[i], placeholder)
       claimed.add(i)
       break
     }

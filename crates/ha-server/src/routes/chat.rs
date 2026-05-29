@@ -76,6 +76,17 @@ pub struct ChatResponse {
     pub turn_id: String,
 }
 
+fn validate_http_chat_attachments(attachments: &[Attachment]) -> Result<(), AppError> {
+    for att in attachments {
+        if att.file_path.is_some() && att.source.as_deref() != Some("upload") {
+            return Err(AppError::bad_request(
+                "HTTP chat attachments must be uploaded through /api/chat/attachment",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct StopChatRequest {
@@ -127,7 +138,7 @@ pub struct SystemPromptBody {
 /// `POST /api/chat` — run chat engine, streaming events via WebSocket.
 pub async fn chat(
     State(ctx): State<Arc<AppContext>>,
-    Json(body): Json<ChatRequest>,
+    Json(mut body): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, AppError> {
     let db = ctx.session_db.clone();
 
@@ -237,6 +248,10 @@ pub async fn chat(
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
     let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
+    validate_http_chat_attachments(&body.attachments)?;
+    let attachments_meta =
+        ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut body.attachments)
+            .map_err(|e| AppError::internal(e.to_string()))?;
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content)
@@ -244,7 +259,7 @@ pub async fn chat(
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         body.is_plan_trigger.unwrap_or(false),
         body.plan_comment.as_ref(),
-        None,
+        attachments_meta,
     );
     let user_message_id = db.append_message(&sid, &user_msg).ok();
     let _turn = db.create_chat_turn_with_id(
@@ -678,4 +693,35 @@ pub async fn list_tools() -> Result<Json<Vec<Value>>, AppError> {
         .map(|t| t.to_api_metadata(&cfg))
         .collect();
     Ok(Json(tools_json))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_chat_rejects_untrusted_file_path_attachments() {
+        let attachments = vec![Attachment {
+            name: "secret.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some("mention".to_string()),
+            data: None,
+            file_path: Some("/tmp/secret.txt".to_string()),
+        }];
+
+        assert!(validate_http_chat_attachments(&attachments).is_err());
+    }
+
+    #[test]
+    fn http_chat_allows_uploaded_file_path_attachments() {
+        let attachments = vec![Attachment {
+            name: "upload.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some("upload".to_string()),
+            data: None,
+            file_path: Some("/tmp/upload.txt".to_string()),
+        }];
+
+        assert!(validate_http_chat_attachments(&attachments).is_ok());
+    }
 }

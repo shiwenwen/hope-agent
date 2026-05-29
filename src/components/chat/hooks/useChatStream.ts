@@ -12,6 +12,7 @@ import {
 } from "@/lib/notifications"
 import type {
   Message,
+  MessageAttachment,
   ActiveModel,
   AgentSummaryForSidebar,
   SessionMode,
@@ -89,6 +90,19 @@ function chatCompletionNotificationBody(
   return preview ? `${sessionTitle}\n${preview}` : sessionTitle
 }
 
+function optimisticAttachmentForFile(file: File): MessageAttachment {
+  const mimeType = file.type || "application/octet-stream"
+  return {
+    name: file.name,
+    mimeType,
+    sizeBytes: file.size,
+    kind: mimeType.toLowerCase().startsWith("image/") ? "image" : "file",
+    ...(mimeType.toLowerCase().startsWith("image/")
+      ? { previewUrl: URL.createObjectURL(file) }
+      : {}),
+  }
+}
+
 interface SendOptions {
   displayText?: string
   planMode?: string
@@ -102,6 +116,7 @@ interface SendOptions {
 interface PendingSend {
   text: string
   options?: SendOptions
+  attachedFiles?: File[]
 }
 
 interface InputDraft {
@@ -302,7 +317,9 @@ export function useChatStream({
   // External views: keep the original `pendingMessage: string | null` API for
   // ChatScreen / ChatInput, derived from the user-facing displayed text.
   const pendingMessage = pendingSend
-    ? pendingSend.options?.displayText?.trim() || pendingSend.text
+    ? pendingSend.options?.displayText?.trim() ||
+      pendingSend.text ||
+      (pendingSend.attachedFiles?.length ? t("chat.attachPhotosAndFiles") : "")
     : null
   const setPendingMessage = useCallback<
     React.Dispatch<React.SetStateAction<string | null>>
@@ -543,23 +560,33 @@ export function useChatStream({
    */
   async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
-    if (!rawText.trim()) return
+    const hasAttachedFiles = !directText && attachedFiles.length > 0
+    if (!rawText.trim() && !hasAttachedFiles) return
 
     // If currently loading, queue the message as pending. Capture both the
     // LLM-bound text and the original options so the replay below resends
     // with identical metadata (Plan Mode triggers carry `isPlanTrigger`,
     // slash-skill expansions carry `displayText`, etc.).
     if (loading) {
-      setPendingSendState({ text: rawText.trim(), options })
-      if (!directText) setInput("")
+      const queuedFiles = directText ? [] : [...attachedFiles]
+      setPendingSendState({
+        text: rawText.trim(),
+        options,
+        ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
+      })
+      if (!directText) {
+        setInput("")
+        setAttachedFiles([])
+      }
       return
     }
 
     const text = rawText.trim()
     // `text` goes to the LLM; `displayed` is the user bubble. Slash-skill passThrough
     // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
-    const displayed = options?.displayText?.trim() || text
     const filesToSend = directText ? [] : [...attachedFiles]
+    const displayed = options?.displayText?.trim() || text
+    const optimisticAttachments = filesToSend.map(optimisticAttachmentForFile)
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
@@ -575,6 +602,7 @@ export function useChatStream({
       content: displayed,
       timestamp: now,
       _clientId: optimisticUserClientId,
+      ...(optimisticAttachments.length > 0 && { attachments: optimisticAttachments }),
       ...(options?.isPlanTrigger && { isPlanTrigger: true }),
       ...(options?.planComment && { planComment: options.planComment }),
     }
@@ -622,6 +650,7 @@ export function useChatStream({
           attachments.push({
             name: file.name,
             mime_type: mimeType,
+            source: "upload",
             data: btoa(binary),
           })
         } else {
@@ -635,6 +664,7 @@ export function useChatStream({
           attachments.push({
             name: file.name,
             mime_type: mimeType,
+            source: "upload",
             file_path: filePath,
           })
         }
@@ -990,6 +1020,7 @@ export function useChatStream({
           // User-typed drafts and non-auto-sent programmatic sends are
           // restored for editing / confirmation using the user-facing text.
           setInput(queued.options?.displayText?.trim() || queued.text)
+          setAttachedFiles(queued.attachedFiles ?? [])
           if (autoSendPendingRef.current) {
             autoSendRef.current = true
           }
@@ -1011,11 +1042,11 @@ export function useChatStream({
       autoSendRef.current = false
       queuedReplayRef.current = null
       void handleSend(replay.text, replay.options)
-    } else if (input.trim()) {
+    } else if (input.trim() || attachedFiles.length > 0) {
       autoSendRef.current = false
       void handleSend()
     }
-  }, [input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [attachedFiles, input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     input,

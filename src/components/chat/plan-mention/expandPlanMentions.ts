@@ -57,6 +57,7 @@ export async function expandPlanMentionsToAttachments(
     out.push({
       name: baseName,
       mime_type: "text/markdown",
+      source: "plan_mention",
       file_path: resolved.filePath,
     })
   }

@@ -18,6 +18,7 @@ use crate::routes::file_serve::{
 use crate::AppContext;
 
 type SessionMessage = ha_core::session::SessionMessage;
+type MessageRole = ha_core::session::MessageRole;
 
 // ── Query / Body Types ──────────────────────────────────────────
 
@@ -150,6 +151,7 @@ fn rewrite_messages_for_http(
 ) -> Vec<SessionMessage> {
     for msg in &mut messages {
         rewrite_tool_media_meta_for_http(msg, api_key);
+        rewrite_user_attachments_meta_for_http(msg, api_key);
     }
     messages
 }
@@ -182,6 +184,71 @@ fn rewrite_tool_media_meta_for_http(msg: &mut SessionMessage, api_key: Option<&s
     };
     meta[ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS] = rewritten_items;
     msg.attachments_meta = Some(meta.to_string());
+}
+
+fn rewrite_user_attachments_meta_for_http(msg: &mut SessionMessage, api_key: Option<&str>) {
+    if msg.role != MessageRole::User {
+        return;
+    }
+    let Some(raw) = msg.attachments_meta.as_deref() else {
+        return;
+    };
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(raw) else {
+        return;
+    };
+
+    let Some(rewritten_items) =
+        rewrite_user_attachment_items_for_http(&msg.session_id, items, api_key)
+    else {
+        return;
+    };
+    msg.attachments_meta = Some(Value::Array(rewritten_items).to_string());
+}
+
+fn rewrite_user_attachment_items_for_http(
+    session_id: &str,
+    items: Vec<Value>,
+    api_key: Option<&str>,
+) -> Option<Vec<Value>> {
+    let attachments_dir = ha_core::paths::attachments_dir(session_id).ok()?;
+    let canonical_attachments_dir = attachments_dir.canonicalize().ok();
+    let mut rewritten = Vec::with_capacity(items.len());
+
+    for item in items {
+        let Value::Object(mut obj) = item else {
+            continue;
+        };
+        let path = obj.get("path").and_then(Value::as_str).map(str::trim);
+        if let Some(path) = path {
+            let path = PathBuf::from(path);
+            let is_inside_session_dir = canonical_attachments_dir
+                .as_ref()
+                .and_then(|dir| path.canonicalize().ok().map(|p| p.starts_with(dir)))
+                .unwrap_or(false);
+            if is_inside_session_dir {
+                if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                    let mut url = format!(
+                        "/api/attachments/{}/{}",
+                        percent_encode_url_segment(session_id),
+                        percent_encode_url_segment(filename)
+                    );
+                    if let Some(key) = api_key {
+                        url.push_str("?token=");
+                        url.push_str(&percent_encode_query_value(key));
+                    }
+                    obj.insert("url".to_string(), Value::String(url));
+                }
+            }
+            obj.remove("path");
+        }
+        rewritten.push(Value::Object(obj));
+    }
+
+    if rewritten.is_empty() {
+        None
+    } else {
+        Some(rewritten)
+    }
 }
 
 fn collect_authorized_session_file_paths(messages: &[SessionMessage]) -> HashSet<String> {
@@ -931,4 +998,137 @@ fn percent_encode_filename(name: &str) -> String {
         }
     }
     out
+}
+
+fn percent_encode_url_segment(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        let ok = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        if ok {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
+fn percent_encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        let ok = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        if ok {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ha_core::agent::Attachment;
+    use serde_json::json;
+    use std::path::Path as StdPath;
+    use std::sync::{Mutex, OnceLock};
+
+    fn with_ha_data_dir<T>(dir: &StdPath, f: impl FnOnce() -> T) -> T {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test env lock poisoned");
+        let previous = std::env::var_os("HA_DATA_DIR");
+        std::env::set_var("HA_DATA_DIR", dir);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        match previous {
+            Some(value) => std::env::set_var("HA_DATA_DIR", value),
+            None => std::env::remove_var("HA_DATA_DIR"),
+        }
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    #[test]
+    fn rewrites_persisted_user_attachment_paths_to_session_urls_for_http() {
+        let root = tempfile::tempdir().expect("tempdir");
+        with_ha_data_dir(root.path(), || {
+            let session_id = "s-http";
+            let saved = ha_core::attachments::save_attachment_bytes(None, "image.png", b"image")
+                .expect("save temp attachment");
+            let mut attachments = vec![Attachment {
+                name: "image.png".to_string(),
+                mime_type: "image/png".to_string(),
+                source: Some("upload".to_string()),
+                data: None,
+                file_path: Some(saved),
+            }];
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(
+                session_id,
+                &mut attachments,
+            )
+            .expect("persist attachment meta")
+            .expect("attachment meta");
+            let items = serde_json::from_str::<Vec<Value>>(&meta).expect("parse meta");
+
+            let rewritten =
+                rewrite_user_attachment_items_for_http(session_id, items, Some("key with space"))
+                    .expect("rewritten");
+
+            let url = rewritten[0]
+                .get("url")
+                .and_then(Value::as_str)
+                .expect("url");
+            assert!(url.starts_with("/api/attachments/s-http/"));
+            assert!(url.ends_with("_image.png?token=key%20with%20space"));
+            assert!(rewritten[0].get("path").is_none());
+        });
+    }
+
+    #[test]
+    fn strips_user_attachment_paths_outside_session_dir_without_url() {
+        let items = vec![json!({
+            "name": "image.png",
+            "mime_type": "image/png",
+            "size": 123,
+            "path": "/tmp/elsewhere/image.png",
+        })];
+
+        let rewritten =
+            rewrite_user_attachment_items_for_http("s-http", items, None).expect("rewritten");
+
+        assert!(rewritten[0].get("path").is_none());
+        assert!(rewritten[0].get("url").is_none());
+    }
+
+    #[test]
+    fn strips_user_attachment_traversal_paths_without_url() {
+        let root = tempfile::tempdir().expect("tempdir");
+        with_ha_data_dir(root.path(), || {
+            let session_id = "s-http";
+            let session_dir = ha_core::paths::attachments_dir(session_id).expect("attachments dir");
+            let sibling_dir = root.path().join("attachments").join("other");
+            std::fs::create_dir_all(&session_dir).expect("create session dir");
+            std::fs::create_dir_all(&sibling_dir).expect("create sibling dir");
+            let outside = sibling_dir.join("secret.png");
+            std::fs::write(&outside, b"secret").expect("write outside file");
+            let traversal = session_dir.join("..").join("other").join("secret.png");
+            let items = vec![json!({
+                "name": "secret.png",
+                "mime_type": "image/png",
+                "size": 6,
+                "path": traversal.to_string_lossy(),
+            })];
+
+            let rewritten =
+                rewrite_user_attachment_items_for_http(session_id, items, None).expect("rewritten");
+
+            assert!(rewritten[0].get("path").is_none());
+            assert!(rewritten[0].get("url").is_none());
+        });
+    }
 }

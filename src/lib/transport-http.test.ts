@@ -48,3 +48,22 @@ test("HttpTransport.startChat only bridges session_created and not late turn_sta
     }),
   ])
 })
+
+test("HttpTransport.save_attachment unwraps path from multipart response", async () => {
+  const transport = new HttpTransport("http://localhost:8420")
+
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify({ path: "/tmp/attachment.txt" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  )
+
+  const path = await transport.call<string>("save_attachment", {
+    fileName: "attachment.txt",
+    mimeType: "text/plain",
+    data: new Blob(["hello"], { type: "text/plain" }),
+  })
+
+  expect(path).toBe("/tmp/attachment.txt")
+})
