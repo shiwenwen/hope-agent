@@ -298,6 +298,8 @@
     "contextCompactedTitle": "上下文已壓縮",
     "conversations": "會話",
     "collapseSidebar": "收起會話欄",
+    "sidebarCompactMode": "切換到簡約模式",
+    "sidebarDetailedMode": "切換到詳細模式",
     "copied": "已複制",
     "copy": "複制",
     "cronTaskStarted": "定時器觸發了一個任務",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "定義和管理 AI Agent，每個 Agent 可以有不同的身份、能力和行為方式。",
     "appearance": "外觀",
     "appearanceDesc": "選擇主題外觀模式",
+    "sidebarDisplayMode": "介面顯示",
+    "sidebarCompactMode": "簡約模式",
+    "sidebarCompactModeDesc": "隱藏會話、Agent 和專案的頭像與 emoji，讓側邊欄更清爽。",
     "approvalNav": "权限",
     "approvalPanel": {
       "dangerousCommandsDesc": "命中即強制審批且不可 AllowAlways。YOLO 模式可繞過但仍會寫稽核日誌。",

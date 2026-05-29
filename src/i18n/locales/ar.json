@@ -298,6 +298,8 @@
     "contextCompactedTitle": "تم ضغط السياق",
     "conversations": "المحادثات",
     "collapseSidebar": "طي الشريط الجانبي",
+    "sidebarCompactMode": "التبديل إلى الوضع الموجز",
+    "sidebarDetailedMode": "التبديل إلى الوضع التفصيلي",
     "copied": "تم النسخ",
     "copy": "نسخ",
     "cronTaskStarted": "تم تشغيل مهمة مجدولة",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "حدد وأدر وكلاء الذكاء الاصطناعي. يمكن أن يكون لكل وكيل هوية وقدرات وسلوك مختلف.",
     "appearance": "المظهر",
     "appearanceDesc": "اختر وضع المظهر",
+    "sidebarDisplayMode": "العرض",
+    "sidebarCompactMode": "الوضع الموجز",
+    "sidebarCompactModeDesc": "يخفي صور ورموز emoji للمحادثات وAgents والمشاريع ليبقى الشريط الجانبي أنظف.",
     "approvalNav": "الأذونات",
     "approvalPanel": {
       "dangerousCommandsDesc": "يفرض الموافقة ولا يمكن جعله مسموحًا دائمًا. يتجاوزه وضع YOLO لكنه يظل يكتب سجلات التدقيق.",

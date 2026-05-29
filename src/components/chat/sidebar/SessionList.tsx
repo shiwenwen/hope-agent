@@ -23,7 +23,7 @@ import type {
   SessionSearchResult,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
-import type { SessionFilterType } from "./types"
+import type { SessionFilterType, SidebarDisplayMode } from "./types"
 import SessionItem from "./SessionItem"
 import SearchResultItem from "./SearchResultItem"
 
@@ -83,6 +83,7 @@ interface SessionListProps {
   /** Monotonic counter — focuses + selects the search input on each tick.
    *  Driven by `Cmd+Shift+F` in `ChatScreen`. */
   searchFocusSignal?: number
+  displayMode: SidebarDisplayMode
 }
 
 export default function SessionList({
@@ -116,6 +117,7 @@ export default function SessionList({
   onMoveToProject,
   onToggleSessionPinned,
   searchFocusSignal,
+  displayMode,
 }: SessionListProps) {
   const { t } = useTranslation()
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -284,7 +286,7 @@ export default function SessionList({
 
       {/* Search results or session list */}
       {isSearching ? (
-        <div className="p-2 space-y-0.5">
+        <div className={cn("p-2", displayMode === "compact" ? "space-y-1" : "space-y-0.5")}>
           {searching && visibleResults.length === 0 ? (
             <div className="flex justify-center py-6">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -318,13 +320,14 @@ export default function SessionList({
                     })
                   }
                   formatRelativeTime={formatRelativeTime}
+                  displayMode={displayMode}
                 />
               ))}
             </>
           )}
         </div>
       ) : (
-        <div className="p-2 space-y-0.5">
+        <div className={cn("p-2", displayMode === "compact" ? "space-y-1" : "space-y-0.5")}>
           {filteredSessions.length === 0 ? (
             <div className="text-center py-8">
               <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
@@ -362,6 +365,7 @@ export default function SessionList({
                   onTogglePinned={onToggleSessionPinned}
                   getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
+                  displayMode={displayMode}
                 />
               )
             })

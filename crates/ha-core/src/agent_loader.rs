@@ -196,7 +196,7 @@ fn default_agent_json(locale: &str, avatar: Option<String>) -> AgentConfig {
     AgentConfig {
         name: meta.name.to_string(),
         description: Some(meta.description.to_string()),
-        emoji: Some("🦭".to_string()),
+        emoji: None,
         avatar,
         ..AgentConfig::default()
     }
@@ -225,32 +225,21 @@ fn ensure_default_avatar() -> Result<std::path::PathBuf> {
 // ── Ensure Default Agent ─────────────────────────────────────────
 
 /// Create the default agent directory and files if they don't exist.
-/// Called on app startup. Also backfills the avatar field for existing
-/// pre-brand installs whose agent.json still has `avatar: null`.
+/// Called on app startup. Existing agent identity fields are left untouched so
+/// users can clear optional avatar / emoji values and keep them cleared.
 pub fn ensure_default_agent() -> Result<()> {
     let dir = paths::agent_dir(DEFAULT_AGENT_ID)?;
     let config_path = dir.join("agent.json");
 
-    let avatar_path = ensure_default_avatar()?;
-    let avatar_str = avatar_path.to_string_lossy().to_string();
-
     if config_path.exists() {
-        // Backfill avatar for existing installs that predate the logo default.
-        if let Ok(data) = std::fs::read_to_string(&config_path) {
-            if let Ok(mut config) = serde_json::from_str::<AgentConfig>(&data) {
-                if config.avatar.is_none() {
-                    config.avatar = Some(avatar_str);
-                    let json = serde_json::to_string_pretty(&config)?;
-                    std::fs::write(&config_path, json)?;
-                }
-            }
-        }
         return Ok(());
     }
 
     std::fs::create_dir_all(&dir)?;
 
     let locale = detect_system_locale();
+    let avatar_path = ensure_default_avatar()?;
+    let avatar_str = avatar_path.to_string_lossy().to_string();
 
     // Write agent.json
     let config = default_agent_json(&locale, Some(avatar_str));

@@ -298,6 +298,8 @@
     "contextCompactedTitle": "컨텍스트 압축됨",
     "conversations": "대화",
     "collapseSidebar": "사이드바 접기",
+    "sidebarCompactMode": "간단 모드로 전환",
+    "sidebarDetailedMode": "자세히 모드로 전환",
     "copied": "복사됨",
     "copy": "복사",
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "AI 에이전트를 정의하고 관리합니다. 각 에이전트는 고유한 정체성, 능력, 행동을 가질 수 있습니다.",
     "appearance": "외관",
     "appearanceDesc": "테마 외관 모드 선택",
+    "sidebarDisplayMode": "표시",
+    "sidebarCompactMode": "간단 모드",
+    "sidebarCompactModeDesc": "채팅, Agent, 프로젝트의 아바타와 emoji를 숨겨 사이드바를 더 깔끔하게 보여줍니다.",
     "approvalNav": "권한",
     "approvalPanel": {
       "dangerousCommandsDesc": "승인을 강제하며 항상 허용할 수 없습니다. YOLO 모드는 우회하지만 감사 로그는 계속 기록합니다.",

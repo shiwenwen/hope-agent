@@ -10,6 +10,7 @@ import type {
   SessionMeta,
   SessionSearchResult,
 } from "@/types/chat"
+import type { SidebarDisplayMode } from "./types"
 
 interface SearchResultItemProps {
   result: SessionSearchResult
@@ -19,6 +20,7 @@ interface SearchResultItemProps {
   sessionMeta: SessionMeta | undefined
   onSwitch: () => void
   formatRelativeTime: (dateStr: string) => string
+  displayMode: SidebarDisplayMode
 }
 
 export default function SearchResultItem({
@@ -29,6 +31,7 @@ export default function SearchResultItem({
   sessionMeta,
   onSwitch,
   formatRelativeTime,
+  displayMode,
 }: SearchResultItemProps) {
   const { t } = useTranslation()
 
@@ -83,6 +86,7 @@ export default function SearchResultItem({
       tabIndex={0}
       className={cn(
         "flex items-start gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
+        displayMode === "compact" && "gap-1.5 px-2 py-1.5 rounded-md",
         isActive
           ? "bg-secondary/70 border border-border/50"
           : "hover:bg-secondary/40",
@@ -95,22 +99,23 @@ export default function SearchResultItem({
         }
       }}
     >
-      {/* Agent avatar */}
-      <div className="relative shrink-0 mt-0.5">
-        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] overflow-hidden">
-          {resolvedAgent?.avatar ? (
-            <img
-              src={getTransport().resolveAssetUrl(resolvedAgent.avatar) ?? resolvedAgent.avatar}
-              className="w-full h-full object-cover"
-              alt=""
-            />
-          ) : resolvedAgent?.emoji ? (
-            <span>{resolvedAgent.emoji}</span>
-          ) : (
-            <Bot className="h-3.5 w-3.5" />
-          )}
+      {displayMode === "detailed" && (
+        <div className="relative shrink-0 mt-0.5">
+          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] overflow-hidden">
+            {resolvedAgent?.avatar ? (
+              <img
+                src={getTransport().resolveAssetUrl(resolvedAgent.avatar) ?? resolvedAgent.avatar}
+                className="w-full h-full object-cover"
+                alt=""
+              />
+            ) : resolvedAgent?.emoji ? (
+              <span>{resolvedAgent.emoji}</span>
+            ) : (
+              <Bot className="h-3.5 w-3.5" />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Title + meta + snippet */}
       <div className="flex-1 min-w-0">
@@ -119,8 +124,12 @@ export default function SearchResultItem({
           <span className="truncate">{title}</span>
         </div>
         <div className="text-[10px] text-muted-foreground/70 mt-0.5 flex items-center gap-1 truncate">
-          <span className="truncate">{agentLabel}</span>
-          <span>·</span>
+          {displayMode === "detailed" && (
+            <>
+              <span className="truncate">{agentLabel}</span>
+              <span>·</span>
+            </>
+          )}
           <span className="shrink-0">{formatRelativeTime(result.timestamp)}</span>
         </div>
         <div className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug break-words">

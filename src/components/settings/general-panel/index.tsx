@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import ThemeSection from "./ThemeSection"
 import LanguageSection from "./LanguageSection"
-import { AutostartToggle, UiEffectsToggle } from "./SystemSection"
+import { AutostartToggle, SidebarDisplayModeSelector, UiEffectsToggle } from "./SystemSection"
 import ShortcutSection from "./ShortcutSection"
 import ProxySection from "./ProxySection"
 import OnboardingResetSection from "./OnboardingResetSection"
@@ -26,6 +26,7 @@ export default function GeneralPanel() {
           <div className="w-full space-y-8 pt-4">
             <ThemeSection />
             <LanguageSection />
+            <SidebarDisplayModeSelector />
             <UiEffectsToggle />
           </div>
         </TabsContent>

@@ -298,6 +298,8 @@
     "contextCompactedTitle": "上下文已压缩",
     "conversations": "会话",
     "collapseSidebar": "收起会话栏",
+    "sidebarCompactMode": "切换到简约模式",
+    "sidebarDetailedMode": "切换到详细模式",
     "copied": "已复制",
     "copy": "复制",
     "cronTaskStarted": "定时器触发了一个任务",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "定义和管理 AI Agent，每个 Agent 可以有不同的身份、能力和行为方式。",
     "appearance": "外观",
     "appearanceDesc": "选择主题外观模式",
+    "sidebarDisplayMode": "界面显示",
+    "sidebarCompactMode": "简约模式",
+    "sidebarCompactModeDesc": "隐藏会话、Agent 和项目的头像与 emoji，让侧边栏更清爽。",
     "approvalNav": "权限",
     "approvalPanel": {
       "dangerousCommandsDesc": "命中即强制审批且不可 AllowAlways。YOLO 模式可绕过但仍会写审计日志。",

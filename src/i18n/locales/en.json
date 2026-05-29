@@ -298,6 +298,8 @@
     "contextCompactedTitle": "Context compacted",
     "conversations": "Chats",
     "collapseSidebar": "Collapse sidebar",
+    "sidebarCompactMode": "Switch to compact mode",
+    "sidebarDetailedMode": "Switch to detailed mode",
     "copied": "Copied",
     "copy": "Copy",
     "cronTaskStarted": "A scheduled task was triggered",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "Define and manage AI Agents. Each Agent can have a different identity, capabilities, and behavior.",
     "appearance": "Appearance",
     "appearanceDesc": "Choose the theme appearance mode",
+    "sidebarDisplayMode": "Display",
+    "sidebarCompactMode": "Compact mode",
+    "sidebarCompactModeDesc": "Hide chat, Agent, and project avatars and emoji to keep the sidebar cleaner.",
     "approvalNav": "Permission",
     "approvalPanel": {
       "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",

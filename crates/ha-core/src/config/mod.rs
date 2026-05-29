@@ -315,6 +315,21 @@ pub(crate) fn default_language() -> String {
     "auto".to_string()
 }
 
+pub const SIDEBAR_UI_MODE_COMPACT: &str = "compact";
+pub const SIDEBAR_UI_MODE_DETAILED: &str = "detailed";
+
+pub fn default_sidebar_ui_mode() -> String {
+    SIDEBAR_UI_MODE_DETAILED.to_string()
+}
+
+pub fn normalize_sidebar_ui_mode(mode: &str) -> String {
+    match mode {
+        SIDEBAR_UI_MODE_COMPACT => SIDEBAR_UI_MODE_COMPACT.to_string(),
+        SIDEBAR_UI_MODE_DETAILED => SIDEBAR_UI_MODE_DETAILED.to_string(),
+        _ => SIDEBAR_UI_MODE_DETAILED.to_string(),
+    }
+}
+
 // ── Recap Config ────────────────────────────────────────────────
 
 fn default_recap_default_range_days() -> u32 {
@@ -587,6 +602,9 @@ pub struct AppConfig {
     /// Whether UI background effects (stars, weather) are enabled
     #[serde(default = "crate::default_true")]
     pub ui_effects_enabled: bool,
+    /// Sidebar visual density: "compact" (default) | "detailed"
+    #[serde(default = "default_sidebar_ui_mode")]
+    pub sidebar_ui_mode: String,
     /// Global proxy configuration for all outgoing HTTP requests
     #[serde(default)]
     pub proxy: ProxyConfig,
@@ -787,6 +805,7 @@ impl Default for AppConfig {
             theme: default_theme(),
             language: default_language(),
             ui_effects_enabled: true,
+            sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
             skill_allow_bundled: Vec::new(),

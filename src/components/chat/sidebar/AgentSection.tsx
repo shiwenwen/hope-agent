@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import SidebarSectionHeader from "./SidebarSectionHeader"
+import type { SidebarDisplayMode } from "./types"
 
 interface AgentSectionProps {
   agents: AgentSummaryForSidebar[]
@@ -44,6 +45,7 @@ interface AgentSectionProps {
   onEditAgent?: (agentId: string) => void
   onReorderAgents?: (agentIds: string[]) => void
   panelWidth: number
+  displayMode: SidebarDisplayMode
 }
 
 const AGENT_CARD_MIN_WIDTH_PX = 156
@@ -58,6 +60,7 @@ interface SortableAgentCardProps {
   toggleAgentFilter: (agentId: string) => void
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onEditAgent?: (agentId: string) => void
+  displayMode: SidebarDisplayMode
 }
 
 function SortableAgentCard({
@@ -68,6 +71,7 @@ function SortableAgentCard({
   toggleAgentFilter,
   onNewChat,
   onEditAgent,
+  displayMode,
 }: SortableAgentCardProps) {
   const { t } = useTranslation()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -125,26 +129,28 @@ function SortableAgentCard({
                     onNewChat(agent.id)
                   }}
                 >
-                  <div
-                    className={cn(
-                      "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
-                      isSelected
-                        ? "bg-primary/25 text-primary"
-                        : "bg-primary/15 text-primary",
-                    )}
-                  >
-                    {agent.avatar ? (
-                      <img
-                        src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                        className="w-full h-full object-cover"
-                        alt=""
-                      />
-                    ) : agent.emoji ? (
-                      <span>{agent.emoji}</span>
-                    ) : (
-                      <Bot className="h-3 w-3" />
-                    )}
-                  </div>
+                  {displayMode === "detailed" && (
+                    <div
+                      className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
+                        isSelected
+                          ? "bg-primary/25 text-primary"
+                          : "bg-primary/15 text-primary",
+                      )}
+                    >
+                      {agent.avatar ? (
+                        <img
+                          src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
+                          className="w-full h-full object-cover"
+                          alt=""
+                        />
+                      ) : agent.emoji ? (
+                        <span>{agent.emoji}</span>
+                      ) : (
+                        <Bot className="h-3 w-3" />
+                      )}
+                    </div>
+                  )}
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate",
@@ -212,18 +218,20 @@ export default function AgentSection({
   onEditAgent,
   onReorderAgents,
   panelWidth,
+  displayMode,
 }: AgentSectionProps) {
   const { t } = useTranslation()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const agentGridWidth = Math.max(panelWidth - AGENT_SECTION_HORIZONTAL_PADDING_PX, 0)
+  const agentCardMinWidth = displayMode === "compact" ? 118 : AGENT_CARD_MIN_WIDTH_PX
   const agentColumnCount = Math.max(
     1,
     Math.min(
       agents.length || 1,
       Math.floor(
         (agentGridWidth + AGENT_GRID_GAP_PX) /
-          (AGENT_CARD_MIN_WIDTH_PX + AGENT_GRID_GAP_PX),
+          (agentCardMinWidth + AGENT_GRID_GAP_PX),
       ),
     ),
   )
@@ -239,7 +247,7 @@ export default function AgentSection({
   }
 
   return (
-    <div className="border-b border-border/50 px-3 pt-3 pb-1">
+    <div className={cn("border-b border-border/50 px-3 pb-1", displayMode === "compact" ? "pt-2" : "pt-3")}>
       <SidebarSectionHeader
         title={t("settings.agents")}
         count={agents.length}
@@ -274,6 +282,7 @@ export default function AgentSection({
                   toggleAgentFilter={toggleAgentFilter}
                   onNewChat={onNewChat}
                   onEditAgent={onEditAgent}
+                  displayMode={displayMode}
                 />
               ))}
             </div>

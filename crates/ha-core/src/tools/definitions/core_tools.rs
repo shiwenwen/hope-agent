@@ -1500,7 +1500,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Settings category to read. Use 'all' for an overview (includes risk-level groupings).",
                         "enum": [
-                            "all", "user", "theme", "language", "ui_effects", "proxy",
+                            "all", "user", "theme", "language", "ui_effects", "sidebar_ui", "proxy",
                             "web_search", "web_fetch", "compact", "session_title", "notification", "startup_notification",
                             "temperature", "tool_timeout", "approval",
                             "image_generate", "canvas", "image", "pdf",
@@ -1541,7 +1541,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global — require explicit user confirmation first. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch.",
                         "enum": [
-                            "user", "theme", "language", "ui_effects", "proxy",
+                            "user", "theme", "language", "ui_effects", "sidebar_ui", "proxy",
                             "web_search", "web_fetch", "compact", "session_title", "notification", "startup_notification",
                             "temperature", "tool_timeout", "approval",
                             "image_generate", "canvas", "image", "pdf",

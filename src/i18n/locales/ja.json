@@ -298,6 +298,8 @@
     "contextCompactedTitle": "コンテキスト圧縮",
     "conversations": "チャット",
     "collapseSidebar": "サイドバーを折りたたむ",
+    "sidebarCompactMode": "コンパクト表示に切り替え",
+    "sidebarDetailedMode": "詳細表示に切り替え",
     "copied": "コピーしました",
     "copy": "コピー",
     "cronTaskStarted": "定期タスクが起動されました",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "AIエージェントを定義・管理します。各エージェントは異なるアイデンティティ、能力、振る舞いを持てます。",
     "appearance": "外観",
     "appearanceDesc": "テーマの外観モードを選択",
+    "sidebarDisplayMode": "表示",
+    "sidebarCompactMode": "コンパクトモード",
+    "sidebarCompactModeDesc": "チャット、Agent、プロジェクトのアバターと絵文字を隠し、サイドバーをすっきり表示します。",
     "approvalNav": "権限",
     "approvalPanel": {
       "dangerousCommandsDesc": "承認を強制し、常に許可にはできません。YOLO モードでは迂回されますが、監査ログは記録されます。",

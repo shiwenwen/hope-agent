@@ -298,6 +298,8 @@
     "contextCompactedTitle": "Contexto compactado",
     "conversations": "Conversaciones",
     "collapseSidebar": "Contraer barra lateral",
+    "sidebarCompactMode": "Cambiar al modo compacto",
+    "sidebarDetailedMode": "Cambiar al modo detallado",
     "copied": "Copiado",
     "copy": "Copiar",
     "cronTaskStarted": "Se ha activado una tarea programada",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "Define y gestiona Agentes de IA. Cada Agente puede tener identidad, capacidades y comportamiento diferentes.",
     "appearance": "Apariencia",
     "appearanceDesc": "Elige el modo de apariencia del tema",
+    "sidebarDisplayMode": "Visualización",
+    "sidebarCompactMode": "Modo compacto",
+    "sidebarCompactModeDesc": "Oculta avatares y emoji de chats, Agents y proyectos para mantener la barra lateral más limpia.",
     "approvalNav": "Permisos",
     "approvalPanel": {
       "dangerousCommandsDesc": "Fuerza aprobación y no puede marcarse como Siempre permitir. El modo YOLO lo omite, pero sigue escribiendo registros de auditoría.",

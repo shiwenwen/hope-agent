@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **会话侧边栏显示模式**：新增简约 / 详细显示切换；简约模式隐藏会话、Agent 与项目的头像和 emoji，压缩列表信息密度，并支持从设置页或侧边栏顶部快速切换。
+
 ## [0.4.0] - 2026-05-22
 
 ### Added

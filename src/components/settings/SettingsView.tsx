@@ -271,7 +271,7 @@ export default function SettingsView({
   return (
     <div className="flex flex-1 h-full overflow-hidden bg-surface-app">
       {/* Left Sidebar — Settings Navigation */}
-      <div className="w-[220px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col">
+      <div className="w-[220px] shrink-0 border-r border-border-soft bg-surface-panel flex flex-col">
         {/* Header with back button + drag region */}
         <div className="h-10 flex items-end px-4 gap-2 shrink-0" data-tauri-drag-region>
           <Button
@@ -292,10 +292,10 @@ export default function SettingsView({
               key={section.id}
               variant="ghost"
               className={cn(
-                "h-auto w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-150",
+                "h-auto w-full justify-start gap-2.5 rounded-lg border border-transparent px-3 py-2 text-sm transition-all duration-150",
                 activeSection === section.id
-                  ? "bg-secondary text-foreground font-medium shadow-sm hover:bg-secondary hover:text-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                  ? "bg-secondary/70 border-border/50 text-foreground font-medium hover:bg-secondary/70 hover:text-foreground"
+                  : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               )}
               onClick={() => setActiveSection(section.id)}
             >

@@ -38,6 +38,7 @@ import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { INCOGNITO_BADGE_ICON_CLASSES } from "@/components/chat/input/incognitoStyles"
+import type { SidebarDisplayMode } from "./types"
 
 interface SessionItemProps {
   session: SessionMeta
@@ -65,6 +66,7 @@ interface SessionItemProps {
   onMoveToProject?: (sessionId: string, projectId: string | null) => void
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
+  displayMode: SidebarDisplayMode
 }
 
 export default function SessionItem({
@@ -88,15 +90,20 @@ export default function SessionItem({
   onMoveToProject,
   getAgentInfo,
   formatRelativeTime,
+  displayMode,
 }: SessionItemProps) {
   const { t } = useTranslation()
   const [exportOpen, setExportOpen] = useState(false)
+  const isCompact = displayMode === "compact"
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
   const hasPending =
     !isActive && !session.channelInfo && pendingInteractionCount > 0
   const showUnread = !session.channelInfo && !session.parentSessionId
   const displayUnreadCount = showUnread ? session.unreadCount : 0
+  const channelLabel = session.channelInfo
+    ? `${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`
+    : null
 
   const handleMarkAsRead = useCallback(async () => {
     if (displayUnreadCount === 0) return
@@ -117,7 +124,8 @@ export default function SessionItem({
           role="button"
           tabIndex={0}
           className={cn(
-            "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
+            "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
+            isCompact && "gap-1.5 px-2 py-[7px] rounded-md",
             isActive
               ? "bg-secondary/70 border border-border/50"
               : hasPending
@@ -133,49 +141,59 @@ export default function SessionItem({
           }}
         >
           {/* Agent avatar (small) — with loading spinner overlay + unread dot */}
-          <div className="relative shrink-0">
-            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] overflow-hidden">
-              {isLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              ) : agent?.avatar ? (
-                <img
-                  src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                  className="w-full h-full object-cover"
-                  alt=""
-                />
-              ) : agent?.emoji ? (
-                <span>{agent.emoji}</span>
-              ) : (
-                <Bot className="h-3.5 w-3.5" />
+          {!isCompact && (
+            <div className="relative shrink-0">
+              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] overflow-hidden">
+                {isLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                ) : agent?.avatar ? (
+                  <img
+                    src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
+                    className="w-full h-full object-cover"
+                    alt=""
+                  />
+                ) : agent?.emoji ? (
+                  <span>{agent.emoji}</span>
+                ) : (
+                  <Bot className="h-3.5 w-3.5" />
+                )}
+              </div>
+              {!isActive && displayUnreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
+                >
+                  {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
+                </span>
+              )}
+              {hasPending && (
+                <IconTip label={t("chat.pendingInteractionHint")}>
+                  <span
+                    className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background leading-none animate-pulse cursor-pointer"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
+                      boxShadow:
+                        "0 2px 6px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3)",
+                    }}
+                  >
+                    {pendingInteractionCount > 99 ? "99+" : pendingInteractionCount}
+                  </span>
+                </IconTip>
               )}
             </div>
-            {!isActive && displayUnreadCount > 0 && (
-              <span
-                className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
-              >
-                {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
-              </span>
-            )}
-            {hasPending && (
-              <IconTip label={t("chat.pendingInteractionHint")}>
-                <span
-                  className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background leading-none animate-pulse cursor-pointer"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
-                    boxShadow:
-                      "0 2px 6px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3)",
-                  }}
-                >
-                  {pendingInteractionCount > 99 ? "99+" : pendingInteractionCount}
-                </span>
-              </IconTip>
-            )}
-          </div>
+          )}
 
           {/* Title + meta */}
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium text-foreground truncate flex items-center gap-1">
+            <div
+              className={cn(
+                "text-[13px] font-medium text-foreground truncate flex items-center gap-1",
+                isCompact && "text-[12.5px] leading-5",
+              )}
+            >
+              {isCompact && isLoading && (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+              )}
               {session.isCron && (
                 <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-orange-500/15 text-orange-500">
                   <Timer className="w-2.5 h-2.5" />
@@ -201,10 +219,8 @@ export default function SessionItem({
                     </IconTip>
                   )
                 })()}
-              {session.channelInfo && (
-                <IconTip
-                  label={`${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`}
-                >
+              {!isCompact && session.channelInfo && channelLabel && (
+                <IconTip label={channelLabel}>
                   <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-blue-500/15 text-blue-500">
                     <ChannelIcon channelId={session.channelInfo.channelId} className="w-2.5 h-2.5" />
                   </span>
@@ -251,43 +267,101 @@ export default function SessionItem({
                   placeholder={t("chat.renameSessionPlaceholder")}
                 />
               ) : (
-                <span className="truncate">
+                <span className={cn("truncate", isCompact && "min-w-0 flex-1")}>
                   {session.title || t("chat.newChat") || "New Chat"}
                 </span>
               )}
+              {isCompact && renamingSessionId !== session.id && (
+                <span className="ml-auto flex shrink-0 items-center justify-end gap-1 pl-2 group-hover:pr-5">
+                  {!isActive && displayUnreadCount > 0 && (
+                    <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums">
+                      {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
+                    </span>
+                  )}
+                  {hasPending && (
+                    <IconTip label={t("chat.pendingInteractionHint")}>
+                      <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-pulse">
+                        {pendingInteractionCount > 99 ? "99+" : pendingInteractionCount}
+                      </span>
+                    </IconTip>
+                  )}
+                  {!isLoading && !hasPending && (
+                    <>
+                      {session.channelInfo && channelLabel && (
+                        <IconTip label={channelLabel}>
+                          <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center text-blue-500/70 group-hover:hidden">
+                            <ChannelIcon
+                              channelId={session.channelInfo.channelId}
+                              className="h-2.5 w-2.5"
+                            />
+                          </span>
+                        </IconTip>
+                      )}
+                      <span className="text-right text-[10px] font-normal text-muted-foreground/60 group-hover:hidden">
+                        {formatRelativeTime(session.updatedAt)}
+                      </span>
+                    </>
+                  )}
+                </span>
+              )}
             </div>
-            <div className="text-[11px] text-muted-foreground truncate">
-              {isLoading ? (
-                <>
-                  {agent?.name || session.agentId}
-                  <span className="mx-1">·</span>
+            {!isCompact && (
+              <div className="text-[11px] text-muted-foreground truncate">
+                {isLoading ? (
+                  <>
+                    {agent?.name || session.agentId}
+                    <span className="mx-1">·</span>
+                    <span className="text-primary animate-pulse">
+                      {t("chat.thinking") || "执行中..."}
+                    </span>
+                  </>
+                ) : hasPending ? (
+                  <span className="flex items-center gap-1 text-amber-500 font-medium">
+                    <BellRing className="h-3 w-3 shrink-0" />
+                    <span className="truncate">
+                      {t("chat.pendingInteractionInline", {
+                        count: pendingInteractionCount,
+                      })}
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    {agent?.name || session.agentId}
+                    <span className="mx-1">·</span>
+                    {formatRelativeTime(session.updatedAt)}
+                  </>
+                )}
+              </div>
+            )}
+            {isCompact && (isLoading || hasPending) && (
+              <div className="text-[10px] leading-4 text-muted-foreground truncate">
+                {isLoading ? (
                   <span className="text-primary animate-pulse">
                     {t("chat.thinking") || "执行中..."}
                   </span>
-                </>
-              ) : hasPending ? (
-                <span className="flex items-center gap-1 text-amber-500 font-medium">
-                  <BellRing className="h-3 w-3 shrink-0" />
-                  <span className="truncate">
-                    {t("chat.pendingInteractionInline", {
-                      count: pendingInteractionCount,
-                    })}
+                ) : (
+                  <span className="flex items-center gap-1 text-amber-500 font-medium">
+                    <BellRing className="h-3 w-3 shrink-0" />
+                    <span className="truncate">
+                      {t("chat.pendingInteractionInline", {
+                        count: pendingInteractionCount,
+                      })}
+                    </span>
                   </span>
-                </span>
-              ) : (
-                <>
-                  {agent?.name || session.agentId}
-                  <span className="mx-1">·</span>
-                  {formatRelativeTime(session.updatedAt)}
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Delete button (hover) */}
           <IconTip label={t("common.delete")}>
             <button
-              className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
+              className={cn(
+                "shrink-0 transition-colors p-0.5",
+                isCompact
+                  ? "absolute right-2 top-1/2 hidden -translate-y-1/2 text-muted-foreground/50 hover:!text-destructive group-hover:block"
+                  : "text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive",
+              )}
               onClick={(e) => onDeleteClick(session.id, e)}
             >
               <Trash2 className="h-3.5 w-3.5" />

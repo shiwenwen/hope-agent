@@ -298,6 +298,8 @@
     "contextCompactedTitle": "Bağlam sıkıştırıldı",
     "conversations": "Sohbetler",
     "collapseSidebar": "Kenar çubuğunu daralt",
+    "sidebarCompactMode": "Kompakt moda geç",
+    "sidebarDetailedMode": "Ayrıntılı moda geç",
     "copied": "Kopyalandı",
     "copy": "Kopyala",
     "cronTaskStarted": "Zamanlanmış bir görev tetiklendi",
@@ -2331,6 +2333,9 @@
     "agentsDesc": "AI Ajanlarını tanımlayın ve yönetin. Her Ajan farklı kimlik, yetenek ve davranışa sahip olabilir.",
     "appearance": "Görünüm",
     "appearanceDesc": "Tema görünüm modunu seçin",
+    "sidebarDisplayMode": "Görünüm",
+    "sidebarCompactMode": "Kompakt mod",
+    "sidebarCompactModeDesc": "Sohbet, Agent ve proje avatarlarını ve emojilerini gizleyerek kenar çubuğunu daha sade tutar.",
     "approvalNav": "İzinler",
     "approvalPanel": {
       "dangerousCommandsDesc": "Onayı zorunlu kılar ve Her zaman izin ver yapılamaz. YOLO modu bunu atlar ama denetim günlüklerini yine yazar.",

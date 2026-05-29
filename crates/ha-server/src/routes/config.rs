@@ -949,6 +949,28 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/sidebar-display-mode` -- get sidebar density mode.
+pub async fn get_sidebar_display_mode() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(ha_core::config::normalize_sidebar_ui_mode(
+        &store.sidebar_ui_mode,
+    ))))
+}
+
+/// `POST /api/config/sidebar-display-mode` -- set sidebar density mode.
+pub async fn set_sidebar_display_mode(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let mode = body
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or(ha_core::config::SIDEBAR_UI_MODE_DETAILED)
+        .to_string();
+    ha_core::config::mutate_config(("sidebar_ui_mode", "http"), |store| {
+        store.sidebar_ui_mode = ha_core::config::normalize_sidebar_ui_mode(&mode);
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/tool-call-narration` -- get tool-call narration guidance toggle.
 pub async fn get_tool_call_narration_enabled() -> Result<Json<Value>, AppError> {
     let store = load_config()?;

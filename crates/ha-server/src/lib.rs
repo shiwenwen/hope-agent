@@ -788,6 +788,14 @@ fn build_router_with_cors(
             post(routes::config::set_ui_effects_enabled),
         )
         .route(
+            "/config/sidebar-display-mode",
+            get(routes::config::get_sidebar_display_mode),
+        )
+        .route(
+            "/config/sidebar-display-mode",
+            post(routes::config::set_sidebar_display_mode),
+        )
+        .route(
             "/config/tool-call-narration",
             get(routes::config::get_tool_call_narration_enabled),
         )

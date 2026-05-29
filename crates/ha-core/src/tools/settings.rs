@@ -40,6 +40,7 @@ fn risk_level(category: &str) -> &'static str {
         | "theme"
         | "language"
         | "ui_effects"
+        | "sidebar_ui"
         | "notification"
         | "startup_notification"
         | "canvas"
@@ -363,6 +364,9 @@ fn read_category(category: &str) -> Result<Value> {
         "language" => Ok(json!({ "language": cfg.language })),
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
+        "sidebar_ui" => Ok(json!({
+            "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode)
+        })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
         "web_search" => Ok(redact_web_search_value(serde_json::to_value(
             &cfg.web_search,
@@ -493,6 +497,7 @@ fn get_all_overview() -> Result<String> {
         "theme": cfg.theme,
         "language": cfg.language,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
+        "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode),
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
@@ -570,7 +575,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "notification", "startup_notification",
+            "user", "theme", "language", "ui_effects", "sidebar_ui", "notification", "startup_notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
@@ -756,6 +761,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "ui_effects" => {
             if let Some(v) = values.get("uiEffectsEnabled").and_then(|v| v.as_bool()) {
                 store.ui_effects_enabled = v;
+            }
+        }
+        "sidebar_ui" => {
+            if let Some(v) = values.get("sidebarUiMode").and_then(|v| v.as_str()) {
+                store.sidebar_ui_mode = config::normalize_sidebar_ui_mode(v);
             }
         }
         "temperature" => {

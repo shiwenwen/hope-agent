@@ -528,6 +528,23 @@ pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_sidebar_display_mode() -> Result<String, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(ha_core::config::normalize_sidebar_ui_mode(
+        &store.sidebar_ui_mode,
+    ))
+}
+
+#[tauri::command]
+pub async fn set_sidebar_display_mode(mode: String) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("sidebar_ui_mode", "settings-ui"), |store| {
+        store.sidebar_ui_mode = ha_core::config::normalize_sidebar_ui_mode(&mode);
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_tool_call_narration_enabled() -> Result<bool, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.tool_call_narration_enabled)
