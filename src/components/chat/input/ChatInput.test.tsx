@@ -148,6 +148,18 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("allows sending when only attachments are present", () => {
+    const onSend = vi.fn()
+    const file = new File(["image"], "photo.png", { type: "image/png" })
+    renderChatInput({ attachedFiles: [file], onSend })
+
+    const sendButton = screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement
+    expect(sendButton.disabled).toBe(false)
+
+    fireEvent.click(sendButton)
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
   test("explicit interrupted execution state wins over loading for task progress", () => {
     renderChatInput({
       loading: true,

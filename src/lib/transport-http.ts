@@ -837,7 +837,11 @@ export class HttpTransport implements Transport {
   async call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     // --- Special cases: binary uploads use multipart/form-data ---
     if (command === "save_attachment" && args) {
-      return this.uploadMultipart<T>("/api/chat/attachment", args);
+      const resp = await this.uploadMultipart<{ path: string }>(
+        "/api/chat/attachment",
+        args,
+      );
+      return resp.path as unknown as T;
     }
     if (command === "upload_project_file_cmd" && args) {
       const projectId = args.projectId as string;

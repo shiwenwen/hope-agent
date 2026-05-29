@@ -26,6 +26,7 @@ import {
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import PlainTextRenderer from "@/components/common/PlainTextRenderer"
 import FileAttachments from "./FileAttachments"
+import UserAttachments from "./UserAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import ProfileRotationBanner from "@/components/chat/ProfileRotationBanner"
 import ContextCompactedBanner from "@/components/chat/ContextCompactedBanner"
@@ -775,10 +776,15 @@ function MessageBubbleInner({
               onOpenDiff={onOpenDiff}
               contentRenderMode={contentRenderMode}
             />
-          ) : contentRenderMode === "markdown" ? (
-            <MarkdownRenderer content={msg.content} />
           ) : (
-            <PlainTextRenderer content={msg.content} />
+            <>
+              <UserAttachments attachments={msg.attachments} />
+              {contentRenderMode === "markdown" ? (
+                <MarkdownRenderer content={msg.content} />
+              ) : (
+                <PlainTextRenderer content={msg.content} />
+              )}
+            </>
           )}
           {/* URL Previews (only for non-streaming messages) */}
           {msg.content && !(loading && isLast) && (

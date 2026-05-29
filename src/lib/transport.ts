@@ -18,6 +18,7 @@ import type { MediaItem, SessionMode } from "@/types/chat";
 export interface ChatAttachment {
   name: string;
   mime_type: string;
+  source?: "upload" | "mention" | "plan_mention";
   data?: string;
   file_path?: string;
 }
