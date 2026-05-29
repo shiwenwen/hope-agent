@@ -205,8 +205,19 @@ fn expand_string(s: &str, input: &HookInput, unresolved: &mut Vec<String>) -> St
             out.push_str(&s[i..]);
             break;
         }
-        out.push(bytes[i] as char);
-        i += 1;
+        // Copy the WHOLE UTF-8 char at `i`, not a single byte. `bytes[i] as
+        // char` Latin-1-expands a multi-byte sequence — a CJK / accented
+        // literal in a template (e.g. `{"path":"项目/笔记.md ${tool_input.x}"}`)
+        // would be mangled into mojibake before reaching the MCP tool. `i`
+        // always lands on a char boundary (every other branch advances past
+        // an ASCII `$`/`{`/`}` delimiter), so the slice + `chars().next()`
+        // never panics.
+        let ch = s[i..]
+            .chars()
+            .next()
+            .expect("loop index stays on a UTF-8 char boundary");
+        out.push(ch);
+        i += ch.len_utf8();
     }
     out
 }
@@ -295,6 +306,19 @@ mod tests {
         let template = json!({ "cmd": "${tool_input.command}" });
         let (out, unresolved) = expand_input_template(&template, &input);
         assert_eq!(out, json!({ "cmd": "rm -rf /tmp/x" }));
+        assert!(unresolved.is_empty());
+    }
+
+    #[test]
+    fn multibyte_utf8_literal_and_value_preserved() {
+        // Regression: `bytes[i] as char` Latin-1-expanded multi-byte UTF-8 in
+        // the literal runs of a template, mangling CJK / accented text before
+        // it reached the MCP tool. Both the literal around the placeholder AND
+        // the substituted value must round-trip verbatim.
+        let input = pre_tool("write", json!({ "path": "项目/笔记.md" }));
+        let template = json!({ "msg": "保存 café → ${tool_input.path} ✓" });
+        let (out, unresolved) = expand_input_template(&template, &input);
+        assert_eq!(out, json!({ "msg": "保存 café → 项目/笔记.md ✓" }));
         assert!(unresolved.is_empty());
     }
 

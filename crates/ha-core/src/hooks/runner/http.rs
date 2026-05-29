@@ -207,10 +207,19 @@ fn expand_env_placeholders(
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] != b'$' {
-            // Push the raw byte. Multi-byte UTF-8 is fine because we only
-            // branch on the `$` ASCII byte; other bytes pass through verbatim.
-            out.push(bytes[i] as char);
-            i += 1;
+            // Copy the WHOLE UTF-8 char at `i`, not a single byte. `bytes[i]
+            // as char` Latin-1-expands each byte of a multi-byte sequence
+            // (`é` = 0xC3 0xA9 → "Ã©", CJK → mojibake), corrupting any
+            // non-ASCII header / env value. `i` always lands on a char
+            // boundary — every other branch advances past an ASCII delimiter
+            // (`$`/`{`/`}`/identifier byte) — so this slice + `chars().next()`
+            // never panics.
+            let ch = value[i..]
+                .chars()
+                .next()
+                .expect("loop index stays on a UTF-8 char boundary");
+            out.push(ch);
+            i += ch.len_utf8();
             continue;
         }
         // `$` at the very end → literal.
@@ -437,21 +446,17 @@ impl HookHandler for HttpHandler {
                         timeout.as_secs()
                     );
                     return RawHookResult {
-                        // Set BOTH `exit_code=Some(2)` (so the parser produces
-                        // `Block`) AND `timed_out=true` (so the audit log
-                        // surfaces the cause). `timed_out` short-circuits to
-                        // inert in `parse()`, so the explicit exit-2 mapping
-                        // happens by branching there — see fail_closed_block
-                        // comments; here we don't take that path because the
-                        // parser already handles `timed_out=true` as inert.
+                        // Fail closed: `exit_code=Some(2)` makes `parse()`
+                        // produce `HookDecision::Block { reason: stderr }`.
+                        // `timed_out` MUST stay `false` here — `parse()`
+                        // short-circuits `timed_out=true` to inert (a silent
+                        // fail-OPEN on this gate), so setting it true would
+                        // defeat the block. The deadline cause is preserved in
+                        // `stderr` for the audit log.
                         exit_code: Some(2),
                         stdout: String::new(),
                         stderr: msg,
                         duration: start.elapsed(),
-                        // Deliberately false: we want the parser to honor the
-                        // explicit exit 2 mapping → Block. The audit record
-                        // still carries the deadline-exceeded reason via the
-                        // stderr string.
                         timed_out: false,
                     };
                 }
@@ -640,6 +645,27 @@ mod tests {
         // Trailing `!` is not a name char so the variable terminates cleanly.
         assert_eq!(out, "X-Key: xyz!");
         assert!(unresolved.is_empty());
+    }
+
+    #[test]
+    fn multibyte_utf8_in_literal_text_is_preserved() {
+        // Regression: a per-byte `bytes[i] as char` push Latin-1-expanded
+        // multi-byte UTF-8 ("café" → "cafÃ©", CJK → mojibake). The literal
+        // runs around a placeholder must round-trip non-ASCII verbatim.
+        let map = env(&[("TOKEN", "x")]);
+        let (out, unresolved) =
+            expand_env_placeholders("café ${TOKEN} 文件 — naïve $TOKEN ✓", &map);
+        assert_eq!(out, "café x 文件 — naïve x ✓");
+        assert!(unresolved.is_empty());
+    }
+
+    #[test]
+    fn multibyte_utf8_in_resolved_value_is_preserved() {
+        // The substituted value can itself be non-ASCII (e.g. an env var
+        // holding a UTF-8 secret/path); it must not be corrupted either.
+        let map = env(&[("NAME", "naïve-café-文件")]);
+        let (out, _u) = expand_env_placeholders("X-Name: ${NAME}", &map);
+        assert_eq!(out, "X-Name: naïve-café-文件");
     }
 
     #[test]
