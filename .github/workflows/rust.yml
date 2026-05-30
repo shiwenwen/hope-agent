@@ -125,11 +125,19 @@ jobs:
             libxrandr-dev \
             jq
 
+      # macOS-14 images currently ship jq, but don't rely on that staying true —
+      # install it explicitly so the verify step below can't fail the whole
+      # macOS test job if a future image drops it. `brew install` is a no-op
+      # (relink) when jq is already present.
+      - name: Install jq on macOS (hooks compat suite)
+        if: runner.os == 'macOS'
+        run: command -v jq || brew install jq
+
       # The hooks official-script compatibility suite (`hooks_compat.rs`, Unix
       # only) runs unmodified jq-based hook scripts to prove field-level
       # protocol alignment. The suite self-skips when jq is absent; verify it
       # is present on the Unix legs so the gate actually runs in CI rather than
-      # silently skipping. (macOS runners ship jq; Linux installs it above.)
+      # silently skipping. (Linux installs jq above; macOS installs it above.)
       - name: Verify jq present (hooks compat suite)
         if: runner.os != 'Windows'
         run: jq --version
