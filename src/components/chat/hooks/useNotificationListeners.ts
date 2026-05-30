@@ -8,6 +8,7 @@ import {
   createStreamDeltaBuffers,
   discardAllPendingStreamDeltas,
   discardPendingStreamDeltas,
+  flushPendingStreamDeltas,
   handleStreamEvent,
 } from "./useStreamEventHandler"
 import type {
@@ -36,6 +37,17 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
     reloadSessions,
   } = deps
   const parentDeltaBuffersRef = useRef(createStreamDeltaBuffers())
+
+  const parentStreamHandlerDeps = {
+    deltaBuffersRef: parentDeltaBuffersRef,
+    updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+      setMessages((prev) => {
+        const next = updater(prev)
+        sessionCacheRef.current.set(sessionId, next)
+        return next
+      })
+    },
+  }
 
   // Listen for agent-initiated notification events
   useEffect(() => {
@@ -86,21 +98,16 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
           const event = JSON.parse(delta) as Record<string, unknown>
           const sid = parentSessionId
           if (!event?.type) return
-          handleStreamEvent(event, sid, {
-            deltaBuffersRef: parentDeltaBuffersRef,
-            updateSessionMessages: (sessionId, updater) => {
-              setMessages((prev) => {
-                const next = updater(prev)
-                sessionCacheRef.current.set(sessionId, next)
-                return next
-              })
-            },
-          })
+          handleStreamEvent(event, sid, parentStreamHandlerDeps)
         } catch {
           /* ignore parse errors */
         }
       } else if (eventType === "done" || eventType === "error") {
-        discardPendingStreamDeltas(parentSessionId, parentDeltaBuffersRef)
+        if (isCurrentSession) {
+          flushPendingStreamDeltas(parentSessionId, parentStreamHandlerDeps, true)
+        } else {
+          discardPendingStreamDeltas(parentSessionId, parentDeltaBuffersRef)
+        }
         if (eventType === "error") {
           logger.error("subagent", "inject", "Backend parent agent injection failed", payload.error)
         }

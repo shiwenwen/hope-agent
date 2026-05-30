@@ -17,6 +17,7 @@ const transportMock = vi.hoisted(() => {
         listeners.delete(eventName)
       }
     }),
+    call: vi.fn(() => Promise.reject(new Error("not mocked"))),
   }
 })
 
@@ -136,5 +137,52 @@ describe("useNotificationListeners", () => {
       type: "text",
       content: " after tool",
     })
+  })
+
+  test("flushes buffered parent stream text before handling done", async () => {
+    const rafCallbacks = new Map<number, FrameRequestCallback>()
+    let nextRaf = 1
+    const requestFrame = (cb: FrameRequestCallback) => {
+      const id = nextRaf++
+      rafCallbacks.set(id, cb)
+      return id
+    }
+    const cancelFrame = (id: number) => {
+      rafCallbacks.delete(id)
+    }
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(requestFrame)
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(cancelFrame)
+    vi.stubGlobal("requestAnimationFrame", window.requestAnimationFrame)
+    vi.stubGlobal("cancelAnimationFrame", window.cancelAnimationFrame)
+
+    let latest: Message[] = []
+    render(<Harness onMessages={(messages) => { latest = messages }} />)
+
+    const emit = transportMock.listeners.get("parent_agent_stream")
+    expect(emit).toBeTruthy()
+
+    await act(async () => {
+      emit?.({ eventType: "started", parentSessionId: "parent-session" })
+    })
+
+    await act(async () => {
+      emit?.({
+        eventType: "delta",
+        parentSessionId: "parent-session",
+        delta: JSON.stringify({ type: "text_delta", content: "final chunk" }),
+      })
+    })
+
+    expect(latest[0]?.content).toBe("")
+
+    await act(async () => {
+      emit?.({ eventType: "done", parentSessionId: "parent-session" })
+    })
+
+    expect(latest[0]?.content).toBe("final chunk")
+    expect(latest[0]?.contentBlocks).toEqual([
+      { type: "text", content: "final chunk" },
+    ])
+    expect(rafCallbacks.size).toBe(0)
   })
 })
