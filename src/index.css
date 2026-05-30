@@ -545,6 +545,11 @@
   padding: 0.5rem 0.625rem;
   font-size: 0.8125rem;
   line-height: 1.45;
+  /* Long lines scroll horizontally instead of being clipped (standard code
+   * block behavior). Requires min-w-0 on the flex ancestors so the block
+   * cannot push past its container. */
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .markdown-content [data-streamdown="code-block-body"] pre {
@@ -603,6 +608,62 @@
 
 .hope-bare-json-block code {
   white-space: inherit;
+}
+
+/* Direct Shiki file preview (file browser): dual theme + gutter line numbers.
+ * Shiki is rendered with defaultColor:false, so each token carries
+ * --shiki-light / --shiki-dark CSS vars that we switch on the `.dark` root. */
+.hope-shiki-view {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  tab-size: 2;
+}
+.hope-shiki-view .shiki {
+  margin: 0;
+  padding: 0.5rem 0;
+  background: transparent !important;
+  counter-reset: shiki-ln;
+}
+.hope-shiki-view .shiki code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+.hope-shiki-view .shiki .line {
+  display: inline-block;
+  width: 100%;
+  padding-right: 1rem;
+}
+.hope-shiki-view .shiki .line::before {
+  counter-increment: shiki-ln;
+  content: counter(shiki-ln);
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  width: 3rem;
+  margin-right: 1rem;
+  padding-right: 0.75rem;
+  text-align: right;
+  color: color-mix(in srgb, var(--color-muted-foreground) 65%, transparent);
+  background: var(--color-background);
+  user-select: none;
+}
+.hope-shiki-view .shiki,
+.hope-shiki-view .shiki span {
+  color: var(--shiki-light);
+}
+.dark .hope-shiki-view .shiki,
+.dark .hope-shiki-view .shiki span {
+  color: var(--shiki-dark) !important;
+}
+/* Large-file / unknown-grammar fallback: ShikiCodeView renders a bare <pre>. */
+pre.hope-shiki-view {
+  margin: 0;
+  white-space: pre;
+  color: var(--color-foreground);
 }
 
 .message-markdown-content .markdown-content > div > div > :first-child,

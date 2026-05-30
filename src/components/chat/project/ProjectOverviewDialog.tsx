@@ -93,7 +93,7 @@ export default function ProjectOverviewDialog({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-[560px] p-0 flex flex-col"
+        className="w-full sm:max-w-[860px] p-0 flex flex-col"
         // Wider than the default 384px — Project files / instructions need room.
       >
         <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
@@ -184,7 +184,7 @@ export default function ProjectOverviewDialog({
               scopeId={project.id}
               rootPath={project.workingDir ?? project.id}
               editable
-              layout="stacked"
+              layout="split"
               className="h-full"
             />
           </TabsContent>

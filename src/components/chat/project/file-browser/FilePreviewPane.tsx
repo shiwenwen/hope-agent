@@ -1,14 +1,14 @@
 /**
  * Read-only preview for a workspace file, dispatched by file kind:
- * code/text (Shiki via MarkdownRenderer), markdown (rendered + view-source),
- * image (`<img>`), PDF (`<iframe>`), Office (extracted text + images), and a
- * binary placeholder for everything else.
+ * code/text (Shiki, direct), markdown (rendered + view-source), image
+ * (`<img>`), PDF (`<iframe>`), Office (extracted text + images), and a binary
+ * placeholder for everything else.
  *
- * Selecting text in a code/text/markdown preview reveals a "quote to chat"
- * action that captures the file path + line range + content.
+ * Selecting text in a code/text/markdown-source preview reveals a "quote to
+ * chat" action capturing the file path + exact line range + content.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, Quote, Code2, FileText as FileTextIcon, X } from "lucide-react"
 import { toast } from "sonner"
@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils"
 import type { ExtractedContent, FileTextContent, WorkspaceEntry } from "@/lib/transport"
 import type { ProjectFsApi } from "../hooks/useProjectFs"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
+import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
 export interface QuotePayload {
   path: string
@@ -49,8 +50,7 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewSource, setViewSource] = useState(false)
-  const [selection, setSelection] = useState<string | null>(null)
-  const bodyRef = useRef<HTMLDivElement>(null)
+  const [selection, setSelection] = useState<CodeSelection | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -87,30 +87,19 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
     }
   }, [entry, fs])
 
-  // Track text selection inside the preview body for the quote action.
-  const onMouseUp = useCallback(() => {
-    const sel = window.getSelection()?.toString() ?? ""
-    setSelection(sel.trim().length > 0 ? sel : null)
-  }, [])
-
   const handleQuote = useCallback(() => {
     if (!entry || !onQuote || !selection) return
-    const content =
-      loaded && (loaded.kind === "code" || loaded.kind === "text" || loaded.kind === "markdown")
-        ? loaded.data.content
-        : ""
-    const { startLine, endLine } = locateLineRange(content, selection)
     onQuote({
       path: entry.relPath,
       name: entry.name,
-      startLine,
-      endLine,
-      content: selection,
+      startLine: selection.startLine,
+      endLine: selection.endLine,
+      content: selection.text,
     })
     toast.success(t("fileBrowser.quoted", "Added to chat"))
     setSelection(null)
     window.getSelection()?.removeAllRanges()
-  }, [entry, onQuote, selection, loaded, t])
+  }, [entry, onQuote, selection, t])
 
   if (!entry) {
     return (
@@ -123,10 +112,20 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
   }
 
   return (
-    <div className={cn("flex h-full flex-col", className)}>
+    <div className={cn("flex h-full min-w-0 flex-col", className)}>
       <div className="flex items-center gap-1.5 border-b px-3 py-1.5">
-        <span className="truncate text-sm font-medium">{entry.name}</span>
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-sm font-medium leading-tight">{entry.name}</span>
+          {entry.relPath && entry.relPath !== entry.name ? (
+            <span
+              className="truncate font-mono text-[11px] leading-tight text-muted-foreground"
+              title={entry.relPath}
+            >
+              {entry.relPath}
+            </span>
+          ) : null}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {loaded?.kind === "markdown" ? (
             <IconTip label={viewSource ? t("fileBrowser.rendered", "Rendered") : t("fileBrowser.viewSource", "View source")}>
               <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setViewSource((v) => !v)}>
@@ -151,7 +150,7 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
         </div>
       </div>
 
-      <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto" onMouseUp={onMouseUp}>
+      <div className="min-h-0 flex-1 overflow-auto">
         {loading ? (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -159,7 +158,13 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
         ) : error ? (
           <div className="px-4 py-3 text-sm text-destructive">{error}</div>
         ) : (
-          <PreviewBody loaded={loaded} entry={entry} viewSource={viewSource} fs={fs} />
+          <PreviewBody
+            loaded={loaded}
+            entry={entry}
+            viewSource={viewSource}
+            fs={fs}
+            onSelectionChange={onQuote ? setSelection : undefined}
+          />
         )}
       </div>
     </div>
@@ -171,11 +176,13 @@ function PreviewBody({
   entry,
   viewSource,
   fs,
+  onSelectionChange,
 }: {
   loaded: Loaded | null
   entry: WorkspaceEntry
   viewSource: boolean
   fs: ProjectFsApi
+  onSelectionChange?: (sel: CodeSelection | null) => void
 }) {
   const { t } = useTranslation()
   if (!loaded) return null
@@ -242,58 +249,19 @@ function PreviewBody({
     )
   }
 
-  // code / text / markdown-source: render as a fenced code block for Shiki.
+  // code / text / markdown-source: render directly with Shiki (no Markdown
+  // round-trip). Selection → exact line numbers via per-line `data-line`.
   if (loaded.kind === "code" || loaded.kind === "text" || loaded.kind === "markdown") {
-    const lang = shikiLang(entry.name)
-    // Use a fence longer than any backtick run inside the file, otherwise a
-    // file that itself contains ``` would close the block early.
-    const fence = "`".repeat(Math.max(3, longestBacktickRun(loaded.data.content) + 1))
-    const fenced = `${fence}${lang}\n${loaded.data.content}\n${fence}`
     return (
-      <div className="px-4 py-3 text-sm">
-        <MarkdownRenderer content={fenced} />
-      </div>
+      <ShikiCodeView
+        key={entry.relPath}
+        content={loaded.data.content}
+        lang={shikiLang(entry.name)}
+        onSelectionChange={onSelectionChange}
+        className="text-sm"
+      />
     )
   }
 
   return null
-}
-
-/** Length of the longest run of consecutive backticks in `s`. */
-function longestBacktickRun(s: string): number {
-  let max = 0
-  let cur = 0
-  for (const ch of s) {
-    if (ch === "`") {
-      cur += 1
-      if (cur > max) max = cur
-    } else {
-      cur = 0
-    }
-  }
-  return max
-}
-
-/** Best-effort 1-based line range of `selection` within `content`. */
-function locateLineRange(content: string, selection: string): { startLine: number; endLine: number } {
-  if (!content || !selection) return { startLine: 1, endLine: 1 }
-  // The DOM selection often carries a trailing newline the source lacks; try the
-  // trimmed needle first, then the raw selection.
-  const needle = selection.replace(/\s+$/, "")
-  let idx = needle ? content.indexOf(needle) : -1
-  if (idx < 0) idx = content.indexOf(selection)
-  if (idx < 0) {
-    // Fall back to matching the first non-empty selected line.
-    const lines = selection.split("\n")
-    const firstLine = (lines.find((l) => l.trim().length > 0) ?? lines[0]).trim()
-    const lineIdx = firstLine
-      ? content.split("\n").findIndex((l) => l.includes(firstLine))
-      : -1
-    const start = lineIdx >= 0 ? lineIdx + 1 : 1
-    return { startLine: start, endLine: start + lines.length - 1 }
-  }
-  const before = content.slice(0, idx)
-  const startLine = before.split("\n").length
-  const endLine = startLine + needle.split("\n").length - 1
-  return { startLine, endLine }
 }

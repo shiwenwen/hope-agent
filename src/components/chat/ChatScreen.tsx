@@ -32,7 +32,7 @@ import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
-import { FileBrowserView } from "@/components/chat/project/file-browser/FileBrowserView"
+import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
 import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
@@ -1760,6 +1760,10 @@ export default function ChatScreen({
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
+          onToggleFilesPanel={
+            effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
+          }
+          filesPanelOpen={showFilesPanel}
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -1897,14 +1901,13 @@ export default function ChatScreen({
                       session.currentSessionId ? workingDirSource === "project" : false
                     }
                     workingDirSaving={workingDirSaving}
-                    onWorkingDirChange={handleWorkingDirChange}
+                    onWorkingDirChange={
+                      currentSessionMeta?.projectId ? undefined : handleWorkingDirChange
+                    }
                     planState={planMode.planState}
                     onEnterPlanMode={planMode.enterPlanMode}
                     onExitPlanMode={planMode.exitPlanMode}
                     onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
-                    onToggleFilesPanel={
-                      effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
-                    }
                     taskProgressSnapshot={taskProgressSnapshot}
                     executionState={
                       session.currentSessionId
@@ -2013,40 +2016,20 @@ export default function ChatScreen({
           )}
 
           {/* Project file browser (right side, scoped to the working dir) */}
-          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files" && (
-            <RightPanelShell
-              width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
-              resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
-              maxWidth={1000}
-            >
-              <div className="flex h-full flex-col">
-                <div className="flex items-center border-b px-2 py-1">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {t("fileBrowser.panelTitle", "Files")}
-                  </span>
-                  <IconTip label={t("common.close", "Close")}>
-                    <button
-                      type="button"
-                      className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent"
-                      onClick={() => setShowFilesPanel(false)}
-                    >
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    </button>
-                  </IconTip>
-                </div>
-                <FileBrowserView
-                  scope="session"
-                  scopeId={session.currentSessionId}
-                  rootPath={effectiveWorkingDir}
-                  editable
-                  layout="split"
-                  onQuote={handleFileQuote}
-                  className="min-h-0 flex-1"
-                />
-              </div>
-            </RightPanelShell>
-          )}
+          {/* File browser panel — permanently mounted (like CanvasPanel) and
+              toggled via `visible`, so a popped-out window survives panel
+              switches / collapses. */}
+          <FileBrowserPanel
+            scope="session"
+            scopeId={session.currentSessionId}
+            rootPath={effectiveWorkingDir}
+            sessionId={session.currentSessionId}
+            visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
+            panelWidth={rightPanelWidth}
+            onPanelWidthChange={setRightPanelWidth}
+            onQuote={handleFileQuote}
+            onClose={() => setShowFilesPanel(false)}
+          />
 
           {/* Canvas Preview Panel */}
           <CanvasPanel

@@ -54,7 +54,7 @@ function joinRel(dir: string, name: string): string {
 }
 
 export function useProjectFs(
-  scope: "session" | "project",
+  scope: "session" | "project" | "path",
   scopeId: string | null,
 ): ProjectFsApi {
   const [dirs, setDirs] = useState<Record<string, DirState>>({})
