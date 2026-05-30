@@ -72,22 +72,48 @@ pub fn is_session_incognito(session_id: Option<&str>) -> bool {
 }
 
 /// Resolve the effective working directory for a session: session-level value
-/// if set, otherwise falling back to the parent project's default. This is the
-/// single source of truth consumed by both system-prompt rendering and tool
-/// execution context, so the model's view and the tool runtime never disagree
-/// (write_file allowlists, exec cwd, file mention, etc.).
+/// if set, otherwise the parent project's directory (its explicitly selected
+/// `working_dir`, or its lazily-created default workspace). This is the single
+/// source of truth consumed by both system-prompt rendering and tool execution
+/// context, so the model's view and the tool runtime never disagree (write_file
+/// allowlists, exec cwd, file mention, etc.).
+///
+/// Any session attached to a project resolves to `Some(<existing dir>)`; only
+/// sessions with neither a session-level working dir nor a project return
+/// `None` (unchanged pre-project behavior).
 pub fn effective_session_working_dir(session_id: Option<&str>) -> Option<String> {
     let meta = lookup_session_meta(session_id)?;
-    if let Some(wd) = meta.working_dir.filter(|s| !s.trim().is_empty()) {
+    effective_working_dir_for_meta(&meta)
+}
+
+/// Same resolution as [`effective_session_working_dir`] but for a caller that
+/// already holds the [`SessionMeta`], avoiding a redundant DB lookup.
+pub fn effective_working_dir_for_meta(meta: &SessionMeta) -> Option<String> {
+    if let Some(wd) = meta.working_dir.clone().filter(|s| !s.trim().is_empty()) {
         return Some(wd);
     }
-    let pid = meta.project_id?;
-    crate::get_project_db()?
-        .get(&pid)
-        .ok()
-        .flatten()?
-        .working_dir
-        .filter(|s| !s.trim().is_empty())
+    let pid = meta.project_id.as_deref()?;
+    let project = crate::get_project_db()?.get(pid).ok().flatten()?;
+    if let Some(wd) = project.working_dir.filter(|s| !s.trim().is_empty()) {
+        return Some(wd);
+    }
+    // Project with no explicit working dir → lazily materialize the default
+    // workspace and use it. Failure degrades to `None` (no working-dir section
+    // injected) rather than panicking.
+    let ws = crate::paths::project_workspace_dir(pid).ok()?;
+    match crate::util::ensure_dir_canonical(&ws) {
+        Ok(path) => Some(path),
+        Err(e) => {
+            crate::app_warn!(
+                "session",
+                "ensure_workspace",
+                "failed to create default workspace for project {}: {}",
+                pid,
+                e
+            );
+            None
+        }
+    }
 }
 
 // ── Startup recovery ────────────────────────────────────────────

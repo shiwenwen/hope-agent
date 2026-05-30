@@ -381,14 +381,14 @@ pub fn project_dir(project_id: &str) -> Result<PathBuf> {
     Ok(projects_dir()?.join(project_id))
 }
 
-/// Project original files directory: ~/.hope-agent/projects/{id}/files/
-pub fn project_files_dir(project_id: &str) -> Result<PathBuf> {
-    Ok(project_dir(project_id)?.join("files"))
-}
-
-/// Project extracted text directory: ~/.hope-agent/projects/{id}/extracted/
-pub fn project_extracted_dir(project_id: &str) -> Result<PathBuf> {
-    Ok(project_dir(project_id)?.join("extracted"))
+/// Default project workspace directory: ~/.hope-agent/projects/{id}/workspace/
+///
+/// Used as the per-project working directory when the user has not selected an
+/// explicit one. Created lazily on first resolution (see
+/// `session::helpers::effective_session_working_dir`); never written into the
+/// DB so the `~/.hope-agent` tree stays relocatable via `HA_DATA_DIR`.
+pub fn project_workspace_dir(project_id: &str) -> Result<PathBuf> {
+    Ok(project_dir(project_id)?.join("workspace"))
 }
 
 // ── Plans ───────────────────────────────────────────────────────

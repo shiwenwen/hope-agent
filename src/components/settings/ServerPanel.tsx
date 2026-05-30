@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { logger } from "@/lib/logger"
 import {
   MonitorSmartphone,
@@ -258,6 +259,9 @@ export default function ServerPanel() {
             GET /api/server/status (unauthenticated). */}
         <RuntimeStatusSection />
 
+        {/* File-browser remote-write gate */}
+        <RemoteWritesSection />
+
         {/* Mode Selector */}
         <div className="space-y-3">
           <div>
@@ -485,6 +489,73 @@ export default function ServerPanel() {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Toggle for `filesystem.allowRemoteWrites` — whether HTTP clients may write to
+ * the project working directory through the file browser. HIGH-risk: default
+ * off so only the local desktop can write. Saves immediately on change.
+ */
+function RemoteWritesSection() {
+  const { t } = useTranslation()
+  const [enabled, setEnabled] = useState(false)
+  const [status, setStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<{ allowRemoteWrites?: boolean }>("get_filesystem_config")
+      .then((cfg) => {
+        if (!cancelled) setEnabled(!!cfg.allowRemoteWrites)
+      })
+      .catch((e) => logger.warn("settings", "ServerPanel::fs", "load failed", e))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const onToggle = useCallback(async (next: boolean) => {
+    setEnabled(next)
+    try {
+      await getTransport().call("save_filesystem_config", {
+        config: { allowRemoteWrites: next },
+      })
+      setStatus("saved")
+      setTimeout(() => setStatus("idle"), 2000)
+    } catch (e) {
+      logger.error("settings", "ServerPanel::fs", "save failed", e)
+      setEnabled(!next)
+      setStatus("failed")
+      setTimeout(() => setStatus("idle"), 2000)
+    }
+  }, [])
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">
+        {t("settings.fsRemoteWrites", "Allow remote file writes")}
+      </h3>
+      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+        <Switch checked={enabled} onCheckedChange={onToggle} className="mt-0.5" />
+        <div className="flex-1 space-y-0.5">
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "settings.fsRemoteWritesDesc",
+              "Let HTTP clients create, edit, delete, and upload files in the project working directory. Off by default — the desktop app can always write locally regardless of this setting.",
+            )}
+          </p>
+          {status === "saved" ? (
+            <span className="flex items-center gap-1 text-xs text-green-600">
+              <Check className="h-3 w-3" />
+              {t("common.saved", "Saved")}
+            </span>
+          ) : status === "failed" ? (
+            <span className="text-xs text-destructive">{t("common.saveFailed", "Save failed")}</span>
+          ) : null}
+        </div>
+      </div>
+    </section>
   )
 }
 

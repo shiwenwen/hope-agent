@@ -1,11 +1,11 @@
 //! Cross-database orphan reconciler for project-scoped memory rows.
 //!
 //! `delete_project_cascade` (see `project/files.rs`) modifies two databases
-//! in sequence: `session.db` (project row + sessions + project_files) and
-//! `memory.db` (project-scoped memories). Because they cannot share a
-//! transaction, a crash between the two leaves orphan memory rows that are
-//! no longer reachable from any live project. Symlink-style path escapes are
-//! already blocked by [`super::files::purge_project_files_dir`], so the
+//! in sequence: `session.db` (project row + sessions) and `memory.db`
+//! (project-scoped memories). Because they cannot share a transaction, a crash
+//! between the two leaves orphan memory rows that are no longer reachable from
+//! any live project. Symlink-style path escapes are already blocked by
+//! [`super::files::purge_project_dir`], so the
 //! remaining failure mode is purely "memory.db has rows with `scope_type =
 //! 'project'` and a `scope_project_id` that the projects table no longer
 //! knows about". This module sweeps those at startup.

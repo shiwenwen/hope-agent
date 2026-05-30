@@ -67,7 +67,6 @@ pub struct ProjectMeta {
     pub project: Project,
     pub session_count: u32,
     pub unread_count: u32,
-    pub file_count: u32,
     pub memory_count: u32,
 }
 
@@ -127,36 +126,4 @@ pub struct UpdateProjectInput {
     pub working_dir: Option<String>,
     #[serde(default)]
     pub archived: Option<bool>,
-}
-
-// ── Project Files ───────────────────────────────────────────────
-
-/// Metadata row for a file uploaded to a project. The physical bytes live
-/// under `~/.hope-agent/projects/{project_id}/files/`, and extracted text
-/// (if any) under `~/.hope-agent/projects/{project_id}/extracted/`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectFile {
-    pub id: String,
-    pub project_id: String,
-    /// Display name (user-editable, defaults to `original_filename`).
-    pub name: String,
-    pub original_filename: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mime_type: Option<String>,
-    pub size_bytes: i64,
-    /// Stored path relative to `paths::projects_dir()`.
-    pub file_path: String,
-    /// Stored extracted-text path relative to `paths::projects_dir()`.
-    /// `None` when the file is binary or extraction failed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extracted_path: Option<String>,
-    /// Character count of the extracted text, used for inline-budget math.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extracted_chars: Option<i64>,
-    /// Optional LLM-generated one-liner summary (not populated in the initial version).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    pub created_at: i64,
-    pub updated_at: i64,
 }

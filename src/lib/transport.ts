@@ -222,6 +222,35 @@ export interface Transport {
    * HTTP mode never returns null on success — failures throw.
    */
   exportSession(args: ExportSessionArgs): Promise<ExportSessionResult | null>;
+
+  /**
+   * Build a URL / asset-src for raw file bytes inside a project/session
+   * workspace — used for image & PDF preview and downloads.
+   *
+   * - Tauri: resolves the absolute path via `project_fs_resolve` and returns
+   *   an `asset://` src from `convertFileSrc`.
+   * - HTTP: returns a tokened `/api/fs/raw` URL usable directly in
+   *   `<img>` / `<iframe>`.
+   *
+   * Returns `null` when the path can't be resolved.
+   */
+  projectFsRawUrl(
+    args: ProjectFsScope & { path: string; download?: boolean },
+  ): Promise<string | null>;
+
+  /**
+   * Upload a single file into a workspace directory. Multipart on HTTP;
+   * `invoke` with a byte array on Tauri.
+   */
+  projectFsUpload(
+    args: ProjectFsScope & {
+      dirPath: string;
+      data: Blob;
+      fileName: string;
+      mimeType?: string;
+      overwrite?: boolean;
+    },
+  ): Promise<UploadResult>;
 }
 
 /**
@@ -291,6 +320,75 @@ export interface FileSearchResponse {
   matches: FileMatch[];
   /** `true` when the walk hit the per-search file cap and stopped early. */
   truncated: boolean;
+}
+
+// -- Project file browser (workspace-scoped filesystem) ----------------------
+
+/** Selects which working directory the file-browser API operates on. */
+export interface ProjectFsScope {
+  /** `"session"` resolves the session's effective working dir; `"project"`
+   *  resolves the project's workspace. */
+  scope: "session" | "project";
+  scopeId: string;
+}
+
+/** One entry in a workspace directory listing. Paths are relative to the
+ *  workspace root (`/`-separated). */
+export interface WorkspaceEntry {
+  name: string;
+  relPath: string;
+  isDir: boolean;
+  isSymlink: boolean;
+  size: number | null;
+  modifiedMs: number | null;
+}
+
+export interface WorkspaceListing {
+  /** Listed directory, relative to the workspace root (`""` = root). */
+  dirRel: string;
+  parentRel: string | null;
+  entries: WorkspaceEntry[];
+  truncated: boolean;
+}
+
+export interface FileTextContent {
+  relPath: string;
+  content: string;
+  /** `true` for binary/oversized files — `content` is empty, use the raw URL. */
+  isBinary: boolean;
+  mime: string | null;
+  totalLines: number;
+  sizeBytes: number;
+  truncated: boolean;
+}
+
+/** One rendered page (PDF) or embedded image (Office), base64-encoded. */
+export interface ExtractedImageDto {
+  data: string;
+  mime: string;
+  label: string;
+}
+
+export interface ExtractedContent {
+  relPath: string;
+  /** `"pdf"` or `"office"`. */
+  kind: string;
+  text: string | null;
+  images: ExtractedImageDto[];
+}
+
+export interface WriteResult {
+  relPath: string;
+  sizeBytes: number;
+}
+
+export interface RenameResult {
+  relPath: string;
+}
+
+export interface UploadResult {
+  relPath: string;
+  sizeBytes: number;
 }
 
 /**

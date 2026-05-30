@@ -32,25 +32,7 @@ export interface Project {
 export interface ProjectMeta extends Project {
   sessionCount: number
   unreadCount: number
-  fileCount: number
   memoryCount: number
-}
-
-export interface ProjectFile {
-  id: string
-  projectId: string
-  /** User-editable display name; defaults to `originalFilename`. */
-  name: string
-  originalFilename: string
-  mimeType?: string | null
-  sizeBytes: number
-  /** Storage path relative to `~/.hope-agent/projects/`. */
-  filePath: string
-  extractedPath?: string | null
-  extractedChars?: number | null
-  summary?: string | null
-  createdAt: number
-  updatedAt: number
 }
 
 export interface CreateProjectInput {
@@ -85,6 +67,3 @@ export interface UpdateProjectInput {
   workingDir?: string
   archived?: boolean
 }
-
-/** Maximum size of a single project file upload (matches `MAX_PROJECT_FILE_BYTES`). */
-export const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024

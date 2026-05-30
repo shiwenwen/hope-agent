@@ -28,7 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import type { Project, ProjectMeta, UpdateProjectInput } from "@/types/project"
 
-import ProjectFilesPanel from "./ProjectFilesPanel"
+import { FileBrowserView } from "./file-browser/FileBrowserView"
 import ProjectIcon from "./ProjectIcon"
 
 interface ProjectOverviewDialogProps {
@@ -153,17 +153,14 @@ export default function ProjectOverviewDialog({
         <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col overflow-hidden">
           <TabsList className="shrink-0 mx-5 mt-3 self-start">
             <TabsTrigger value="overview">{t("project.tabOverview")}</TabsTrigger>
-            <TabsTrigger value="files">
-              {t("project.tabFiles")} · {project.fileCount}
-            </TabsTrigger>
+            <TabsTrigger value="files">{t("project.tabFiles")}</TabsTrigger>
             <TabsTrigger value="instructions">{t("project.tabInstructions")}</TabsTrigger>
           </TabsList>
 
           {/* Overview */}
           <TabsContent value="overview" className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <StatCard label={t("project.overview.totalSessions")} value={project.sessionCount} />
-              <StatCard label={t("project.overview.totalFiles")} value={project.fileCount} />
               <StatCard label={t("project.overview.totalMemories")} value={project.memoryCount} />
             </div>
 
@@ -181,8 +178,15 @@ export default function ProjectOverviewDialog({
           </TabsContent>
 
           {/* Files */}
-          <TabsContent value="files" className="flex-1 overflow-hidden px-5 py-3">
-            <ProjectFilesPanel projectId={project.id} />
+          <TabsContent value="files" className="flex-1 overflow-hidden p-0">
+            <FileBrowserView
+              scope="project"
+              scopeId={project.id}
+              rootPath={project.workingDir ?? project.id}
+              editable
+              layout="stacked"
+              className="h-full"
+            />
           </TabsContent>
 
           {/* Instructions */}

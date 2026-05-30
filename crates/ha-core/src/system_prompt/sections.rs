@@ -2,7 +2,7 @@ use super::constants::*;
 use super::helpers::{current_date, find_git_root, hostname, os_version};
 use super::working_dir_instructions::InstructionFile;
 use crate::agent_config::{AgentConfig, FilterConfig, PersonalityConfig};
-use crate::project::{Project, ProjectFile};
+use crate::project::Project;
 use crate::skills;
 use crate::tools::dispatch::{
     all_dispatchable_tools, resolve_tool_fate, DispatchContext, ToolFate,
@@ -525,11 +525,20 @@ pub(super) fn build_session_working_dir_section(
 
     let mut out = format!(
         "# Working Directory\n\n\
-         The user has selected `{}` as the working directory for this conversation. \
-         When you need to operate on files, default to this directory unless the user \
-         or an explicit tool argument specifies otherwise.",
+         `{}` is the working directory for this conversation. When you need to \
+         operate on files, default to this directory unless the user or an \
+         explicit tool argument specifies otherwise.",
         path
     );
+
+    // Top-level file listing so the model knows what's present without a
+    // `read` round-trip. Names only + sorted → byte-identical text for the
+    // same directory state, maximizing prefix-cache reuse.
+    if let Some(listing) = build_working_dir_file_listing(path) {
+        out.push_str("\n\n## Files in Working Directory\n\n");
+        out.push_str(&listing);
+    }
+
     if instructions.is_empty() {
         return out;
     }
@@ -549,105 +558,57 @@ pub(super) fn build_session_working_dir_section(
     out
 }
 
-/// Build a "Project Files" section listing uploaded project files (Layer 1:
-/// directory catalog), plus optionally inlining small files whose full
-/// content fits inside the inline byte budget (Layer 2).
+/// Build a compact, non-recursive listing of the working directory's top-level
+/// entries for the system prompt.
 ///
-/// The LLM can read any listed file on demand via the `project_read_file`
-/// tool (Layer 3), which is enforced to only open files within the current
-/// session's project.
-pub(super) fn build_project_files_section(
-    project_id: &str,
-    files: &[ProjectFile],
-    inline_budget_bytes: usize,
-) -> String {
-    if files.is_empty() {
-        return String::new();
-    }
+/// Names only (no size / mtime) and sorted, so the same directory state renders
+/// byte-identical text and maximizes prefix-cache reuse. Hidden entries and a
+/// handful of noisy directories (`.git`, `node_modules`, …) are skipped, and the
+/// list is capped at `MAX_ENTRIES`. Returns `None` for an empty or unreadable
+/// directory so the caller omits the heading entirely.
+fn build_working_dir_file_listing(path: &str) -> Option<String> {
+    const MAX_ENTRIES: usize = 100;
+    const SKIP_DIRS: &[&str] = &[
+        ".git",
+        "node_modules",
+        ".hg",
+        ".svn",
+        "target",
+        "__pycache__",
+        ".venv",
+    ];
 
-    let mut out = String::from("# Project Files\n\n");
-    out.push_str(
-        "The following files are shared across every session in this project. \
-         Use `project_read_file(file_id=..., offset=..., limit=...)` (or `name=...`) \
-         to open any of them on demand.\n\n",
-    );
-
-    // Layer 1: catalog — always emitted, cheap.
-    out.push_str("## Available Files\n\n");
-    for f in files {
-        let size_kb = f.size_bytes as f64 / 1024.0;
-        let icon = file_icon_for_mime(f.mime_type.as_deref());
-        let extracted_note = match f.extracted_chars {
-            Some(n) if n > 0 => format!("{} chars extracted", n),
-            _ => "binary — not readable as text".to_string(),
-        };
-        out.push_str(&format!(
-            "- {} **{}** — {:.1} KB, {}  \n  `file_id: {}`\n",
-            icon, f.name, size_kb, extracted_note, f.id
-        ));
-    }
-
-    // Layer 2: inline small text files up to the byte budget.
-    let mut inlined_bytes = 0usize;
-    let mut inline_buf = String::new();
-    for f in files {
-        let ext_path = match &f.extracted_path {
-            Some(p) if !p.is_empty() => p,
-            _ => continue,
-        };
-        let chars = f.extracted_chars.unwrap_or(0);
-        if chars <= 0 || chars > 4096 {
+    let read = std::fs::read_dir(path).ok()?;
+    let mut dirs: Vec<String> = Vec::new();
+    let mut files: Vec<String> = Vec::new();
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
             continue;
         }
-        let base = match crate::paths::projects_dir() {
-            Ok(d) => d,
-            Err(_) => break,
-        };
-        let full = base.join(ext_path);
-        let text = match std::fs::read_to_string(&full) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        if inlined_bytes + text.len() > inline_budget_bytes {
-            continue;
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            dirs.push(format!("{}/", name));
+        } else {
+            files.push(name);
         }
-        inline_buf.push_str(&format!(
-            "\n### {} (full content)\n\n```\n{}\n```\n",
-            f.name, text
-        ));
-        inlined_bytes += text.len();
     }
-
-    if !inline_buf.is_empty() {
-        out.push_str("\n## Inlined Small Files\n");
-        out.push_str(&inline_buf);
+    if dirs.is_empty() && files.is_empty() {
+        return None;
     }
-
-    let _ = project_id; // currently unused; reserved for per-project budget overrides
-    out
-}
-
-/// Pick a short emoji/icon label for the given MIME type. Keeps the catalog
-/// compact without pulling in an actual icon font.
-fn file_icon_for_mime(mime: Option<&str>) -> &'static str {
-    let mime = mime.unwrap_or("");
-    if mime.starts_with("image/") {
-        "🖼️"
-    } else if mime.starts_with("audio/") {
-        "🎵"
-    } else if mime.starts_with("video/") {
-        "🎬"
-    } else if mime == "application/pdf" {
-        "📄"
-    } else if mime.contains("word") || mime.contains("officedocument") {
-        "📝"
-    } else if mime.contains("spreadsheet") || mime.contains("excel") {
-        "📊"
-    } else if mime.contains("zip") || mime.contains("compressed") || mime.contains("tar") {
-        "🗜️"
-    } else if mime.starts_with("text/") || mime.contains("json") || mime.contains("xml") {
-        "📃"
-    } else {
-        "📁"
+    dirs.sort();
+    files.sort();
+    let total = dirs.len() + files.len();
+    let mut lines: Vec<String> = dirs.into_iter().chain(files).collect();
+    let truncated = lines.len() > MAX_ENTRIES;
+    lines.truncate(MAX_ENTRIES);
+    let mut out = lines
+        .into_iter()
+        .map(|n| format!("- {}", n))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if truncated {
+        out.push_str(&format!("\n- … ({} more)", total - MAX_ENTRIES));
     }
+    Some(out)
 }

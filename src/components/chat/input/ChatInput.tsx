@@ -17,6 +17,7 @@ import {
   X,
   Plus,
   FolderPlus,
+  FolderTree,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type { AvailableModel, ActiveModel, ChatTurnStatus, SessionMode } from "@/types/chat"
@@ -99,6 +100,8 @@ interface ChatInputProps {
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
   onTogglePlanPanel?: () => void
+  /** Toggle the right-side file browser. Undefined when no working directory. */
+  onToggleFilesPanel?: () => void
   // Session-scoped Todo progress
   taskProgressSnapshot?: TaskProgressSnapshot | null
   executionState?: ChatTurnStatus | null
@@ -139,6 +142,7 @@ export default function ChatInput({
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
+  onToggleFilesPanel,
   taskProgressSnapshot,
   executionState,
   hero = false,
@@ -438,6 +442,18 @@ export default function ChatInput({
       )}
       <AttachImageButton onAttachFiles={onAttachFiles} />
       <AttachFileButton onAttachFiles={onAttachFiles} />
+      {onToggleFilesPanel && (
+        <IconTip label={t("fileBrowser.open", "Open file browser")}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+            onClick={onToggleFilesPanel}
+          >
+            <FolderTree className="h-4 w-4" />
+          </Button>
+        </IconTip>
+      )}
       <IconTip label={t("slashCommands.buttonTip")}>
         <Button
           variant="ghost"

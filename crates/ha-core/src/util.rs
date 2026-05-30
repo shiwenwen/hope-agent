@@ -222,6 +222,22 @@ pub fn canonicalize_working_dir(input: Option<&str>) -> anyhow::Result<Option<St
     Ok(Some(canon.to_string_lossy().to_string()))
 }
 
+/// Ensure a directory exists (creating it and any missing parents) and return
+/// its canonical absolute path.
+///
+/// Unlike [`canonicalize_working_dir`] — which only validates an already
+/// existing, user-selected directory — this **creates** the directory. Used for
+/// the per-project default workspace, which is materialized lazily on first use
+/// rather than being persisted into the DB.
+pub fn ensure_dir_canonical(path: &std::path::Path) -> anyhow::Result<String> {
+    std::fs::create_dir_all(path)
+        .map_err(|e| anyhow::anyhow!("Cannot create directory '{}': {}", path.display(), e))?;
+    let canon = path
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("Cannot resolve directory '{}': {}", path.display(), e))?;
+    Ok(canon.to_string_lossy().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

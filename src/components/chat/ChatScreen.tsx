@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FolderTree,
   GitCompare,
   Globe,
   Monitor,
@@ -31,6 +32,8 @@ import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
+import { FileBrowserView } from "@/components/chat/project/file-browser/FileBrowserView"
+import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
@@ -98,12 +101,13 @@ interface ChatScreenProps {
   onChatInsertConsumed?: () => void
 }
 
-type ExclusiveRightPanel = "diff" | "plan" | "browser" | "mac-control" | "canvas" | "team"
+type ExclusiveRightPanel = "diff" | "plan" | "files" | "browser" | "mac-control" | "canvas" | "team"
 type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
 const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "diff",
   "plan",
+  "files",
   "browser",
   "mac-control",
   "canvas",
@@ -113,6 +117,7 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
 const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   diff: false,
   plan: false,
+  files: false,
   browser: false,
   "mac-control": false,
   canvas: false,
@@ -122,6 +127,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
 const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   diff: GitCompare,
   plan: ClipboardList,
+  files: FolderTree,
   browser: Globe,
   "mac-control": MousePointer2,
   canvas: Monitor,
@@ -264,6 +270,7 @@ export default function ChatScreen({
   // tracks the dismissal until a session switch resets it.
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
+  const [showFilesPanel, setShowFilesPanel] = useState(false)
   const [showMacControlPanel, setShowMacControlPanel] = useState(false)
   const macControlPanelDismissedRef = useRef(false)
 
@@ -1429,6 +1436,7 @@ export default function ChatScreen({
     () => ({
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
+      files: showFilesPanel && !!effectiveWorkingDir,
       browser: showBrowserPanel,
       "mac-control": showMacControlPanel,
       canvas: canvasPanelOpen,
@@ -1437,9 +1445,11 @@ export default function ChatScreen({
     [
       activeTeamId,
       canvasPanelOpen,
+      effectiveWorkingDir,
       isDiffPanelVisible,
       shouldShowPlanPanel,
       showBrowserPanel,
+      showFilesPanel,
       showMacControlPanel,
       showTeamPanel,
     ],
@@ -1465,6 +1475,8 @@ export default function ChatScreen({
           return t("diffPanel.title", "Diff")
         case "plan":
           return t("planMode.panelTitle", "Plan")
+        case "files":
+          return t("fileBrowser.panelTitle", "Files")
         case "browser":
           return t("browser.panelTitle", "Browser")
         case "mac-control":
@@ -1476,6 +1488,17 @@ export default function ChatScreen({
       }
     },
     [t],
+  )
+
+  // Quote selected file content into the composer as a friendly reference
+  // (path + line range + fenced content), inserted at the end of the draft.
+  const handleFileQuote = useCallback(
+    (q: QuotePayload) => {
+      const lines = q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
+      const ref = `\n\n> ${q.name} (L${lines})\n\n\`\`\`\n${q.content}\n\`\`\`\n\n`
+      stream.setInput((prev) => (prev ? `${prev}${ref}` : ref.trimStart()))
+    },
+    [stream],
   )
   const rightPanelKey = renderedExclusiveRightPanel
   const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
@@ -1876,6 +1899,9 @@ export default function ChatScreen({
                     onEnterPlanMode={planMode.enterPlanMode}
                     onExitPlanMode={planMode.exitPlanMode}
                     onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                    onToggleFilesPanel={
+                      effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
+                    }
                     taskProgressSnapshot={taskProgressSnapshot}
                     executionState={
                       session.currentSessionId
@@ -1980,6 +2006,42 @@ export default function ChatScreen({
                 onRequestChanges={handleRequestChanges}
                 embedded
               />
+            </RightPanelShell>
+          )}
+
+          {/* Project file browser (right side, scoped to the working dir) */}
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files" && (
+            <RightPanelShell
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
+              resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
+              maxWidth={1000}
+            >
+              <div className="flex h-full flex-col">
+                <div className="flex items-center border-b px-2 py-1">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t("fileBrowser.panelTitle", "Files")}
+                  </span>
+                  <IconTip label={t("common.close", "Close")}>
+                    <button
+                      type="button"
+                      className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent"
+                      onClick={() => setShowFilesPanel(false)}
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </IconTip>
+                </div>
+                <FileBrowserView
+                  scope="session"
+                  scopeId={session.currentSessionId}
+                  rootPath={effectiveWorkingDir}
+                  editable
+                  layout="split"
+                  onQuote={handleFileQuote}
+                  className="min-h-0 flex-1"
+                />
+              </div>
             </RightPanelShell>
           )}
 

@@ -15,6 +15,8 @@ import type {
   FileSearchResponse,
   ExportSessionArgs,
   ExportSessionResult,
+  ProjectFsScope,
+  UploadResult,
 } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
@@ -126,6 +128,43 @@ export class TauriTransport implements Transport {
     // The working-dir picker still prefers the native dialog, but it can use
     // this too when needed.
     return invoke<DirListing>("fs_list_dir", { path: path ?? null });
+  }
+
+  async projectFsRawUrl(
+    args: ProjectFsScope & { path: string; download?: boolean },
+  ): Promise<string | null> {
+    // Resolve the workspace-relative path to a canonical absolute path, then
+    // hand it to the asset protocol for `<img>` / `<iframe>` preview.
+    try {
+      const abs = await invoke<string>("project_fs_resolve", {
+        scope: args.scope,
+        scopeId: args.scopeId,
+        path: args.path,
+      });
+      return abs ? convertFileSrc(abs) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async projectFsUpload(
+    args: ProjectFsScope & {
+      dirPath: string;
+      data: Blob;
+      fileName: string;
+      mimeType?: string;
+      overwrite?: boolean;
+    },
+  ): Promise<UploadResult> {
+    const bytes = Array.from(new Uint8Array(await args.data.arrayBuffer()));
+    return invoke<UploadResult>("project_fs_upload", {
+      scope: args.scope,
+      scopeId: args.scopeId,
+      dirPath: args.dirPath,
+      fileName: args.fileName,
+      data: bytes,
+      overwrite: args.overwrite ?? false,
+    });
   }
 
   async searchFiles(root: string, q: string, limit?: number): Promise<FileSearchResponse> {

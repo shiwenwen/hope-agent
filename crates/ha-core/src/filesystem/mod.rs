@@ -65,6 +65,18 @@ impl From<std::io::Error> for FilesystemError {
 
 pub type Result<T> = std::result::Result<T, FilesystemError>;
 
+// ---- Project file-browser API (workspace-scoped CRUD) ----------------------
+
+mod ops;
+mod workspace;
+
+pub use ops::{
+    project_delete, project_fs_extract, project_list_dir, project_mkdir, project_read_text,
+    project_rename, project_upload, project_write_text, ExtractedContent, FileTextContent,
+    RenameResult, UploadResult, WorkspaceEntry, WorkspaceListing, WriteResult,
+};
+pub use workspace::WorkspaceScope;
+
 // ---- DTOs ------------------------------------------------------------------
 
 /// Cap so huge directories (`/nix/store`, populated `node_modules`, …) don't

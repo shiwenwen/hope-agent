@@ -9,14 +9,9 @@ use super::working_dir_instructions::collect_working_dir_instructions;
 use crate::agent_config::AgentDefinition;
 use crate::memory::{MemoryBudgetConfig, MemoryEntry};
 use crate::permission::SessionMode;
-use crate::project::{Project, ProjectFile};
+use crate::project::Project;
 use crate::skills;
 use crate::user_config;
-
-/// Default inline budget for small project-file contents, in bytes.
-/// Kept conservative so the "Project Files" section never blows up the
-/// prompt size on its own.
-const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 
 // ── Build System Prompt ──────────────────────────────────────────
 
@@ -39,9 +34,8 @@ const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 /// ⑩ Sub-agent delegation (conditional)
 /// ⑪ Sandbox mode (conditional)
 /// ⑦b Current Project (conditional — when session belongs to a project)
-/// ⑦c Project Files catalog + small-file inlining (conditional)
-/// ⑦d Session working directory + auto-injected AGENTS.md/CLAUDE.md and
-///     transitive `@`-includes (conditional — when user selected one)
+/// ⑦d Session working directory + a top-level file listing + auto-injected
+///     AGENTS.md/CLAUDE.md and transitive `@`-includes (conditional)
 /// ⑬ ACP external agents (conditional)
 pub fn build(
     definition: &AgentDefinition,
@@ -51,7 +45,6 @@ pub fn build(
     memory_budget: &MemoryBudgetConfig,
     agent_home: Option<&str>,
     project: Option<&Project>,
-    project_files: &[ProjectFile],
     session_id: Option<&str>,
     incognito: bool,
     session_working_dir: Option<&str>,
@@ -241,18 +234,6 @@ pub fn build(
     if !definition.config.openclaw_mode {
         if let Some(proj) = project {
             sections.push(build_project_context_section(proj));
-
-            // ⑦c Project Files — catalog + inlined small files
-            if !project_files.is_empty() {
-                let files_section = build_project_files_section(
-                    &proj.id,
-                    project_files,
-                    DEFAULT_PROJECT_FILES_INLINE_BUDGET,
-                );
-                if !files_section.is_empty() {
-                    sections.push(files_section);
-                }
-            }
         }
     }
 
@@ -720,7 +701,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             Some("/srv/projects/demo"),
@@ -748,7 +728,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -762,7 +741,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             Some("   "),
@@ -812,7 +790,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -837,7 +814,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -862,7 +838,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -877,7 +852,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -903,7 +877,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -929,7 +902,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -956,7 +928,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             false,
             None,
@@ -982,7 +953,6 @@ mod memory_section_tests {
             &budget,
             None,
             None,
-            &[],
             None,
             true,
             None,
