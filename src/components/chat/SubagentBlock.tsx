@@ -7,6 +7,7 @@ import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
 import { loadAgents, statusConfig, TERMINAL_STATUSES } from "./subagentShared"
+import SubagentRunDetails from "./SubagentRunDetails"
 
 interface SubagentBlockProps {
   runId: string
@@ -68,9 +69,9 @@ export default function SubagentBlock({
         if (run.durationMs) setDurationMs(run.durationMs)
         if (run.label) setLabel(run.label)
         if (run.modelUsed) setModelUsed(run.modelUsed)
-        if (run.inputTokens) setInputTokens(run.inputTokens)
-        if (run.outputTokens) setOutputTokens(run.outputTokens)
-        if (run.attachmentCount) setAttachmentCount(run.attachmentCount)
+        if (run.inputTokens != null) setInputTokens(run.inputTokens)
+        if (run.outputTokens != null) setOutputTokens(run.outputTokens)
+        if (run.attachmentCount != null) setAttachmentCount(run.attachmentCount)
         if (run.childSessionId) setChildSessionId(run.childSessionId)
       })
       .catch(() => {})
@@ -87,8 +88,9 @@ export default function SubagentBlock({
       if (payload.error) setError(payload.error)
       if (payload.durationMs) setDurationMs(payload.durationMs)
       if (payload.label) setLabel(payload.label)
-      if (payload.inputTokens) setInputTokens(payload.inputTokens)
-      if (payload.outputTokens) setOutputTokens(payload.outputTokens)
+      if (payload.inputTokens != null) setInputTokens(payload.inputTokens)
+      if (payload.outputTokens != null) setOutputTokens(payload.outputTokens)
+      if (payload.childSessionId) setChildSessionId(payload.childSessionId)
     })
   }, [runId])
 
@@ -100,8 +102,6 @@ export default function SubagentBlock({
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
 
   const canViewSession = !!(onSwitchSession && childSessionId)
-  const rowInteractive = isTerminal || canViewSession
-
   async function handleCancel() {
     if (isTerminal || cancelling) return
     setCancelling(true)
@@ -121,28 +121,21 @@ export default function SubagentBlock({
       <div
         className={cn(
           "flex items-center rounded-lg transition-colors",
-          // Only show row-hover tint when *something* in the row is actually
-          // interactable — otherwise disabled rows visually fake affordance.
-          rowInteractive && "hover:bg-secondary/80",
+          "hover:bg-secondary/80",
         )}
       >
         <button
           type="button"
           className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 text-left disabled:cursor-default"
-          onClick={() => isTerminal && setExpanded(!expanded)}
-          disabled={!isTerminal}
-          aria-expanded={isTerminal ? expanded : undefined}
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
         >
-          {!isTerminal ? (
-            <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
-          ) : (
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
-                expanded && "rotate-90",
-              )}
-            />
-          )}
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
+              expanded && "rotate-90",
+            )}
+          />
           {emoji ? (
             <span className="shrink-0 leading-none" aria-hidden>
               {emoji}
@@ -158,6 +151,11 @@ export default function SubagentBlock({
           <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
             {toolLabel}
           </span>
+          <IconTip label={runId}>
+            <span className="text-[10px] text-muted-foreground/70 font-mono shrink-0 hidden md:inline">
+              {runId.slice(0, 8)}
+            </span>
+          </IconTip>
           {attachmentCount > 0 && (
             <span className="flex items-center gap-0.5 text-muted-foreground shrink-0">
               <Paperclip className="h-2.5 w-2.5" />
@@ -223,10 +221,20 @@ export default function SubagentBlock({
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && (resultFull || error) ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0",
+          expanded ? "max-h-[760px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
-        <div className="px-2.5 pb-2 pt-0.5 max-h-[600px] overflow-y-auto">
+        <div className="space-y-2 px-2.5 pb-2 pt-0.5 max-h-[760px] overflow-y-auto">
+          <SubagentRunDetails
+            runId={runId}
+            agentId={agentId}
+            childSessionId={childSessionId}
+            task={task}
+            modelUsed={modelUsed}
+            durationMs={durationMs}
+            inputTokens={inputTokens}
+            outputTokens={outputTokens}
+          />
           {error && (
             <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
               {error}
