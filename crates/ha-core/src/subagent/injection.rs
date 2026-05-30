@@ -103,11 +103,52 @@ pub(crate) fn build_subagent_push_message(
     error: Option<&str>,
 ) -> String {
     let duration = format!("{:.1}s", duration_ms as f64 / 1000.0);
-    let content = result.or(error).unwrap_or("(no output)");
+    let result_block = result
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| format!("<result>\n{}\n</result>\n", escape_xml_text(text.trim())))
+        .unwrap_or_default();
+    let error_block = error
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| format!("<error>\n{}\n</error>\n", escape_xml_text(text.trim())))
+        .unwrap_or_default();
+    let output_block = if result_block.is_empty() && error_block.is_empty() {
+        "<result>(no output)</result>\n".to_string()
+    } else {
+        format!("{}{}", result_block, error_block)
+    };
+    let summary = format!(
+        "Sub-agent \"{}\" finished with status \"{}\" in {}.",
+        agent_id,
+        status.as_str(),
+        duration
+    );
     format!(
-        "[Sub-Agent Completion — auto-delivered]\nRun ID: {}\nAgent: {}\nTask: {}\nStatus: {}\nDuration: {}\n<<<BEGIN_SUBAGENT_RESULT>>>\n{}\n<<<END_SUBAGENT_RESULT>>>",
-        run_id, agent_id, truncate_str(task, 50), status.as_str(), duration, content
+        "<subagent-result>\n\
+         <run-id>{}</run-id>\n\
+         <agent>{}</agent>\n\
+         <status>{}</status>\n\
+         <duration-ms>{}</duration-ms>\n\
+         <duration>{}</duration>\n\
+         <task>{}</task>\n\
+         {}\
+         <summary>{}</summary>\n\
+         </subagent-result>",
+        escape_xml_text(run_id),
+        escape_xml_text(agent_id),
+        escape_xml_text(status.as_str()),
+        duration_ms,
+        escape_xml_text(&duration),
+        escape_xml_text(&truncate_str(task, 50)),
+        output_block,
+        escape_xml_text(&summary)
     )
+}
+
+fn escape_xml_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Backend-driven result injection: wait for idle, then run the parent agent with the push message.
@@ -464,5 +505,30 @@ pub(crate) async fn inject_and_run_parent(
             delta: None,
             error: Some(format!("All models failed: {}", last_error)),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subagent_push_message_uses_xmlish_payload_and_escapes_text() {
+        let msg = build_subagent_push_message(
+            "run<&",
+            "agent>&",
+            "read <file> & report",
+            &SubagentStatus::Completed,
+            1234,
+            Some("ok <done> & safe"),
+            None,
+        );
+
+        assert!(msg.starts_with("<subagent-result>"));
+        assert!(msg.contains("<run-id>run&lt;&amp;</run-id>"));
+        assert!(msg.contains("<agent>agent&gt;&amp;</agent>"));
+        assert!(msg.contains("<task>read &lt;file&gt; &amp; report</task>"));
+        assert!(msg.contains("<result>\nok &lt;done&gt; &amp; safe\n</result>"));
+        assert!(!msg.contains("BEGIN_SUBAGENT_RESULT"));
     }
 }

@@ -110,23 +110,50 @@ function getXmlishElement(content: string, name: string): string | undefined {
   return match?.[1]?.trim()
 }
 
+function decodeXmlishText(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+}
+
 function parseToolJobPayload(
   content: string,
 ): { toolName?: string; status?: string; detail?: string } | null {
   const match = content.match(/<tool-job-result\b([^>]*)>/)
-  if (!match) return null
-  const attrs = match[1] || ""
+  if (match) {
+    const attrs = match[1] || ""
+    return {
+      toolName: decodeXmlishText(getXmlishAttribute(attrs, "tool")),
+      status: decodeXmlishText(getXmlishAttribute(attrs, "status")),
+      detail:
+        decodeXmlishText(getXmlishElement(content, "output")) ||
+        decodeXmlishText(getXmlishElement(content, "error")) ||
+        decodeXmlishText(getXmlishElement(content, "note")),
+    }
+  }
+
+  if (!content.includes("<task-notification>")) {
+    return null
+  }
   return {
-    toolName: getXmlishAttribute(attrs, "tool"),
-    status: getXmlishAttribute(attrs, "status"),
+    toolName: decodeXmlishText(getXmlishElement(content, "tool")),
+    status: decodeXmlishText(getXmlishElement(content, "status")),
     detail:
-      getXmlishElement(content, "output") ||
-      getXmlishElement(content, "error") ||
-      getXmlishElement(content, "note"),
+      decodeXmlishText(getXmlishElement(content, "output-preview")) ||
+      decodeXmlishText(getXmlishElement(content, "error")) ||
+      decodeXmlishText(getXmlishElement(content, "summary")) ||
+      decodeXmlishText(getXmlishElement(content, "output-file")),
   }
 }
 
 function parseSubagentResultDetail(content: string): string | undefined {
+  const xmlDetail =
+    decodeXmlishText(getXmlishElement(content, "result")) ||
+    decodeXmlishText(getXmlishElement(content, "error"))
+  if (xmlDetail) return xmlDetail
+
   const match = content.match(
     /<<<BEGIN_SUBAGENT_RESULT>>>\n?([\s\S]*?)\n?<<<END_SUBAGENT_RESULT>>>/,
   )
@@ -134,11 +161,14 @@ function parseSubagentResultDetail(content: string): string | undefined {
 }
 
 function parseSubagentResultStatus(content: string): string {
-  const status = content.match(/^Status:\s*(\S+)/m)?.[1]
+  const status =
+    decodeXmlishText(getXmlishElement(content, "status")) ||
+    content.match(/^Status:\s*(\S+)/m)?.[1]
   switch (status) {
     case "completed":
       return "completed"
     case "timeout":
+    case "timed_out":
       return "timed_out"
     case "killed":
       return "cancelled"

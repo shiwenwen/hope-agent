@@ -182,7 +182,7 @@ const TOOL_DESC_SEND_NOTIFICATION: &str = "\
 const TOOL_DESC_SUBAGENT: &str = "\
 - subagent: Spawn and manage sub-agents to delegate tasks.\n\
   - Actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all, spawn_and_wait\n\
-  - Sub-agents run asynchronously — results are auto-pushed when complete\n\
+  - Sub-agents run asynchronously — results are auto-pushed as `<subagent-result>` user messages when complete\n\
   - spawn_and_wait: spawn + wait up to foreground_timeout (default 30s, max 120s). If completes in time, returns result inline. Otherwise auto-backgrounds — result injected later\n\
   - Use steer to redirect a running sub-agent without killing it";
 
