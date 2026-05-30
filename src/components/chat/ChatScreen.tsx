@@ -1490,13 +1490,12 @@ export default function ChatScreen({
     [t],
   )
 
-  // Quote selected file content into the composer as a friendly reference
-  // (path + line range + fenced content), inserted at the end of the draft.
+  // Stage a "quote to chat" reference as a removable chip above the composer.
+  // On send it becomes a quote attachment: the model sees a <file_reference>
+  // block, the user only ever sees a friendly quote card.
   const handleFileQuote = useCallback(
     (q: QuotePayload) => {
-      const lines = q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
-      const ref = `\n\n> ${q.name} (L${lines})\n\n\`\`\`\n${q.content}\n\`\`\`\n\n`
-      stream.setInput((prev) => (prev ? `${prev}${ref}` : ref.trimStart()))
+      stream.setPendingQuotes((prev) => [...prev, q])
     },
     [stream],
   )
@@ -1871,6 +1870,10 @@ export default function ChatScreen({
                     }
                     onRemoveFile={(index) =>
                       stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+                    }
+                    pendingQuotes={stream.pendingQuotes}
+                    onRemoveQuote={(index) =>
+                      stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
                     }
                     pendingMessage={stream.pendingMessage}
                     onCancelPending={() => {

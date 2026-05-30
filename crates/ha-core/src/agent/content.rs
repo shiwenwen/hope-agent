@@ -12,6 +12,22 @@ pub(super) fn process_file_attachments(
     let mut extra_images = Vec::new();
 
     for att in attachments {
+        // File-browser "quote to chat": emit a <file_reference> block from the
+        // carried snippet instead of reading a file. The user only ever sees a
+        // friendly quote card; the model sees this structured reference.
+        if att.source.as_deref() == Some("quote") {
+            let path = att.file_path.as_deref().unwrap_or(att.name.as_str());
+            let snippet = att.data.as_deref().unwrap_or("");
+            let lines_attr = match att.quote_lines.as_deref().filter(|s| !s.is_empty()) {
+                Some(lines) => format!(" lines=\"{}\"", lines),
+                None => String::new(),
+            };
+            file_texts.push(format!(
+                "<file_reference path=\"{}\"{}>\n{}\n</file_reference>",
+                path, lines_attr, snippet
+            ));
+            continue;
+        }
         if att.mime_type.starts_with("image/") {
             continue; // Images are handled as multimodal content blocks
         }

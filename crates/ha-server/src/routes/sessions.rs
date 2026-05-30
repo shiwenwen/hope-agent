@@ -218,6 +218,12 @@ fn rewrite_user_attachment_items_for_http(
         let Value::Object(mut obj) = item else {
             continue;
         };
+        // Leave quote reference cards untouched — their `path` is a
+        // workspace-relative reference, not a session attachment file to serve.
+        if obj.get("kind").and_then(Value::as_str) == Some("quote") {
+            rewritten.push(Value::Object(obj));
+            continue;
+        }
         let path = obj.get("path").and_then(Value::as_str).map(str::trim);
         if let Some(path) = path {
             let path = PathBuf::from(path);
@@ -1066,6 +1072,7 @@ mod tests {
                 source: Some("upload".to_string()),
                 data: None,
                 file_path: Some(saved),
+                quote_lines: None,
             }];
             let meta = ha_core::attachments::persist_chat_user_attachments_meta(
                 session_id,

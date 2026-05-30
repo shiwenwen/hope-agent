@@ -18,9 +18,11 @@ import type { MediaItem, SessionMode } from "@/types/chat";
 export interface ChatAttachment {
   name: string;
   mime_type: string;
-  source?: "upload" | "mention" | "plan_mention";
+  source?: "upload" | "mention" | "plan_mention" | "quote";
   data?: string;
   file_path?: string;
+  /** For `source: "quote"`: 1-based line range of the quoted snippet ("12-20"). */
+  quote_lines?: string;
 }
 
 /**
