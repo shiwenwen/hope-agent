@@ -96,11 +96,16 @@ export function ShikiCodeView({
     }
     const a = lineOf(sel.anchorNode)
     const b = lineOf(sel.focusNode)
-    if (a == null || b == null) {
-      onSelectionChange({ startLine: 1, endLine: text.split("\n").length, text })
+    // Use whichever endpoint resolved to a line; only bail when neither does
+    // (selection landed entirely outside the rendered lines). Guessing
+    // "lines 1..N" there would attach a wrong line range to the quote.
+    const lo = a ?? b
+    const hi = b ?? a
+    if (lo == null || hi == null) {
+      onSelectionChange(null)
       return
     }
-    onSelectionChange({ startLine: Math.min(a, b), endLine: Math.max(a, b), text })
+    onSelectionChange({ startLine: Math.min(lo, hi), endLine: Math.max(lo, hi), text })
   }
 
   if (tooLarge || (!loading && !html)) {

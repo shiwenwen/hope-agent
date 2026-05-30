@@ -29,6 +29,7 @@ import {
 
 import { IconTip } from "@/components/ui/tooltip"
 import { isTauriMode } from "@/lib/transport"
+import { cn } from "@/lib/utils"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { FileBrowserView } from "./project/file-browser/FileBrowserView"
 import type { QuotePayload } from "./project/file-browser/FilePreviewPane"
@@ -146,7 +147,9 @@ export function FileBrowserPanel({
   if (!visible) return null
 
   const titleBar = (
-    <div className="flex items-center gap-1 border-b px-2 py-1">
+    // When maximized the panel covers the whole window (fixed inset-0), so pad
+    // the top to clear the macOS overlay traffic lights — mirrors CanvasPanel.
+    <div className={cn("flex items-center gap-1 border-b px-2 py-1", maximized && "pt-7")}>
       <FolderTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="text-xs font-medium text-muted-foreground">
         {t("fileBrowser.panelTitle", "Files")}
@@ -190,6 +193,7 @@ export function FileBrowserPanel({
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onClick={() => {
               if (detached) handleReattach()
+              setMaximized(false)
               onClose()
             }}
           >
@@ -224,16 +228,13 @@ export function FileBrowserPanel({
     </div>
   )
 
-  if (maximized) {
-    return <div className="fixed inset-0 z-50 flex flex-col bg-background">{body}</div>
-  }
-
   return (
     <RightPanelShell
       width={panelWidth}
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
       maxWidth={1000}
+      maximized={maximized}
     >
       {body}
     </RightPanelShell>

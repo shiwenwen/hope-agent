@@ -35,7 +35,8 @@
         "enable": true,
         "scope": [
           "$RESOURCE/**",
-          "$HOME/.hope-agent/**"
+          "$HOME/.hope-agent/**",
+          "$HOME/**"
         ]
       }
     }
