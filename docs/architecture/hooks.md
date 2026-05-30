@@ -165,6 +165,7 @@ fire 路径 → scopes::any_handlers_for(event, cwd)  // fast-path：无 handler
 - **UNION 语义**：所有命中 scope 的 hook 都跑，无覆盖。
 - project/local 依赖会话工作目录（`sessions.working_dir`，无 home 回退），dispatch 时经 [`scopes::resolve_for_cwd`](../../crates/ha-core/src/hooks/scopes.rs) 合并到全局之上，**per-cwd 缓存**（mtime + 全局 reload generation 失效）；无 project/local 文件时返回全局 registry（≤2 次 stat）。
 - **project/local 默认关闭**（`hooks_allow_project_scope`，`AppConfig` 字段，默认 `false`）：仓库 check-in 的 hooks 不应因会话 cwd 指向就自动跑 shell / HTTP / LLM / 子 Agent（供应链防护）。开关为 `false` 时 `resolve_for_cwd` 直接返回全局、**绝不读取** project/local 文件；用户在 Settings → Hooks 显式开启才加载。
+- **已知限制 — 信任是全局而非按项目**（安全红线）：`hooks_allow_project_scope` 是单个全局布尔，**一旦开启便对所有工作目录生效**。为某个可信项目打开后，后续任意会话只要 cwd 指向另一个仓库，该仓库 check-in 的 project/local hooks 同样会执行——等于把"信任此项目"放大为"信任所有未来 cwd"。当前缓解仅靠**默认关闭** + 显式 opt-in；细粒度的 per-cwd / canonical-project 信任（首次发现即 TOFU 登记路径 + 可选文件 hash/mtime，解析前校验该 cwd 已单独授权，类比 VS Code workspace trust / `direnv allow`）属未落地项，见 [Roadmap](#15-roadmap未落地)。在该模型落地前，**只在信任所有可能进入的工作目录时才开启此开关**。
 - **`disable_all_hooks` 主开关**：同步短路返回**空** registry（不依赖异步 `config:changed` 重载，避免开关刚翻、旧 registry 仍被用的窗口），关闭所有 scope。
 - **热重载**：`config:changed` 触发 `registry::reload_from_config`（user+managed 合并 + bump generation），per-cwd 缓存随 generation 失效。
 
@@ -293,7 +294,7 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 - **零 secret 入日志**：审计日志里 `tool_input` / `prompt` 截断（`truncate_utf8`）+ 走 `redact_sensitive`；API Key / OAuth token 禁止进 hook input / env（AGENTS.md 红线）。
 - **SSRF 统一**：http hook URL 必走 `security::ssrf::check_url`，不跟随重定向（§7.2）。
 - **阻断事件 fail-closed**：http hook 在 PreToolUse / UserPromptSubmit / PreCompact 上，降级路径一律 Block（§7.2），防鉴权过期静默放行。
-- **供应链防护**：project/local 默认关（§5），仓库 hooks 不因 cwd 指向自动跑。
+- **供应链防护**：project/local 默认关（§5），仓库 hooks 不因 cwd 指向自动跑。**已知限制**：opt-in 是全局而非按项目——开启后所有 cwd 一律生效（详见 §5「信任是全局而非按项目」），per-cwd 细粒度信任见 Roadmap。
 - **kill switch 同步**：`disable_all_hooks` 同步短路空 registry，不留异步重载窗口。
 - **shell 注入**：hook 配置本身是 shell 字符串，用户自行 quote（GUI placeholder 预填 `"$CLAUDE_PROJECT_DIR"` + 空格路径警示）；stdin JSON 经 serde 编码无注入；stdout 用 `serde_json` 解析不 eval。
 - **审计埋点**（category=`hooks`，`audit.rs`）：`dispatch`（event/handler 数/决策/耗时）、各 `runner.*`、`decision`、`config`、`transcript`、`env`、`security`（SSRF 拒绝 / 未授权 env 引用）。
@@ -335,6 +336,9 @@ http hook 的 header value 按 `allowedEnvVars` 白名单做 `$VAR`/`${VAR}` 插
 - **Dashboard `hooks_health` 区块** + **Learning Tracker `hook_*` 事件** + **metrics rolling-window**（SQLite metrics + 自动清理窗口）。
 - **`CLAUDE_ENV_FILE` 机制**：让 hook 在 SessionStart / CwdChanged / FileChanged 持久化 session 级 env（`env.rs` 已留位）。
 - **并发 / 资源上限可调**：`max_parallel_handlers` / `http_max_concurrent` 等 tunable。
+
+### 安全模型
+- **per-cwd / per-project 信任存储**：把当前全局的 `hooks_allow_project_scope` 升级为细粒度信任——首次在某 cwd 发现 project/local hooks 时 TOFU 登记 canonical 路径（可选文件 hash/mtime），解析 project/local scope 前校验该 cwd 已单独授权；类比 VS Code workspace trust / `direnv allow`。解决 §5 / §12 登记的"信任放大到所有未来 cwd"限制。需配套 GUI 授权入口 + 传输命令。
 
 ### 协议深化
 - **`defer` headless 流**：需先做 `-p` 非交互模式（当前降级为 ask）。
