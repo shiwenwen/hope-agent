@@ -5,6 +5,7 @@ import { Loader2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RadioPills } from "@/components/ui/radio-pills"
+import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
@@ -12,6 +13,7 @@ type TimeoutAction = "deny" | "proceed"
 
 export default function ApprovalTimeoutSection() {
   const { t } = useTranslation()
+  const [enabled, setEnabled] = useState(false)
   const [seconds, setSeconds] = useState<number>(300)
   const [action, setAction] = useState<TimeoutAction>("deny")
   const [loading, setLoading] = useState(true)
@@ -21,11 +23,13 @@ export default function ApprovalTimeoutSection() {
   useEffect(() => {
     let cancelled = false
     Promise.all([
+      getTransport().call<boolean>("get_approval_timeout_enabled"),
       getTransport().call<number>("get_approval_timeout"),
       getTransport().call<TimeoutAction>("get_approval_timeout_action"),
     ])
-      .then(([s, a]) => {
+      .then(([e, s, a]) => {
         if (cancelled) return
+        setEnabled(e)
         setSeconds(s)
         setAction(a)
       })
@@ -42,6 +46,7 @@ export default function ApprovalTimeoutSection() {
     setSaving(true)
     try {
       await Promise.all([
+        getTransport().call("set_approval_timeout_enabled", { enabled }),
         getTransport().call("set_approval_timeout", { seconds }),
         getTransport().call("set_approval_timeout_action", { action }),
       ])
@@ -71,6 +76,24 @@ export default function ApprovalTimeoutSection() {
       </header>
 
       <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3 rounded-md bg-secondary/30 px-3 py-2">
+          <div>
+            <div className="text-xs font-medium text-foreground/80">
+              {t("settings.approvalPanel.timeoutEnabled")}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {t("settings.approvalPanel.timeoutEnabledDesc")}
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={(checked) => {
+              setEnabled(checked)
+              if (checked && seconds <= 0) setSeconds(300)
+            }}
+          />
+        </div>
+
         <div>
           <label className="text-xs font-medium text-foreground/80">
             {t("settings.approvalPanel.timeoutSeconds")}
@@ -82,6 +105,7 @@ export default function ApprovalTimeoutSection() {
               max={3600}
               value={seconds}
               onChange={(e) => setSeconds(Math.max(0, Number(e.target.value) || 0))}
+              disabled={!enabled}
               className="text-xs h-8 w-32"
             />
             <span className="text-[11px] text-muted-foreground">
@@ -97,8 +121,11 @@ export default function ApprovalTimeoutSection() {
           <div className="mt-1.5 max-w-xs">
             <RadioPills
               value={action}
-              onChange={setAction}
+              onChange={(next) => {
+                if (enabled) setAction(next)
+              }}
               cols="grid-cols-2"
+              className={!enabled ? "pointer-events-none opacity-50" : undefined}
               options={(["deny", "proceed"] as const).map((a) => ({
                 value: a,
                 label: t(`settings.approvalPanel.timeoutActions.${a}`),

@@ -100,7 +100,7 @@ function takePendingStreamDeltas(
   return pending
 }
 
-function flushPendingStreamDeltas(
+export function flushPendingStreamDeltas(
   sid: string,
   deps: StreamEventHandlerDeps,
   cancelScheduled: boolean,

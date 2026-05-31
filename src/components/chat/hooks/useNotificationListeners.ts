@@ -1,15 +1,19 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
 import { reloadAndMergeSessionMessages } from "../chatUtils"
-import { hasToolError } from "../message/executionStatus"
 import { PAGE_SIZE } from "../useChatSession"
+import {
+  createStreamDeltaBuffers,
+  discardAllPendingStreamDeltas,
+  discardPendingStreamDeltas,
+  flushPendingStreamDeltas,
+  handleStreamEvent,
+} from "./useStreamEventHandler"
 import type {
   Message,
-  MediaItem,
   ParentAgentStreamEvent,
-  ToolMetadata,
 } from "@/types/chat"
 
 export interface UseNotificationListenersDeps {
@@ -32,6 +36,18 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
     sessionCacheRef,
     reloadSessions,
   } = deps
+  const parentDeltaBuffersRef = useRef(createStreamDeltaBuffers())
+
+  const parentStreamHandlerDeps = {
+    deltaBuffersRef: parentDeltaBuffersRef,
+    updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+      setMessages((prev) => {
+        const next = updater(prev)
+        sessionCacheRef.current.set(sessionId, next)
+        return next
+      })
+    },
+  }
 
   // Listen for agent-initiated notification events
   useEffect(() => {
@@ -79,125 +95,19 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
       } else if (eventType === "delta" && delta && isCurrentSession) {
         try {
-          const ev = JSON.parse(delta)
+          const event = JSON.parse(delta) as Record<string, unknown>
           const sid = parentSessionId
-          if (ev.type === "text_delta" && ev.text) {
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last?.role === "assistant") {
-                updated[updated.length - 1] = {
-                  ...last,
-                  content: last.content + ev.text,
-                }
-                sessionCacheRef.current.set(sid, updated)
-              }
-              return updated
-            })
-          } else if (ev.type === "tool_call") {
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last?.role === "assistant") {
-                const toolCalls = [
-                  ...(last.toolCalls || []),
-                  {
-                    callId: ev.call_id,
-                    name: ev.name,
-                    arguments: ev.arguments || "",
-                    startedAtMs: Date.now(),
-                  },
-                ]
-                const blocks = [...(last.contentBlocks || [])]
-                if (last.content) blocks.push({ type: "text" as const, content: last.content })
-                blocks.push({
-                  type: "tool_call" as const,
-                  tool: toolCalls[toolCalls.length - 1],
-                })
-                updated[updated.length - 1] = {
-                  ...last,
-                  toolCalls,
-                  contentBlocks: blocks,
-                }
-                sessionCacheRef.current.set(sid, updated)
-              }
-              return updated
-            })
-          } else if (ev.type === "tool_result") {
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last?.role === "assistant" && last.toolCalls) {
-                const mediaItems: MediaItem[] | undefined =
-                  Array.isArray(ev.media_items) && (ev.media_items as MediaItem[]).length
-                    ? (ev.media_items as MediaItem[])
-                    : undefined
-                const toolMetadata: ToolMetadata | undefined =
-                  ev.tool_metadata && typeof ev.tool_metadata === "object"
-                    ? (ev.tool_metadata as ToolMetadata)
-                    : undefined
-                const current = last.toolCalls.find((tc) => tc.callId === ev.call_id)
-                const resolvedDurationMs = ev.duration_ms ?? (
-                  current?.startedAtMs ? Date.now() - current.startedAtMs : undefined
-                )
-                const isError = typeof ev.is_error === "boolean"
-                  ? ev.is_error
-                  : hasToolError({ result: ev.result })
-                const toolCalls = last.toolCalls.map((tc) =>
-                  tc.callId === ev.call_id
-                    ? {
-                        ...tc,
-                        result: ev.result,
-                        isError,
-                        ...(mediaItems && { mediaItems }),
-                        ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
-                        ...(toolMetadata ? { metadata: toolMetadata } : {}),
-                      }
-                    : tc,
-                )
-                const blocks = (last.contentBlocks || []).map((b) =>
-                  b.type === "tool_call" && b.tool?.callId === ev.call_id
-                    ? {
-                        ...b,
-                        tool: {
-                          ...b.tool!,
-                          result: ev.result,
-                          isError,
-                          ...(mediaItems && { mediaItems }),
-                          ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
-                          ...(toolMetadata ? { metadata: toolMetadata } : {}),
-                        },
-                      }
-                    : b,
-                )
-                updated[updated.length - 1] = {
-                  ...last,
-                  toolCalls,
-                  contentBlocks: blocks,
-                }
-                sessionCacheRef.current.set(sid, updated)
-              }
-              return updated
-            })
-          } else if (ev.type === "usage") {
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last?.role === "assistant") {
-                updated[updated.length - 1] = {
-                  ...last,
-                  usage: ev,
-                  model: ev.model,
-                }
-                sessionCacheRef.current.set(sid, updated)
-              }
-              return updated
-            })
-          }
+          if (!event?.type) return
+          handleStreamEvent(event, sid, parentStreamHandlerDeps)
         } catch {
           /* ignore parse errors */
         }
       } else if (eventType === "done" || eventType === "error") {
+        if (isCurrentSession) {
+          flushPendingStreamDeltas(parentSessionId, parentStreamHandlerDeps, true)
+        } else {
+          discardPendingStreamDeltas(parentSessionId, parentDeltaBuffersRef)
+        }
         if (eventType === "error") {
           logger.error("subagent", "inject", "Backend parent agent injection failed", payload.error)
         }
@@ -219,7 +129,10 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
         }
       }
     })
-    return unlisten
+    return () => {
+      unlisten()
+      discardAllPendingStreamDeltas(parentDeltaBuffersRef)
+    }
     // reloadSessions is useCallback([setSessions]) — setSessions is a stable
     // useState setter, so this effect subscribes once per mount in practice.
     // eslint-disable-next-line react-hooks/exhaustive-deps

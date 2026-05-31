@@ -3,12 +3,43 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use tokio::sync::Mutex as TokioMutex;
 
-use super::types::{AskUserQuestionAnswer, AskUserQuestionGroup};
+use super::types::{AskUserQuestionAnswer, AskUserQuestionGroup, AskUserTimedOutPayload};
 
 // ── EventBus event names ─────────────────────────────────────────
 
 /// Canonical event name for an interactive user-question request.
 pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";
+/// Canonical event name for a live ask_user_question request timing out.
+pub const EVENT_ASK_USER_TIMED_OUT: &str = "ask_user_timed_out";
+
+pub fn emit_ask_user_timed_out(
+    request_id: &str,
+    session_id: &str,
+    timeout_secs: u64,
+    used_default_values: bool,
+    question_preview: Option<String>,
+) {
+    let Some(bus) = crate::globals::get_event_bus() else {
+        return;
+    };
+    let payload = AskUserTimedOutPayload {
+        request_id: request_id.to_string(),
+        session_id: session_id.to_string(),
+        timeout_secs,
+        used_default_values,
+        question_preview,
+    };
+    match serde_json::to_value(payload) {
+        Ok(value) => bus.emit(EVENT_ASK_USER_TIMED_OUT, value),
+        Err(e) => app_warn!(
+            "ask_user",
+            "timeout",
+            "Failed to serialize ask_user timeout event {}: {}",
+            request_id,
+            e
+        ),
+    }
+}
 
 // ── Pending Ask-User Questions Registry (oneshot pattern) ────────
 

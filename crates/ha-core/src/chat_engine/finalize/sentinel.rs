@@ -90,37 +90,25 @@ pub fn read_and_clear() -> StartupCause {
 
 #[cfg(test)]
 mod tests {
-    //! All tests in this module share the `HA_DATA_DIR` env var (read
-    //! by `paths::root_dir`), so they're packed into a single test
-    //! function to avoid the cross-test race that `cargo test`'s
-    //! default thread-pool would create.
     use super::*;
 
     #[test]
     fn sentinel_lifecycle() {
         let tmp = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("HA_DATA_DIR");
-        // SAFETY: single-threaded scope inside this test.
-        std::env::set_var("HA_DATA_DIR", tmp.path());
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            // 1. Missing sentinel reads as Crash.
+            assert_eq!(read_and_clear(), StartupCause::Crash);
 
-        // 1. Missing sentinel reads as Crash.
-        assert_eq!(read_and_clear(), StartupCause::Crash);
+            // 2. write_clean_marker creates the file.
+            write_clean_marker();
+            assert!(sentinel_path().unwrap().exists());
 
-        // 2. write_clean_marker creates the file.
-        write_clean_marker();
-        assert!(sentinel_path().unwrap().exists());
+            // 3. read_and_clear reports Clean and removes the file.
+            assert_eq!(read_and_clear(), StartupCause::Clean);
+            assert!(!sentinel_path().unwrap().exists(), "must be removed");
 
-        // 3. read_and_clear reports Clean and removes the file.
-        assert_eq!(read_and_clear(), StartupCause::Clean);
-        assert!(!sentinel_path().unwrap().exists(), "must be removed");
-
-        // 4. Re-read after consume → Crash again.
-        assert_eq!(read_and_clear(), StartupCause::Crash);
-
-        if let Some(v) = prev {
-            std::env::set_var("HA_DATA_DIR", v);
-        } else {
-            std::env::remove_var("HA_DATA_DIR");
-        }
+            // 4. Re-read after consume -> Crash again.
+            assert_eq!(read_and_clear(), StartupCause::Crash);
+        });
     }
 }

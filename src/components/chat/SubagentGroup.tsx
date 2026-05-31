@@ -14,6 +14,7 @@ import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
+import SubagentRunDetails from "./SubagentRunDetails"
 import {
   loadAgents,
   statusConfig,
@@ -130,6 +131,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
           label: payload.label ?? cur.label,
           inputTokens: payload.inputTokens ?? cur.inputTokens,
           outputTokens: payload.outputTokens ?? cur.outputTokens,
+          childSessionId: payload.childSessionId ?? cur.childSessionId,
         })
         return next
       })
@@ -278,11 +280,8 @@ function SubagentRow({
   // Only mark as missing after the metadata load has resolved
   const agentMissing = agentMetasLoaded && !agentMeta
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
-  const hasContent = !!(state?.resultFull || state?.error)
-  const canExpand = isTerminal && hasContent
   const childSessionId = state?.childSessionId
   const canViewSession = !!(onSwitchSession && childSessionId)
-  const rowInteractive = canExpand || canViewSession
 
   async function handleCancel() {
     if (isTerminal || cancelling) return
@@ -302,28 +301,21 @@ function SubagentRow({
       <div
         className={cn(
           "flex items-center transition-colors",
-          rowInteractive && "hover:bg-secondary/60",
+          "hover:bg-secondary/60",
         )}
       >
         <button
           type="button"
           className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1 text-left disabled:cursor-default"
-          onClick={() => canExpand && setExpanded(!expanded)}
-          disabled={!canExpand}
-          aria-expanded={canExpand ? expanded : undefined}
+          onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
         >
-          {!isTerminal ? (
-            <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0 text-muted-foreground/60" />
-          ) : hasContent ? (
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
-                expanded && "rotate-90",
-              )}
-            />
-          ) : (
-            <span className="h-3 w-3 shrink-0" />
-          )}
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+              expanded && "rotate-90",
+            )}
+          />
           {emoji ? (
             <span className="shrink-0 leading-none" aria-hidden>
               {emoji}
@@ -334,6 +326,11 @@ function SubagentRow({
           <IconTip label={nameTooltip || friendlyName}>
             <span className="font-medium text-foreground truncate max-w-[40%]">
               {friendlyName}
+            </span>
+          </IconTip>
+          <IconTip label={run.runId}>
+            <span className="text-muted-foreground/60 font-mono text-[10px] shrink-0 hidden md:inline">
+              {run.runId.slice(0, 8)}
             </span>
           </IconTip>
           {state?.attachmentCount !== undefined && state.attachmentCount > 0 && (
@@ -393,10 +390,20 @@ function SubagentRow({
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && hasContent ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0",
+          expanded ? "max-h-[760px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
-        <div className="px-2.5 pb-2 pt-0.5 max-h-[600px] overflow-y-auto">
+        <div className="space-y-2 px-2.5 pb-2 pt-0.5 max-h-[760px] overflow-y-auto">
+          <SubagentRunDetails
+            runId={run.runId}
+            agentId={run.agentId}
+            childSessionId={childSessionId}
+            task={run.task}
+            modelUsed={state?.modelUsed}
+            durationMs={state?.durationMs}
+            inputTokens={state?.inputTokens}
+            outputTokens={state?.outputTokens}
+          />
           {state?.error && (
             <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
               {state.error}

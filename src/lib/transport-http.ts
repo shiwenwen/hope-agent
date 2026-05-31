@@ -265,6 +265,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
   set_ask_user_question_timeout:   { method: "POST",   path: "/api/config/ask-user-question-timeout" },
   get_ask_user_question_timeout:   { method: "GET",    path: "/api/config/ask-user-question-timeout" },
+  set_ask_user_question_timeout_enabled: { method: "POST", path: "/api/config/ask-user-question-timeout-enabled" },
+  get_ask_user_question_timeout_enabled: { method: "GET",  path: "/api/config/ask-user-question-timeout-enabled" },
 
   // -- Cron --
   cron_list_jobs:                  { method: "GET",    path: "/api/cron/jobs" },
@@ -576,6 +578,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_tool_timeout:                { method: "POST",   path: "/api/config/tool-timeout" },
   get_approval_timeout:            { method: "GET",    path: "/api/config/approval-timeout" },
   set_approval_timeout:            { method: "POST",   path: "/api/config/approval-timeout" },
+  get_approval_timeout_enabled:    { method: "GET",    path: "/api/config/approval-timeout-enabled" },
+  set_approval_timeout_enabled:    { method: "POST",   path: "/api/config/approval-timeout-enabled" },
   get_approval_timeout_action:     { method: "GET",    path: "/api/config/approval-timeout-action" },
   set_approval_timeout_action:     { method: "POST",   path: "/api/config/approval-timeout-action" },
 

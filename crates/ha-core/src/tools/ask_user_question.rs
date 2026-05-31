@@ -161,17 +161,22 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         .to_string(),
     );
 
-    // Resolve effective group timeout: max(per-question timeouts, global default).
-    let global_default = crate::config::cached_config().ask_user_question_timeout_secs;
-    let per_q_max = questions
-        .iter()
-        .filter_map(|q| q.timeout_secs)
-        .max()
-        .unwrap_or(0);
-    let effective_timeout_secs = if per_q_max > 0 {
-        per_q_max
+    // Resolve effective group timeout. The global switch defaults off; when
+    // disabled, even model-provided per-question timeout hints are ignored.
+    let cfg = crate::config::cached_config();
+    let effective_timeout_secs = if cfg.ask_user_question_timeout_enabled {
+        let per_q_max = questions
+            .iter()
+            .filter_map(|q| q.timeout_secs)
+            .max()
+            .unwrap_or(0);
+        if per_q_max > 0 {
+            per_q_max
+        } else {
+            cfg.ask_user_question_timeout_secs
+        }
     } else {
-        global_default
+        0
     };
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -277,6 +282,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 request_id
             );
             let synth = synthesize_default_answers(&questions);
+            ask_user::emit_ask_user_timed_out(
+                &request_id,
+                &effective_sid,
+                effective_timeout_secs,
+                !synth.is_empty(),
+                first_question_preview(&questions),
+            );
             if synth.is_empty() {
                 format!(
                     "The questions timed out after {} seconds without a response and no default values were provided.",
@@ -293,6 +305,15 @@ enum Outcome {
     Answered(Vec<AskUserQuestionAnswer>),
     Cancelled,
     TimedOut,
+}
+
+fn first_question_preview(questions: &[AskUserQuestion]) -> Option<String> {
+    questions.first().and_then(|q| {
+        let preview = crate::truncate_utf8(q.text.fallback_text(), 160)
+            .trim()
+            .to_string();
+        (!preview.is_empty()).then_some(preview)
+    })
 }
 
 /// Construct synthetic answers from each question's `default_values` after a timeout.

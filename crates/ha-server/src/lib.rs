@@ -594,8 +594,16 @@ fn build_router_with_cors(
             get(routes::config::get_approval_timeout),
         )
         .route(
+            "/config/approval-timeout-enabled",
+            get(routes::config::get_approval_timeout_enabled),
+        )
+        .route(
             "/config/approval-timeout",
             post(routes::config::set_approval_timeout),
+        )
+        .route(
+            "/config/approval-timeout-enabled",
+            post(routes::config::set_approval_timeout_enabled),
         )
         .route(
             "/config/approval-timeout-action",
@@ -628,8 +636,16 @@ fn build_router_with_cors(
             get(routes::config::get_ask_user_question_timeout),
         )
         .route(
+            "/config/ask-user-question-timeout-enabled",
+            get(routes::config::get_ask_user_question_timeout_enabled),
+        )
+        .route(
             "/config/ask-user-question-timeout",
             post(routes::config::set_ask_user_question_timeout),
+        )
+        .route(
+            "/config/ask-user-question-timeout-enabled",
+            post(routes::config::set_ask_user_question_timeout_enabled),
         )
         .route("/config/server", get(routes::config::get_server_config))
         .route("/config/server", put(routes::config::save_server_config))

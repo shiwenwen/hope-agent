@@ -36,7 +36,7 @@ interface ApprovalDialogProps {
   onRespond: (requestId: string, response: "allow_once" | "allow_always" | "deny") => void
 }
 
-const AUTO_DENY_DEFAULT_SECS = 300
+const APPROVAL_TIMEOUT_FALLBACK_SECS = 0
 
 export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogProps) {
   const { t } = useTranslation()
@@ -55,13 +55,14 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      getTransport().call<number>("get_approval_timeout").catch(() => AUTO_DENY_DEFAULT_SECS),
+      getTransport().call<boolean>("get_approval_timeout_enabled").catch(() => false),
+      getTransport().call<number>("get_approval_timeout").catch(() => APPROVAL_TIMEOUT_FALLBACK_SECS),
       getTransport()
         .call<"deny" | "proceed">("get_approval_timeout_action")
         .catch(() => "deny" as const),
-    ]).then(([secs, action]) => {
+    ]).then(([enabled, secs, action]) => {
       if (cancelled) return
-      setTimeoutSecs(secs)
+      setTimeoutSecs(enabled ? secs : 0)
       setAutoAction(action)
     })
     return () => {
@@ -129,7 +130,7 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           {remaining !== null && (
             <CountdownRing
               remaining={remaining}
-              total={timeoutSecs ?? AUTO_DENY_DEFAULT_SECS}
+              total={timeoutSecs ?? APPROVAL_TIMEOUT_FALLBACK_SECS}
               autoAction={autoAction}
             />
           )}

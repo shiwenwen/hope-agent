@@ -91,9 +91,9 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `issue_reporting` | `enabled`, `owner`, `repo`, `apiBaseUrl`, `labelsByKind.{bug,feature,improvement}`, `maxEvidenceChars`, `duplicateCheckEnabled`. GitHub token is optional and stored separately in `~/.hope-agent/credentials/github-issue.json`; do not ask `update_settings` to write it. If no token is configured, `issue_report` falls back to the user's authenticated `gh` CLI. Use Settings UI token controls or the dedicated Tauri/HTTP commands for token save/clear/test. |
 | `deferred_tools` | `enabled` |
 | `async_tools` | `enabled`, `autoBackgroundSecs`, `maxJobSecs`, `inlineResultBytes`, `retentionSecs`, `orphanGraceSecs`, `jobStatusMaxWaitSecs` |
-| `approval` | `approvalTimeoutSecs`, `approvalTimeoutAction` (`deny`/`proceed`) |
+| `approval` | `approvalTimeoutEnabled` (bool, default `false`; when `false`, approval waits forever and `approvalTimeoutSecs` is only a saved duration), `approvalTimeoutSecs` (seconds, default 300; used only when `approvalTimeoutEnabled=true`), `approvalTimeoutAction` (`deny`/`proceed`) |
 | `tool_result_disk_threshold` | `toolResultDiskThreshold` (bytes, null = default 50KB, 0 = disable) |
-| `ask_user_question_timeout` | `askUserQuestionTimeoutSecs` (0 = wait forever) |
+| `ask_user_question_timeout` | `askUserQuestionTimeoutEnabled` (bool, default `false`; when `false`, ask-user questions wait forever and model-provided `timeout_secs` is ignored), `askUserQuestionTimeoutSecs` (seconds, default 1800; used only when `askUserQuestionTimeoutEnabled=true`; `0` also waits forever) |
 | `plan` | `planSubagent` (bool), `plansDirectory` (string or null) |
 | `skills_auto_review` | Five-gate auto-review pipeline. Trigger / quality-floor fields (`enabled`, `promotion` (`draft`/`auto` — HIGH-equivalent), `cooldownSecs`, `tokenThreshold`, `messageThreshold`, `toolUseThreshold`, `correctionSignalEnabled`, `requireToolUse`, `minMessageCount`, `discardBlacklistDays`, `topKForDedup`, `minReuseProbability`, `sessionRecapThreshold`, `minSteps`/`maxSteps`, `candidateLimit`, `timeoutSecs`, `retentionDays`, `autoCuratorEnabled`, `autoCuratorIntervalDays`) are safe to tune. ⚠️ `reviewSystemOverride` replaces the built-in review prompt verbatim, and `extraRejectCategories` appends free-form reject categories — backend gates 2/4/5 still apply but the prompt-level safety net narrows. `reviewModel` (`"provider:model"`) pins a dedicated review LLM. Confirm with the user before touching the three advanced fields. |
 | `recall_summary` | `enabled`, `minHits`, `contextCharBudget`, `timeoutSecs`, `maxTokens`, `includeHistory` (Phase B'3 — opt-in LLM summarization on `recall_memory` output; adds one side_query per call, degrades silently on failure) |
@@ -224,7 +224,7 @@ Returns `{id, timestamp, kind, category, source}` newest first.
 
 - **Read before write** — always `get_settings` first so you can show a diff.
 - **Confirm before write** — especially HIGH risk. Include the risk level in your confirmation prompt.
-- **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `askUserQuestionTimeoutSecs`).
+- **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `approvalTimeoutEnabled`, `askUserQuestionTimeoutEnabled`, `askUserQuestionTimeoutSecs`).
 - **Security restrictions** — cannot modify Providers or API Keys through this tool; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
 - **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `server` / `web_search` / `image_generate` / `acp_control` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.

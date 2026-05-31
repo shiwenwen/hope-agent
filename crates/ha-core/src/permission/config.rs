@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::mode::SmartModeConfig;
 
-/// Default approval timeout (seconds) — 5 minutes.
+/// Default approval timeout (seconds) used when auto-expiry is enabled.
 pub fn default_approval_timeout_secs() -> u64 {
     300
 }
@@ -47,7 +47,12 @@ pub struct PermissionGlobalConfig {
     #[serde(default)]
     pub smart: SmartModeConfig,
 
-    /// Timeout for approval dialogs (seconds). 0 = wait forever.
+    /// Whether pending approval dialogs automatically expire.
+    #[serde(default)]
+    pub approval_timeout_enabled: bool,
+
+    /// Timeout for approval dialogs (seconds). 0 = wait forever even when
+    /// `approval_timeout_enabled` is true.
     #[serde(default = "default_approval_timeout_secs")]
     pub approval_timeout_secs: u64,
 
@@ -68,6 +73,7 @@ impl Default for PermissionGlobalConfig {
         Self {
             global_yolo: false,
             smart: SmartModeConfig::default(),
+            approval_timeout_enabled: false,
             approval_timeout_secs: default_approval_timeout_secs(),
             approval_timeout_action: ApprovalTimeoutAction::default(),
             im_approval_hint_throttle_secs: default_im_approval_hint_throttle_secs(),
@@ -87,6 +93,11 @@ mod tests {
     #[test]
     fn default_timeout_300s() {
         assert_eq!(PermissionGlobalConfig::default().approval_timeout_secs, 300);
+    }
+
+    #[test]
+    fn default_timeout_disabled() {
+        assert!(!PermissionGlobalConfig::default().approval_timeout_enabled);
     }
 
     #[test]

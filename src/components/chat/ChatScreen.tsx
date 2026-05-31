@@ -1521,16 +1521,6 @@ export default function ChatScreen({
       nonce: revealQuoteNonce.current,
     })
   }, [])
-  const rightPanelKey = renderedExclusiveRightPanel
-  const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
-
-  useEffect(() => {
-    if (rightPanelKey && rightPanelKey !== lastRightPanelKeyRef.current) {
-      setSidebarCollapsed(true)
-    }
-    lastRightPanelKeyRef.current = rightPanelKey
-  }, [rightPanelKey])
-
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
       setRightPanelCollapsed(false)

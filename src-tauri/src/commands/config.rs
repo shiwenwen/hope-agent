@@ -664,9 +664,24 @@ pub async fn get_approval_timeout() -> Result<u64, CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_approval_timeout_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.permission.approval_timeout_enabled)
+}
+
+#[tauri::command]
 pub async fn set_approval_timeout(seconds: u64) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("approval_timeout", "settings-ui"), |store| {
         store.permission.approval_timeout_secs = seconds;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_approval_timeout_enabled(enabled: bool) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("approval_timeout_enabled", "settings-ui"), |store| {
+        store.permission.approval_timeout_enabled = enabled;
         Ok(())
     })
     .map_err(Into::into)
@@ -780,11 +795,29 @@ pub async fn get_ask_user_question_timeout() -> Result<u64, CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_ask_user_question_timeout_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.ask_user_question_timeout_enabled)
+}
+
+#[tauri::command]
 pub async fn set_ask_user_question_timeout(secs: u64) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("ask_user_question_timeout", "settings-ui"), |store| {
         store.ask_user_question_timeout_secs = secs;
         Ok(())
     })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_ask_user_question_timeout_enabled(enabled: bool) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(
+        ("ask_user_question_timeout_enabled", "settings-ui"),
+        |store| {
+            store.ask_user_question_timeout_enabled = enabled;
+            Ok(())
+        },
+    )
     .map_err(Into::into)
 }
 

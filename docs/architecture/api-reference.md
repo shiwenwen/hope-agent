@@ -460,6 +460,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `get_pending_ask_user_group` | `GET /api/plan/{sessionId}/pending-ask-user` | ✅ |
 | `set_plan_subagent` | `POST /api/config/plan-subagent` | ✅ |
 | `get_plan_subagent` | `GET /api/config/plan-subagent` | ✅ |
+| `set_ask_user_question_timeout_enabled` | `POST /api/config/ask-user-question-timeout-enabled` | ✅ |
+| `get_ask_user_question_timeout_enabled` | `GET /api/config/ask-user-question-timeout-enabled` | ✅ |
 | `set_ask_user_question_timeout` | `POST /api/config/ask-user-question-timeout` | ✅ |
 | `get_ask_user_question_timeout` | `GET /api/config/ask-user-question-timeout` | ✅ |
 
@@ -833,6 +835,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `set_tool_timeout` | `POST /api/config/tool-timeout` | ✅ |
 | `get_approval_timeout` | `GET /api/config/approval-timeout` | ✅ |
 | `set_approval_timeout` | `POST /api/config/approval-timeout` | ✅ |
+| `get_approval_timeout_enabled` | `GET /api/config/approval-timeout-enabled` | ✅ |
+| `set_approval_timeout_enabled` | `POST /api/config/approval-timeout-enabled` | ✅ |
 | `get_approval_timeout_action` | `GET /api/config/approval-timeout-action` | ✅ |
 | `set_approval_timeout_action` | `POST /api/config/approval-timeout-action` | ✅ |
 | `get_tool_result_disk_threshold` | `GET /api/config/tool-result-threshold` | ✅ |

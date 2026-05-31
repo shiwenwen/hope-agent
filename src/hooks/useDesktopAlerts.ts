@@ -13,6 +13,16 @@ function truncate(s: string, max = 80): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
+function textPreview(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value && typeof value === "object") {
+    const record = value as { fallback?: unknown; key?: unknown }
+    if (typeof record.fallback === "string") return record.fallback
+    if (typeof record.key === "string") return record.key
+  }
+  return ""
+}
+
 // Leading-edge cooldown for channel auth failures. When several IM
 // accounts fail at the same instant (e.g. system clock jump invalidates
 // every bot token at once, or post-resume DNS hasn't recovered for any
@@ -62,15 +72,59 @@ export function useDesktopAlerts() {
       },
     )
 
-    const offAskUser = bindAlert<{ questions?: Array<{ text?: string }> }>(
+    const offApprovalTimedOut = bindAlert<{
+      timeout_secs?: number
+      timeout_action?: "deny" | "proceed"
+    }>(
+      "approval_timed_out",
+      "useDesktopAlerts::approval_timeout",
+      (event) => {
+        const tx = tRef.current
+        const bodyKey =
+          event?.timeout_action === "proceed"
+            ? "notification.approvalTimedOut_proceeded"
+            : "notification.approvalTimedOut_denied"
+        return {
+          title: tx("notification.approvalTimedOut"),
+          body: tx(bodyKey, {
+            seconds: event?.timeout_secs ?? 0,
+          }),
+        }
+      },
+    )
+
+    const offAskUser = bindAlert<{ questions?: Array<{ text?: unknown }> }>(
       "ask_user_request",
       "useDesktopAlerts::ask_user",
       (group) => {
         const tx = tRef.current
-        const firstQ = truncate(group?.questions?.[0]?.text ?? "")
+        const firstQ = truncate(textPreview(group?.questions?.[0]?.text))
         return {
           title: tx("notification.askUserRequired"),
           body: firstQ || tx("notification.askUserRequiredFallback"),
+        }
+      },
+    )
+
+    const offAskUserTimedOut = bindAlert<{
+      timeoutSecs?: number
+      usedDefaultValues?: boolean
+      questionPreview?: string
+    }>(
+      "ask_user_timed_out",
+      "useDesktopAlerts::ask_user_timeout",
+      (event) => {
+        const tx = tRef.current
+        const preview = truncate(event?.questionPreview ?? "")
+        const body = tx(
+          event?.usedDefaultValues
+            ? "notification.askUserTimedOutDefaults"
+            : "notification.askUserTimedOutNoDefaults",
+          { seconds: event?.timeoutSecs ?? 0 },
+        )
+        return {
+          title: tx("notification.askUserTimedOut"),
+          body: preview ? `${preview} — ${body}` : body,
         }
       },
     )
@@ -110,7 +164,9 @@ export function useDesktopAlerts() {
 
     return () => {
       offApproval()
+      offApprovalTimedOut()
       offAskUser()
+      offAskUserTimedOut()
       offMcpAuth()
       offChannelAuth()
     }

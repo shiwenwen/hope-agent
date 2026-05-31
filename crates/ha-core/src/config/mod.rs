@@ -656,8 +656,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub plan_subagent: bool,
 
-    /// Timeout in seconds for ask_user_question tool waiting for user response.
-    /// Default: 1800 (30 minutes). 0 = no timeout (wait forever).
+    /// Whether ask_user_question waits automatically expire.
+    #[serde(default)]
+    pub ask_user_question_timeout_enabled: bool,
+    /// Timeout in seconds for ask_user_question tool waiting for user response
+    /// when `ask_user_question_timeout_enabled` is true.
+    /// Default duration: 1800 (30 minutes). 0 = no timeout (wait forever).
     #[serde(default = "default_ask_user_question_timeout")]
     pub ask_user_question_timeout_secs: u64,
 
@@ -831,6 +835,7 @@ impl Default for AppConfig {
             plans_directory: None,
             temperature: None,
             plan_subagent: false,
+            ask_user_question_timeout_enabled: false,
             ask_user_question_timeout_secs: default_ask_user_question_timeout(),
             channels: crate::channel::ChannelStoreConfig::default(),
             deferred_tools: DeferredToolsConfig::default(),

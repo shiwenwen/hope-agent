@@ -48,6 +48,13 @@ import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
 import RecapProgressCard from "@/components/chat/RecapProgressCard"
 import SkillForkStatusCard from "@/components/chat/SkillForkStatusCard"
+import {
+  parseSubagentResultDetail,
+  parseSubagentResultStatus,
+  parseToolJobPayload,
+  TOOL_JOB_AGENT_PREFIX,
+  TOOL_JOB_STATUSES,
+} from "./asyncResultPayload"
 
 export interface MessageBubbleProps {
   msg: Message
@@ -84,72 +91,10 @@ export interface MessageBubbleProps {
   displayMode?: ChatDisplayMode
 }
 
-const TOOL_JOB_AGENT_PREFIX = "tool_job:"
-const TOOL_JOB_STATUSES = new Set([
-  "completed",
-  "failed",
-  "timed_out",
-  "cancelled",
-  "interrupted",
-  "running",
-])
-
 function hasRenderableTextContent(msg: Message): boolean {
   return (
     !!msg.content || !!msg.contentBlocks?.some((block) => block.type === "text" && !!block.content)
   )
-}
-
-function getXmlishAttribute(attrs: string, name: string): string | undefined {
-  const match = attrs.match(new RegExp(`\\b${name}="([^"]*)"`))
-  return match?.[1]
-}
-
-function getXmlishElement(content: string, name: string): string | undefined {
-  const match = content.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
-  return match?.[1]?.trim()
-}
-
-function parseToolJobPayload(
-  content: string,
-): { toolName?: string; status?: string; detail?: string } | null {
-  const match = content.match(/<tool-job-result\b([^>]*)>/)
-  if (!match) return null
-  const attrs = match[1] || ""
-  return {
-    toolName: getXmlishAttribute(attrs, "tool"),
-    status: getXmlishAttribute(attrs, "status"),
-    detail:
-      getXmlishElement(content, "output") ||
-      getXmlishElement(content, "error") ||
-      getXmlishElement(content, "note"),
-  }
-}
-
-function parseSubagentResultDetail(content: string): string | undefined {
-  const match = content.match(
-    /<<<BEGIN_SUBAGENT_RESULT>>>\n?([\s\S]*?)\n?<<<END_SUBAGENT_RESULT>>>/,
-  )
-  return match?.[1]?.trim()
-}
-
-function parseSubagentResultStatus(content: string): string {
-  const status = content.match(/^Status:\s*(\S+)/m)?.[1]
-  switch (status) {
-    case "completed":
-      return "completed"
-    case "timeout":
-      return "timed_out"
-    case "killed":
-      return "cancelled"
-    case "running":
-    case "spawning":
-      return "running"
-    case "error":
-      return "failed"
-    default:
-      return "completed"
-  }
 }
 
 function getSubagentResultDisplay(

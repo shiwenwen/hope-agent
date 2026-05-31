@@ -188,7 +188,8 @@ pub struct JudgeModelConfig {
 pub struct PermissionGlobalConfig {
     pub global_yolo: bool,                      // GUI + CLI flag 双入口
     pub smart: SmartModeConfig,
-    pub approval_timeout_secs: u64,             // 审批等待超时
+    pub approval_timeout_enabled: bool,         // 审批是否自动超时
+    pub approval_timeout_secs: u64,             // 审批等待超时秒数
     pub approval_timeout_action: ApprovalTimeoutAction, // Deny / Proceed
 }
 ```
@@ -552,7 +553,8 @@ useEffect(() => {
 | `smart.strategy` | `SmartStrategy` | `SelfConfidence` | 三档策略 |
 | `smart.judge_model` | `Option<JudgeModelConfig>` | `None` | 仅 JudgeModel/Both 策略下消费 |
 | `smart.fallback` | `SmartFallback` | `Default` | judge 不可达时降级 |
-| `approval_timeout_secs` | `u64` | `300` | 审批等待秒数（`0` = 无限等） |
+| `approval_timeout_enabled` | `bool` | `false` | 是否启用审批自动超时；默认永不超时 |
+| `approval_timeout_secs` | `u64` | `300` | 启用自动超时后的审批等待秒数（`0` = 无限等） |
 | `approval_timeout_action` | `ApprovalTimeoutAction` | `Deny` | 超时动作 |
 
 ### `AgentConfig.capabilities`

@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
-use crate::ask_user::{self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup};
+use crate::ask_user::{
+    self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserTimedOutPayload,
+};
 use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{ChannelId, InlineButton, ReplyPayload};
@@ -346,6 +348,11 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             };
 
+            if event.name == ask_user_mod::EVENT_ASK_USER_TIMED_OUT {
+                handle_timeout_event(event.payload.clone(), channel_db.clone(), registry.clone())
+                    .await;
+                continue;
+            }
             if event.name != ask_user_mod::EVENT_ASK_USER_REQUEST {
                 continue;
             }
@@ -445,6 +452,86 @@ pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc
             }
         }
     });
+}
+
+async fn handle_timeout_event(
+    payload: serde_json::Value,
+    channel_db: Arc<ChannelDB>,
+    registry: Arc<ChannelRegistry>,
+) {
+    let event: AskUserTimedOutPayload = match serde_json::from_value(payload) {
+        Ok(e) => e,
+        Err(err) => {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "Failed to parse ask_user_timed_out payload: {}",
+                err
+            );
+            return;
+        }
+    };
+
+    let conversation = match channel_db.get_conversation_by_session(&event.session_id) {
+        Ok(Some(c)) => c,
+        Ok(None) => return,
+        Err(e) => {
+            app_warn!(
+                "channel",
+                "ask_user",
+                "Timeout lookup failed for session {}: {}",
+                event.session_id,
+                e
+            );
+            return;
+        }
+    };
+
+    let store = crate::config::cached_config();
+    let account_config = match store.channels.find_account(&conversation.account_id) {
+        Some(c) => c.clone(),
+        None => return,
+    };
+
+    let tag = id_tag(&event.request_id);
+    let question = event
+        .question_preview
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("\n\n{}", crate::truncate_utf8(s.trim(), 500)));
+    let body = if event.used_default_values {
+        format!(
+            "⏱ Question #{tag} timed out after {}s. I continued with the configured default answer(s).{}",
+            event.timeout_secs,
+            question.unwrap_or_default()
+        )
+    } else {
+        format!(
+            "⏱ Question #{tag} timed out after {}s without an answer. Ask me again if you still want to respond.{}",
+            event.timeout_secs,
+            question.unwrap_or_default()
+        )
+    };
+    let payload = ReplyPayload {
+        text: Some(body),
+        thread_id: conversation.thread_id.clone(),
+        ..ReplyPayload::text("")
+    };
+    if let Err(e) = registry
+        .send_reply(&account_config, &conversation.chat_id, &payload)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "ask_user",
+            "Failed to send ask_user-timeout notice: {}",
+            e
+        );
+    }
+}
+
+fn id_tag(request_id: &str) -> String {
+    request_id.chars().take(8).collect()
 }
 
 // ── Text-reply handler (channels without buttons) ─────────────────

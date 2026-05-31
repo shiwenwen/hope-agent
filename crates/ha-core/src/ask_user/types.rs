@@ -126,6 +126,18 @@ pub struct AskUserQuestionGroup {
     pub timeout_at: Option<u64>,
 }
 
+/// Event payload emitted when a live ask_user_question request expires.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserTimedOutPayload {
+    pub request_id: String,
+    pub session_id: String,
+    pub timeout_secs: u64,
+    pub used_default_values: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question_preview: Option<String>,
+}
+
 /// User's answer to a single question
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

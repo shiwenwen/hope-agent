@@ -400,11 +400,32 @@ pub async fn get_approval_timeout() -> Result<Json<Value>, AppError> {
     Ok(Json(json!(store.permission.approval_timeout_secs)))
 }
 
+/// `GET /api/config/approval-timeout-enabled` -- whether approval wait auto-expiry is enabled.
+pub async fn get_approval_timeout_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.permission.approval_timeout_enabled)))
+}
+
 /// `POST /api/config/approval-timeout` -- set tool approval wait timeout (seconds).
 pub async fn set_approval_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
     let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
     ha_core::config::mutate_config(("approval_timeout", "http"), |store| {
         store.permission.approval_timeout_secs = seconds;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `POST /api/config/approval-timeout-enabled` -- enable/disable approval wait auto-expiry.
+pub async fn set_approval_timeout_enabled(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config(("approval_timeout_enabled", "http"), |store| {
+        store.permission.approval_timeout_enabled = enabled;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))
@@ -508,6 +529,12 @@ pub async fn get_ask_user_question_timeout() -> Result<Json<Value>, AppError> {
     Ok(Json(json!(store.ask_user_question_timeout_secs)))
 }
 
+/// `GET /api/config/ask-user-question-timeout-enabled` -- whether ask_user auto-expiry is enabled.
+pub async fn get_ask_user_question_timeout_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.ask_user_question_timeout_enabled)))
+}
+
 /// `POST /api/config/ask-user-question-timeout` -- set ask_user_question timeout (seconds).
 pub async fn set_ask_user_question_timeout(
     Json(body): Json<Value>,
@@ -515,6 +542,21 @@ pub async fn set_ask_user_question_timeout(
     let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(1800);
     ha_core::config::mutate_config(("ask_user_question_timeout", "http"), |store| {
         store.ask_user_question_timeout_secs = secs;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `POST /api/config/ask-user-question-timeout-enabled` -- enable/disable ask_user auto-expiry.
+pub async fn set_ask_user_question_timeout_enabled(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config(("ask_user_question_timeout_enabled", "http"), |store| {
+        store.ask_user_question_timeout_enabled = enabled;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))

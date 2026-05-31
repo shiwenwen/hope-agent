@@ -229,9 +229,12 @@ pub(crate) async fn is_command_allowed(command: &str) -> bool {
 }
 
 pub(crate) fn approval_timeout_secs() -> u64 {
-    crate::config::cached_config()
-        .permission
-        .approval_timeout_secs
+    let cfg = crate::config::cached_config();
+    if cfg.permission.approval_timeout_enabled {
+        cfg.permission.approval_timeout_secs
+    } else {
+        0
+    }
 }
 
 pub(crate) fn approval_timeout_action() -> crate::config::ApprovalTimeoutAction {
@@ -375,9 +378,8 @@ pub(crate) async fn check_and_request_approval(
             // "timed out" notification; cleanup is unconditional so cancel-
             // path and timeout-path stay symmetric.
             crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
-            // Notify subscribers (IM channel listener) so they can tell the
-            // user the approval expired. Desktop UI doesn't need this — the
-            // modal has its own countdown ring.
+            // Notify subscribers so IM and desktop clients can clear stale
+            // UI and tell the user the approval expired.
             if let Some(bus) = crate::globals::get_event_bus() {
                 bus.emit(
                     "approval_timed_out",

@@ -383,6 +383,7 @@ fn read_category(category: &str) -> Result<Value> {
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
         "approval" => Ok(json!({
+            "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
             "approvalTimeoutAction": cfg.permission.approval_timeout_action,
         })),
@@ -423,6 +424,7 @@ fn read_category(category: &str) -> Result<Value> {
             "toolResultDiskThreshold": cfg.tool_result_disk_threshold,
         })),
         "ask_user_question_timeout" => Ok(json!({
+            "askUserQuestionTimeoutEnabled": cfg.ask_user_question_timeout_enabled,
             "askUserQuestionTimeoutSecs": cfg.ask_user_question_timeout_secs,
         })),
         "plan" => Ok(json!({
@@ -502,6 +504,7 @@ fn get_all_overview() -> Result<String> {
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
+        "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
         "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
         "notification": {
             "enabled": cfg.notification.enabled,
@@ -787,6 +790,12 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
         }
         "approval" => {
+            if let Some(v) = values
+                .get("approvalTimeoutEnabled")
+                .and_then(|v| v.as_bool())
+            {
+                store.permission.approval_timeout_enabled = v;
+            }
             if let Some(v) = values.get("approvalTimeoutSecs").and_then(|v| v.as_u64()) {
                 store.permission.approval_timeout_secs = v;
             }
@@ -886,6 +895,12 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
         }
         "ask_user_question_timeout" => {
+            if let Some(v) = values
+                .get("askUserQuestionTimeoutEnabled")
+                .and_then(|v| v.as_bool())
+            {
+                store.ask_user_question_timeout_enabled = v;
+            }
             if let Some(v) = values
                 .get("askUserQuestionTimeoutSecs")
                 .and_then(|v| v.as_u64())

@@ -343,7 +343,7 @@ pub(super) fn build_subagent_section(
         "2. The sub-agent runs **asynchronously** — you can continue working on other things"
             .to_string(),
     );
-    lines.push("3. When the sub-agent completes, its result is **automatically pushed** to you as a new message".to_string());
+    lines.push("3. When the sub-agent completes, its result is **automatically pushed** to you as a `<subagent-result>` user message".to_string());
     lines.push("4. If you need to actively wait: `subagent(action=\"check\", run_id=\"...\", wait=true)` blocks until done (fallback)".to_string());
     lines.push(String::new());
     lines.push("## Steer a running sub-agent".to_string());
