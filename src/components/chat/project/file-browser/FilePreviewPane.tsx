@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Code2, FileText as FileTextIcon, X } from "lucide-react"
+import { Loader2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -126,11 +126,32 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {loaded?.kind === "markdown" ? (
-            <IconTip label={viewSource ? t("fileBrowser.rendered", "Rendered") : t("fileBrowser.viewSource", "View source")}>
-              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setViewSource((v) => !v)}>
-                {viewSource ? <FileTextIcon className="h-3.5 w-3.5" /> : <Code2 className="h-3.5 w-3.5" />}
-              </Button>
-            </IconTip>
+            <div className="inline-flex items-center rounded-md border border-border/60 p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewSource(false)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-xs transition-colors",
+                  !viewSource
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t("fileBrowser.rendered", "Rendered")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewSource(true)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-xs transition-colors",
+                  viewSource
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t("fileBrowser.viewSource", "View source")}
+              </button>
+            </div>
           ) : null}
           {onClose ? (
             <IconTip label={t("common.close", "Close")}>
