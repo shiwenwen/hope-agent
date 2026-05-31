@@ -1653,6 +1653,53 @@ impl SessionDB {
             "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
             params![now, session_id],
         )?;
+        let resolved_ts = timestamp.to_string();
+        drop(conn);
+
+        // Live transcript mirror for hook scripts (design §10): mirror when ANY
+        // scope has handlers — the global user/managed registry OR the session
+        // cwd's project/local hooks. A repo that ships only `.hope-agent/
+        // hooks.json` still runs hooks that read `transcript.jsonl` (they merge
+        // in per-cwd via `scopes::resolve_for_cwd`), so a project-only config
+        // must keep the mirror current too — gating on `registry::global()`
+        // alone left those scripts reading stale/missing history (adversarial
+        // review). Never mirror incognito sessions (they leave no on-disk
+        // trace). Best-effort: a mirror failure must not fail the message
+        // persist. Runs after the conn lock is released because the lookups
+        // re-lock it.
+        let global_has = !crate::hooks::registry::global().is_empty();
+        // Only consult config for the project-scope possibility when the cheap
+        // global check didn't already decide it — keeps the no-hooks hot path
+        // free of the cwd DB lookup below.
+        let project_scope_possible = !global_has && {
+            let cfg = crate::config::cached_config();
+            cfg.hooks_allow_project_scope && !cfg.disable_all_hooks
+        };
+        if (global_has || project_scope_possible)
+            && !crate::session::lookup_session_meta(Some(session_id))
+                .map(|m| m.incognito)
+                .unwrap_or(false)
+        {
+            let cwd_opt = crate::session::effective_session_working_dir(Some(session_id));
+            // When only project scope might supply hooks, confirm THIS cwd
+            // actually has them before mirroring — avoids writing transcripts
+            // for cwds with no hooks just because project scope is globally on.
+            let should_mirror = global_has
+                || cwd_opt
+                    .as_deref()
+                    .map(std::path::Path::new)
+                    .is_some_and(|c| !crate::hooks::scopes::resolve_for_cwd(Some(c)).is_empty());
+            if should_mirror {
+                let cwd = cwd_opt.unwrap_or_default();
+                crate::hooks::transcript::TranscriptMirror::append_persisted(
+                    session_id,
+                    msg_id,
+                    msg,
+                    &resolved_ts,
+                    &cwd,
+                );
+            }
+        }
 
         Ok(msg_id)
     }
@@ -2283,10 +2330,20 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Read the prior value so the CwdChanged hook only fires on a real change.
+        let old: Option<String> = conn
+            .query_row(
+                "SELECT working_dir FROM sessions WHERE id = ?1",
+                params![session_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten();
         conn.execute(
             "UPDATE sessions SET working_dir = ?1 WHERE id = ?2",
             params![canonical, session_id],
         )?;
+        drop(conn);
         app_info!(
             "session",
             "update_session_working_dir",
@@ -2294,6 +2351,10 @@ impl SessionDB {
             session_id,
             canonical.as_deref().unwrap_or("<none>")
         );
+        // CwdChanged hook (observation): only when the path actually changed.
+        if old != canonical {
+            crate::hooks::fire_cwd_changed(session_id, old.as_deref(), canonical.as_deref());
+        }
         Ok(canonical)
     }
 

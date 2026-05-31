@@ -277,6 +277,18 @@ export default function App() {
     }
   }, [t, view, handleOpenSettings])
 
+  // Surface a hook's `statusMessage` as a toast while the handler runs.
+  useEffect(() => {
+    const handler = (raw: unknown) => {
+      const payload = parsePayload<{ message?: string }>(raw)
+      if (payload.message) toast.info(payload.message)
+    }
+    const unlisten = getTransport().listen("hook:status", handler)
+    return () => {
+      unlisten()
+    }
+  }, [])
+
   // Auto-check for desktop updates on startup
   const updateCheckRef = useRef(false)
   useEffect(() => {

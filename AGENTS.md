@@ -170,6 +170,19 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **SSRF 统一策略**：出站 HTTP 必须走 `security::ssrf::check_url`；**新出站入口严禁自写 IP 校验**
 - **文件 Diff 元数据**：`write` / `edit` / `apply_patch` / `read` 通过 `ToolExecContext.metadata_sink` 旁路传出 JSON；持久化到 `messages.tool_metadata` 列；前端右侧 `DiffPanel` 渲染（与 PlanPanel / CanvasPanel 视觉互斥）
 
+### Hooks
+
+详见 [`hooks.md`](docs/architecture/hooks.md)（hooks 子系统单一真相源：28 事件矩阵 / 数据流 / 5 handler / 四层 scope / 安全 / 测试 / Roadmap）。
+
+- **字段级对齐 Claude Code hooks 协议**；核心全在 `ha-core::hooks`（**零 Tauri 依赖**），desktop / server / ACP 共用
+- **唯一入口 `HookDispatcher::dispatch(event, input)`** + `hooks::fire_*` 助手：内部封装 per-cwd scope 解析 / matcher 过滤 / 并发执行（catch_unwind 隔离）/ 去重 / 超时 / 聚合，调用方只读 `HookOutcome`；**严禁在业务代码里 match 具体 handler 类型**
+- **28 事件**：24 个真触发（阻断型 `UserPromptSubmit`/`PreToolUse`/`PreCompact` + 21 个观察型），4 个协议保留（`WorktreeCreate`/`WorktreeRemove`/`TeammateIdle`/`InstructionsLoaded`——无对应概念，可配置不 dispatch）。`is_observation_only` 列表里的事件 `block` 决策降级为非阻断 + log
+- **5 种 handler 全实现**：`command` / `http`（SSRF-gated）/ `mcp_tool` / `prompt`（side-query）/ `agent`（spawn 子 Agent）
+- **四层 scope UNION**（无覆盖）：user（`config.json`）+ managed（`/etc/hope-agent/hooks.json`）编进全局 registry；project（`<工作目录>/.hope-agent/hooks.json`）+ local（`hooks.local.json`）按会话工作目录经 [`scopes::resolve_for_cwd`](crates/ha-core/src/hooks/scopes.rs) 合并（per-cwd 缓存 + mtime/generation 失效）。fire 路径统一走 `scopes::any_handlers_for(event, cwd)`，project-only hook 也能触发。**project/local 默认关**（`hooks_allow_project_scope` opt-in，默认 `false`——仓库 check-in 的 hooks 不因会话 cwd 指向就自动执行，供应链防护；Settings → Hooks 开启，`ha-settings` 只读）；`disable_all_hooks` 关所有 scope
+- **配置走 config contract**：读 `cached_config().hooks`，user scope 写 `mutate_config(("hooks", source), …)`；`config:changed` 触发 `registry::reload_from_config`（user+managed 合并 + bump generation）。**`ha-settings` 技能只读 hooks**（写被 `BLOCKED_UPDATE_CATEGORIES` 拦截——可写=模型给自己装命令执行）
+- **四入口统一 preflight**：Tauri / HTTP / IM / ACP 的 user message 持久化前过 [`agent::preflight::user_prompt_preflight`](crates/ha-core/src/agent/preflight.rs)（`UserPromptSubmit` 阻断点）；**新增 user message 入口必须走它**。block 的 prompt 不入会话/LLM 上下文，落一条 `event` 行
+- **新增 hook 事件须埋点 + 测试**：阻断型构造 `HookInput` 调 `dispatch`，观察型走 `hooks::fire_*`；新事件须同步更新 `types.rs` 的 `common()`/`matcher_target()`/`is_observation_only()` 三处 match；审计统一 `category="hooks"`
+
 ### Plan Mode
 
 详见 [`plan-mode.md`](docs/architecture/plan-mode.md)。
@@ -341,6 +354,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - Rust 依赖变更后 `cargo check --workspace` 先行验证
 - 前端新增 invoke 调用须同步实现 Transport 的 Tauri + HTTP 两套适配
 - 新增/修改接口须同步更新 [`api-reference.md`](docs/architecture/api-reference.md)（Tauri ↔ HTTP 对齐单一真相源）
+- 新增 hook 事件：埋点（`dispatch` 或 `fire_*`）+ 同步 `types.rs` 三处 match（`common`/`matcher_target`/`is_observation_only`）+ 测试
 
 ## 设置（Settings）约定
 

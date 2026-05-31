@@ -459,7 +459,16 @@ async fn parse_anthropic_sse(
                                     current_tool = Some((
                                         idx,
                                         FunctionCallItem {
-                                            call_id: block.id.clone().unwrap_or_default(),
+                                            // Synthesize a stable id if the block
+                                            // omits one, so the tool loop,
+                                            // persistence, and PreToolUse /
+                                            // PostToolUse hooks all correlate on a
+                                            // non-empty tool_use_id rather than "".
+                                            call_id: block
+                                                .id
+                                                .clone()
+                                                .filter(|s| !s.is_empty())
+                                                .unwrap_or_else(|| format!("toolu_idx_{idx}")),
                                             name: block.name.clone().unwrap_or_default(),
                                             arguments: String::new(),
                                         },

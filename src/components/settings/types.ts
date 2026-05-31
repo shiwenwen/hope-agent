@@ -10,6 +10,7 @@ export const SETTINGS_SECTION_IDS = [
   "sandbox",
   "acp",
   "approval",
+  "hooks",
   "permissions",
   "profile",
   "chat",

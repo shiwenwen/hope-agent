@@ -249,6 +249,16 @@ pub struct ToolExecContext {
     /// constructs a single sink and shares it only with the helpers it spawns
     /// for that dispatch — exactly the pattern the rule allows.
     pub metadata_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
+    /// Per-dispatch sink for the *effective* tool arguments — populated by
+    /// [`execute_tool_with_context`] when a `PreToolUse` hook rewrites the
+    /// input via `updatedInput`. Same lifecycle as `metadata_sink`: the
+    /// orchestrator constructs the `Arc<Mutex<None>>` per dispatch, clones it
+    /// into the local context, and drains it after the tool returns so the
+    /// caller can surface the rewrite through the UI / persisted history /
+    /// `PostToolUse` hook input. None ⇒ no rewrite occurred (or the caller
+    /// doesn't care; the regular non-orchestrator callers of
+    /// `execute_tool_with_context` leave it `None`).
+    pub effective_args_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
 }
 
 impl ToolExecContext {
@@ -305,6 +315,49 @@ impl ToolExecContext {
             .or_else(|| self.home_dir.clone())
             .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()))
             .unwrap_or_else(|| ".".to_string())
+    }
+
+    /// Build the shared hook-input fields for a tool-event hook (design §5.4).
+    ///
+    /// `permission_mode` reflects the live posture so a policy hook can see the
+    /// most dangerous state: global dangerous-skip or a YOLO session →
+    /// `BypassPermissions`; a non-empty plan allow-list → `Plan`; Smart →
+    /// `Other`; else `Default`. The ctx lacks the full `PlanModeState`, so plan
+    /// detection is allow-list-based.
+    pub fn common_hook_input(&self, event: &str) -> crate::hooks::CommonHookInput {
+        let session_id = self.session_id.clone().unwrap_or_default();
+        // Empty session_id → no transcript path, rather than a bogus shared
+        // `sessions/transcript.jsonl` (mirrors hooks::observation_common).
+        let transcript_path = if session_id.is_empty() {
+            std::path::PathBuf::default()
+        } else {
+            crate::paths::session_dir(&session_id)
+                .map(|d| d.join("transcript.jsonl"))
+                .unwrap_or_default()
+        };
+        let permission_mode = if crate::security::dangerous::is_dangerous_skip_active()
+            || matches!(self.session_mode, crate::permission::SessionMode::Yolo)
+        {
+            crate::hooks::PermissionMode::BypassPermissions
+        } else if !self.plan_mode_allowed_tools.is_empty() {
+            crate::hooks::PermissionMode::Plan
+        } else if matches!(self.session_mode, crate::permission::SessionMode::Smart) {
+            crate::hooks::PermissionMode::Other
+        } else {
+            crate::hooks::PermissionMode::Default
+        };
+        crate::hooks::CommonHookInput {
+            session_id,
+            transcript_path,
+            cwd: std::path::PathBuf::from(self.default_cwd()),
+            permission_mode,
+            hook_event_name: event.to_string(),
+            agent_id: self.agent_id.clone(),
+            // `agent_type` is the agent's *type/role*, which the exec context
+            // doesn't carry — leave it unset rather than duplicating agent_id.
+            // (A real subagent-type field lands with the subagent hook phase.)
+            agent_type: None,
+        }
     }
 
     /// Resolve a user/model supplied file path against the current tool
@@ -430,6 +483,15 @@ impl ToolExecContext {
     /// that don't care about structured side outputs).
     pub async fn emit_metadata(&self, value: Value) {
         if let Some(sink) = &self.metadata_sink {
+            *sink.lock().await = Some(value);
+        }
+    }
+
+    /// Push the effective (post-`PreToolUse` rewrite) tool arguments into the
+    /// per-dispatch sink. Called once at most, only when `updatedInput`
+    /// shadowed the model's args. No-op when no sink is wired up.
+    pub(crate) async fn emit_effective_args(&self, value: Value) {
+        if let Some(sink) = &self.effective_args_sink {
             *sink.lock().await = Some(value);
         }
     }
@@ -608,6 +670,295 @@ async fn restore_mac_control_approval_focus_anchor(
 }
 
 /// Execute a tool with additional context (model info, etc.)
+/// Outcome of the `PreToolUse` hook gate (design §9.3/§9.4). Fires after the
+/// name-based visibility gate and before the permission engine.
+enum PreToolGate {
+    /// A hook denied/blocked the call — short-circuit (no downstream gate can
+    /// rescue a hook deny; it's a top-level block).
+    Deny(String),
+    /// Proceed. `updated_input` patches the tool args (the engine then re-checks
+    /// the patched values, so an arg-rewrite can't dodge a path/command gate).
+    /// `skip_user_prompt` (explicit `permissionDecision:"allow"`) downgrades a
+    /// *soft* engine `Ask` to allow — never a hard Deny, and never a strict
+    /// prompt (protected path / dangerous command / Plan ask). `force_prompt`
+    /// (`ask`/`defer`) forces the approval prompt even when the engine would
+    /// allow, so a hook's request for confirmation can't silently fail open.
+    Proceed {
+        updated_input: Option<Value>,
+        skip_user_prompt: bool,
+        force_prompt: bool,
+    },
+}
+
+/// Run the `PreToolUse` hook for this call. No-op fast path when no hook listens.
+async fn fire_pre_tool_use_hook(name: &str, args: &Value, ctx: &ToolExecContext) -> PreToolGate {
+    use crate::hooks::{HookDispatcher, HookEvent, HookInput};
+    // Resolve the same per-cwd scope the dispatcher will: project/local hooks
+    // live under the session working dir, so this fast-path gate must use
+    // `any_handlers_for(event, cwd)` (not the global-only registry) or a
+    // project-only `PreToolUse` hook is silently skipped while `dispatch` would
+    // have run it. Mirrors `hooks::session_working_dir` (empty sid → no cwd).
+    let wd = ctx
+        .session_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|sid| crate::session::effective_session_working_dir(Some(sid)));
+    if !crate::hooks::scopes::any_handlers_for(
+        HookEvent::PreToolUse,
+        wd.as_deref().map(std::path::Path::new),
+    ) {
+        return PreToolGate::Proceed {
+            updated_input: None,
+            skip_user_prompt: false,
+            force_prompt: false,
+        };
+    }
+    let input = HookInput::PreToolUse {
+        common: ctx.common_hook_input("PreToolUse"),
+        tool_name: name.to_string(),
+        tool_input: args.clone(),
+        tool_use_id: ctx.tool_call_id.clone().unwrap_or_default(),
+    };
+    let outcome = HookDispatcher::dispatch(HookEvent::PreToolUse, input).await;
+    pre_tool_gate_from_outcome(outcome)
+}
+
+/// Pure mapping from a `PreToolUse` aggregate outcome to a [`PreToolGate`].
+///
+/// `continue:false` is treated as a top-level block ahead of the `decision`
+/// match — a Claude Code-style safety hook returning
+/// `{"continue":false,"stopReason":"..."}` (without an explicit
+/// `permissionDecision:"deny"`) must halt the call, not silently fall through
+/// the `Allow` arm. The `decision` match still wins inside `continue:true` so
+/// `Ask` / `Defer` keep their force-prompt semantics.
+fn pre_tool_gate_from_outcome(outcome: crate::hooks::HookOutcome) -> PreToolGate {
+    use crate::hooks::HookDecision;
+    if !outcome.continue_execution {
+        let reason = outcome
+            .stop_reason
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "Tool blocked by a PreToolUse hook (continue:false).".to_string());
+        return PreToolGate::Deny(reason);
+    }
+    match outcome.decision {
+        HookDecision::Deny { reason } | HookDecision::Block { reason } => PreToolGate::Deny(reason),
+        // Skip the prompt only when the *aggregate* verdict is an explicit
+        // allow. `permission_allow` is OR-folded across hooks, so honoring it
+        // under an `Ask` aggregate would let one hook's allow suppress another
+        // hook's deliberate `ask` — gate it on the winning decision being Allow.
+        HookDecision::Allow => PreToolGate::Proceed {
+            updated_input: outcome.updated_input,
+            skip_user_prompt: outcome.permission_allow,
+            force_prompt: false,
+        },
+        // Ask / Defer: the hook wants human confirmation — force the prompt.
+        HookDecision::Ask | HookDecision::Defer => PreToolGate::Proceed {
+            updated_input: outcome.updated_input,
+            skip_user_prompt: false,
+            force_prompt: true,
+        },
+    }
+}
+
+#[cfg(test)]
+mod pre_tool_gate_tests {
+    use super::*;
+    use crate::hooks::{HookDecision, HookOutcome};
+
+    #[test]
+    fn continue_false_with_reason_maps_to_deny() {
+        let mut outcome = HookOutcome::noop();
+        outcome.continue_execution = false;
+        outcome.stop_reason = Some("blocked by safety hook".into());
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Deny(r) => assert_eq!(r, "blocked by safety hook"),
+            PreToolGate::Proceed { .. } => panic!("expected Deny on continue:false"),
+        }
+    }
+
+    #[test]
+    fn continue_false_without_reason_uses_default_message() {
+        let mut outcome = HookOutcome::noop();
+        outcome.continue_execution = false;
+        // stop_reason absent (None) or whitespace-only is treated identically.
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Deny(r) => {
+                assert!(
+                    r.contains("continue:false"),
+                    "default reason mentions cause, got {r:?}"
+                );
+            }
+            PreToolGate::Proceed { .. } => panic!("expected Deny on continue:false"),
+        }
+    }
+
+    #[test]
+    fn continue_false_overrides_explicit_allow_decision() {
+        // A hook can set `permissionDecision:"allow"` *and* `continue:false` —
+        // the loop-terminate signal must win over the auto-approve.
+        let mut outcome = HookOutcome::noop();
+        outcome.decision = HookDecision::Allow;
+        outcome.permission_allow = true;
+        outcome.continue_execution = false;
+        outcome.stop_reason = Some("halt".into());
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Deny(r) => assert_eq!(r, "halt"),
+            PreToolGate::Proceed { .. } => {
+                panic!("continue:false must not be overridden by permission_allow")
+            }
+        }
+    }
+
+    #[test]
+    fn allow_with_continue_true_proceeds() {
+        let mut outcome = HookOutcome::noop();
+        outcome.decision = HookDecision::Allow;
+        outcome.permission_allow = true;
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Proceed {
+                skip_user_prompt,
+                force_prompt,
+                ..
+            } => {
+                assert!(skip_user_prompt);
+                assert!(!force_prompt);
+            }
+            PreToolGate::Deny(_) => panic!("expected Proceed on Allow + continue:true"),
+        }
+    }
+
+    #[test]
+    fn ask_forces_prompt() {
+        let mut outcome = HookOutcome::noop();
+        outcome.decision = HookDecision::Ask;
+        match pre_tool_gate_from_outcome(outcome) {
+            PreToolGate::Proceed {
+                skip_user_prompt,
+                force_prompt,
+                ..
+            } => {
+                assert!(!skip_user_prompt);
+                assert!(force_prompt);
+            }
+            PreToolGate::Deny(_) => panic!("Ask must Proceed with force_prompt"),
+        }
+    }
+}
+
+/// Show the user approval prompt and map the response to a result. `Ok(())`
+/// means proceed (approved, or timed-out-with-`proceed` policy); `Err` blocks
+/// the call. `reason_payload` drives the dialog's reason banner (`None` =
+/// no banner, used for a hook-forced prompt); `allow_always_forbidden` reflects
+/// whether the reason bars an "Allow Always".
+async fn run_tool_approval(
+    name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    reason_payload: Option<approval::ApprovalReasonPayload>,
+    allow_always_forbidden: bool,
+) -> anyhow::Result<()> {
+    let desc = format!("tool: {} {}", name, {
+        let s = args.to_string();
+        if s.len() > 200 {
+            format!("{}...", crate::truncate_utf8(&s, 200))
+        } else {
+            s
+        }
+    });
+    let cwd = ctx.default_path();
+    match approval::check_and_request_approval(
+        &desc,
+        cwd,
+        ctx.session_id.as_deref(),
+        reason_payload,
+    )
+    .await
+    {
+        Ok(approval::ApprovalResponse::AllowOnce) => {
+            app_info!("tool", "approval", "Tool '{}' approved (once)", name);
+            Ok(())
+        }
+        Ok(approval::ApprovalResponse::AllowAlways) => {
+            if allow_always_forbidden {
+                app_info!(
+                    "tool",
+                    "approval",
+                    "Tool '{}' approved once (AllowAlways unavailable for this reason)",
+                    name
+                );
+            } else {
+                // Persist the multi-scope AllowAlways grant (#244). `exec` still
+                // uses the legacy command-prefix store inside `tool_exec`.
+                match crate::permission::allowlist::add_allow_always_for_call(
+                    name,
+                    args,
+                    ctx.allowlist_grant_context(),
+                ) {
+                    Ok(grant) => app_info!(
+                        "tool",
+                        "approval",
+                        "Tool '{}' approved (always, scope={}, rule={:?})",
+                        name,
+                        grant.scope.as_str(),
+                        grant.rule
+                    ),
+                    Err(e) => app_warn!(
+                        "tool",
+                        "approval",
+                        "Tool '{}' AllowAlways persistence failed; approved for this call only: {}",
+                        name,
+                        e
+                    ),
+                }
+            }
+            Ok(())
+        }
+        Ok(approval::ApprovalResponse::Deny) => {
+            Err(super::rejection::ToolRejection::denied_by_user(name))
+        }
+        Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
+            match approval::approval_timeout_action() {
+                crate::config::ApprovalTimeoutAction::Deny => {
+                    app_warn!(
+                        "tool",
+                        "approval",
+                        "Tool '{}' approval timed out after {}s; blocking execution",
+                        name,
+                        timeout_secs
+                    );
+                    Err(super::rejection::ToolRejection::approval_timeout(
+                        name,
+                        timeout_secs,
+                    ))
+                }
+                crate::config::ApprovalTimeoutAction::Proceed => {
+                    app_warn!(
+                        "tool",
+                        "approval",
+                        "Tool '{}' approval timed out after {}s; proceeding by config",
+                        name,
+                        timeout_secs
+                    );
+                    Ok(())
+                }
+            }
+        }
+        Err(e) => {
+            app_warn!(
+                "tool",
+                "approval",
+                "Tool approval check failed for '{}' ({}); blocking execution",
+                name,
+                e
+            );
+            Err(super::rejection::ToolRejection::approval_failed(
+                name,
+                e.to_string(),
+            ))
+        }
+    }
+}
+
 pub async fn execute_tool_with_context(
     name: &str,
     args: &Value,
@@ -623,6 +974,58 @@ pub async fn execute_tool_with_context(
         return Err(anyhow::anyhow!(err));
     }
 
+    // ── PreToolUse hook (blocking; design §9.3/§9.4) ──────────────
+    // Runs after the name-based hard-deny gate (visibility) and before the
+    // permission engine. A hook deny short-circuits here; `updatedInput`
+    // shadows `args` so every downstream gate (engine arg checks, plan-mode
+    // path glob) and the tool itself see the patched value.
+    //
+    // Fire only on the OUTER call. Async-tool re-entry (`bypass_async_dispatch`,
+    // set by the auto-background / explicit-background dispatch) already carries
+    // the outer call's patched args and pre-approval, so re-firing here would
+    // double a hook's side effects and re-apply an arg rewrite to its own output.
+    let pre_skip_prompt: bool;
+    let pre_force_prompt: bool;
+    let patched_args_holder: Option<Value> = if ctx.bypass_async_dispatch {
+        pre_skip_prompt = false;
+        pre_force_prompt = false;
+        None
+    } else {
+        match fire_pre_tool_use_hook(name, args, ctx).await {
+            PreToolGate::Deny(reason) => {
+                return Err(super::rejection::ToolRejection::denied_by_policy(
+                    name, reason,
+                ));
+            }
+            PreToolGate::Proceed {
+                updated_input,
+                skip_user_prompt,
+                force_prompt,
+            } => {
+                pre_skip_prompt = skip_user_prompt;
+                pre_force_prompt = force_prompt;
+                if let Some(ref ui) = updated_input {
+                    app_info!(
+                        "hooks",
+                        "dispatch",
+                        "PreToolUse rewrote tool_input for '{}'",
+                        name
+                    );
+                    // Surface the rewrite to the orchestrator so the UI, the
+                    // persisted history, and the `PostToolUse` hook see the
+                    // effective args — not the model's pre-rewrite ones. The
+                    // sink is None for non-orchestrator callers
+                    // (`execute_tool` direct path, async-job re-entry, slash
+                    // commands), so this is free for them.
+                    ctx.emit_effective_args(ui.clone()).await;
+                }
+                updated_input
+            }
+        }
+    };
+    // `args` now points at the patched value (if any) for the rest of the call.
+    let args: &Value = patched_args_holder.as_ref().unwrap_or(args);
+    // mac_control (#247): sanitize + preflight the (possibly hook-patched) args.
     let sanitized_args;
     let args = if name == TOOL_MAC_CONTROL {
         sanitized_args = crate::mac_control::sanitize_tool_args(args);
@@ -670,118 +1073,66 @@ pub async fn execute_tool_with_context(
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
         match decision {
-            crate::permission::Decision::Allow => {}
+            crate::permission::Decision::Allow => {
+                // Engine would allow without a prompt. A PreToolUse hook that
+                // returned `ask`/`defer` still wants human confirmation — force
+                // the prompt (no reason banner) so its request can't fail open.
+                if pre_force_prompt {
+                    run_tool_approval(name, args, ctx, None, false).await?;
+                }
+            }
             crate::permission::Decision::Deny { reason } => {
+                // PermissionDenied hook (observation): engine policy auto-denied
+                // this tool (no user prompt — that decline path fires from the
+                // approval layer instead).
+                crate::hooks::fire_permission_denied(ctx.session_id.as_deref(), name, "policy");
                 return Err(super::rejection::ToolRejection::denied_by_policy(
                     name, reason,
                 ));
             }
             crate::permission::Decision::Ask { reason } => {
-                let mac_control_focus_anchor =
-                    capture_mac_control_approval_focus_anchor(name).await;
-                let desc = format!("tool: {} {}", name, {
-                    let s = args.to_string();
-                    if s.len() > 200 {
-                        format!("{}...", crate::truncate_utf8(&s, 200))
-                    } else {
-                        s
-                    }
-                });
-                let cwd = ctx.default_path();
-                let reason_payload = Some(approval::ApprovalReasonPayload::from(&reason));
-                match approval::check_and_request_approval(
-                    &desc,
-                    cwd,
-                    ctx.session_id.as_deref(),
-                    reason_payload,
-                )
-                .await
-                {
-                    Ok(approval::ApprovalResponse::AllowOnce) => {
-                        app_info!("tool", "approval", "Tool '{}' approved (once)", name);
-                        restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
-                    }
-                    Ok(approval::ApprovalResponse::AllowAlways) => {
-                        if reason.forbids_allow_always() {
-                            app_info!(
-                                "tool",
-                                "approval",
-                                "Tool '{}' approved once (AllowAlways unavailable: {:?})",
-                                name,
-                                reason
-                            );
-                        } else {
-                            match crate::permission::allowlist::add_allow_always_for_call(
-                                name,
-                                args,
-                                ctx.allowlist_grant_context(),
-                            ) {
-                                Ok(grant) => app_info!(
-                                    "tool",
-                                    "approval",
-                                    "Tool '{}' approved (always, scope={}, rule={:?})",
-                                    name,
-                                    grant.scope.as_str(),
-                                    grant.rule
-                                ),
-                                Err(e) => app_warn!(
-                                    "tool",
-                                    "approval",
-                                    "Tool '{}' AllowAlways persistence failed; approved for this call only: {}",
-                                    name,
-                                    e
-                                ),
-                            }
-                        }
-                        restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
-                    }
-                    Ok(approval::ApprovalResponse::Deny) => {
-                        return Err(super::rejection::ToolRejection::denied_by_user(name));
-                    }
-                    Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
-                        match approval::approval_timeout_action() {
-                            crate::config::ApprovalTimeoutAction::Deny => {
-                                app_warn!(
-                                    "tool",
-                                    "approval",
-                                    "Tool '{}' approval timed out after {}s; blocking execution",
-                                    name,
-                                    timeout_secs
-                                );
-                                return Err(super::rejection::ToolRejection::approval_timeout(
-                                    name,
-                                    timeout_secs,
-                                ));
-                            }
-                            crate::config::ApprovalTimeoutAction::Proceed => {
-                                app_warn!(
-                                    "tool",
-                                    "approval",
-                                    "Tool '{}' approval timed out after {}s; proceeding by config",
-                                    name,
-                                    timeout_secs
-                                );
-                                restore_mac_control_approval_focus_anchor(mac_control_focus_anchor)
-                                    .await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        app_warn!(
-                            "tool",
-                            "approval",
-                            "Tool approval check failed for '{}' ({}); blocking execution",
-                            name,
-                            e
-                        );
-                        return Err(super::rejection::ToolRejection::approval_failed(
-                            name,
-                            e.to_string(),
-                        ));
-                    }
+                // A hook `allow` may skip only a *soft* prompt — never a strict
+                // one (protected path / dangerous command / mac-dangerous / Plan
+                // ask), which always requires per-call human confirmation and
+                // is exactly the boundary a hook must not be able to auto-bypass.
+                let strict = reason.forbids_allow_always()
+                    || matches!(reason, crate::permission::AskReason::PlanModeAsk);
+                if pre_skip_prompt && !strict {
+                    app_info!(
+                        "hooks",
+                        "dispatch",
+                        "PreToolUse allow skipped soft approval prompt for '{}' (reason {:?})",
+                        name,
+                        reason
+                    );
+                } else {
+                    let forbidden = reason.forbids_allow_always();
+                    // mac_control (#247): the approval dialog steals focus; capture
+                    // the target app before the prompt and restore it after a
+                    // proceed (run_tool_approval returns Ok) so the action lands on
+                    // the right app. On deny/error `?` returns early, leaving focus
+                    // as-is — the same restore-on-proceed behavior #247 had before
+                    // the hooks approval refactor.
+                    let mac_control_focus_anchor =
+                        capture_mac_control_approval_focus_anchor(name).await;
+                    run_tool_approval(
+                        name,
+                        args,
+                        ctx,
+                        Some(approval::ApprovalReasonPayload::from(&reason)),
+                        forbidden,
+                    )
+                    .await?;
+                    restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
                 }
             }
         }
+    } else if pre_force_prompt && !is_skill_read(name, args) {
+        // The engine gate was skipped (auto-approve / exec's own gate), but a
+        // PreToolUse hook explicitly asked for confirmation — honor it rather
+        // than letting the request through silently. SKILL.md reads are exempt
+        // so skill bootstrap never blocks on a prompt.
+        run_tool_approval(name, args, ctx, None, false).await?;
     }
 
     // Log tool execution start
@@ -1651,5 +2002,37 @@ mod tests {
             &inner_ctx,
             inner_ctx.local_auto_approve()
         ));
+    }
+
+    /// `ToolExecContext::emit_effective_args` is the bridge the streaming
+    /// loop uses to surface `PreToolUse` `updatedInput` rewrites to the UI /
+    /// history / `PostToolUse` hook input. Verify the sink is populated
+    /// exactly when wired up — non-wired contexts (slash commands,
+    /// async-job re-entry, the direct `execute_tool` helper) must remain
+    /// no-op so they don't pay the lock cost.
+    #[tokio::test]
+    async fn effective_args_sink_emits_only_when_wired() {
+        use std::sync::Arc;
+        use tokio::sync::Mutex as AsyncMutex;
+
+        // Wired sink: emit populates it.
+        let sink = Arc::new(AsyncMutex::new(None));
+        let ctx = ToolExecContext {
+            effective_args_sink: Some(sink.clone()),
+            ..ToolExecContext::default()
+        };
+        ctx.emit_effective_args(json!({ "command": "echo safe" }))
+            .await;
+        let drained = sink.lock().await.take();
+        assert_eq!(
+            drained.as_ref().and_then(|v| v.get("command")),
+            Some(&json!("echo safe")),
+        );
+
+        // No sink: emit is a no-op (no panic, nothing observable changes).
+        let bare = ToolExecContext::default();
+        bare.emit_effective_args(json!({ "ignored": true })).await;
+        // No assertion needed beyond "did not panic" — the bare context has
+        // no sink to inspect.
     }
 }

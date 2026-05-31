@@ -156,6 +156,11 @@ pub fn init_runtime(role: &'static str) {
 
     recover_startup_session_state(&session_db, tier);
 
+    // Initialize the hooks subsystem. Lightweight + synchronous here (the
+    // registry/transcript are lazy); the transcript backfill of existing
+    // sessions runs off the critical path in `start_background_tasks`.
+    crate::hooks::init();
+
     // Initialize the MemoryDB
     let memory_db_path = fatal(
         paths::memory_db_path(),
@@ -611,6 +616,56 @@ fn spawn_channel_menu_resync_listener(registry: Arc<channel::ChannelRegistry>) {
     });
 }
 
+/// Subscribe to `config:changed` and rebuild the global hooks registry when a
+/// hooks-relevant category changes (design §4.7 hot reload). Tier-agnostic: the
+/// compiled registry is per-process in-memory state, so each process keeps its
+/// own copy current. Also performs the initial load.
+fn spawn_hooks_config_listener() {
+    let Some(bus) = crate::globals::get_event_bus() else {
+        app_warn!(
+            "hooks",
+            "config",
+            "EventBus not initialized — hooks hot-reload disabled"
+        );
+        return;
+    };
+    // Initial registry load from current config.
+    crate::hooks::registry::reload_from_config();
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if hooks_config_event_relevant(&event) {
+                        crate::hooks::registry::reload_from_config();
+                        app_info!(
+                            "hooks",
+                            "config",
+                            "hooks registry reloaded after config change"
+                        );
+                    }
+                }
+                // Missed events — force a reload to converge.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    crate::hooks::registry::reload_from_config();
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+/// Whether a `config:changed` event should rebuild the hooks registry.
+fn hooks_config_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
+    event.name == "config:changed"
+        && event
+            .payload
+            .get("category")
+            .and_then(|c| c.as_str())
+            .map(|c| matches!(c, "hooks" | "user" | "app"))
+            .unwrap_or(false)
+}
+
 /// Config categories whose changes can shift the slash-command catalog. Kept
 /// as an explicit list (rather than a `starts_with("skill")` heuristic) so a
 /// future unrelated `skill_*` field can't silently force IM bot menu re-syncs.
@@ -654,6 +709,9 @@ pub async fn start_background_tasks() {
     // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
 
+    // Tier-agnostic: per-process in-memory hooks registry + hot-reload.
+    spawn_hooks_config_listener();
+
     if primary {
         // Cron scheduler self-hosts a dedicated OS thread with its own tokio
         // runtime (see scheduler.rs). Primary-only because the periodic
@@ -671,6 +729,28 @@ pub async fn start_background_tasks() {
         // Spawned as blocking because std::fs ops shouldn't tie up the
         // tokio runtime even during a one-off migration.
         tokio::task::spawn_blocking(crate::plan::migrate_flat_plans_to_subdirs);
+
+        // Best-effort backfill of hook transcript mirrors (`§10`) for sessions
+        // that predate the feature. Primary-only (writes shared session dirs)
+        // and off-runtime (blocking fs + sqlite). Idempotent: sessions that
+        // already have a transcript are skipped.
+        if let Some(session_db) = SESSION_DB.get() {
+            let db = session_db.clone();
+            tokio::task::spawn_blocking(
+                move || match crate::hooks::TranscriptMirror::backfill_all(&db) {
+                    Ok(n) if n > 0 => {
+                        app_info!(
+                            "hooks",
+                            "transcript",
+                            "backfilled {} session transcript(s)",
+                            n
+                        )
+                    }
+                    Ok(_) => {}
+                    Err(e) => app_warn!("hooks", "transcript", "transcript backfill failed: {e}"),
+                },
+            );
+        }
 
         // Clean up the `ask_user_questions` table: drop old answered rows and
         // expire any still-pending rows left behind by a previous process
@@ -891,6 +971,12 @@ pub async fn start_minimal_background_tasks() {
 
     // EventBus listeners — multi-subscriber-safe, tier-agnostic.
     spawn_channel_listeners();
+
+    // Hooks registry initial load + hot-reload. Required in server / ACP modes
+    // too (this fn is their only background-task entry): without it the global
+    // registry stays empty and every dispatch is a no-op, contradicting the
+    // "hooks run in desktop / server / ACP alike" contract.
+    spawn_hooks_config_listener();
 
     if primary {
         // One-shot ask_user table cleanup. Primary-only because Secondary

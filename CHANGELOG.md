@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hooks 系统（字段级兼容 Claude Code 协议）**：可在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，支持 `command` / `http` / `mcp_tool` / `prompt` / `agent` 五种处理器；配置分 user / managed / project / local 四层作用域并叠加合并，项目级 hooks 可随仓库共享给团队（出于供应链安全默认关闭，需在设置 → Hooks 中显式开启）；提供可视化设置面板（设置 → Hooks），配置改动即时热重载。每个处理器还可配置条件执行（`if`，按工具 + 参数模式匹配）、每会话仅运行一次（`once`）、运行时桌面提示（`statusMessage`），以及 async 命令钩子在退出码 2 时把结果作为提醒回注下一轮对话（`asyncRewake`）。 (#254)
 - **项目文件浏览器**：项目设置「文件」标签与主聊天区（标题栏入口、右侧面板，可弹出独立窗口或最大化）提供 VSCode 风格文件浏览器，文件树与预览左右分栏、分隔线可拖拽调宽；支持目录树浏览、新建 / 重命名 / 删除 / 移动 / 拖拽上传，以及代码（Shiki 语法高亮）、Markdown（渲染 / 源码切换）、图片、PDF 原样与 Office（docx/xlsx/pptx）提取内容的只读预览，预览顶部显示文件相对路径；工作目录为 git 仓库时展示当前分支与 worktree 列表，可只读跳转浏览其它 worktree；在预览中选中文本可右键复制或引用到对话，点击输入框的引用卡片会跳回文件浏览器、在树中展开定位该文件并在预览里高亮引用的行。
 
 ### Changed

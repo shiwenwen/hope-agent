@@ -87,5 +87,5 @@ static SESSION_IDLE_NOTIFY: std::sync::LazyLock<tokio::sync::Notify> =
 pub use cancel::SubagentCancelRegistry;
 pub use helpers::{cleanup_orphan_runs, mark_run_fetched};
 pub use mailbox::{ChatSessionGuard, SUBAGENT_MAILBOX};
-pub use spawn::spawn_subagent;
+pub use spawn::{spawn_subagent, HOOK_SPAWN_LABEL};
 pub use types::{SpawnParams, SubagentRun, SubagentStatus};

@@ -264,7 +264,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         codex_token,
         resolved_temperature,
         compact_config,
-        extra_system_context,
+        mut extra_system_context,
         reasoning_effort,
         cancel,
         plan_context_override,
@@ -347,6 +347,52 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         if source.broadcasts_to_user_ui() {
             stream_broadcast::broadcast_turn_started(&session_id, turn_id, Some(stream_id));
         }
+    }
+
+    // SessionStart hook (startup / resume). Observation event — any
+    // additionalContext is merged into `extra_system_context` so it rides this
+    // turn's system prompt and survives failover retries (which rebuild the
+    // agent from this same local). The helper is shared with the ACP turn loop
+    // (which runs `AssistantAgent::chat` directly, not this engine) so both
+    // entry points fire SessionStart and resolve cwd identically.
+    //
+    // Gate on `source.fires_user_lifecycle_hooks()`: subagent / parent-injection
+    // runs are internal workers, not user-visible sessions, so they MUST NOT
+    // fire SessionStart. Without this gate an `agent` handler on `SessionStart`
+    // spawns a sub-agent on every run, whose own chat-engine pass fires another
+    // `SessionStart` (new session id ⇒ per-session `claim_session_start` doesn't
+    // dedupe), and so on — a single global SessionStart agent hook would burn
+    // tokens until concurrency or external limits intervene. Subagent
+    // observability lives on `SubagentStart` / `SubagentStop` instead, also
+    // gated against hook-spawned children in `subagent::spawn`.
+    if source.fires_user_lifecycle_hooks() {
+        if let Some(extra) = crate::hooks::fire_session_start_observation(
+            &session_id,
+            &agent_id,
+            model_chain
+                .first()
+                .map(|m| m.model_id.as_str())
+                .unwrap_or_default(),
+        )
+        .await
+        {
+            extra_system_context = Some(match extra_system_context.take() {
+                Some(e) => format!("{e}\n\n{extra}"),
+                None => extra,
+            });
+        }
+    }
+
+    // UserPromptSubmit hook context: the preflight chokepoint stashed any
+    // `additionalContext` from the UserPromptSubmit hook keyed by session;
+    // drain it here so it rides this turn's system prompt next to SessionStart
+    // (and survives failover for the same reason — it lives in this run-local).
+    // Drained exactly once per turn.
+    if let Some(extra) = crate::hooks::take_user_prompt_context(&session_id) {
+        extra_system_context = Some(match extra_system_context.take() {
+            Some(e) => format!("{e}\n\n{extra}"),
+            None => extra,
+        });
     }
 
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
@@ -909,6 +955,11 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     }
                     stream_lifecycle.set_terminal(terminal_status, interrupt_reason, None);
                     stream_lifecycle.finish();
+
+                    // Stop hook: the agent finished responding (normal
+                    // completion, or a user-initiated stop that still drained
+                    // to here). Observation-only this phase.
+                    crate::hooks::fire_stop(&session_id, Some(&agent_id), terminal_status.as_str());
 
                     if post_turn_effects {
                         crate::session_title::maybe_schedule_after_success(

@@ -4209,7 +4209,26 @@
     "webSearchRecommended": "Disyorkan",
     "webSearchSaved": "Disimpan",
     "webSearchTimeout": "Tamat masa (saat)",
-    "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)"
+    "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Automasi Hooks",
+      "intro": "Jalankan arahan tersuai / HTTP / gesaan / sub-ejen pada peristiwa kitaran hayat. Serasi peringkat medan dengan hooks Claude Code.",
+      "disableAll": "Lumpuhkan semua hooks",
+      "disableAllDesc": "Suis utama — mematikan setiap hook merentas semua scope.",
+      "allowProjectScope": "Benarkan hook projek & tempatan",
+      "allowProjectScopeDesc": "Membolehkan .hope-agent/hooks.json dan hooks.local.json dalam direktori kerja menambah hook — sesuai untuk dikongsi dengan pasukan anda. Dimatikan secara lalai kerana ia boleh menjalankan perintah sendiri, jadi hidupkan hanya untuk projek yang anda percayai.",
+      "scopeNote": "Panel ini menyunting hooks scope user. Scope project (.hope-agent/hooks.json, dikongsi repo), local (hooks.local.json) dan managed (/etc/hope-agent/hooks.json) berasaskan fail dan digabungkan di atas.",
+      "pickEvent": "Pilih peristiwa…",
+      "addHook": "Tambah hook",
+      "empty": "Tiada hook dikonfigurasi. Pilih peristiwa di atas untuk menambah.",
+      "addGroup": "Tambah kumpulan matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "nama alat / sumber (regex ok), kosong = semua",
+      "addHandler": "Tambah pengendali",
+      "advanced": "Lanjutan",
+      "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse)."
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",

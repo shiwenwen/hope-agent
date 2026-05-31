@@ -331,15 +331,69 @@ impl AcpAgent {
         };
         let attachments = extract_images_from_prompt(&req.prompt);
 
+        // Preflight chokepoint: pass-through in Phase 0.1; PR 1.2 runs the
+        // `UserPromptSubmit` hook here. `do_prompt` is synchronous, so bridge to
+        // the async helper on a short-lived runtime — the same pattern
+        // `run_agent_chat` uses below.
+        let effective_prompt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => match rt.block_on(crate::agent::preflight::user_prompt_preflight(
+                crate::agent::preflight::PreflightArgs {
+                    session_id: &session_id,
+                    agent_id: None,
+                    raw_prompt: &text,
+                },
+            )) {
+                crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+                    effective_prompt
+                }
+                crate::agent::preflight::PreflightOutcome::Block { reason } => {
+                    // A UserPromptSubmit hook blocked the prompt: record a
+                    // UI-only event marker (excluded from LLM context), surface
+                    // the reason as an agent message, and return without
+                    // running a turn.
+                    let notice = format!("🚫 {reason}");
+                    let _ = self
+                        .session_db
+                        .append_message(&session_id, &session::NewMessage::event(&notice));
+                    let update = serde_json::json!({
+                        "sessionId": session_id,
+                        "sessionUpdate": {
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": { "type": "text", "text": notice }
+                        },
+                        "final": true,
+                    });
+                    let _ = self
+                        .transport
+                        .write_notification(&JsonRpcNotification::new("session/update", update));
+                    if let Some(s) = self.sessions.get_mut(&session_id) {
+                        s.active_prompt = false;
+                    }
+                    let response = PromptResponse {
+                        stop_reason: "refusal".to_string(),
+                    };
+                    return JsonRpcResponse::success(
+                        id.clone(),
+                        serde_json::to_value(&response).unwrap(),
+                    );
+                }
+            },
+            Err(_) => text.clone(),
+        };
+
         // Save user message
         let _ = self.session_db.append_message(
             &session_id,
-            &session::NewMessage::user(&text).with_source(crate::chat_engine::ChatSource::Http),
+            &session::NewMessage::user(&effective_prompt)
+                .with_source(crate::chat_engine::ChatSource::Http),
         );
 
         // Auto-generate fallback title
         if let Ok(Some(title)) =
-            session::ensure_first_message_title(&self.session_db, &session_id, &text)
+            session::ensure_first_message_title(&self.session_db, &session_id, &effective_prompt)
         {
             // Emit session_info_update
             let notif = serde_json::json!({
@@ -356,7 +410,10 @@ impl AcpAgent {
         }
 
         // Run agent chat
-        let stop_reason = self.run_agent_chat(&session_id, &text, &attachments);
+        // Run the turn with the preflight-resolved prompt (same value the
+        // other three entry points feed their engine), not the raw `text`, so
+        // a future hook rewrite is honored consistently across all entries.
+        let stop_reason = self.run_agent_chat(&session_id, &effective_prompt, &attachments);
 
         // Mark done
         if let Some(session) = self.sessions.get_mut(&session_id) {
@@ -669,6 +726,32 @@ impl AcpAgent {
                 .map(|cp| std::sync::Arc::new(cp) as _)
         });
 
+        // SessionStart hook (startup/resume). ACP runs `AssistantAgent::chat`
+        // directly rather than `run_chat_engine`, so the engine's SessionStart
+        // embed never fires here — we invoke the shared observation helper
+        // ourselves. Fired once before the failover loop (`claim_session_start`
+        // only releases once); the resulting additionalContext is re-applied to
+        // each rebuilt agent so it survives retries, mirroring how the engine
+        // threads it through `extra_system_context`.
+        let mut session_start_ctx = rt.block_on(crate::hooks::fire_session_start_observation(
+            &session_id_owned,
+            &agent_id,
+            model_chain
+                .first()
+                .map(|m| m.model_id.as_str())
+                .unwrap_or_default(),
+        ));
+        // Fold in any UserPromptSubmit hook context the preflight chokepoint
+        // stashed for this turn, so the ACP entry injects it identically to
+        // `run_chat_engine`. Drained once; re-applied to each rebuilt agent
+        // below alongside the SessionStart context.
+        if let Some(extra) = crate::hooks::take_user_prompt_context(&session_id_owned) {
+            session_start_ctx = Some(match session_start_ctx.take() {
+                Some(e) => format!("{e}\n\n{extra}"),
+                None => extra,
+            });
+        }
+
         for model_ref in &model_chain {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
                 Some(p) => p,
@@ -718,6 +801,13 @@ impl AcpAgent {
 
                 // Restore context
                 restore_agent_context(&db_clone, &session_id_owned, &agent);
+
+                // Fold any SessionStart additionalContext into this turn's
+                // system prompt. Set after restore (and re-applied on every
+                // retry since the agent is rebuilt above) so it isn't clobbered.
+                if let Some(ref ctx) = session_start_ctx {
+                    agent.set_extra_system_context(ctx.clone());
+                }
 
                 let cancel_clone = cancel.clone();
                 let sid_for_cb = session_id_owned.clone();

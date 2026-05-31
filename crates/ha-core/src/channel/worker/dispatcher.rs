@@ -482,7 +482,35 @@ async fn handle_inbound_message(
 
     // 5b. Persist only messages that will enter the chat engine. Reply-only
     // slash commands returned above after writing event history.
-    let mut user_msg = crate::session::NewMessage::user(user_text)
+    //
+    // Preflight chokepoint: pass-through in Phase 0.1; PR 1.2 runs the
+    // `UserPromptSubmit` hook here. The raw prompt is the persisted `user_text`
+    // (not the LLM-bound `engine_message`), keeping transcript + hook input
+    // consistent with what lands in history.
+    let effective_prompt = match crate::agent::preflight::user_prompt_preflight(
+        crate::agent::preflight::PreflightArgs {
+            session_id: &session_id,
+            agent_id: Some(agent_id.as_str()),
+            raw_prompt: user_text,
+        },
+    )
+    .await
+    {
+        crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => effective_prompt,
+        crate::agent::preflight::PreflightOutcome::Block { reason } => {
+            // A UserPromptSubmit hook blocked the prompt: reply to the chat and
+            // record a UI-only event marker (excluded from LLM context); the
+            // prompt is neither persisted as a user message nor run.
+            let notice = format!("🚫 {reason}");
+            let _ =
+                session_db.append_message(&session_id, &crate::session::NewMessage::event(&notice));
+            let _ = plugin
+                .send_message(&account.id, &msg.chat_id, &ReplyPayload::text(&notice))
+                .await;
+            return Ok(());
+        }
+    };
+    let mut user_msg = crate::session::NewMessage::user(&effective_prompt)
         .with_source(crate::chat_engine::ChatSource::Channel);
     user_msg.attachments_meta = Some(
         serde_json::json!({
@@ -500,7 +528,7 @@ async fn handle_inbound_message(
     let _ = session_db.append_message(&session_id, &user_msg);
 
     // Auto-generate fallback title from the first real message (same logic as normal chat).
-    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, user_text);
+    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, &effective_prompt);
 
     // Notify the desktop / web side that a fresh user message landed on
     // this session from IM, so an attached GUI view can pull it into

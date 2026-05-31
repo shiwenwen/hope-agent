@@ -4209,7 +4209,26 @@
     "webSearchRecommended": "Recomendado",
     "webSearchSaved": "Salvo",
     "webSearchTimeout": "Timeout (segundos)",
-    "webSearchTimeoutDesc": "Timeout HTTP para requisições de pesquisa (5-120 s)"
+    "webSearchTimeoutDesc": "Timeout HTTP para requisições de pesquisa (5-120 s)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Automação de Hooks",
+      "intro": "Execute comandos personalizados / HTTP / prompts / subagentes em eventos do ciclo de vida. Compatível em nível de campo com os hooks do Claude Code.",
+      "disableAll": "Desativar todos os hooks",
+      "disableAllDesc": "Interruptor mestre — desliga todos os hooks em todos os escopos.",
+      "allowProjectScope": "Permitir hooks de projeto e locais",
+      "allowProjectScopeDesc": "Permite que .hope-agent/hooks.json e hooks.local.json no diretório de trabalho adicionem hooks — útil para compartilhar com sua equipe. Desativado por padrão porque podem executar comandos sozinhos, então ative apenas para projetos em que você confia.",
+      "scopeNote": "Este painel edita hooks do escopo user. Os escopos project (.hope-agent/hooks.json, compartilhado pelo repositório), local (hooks.local.json) e managed (/etc/hope-agent/hooks.json) são baseados em arquivo e mesclados por cima.",
+      "pickEvent": "Selecione um evento…",
+      "addHook": "Adicionar hook",
+      "empty": "Nenhum hook configurado. Selecione um evento acima para adicionar.",
+      "addGroup": "Adicionar grupo de matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "nome da ferramenta / origem (regex ok), vazio = todos",
+      "addHandler": "Adicionar handler",
+      "advanced": "Avançado",
+      "slowHandlerWarning": "Este handler executa um LLM / subagente em linha e atrasará cada vez que este evento de bloqueio disparar. Prefira command / http aqui, ou mova-o para um evento de observação (ex.: PostToolUse)."
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",

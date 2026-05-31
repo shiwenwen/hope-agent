@@ -105,10 +105,13 @@ async fn emit_file_change_metadata(
     before: Option<&(String, bool)>,
     after: &str,
 ) {
+    let action = if before.is_some() { "edit" } else { "create" };
+    // FileChanged hook (observation) fires whether or not a DiffPanel metadata
+    // sink is attached — it is independent of the UI diff capture below.
+    crate::hooks::fire_file_changed(ctx.session_id.as_deref(), path, action);
     if ctx.metadata_sink.is_none() {
         return;
     }
-    let action = if before.is_some() { "edit" } else { "create" };
     let (before_str, before_pre_trunc) = match before {
         Some((s, t)) => (s.as_str(), *t),
         None => ("", false),

@@ -50,6 +50,10 @@ pub fn handle_clear(
     session_id: Option<&str>,
 ) -> Result<CommandResult, String> {
     let sid = session_id.ok_or("No active session to clear")?;
+    // SessionEnd(clear) hook (observation, fire-and-forget) — fire BEFORE the
+    // delete so the hook still resolves the session's working dir / transcript
+    // path; afterwards the row is gone and cwd would fall back to home.
+    crate::hooks::fire_session_end(sid, "clear");
     session_db.delete_session(sid).map_err(|e| e.to_string())?;
     Ok(CommandResult {
         content: "Session cleared.".into(),

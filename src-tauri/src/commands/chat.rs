@@ -246,14 +246,68 @@ pub async fn chat(
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);
 
+    // Prefer display_text for DB/title, fall back to the LLM-bound message.
+    let raw_prompt = ha_core::non_empty_trim_or(display_text.as_deref(), &message);
+
+    // Preflight chokepoint runs BEFORE any side effects (attachments dir creation,
+    // base64 image write, temp file move) so a `UserPromptSubmit` block doesn't
+    // leave orphan attachment files on disk. Reordered after the adversarial
+    // review caught this leak: blocked-prompt semantics were "no user message
+    // persisted", but the attachment IO had already touched disk. The preflight
+    // only consumes `raw_prompt` / `session_id` / `agent_id`, so it doesn't need
+    // any attachment metadata — moving it up is purely a side-effect deferral.
+    let effective_prompt = match ha_core::agent::preflight::user_prompt_preflight(
+        ha_core::agent::preflight::PreflightArgs {
+            session_id: &sid,
+            agent_id: Some(current_agent_id.as_str()),
+            raw_prompt,
+        },
+    )
+    .await
+    {
+        ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+            effective_prompt
+        }
+        ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
+            // A UserPromptSubmit hook blocked the prompt: record a UI-only event
+            // marker (visible in history but excluded from LLM context) and
+            // surface it. The prompt is neither persisted as a user message nor
+            // run as a turn — and crucially, no attachment file has been
+            // written yet (we're upstream of all attachment IO).
+            let notice = format!("🚫 {reason}");
+            // If this preflight ran against a freshly-auto-created session,
+            // emit `session_created` BEFORE the block notice so the frontend
+            // can register the new session and route the notice to it.
+            // Without this the empty session stays orphaned in the DB (no
+            // user message, no title, no sidebar entry) and the block text
+            // event has nowhere to dock — symmetric with the HTTP path,
+            // which returns `session_id` via `ChatResponse.blocked_reason`.
+            // Title is derived from the raw prompt so the user can find the
+            // session in the sidebar; ensure_first_message_title is the same
+            // helper the post-stream path uses, so the title shape stays
+            // consistent across blocked-first-message and normal flows.
+            if let Some(ref new_sid) = new_session_created {
+                let _ = ha_core::session::ensure_first_message_title(&db, new_sid, raw_prompt);
+                let event = serde_json::json!({
+                    "type": "session_created",
+                    "session_id": new_sid,
+                });
+                if let Ok(json_str) = serde_json::to_string(&event) {
+                    let _ = on_event.send(json_str);
+                }
+            }
+            let _ = db.append_message(&sid, &session::NewMessage::event(&notice));
+            let _ =
+                on_event.send(serde_json::json!({ "type": "text", "text": notice }).to_string());
+            return Ok(notice);
+        }
+    };
+
     let attachments_meta =
         ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut attachments)?;
 
-    // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content = ha_core::non_empty_trim_or(display_text.as_deref(), &message);
-
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(persisted_content)
+    let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Desktop);
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
@@ -287,7 +341,7 @@ pub async fn chat(
 
     // Auto-generate fallback title from first user message if session has no title.
     // Prefer the displayed text so titles read naturally ("/drawio ..." rather than the expanded form).
-    let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
+    let _ = session::ensure_first_message_title(&db, &sid, &effective_prompt);
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
     if let Some(ref new_sid) = new_session_created {

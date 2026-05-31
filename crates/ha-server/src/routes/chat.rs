@@ -74,6 +74,14 @@ pub struct ChatResponse {
     pub session_id: String,
     pub response: String,
     pub turn_id: String,
+    /// Set to the block reason when the `UserPromptSubmit` preflight hook
+    /// short-circuited the turn before a stream started. `None` on the
+    /// normal happy path. The HTTP transport reads this to synthesize a
+    /// stream notice for the UI so the user actually sees the block (the
+    /// stream end signal that normally carries the notice never fires when
+    /// no stream was opened).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
 }
 
 fn validate_http_chat_attachments(attachments: &[Attachment]) -> Result<(), AppError> {
@@ -250,14 +258,53 @@ pub async fn chat(
     })?;
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
+    let raw_prompt = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
+
+    // Preflight chokepoint: every user-message entry point routes through this
+    // before persisting. Pass-through in Phase 0.1; PR 1.2 runs the
+    // `UserPromptSubmit` hook here (may block / rewrite the prompt).
+    let effective_prompt = match ha_core::agent::preflight::user_prompt_preflight(
+        ha_core::agent::preflight::PreflightArgs {
+            session_id: &sid,
+            agent_id: Some(agent_id.as_str()),
+            raw_prompt,
+        },
+    )
+    .await
+    {
+        ha_core::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+            effective_prompt
+        }
+        ha_core::agent::preflight::PreflightOutcome::Block { reason } => {
+            // A UserPromptSubmit hook blocked the prompt: record a UI-only event
+            // marker (excluded from LLM context) and return the reason as the
+            // response — no user message persisted, no turn run. `blocked_reason`
+            // is the structured signal the HTTP transport reads to synthesize
+            // a stream notice (parity with the desktop path, which sends a
+            // `{"type":"text","text":notice}` event on the on_event channel).
+            let notice = format!("🚫 {reason}");
+            let _ = db.append_message(&sid, &session::NewMessage::event(&notice));
+            return Ok(Json(ChatResponse {
+                session_id: sid,
+                response: notice.clone(),
+                turn_id,
+                blocked_reason: Some(notice),
+            }));
+        }
+    };
+
+    // Attachments: validate + persist AFTER the preflight, so a blocked prompt
+    // returns above before any attachment IO touches disk. The DB content is the
+    // hook-rewritten `effective_prompt`, so the separate `persisted_content`
+    // main computed (identical to `raw_prompt`, now consumed by the preflight) is
+    // dropped.
     validate_http_chat_attachments(&body.attachments)?;
     let attachments_meta =
         ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut body.attachments)
             .map_err(|e| AppError::internal(e.to_string()))?;
 
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(persisted_content)
+    let mut user_msg = session::NewMessage::user(&effective_prompt)
         .with_source(ha_core::chat_engine::ChatSource::Http);
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         body.is_plan_trigger.unwrap_or(false),
@@ -274,7 +321,7 @@ pub async fn chat(
     )?;
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
-    let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
+    let _ = session::ensure_first_message_title(&db, &sid, &effective_prompt);
 
     // Resolve model chain
     let agent_model_config = agent_def
@@ -431,6 +478,7 @@ pub async fn chat(
         session_id: sid,
         response: result.response,
         turn_id,
+        blocked_reason: None,
     }))
 }
 

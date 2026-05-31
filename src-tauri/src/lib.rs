@@ -404,6 +404,8 @@ pub fn run() {
             commands::memory::memory_reembed_start,
             commands::config::get_compact_config,
             commands::config::save_compact_config,
+            commands::config::get_hooks_config,
+            commands::config::save_hooks_config,
             commands::config::get_session_title_config,
             commands::config::save_session_title_config,
             commands::config::get_notification_config,
@@ -741,6 +743,13 @@ pub fn run() {
                     let _ = window.unminimize();
                     let _ = window.set_focus();
                 }
+            }
+            // App is exiting → SessionEnd(other) observation hook (app-global,
+            // one representative event). Best-effort: at hard exit the process
+            // may tear down before a detached command hook finishes — graceful
+            // delivery is the server path's awaited shutdown, not desktop quit.
+            if let tauri::RunEvent::Exit = _event {
+                ha_core::hooks::fire_session_end("", "other");
             }
         });
 }

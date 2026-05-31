@@ -4209,7 +4209,26 @@
     "webSearchRecommended": "권장",
     "webSearchSaved": "저장됨",
     "webSearchTimeout": "시간 초과 (초)",
-    "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)"
+    "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Hooks 자동화",
+      "intro": "수명 주기 이벤트에서 사용자 정의 명령 / HTTP / 프롬프트 / 서브에이전트를 실행합니다. Claude Code hooks와 필드 수준 호환.",
+      "disableAll": "모든 hooks 비활성화",
+      "disableAllDesc": "마스터 스위치 — 모든 scope의 hook을 끕니다.",
+      "allowProjectScope": "프로젝트 & 로컬 Hook 허용",
+      "allowProjectScopeDesc": "작업 디렉터리의 .hope-agent/hooks.json 및 hooks.local.json에서 Hook을 추가할 수 있습니다(팀과 공유하기 편리). 스스로 명령을 실행할 수 있어 기본은 꺼짐 — 신뢰하는 프로젝트에서만 켜세요.",
+      "scopeNote": "이 패널은 user 범위 hooks를 편집합니다. project(.hope-agent/hooks.json, 저장소 공유), local(hooks.local.json), managed(/etc/hope-agent/hooks.json)는 파일 기반이며 위에 병합됩니다.",
+      "pickEvent": "이벤트 선택…",
+      "addHook": "hook 추가",
+      "empty": "구성된 hook이 없습니다. 위에서 이벤트를 선택하여 추가하세요.",
+      "addGroup": "matcher 그룹 추가",
+      "matcher": "matcher",
+      "matcherPlaceholder": "도구 이름 / 소스(정규식 가능), 비어 있음 = 전체",
+      "addHandler": "핸들러 추가",
+      "advanced": "고급",
+      "slowHandlerWarning": "이 핸들러는 LLM / 서브에이전트를 인라인으로 실행하므로 이 차단 이벤트가 발생할 때마다 지연됩니다. 여기서는 command / http를 권장하거나 관찰 이벤트(PostToolUse 등)로 옮기세요."
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",

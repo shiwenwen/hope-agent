@@ -296,6 +296,37 @@ export function handleStreamEvent(
         }
         break
       }
+      case "tool_call_args_rewritten": {
+        // A `PreToolUse` hook rewrote the tool input via `updatedInput`.
+        // Update the in-place tool block (same `call_id`) so the rendered
+        // arguments match what actually ran, not the pre-rewrite arguments
+        // the earlier `tool_call` event delivered. Drops silently if the
+        // call_id isn't found (race with a turn reload, etc.).
+        const callId = stringField(event, "call_id")
+        const args = stringField(event, "arguments")
+        const calls = [...(last.toolCalls || [])]
+        const idx = calls.findIndex((c) => c.callId === callId)
+        if (idx >= 0) {
+          calls[idx] = { ...calls[idx], arguments: args }
+        }
+        const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+        const blockIdx = blocks.findIndex(
+          (b) => b.type === "tool_call" && b.tool.callId === callId,
+        )
+        if (blockIdx >= 0) {
+          const block = blocks[blockIdx] as { type: "tool_call"; tool: { callId: string; name: string; arguments: string } }
+          blocks[blockIdx] = {
+            type: "tool_call",
+            tool: { ...block.tool, arguments: args },
+          }
+        }
+        updated[updated.length - 1] = {
+          ...last,
+          toolCalls: calls,
+          contentBlocks: blocks,
+        }
+        break
+      }
       case "tool_result": {
         const mediaItems: MediaItem[] | undefined =
           Array.isArray(event.media_items) && (event.media_items as MediaItem[]).length

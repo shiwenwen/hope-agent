@@ -63,6 +63,19 @@ impl ChatSource {
         matches!(self, Self::Desktop | Self::Http | Self::Channel)
     }
 
+    /// Whether the chat engine should fire user-facing lifecycle hooks (`SessionStart`
+    /// and friends) for this run. `Subagent` / `ParentInjection` are internal
+    /// worker runs — firing `SessionStart` for them opens a cascade where an
+    /// `agent` handler on `SessionStart` keeps spawning subagents, each of
+    /// which fires its own `SessionStart` (the per-session-id `claim` doesn't
+    /// dedup across distinct subagent session ids). Lifecycle observation for
+    /// subagent runs lives on the `SubagentStart` / `SubagentStop` events
+    /// instead, fired by `subagent::spawn` (also gated against hook-spawned
+    /// children — see `crates/ha-core/src/subagent/spawn.rs`).
+    pub fn fires_user_lifecycle_hooks(&self) -> bool {
+        matches!(self, Self::Desktop | Self::Http | Self::Channel)
+    }
+
     /// Lowercase wire string used as the `messages.source` column value and
     /// anywhere else a stable identifier is needed without paying for a
     /// `Display` allocation. Mirrors the `Serialize` rename + `Display`
@@ -265,6 +278,19 @@ mod tests {
 
     // All tests share one process-wide REGISTRY, so each test uses a unique
     // session_id prefix and cleans up after itself to stay independent.
+
+    #[test]
+    fn user_lifecycle_hooks_gated_by_source() {
+        // Only sources that map to a user-visible session fire SessionStart and
+        // friends — Subagent / ParentInjection are internal worker runs whose
+        // observability lives on Subagent{Start,Stop}. This guards against the
+        // SessionStart → agent-hook → spawn → SessionStart cascade.
+        assert!(ChatSource::Desktop.fires_user_lifecycle_hooks());
+        assert!(ChatSource::Http.fires_user_lifecycle_hooks());
+        assert!(ChatSource::Channel.fires_user_lifecycle_hooks());
+        assert!(!ChatSource::Subagent.fires_user_lifecycle_hooks());
+        assert!(!ChatSource::ParentInjection.fires_user_lifecycle_hooks());
+    }
 
     #[test]
     fn begin_end_roundtrip() {

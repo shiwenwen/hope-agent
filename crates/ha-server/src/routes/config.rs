@@ -1094,3 +1094,30 @@ pub async fn save_awareness_config(
     })?;
     Ok(Json(json!({ "saved": true })))
 }
+
+// ── Hooks ───────────────────────────────────────────────────────
+
+/// `GET /api/config/hooks` -- read the hooks settings (disable switch +
+/// user-scope hooks map). Project / local / managed scopes are file-based.
+pub async fn get_hooks_config() -> Result<Json<ha_core::hooks::config::HooksSettings>, AppError> {
+    let store = load_config()?;
+    Ok(Json(ha_core::hooks::config::HooksSettings {
+        disable_all_hooks: store.disable_all_hooks,
+        allow_project_scope: store.hooks_allow_project_scope,
+        hooks: store.hooks,
+    }))
+}
+
+/// `PUT /api/config/hooks` -- save the user-scope hooks settings. `config:changed`
+/// rebuilds the hook registry. The GUI is the only user-scope writer.
+pub async fn save_hooks_config(
+    Json(body): Json<ConfigBody<ha_core::hooks::config::HooksSettings>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("hooks", "http"), |store| {
+        store.disable_all_hooks = body.config.disable_all_hooks;
+        store.hooks_allow_project_scope = body.config.allow_project_scope;
+        store.hooks = body.config.hooks;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}

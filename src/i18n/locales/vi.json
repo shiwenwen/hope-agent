@@ -4209,7 +4209,26 @@
     "webSearchRecommended": "Khuyến nghị",
     "webSearchSaved": "Đã lưu",
     "webSearchTimeout": "Hết thời gian (giây)",
-    "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)"
+    "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Tự động hóa Hooks",
+      "intro": "Chạy lệnh tùy chỉnh / HTTP / prompt / sub-agent tại các sự kiện vòng đời. Tương thích cấp trường với hooks của Claude Code.",
+      "disableAll": "Tắt tất cả hooks",
+      "disableAllDesc": "Công tắc tổng — tắt mọi hook trên tất cả scope.",
+      "allowProjectScope": "Cho phép hook dự án & cục bộ",
+      "allowProjectScopeDesc": "Cho phép .hope-agent/hooks.json và hooks.local.json trong thư mục làm việc thêm hook — tiện để chia sẻ với nhóm của bạn. Mặc định tắt vì chúng có thể tự chạy lệnh, nên chỉ bật cho các dự án bạn tin tưởng.",
+      "scopeNote": "Bảng này chỉnh sửa hooks phạm vi user. Phạm vi project (.hope-agent/hooks.json, chia sẻ qua repo), local (hooks.local.json) và managed (/etc/hope-agent/hooks.json) dựa trên tệp và được hợp nhất phía trên.",
+      "pickEvent": "Chọn sự kiện…",
+      "addHook": "Thêm hook",
+      "empty": "Chưa cấu hình hook. Chọn sự kiện ở trên để thêm.",
+      "addGroup": "Thêm nhóm matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "tên công cụ / nguồn (regex được), trống = tất cả",
+      "addHandler": "Thêm trình xử lý",
+      "advanced": "Nâng cao",
+      "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse)."
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",

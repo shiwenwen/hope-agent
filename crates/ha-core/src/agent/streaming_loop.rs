@@ -17,8 +17,8 @@ use serde_json::json;
 
 use super::api_types::FunctionCallItem;
 use super::events::{
-    emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_result, emit_usage,
-    extract_media_items,
+    emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_call_args_rewritten,
+    emit_tool_result, emit_usage, extract_media_items,
 };
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
 use super::types::{AssistantAgent, ChatUsage};
@@ -121,6 +121,71 @@ fn log_tool_output(call_id: &str, name: &str, result: &str, elapsed_ms: u64, rou
     }
 }
 
+/// Fire `PostToolUse` / `PostToolUseFailure` for one settled tool call and fold
+/// any `additionalContext` the hooks return into `clean_result`, so it rides
+/// into history attached to this tool's result on the next round (design
+/// §5.2.2). Observation events — non-blocking. No-op cost is near-zero when no
+/// hooks are configured (the dispatcher short-circuits on an empty registry).
+async fn fire_post_tool_use_hook(
+    ctx: &ToolExecContext,
+    call_id: &str,
+    name: &str,
+    arguments: &str,
+    clean_result: &mut String,
+    is_error: bool,
+    elapsed_ms: u64,
+) {
+    use crate::hooks::{HookDispatcher, HookEvent, HookInput};
+
+    let event = if is_error {
+        HookEvent::PostToolUseFailure
+    } else {
+        HookEvent::PostToolUse
+    };
+    // Hot-path gate: this fires per tool per round. Skip all input building
+    // (two serde parses, one over a possibly-large clean_result) when no hook
+    // listens for this event — multi-scope (project/local for this session's
+    // working dir too).
+    if !crate::hooks::scopes::any_handlers_for(
+        event,
+        ctx.session_working_dir.as_deref().map(std::path::Path::new),
+    ) {
+        return;
+    }
+    let common = ctx.common_hook_input(event.as_str());
+    let tool_input = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+    let input = if is_error {
+        HookInput::PostToolUseFailure {
+            common,
+            tool_name: name.to_string(),
+            tool_input,
+            tool_use_id: call_id.to_string(),
+            error: clean_result.clone(),
+            // Phase 1.1: interrupt vs error not distinguished at this site.
+            is_interrupt: false,
+            duration_ms: elapsed_ms,
+        }
+    } else {
+        let tool_response = serde_json::from_str(clean_result)
+            .unwrap_or_else(|_| serde_json::Value::String(clean_result.clone()));
+        HookInput::PostToolUse {
+            common,
+            tool_name: name.to_string(),
+            tool_input,
+            tool_response,
+            tool_use_id: call_id.to_string(),
+        }
+    };
+    let outcome = HookDispatcher::dispatch(event, input).await;
+    if let Some(extra) = outcome.merged_additional_context() {
+        // Frame the injected context so the model can tell hook output apart
+        // from the tool's own result.
+        clean_result.push_str("\n\n<hook-context>\n");
+        clean_result.push_str(&extra);
+        clean_result.push_str("\n</hook-context>");
+    }
+}
+
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
 /// elapsed_ms, side_output)`. The side output carries structured metadata
 /// (file change before/after snapshots, line deltas, etc.) emitted by the
@@ -139,8 +204,15 @@ async fn execute_tool_with_cancel(
 ) {
     let sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
         Arc::new(tokio::sync::Mutex::new(None));
+    // Mirror sink for the `PreToolUse` `updatedInput` rewrite — populated by
+    // `execute_tool_with_context::emit_effective_args` and drained alongside
+    // `metadata` so the caller can route the effective args into the live
+    // UI delta, the persisted history row, and the `PostToolUse` hook input.
+    let effective_args_sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
     let mut local_ctx = ctx.clone();
     local_ctx.metadata_sink = Some(sink.clone());
+    local_ctx.effective_args_sink = Some(effective_args_sink.clone());
     local_ctx.tool_call_id = Some(call_id.to_string());
     let cancellation_token = tokio_util::sync::CancellationToken::new();
     local_ctx.cancellation_token = Some(cancellation_token.clone());
@@ -167,10 +239,18 @@ async fn execute_tool_with_cancel(
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
     let metadata = sink.lock().await.take();
+    let effective_arguments = effective_args_sink
+        .lock()
+        .await
+        .take()
+        .map(|v| v.to_string());
     (
         result,
         elapsed_ms,
-        super::streaming_adapter::ToolDispatchSideOutput { metadata },
+        super::streaming_adapter::ToolDispatchSideOutput {
+            metadata,
+            effective_arguments,
+        },
     )
 }
 
@@ -277,6 +357,7 @@ impl AssistantAgent {
         self.run_compaction(
             &mut messages,
             &system_prompt_for_budget,
+            model,
             MAX_OUTPUT_TOKENS,
             on_delta,
         )
@@ -386,6 +467,15 @@ impl AssistantAgent {
                 let tasks = db.list_tasks(sid).ok()?;
                 tools::task_reminder_text(&tasks)
             });
+            // Fold any pending hook context (PostCompact / SessionStart(compact)
+            // / Notification additionalContext, queued outside a round) into
+            // this round's reminder suffix so it reaches the LLM as a system
+            // reminder block. Drained once — subsequent rounds see it cleared.
+            let task_reminder = match (task_reminder, self.drain_pending_hook_context()) {
+                (Some(t), Some(h)) => Some(format!("{t}\n\n{h}")),
+                (None, Some(h)) => Some(h),
+                (other, None) => other,
+            };
 
             let req = RoundRequest {
                 system_prompt: round_system_prompt,
@@ -486,7 +576,22 @@ impl AssistantAgent {
                 for (call_id, name, arguments, result, elapsed_ms, side) in results {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
-                    let (clean_result, media_items) = extract_media_items(&result);
+                    let (mut clean_result, media_items) = extract_media_items(&result);
+                    // Same `effective_arguments` plumbing as the sequential
+                    // branch — concurrent-safe tools (read / ls / grep / find /
+                    // web_fetch / MCP) also honor `PreToolUse` `updatedInput`
+                    // rewrites, and dropping them here would silently
+                    // audit-roll-back the rewrite in the UI, history, and
+                    // `PostToolUse` hook input (the actual exec saw the patched
+                    // args, but everything else saw the model's pre-rewrite
+                    // shape). Mirror lines 644-675 verbatim.
+                    let effective_args: &str = side
+                        .effective_arguments
+                        .as_deref()
+                        .inspect(|patched| {
+                            emit_tool_call_args_rewritten(on_delta, &call_id, patched);
+                        })
+                        .unwrap_or(arguments.as_str());
                     emit_tool_result(
                         on_delta,
                         &call_id,
@@ -497,10 +602,26 @@ impl AssistantAgent {
                         &media_items,
                         side.metadata.as_ref(),
                     );
+                    // PostToolUse / PostToolUseFailure (observation): fold any
+                    // hook additionalContext into the result so the LLM sees it
+                    // attached to this tool on the next round. Pass the
+                    // *effective* args so a validating PostToolUse hook can't
+                    // be fooled by the pre-rewrite shape.
+                    fire_post_tool_use_hook(
+                        &tool_ctx,
+                        &call_id,
+                        &name,
+                        effective_args,
+                        &mut clean_result,
+                        is_error,
+                        elapsed_ms,
+                    )
+                    .await;
+                    let persisted_arguments = effective_args.to_string();
                     executed.push(ExecutedTool {
                         call_id,
                         name,
-                        arguments,
+                        arguments: persisted_arguments,
                         clean_result,
                     });
                 }
@@ -553,9 +674,26 @@ impl AssistantAgent {
                     ),
                 };
 
+                // If a `PreToolUse` hook rewrote the tool input via
+                // `updatedInput`, surface the effective args through the rest
+                // of the round so the UI block, the persisted history row, and
+                // the `PostToolUse` hook input all see what actually ran — not
+                // the model's pre-rewrite arguments. The pre-execution
+                // `emit_tool_call` already went out with the model's args, so
+                // we follow up with a typed delta the frontend can apply to the
+                // existing tool block in place (see
+                // `useStreamEventHandler.ts::tool_call_args_rewritten`).
+                let effective_args: &str = side
+                    .effective_arguments
+                    .as_deref()
+                    .inspect(|patched| {
+                        emit_tool_call_args_rewritten(on_delta, &tc.call_id, patched);
+                    })
+                    .unwrap_or(tc.arguments.as_str());
+
                 log_tool_output(&tc.call_id, &tc.name, &result, elapsed_ms, round);
                 let is_error = result.starts_with("Tool error:");
-                let (clean_result, media_items) = extract_media_items(&result);
+                let (mut clean_result, media_items) = extract_media_items(&result);
                 emit_tool_result(
                     on_delta,
                     &tc.call_id,
@@ -566,12 +704,54 @@ impl AssistantAgent {
                     &media_items,
                     side.metadata.as_ref(),
                 );
+                // PostToolUse / PostToolUseFailure (observation): fold any hook
+                // additionalContext into the result so the LLM sees it attached
+                // to this tool on the next round. Pass the *effective* args
+                // (post-PreToolUse rewrite) so a validating PostToolUse hook
+                // can't be fooled by the pre-rewrite shape.
+                fire_post_tool_use_hook(
+                    &tool_ctx,
+                    &tc.call_id,
+                    &tc.name,
+                    effective_args,
+                    &mut clean_result,
+                    is_error,
+                    elapsed_ms,
+                )
+                .await;
                 executed.push(ExecutedTool {
                     call_id: tc.call_id.clone(),
                     name: tc.name.clone(),
-                    arguments: tc.arguments.clone(),
+                    arguments: effective_args.to_string(),
                     clean_result,
                 });
+            }
+
+            // PostToolBatch (observation): fires once per API round after every
+            // tool call in the round settles, before the round lands in
+            // history. Skipped for pure-text rounds (no tools). Any
+            // additionalContext is queued for the next round's reminder.
+            let post_tool_batch_wd =
+                crate::session::effective_session_working_dir(self.session_id.as_deref());
+            if !executed.is_empty()
+                && crate::hooks::scopes::any_handlers_for(
+                    crate::hooks::HookEvent::PostToolBatch,
+                    post_tool_batch_wd.as_deref().map(std::path::Path::new),
+                )
+            {
+                let input = crate::hooks::HookInput::PostToolBatch {
+                    common: self.hook_common_input("PostToolBatch"),
+                    round,
+                    tool_names: executed.iter().map(|e| e.name.clone()).collect(),
+                };
+                let outcome = crate::hooks::HookDispatcher::dispatch(
+                    crate::hooks::HookEvent::PostToolBatch,
+                    input,
+                )
+                .await;
+                if let Some(extra) = outcome.merged_additional_context() {
+                    self.push_pending_hook_context(extra);
+                }
             }
 
             // Adapter writes assistant + tool_results into history in its

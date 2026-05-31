@@ -15,6 +15,23 @@ use super::{
 
 // ── Spawn Logic ─────────────────────────────────────────────────
 
+/// `SpawnParams.label` value used by the `agent` hook handler. Subagents
+/// spawned with this label are children OF a hook, so they MUST NOT fire
+/// `SubagentStart` / `SubagentStop` observation hooks: a `SubagentStart`
+/// agent handler would otherwise spawn another labelled child on every fire,
+/// cascading without bound (the matcher target is the spawned `subagent_id`,
+/// so each new spawn re-matches and re-spawns).
+///
+/// Kept here as a single source of truth so the spawn site
+/// ([`crate::hooks::runner::agent::AgentHandler::run`]) and the gate inside
+/// `spawn_subagent` agree about the marker string.
+pub const HOOK_SPAWN_LABEL: &str = "hook";
+
+/// Whether this spawn came from an `agent` hook handler — the cascade guard.
+fn is_hook_spawn(label: Option<&str>) -> bool {
+    label == Some(HOOK_SPAWN_LABEL)
+}
+
 /// Spawn a sub-agent asynchronously. Returns the run_id immediately.
 pub async fn spawn_subagent(
     params: SpawnParams,
@@ -102,6 +119,16 @@ pub async fn spawn_subagent(
         result_full: None,
         skill_name: params.skill_name.clone(),
     });
+
+    // SubagentStart observation hook (sub-agent spawned). Parent session is the
+    // hook session; the spawned agent id is the matcher target.
+    //
+    // Skip the fire when this spawn itself originated from an `agent` hook
+    // handler ([`HOOK_SPAWN_LABEL`]) — otherwise a SubagentStart agent handler
+    // re-spawns a labelled child on every fire, cascading without bound.
+    if !is_hook_spawn(params.label.as_deref()) {
+        crate::hooks::fire_subagent_start(&params.parent_session_id, &params.agent_id, &run_id);
+    }
 
     // 8. Spawn async task
     let run_id_clone = run_id.clone();
@@ -251,6 +278,19 @@ pub async fn spawn_subagent(
         // Emit completion event — guaranteed to fire
         let result_preview = result_text.as_ref().map(|r| truncate_str(r, 200));
         // Clone values needed after the move into SubagentEvent
+        // SubagentStop observation hook (terminal state) — fired before the
+        // values are moved into the completion event below. Skipped for
+        // hook-originated spawns (mirrors the SubagentStart gate above so a
+        // SubagentStop agent handler can't recurse).
+        if !is_hook_spawn(label.as_deref()) {
+            crate::hooks::fire_subagent_stop(
+                &parent_session_id,
+                &agent_id,
+                &run_id_clone,
+                status.as_str(),
+            );
+        }
+
         let status_for_inject = status.clone();
         let agent_id_for_inject = agent_id.clone();
         let result_text_for_inject = result_text.clone();
@@ -521,4 +561,29 @@ fn execute_subagent(
         let model_used = result.model_used.as_ref().map(ToString::to_string);
         Ok((result.response, model_used))
     } // async move
+}
+
+#[cfg(test)]
+mod hook_label_tests {
+    use super::*;
+
+    #[test]
+    fn hook_label_const_recognized() {
+        // The single source of truth for the marker string. Both
+        // `crate::hooks::runner::agent::AgentHandler::run` and the gates in
+        // `spawn_subagent` read this — drifting them apart re-opens the
+        // SubagentStart/SubagentStop cascade.
+        assert_eq!(HOOK_SPAWN_LABEL, "hook");
+        assert!(is_hook_spawn(Some(HOOK_SPAWN_LABEL)));
+    }
+
+    #[test]
+    fn non_hook_labels_dispatch_normally() {
+        // Unlabelled spawns (the model's `subagent` tool, agent team picks)
+        // and any other label must still fire the observation events.
+        assert!(!is_hook_spawn(None));
+        assert!(!is_hook_spawn(Some("")));
+        assert!(!is_hook_spawn(Some("agent-team")));
+        assert!(!is_hook_spawn(Some("subagent-tool")));
+    }
 }

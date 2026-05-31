@@ -121,6 +121,7 @@ pub fn install_signal_handlers() {
                     app_info!("session", "stream_persist", "received SIGTERM, clean shutdown");
                 }
             }
+            fire_shutdown_session_end().await;
             run_clean_shutdown();
         });
     }
@@ -160,9 +161,24 @@ pub fn install_signal_handlers() {
                     app_info!("session", "stream_persist", "received Ctrl+Break, clean shutdown");
                 }
             }
+            fire_shutdown_session_end().await;
             run_clean_shutdown();
         });
     }
+}
+
+/// Fire the `SessionEnd` shutdown hook (app-global, source `other`) on the
+/// real shutdown path, bounded so a slow command hook can't wedge process
+/// termination. No-op (returns immediately) when no `SessionEnd` hook is
+/// configured, so the common case adds no shutdown latency. This is the single
+/// place SessionEnd-on-shutdown fires for signal-driven exits (server / ACP /
+/// terminal Ctrl-C); GUI window-quit fires it separately from `RunEvent::Exit`.
+async fn fire_shutdown_session_end() {
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        crate::hooks::dispatch_session_end("", "other"),
+    )
+    .await;
 }
 
 /// Shared cleanup sequence for SIGINT/SIGTERM/Ctrl+C/Ctrl+Break:

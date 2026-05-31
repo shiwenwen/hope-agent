@@ -98,6 +98,13 @@ pub(crate) struct ExecutedTool {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ToolDispatchSideOutput {
     pub metadata: Option<serde_json::Value>,
+    /// Effective tool arguments after a `PreToolUse` hook rewrote them via
+    /// `updatedInput`. `None` when no rewrite happened — the caller keeps the
+    /// model's original arguments. When `Some`, the orchestrator MUST use this
+    /// value for the live UI tool-call display, the persisted history row,
+    /// and the `PostToolUse` hook input so the rewrite isn't audited away.
+    /// Serialized JSON string (matches `tc.arguments` shape).
+    pub effective_arguments: Option<String>,
 }
 
 #[async_trait]

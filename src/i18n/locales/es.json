@@ -4209,7 +4209,26 @@
     "webSearchRecommended": "Recomendado",
     "webSearchSaved": "Guardado",
     "webSearchTimeout": "Timeout (segundos)",
-    "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)"
+    "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Automatización de Hooks",
+      "intro": "Ejecuta comandos personalizados / HTTP / prompts / subagentes en eventos del ciclo de vida. Compatible a nivel de campo con los hooks de Claude Code.",
+      "disableAll": "Desactivar todos los hooks",
+      "disableAllDesc": "Interruptor maestro — desactiva todos los hooks en todos los ámbitos.",
+      "allowProjectScope": "Permitir hooks de proyecto y locales",
+      "allowProjectScopeDesc": "Permite que .hope-agent/hooks.json y hooks.local.json del directorio de trabajo añadan hooks — práctico para compartir con tu equipo. Desactivado por defecto porque pueden ejecutar comandos por su cuenta, así que actívalo solo para proyectos en los que confíes.",
+      "scopeNote": "Este panel edita los hooks del ámbito user. Los ámbitos project (.hope-agent/hooks.json, compartido por el repositorio), local (hooks.local.json) y managed (/etc/hope-agent/hooks.json) están basados en archivos y se fusionan encima.",
+      "pickEvent": "Selecciona un evento…",
+      "addHook": "Añadir hook",
+      "empty": "No hay hooks configurados. Selecciona un evento arriba para añadir uno.",
+      "addGroup": "Añadir grupo de matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "nombre de herramienta / origen (regex ok), vacío = todos",
+      "addHandler": "Añadir handler",
+      "advanced": "Avanzado",
+      "slowHandlerWarning": "Este handler ejecuta un LLM / subagente en línea y ralentizará cada vez que se dispare este evento de bloqueo. Prefiere command / http aquí, o muévelo a un evento de observación (p. ej., PostToolUse)."
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",

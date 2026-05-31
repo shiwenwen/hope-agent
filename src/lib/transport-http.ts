@@ -236,6 +236,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Context compaction --
   get_compact_config:              { method: "GET",    path: "/api/config/compact" },
   save_compact_config:             { method: "PUT",    path: "/api/config/compact" },
+  get_hooks_config:                { method: "GET",    path: "/api/config/hooks" },
+  save_hooks_config:               { method: "PUT",    path: "/api/config/hooks" },
   get_session_title_config:        { method: "GET",    path: "/api/config/session-title" },
   save_session_title_config:       { method: "PUT",    path: "/api/config/session-title" },
 
@@ -983,10 +985,12 @@ export class HttpTransport implements Transport {
     // __pending__ cache key gets renamed in place. Do not synthesize
     // `turn_started` here: POST /api/chat resolves after the engine finishes,
     // so a late local start event can incorrectly overwrite a terminal state.
-    const resp = await this.call<{ sessionId: string; response: string; turnId?: string }>(
-      "chat",
-      args,
-    );
+    const resp = await this.call<{
+      sessionId: string
+      response: string
+      turnId?: string
+      blockedReason?: string
+    }>("chat", args)
     if (!args.sessionId) {
       onEvent(
         JSON.stringify({
@@ -994,6 +998,20 @@ export class HttpTransport implements Transport {
           session_id: resp.sessionId,
         }),
       );
+    }
+    // `blockedReason` is set when a `UserPromptSubmit` hook short-circuited
+    // the turn before a stream started — i.e. there will be no
+    // `stream_delta` / `stream_end` events to deliver the notice through.
+    // Synthesize a text delta so the UI surfaces the block reason the same
+    // way the desktop path does (`src-tauri/src/commands/chat.rs` emits an
+    // identical `{type:"text"}` event on the on_event channel).
+    if (resp.blockedReason) {
+      onEvent(
+        JSON.stringify({
+          type: "text",
+          text: resp.blockedReason,
+        }),
+      )
     }
     return resp.response;
   }

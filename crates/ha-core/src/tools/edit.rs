@@ -109,6 +109,8 @@ async fn emit_file_change_metadata(
     before: &str,
     after: &str,
 ) {
+    // FileChanged hook (observation) fires independent of the DiffPanel sink.
+    crate::hooks::fire_file_changed(ctx.session_id.as_deref(), path, "edit");
     if ctx.metadata_sink.is_none() {
         return;
     }

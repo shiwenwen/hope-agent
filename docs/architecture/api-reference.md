@@ -427,6 +427,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `get_compact_config` | `GET /api/config/compact` | ✅ |
 | `save_compact_config` | `PUT /api/config/compact` | ✅ |
+| `get_hooks_config` | `GET /api/config/hooks` | ✅ |
+| `save_hooks_config` | `PUT /api/config/hooks` | ✅ |
 | `get_session_title_config` | `GET /api/config/session-title` | ✅ |
 | `save_session_title_config` | `PUT /api/config/session-title` | ✅ |
 

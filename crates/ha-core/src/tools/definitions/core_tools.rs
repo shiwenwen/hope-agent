@@ -1489,6 +1489,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "recall_summary", "tool_call_narration", "teams",
                             "default_agent",
                             "channels", "mcp_global", "mcp_servers",
+                            "hooks",
                             "local_llm_auto_maintenance"
                         ]
                     }

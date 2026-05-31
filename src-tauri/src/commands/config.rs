@@ -994,3 +994,33 @@ pub async fn set_session_awareness_override(
     db.set_session_awareness_config_json(&session_id, json.as_deref())
         .map_err(Into::into)
 }
+
+/// Read the hooks settings for the Settings → Hooks GUI: the
+/// `disable_all_hooks` master switch + the user-scope `hooks` map. Project /
+/// local / managed scopes are file-based and not surfaced here.
+#[tauri::command]
+pub async fn get_hooks_config() -> Result<ha_core::hooks::config::HooksSettings, CmdError> {
+    let cfg = ha_core::config::cached_config();
+    Ok(ha_core::hooks::config::HooksSettings {
+        disable_all_hooks: cfg.disable_all_hooks,
+        allow_project_scope: cfg.hooks_allow_project_scope,
+        hooks: cfg.hooks.clone(),
+    })
+}
+
+/// Persist the user-scope hooks settings. Writes both the master switch and the
+/// `hooks` map through the config contract; `config:changed` then rebuilds the
+/// hook registry. The GUI is the only writer for user-scope hooks (the
+/// `ha-settings` skill is read-only — hooks run arbitrary commands).
+#[tauri::command]
+pub async fn save_hooks_config(
+    config: ha_core::hooks::config::HooksSettings,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("hooks", "settings-ui"), |store| {
+        store.disable_all_hooks = config.disable_all_hooks;
+        store.hooks_allow_project_scope = config.allow_project_scope;
+        store.hooks = config.hooks;
+        Ok(())
+    })
+    .map_err(Into::into)
+}

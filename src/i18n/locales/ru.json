@@ -4209,7 +4209,26 @@
     "webSearchRecommended": "Рекомендуется",
     "webSearchSaved": "Сохранено",
     "webSearchTimeout": "Таймаут (секунд)",
-    "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)"
+    "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)",
+    "hooks": {
+      "nav": "Hooks",
+      "title": "Автоматизация Hooks",
+      "intro": "Запускайте пользовательские команды / HTTP / промпты / субагентов на событиях жизненного цикла. Совместимо на уровне полей с hooks Claude Code.",
+      "disableAll": "Отключить все hooks",
+      "disableAllDesc": "Главный переключатель — отключает все hooks во всех областях.",
+      "allowProjectScope": "Разрешить проектные и локальные хуки",
+      "allowProjectScopeDesc": "Позволяет файлам .hope-agent/hooks.json и hooks.local.json в рабочем каталоге добавлять хуки — удобно для общего доступа в команде. По умолчанию выключено, потому что они могут сами выполнять команды; включайте только для проектов, которым доверяете.",
+      "scopeNote": "Эта панель редактирует hooks области user. Области project (.hope-agent/hooks.json, общая через репозиторий), local (hooks.local.json) и managed (/etc/hope-agent/hooks.json) основаны на файлах и объединяются сверху.",
+      "pickEvent": "Выберите событие…",
+      "addHook": "Добавить hook",
+      "empty": "Hooks не настроены. Выберите событие выше, чтобы добавить.",
+      "addGroup": "Добавить группу matcher",
+      "matcher": "matcher",
+      "matcherPlaceholder": "имя инструмента / источник (regex), пусто = все",
+      "addHandler": "Добавить обработчик",
+      "advanced": "Дополнительно",
+      "slowHandlerWarning": "Этот обработчик запускает LLM / субагента встроенно и будет замедлять каждый раз, когда срабатывает это блокирующее событие. Здесь предпочтите command / http или перенесите его на событие наблюдения (например, PostToolUse)."
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",

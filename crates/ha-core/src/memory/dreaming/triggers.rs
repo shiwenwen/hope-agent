@@ -125,5 +125,16 @@ pub fn check_idle_trigger(cfg: &DreamingConfig) -> bool {
 /// the Cron job callback, and from Guardian once `check_idle_trigger`
 /// returns true. Runs the cycle inline (`await`) and returns the report.
 pub async fn manual_run(trigger: DreamTrigger) -> DreamReport {
+    // Notification(idle_prompt): the app has been idle long enough to start a
+    // background dreaming cycle. App-global representative event (no specific
+    // session); per-session fan-out is a later refinement. Only the idle
+    // trigger qualifies — manual/cron runs aren't "idle".
+    if matches!(trigger, DreamTrigger::Idle) {
+        crate::hooks::fire_notification(
+            "",
+            "idle_prompt",
+            "App idle — starting a background memory cycle.",
+        );
+    }
     pipeline::run_cycle(trigger).await
 }

@@ -309,6 +309,16 @@ pub(crate) async fn check_and_request_approval(
             }
         };
         bus.emit("approval_required", event_data);
+        // Notification hook (observation): bridge the permission prompt to user
+        // scripts / desktop notifications. Fire-and-forget.
+        crate::hooks::fire_notification(
+            session_id.unwrap_or_default(),
+            "permission_prompt",
+            command,
+        );
+        // PermissionRequest hook (observation): the structured permission event,
+        // matchable on the command. Single chokepoint for every approval prompt.
+        crate::hooks::fire_permission_request(session_id, command);
         app_info!(
             "tool",
             "approval",
@@ -345,6 +355,11 @@ pub(crate) async fn check_and_request_approval(
                     &format!("Approval response: {} for '{}'", response_str, command),
                     Some(serde_json::json!({"command": command, "response": response_str, "request_id": request_id}).to_string()),
                     None, None);
+            }
+            // PermissionDenied hook (observation): the user declined the prompt.
+            // Single chokepoint for every user-facing decline.
+            if matches!(response, ApprovalResponse::Deny) {
+                crate::hooks::fire_permission_denied(session_id, command, "user_declined");
             }
             Ok(response)
         }

@@ -125,6 +125,11 @@ pub fn clear_token() -> Result<()> {
     if path.exists() {
         std::fs::remove_file(path)?;
     }
+    // SessionEnd(logout) hook (observation, app-global). Per-session fan-out is
+    // a later refinement; this fires one representative event. (The matching
+    // auth_success Notification fires from the OAuth-flow completion site, not
+    // here and not from `save_token` — which also runs on token refresh.)
+    crate::hooks::fire_session_end("", "logout");
     Ok(())
 }
 
@@ -176,6 +181,11 @@ pub async fn start_oauth_flow_with_auth_url(
                 if let Err(e) = save_token(&token) {
                     app_error!("auth", "oauth", "Failed to save token: {}", e);
                 }
+                // Notification(auth_success): fire from the OAuth-flow
+                // completion site (a fresh login), NOT from `save_token` —
+                // which also runs on silent token refresh. App-global
+                // representative event.
+                crate::hooks::fire_notification("", "auth_success", "Signed in successfully.");
                 let mut lock = result_clone.blocking_lock();
                 *lock = Some(Ok(token));
             }

@@ -218,6 +218,14 @@ pub struct AssistantAgent {
     /// streaming loop's mid-turn probe can install fresh plan guidance
     /// without `&mut self`.
     pub(super) plan_extra_context: ArcSwap<Option<String>>,
+    /// Pending hook-injected context: `additionalContext` from observation
+    /// events that fire *outside* a round (PostCompact, SessionStart(compact),
+    /// Notification). Drained into the next round's reminder suffix. ArcSwap so
+    /// compaction / EventBus call sites can push without `&mut self`. Held on
+    /// the live agent — a single `run_streaming_chat` never rebuilds it (only
+    /// failover retries do, where losing best-effort observation context is
+    /// acceptable).
+    pub(super) pending_hook_context: ArcSwap<Vec<String>>,
     /// True when the mode was supplied externally by the spawn caller (e.g.
     /// `spawn_plan_subagent` with explicit `PlanAgent`) rather than read
     /// from this session's backend plan state. The streaming loop's

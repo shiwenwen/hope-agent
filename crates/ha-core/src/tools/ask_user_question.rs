@@ -217,6 +217,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         match serde_json::to_value(&group) {
             Ok(event_data) => {
                 bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
+                // Elicitation hook (observation): a question prompt was raised.
+                crate::hooks::fire_elicitation(&effective_sid, &request_id, questions.len());
                 app_info!(
                     "ask_user",
                     "emit",
@@ -259,6 +261,15 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // state so stale entries don't accumulate in the button/text maps.
     let _ = ask_user::mark_group_answered(&request_id);
     crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+
+    // ElicitationResult hook (observation): the question group reached a
+    // terminal state.
+    let result_status = match &result {
+        Outcome::Answered(_) => "answered",
+        Outcome::Cancelled => "cancelled",
+        Outcome::TimedOut => "timeout",
+    };
+    crate::hooks::fire_elicitation_result(&effective_sid, &request_id, result_status);
 
     match result {
         Outcome::Answered(answers) => {

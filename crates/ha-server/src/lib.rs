@@ -79,6 +79,10 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
     eprintln!("[ha-server] listening on {}", actual_addr);
     banner::print_launch_banner(&actual_addr.to_string(), config.api_key.as_deref());
 
+    // SessionEnd(shutdown) is fired from `crash_flush::run_clean_shutdown` — the
+    // single signal-path chokepoint that actually runs on SIGTERM/SIGINT (it
+    // `process::exit`s, so a graceful-shutdown future here would never win the
+    // race). Plain serve; the signal handler terminates this future.
     if let Err(e) = axum::serve(listener, router).await {
         ha_core::server_status::mark_failed(format!("serve: {}", e));
         return Err(e.into());
@@ -510,6 +514,8 @@ fn build_router_with_cors(
         )
         .route("/config/compact", get(routes::config::get_compact_config))
         .route("/config/compact", put(routes::config::save_compact_config))
+        .route("/config/hooks", get(routes::config::get_hooks_config))
+        .route("/config/hooks", put(routes::config::save_hooks_config))
         .route(
             "/config/session-title",
             get(routes::config::get_session_title_config),
