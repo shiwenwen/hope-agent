@@ -458,7 +458,7 @@ export default function ChatSidebar({
             </div>
 
             <div
-              className="flex-1 overflow-y-auto overflow-x-hidden"
+              className="flex-1 overflow-y-auto overflow-x-hidden [overscroll-behavior-y:none]"
               onScroll={(e) => {
                 if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
                 const el = e.currentTarget
