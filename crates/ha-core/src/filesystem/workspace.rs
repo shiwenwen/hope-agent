@@ -72,7 +72,11 @@ impl WorkspaceScope {
         let base = match base_scope {
             "session" => Self::for_session(base_scope_id)?,
             "project" => Self::for_project(base_scope_id)?,
-            _ => return Err(FilesystemError::bad_input("invalid base scope for path jump")),
+            _ => {
+                return Err(FilesystemError::bad_input(
+                    "invalid base scope for path jump",
+                ))
+            }
         };
 
         let target_root = Path::new(target.trim()).canonicalize().map_err(|e| {
@@ -174,7 +178,9 @@ impl WorkspaceScope {
         // a regular file (e.g. `notes.txt/sub`) and the operation would fail
         // deep in std::fs with an opaque "Not a directory" error.
         if !tail.is_empty() && !canon_ancestor.is_dir() {
-            return Err(FilesystemError::bad_input("a path component is not a directory"));
+            return Err(FilesystemError::bad_input(
+                "a path component is not a directory",
+            ));
         }
         let mut full = canon_ancestor;
         for part in tail.iter().rev() {
