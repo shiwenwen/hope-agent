@@ -80,6 +80,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `approval_timed_out` | tools/approval.rs（超时分支）| `{ request_id, session_id, timeout_secs, timeout_action }`，审批超时，前端据此关卡 |
 | `ask_user_request` | tools/ask_user_question.rs | 结构化问答组 |
 | `ask_user_resolved` | tools/ask_user_question.rs（终态汇聚点）| `{ requestId, sessionId, status }`，问答终态（answered / cancelled / timeout），前端据此关闭对应问答卡 |
+| `ask_user_timed_out` | ask_user/questions.rs（超时分支）| `{ requestId, sessionId, timeoutSecs, usedDefaultValues, questionPreview? }`，问答超时（按配置回填默认值），前端据此关闭对应问答卡 |
 | `session_pending_interactions_changed` | 审批 + ask_user 合流 | `{ sessionId, count }` |
 
 ### 计划模式

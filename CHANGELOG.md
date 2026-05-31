@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Hooks 系统（字段级兼容 Claude Code 协议）**：可在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，支持 `command` / `http` / `mcp_tool` / `prompt` / `agent` 五种处理器；配置分 user / managed / project / local 四层作用域并叠加合并，项目级 hooks 可随仓库共享给团队（出于供应链安全默认关闭，需在设置 → Hooks 中显式开启）；提供可视化设置面板（设置 → Hooks），配置改动即时热重载。每个处理器还可配置条件执行（`if`，按工具 + 参数模式匹配）、每会话仅运行一次（`once`）、运行时桌面提示（`statusMessage`），以及 async 命令钩子在退出码 2 时把结果作为提醒回注下一轮对话（`asyncRewake`）。 (#PR)
+- **Hooks 系统（字段级兼容 Claude Code 协议）**：可在会话、工具调用、上下文压缩、权限决策等 28 个生命周期事件上挂接自定义处理器，支持 `command` / `http` / `mcp_tool` / `prompt` / `agent` 五种处理器；配置分 user / managed / project / local 四层作用域并叠加合并，项目级 hooks 可随仓库共享给团队（出于供应链安全默认关闭，需在设置 → Hooks 中显式开启）；提供可视化设置面板（设置 → Hooks），配置改动即时热重载。每个处理器还可配置条件执行（`if`，按工具 + 参数模式匹配）、每会话仅运行一次（`once`）、运行时桌面提示（`statusMessage`），以及 async 命令钩子在退出码 2 时把结果作为提醒回注下一轮对话（`asyncRewake`）。 (#254)
 - **Hooks 权限接管与子 agent / 回复字段对齐**：`PermissionRequest` 钩子可返回 allow/deny 直接接管工具审批，与 GUI / IM 审批源并行竞争（第一个决策生效，超时与审批弹窗同寿命）——这是接入桌面宠物等外部 hook 消费方的基础；`Stop` 事件携带本轮回复文本、子 agent 的工具事件携带父会话 id（均字段级对齐 Claude Code），消费方无需重新解析 transcript 即可区分子 agent 活动并展示回复开头。 (#255)
 
 ### Changed
