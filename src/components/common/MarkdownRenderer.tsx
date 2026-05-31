@@ -1,7 +1,6 @@
 import {
   useState,
   useEffect,
-  useRef,
   useMemo,
   type AnchorHTMLAttributes,
 } from "react"
@@ -92,11 +91,15 @@ function useHeavyPlugins(content: string) {
   ])
 }
 
-/** Word-level blurIn: each completed word gets a blur-to-clear entrance */
+/** Char-level fadeIn: each newly-appended character fades in, staggered for a
+ *  smooth flowing reveal. The animate plugin animates only the new tail (chars
+ *  below the prev-render baseline get duration=0), so no external slice
+ *  typewriter is needed — content is handed to Streamdown in full. */
 const streamingAnimation: AnimateOptions = {
-  animation: "blurIn",
-  sep: "word",
-  duration: 500,
+  animation: "fadeIn",
+  sep: "char",
+  duration: 200,
+  stagger: 16,
   easing: "cubic-bezier(0.22, 1, 0.36, 1)",
 }
 
@@ -429,11 +432,6 @@ function autolinkRehypePlugin() {
   }
 }
 
-/** Start catching up when backlog exceeds this */
-const CATCHUP_THRESHOLD = 60
-/** Max chars per frame when catching up, prevents jarring jumps */
-const MAX_STEP = 8
-
 interface MarkdownRendererProps {
   content: string
   isStreaming?: boolean
@@ -460,7 +458,7 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
   // `animated={AnimateOptions}` 简便用法把 plugin 实例藏在内部 useMemo，且
   // Block 组件每帧 render 会调 `setPrevContentLength(getLastRenderCharCount())`
   // —— 首次 render 时 lastRenderCharCount 还是 0，prevContentLength 被回写 0，
-  // 整段已渲染内容会被当成新内容跑 blurIn。组件 unmount + remount（切会话回到
+  // 整段已渲染内容会被当成新内容跑一遍入场动画。组件 unmount + remount（切会话回到
   // 流式输出中的会话 / 虚拟滚动剔出再返回视口）会重新走这条 0-baseline 路径，
   // 视觉上整段重放动画一次。
   //
@@ -478,18 +476,6 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
     return plugin
   })
 
-  const [displayLen, setDisplayLen] = useState(() => content.length)
-
-  const cursorRef = useRef(content.length)
-  const targetRef = useRef(content.length)
-  const streamingRef = useRef(isStreaming)
-  const rafRef = useRef<number | null>(null)
-
-  // eslint-disable-next-line react-hooks/refs -- intentional "latest value" refs read only in rAF callback
-  targetRef.current = content.length
-  // eslint-disable-next-line react-hooks/refs
-  streamingRef.current = isStreaming
-
   // 每帧 commit 后把上一帧 rehype 跑出的字符数续写为下一帧的 baseline。
   // animate plugin 的 rehype 跑完会自动把 prevContentLength 清 0，因此必须
   // 每帧重新设。没有 deps：commit phase 都跑。
@@ -498,56 +484,11 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
     if (count > 0) animatePlugin.setPrevContentLength(count)
   })
 
-  // Non-streaming (history): show full content immediately
-  useEffect(() => {
-    if (!isStreaming && rafRef.current === null) {
-      cursorRef.current = content.length
-      setDisplayLen(content.length)
-    }
-  }, [isStreaming, content.length])
-
-  // rAF loop: +1 char per frame, continues draining after stream ends (no jump)
-  useEffect(() => {
-    if (!isStreaming) return
-    if (rafRef.current !== null) return
-
-    const tick = () => {
-      const cursor = cursorRef.current
-      const target = targetRef.current
-
-      if (cursor >= target && !streamingRef.current) {
-        rafRef.current = null
-        return
-      }
-
-      if (cursor < target) {
-        const backlog = target - cursor
-        const step = backlog > CATCHUP_THRESHOLD ? Math.min(Math.ceil(backlog * 0.1), MAX_STEP) : 1
-        const next = Math.min(cursor + step, target)
-        cursorRef.current = next
-        setDisplayLen(next)
-      }
-
-      rafRef.current = requestAnimationFrame(tick)
-    }
-
-    rafRef.current = requestAnimationFrame(tick)
-  }, [isStreaming])
-
-  useEffect(() => {
-    return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
-    }
-  }, [])
-
   if (!content) return null
 
-  const revealing = displayLen < content.length
-  const displayContent = revealing ? content.slice(0, displayLen) : content
-  const isActive = isStreaming || revealing
+  // content 全量交给 Streamdown：它按 block 分块 memo，只重解析变化的末块；
+  // 新增尾部由 animate plugin 按 stagger 逐字错峰渐显，无需外部 slice 打字机。
+  const isActive = isStreaming
 
   // 流式期间把外部 animate plugin 注入 rehype 链尾；静态历史消息直接复用
   // streamdown 默认 rehype（raw/sanitize/harden 安全基线）。`animated={false}`
@@ -569,7 +510,7 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
           linkSafety={linkSafetyDisabled}
           components={markdownComponents}
         >
-          {displayContent}
+          {content}
         </Streamdown>
       </div>
     </div>
