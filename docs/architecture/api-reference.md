@@ -184,7 +184,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | 命令 | HTTP 端点 |
 |---|---|
 | `save_attachment` | `POST /api/chat/attachment` |
-| `upload_project_file_cmd` | `POST /api/projects/{projectId}/files` |
+| `project_fs_upload` | `POST /api/fs/upload`（workspace-scoped，前端 `projectFsUpload` 专用方法） |
 | `save_avatar` | `POST /api/avatars`（服务端返 `{path}`，前端解包为 `string` 匹配 Tauri `-> String` 契约） |
 
 ## 命令对照表（按功能域分组）
@@ -203,14 +203,26 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `archive_project_cmd` | `POST /api/projects/{id}/archive` | ✅ |
 | `list_project_sessions_cmd` | `GET /api/projects/{id}/sessions` | ✅ |
 | `move_session_to_project_cmd` | `PATCH /api/sessions/{sessionId}/project` | ✅ |
-| `list_project_files_cmd` | `GET /api/projects/{projectId}/files` | ✅ |
-| `upload_project_file_cmd` | `POST /api/projects/{projectId}/files` | ✅ (multipart) |
-| `delete_project_file_cmd` | `DELETE /api/projects/{projectId}/files/{fileId}` | ✅ |
-| `rename_project_file_cmd` | `PATCH /api/projects/{projectId}/files/{fileId}` | ✅ |
-| `read_project_file_content_cmd` | `GET /api/projects/{projectId}/files/{fileId}/content` | ✅ |
 | `list_project_memories_cmd` | `GET /api/projects/{id}/memories` | ✅ |
 
-`Project` 现支持 `workingDir: string | null` 字段，作为该项目下会话的默认工作目录。`create_project_cmd` / `update_project_cmd` 透传该字段，落库前做 canonicalize + is_dir 校验（空串等价于清除）。运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，在 `agent/config.rs` 构建系统提示前 lazy resolve，无快照——编辑项目工作目录后未单独设置的已有会话立即跟随；前端 `ChatTitleBar` 据此显示生效路径并区分来源。详见 [`AGENTS.md`](../../AGENTS.md) 「项目（Project）容器」段。
+**项目文件浏览器（workspace-scoped filesystem）**——上传/读写改走作用域文件管理 API（旧的 `list_project_files_cmd` / `upload_project_file_cmd` / `delete_project_file_cmd` / `rename_project_file_cmd` / `read_project_file_content_cmd` 五条命令与对应 `/api/projects/{id}/files*` 路由已删除）。命令以 `{ scope: "session"|"project", scopeId, ... }` 寻址，后端 `WorkspaceScope` 解析工作目录并做越界校验：
+
+| Tauri 命令 | HTTP 路由 | 对齐 |
+|---|---|---|
+| `project_fs_list` | `GET /api/fs/list?scope=&scopeId=&path=` | ✅ |
+| `project_fs_read_text` | `GET /api/fs/read?...` | ✅ |
+| `project_fs_extract` | `GET /api/fs/extract?...` | ✅ (PDF/Office 提取预览) |
+| `project_fs_write_text` | `PUT /api/fs/file` | ✅ (写闸门) |
+| `project_fs_delete` | `DELETE /api/fs/entry?...&recursive=` | ✅ (写闸门) |
+| `project_fs_rename` | `POST /api/fs/rename` | ✅ (写闸门) |
+| `project_fs_mkdir` | `POST /api/fs/mkdir` | ✅ (写闸门) |
+| `project_fs_upload` | `POST /api/fs/upload` (multipart) | ✅ (写闸门，`projectFsUpload` 专用方法) |
+| `project_fs_resolve` | —（Tauri-only，图片预览 `convertFileSrc`） | N/A |
+| —（HTTP-only raw serve） | `GET /api/fs/raw?...&download=` | N/A (`projectFsRawUrl` 专用方法) |
+
+写端点（write/delete/rename/mkdir/upload）在 HTTP handler 层读 `filesystem.allow_remote_writes`（默认 false）闸门，为 false 返 403；桌面 Tauri 不受限。配置读写：`get_filesystem_config` / `save_filesystem_config` ↔ `GET/PUT /api/config/filesystem`。
+
+`Project` 支持 `workingDir: string | null` 字段，作为该项目下会话的默认工作目录。运行时合并优先级 `session.working_dir > project 显式 working_dir > 默认 workspace`，lazy ensure 创建——编辑项目工作目录后未单独设置的已有会话立即跟随。详见 [`AGENTS.md`](../../AGENTS.md) 「项目（Project）容器」段与 [project.md](./project.md)。
 
 **Project ↔ IM Channel 反向认领已废弃**（Phase A1）。`Project.boundChannel` / `BoundChannel` 类型 + `projects.bound_channel_id` / `bound_channel_account_id` DB 列 + `idx_projects_bound_channel` 索引 + `find_by_bound_channel` API 全部删除；`UpdateProjectInput` 不再有 `boundChannel` 字段。IM 入站消息不再自动归属项目，新会话以 `project_id = NULL` 创建。要把会话归项目，从 IM chat 内 `/project <id>` 显式触发：handler 检测 `session.channel_info` 后发 `AssignProject` action，channel worker 调 `SessionDB::set_session_project` 直接 UPDATE 现有 `sessions.project_id`，**不创建新 session**。详见 [im-channel.md](./im-channel.md) 「Session 路由」章节。
 

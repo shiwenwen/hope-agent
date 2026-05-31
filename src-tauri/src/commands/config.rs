@@ -106,6 +106,23 @@ pub async fn save_ssrf_config(config: ha_core::security::ssrf::SsrfConfig) -> Re
 }
 
 #[tauri::command]
+pub async fn get_filesystem_config() -> Result<ha_core::config::FilesystemConfig, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.filesystem)
+}
+
+#[tauri::command]
+pub async fn save_filesystem_config(
+    config: ha_core::config::FilesystemConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("filesystem", "settings-ui"), |store| {
+        store.filesystem = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_compact_config() -> Result<context_compact::CompactConfig, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.compact)

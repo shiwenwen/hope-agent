@@ -27,6 +27,7 @@ pub mod permission;
 pub mod plan;
 pub mod plan_index;
 pub mod project;
+pub mod project_fs;
 pub mod provider;
 pub mod recap;
 pub mod runtime_tasks;

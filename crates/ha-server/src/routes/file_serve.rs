@@ -154,6 +154,28 @@ pub fn apply_inline_media_headers<B>(response: &mut Response<B>, opts: HeaderOpt
     }
 }
 
+/// Decide a `Content-Disposition` for serving a raw, possibly user-supplied
+/// file. Only passive media (image — except SVG — / video / audio / PDF) is
+/// served `inline`; everything else (notably `text/html` and `image/svg+xml`,
+/// which can execute script in the app origin) is forced to `attachment` so the
+/// browser downloads rather than renders it. A truthy `force_download` always
+/// wins. The returned value carries a quote-escaped `filename`.
+pub fn safe_content_disposition(path: &Path, mime: &str, force_download: bool) -> String {
+    let filename = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("download");
+    let inline_ok = !force_download
+        && mime != "image/svg+xml"
+        && (mime.starts_with("image/")
+            || mime.starts_with("video/")
+            || mime.starts_with("audio/")
+            || mime == "application/pdf");
+    let kind = if inline_ok { "inline" } else { "attachment" };
+    let quoted = filename.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("{}; filename=\"{}\"", kind, quoted)
+}
+
 async fn read_head(path: &Path, len: usize) -> std::io::Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
     let mut f = tokio::fs::File::open(path).await?;

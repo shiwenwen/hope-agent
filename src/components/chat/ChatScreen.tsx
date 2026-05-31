@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FolderTree,
   GitCompare,
   Globe,
   Monitor,
@@ -31,6 +32,8 @@ import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
+import { FileBrowserPanel } from "@/components/chat/FileBrowserPanel"
+import type { QuotePayload } from "@/components/chat/project/file-browser/FilePreviewPane"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
@@ -98,12 +101,13 @@ interface ChatScreenProps {
   onChatInsertConsumed?: () => void
 }
 
-type ExclusiveRightPanel = "diff" | "plan" | "browser" | "mac-control" | "canvas" | "team"
+type ExclusiveRightPanel = "diff" | "plan" | "files" | "browser" | "mac-control" | "canvas" | "team"
 type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
 const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "diff",
   "plan",
+  "files",
   "browser",
   "mac-control",
   "canvas",
@@ -113,6 +117,7 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
 const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   diff: false,
   plan: false,
+  files: false,
   browser: false,
   "mac-control": false,
   canvas: false,
@@ -122,6 +127,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
 const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   diff: GitCompare,
   plan: ClipboardList,
+  files: FolderTree,
   browser: Globe,
   "mac-control": MousePointer2,
   canvas: Monitor,
@@ -264,6 +270,17 @@ export default function ChatScreen({
   // tracks the dismissal until a session switch resets it.
   const [showBrowserPanel, setShowBrowserPanel] = useState(false)
   const browserPanelDismissedRef = useRef(false)
+  const [showFilesPanel, setShowFilesPanel] = useState(false)
+  // Clicking a staged quote chip reveals that file in the browser. The nonce
+  // makes each click a fresh signal, even when re-revealing the same path.
+  const revealQuoteNonce = useRef(0)
+  const [revealFile, setRevealFile] = useState<{
+    path: string
+    name: string
+    startLine: number
+    endLine: number
+    nonce: number
+  } | null>(null)
   const [showMacControlPanel, setShowMacControlPanel] = useState(false)
   const macControlPanelDismissedRef = useRef(false)
 
@@ -1429,6 +1446,7 @@ export default function ChatScreen({
     () => ({
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
+      files: showFilesPanel && !!effectiveWorkingDir,
       browser: showBrowserPanel,
       "mac-control": showMacControlPanel,
       canvas: canvasPanelOpen,
@@ -1437,9 +1455,11 @@ export default function ChatScreen({
     [
       activeTeamId,
       canvasPanelOpen,
+      effectiveWorkingDir,
       isDiffPanelVisible,
       shouldShowPlanPanel,
       showBrowserPanel,
+      showFilesPanel,
       showMacControlPanel,
       showTeamPanel,
     ],
@@ -1465,6 +1485,8 @@ export default function ChatScreen({
           return t("diffPanel.title", "Diff")
         case "plan":
           return t("planMode.panelTitle", "Plan")
+        case "files":
+          return t("fileBrowser.panelTitle", "Files")
         case "browser":
           return t("browser.panelTitle", "Browser")
         case "mac-control":
@@ -1477,6 +1499,28 @@ export default function ChatScreen({
     },
     [t],
   )
+
+  // Stage a "quote to chat" reference as a removable chip above the composer.
+  // On send it becomes a quote attachment: the model sees a <file_reference>
+  // block, the user only ever sees a friendly quote card.
+  const handleFileQuote = useCallback(
+    (q: QuotePayload) => {
+      stream.setPendingQuotes((prev) => [...prev, q])
+    },
+    [stream],
+  )
+  // Reveal a quoted file in the browser: open the files panel + signal target.
+  const handleQuoteJump = useCallback((q: QuotePayload) => {
+    setShowFilesPanel(true)
+    revealQuoteNonce.current += 1
+    setRevealFile({
+      path: q.path,
+      name: q.name,
+      startLine: q.startLine,
+      endLine: q.endLine,
+      nonce: revealQuoteNonce.current,
+    })
+  }, [])
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
       setRightPanelCollapsed(false)
@@ -1728,6 +1772,10 @@ export default function ChatScreen({
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
+          onToggleFilesPanel={
+            effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
+          }
+          filesPanelOpen={showFilesPanel}
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -1839,6 +1887,12 @@ export default function ChatScreen({
                     onRemoveFile={(index) =>
                       stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
                     }
+                    pendingQuotes={stream.pendingQuotes}
+                    onRemoveQuote={(index) => {
+                      stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
+                      setRevealFile(null) // dropping a quote clears its reveal highlight
+                    }}
+                    onJumpToQuote={handleQuoteJump}
                     pendingMessage={stream.pendingMessage}
                     onCancelPending={() => {
                       stream.setInput(stream.pendingMessage || "")
@@ -1861,7 +1915,9 @@ export default function ChatScreen({
                       session.currentSessionId ? workingDirSource === "project" : false
                     }
                     workingDirSaving={workingDirSaving}
-                    onWorkingDirChange={handleWorkingDirChange}
+                    onWorkingDirChange={
+                      currentSessionMeta?.projectId ? undefined : handleWorkingDirChange
+                    }
                     planState={planMode.planState}
                     onEnterPlanMode={planMode.enterPlanMode}
                     onExitPlanMode={planMode.exitPlanMode}
@@ -1972,6 +2028,23 @@ export default function ChatScreen({
               />
             </RightPanelShell>
           )}
+
+          {/* Project file browser (right side, scoped to the working dir) */}
+          {/* File browser panel — permanently mounted (like CanvasPanel) and
+              toggled via `visible`, so a popped-out window survives panel
+              switches / collapses. */}
+          <FileBrowserPanel
+            scope="session"
+            scopeId={session.currentSessionId}
+            rootPath={effectiveWorkingDir}
+            sessionId={session.currentSessionId}
+            visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
+            panelWidth={rightPanelWidth}
+            onPanelWidthChange={setRightPanelWidth}
+            onQuote={handleFileQuote}
+            revealFile={revealFile}
+            onClose={() => setShowFilesPanel(false)}
+          />
 
           {/* Canvas Preview Panel */}
           <CanvasPanel

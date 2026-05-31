@@ -4,9 +4,9 @@ use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
     TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
-    TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL,
+    TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
+    TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL,
     TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
@@ -145,36 +145,6 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["path"],
-                "additionalProperties": false
-            }),
-        },
-        ToolDefinition {
-            name: TOOL_PROJECT_READ_FILE.into(),
-            description: "Read a file that has been uploaded to the CURRENT session's project. Only works when the session is attached to a project; use the `file_id` from the \"Project Files\" section of the system prompt (or `name` as a fallback). Returns extracted text with line-based pagination. Use the regular `read` tool for files outside a project.".into(),
-            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
-            internal: true,
-            concurrent_safe: true,
-            async_capable: false,
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "file_id": {
-                        "type": "string",
-                        "description": "Project file UUID from the Project Files section"
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Project file display name, used when file_id is unknown"
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Line number to start reading from (1-based). Defaults to 1"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of lines to read. Defaults to 2000, capped at 10000"
-                    }
-                },
                 "additionalProperties": false
             }),
         },
@@ -1514,7 +1484,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
                             "issue_reporting",
-                            "security", "security.ssrf", "smart_mode",
+                            "security", "security.ssrf", "smart_mode", "filesystem",
                             "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
                             "default_agent",
@@ -1554,7 +1524,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
                             "issue_reporting",
-                            "security", "security.ssrf", "smart_mode",
+                            "security", "security.ssrf", "smart_mode", "filesystem",
                             "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
                             "default_agent",

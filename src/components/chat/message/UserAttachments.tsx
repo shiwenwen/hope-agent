@@ -50,7 +50,7 @@ function mediaItemFromAttachment(attachment: MessageAttachment): MediaItem {
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
-    kind: attachment.kind,
+    kind: attachment.kind === "image" ? "image" : "file",
     ...(attachment.localPath ? { localPath: attachment.localPath } : {}),
   }
 }
@@ -132,7 +132,11 @@ function UserAttachments({ attachments }: UserAttachmentsProps) {
       Boolean(item.src),
     )
   const imageFallbackItems = imageItems.filter((attachment) => !resolveAttachmentPreview(attachment))
-  const fileItems = [...items.filter((item) => item.kind !== "image"), ...imageFallbackItems]
+  const quoteItems = items.filter((item) => item.kind === "quote")
+  const fileItems = [
+    ...items.filter((item) => item.kind !== "image" && item.kind !== "quote"),
+    ...imageFallbackItems,
+  ]
 
   return (
     <div className="mb-2 flex flex-col gap-2">
@@ -208,6 +212,31 @@ function UserAttachments({ attachments }: UserAttachmentsProps) {
               </span>
             )
           })}
+        </div>
+      )}
+      {quoteItems.length > 0 && (
+        <div className="flex flex-col items-end gap-1.5">
+          {quoteItems.map((q, index) => (
+            <div
+              key={`${q.name}:${q.quoteLines ?? index}`}
+              className="max-w-full overflow-hidden rounded-md border border-border/60 bg-secondary/30 text-left"
+            >
+              <div className="flex items-center gap-1.5 border-b border-border/40 px-2 py-1 text-xs text-muted-foreground">
+                <FileMimeIcon
+                  mime="text/plain"
+                  name={q.name}
+                  className="h-3 w-3 shrink-0"
+                />
+                <span className="truncate font-medium text-foreground/80">{q.name}</span>
+                {q.quoteLines ? <span className="shrink-0">L{q.quoteLines}</span> : null}
+              </div>
+              {q.quoteContent ? (
+                <pre className="max-h-40 max-w-[420px] overflow-auto px-2 py-1.5 text-xs leading-relaxed text-foreground/80">
+                  {q.quoteContent}
+                </pre>
+              ) : null}
+            </div>
+          ))}
         </div>
       )}
     </div>

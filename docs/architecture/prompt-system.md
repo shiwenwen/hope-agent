@@ -173,7 +173,7 @@ The following project context files have been loaded:
 | **Agent home** | `paths::agent_home_dir(agent_id)`，形如 `~/.hope-agent/{agent_id}-home/` | `# Runtime` 段中的 `- Agent home: ...` | Agent 自己的长期 scratch/home 目录，可保存工作期间的内部文件和状态 |
 | **Session Working Directory** | `sessions.working_dir`，由 `set_session_working_dir` 设置 | 独立 `# Working Directory` 段 | 当前会话用户希望默认读写的业务目录 |
 
-`Agent home` 不再在 prompt 中叫 `Working directory`，避免模型把 Agent 自己的内部目录误认为用户当前项目目录。`# Working Directory` 只在当前 session 明确设置了 `working_dir` 时注入，位置在 Project / Project Files 之后、Memory 之前，让会话级文件操作焦点优先于记忆和运行时杂项。
+`Agent home` 不再在 prompt 中叫 `Working directory`，避免模型把 Agent 自己的内部目录误认为用户当前项目目录。`# Working Directory` 段在会话 `working_dir` 设置时，或会话属于项目时（项目会话总有工作目录——显式 `working_dir` 或 lazy 创建的默认 workspace）注入，位置在 `# Current Project` 之后、Memory 之前。段内除路径声明 + 工作目录里的 AGENTS.md/CLAUDE.md 指令外，还追加一个 **`## Files in Working Directory`** 顶层文件清单（非递归、只列名字、名称排序、跳过隐藏与 `.git`/`node_modules`、cap ~100），让模型不读盘即知有哪些文件——cache 友好（同一目录状态产出 byte-identical 文本）。这取代了旧的 `# Project Files` 三层注入（目录清单 / 小文件内联 / `project_read_file`），后者已废弃；模型现在靠普通 `read` 工具按需读工作目录文件。
 
 执行层与 prompt 保持一致：path-aware 工具的相对路径按「显式绝对路径 > Session Working Directory > Agent home」解析；`exec` 无 `cwd` 时再回退到用户 home。详细工具层规则见 [tool-system.md](tool-system.md#2-文件系统)。
 

@@ -14,6 +14,8 @@ import type {
   FileSearchResponse,
   ExportSessionArgs,
   ExportSessionResult,
+  ProjectFsScope,
+  UploadResult,
 } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage";
@@ -51,12 +53,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_project_sessions_cmd:       { method: "GET",    path: "/api/projects/{id}/sessions" },
   mark_project_sessions_read_cmd:  { method: "POST",   path: "/api/projects/{projectId}/read" },
   move_session_to_project_cmd:     { method: "PATCH",  path: "/api/sessions/{sessionId}/project" },
-  list_project_files_cmd:          { method: "GET",    path: "/api/projects/{projectId}/files" },
-  upload_project_file_cmd:         { method: "POST",   path: "/api/projects/{projectId}/files" },
-  delete_project_file_cmd:         { method: "DELETE", path: "/api/projects/{projectId}/files/{fileId}" },
-  rename_project_file_cmd:         { method: "PATCH",  path: "/api/projects/{projectId}/files/{fileId}" },
-  read_project_file_content_cmd:   { method: "GET",    path: "/api/projects/{projectId}/files/{fileId}/content" },
   list_project_memories_cmd:       { method: "GET",    path: "/api/projects/{id}/memories" },
+
+  // -- Project file browser (workspace-scoped filesystem) --
+  project_fs_list:                 { method: "GET",    path: "/api/fs/list" },
+  project_fs_read_text:            { method: "GET",    path: "/api/fs/read" },
+  project_fs_extract:              { method: "GET",    path: "/api/fs/extract" },
+  project_git_info:                { method: "GET",    path: "/api/fs/git" },
+  project_fs_write_text:           { method: "PUT",    path: "/api/fs/file" },
+  project_fs_delete:               { method: "DELETE", path: "/api/fs/entry" },
+  project_fs_rename:               { method: "POST",   path: "/api/fs/rename" },
+  project_fs_mkdir:                { method: "POST",   path: "/api/fs/mkdir" },
 
   // -- Sessions --
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
@@ -373,6 +380,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- SSRF policy --
   get_ssrf_config:                 { method: "GET",    path: "/api/config/ssrf" },
   save_ssrf_config:                { method: "PUT",    path: "/api/config/ssrf" },
+  get_filesystem_config:           { method: "GET",    path: "/api/config/filesystem" },
+  save_filesystem_config:          { method: "PUT",    path: "/api/config/filesystem" },
 
   // -- SearXNG Docker --
   searxng_docker_status:           { method: "GET",    path: "/api/searxng/status" },
@@ -1023,6 +1032,39 @@ export class HttpTransport implements Transport {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  }
+
+  async projectFsRawUrl(
+    args: ProjectFsScope & { path: string; download?: boolean },
+  ): Promise<string | null> {
+    const url = new URL(`${this.baseUrl}/api/fs/raw`);
+    url.searchParams.set("scope", args.scope);
+    url.searchParams.set("scopeId", args.scopeId);
+    url.searchParams.set("path", args.path);
+    if (args.download) url.searchParams.set("download", "1");
+    if (this.apiKey) url.searchParams.set("token", this.apiKey);
+    return url.toString();
+  }
+
+  async projectFsUpload(
+    args: ProjectFsScope & {
+      dirPath: string;
+      data: Blob;
+      fileName: string;
+      mimeType?: string;
+      overwrite?: boolean;
+    },
+  ): Promise<UploadResult> {
+    const qs = new URLSearchParams();
+    qs.set("scope", args.scope);
+    qs.set("scopeId", args.scopeId);
+    qs.set("dirPath", args.dirPath);
+    if (args.overwrite) qs.set("overwrite", "true");
+    return this.uploadMultipart<UploadResult>(`/api/fs/upload?${qs.toString()}`, {
+      data: args.data,
+      fileName: args.fileName,
+      mimeType: args.mimeType,
+    });
   }
 
   private sessionFileUrl(
