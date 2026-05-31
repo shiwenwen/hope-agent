@@ -175,6 +175,21 @@ export function parseUserAttachmentsMeta(
     for (const item of parsed) {
       if (!item || typeof item !== "object" || Array.isArray(item)) continue
       const obj = item as Record<string, unknown>
+      // File-browser quote reference card.
+      if (obj.kind === "quote") {
+        const qname = stringField(obj, "name")
+        if (!qname) continue
+        attachments.push({
+          name: qname,
+          mimeType: "text/plain",
+          sizeBytes: 0,
+          kind: "quote",
+          quotePath: stringField(obj, "path"),
+          quoteLines: stringField(obj, "lines"),
+          quoteContent: stringField(obj, "content"),
+        })
+        continue
+      }
       const name = stringField(obj, "name")
       const mimeType = stringField(obj, "mime_type", "mimeType") ?? "application/octet-stream"
       const localPath = stringField(obj, "path", "localPath")

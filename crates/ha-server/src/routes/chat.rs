@@ -86,7 +86,10 @@ pub struct ChatResponse {
 
 fn validate_http_chat_attachments(attachments: &[Attachment]) -> Result<(), AppError> {
     for att in attachments {
-        if att.file_path.is_some() && att.source.as_deref() != Some("upload") {
+        // "quote" attachments carry the snippet in `data`; their `file_path` is
+        // only a reference label (never read from disk), so it's safe.
+        let allowed_with_path = matches!(att.source.as_deref(), Some("upload") | Some("quote"));
+        if att.file_path.is_some() && !allowed_with_path {
             return Err(AppError::bad_request(
                 "HTTP chat attachments must be uploaded through /api/chat/attachment",
             ));
@@ -755,6 +758,7 @@ mod tests {
             source: Some("mention".to_string()),
             data: None,
             file_path: Some("/tmp/secret.txt".to_string()),
+            quote_lines: None,
         }];
 
         assert!(validate_http_chat_attachments(&attachments).is_err());
@@ -768,6 +772,7 @@ mod tests {
             source: Some("upload".to_string()),
             data: None,
             file_path: Some("/tmp/upload.txt".to_string()),
+            quote_lines: None,
         }];
 
         assert!(validate_http_chat_attachments(&attachments).is_ok());

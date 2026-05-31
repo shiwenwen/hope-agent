@@ -43,6 +43,7 @@ pub(super) fn convert_inbound_media_to_attachments(
                         source: None,
                         data: Some(base64::engine::general_purpose::STANDARD.encode(&data)),
                         file_path: None,
+                        quote_lines: None,
                     });
                 }
                 Err(err) => {
@@ -63,6 +64,7 @@ pub(super) fn convert_inbound_media_to_attachments(
                 source: None,
                 data: None,
                 file_path: Some(effective_path.to_string()),
+                quote_lines: None,
             });
         }
     }
@@ -400,6 +402,7 @@ mod tests {
                 source: None,
                 data: Some("base64data".into()),
                 file_path: None,
+                quote_lines: None,
             },
             crate::agent::Attachment {
                 name: "doc".into(),
@@ -407,6 +410,7 @@ mod tests {
                 source: None,
                 data: None,
                 file_path: Some("/tmp/doc.pdf".into()),
+                quote_lines: None,
             },
         ];
         let prefix = transcribe_inbound_voice_attachments(&attachments, "en").await;

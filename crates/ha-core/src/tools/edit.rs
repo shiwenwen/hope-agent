@@ -70,6 +70,7 @@ pub(crate) async fn tool_edit(args: &Value, ctx: &super::ToolExecContext) -> Res
     let write_result = tokio::fs::write(&path, &new_content).await;
     if write_result.is_ok() {
         emit_file_change_metadata(ctx, &path, &content, &new_content).await;
+        ctx.notify_workspace_file_changed(&path);
     }
 
     if let Err(ref e) = write_result {

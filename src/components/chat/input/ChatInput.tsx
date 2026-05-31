@@ -17,9 +17,16 @@ import {
   X,
   Plus,
   FolderPlus,
+  Quote,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import type { AvailableModel, ActiveModel, ChatTurnStatus, SessionMode } from "@/types/chat"
+import type {
+  AvailableModel,
+  ActiveModel,
+  ChatTurnStatus,
+  SessionMode,
+  PendingFileQuote,
+} from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
@@ -69,6 +76,10 @@ interface ChatInputProps {
   attachedFiles: File[]
   onAttachFiles: (files: File[]) => void
   onRemoveFile: (index: number) => void
+  pendingQuotes?: PendingFileQuote[]
+  onRemoveQuote?: (index: number) => void
+  /** Click a staged quote chip to reveal that file in the file browser. */
+  onJumpToQuote?: (q: PendingFileQuote) => void
   pendingMessage?: string | null
   onCancelPending?: () => void
   onDiscardPending?: () => void
@@ -119,6 +130,9 @@ export default function ChatInput({
   attachedFiles,
   onAttachFiles,
   onRemoveFile,
+  pendingQuotes,
+  onRemoveQuote,
+  onJumpToQuote,
   pendingMessage,
   onCancelPending,
   onDiscardPending,
@@ -315,7 +329,8 @@ export default function ChatInput({
 
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
-  const hasSendableContent = input.trim().length > 0 || attachedFiles.length > 0
+  const hasSendableContent =
+    input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
 
   // Auto-resize textarea based on content
   const adjustTextareaHeight = useCallback(() => {
@@ -548,6 +563,46 @@ export default function ChatInput({
 
         {/* Attached files preview (rendered above textarea) */}
         <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
+
+        {/* Staged "quote to chat" references */}
+        {pendingQuotes && pendingQuotes.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {pendingQuotes.map((q, index) => {
+              const lines =
+                q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
+              return (
+                <span
+                  key={`${q.path}:${lines}:${index}`}
+                  className="inline-flex max-w-[260px] items-center gap-0.5 rounded-md border border-border/60 bg-secondary/40 py-0.5 pl-1 pr-1 text-xs text-foreground/80"
+                >
+                  <IconTip label={t("fileBrowser.jumpToFile", "Show in file browser")}>
+                    <button
+                      type="button"
+                      onClick={() => onJumpToQuote?.(q)}
+                      disabled={!onJumpToQuote}
+                      className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-background/70 disabled:pointer-events-none"
+                    >
+                      <Quote className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">
+                        {q.name}
+                        <span className="ml-1 text-muted-foreground">L{lines}</span>
+                      </span>
+                    </button>
+                  </IconTip>
+                  {onRemoveQuote && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveQuote(index)}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
+          </div>
+        )}
 
         {/* Pending message card */}
         {loading && pendingMessage && (

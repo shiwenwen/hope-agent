@@ -90,6 +90,7 @@ pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) 
         .map_err(|e| anyhow::anyhow!("Failed to write file '{}': {}", path, e))?;
 
     emit_file_change_metadata(ctx, &path, before_snapshot.as_ref(), content).await;
+    ctx.notify_workspace_file_changed(&path);
 
     Ok(format!(
         "Successfully wrote {} bytes to {}",

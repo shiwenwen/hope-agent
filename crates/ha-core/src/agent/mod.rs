@@ -1371,19 +1371,11 @@ impl AssistantAgent {
         // SessionMeta lookup — avoids 3 separate SQLite roundtrips per
         // tool round.
         let meta = crate::session::lookup_session_meta(self.session_id.as_deref());
+        // Single source of truth: session-level dir → project's explicit dir →
+        // project's lazily-created default workspace.
         let session_working_dir = meta
             .as_ref()
-            .and_then(|m| m.working_dir.clone().filter(|s| !s.trim().is_empty()))
-            .or_else(|| {
-                // Fall back to the session's project default working_dir.
-                let pid = meta.as_ref()?.project_id.as_deref()?;
-                crate::get_project_db()?
-                    .get(pid)
-                    .ok()
-                    .flatten()?
-                    .working_dir
-                    .filter(|s| !s.trim().is_empty())
-            });
+            .and_then(crate::session::effective_working_dir_for_meta);
         let session_mode = meta.as_ref().map(|m| m.permission_mode).unwrap_or_default();
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         tools::ToolExecContext {

@@ -201,27 +201,6 @@ fn build_router_with_cors(
             post(routes::projects::mark_project_sessions_read),
         )
         .route(
-            "/projects/{id}/files",
-            get(routes::projects::list_project_files),
-        )
-        .route(
-            "/projects/{id}/files",
-            post(routes::projects::upload_project_file_route)
-                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
-        )
-        .route(
-            "/projects/{id}/files/{fid}",
-            delete(routes::projects::delete_project_file_route),
-        )
-        .route(
-            "/projects/{id}/files/{fid}",
-            patch(routes::projects::rename_project_file_route),
-        )
-        .route(
-            "/projects/{id}/files/{fid}/content",
-            get(routes::projects::read_project_file_content),
-        )
-        .route(
             "/projects/{id}/memories",
             get(routes::projects::list_project_memories),
         )
@@ -767,6 +746,10 @@ fn build_router_with_cors(
         )
         .route("/config/ssrf", get(routes::config::get_ssrf_config))
         .route("/config/ssrf", put(routes::config::save_ssrf_config))
+        .route(
+            "/config/filesystem",
+            get(routes::config::get_filesystem_config).put(routes::config::save_filesystem_config),
+        )
         .route(
             "/config/image-generate",
             get(routes::config::get_image_generate_config),
@@ -1512,6 +1495,26 @@ fn build_router_with_cors(
         .route(
             "/filesystem/search-files",
             get(routes::filesystem::search_files),
+        )
+        // Project file browser (workspace-scoped). Reads are always available;
+        // writes are gated by `filesystem.allow_remote_writes` in the handlers.
+        .route("/fs/list", get(routes::project_fs::fs_list))
+        .route("/fs/read", get(routes::project_fs::fs_read))
+        .route("/fs/extract", get(routes::project_fs::fs_extract))
+        .route("/fs/raw", get(routes::project_fs::fs_raw))
+        .route("/fs/git", get(routes::project_fs::fs_git_info))
+        // Raise the body cap above axum's 2MB default so saving a file as large
+        // as the read-preview ceiling (5MB) isn't rejected before the handler.
+        .route(
+            "/fs/file",
+            put(routes::project_fs::fs_write).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route("/fs/entry", delete(routes::project_fs::fs_delete))
+        .route("/fs/rename", post(routes::project_fs::fs_rename))
+        .route("/fs/mkdir", post(routes::project_fs::fs_mkdir))
+        .route(
+            "/fs/upload",
+            post(routes::project_fs::fs_upload).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
         )
         // Dev tools
         .route("/dev/clear-sessions", post(routes::dev::clear_sessions))

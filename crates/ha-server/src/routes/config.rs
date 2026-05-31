@@ -856,6 +856,23 @@ pub async fn save_ssrf_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/filesystem` -- get filesystem (file-browser) policy.
+pub async fn get_filesystem_config() -> Result<Json<ha_core::config::FilesystemConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.filesystem))
+}
+
+/// `PUT /api/config/filesystem` -- save filesystem (file-browser) policy.
+pub async fn save_filesystem_config(
+    Json(body): Json<ConfigBody<ha_core::config::FilesystemConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("filesystem", "http"), |store| {
+        store.filesystem = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/image-generate` -- get image generation config.
 pub async fn get_image_generate_config(
 ) -> Result<Json<ha_core::tools::image_generate::ImageGenConfig>, AppError> {

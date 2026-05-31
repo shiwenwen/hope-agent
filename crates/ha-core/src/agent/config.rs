@@ -305,12 +305,6 @@ pub fn build_system_prompt_with_session(
             .and_then(|s| s.project_id.clone())
             .and_then(|pid| crate::get_project_db()?.get(&pid).ok().flatten());
 
-        // Load project files if we have a project.
-        let project_files: Vec<crate::project::ProjectFile> = project
-            .as_ref()
-            .and_then(|p| crate::get_project_db().and_then(|db| db.list_files(&p.id).ok()))
-            .unwrap_or_default();
-
         // Load candidate memory entries (unscoped raw list). Budget-based
         // filtering and per-section sub-budgets are applied downstream by
         // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
@@ -342,12 +336,12 @@ pub fn build_system_prompt_with_session(
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
             .map(|p| p.to_string_lossy().to_string());
-        // Lazy fallback (no snapshot): editing the project default applies
-        // immediately to every session under it that hasn't overridden it.
+        // Single source of truth: session-level dir → project's explicit dir →
+        // project's lazily-created default workspace. Editing the project
+        // default applies immediately to sessions that haven't overridden it.
         let session_working_dir = session_meta
             .as_ref()
-            .and_then(|s| s.working_dir.as_deref())
-            .or_else(|| project.as_ref().and_then(|p| p.working_dir.as_deref()));
+            .and_then(crate::session::effective_working_dir_for_meta);
         let permission_mode = session_meta
             .as_ref()
             .map(|m| m.permission_mode)
@@ -360,10 +354,9 @@ pub fn build_system_prompt_with_session(
             &memory_budget,
             agent_home.as_deref(),
             project.as_ref(),
-            &project_files,
             session_id,
             incognito,
-            session_working_dir,
+            session_working_dir.as_deref(),
             permission_mode,
         );
     }

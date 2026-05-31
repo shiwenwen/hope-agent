@@ -160,6 +160,19 @@ pub fn persist_chat_user_attachments_meta(
     let mut meta_list = Vec::new();
     for att in attachments.iter_mut() {
         let source = att.source.as_deref();
+        // File-browser quotes carry no bytes — persist them as structured quote
+        // objects so history can render a friendly reference card (the model
+        // already saw a `<file_reference>` via content.rs).
+        if source == Some("quote") {
+            meta_list.push(json!({
+                "kind": "quote",
+                "name": att.name,
+                "path": att.file_path,
+                "lines": att.quote_lines,
+                "content": att.data,
+            }));
+            continue;
+        }
         if !is_user_upload_source(source) {
             continue;
         }
@@ -480,6 +493,7 @@ mod tests {
                 source: Some("upload".to_string()),
                 data: None,
                 file_path: Some(traversal.to_string_lossy().to_string()),
+                quote_lines: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -514,6 +528,7 @@ mod tests {
                     source: Some("upload".to_string()),
                     data: None,
                     file_path: Some(missing.to_string_lossy().to_string()),
+                    quote_lines: None,
                 },
                 Attachment {
                     name: "note.txt".to_string(),
@@ -521,6 +536,7 @@ mod tests {
                     source: Some("upload".to_string()),
                     data: None,
                     file_path: Some(saved.clone()),
+                    quote_lines: None,
                 },
             ];
 
@@ -550,6 +566,7 @@ mod tests {
                 source: Some("upload".to_string()),
                 data: None,
                 file_path: Some(saved.clone()),
+                quote_lines: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)
@@ -578,6 +595,7 @@ mod tests {
                 source: Some("mention".to_string()),
                 data: None,
                 file_path: Some(original.clone()),
+                quote_lines: None,
             }];
 
             let meta = persist_chat_user_attachments_meta("session-a", &mut attachments)

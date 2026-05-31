@@ -89,7 +89,7 @@ fn risk_level(category: &str) -> &'static str {
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
-        | "security" | "security.ssrf" | "smart_mode" | "mcp_global" => "high",
+        | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         // `channels` and `mcp_servers` are categorized "low" for read because
@@ -484,6 +484,7 @@ fn read_category(category: &str) -> Result<Value> {
         "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
         "local_llm_auto_maintenance" => Ok(serde_json::to_value(&cfg.local_llm)?),
         "smart_mode" => Ok(serde_json::to_value(&cfg.permission.smart)?),
+        "filesystem" => Ok(serde_json::to_value(&cfg.filesystem)?),
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
         "mcp_global" => Ok(serde_json::to_value(&cfg.mcp_global)?),
@@ -982,6 +983,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "issue_reporting" => merge_field(&mut store.issue_reporting, values)?,
         "smart_mode" => merge_field(&mut store.permission.smart, values)?,
+        "filesystem" => merge_field(&mut store.filesystem, values)?,
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,
         "mcp_global" => merge_field(&mut store.mcp_global, values)?,

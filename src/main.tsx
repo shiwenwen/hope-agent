@@ -5,6 +5,7 @@ import "./i18n/i18n"
 import App from "./App.tsx"
 import QuickChatWindow from "./QuickChatWindow.tsx"
 import PlanDetachedWindow from "./PlanDetachedWindow.tsx"
+import FileBrowserDetachedWindow from "./FileBrowserDetachedWindow.tsx"
 import { logger } from "./lib/logger"
 import { captureTokenFromUrl } from "./lib/api-key-storage"
 import { installDesktopContextMenuGuard } from "./lib/contextMenuGuard"
@@ -29,6 +30,8 @@ createRoot(document.getElementById("root")!).render(
       <QuickChatWindow />
     ) : windowType === "plan" ? (
       <PlanDetachedWindow />
+    ) : windowType === "files" ? (
+      <FileBrowserDetachedWindow />
     ) : (
       <App />
     )}

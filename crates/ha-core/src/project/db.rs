@@ -1,14 +1,15 @@
-//! ProjectDB — persistence layer for `projects` and `project_files`.
+//! ProjectDB — persistence layer for the `projects` table.
 //!
 //! Shares the same SQLite connection pool as [`crate::session::SessionDB`]
-//! (both tables live in `sessions.db`), following the same pattern as
-//! [`crate::channel::ChannelDB`].
+//! (the table lives in `sessions.db`), following the same pattern as
+//! [`crate::channel::ChannelDB`]. Project files are no longer tracked in the
+//! DB — they live directly in the project working directory.
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
 
-use super::types::{CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput};
+use super::types::{CreateProjectInput, Project, ProjectMeta, UpdateProjectInput};
 use crate::session::SessionDB;
 
 /// Project persistence manager. Wraps `Arc<SessionDB>` to reuse its
@@ -48,25 +49,7 @@ impl ProjectDB {
                 working_dir       TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
-                ON projects(archived, updated_at DESC);
-
-            CREATE TABLE IF NOT EXISTS project_files (
-                id                 TEXT PRIMARY KEY,
-                project_id         TEXT NOT NULL,
-                name               TEXT NOT NULL,
-                original_filename  TEXT NOT NULL,
-                mime_type          TEXT,
-                size_bytes         INTEGER NOT NULL,
-                file_path          TEXT NOT NULL,
-                extracted_path     TEXT,
-                extracted_chars    INTEGER,
-                summary            TEXT,
-                created_at         INTEGER NOT NULL,
-                updated_at         INTEGER NOT NULL,
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-            );
-            CREATE INDEX IF NOT EXISTS idx_project_files_project
-                ON project_files(project_id);",
+                ON projects(archived, updated_at DESC);",
         )?;
 
         // Migration: add `logo` column to existing deployments.
@@ -95,6 +78,15 @@ impl ProjectDB {
                  ALTER TABLE projects DROP COLUMN bound_channel_account_id;",
             )?;
         }
+
+        // Migration: drop the legacy project_files table. Project files now live
+        // directly in the project working directory, browsed via the filesystem
+        // API. No data migration — the rows were metadata-only references to
+        // bytes that the deletion cascade will reclaim with `projects/{id}/`.
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS idx_project_files_project;
+             DROP TABLE IF EXISTS project_files;",
+        )?;
 
         Ok(())
     }
@@ -309,15 +301,13 @@ impl ProjectDB {
     }
 
     /// Delete a project. Sessions are **kept** (their `project_id` is cleared);
-    /// project files (and their disk paths, via the returned list) must be
-    /// cleaned up by the caller; project-scoped memories are cross-database
-    /// and also wiped by the caller — see `delete_project_cascade`.
+    /// project-scoped memories are cross-database and wiped by the caller —
+    /// see `delete_project_cascade`.
     ///
-    /// All rows inside the session database are touched inside a single
-    /// `IMMEDIATE` transaction so a crash mid-delete cannot leave a
-    /// half-deleted project (e.g. sessions unassigned but project row still
-    /// present).
-    pub fn delete(&self, id: &str) -> Result<Vec<ProjectFile>> {
+    /// Both writes happen inside a single transaction so a crash mid-delete
+    /// cannot leave a half-deleted project (e.g. sessions unassigned but the
+    /// project row still present).
+    pub fn delete(&self, id: &str) -> Result<()> {
         let mut conn = self
             .session_db
             .conn
@@ -326,37 +316,17 @@ impl ProjectDB {
 
         let tx = conn.transaction()?;
 
-        // Step 1: snapshot files for the caller (before the cascade drops them).
-        let files = {
-            let mut stmt = tx.prepare(
-                "SELECT id, project_id, name, original_filename, mime_type, size_bytes,
-                        file_path, extracted_path, extracted_chars, summary,
-                        created_at, updated_at
-                 FROM project_files
-                 WHERE project_id = ?1
-                 ORDER BY created_at DESC",
-            )?;
-            let rows = stmt.query_map(params![id], row_to_project_file)?;
-            let mut out = Vec::new();
-            for r in rows {
-                out.push(r?);
-            }
-            out
-        };
-
-        // Step 2: detach sessions so they survive the cascade.
+        // Step 1: detach sessions so they survive the project deletion.
         tx.execute(
             "UPDATE sessions SET project_id = NULL WHERE project_id = ?1",
             params![id],
         )?;
 
-        // Step 3: delete the project row. FK ON DELETE CASCADE on project_files
-        // drops the file rows automatically (PRAGMA foreign_keys=ON is set at
-        // SessionDB::open time).
+        // Step 2: delete the project row.
         tx.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
 
         tx.commit()?;
-        Ok(files)
+        Ok(())
     }
 
     /// Lightweight listing of every project id (including archived). Used by
@@ -410,8 +380,7 @@ impl ProjectDB {
                         AND cc.session_id IS NULL
                         AND m.id > COALESCE(s.last_read_message_id, 0)
                         AND m.role = 'assistant'
-                        AND COALESCE(m.source, 'desktop') != 'channel') AS unread_count,
-                    (SELECT COUNT(*) FROM project_files f WHERE f.project_id = p.id) AS file_count
+                        AND COALESCE(m.source, 'desktop') != 'channel') AS unread_count
              FROM projects p
              {}
              ORDER BY p.updated_at DESC",
@@ -425,7 +394,6 @@ impl ProjectDB {
                 project,
                 session_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
                 unread_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
-                file_count: row.get::<_, i64>(15).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
@@ -435,147 +403,6 @@ impl ProjectDB {
             out.push(r?);
         }
         Ok(out)
-    }
-
-    // ── CRUD: project_files ─────────────────────────────────────
-
-    /// Insert a new project file row. Callers should have already written
-    /// the bytes to disk under `paths::project_files_dir(project_id)`.
-    pub fn add_file(&self, file: &ProjectFile) -> Result<()> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "INSERT INTO project_files (id, project_id, name, original_filename, mime_type,
-                size_bytes, file_path, extracted_path, extracted_chars, summary,
-                created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                file.id,
-                file.project_id,
-                file.name,
-                file.original_filename,
-                file.mime_type,
-                file.size_bytes,
-                file.file_path,
-                file.extracted_path,
-                file.extracted_chars,
-                file.summary,
-                file.created_at,
-                file.updated_at,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// List all files for a project, newest first.
-    pub fn list_files(&self, project_id: &str) -> Result<Vec<ProjectFile>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, project_id, name, original_filename, mime_type, size_bytes,
-                    file_path, extracted_path, extracted_chars, summary,
-                    created_at, updated_at
-             FROM project_files
-             WHERE project_id = ?1
-             ORDER BY created_at DESC",
-        )?;
-        let rows = stmt.query_map(params![project_id], row_to_project_file)?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
-    }
-
-    /// Get a single file by (project_id, file_id).
-    pub fn get_file(&self, project_id: &str, file_id: &str) -> Result<Option<ProjectFile>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let row = conn
-            .query_row(
-                "SELECT id, project_id, name, original_filename, mime_type, size_bytes,
-                        file_path, extracted_path, extracted_chars, summary,
-                        created_at, updated_at
-                 FROM project_files
-                 WHERE project_id = ?1 AND id = ?2",
-                params![project_id, file_id],
-                row_to_project_file,
-            )
-            .optional()?;
-        Ok(row)
-    }
-
-    /// Look up a file by its displayed name within a project. Used by the
-    /// `project_read_file` tool when the model passes a human-friendly name
-    /// instead of a UUID.
-    pub fn find_file_by_name(&self, project_id: &str, name: &str) -> Result<Option<ProjectFile>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let row = conn
-            .query_row(
-                "SELECT id, project_id, name, original_filename, mime_type, size_bytes,
-                        file_path, extracted_path, extracted_chars, summary,
-                        created_at, updated_at
-                 FROM project_files
-                 WHERE project_id = ?1 AND (name = ?2 OR original_filename = ?2)
-                 ORDER BY created_at DESC
-                 LIMIT 1",
-                params![project_id, name],
-                row_to_project_file,
-            )
-            .optional()?;
-        Ok(row)
-    }
-
-    /// Rename a file's display name.
-    pub fn rename_file(&self, file_id: &str, new_name: &str) -> Result<()> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let now = chrono::Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE project_files SET name = ?1, updated_at = ?2 WHERE id = ?3",
-            params![new_name, now, file_id],
-        )?;
-        Ok(())
-    }
-
-    /// Delete a file row and return the previous metadata so the caller can
-    /// remove the bytes from disk.
-    pub fn delete_file(&self, file_id: &str) -> Result<Option<ProjectFile>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let existing = conn
-            .query_row(
-                "SELECT id, project_id, name, original_filename, mime_type, size_bytes,
-                        file_path, extracted_path, extracted_chars, summary,
-                        created_at, updated_at
-                 FROM project_files WHERE id = ?1",
-                params![file_id],
-                row_to_project_file,
-            )
-            .optional()?;
-        if existing.is_some() {
-            conn.execute("DELETE FROM project_files WHERE id = ?1", params![file_id])?;
-        }
-        Ok(existing)
     }
 }
 
@@ -630,23 +457,6 @@ fn validate_logo(raw: Option<&str>) -> Result<Option<String>> {
         anyhow::bail!("project logo must be a data:image/... URL");
     }
     Ok(Some(trimmed.to_string()))
-}
-
-fn row_to_project_file(row: &rusqlite::Row) -> rusqlite::Result<ProjectFile> {
-    Ok(ProjectFile {
-        id: row.get(0)?,
-        project_id: row.get(1)?,
-        name: row.get(2)?,
-        original_filename: row.get(3)?,
-        mime_type: row.get(4)?,
-        size_bytes: row.get(5)?,
-        file_path: row.get(6)?,
-        extracted_path: row.get(7)?,
-        extracted_chars: row.get(8)?,
-        summary: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-    })
 }
 
 /// Trim whitespace and return `None` for empty strings so we never insert

@@ -433,6 +433,21 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
         crate::hooks::fire_file_changed(ctx.session_id.as_deref(), p, "delete");
     }
 
+    // Refresh any open file-browser view for each touched path.
+    for p in added.iter().chain(deleted.iter()) {
+        ctx.notify_workspace_file_changed(p);
+    }
+    for m in &modified {
+        // `modified` may hold "old -> new" for a move; notify both endpoints.
+        match m.split_once(" -> ") {
+            Some((old, new)) => {
+                ctx.notify_workspace_file_changed(old);
+                ctx.notify_workspace_file_changed(new);
+            }
+            None => ctx.notify_workspace_file_changed(m),
+        }
+    }
+
     let mut summary_parts = Vec::new();
     if !added.is_empty() {
         summary_parts.push(format!("Added: {}", added.join(", ")));

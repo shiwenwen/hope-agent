@@ -6,14 +6,15 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path as FsPath, PathBuf};
+use std::path::{Component, PathBuf};
 use std::sync::Arc;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{
-    apply_inline_media_headers, resolve_mime_for_path, HeaderOpts, MimeOpts,
+    apply_inline_media_headers, resolve_mime_for_path, safe_content_disposition, HeaderOpts,
+    MimeOpts,
 };
 use crate::AppContext;
 
@@ -218,6 +219,12 @@ fn rewrite_user_attachment_items_for_http(
         let Value::Object(mut obj) = item else {
             continue;
         };
+        // Leave quote reference cards untouched — their `path` is a
+        // workspace-relative reference, not a session attachment file to serve.
+        if obj.get("kind").and_then(Value::as_str) == Some("quote") {
+            rewritten.push(Value::Object(obj));
+            continue;
+        }
         let path = obj.get("path").and_then(Value::as_str).map(str::trim);
         if let Some(path) = path {
             let path = PathBuf::from(path);
@@ -444,26 +451,6 @@ fn parse_download_flag(value: Option<&str>) -> bool {
         return false;
     };
     value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")
-}
-
-fn content_disposition_for_file(path: &FsPath, mime: &str, force_download: bool) -> String {
-    let filename = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("download");
-    let kind = if force_download {
-        "attachment"
-    } else if mime.starts_with("image/")
-        || mime.starts_with("video/")
-        || mime.starts_with("audio/")
-        || mime == "application/pdf"
-    {
-        "inline"
-    } else {
-        "attachment"
-    };
-    let quoted = filename.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("{}; filename=\"{}\"", kind, quoted)
 }
 
 // ── Handlers ────────────────────────────────────────────────────
@@ -794,7 +781,7 @@ pub async fn download_session_file_by_path(
         },
     )
     .await;
-    let disposition = content_disposition_for_file(
+    let disposition = safe_content_disposition(
         &file_canon,
         &mime,
         parse_download_flag(q.download.as_deref()),
@@ -1066,6 +1053,7 @@ mod tests {
                 source: Some("upload".to_string()),
                 data: None,
                 file_path: Some(saved),
+                quote_lines: None,
             }];
             let meta = ha_core::attachments::persist_chat_user_attachments_meta(
                 session_id,

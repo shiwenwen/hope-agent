@@ -459,6 +459,19 @@ pub struct OnboardingState {
     pub ever_completed: bool,
 }
 
+/// Filesystem / file-browser policy.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesystemConfig {
+    /// Allow file-browser **write** operations (create / delete / rename /
+    /// mkdir / upload) over the HTTP transport. Default `false`: remote HTTP
+    /// clients get read-only browsing, while the desktop (Tauri IPC) always
+    /// writes. HIGH-risk: enabling lets any token-bearing client modify files
+    /// in the project working directory on the server host.
+    #[serde(default)]
+    pub allow_remote_writes: bool,
+}
+
 // ── App Config ──────────────────────────────────────────────────
 
 /// Root structure for the application's persisted configuration (`config.json`).
@@ -516,6 +529,9 @@ pub struct AppConfig {
     /// SSRF policy configuration (browser / web_fetch / image_generate / url_preview)
     #[serde(default)]
     pub ssrf: crate::security::ssrf::SsrfConfig,
+    /// Filesystem / file-browser policy (HTTP remote-write gate).
+    #[serde(default)]
+    pub filesystem: FilesystemConfig,
     /// Per-skill environment variable overrides configured by user.
     /// Outer key: skill name, inner key: env var name, value: env var value.
     #[serde(default)]
@@ -808,6 +824,7 @@ impl Default for AppConfig {
             web_search: crate::tools::web_search::WebSearchConfig::default(),
             web_fetch: crate::tools::web_fetch::WebFetchConfig::default(),
             ssrf: crate::security::ssrf::SsrfConfig::default(),
+            filesystem: FilesystemConfig::default(),
             skill_env: std::collections::HashMap::new(),
             compact: crate::context_compact::CompactConfig::default(),
             session_title: crate::session_title::SessionTitleConfig::default(),

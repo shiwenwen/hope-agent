@@ -272,10 +272,11 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 
 详见 [`project.md`](docs/architecture/project.md)。
 
-- system_prompt 三层注入：目录清单永远注入 → 小文件（<4KB）8KB 预算内联 → `project_read_file` 工具按需
+- **项目文件 = 工作目录里的真实文件**：上传文件直接落项目工作目录（无 `project_files` 表、无独立 `files/`/`extracted/`、无文本提取注入、无 `project_read_file` 工具）；模型靠 `# Working Directory` 段的顶层文件清单 + `read` 工具感知。**`project_files` / `ProjectFile` / `project_read_file` 已删，不要重新引入**
 - 记忆优先级 Project > Agent > Global
-- **默认工作目录合并**：优先级 `session > project > 不注入`，**lazy resolve**；唯一入口 [`session/helpers.rs::effective_session_working_dir`](crates/ha-core/src/session/helpers.rs)，写校验入口 [`util.rs::canonicalize_working_dir`](crates/ha-core/src/util.rs)
-- 删除级联：unassign → 删 `projects` + `project_files`（FK） → `rm -rf projects/{id}/` → 删项目记忆（跨 db 单独执行）
+- **工作目录合并（项目会话总有值）**：优先级 `session > project 显式 working_dir > 默认 workspace`；唯一入口 [`session/helpers.rs::effective_session_working_dir`](crates/ha-core/src/session/helpers.rs)（+ `effective_working_dir_for_meta`），**lazy ensure**——默认 workspace `~/.hope-agent/projects/{id}/workspace/` 在首次解析时 `ensure_dir_canonical` 创建并返回（不写进 DB，保持 `HA_DATA_DIR` 可迁移）。`project.working_dir` 留 NULL = 用默认 workspace。落盘解析走 [`project::resolve_project_dir`](crates/ha-core/src/project/files.rs)
+- **文件浏览器作用域**：所有读写经 [`filesystem::WorkspaceScope`](crates/ha-core/src/filesystem/workspace.rs)（canonicalize + `starts_with` 失败闭合），`for_session` / `for_project` / `for_path` 三入口；**`for_path` 是只读 worktree 跳转**，后端把目标锚定到 base session/project 仓库的 worktree 列表（禁止跳到主机上任意 git repo），写操作经 `resolve_writable` 一律拒绝 path scope；ops 在 [`filesystem/ops.rs`](crates/ha-core/src/filesystem/ops.rs)。HTTP `/api/fs/*` 写端点受 `filesystem.allow_remote_writes`（默认 false）闸门，桌面 Tauri 不受限
+- 删除级联（三步）：unassign sessions → 删 `projects` 行 → `rm -rf projects/{id}/`（含默认 workspace；用户显式选的外部目录不删）→ 删项目记忆（跨 db 单独执行）
 - **IM 路由（无反向认领）**：项目不再认领 (channel, account)。要把 IM 中的会话归项目，从该 chat 内 `/project <id>`（或 picker）显式触发；`AssignProject` action 在 channel worker 内 UPDATE `sessions.project_id`，不再通过 channel→project 反查。**`Project.bound_channel` 已删除，不要重新引入**。
 
 ### Agent 解析链（默认 Agent）
