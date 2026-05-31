@@ -286,7 +286,10 @@ function HandlerCard({
   return (
     <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2">
       <div className="flex items-center gap-2">
-        <Select value={handler.type} onValueChange={(v) => onChange(defaultHandler(v as HandlerType))}>
+        <Select
+          value={handler.type}
+          onValueChange={(v) => onChange(defaultHandler(v as HandlerType))}
+        >
           <SelectTrigger className="h-8 w-32">
             <SelectValue />
           </SelectTrigger>
@@ -314,7 +317,12 @@ function HandlerCard({
         </p>
       )}
       {FIELDS_BY_TYPE[handler.type].map((def) => (
-        <FieldRow key={def.key} def={def} value={handler[def.key]} onChange={(v) => setField(def.key, v)} />
+        <FieldRow
+          key={def.key}
+          def={def}
+          value={handler[def.key]}
+          onChange={(v) => setField(def.key, v)}
+        />
       ))}
       <button
         type="button"
@@ -327,7 +335,12 @@ function HandlerCard({
       {adv && (
         <div className="space-y-2 border-l border-border/40 pl-2">
           {COMMON_FIELDS.map((def) => (
-            <FieldRow key={def.key} def={def} value={handler[def.key]} onChange={(v) => setField(def.key, v)} />
+            <FieldRow
+              key={def.key}
+              def={def}
+              value={handler[def.key]}
+              onChange={(v) => setField(def.key, v)}
+            />
           ))}
         </div>
       )}
@@ -480,141 +493,148 @@ export default function HooksPanel() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-1">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="flex items-center gap-2 text-lg font-semibold">
-            <Webhook className="h-5 w-5" /> {t("settings.hooks.title")}
-          </h2>
-          <p className="text-sm text-muted-foreground">{t("settings.hooks.intro")}</p>
-        </div>
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={(!dirty && saveStatus === "idle") || saving}
-          className={cn(
-            saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-            saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
-          )}
-        >
-          {saving ? (
-            <span className="flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("common.saving")}
-            </span>
-          ) : saveStatus === "saved" ? (
-            <span className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5" />
-              {t("common.saved")}
-            </span>
-          ) : saveStatus === "failed" ? (
-            t("common.saveFailed")
-          ) : (
-            t("common.save")
-          )}
-        </Button>
-      </div>
-
-      <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-        <div>
-          <div className="text-sm font-medium">{t("settings.hooks.disableAll")}</div>
-          <div className="text-xs text-muted-foreground">{t("settings.hooks.disableAllDesc")}</div>
-        </div>
-        <Switch
-          checked={settings.disableAllHooks}
-          onCheckedChange={(c) => setSettings({ ...settings, disableAllHooks: c })}
-        />
-      </div>
-
-      <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-        <div>
-          <div className="text-sm font-medium">{t("settings.hooks.allowProjectScope")}</div>
-          <div className="text-xs text-muted-foreground">
-            {t("settings.hooks.allowProjectScopeDesc")}
+    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+      <div className="mx-auto max-w-4xl space-y-4 p-1">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <Webhook className="h-5 w-5" /> {t("settings.hooks.title")}
+            </h2>
+            <p className="text-sm text-muted-foreground">{t("settings.hooks.intro")}</p>
           </div>
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={(!dirty && saveStatus === "idle") || saving}
+            className={cn(
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "failed" &&
+                "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            )}
+          >
+            {saving ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("common.saving")}
+              </span>
+            ) : saveStatus === "saved" ? (
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                {t("common.saved")}
+              </span>
+            ) : saveStatus === "failed" ? (
+              t("common.saveFailed")
+            ) : (
+              t("common.save")
+            )}
+          </Button>
         </div>
-        <Switch
-          checked={settings.allowProjectScope}
-          onCheckedChange={(c) => setSettings({ ...settings, allowProjectScope: c })}
-        />
-      </div>
 
-      <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-        {t("settings.hooks.scopeNote")}
-      </p>
-
-      <div className="flex items-center gap-2">
-        <Select value={pickEvent} onValueChange={setPickEvent}>
-          <SelectTrigger className="h-9 flex-1">
-            <SelectValue placeholder={t("settings.hooks.pickEvent")} />
-          </SelectTrigger>
-          <SelectContent>
-            {FIREABLE_EVENTS.map((ev) => (
-              <SelectItem key={ev} value={ev}>
-                {ev}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          size="sm"
-          disabled={!pickEvent}
-          onClick={() => {
-            if (pickEvent) addGroup(pickEvent)
-          }}
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          {t("settings.hooks.addHook")}
-        </Button>
-      </div>
-
-      {eventsWithHooks.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">{t("settings.hooks.empty")}</p>
-      ) : (
-        eventsWithHooks.map((ev) => {
-          const groups = settings.hooks[ev]
-          const isCollapsed = collapsed[ev]
-          return (
-            <div key={ev} className="space-y-2 rounded-lg border border-border p-3">
-              <button
-                type="button"
-                onClick={() => setCollapsed((c) => ({ ...c, [ev]: !c[ev] }))}
-                className="flex w-full items-center gap-2 text-sm font-medium"
-              >
-                {isCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-                {ev}
-                <span className="text-xs text-muted-foreground">({groups.length})</span>
-              </button>
-              {!isCollapsed && (
-                <div className="space-y-2">
-                  {groups.map((g, i) => (
-                    <GroupCard
-                      key={i}
-                      group={g}
-                      event={ev}
-                      onChange={(ng) => setGroup(ev, i, ng)}
-                      onRemove={() => removeGroup(ev, i)}
-                    />
-                  ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => addGroup(ev)}
-                  >
-                    <Plus className="mr-1 h-3 w-3" />
-                    {t("settings.hooks.addGroup")}
-                  </Button>
-                </div>
-              )}
+        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+          <div>
+            <div className="text-sm font-medium">{t("settings.hooks.disableAll")}</div>
+            <div className="text-xs text-muted-foreground">
+              {t("settings.hooks.disableAllDesc")}
             </div>
-          )
-        })
-      )}
+          </div>
+          <Switch
+            checked={settings.disableAllHooks}
+            onCheckedChange={(c) => setSettings({ ...settings, disableAllHooks: c })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+          <div>
+            <div className="text-sm font-medium">{t("settings.hooks.allowProjectScope")}</div>
+            <div className="text-xs text-muted-foreground">
+              {t("settings.hooks.allowProjectScopeDesc")}
+            </div>
+          </div>
+          <Switch
+            checked={settings.allowProjectScope}
+            onCheckedChange={(c) => setSettings({ ...settings, allowProjectScope: c })}
+          />
+        </div>
+
+        <p className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+          {t("settings.hooks.scopeNote")}
+        </p>
+
+        <div className="flex items-center gap-2">
+          <Select value={pickEvent} onValueChange={setPickEvent}>
+            <SelectTrigger className="h-9 flex-1">
+              <SelectValue placeholder={t("settings.hooks.pickEvent")} />
+            </SelectTrigger>
+            <SelectContent>
+              {FIREABLE_EVENTS.map((ev) => (
+                <SelectItem key={ev} value={ev}>
+                  {ev}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            disabled={!pickEvent}
+            onClick={() => {
+              if (pickEvent) addGroup(pickEvent)
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            {t("settings.hooks.addHook")}
+          </Button>
+        </div>
+
+        {eventsWithHooks.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {t("settings.hooks.empty")}
+          </p>
+        ) : (
+          eventsWithHooks.map((ev) => {
+            const groups = settings.hooks[ev]
+            const isCollapsed = collapsed[ev]
+            return (
+              <div key={ev} className="space-y-2 rounded-lg border border-border p-3">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((c) => ({ ...c, [ev]: !c[ev] }))}
+                  className="flex w-full items-center gap-2 text-sm font-medium"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                  {ev}
+                  <span className="text-xs text-muted-foreground">({groups.length})</span>
+                </button>
+                {!isCollapsed && (
+                  <div className="space-y-2">
+                    {groups.map((g, i) => (
+                      <GroupCard
+                        key={i}
+                        group={g}
+                        event={ev}
+                        onChange={(ng) => setGroup(ev, i, ng)}
+                        onRemove={() => removeGroup(ev, i)}
+                      />
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => addGroup(ev)}
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      {t("settings.hooks.addGroup")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
     </div>
   )
 }
