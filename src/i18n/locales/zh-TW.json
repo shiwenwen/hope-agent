@@ -4631,5 +4631,23 @@
         "abort": "取消升級"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "工作台",
+    "sectionProgress": "進度",
+    "sectionOutput": "輸出",
+    "sectionSources": "來源",
+    "emptyProgress": "暫無任務",
+    "emptyOutput": "還沒有碰到檔案",
+    "emptySources": "還沒有引用來源",
+    "openPanel": "開啟工作台",
+    "resizePanel": "調整工作台面板寬度",
+    "sourceFromSearch": "搜尋",
+    "action": {
+      "create": "新建",
+      "edit": "修改",
+      "delete": "刪除",
+      "read": "讀取"
+    }
   }
 }

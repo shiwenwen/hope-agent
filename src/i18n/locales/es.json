@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "Espacio de trabajo",
+    "sectionProgress": "Progreso",
+    "sectionOutput": "Salida",
+    "sectionSources": "Fuentes",
+    "emptyProgress": "Aún no hay tareas",
+    "emptyOutput": "Aún no se han tocado archivos",
+    "emptySources": "Aún no hay fuentes",
+    "openPanel": "Abrir espacio de trabajo",
+    "resizePanel": "Redimensionar panel del espacio de trabajo",
+    "sourceFromSearch": "Búsqueda",
+    "action": {
+      "create": "Nuevo",
+      "edit": "Editar",
+      "delete": "Eliminar",
+      "read": "Leer"
+    }
   }
 }

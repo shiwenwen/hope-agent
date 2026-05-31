@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "Không gian làm việc",
+    "sectionProgress": "Tiến độ",
+    "sectionOutput": "Đầu ra",
+    "sectionSources": "Nguồn",
+    "emptyProgress": "Chưa có nhiệm vụ",
+    "emptyOutput": "Chưa chạm vào tệp nào",
+    "emptySources": "Chưa có nguồn",
+    "openPanel": "Mở không gian làm việc",
+    "resizePanel": "Đổi kích thước bảng không gian làm việc",
+    "sourceFromSearch": "Tìm kiếm",
+    "action": {
+      "create": "Mới",
+      "edit": "Sửa",
+      "delete": "Xóa",
+      "read": "Đọc"
+    }
   }
 }

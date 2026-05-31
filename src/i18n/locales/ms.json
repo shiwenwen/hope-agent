@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "Ruang kerja",
+    "sectionProgress": "Kemajuan",
+    "sectionOutput": "Output",
+    "sectionSources": "Sumber",
+    "emptyProgress": "Belum ada tugas",
+    "emptyOutput": "Belum ada fail disentuh",
+    "emptySources": "Belum ada sumber",
+    "openPanel": "Buka ruang kerja",
+    "resizePanel": "Ubah saiz panel ruang kerja",
+    "sourceFromSearch": "Carian",
+    "action": {
+      "create": "Baharu",
+      "edit": "Sunting",
+      "delete": "Padam",
+      "read": "Baca"
+    }
   }
 }

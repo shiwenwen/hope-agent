@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "Рабочая область",
+    "sectionProgress": "Прогресс",
+    "sectionOutput": "Вывод",
+    "sectionSources": "Источники",
+    "emptyProgress": "Пока нет задач",
+    "emptyOutput": "Файлы ещё не затронуты",
+    "emptySources": "Пока нет источников",
+    "openPanel": "Открыть рабочую область",
+    "resizePanel": "Изменить размер панели рабочей области",
+    "sourceFromSearch": "Поиск",
+    "action": {
+      "create": "Создать",
+      "edit": "Изменить",
+      "delete": "Удалить",
+      "read": "Чтение"
+    }
   }
 }

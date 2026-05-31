@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "Workspace",
+    "sectionProgress": "Progress",
+    "sectionOutput": "Output",
+    "sectionSources": "Sources",
+    "emptyProgress": "No tasks yet",
+    "emptyOutput": "No files touched yet",
+    "emptySources": "No sources yet",
+    "openPanel": "Open workspace",
+    "resizePanel": "Resize workspace panel",
+    "sourceFromSearch": "Search",
+    "action": {
+      "create": "New",
+      "edit": "Edit",
+      "delete": "Delete",
+      "read": "Read"
+    }
   }
 }

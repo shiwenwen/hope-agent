@@ -4631,5 +4631,23 @@
         "abort": "取消升级"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "工作台",
+    "sectionProgress": "进度",
+    "sectionOutput": "输出",
+    "sectionSources": "来源",
+    "emptyProgress": "暂无任务",
+    "emptyOutput": "还没有碰到文件",
+    "emptySources": "还没有引用来源",
+    "openPanel": "打开工作台",
+    "resizePanel": "调整工作台面板宽度",
+    "sourceFromSearch": "搜索",
+    "action": {
+      "create": "新建",
+      "edit": "修改",
+      "delete": "删除",
+      "read": "读取"
+    }
   }
 }
