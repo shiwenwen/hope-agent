@@ -14,6 +14,7 @@ import {
   X,
   FileText,
   FolderCheck,
+  FolderTree,
   ListChecks,
   Loader2,
   MessageCircle,
@@ -102,6 +103,10 @@ interface ChatTitleBarProps {
   incognitoSaving?: boolean
   incognitoDisabledReason?: IncognitoDisabledReason
   onIncognitoChange?: (enabled: boolean) => void
+  /** Toggle the right-side file browser. Undefined when no working directory. */
+  onToggleFilesPanel?: () => void
+  /** Whether the file browser panel is currently open (controls active styling). */
+  filesPanelOpen?: boolean
 }
 
 export default function ChatTitleBar({
@@ -137,6 +142,8 @@ export default function ChatTitleBar({
   incognitoSaving = false,
   incognitoDisabledReason,
   onIncognitoChange,
+  onToggleFilesPanel,
+  filesPanelOpen = false,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -372,6 +379,21 @@ export default function ChatTitleBar({
               ) : (
                 <ListChecks className="h-4 w-4" />
               )}
+            </button>
+          </IconTip>
+        )}
+        {/* Show Files Button — opens the right-side file browser panel. */}
+        {onToggleFilesPanel && (
+          <IconTip label={t("fileBrowser.open", "Show files")}>
+            <button
+              className={cn(
+                "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
+                filesPanelOpen && "text-foreground",
+              )}
+              aria-pressed={filesPanelOpen}
+              onClick={onToggleFilesPanel}
+            >
+              <FolderTree className="h-4 w-4" />
             </button>
           </IconTip>
         )}

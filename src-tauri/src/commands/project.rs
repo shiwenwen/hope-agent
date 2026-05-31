@@ -5,10 +5,8 @@
 //! conversion and holds the `AppState` bridge.
 
 use crate::commands::CmdError;
-use anyhow::Context;
 use ha_core::project::{
-    delete_project_cascade, delete_project_file as delete_file_pipeline, upload_project_file,
-    CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput, UploadInput,
+    delete_project_cascade, CreateProjectInput, Project, ProjectMeta, UpdateProjectInput,
 };
 use ha_core::session::SessionMeta;
 use tauri::State;
@@ -163,142 +161,6 @@ pub async fn mark_project_sessions_read_cmd(
     }
 
     Ok(())
-}
-
-// ── Project Files ───────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn list_project_files_cmd(
-    project_id: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<ProjectFile>, CmdError> {
-    state.project_db.list_files(&project_id).map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn upload_project_file_cmd(
-    project_id: String,
-    file_name: String,
-    mime_type: Option<String>,
-    data: Vec<u8>,
-    state: State<'_, AppState>,
-) -> Result<ProjectFile, CmdError> {
-    // Run the blocking upload pipeline (file IO + text extraction) off the
-    // tokio runtime so the main thread stays responsive on large files.
-    let project_db = state.project_db.clone();
-    let file = tokio::task::spawn_blocking(move || -> anyhow::Result<ProjectFile> {
-        upload_project_file(
-            UploadInput {
-                project_id: &project_id,
-                original_filename: &file_name,
-                mime_type: mime_type.as_deref(),
-                data: &data,
-            },
-            &project_db,
-        )
-    })
-    .await??;
-
-    if let Some(bus) = ha_core::get_event_bus() {
-        let _ = bus.emit(
-            "project:file_uploaded",
-            serde_json::json!({
-                "projectId": file.project_id,
-                "fileId": file.id,
-            }),
-        );
-    }
-    Ok(file)
-}
-
-#[tauri::command]
-pub async fn delete_project_file_cmd(
-    project_id: String,
-    file_id: String,
-    state: State<'_, AppState>,
-) -> Result<bool, CmdError> {
-    let project_db = state.project_db.clone();
-    let file_id_for_pipe = file_id.clone();
-    let deleted =
-        tokio::task::spawn_blocking(move || delete_file_pipeline(&file_id_for_pipe, &project_db))
-            .await??;
-
-    if deleted {
-        if let Some(bus) = ha_core::get_event_bus() {
-            let _ = bus.emit(
-                "project:file_deleted",
-                serde_json::json!({
-                    "projectId": project_id,
-                    "fileId": file_id,
-                }),
-            );
-        }
-    }
-    Ok(deleted)
-}
-
-#[tauri::command]
-pub async fn rename_project_file_cmd(
-    _project_id: String,
-    file_id: String,
-    name: String,
-    state: State<'_, AppState>,
-) -> Result<(), CmdError> {
-    state
-        .project_db
-        .rename_file(&file_id, &name)
-        .map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn read_project_file_content_cmd(
-    project_id: String,
-    file_id: String,
-    offset: Option<u32>,
-    limit: Option<u32>,
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, CmdError> {
-    let file = state
-        .project_db
-        .get_file(&project_id, &file_id)?
-        .ok_or_else(|| {
-            CmdError::msg(format!(
-                "file {} not found in project {}",
-                file_id, project_id
-            ))
-        })?;
-
-    let ext_rel = file
-        .extracted_path
-        .as_ref()
-        .ok_or_else(|| CmdError::msg("file has no extracted text (binary)"))?;
-
-    let base = ha_core::paths::projects_dir()?;
-    let full = base.join(ext_rel);
-    let content = tokio::fs::read_to_string(&full)
-        .await
-        .with_context(|| format!("read {}", full.display()))?;
-
-    let lines: Vec<&str> = content.lines().collect();
-    let total = lines.len();
-    let offset = offset.unwrap_or(0) as usize;
-    let limit = limit.unwrap_or(1000).min(10_000) as usize;
-
-    let end = (offset + limit).min(total);
-    let start = offset.min(total);
-    let window: Vec<&&str> = lines[start..end].iter().collect();
-    let snippet = window
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    Ok(serde_json::json!({
-        "content": snippet,
-        "total": total,
-        "offset": start,
-        "limit": end - start,
-    }))
 }
 
 #[tauri::command]

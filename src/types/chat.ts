@@ -42,14 +42,28 @@ export interface MediaItem {
   caption?: string
 }
 
+/** A staged "quote to chat" reference, pending until the next message is sent. */
+export interface PendingFileQuote {
+  path: string
+  name: string
+  startLine: number
+  endLine: number
+  content: string
+}
+
 export interface MessageAttachment {
   name: string
   mimeType: string
   sizeBytes: number
-  kind: "image" | "file"
+  kind: "image" | "file" | "quote"
   localPath?: string
   url?: string
   previewUrl?: string
+  /** For `kind === "quote"` (file-browser "quote to chat"): referenced path,
+   *  1-based line range (e.g. "12-20"), and the quoted snippet. */
+  quotePath?: string
+  quoteLines?: string
+  quoteContent?: string
 }
 
 /**

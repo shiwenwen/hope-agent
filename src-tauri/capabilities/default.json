@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "enables the default permissions",
-  "windows": ["main", "canvas-window", "plan-window", "quickchat"],
+  "windows": ["main", "canvas-window", "plan-window", "quickchat", "files-window"],
   "permissions": [
     "core:default",
     "core:event:default",

@@ -125,6 +125,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                         source: None,
                         data: Some(content.to_string()),
                         file_path: None,
+                        quote_lines: None,
                     })
                 } else {
                     // UTF-8 text: write to temp file so agent can read it
@@ -138,6 +139,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                             source: None,
                             data: None,
                             file_path: Some(tmp_path.to_string_lossy().to_string()),
+                            quote_lines: None,
                         })
                     } else {
                         None

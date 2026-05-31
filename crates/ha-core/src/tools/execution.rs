@@ -7,7 +7,6 @@ use tokio_util::sync::CancellationToken;
 
 use super::app_update;
 use super::issue_report;
-use super::project_read_file;
 use super::send_attachment;
 use super::skill;
 use super::{
@@ -24,12 +23,12 @@ use super::{
     TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
     TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL,
-    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ,
-    TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY,
-    TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
-    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
+    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
+    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -433,6 +432,42 @@ impl ToolExecContext {
         if let Some(sink) = &self.metadata_sink {
             *sink.lock().await = Some(value);
         }
+    }
+
+    /// Best-effort: tell any open file-browser view that a file under this
+    /// session's working directory just changed (agent `write` / `edit` /
+    /// `apply_patch`), so the tree/preview reconcile without a manual reload —
+    /// the same `project:fs_changed` event the browser's own CRUD emits. No-op
+    /// when there's no session, no working dir, no event bus, or the path falls
+    /// outside the working directory.
+    pub fn notify_workspace_file_changed(&self, abs_path: &str) {
+        let (Some(sid), Some(wd)) = (
+            self.session_id.as_deref(),
+            self.session_working_dir.as_deref(),
+        ) else {
+            return;
+        };
+        let Some(bus) = crate::globals::get_event_bus() else {
+            return;
+        };
+        let Ok(root) = std::path::Path::new(wd).canonicalize() else {
+            return;
+        };
+        // The file may have just been created, so canonicalize its parent dir.
+        let Some(parent) = std::path::Path::new(abs_path).parent() else {
+            return;
+        };
+        let Ok(parent) = parent.canonicalize() else {
+            return;
+        };
+        let Ok(rel) = parent.strip_prefix(&root) else {
+            return; // outside the working dir — not a browseable change
+        };
+        let dir = rel.to_string_lossy().replace('\\', "/");
+        bus.emit(
+            "project:fs_changed",
+            serde_json::json!({ "scope": "session", "scopeId": sid, "dir": dir }),
+        );
     }
 }
 
@@ -857,9 +892,6 @@ pub async fn execute_tool_with_context(
             TOOL_EXEC => exec::tool_exec(args, dispatch_ctx).await,
             TOOL_PROCESS => process::tool_process(args).await,
             TOOL_READ | "read_file" => read::tool_read_file(args, dispatch_ctx).await,
-            TOOL_PROJECT_READ_FILE => {
-                project_read_file::tool_project_read_file(args, dispatch_ctx).await
-            }
             TOOL_WRITE | "write_file" => write::tool_write_file(args, dispatch_ctx).await,
             TOOL_EDIT | "patch_file" => edit::tool_edit(args, dispatch_ctx).await,
             TOOL_LS | "list_dir" => ls::tool_ls(args, dispatch_ctx).await,

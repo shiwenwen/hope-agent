@@ -10,7 +10,6 @@ mod types;
 
 pub use db::ProjectDB;
 pub use files::{
-    delete_project_cascade, delete_project_file, purge_project_files_dir, upload_project_file,
-    UploadInput, MAX_PROJECT_FILE_BYTES,
+    delete_project_cascade, purge_project_dir, resolve_project_dir, MAX_PROJECT_FILE_BYTES,
 };
-pub use types::{CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput};
+pub use types::{CreateProjectInput, Project, ProjectMeta, UpdateProjectInput};

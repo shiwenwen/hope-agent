@@ -33,6 +33,7 @@ pub mod models;
 pub mod onboarding;
 pub mod permission;
 pub mod plan;
+pub mod project_fs;
 pub mod projects;
 pub mod providers;
 pub mod recap;

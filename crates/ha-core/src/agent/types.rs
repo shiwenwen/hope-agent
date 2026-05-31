@@ -60,6 +60,12 @@ pub struct Attachment {
     /// Absolute path to the file on disk (used for non-image files)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
+    /// For `source = "quote"` (file-browser "quote to chat"): the 1-based line
+    /// range of the quoted snippet (e.g. `"12-20"`). Combined with `file_path`
+    /// (the path) and `data` (the snippet text) to emit a `<file_reference>`
+    /// block to the model. Not persisted as a file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote_lines: Option<String>,
 }
 
 impl Attachment {

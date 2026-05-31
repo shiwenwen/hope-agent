@@ -13,6 +13,7 @@ import {
 import type {
   Message,
   MessageAttachment,
+  PendingFileQuote,
   ActiveModel,
   AgentSummaryForSidebar,
   SessionMode,
@@ -117,6 +118,7 @@ interface PendingSend {
   text: string
   options?: SendOptions
   attachedFiles?: File[]
+  quotes?: PendingFileQuote[]
 }
 
 interface InputDraft {
@@ -183,6 +185,8 @@ export interface UseChatStreamReturn {
   setInput: React.Dispatch<React.SetStateAction<string>>
   attachedFiles: File[]
   setAttachedFiles: React.Dispatch<React.SetStateAction<File[]>>
+  pendingQuotes: PendingFileQuote[]
+  setPendingQuotes: React.Dispatch<React.SetStateAction<PendingFileQuote[]>>
   pendingMessage: string | null
   setPendingMessage: React.Dispatch<React.SetStateAction<string | null>>
   approvalRequests: ApprovalRequest[]
@@ -236,6 +240,7 @@ export function useChatStream({
   const { t } = useTranslation()
   const [input, setInputState] = useState("")
   const [attachedFiles, setAttachedFilesState] = useState<File[]>([])
+  const [pendingQuotes, setPendingQuotes] = useState<PendingFileQuote[]>([])
   const inputRef = useRef(input)
   const attachedFilesRef = useRef(attachedFiles)
   const inputDraftsRef = useRef<Map<string, InputDraft>>(new Map())
@@ -561,22 +566,27 @@ export function useChatStream({
   async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
     const hasAttachedFiles = !directText && attachedFiles.length > 0
-    if (!rawText.trim() && !hasAttachedFiles) return
+    const hasQuotes = !directText && pendingQuotes.length > 0
+    if (!rawText.trim() && !hasAttachedFiles && !hasQuotes) return
 
-    // If currently loading, queue the message as pending. Capture both the
-    // LLM-bound text and the original options so the replay below resends
-    // with identical metadata (Plan Mode triggers carry `isPlanTrigger`,
-    // slash-skill expansions carry `displayText`, etc.).
+    // If currently loading, queue the message as pending. Capture the
+    // LLM-bound text, the original options, and any staged files/quotes so the
+    // replay below resends with identical content + metadata (Plan Mode
+    // triggers carry `isPlanTrigger`, slash-skill expansions carry
+    // `displayText`, etc.).
     if (loading) {
       const queuedFiles = directText ? [] : [...attachedFiles]
+      const queuedQuotes = directText ? [] : [...pendingQuotes]
       setPendingSendState({
         text: rawText.trim(),
         options,
         ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
+        ...(queuedQuotes.length > 0 && { quotes: queuedQuotes }),
       })
       if (!directText) {
         setInput("")
         setAttachedFiles([])
+        setPendingQuotes([])
       }
       return
     }
@@ -585,10 +595,26 @@ export function useChatStream({
     // `text` goes to the LLM; `displayed` is the user bubble. Slash-skill passThrough
     // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
     const filesToSend = directText ? [] : [...attachedFiles]
+    const quotesToSend = directText ? [] : [...pendingQuotes]
     const displayed = options?.displayText?.trim() || text
-    const optimisticAttachments = filesToSend.map(optimisticAttachmentForFile)
+    const quoteLineLabel = (q: PendingFileQuote) =>
+      q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
+    const optimisticQuoteAttachments: MessageAttachment[] = quotesToSend.map((q) => ({
+      name: q.name,
+      mimeType: "text/plain",
+      sizeBytes: 0,
+      kind: "quote",
+      quotePath: q.path,
+      quoteLines: quoteLineLabel(q),
+      quoteContent: q.content,
+    }))
+    const optimisticAttachments = [
+      ...filesToSend.map(optimisticAttachmentForFile),
+      ...optimisticQuoteAttachments,
+    ]
     setInput("")
     setAttachedFiles([])
+    setPendingQuotes([])
     const now = new Date().toISOString()
     // Both placeholders get a `_clientId` up front so `mergeMessagesByDbId`
     // can transfer them to the DB-finalized rows after stream_end. Without
@@ -674,6 +700,20 @@ export function useChatStream({
           error: err,
         })
       }
+    }
+
+    // File-browser "quote to chat" references → quote attachments. The model
+    // sees them as <file_reference> (built backend-side in content.rs); the
+    // user only ever sees a friendly quote card.
+    for (const q of quotesToSend) {
+      attachments.push({
+        name: q.name,
+        mime_type: "text/plain",
+        source: "quote",
+        data: q.content,
+        file_path: q.path,
+        quote_lines: quoteLineLabel(q),
+      })
     }
 
     // Empty assistant placeholder we'll stream into. `_clientId` was generated
@@ -1008,6 +1048,9 @@ export function useChatStream({
       const queued = pendingSendRef.current
       if (queued) {
         setPendingSendState(null)
+        // Restore staged quotes so they ride along with the replayed message
+        // (user-draft path) instead of being silently dropped.
+        if (queued.quotes?.length) setPendingQuotes(queued.quotes)
         if (queued.options && (queued.options.isPlanTrigger || autoSendPendingRef.current)) {
           // Programmatic queued send (Plan Mode approve, slash-skill
           // expansion). Replay through the auto-send effect with the
@@ -1053,6 +1096,8 @@ export function useChatStream({
     setInput,
     attachedFiles,
     setAttachedFiles,
+    pendingQuotes,
+    setPendingQuotes,
     pendingMessage,
     setPendingMessage,
     approvalRequests,

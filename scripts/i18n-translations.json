@@ -469,7 +469,9 @@
         "narrativeModelDesc": "スコアリングに使うモデルを上書き。空欄ならメインチャット / recap のモデルチェーンを継承します。",
         "narrativeModelDefault": "メインチャット Agent を継承",
         "narrativeModelClear": "クリア"
-      }
+      },
+      "fsRemoteWrites": "リモートからのファイル書き込みを許可",
+      "fsRemoteWritesDesc": "HTTP クライアントがプロジェクト作業ディレクトリ内でファイルの作成・編集・削除・アップロードを行えるようにします。既定はオフ — デスクトップアプリはこの設定に関係なく常にローカルへ書き込めます。"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -858,6 +860,36 @@
       "boundAgentHint": "このチャネルで新規作成されるセッションのデフォルト Agent。切り替えても既存セッションは移行されません — それらは /agent(デスクトップ)または /handover を使用してください。",
       "notifyPrimaryChanges": "プライマリ変更を通知",
       "notifyPrimaryChangesHint": "このアカウントがセッションのプライマリになった(または外れた)際、IM チャットにシステムメッセージを送ります。"
+    },
+    "fileBrowser": {
+      "panelTitle": "ファイル",
+      "open": "ファイルブラウザを開く",
+      "resizePanel": "ファイルパネルの幅を調整",
+      "noWorkingDir": "作業ディレクトリを設定するとファイルを閲覧できます",
+      "empty": "このフォルダは空です",
+      "selectFile": "プレビューするファイルを選択",
+      "newFile": "新規ファイル",
+      "newFolder": "新規フォルダ",
+      "rename": "名前を変更",
+      "delete": "削除",
+      "openInSystem": "システムで開く",
+      "download": "ダウンロード",
+      "refresh": "更新",
+      "collapseAll": "すべて折りたたむ",
+      "uploadHint": "ここにファイルをドロップしてアップロード",
+      "uploadFailed": "アップロードに失敗しました",
+      "createFailed": "作成に失敗しました",
+      "renameFailed": "名前の変更に失敗しました",
+      "deleteFailed": "削除に失敗しました",
+      "confirmDeleteFile": "このファイルを削除しますか？",
+      "confirmDeleteFolder": "このフォルダとすべての内容を削除しますか？",
+      "binaryFile": "バイナリファイル",
+      "fileTooLarge": "ファイルが大きすぎてプレビューできません",
+      "viewSource": "ソースを表示",
+      "rendered": "レンダリング表示",
+      "extractedPreview": "抽出内容のプレビュー — 元のレイアウトはシステムで開いてください。",
+      "quoteToChat": "チャットに引用",
+      "quoted": "チャットに追加しました"
     }
   },
   "ko": {
@@ -1330,7 +1362,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "원격 파일 쓰기 허용",
+      "fsRemoteWritesDesc": "HTTP 클라이언트가 프로젝트 작업 디렉터리에서 파일을 만들고 편집·삭제·업로드할 수 있도록 합니다. 기본값은 꺼짐 — 데스크톱 앱은 이 설정과 관계없이 항상 로컬에 쓸 수 있습니다."
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -1719,6 +1753,36 @@
       "boundAgentHint": "이 채널의 새 세션 기본 Agent — 변경해도 기존 세션은 이동되지 않습니다. 이미 만든 세션은 /agent(데스크톱) 또는 /handover 를 사용하세요.",
       "notifyPrimaryChanges": "프라이머리 변경 알림",
       "notifyPrimaryChangesHint": "이 계정이 세션의 프라이머리가 되거나 해제될 때 IM 채팅에 시스템 메시지를 보냅니다."
+    },
+    "fileBrowser": {
+      "panelTitle": "파일",
+      "open": "파일 브라우저 열기",
+      "resizePanel": "파일 패널 너비 조정",
+      "noWorkingDir": "작업 디렉터리를 설정하면 파일을 탐색할 수 있습니다",
+      "empty": "이 폴더는 비어 있습니다",
+      "selectFile": "미리 볼 파일을 선택하세요",
+      "newFile": "새 파일",
+      "newFolder": "새 폴더",
+      "rename": "이름 바꾸기",
+      "delete": "삭제",
+      "openInSystem": "시스템에서 열기",
+      "download": "다운로드",
+      "refresh": "새로 고침",
+      "collapseAll": "모두 접기",
+      "uploadHint": "여기에 파일을 끌어다 놓아 업로드",
+      "uploadFailed": "업로드 실패",
+      "createFailed": "생성 실패",
+      "renameFailed": "이름 변경 실패",
+      "deleteFailed": "삭제 실패",
+      "confirmDeleteFile": "이 파일을 삭제할까요?",
+      "confirmDeleteFolder": "이 폴더와 모든 내용을 삭제할까요?",
+      "binaryFile": "바이너리 파일",
+      "fileTooLarge": "파일이 너무 커서 미리 볼 수 없습니다",
+      "viewSource": "소스 보기",
+      "rendered": "렌더링 보기",
+      "extractedPreview": "추출된 내용 미리보기 — 원본 레이아웃은 시스템에서 여세요.",
+      "quoteToChat": "대화에 인용",
+      "quoted": "대화에 추가됨"
     }
   },
   "zh-TW": {
@@ -2191,7 +2255,9 @@
         "narrativeModelDesc": "覆寫評分使用的模型。留空則沿用主對話 / recap 模型鏈。",
         "narrativeModelDefault": "沿用主對話 Agent",
         "narrativeModelClear": "清空"
-      }
+      },
+      "fsRemoteWrites": "允許遠端寫入檔案",
+      "fsRemoteWritesDesc": "允許 HTTP 用戶端在專案工作目錄中新增、編輯、刪除與上傳檔案。預設關閉 —— 無論此開關如何，桌面應用程式皆可在本機寫入。"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -2580,6 +2646,36 @@
       "boundAgentHint": "本頻道新建工作階段的預設 Agent — 切換不會遷移已存在的工作階段,已建工作階段用 /agent(桌面)或 /handover 調整。",
       "notifyPrimaryChanges": "primary 變化提醒",
       "notifyPrimaryChangesHint": "當此帳號成為(或不再是)某工作階段的 primary 接收端時,在 IM 中發送系統訊息提示。"
+    },
+    "fileBrowser": {
+      "panelTitle": "檔案",
+      "open": "開啟檔案瀏覽器",
+      "resizePanel": "調整檔案面板寬度",
+      "noWorkingDir": "設定工作目錄後即可瀏覽檔案",
+      "empty": "此資料夾為空",
+      "selectFile": "選擇檔案以預覽",
+      "newFile": "新增檔案",
+      "newFolder": "新增資料夾",
+      "rename": "重新命名",
+      "delete": "刪除",
+      "openInSystem": "在系統中開啟",
+      "download": "下載",
+      "refresh": "重新整理",
+      "collapseAll": "全部收合",
+      "uploadHint": "拖曳檔案到此處上傳",
+      "uploadFailed": "上傳失敗",
+      "createFailed": "建立失敗",
+      "renameFailed": "重新命名失敗",
+      "deleteFailed": "刪除失敗",
+      "confirmDeleteFile": "刪除此檔案？",
+      "confirmDeleteFolder": "刪除此資料夾及其全部內容？",
+      "binaryFile": "二進位檔案",
+      "fileTooLarge": "檔案過大，無法預覽",
+      "viewSource": "檢視原始碼",
+      "rendered": "渲染檢視",
+      "extractedPreview": "擷取內容預覽 —— 在系統中開啟可檢視原始排版。",
+      "quoteToChat": "引用到對話",
+      "quoted": "已引用到對話"
     }
   },
   "tr": {
@@ -3052,7 +3148,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "Uzaktan dosya yazmaya izin ver",
+      "fsRemoteWritesDesc": "HTTP istemcilerinin proje çalışma dizininde dosya oluşturmasına, düzenlemesine, silmesine ve yüklemesine izin verir. Varsayılan olarak kapalı — masaüstü uygulaması bu ayardan bağımsız olarak her zaman yerel olarak yazabilir."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -3441,6 +3539,36 @@
       "boundAgentHint": "Bu kanaldaki yeni oturumlar için varsayılan Agent — değiştirmek mevcut oturumları taşımaz. Onlar için /agent (masaüstü) veya /handover kullanın.",
       "notifyPrimaryChanges": "Primary değişikliklerini bildir",
       "notifyPrimaryChangesHint": "Bu hesap bir oturumun primary alıcısı olduğunda (veya olmaktan çıktığında) IM sohbetine sistem mesajı gönderir."
+    },
+    "fileBrowser": {
+      "panelTitle": "Dosyalar",
+      "open": "Dosya tarayıcısını aç",
+      "resizePanel": "Dosya panelini yeniden boyutlandır",
+      "noWorkingDir": "Dosyalara göz atmak için bir çalışma dizini ayarlayın",
+      "empty": "Bu klasör boş",
+      "selectFile": "Önizlemek için bir dosya seçin",
+      "newFile": "Yeni Dosya",
+      "newFolder": "Yeni Klasör",
+      "rename": "Yeniden adlandır",
+      "delete": "Sil",
+      "openInSystem": "Sistemde aç",
+      "download": "İndir",
+      "refresh": "Yenile",
+      "collapseAll": "Tümünü daralt",
+      "uploadHint": "Yüklemek için dosyaları buraya bırakın",
+      "uploadFailed": "Yükleme başarısız",
+      "createFailed": "Oluşturma başarısız",
+      "renameFailed": "Yeniden adlandırma başarısız",
+      "deleteFailed": "Silme başarısız",
+      "confirmDeleteFile": "Bu dosya silinsin mi?",
+      "confirmDeleteFolder": "Bu klasör ve tüm içeriği silinsin mi?",
+      "binaryFile": "İkili dosya",
+      "fileTooLarge": "Dosya önizleme için çok büyük",
+      "viewSource": "Kaynağı görüntüle",
+      "rendered": "Görüntülenmiş",
+      "extractedPreview": "Çıkarılan içerik önizlemesi — özgün düzen için sistemde açın.",
+      "quoteToChat": "Sohbete alıntıla",
+      "quoted": "Sohbete eklendi"
     }
   },
   "vi": {
@@ -3913,7 +4041,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "Cho phép ghi tệp từ xa",
+      "fsRemoteWritesDesc": "Cho phép máy khách HTTP tạo, chỉnh sửa, xóa và tải tệp lên trong thư mục làm việc của dự án. Tắt theo mặc định — ứng dụng máy tính luôn có thể ghi cục bộ bất kể cài đặt này."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -4302,6 +4432,36 @@
       "boundAgentHint": "Agent mặc định cho phiên mới trong kênh này — chuyển đổi không di chuyển phiên đã tạo. Dùng /agent (máy tính) hoặc /handover cho những phiên đó.",
       "notifyPrimaryChanges": "Thông báo thay đổi primary",
       "notifyPrimaryChangesHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này trở thành (hoặc thôi là) primary của một phiên."
+    },
+    "fileBrowser": {
+      "panelTitle": "Tệp",
+      "open": "Mở trình duyệt tệp",
+      "resizePanel": "Đổi kích thước bảng tệp",
+      "noWorkingDir": "Đặt thư mục làm việc để duyệt tệp",
+      "empty": "Thư mục này trống",
+      "selectFile": "Chọn một tệp để xem trước",
+      "newFile": "Tệp mới",
+      "newFolder": "Thư mục mới",
+      "rename": "Đổi tên",
+      "delete": "Xóa",
+      "openInSystem": "Mở trong hệ thống",
+      "download": "Tải xuống",
+      "refresh": "Làm mới",
+      "collapseAll": "Thu gọn tất cả",
+      "uploadHint": "Thả tệp vào đây để tải lên",
+      "uploadFailed": "Tải lên thất bại",
+      "createFailed": "Tạo thất bại",
+      "renameFailed": "Đổi tên thất bại",
+      "deleteFailed": "Xóa thất bại",
+      "confirmDeleteFile": "Xóa tệp này?",
+      "confirmDeleteFolder": "Xóa thư mục này và toàn bộ nội dung?",
+      "binaryFile": "Tệp nhị phân",
+      "fileTooLarge": "Tệp quá lớn để xem trước",
+      "viewSource": "Xem nguồn",
+      "rendered": "Đã kết xuất",
+      "extractedPreview": "Xem trước nội dung trích xuất — mở trong hệ thống để xem bố cục gốc.",
+      "quoteToChat": "Trích dẫn vào trò chuyện",
+      "quoted": "Đã thêm vào trò chuyện"
     }
   },
   "pt": {
@@ -4774,7 +4934,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "Permitir gravação remota de arquivos",
+      "fsRemoteWritesDesc": "Permite que clientes HTTP criem, editem, excluam e enviem arquivos no diretório de trabalho do projeto. Desativado por padrão — o aplicativo desktop sempre pode gravar localmente, independentemente desta configuração."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -5163,6 +5325,36 @@
       "boundAgentHint": "Agente padrão para novas sessões neste canal — alterá-lo não migra sessões já existentes. Use /agent (desktop) ou /handover para essas.",
       "notifyPrimaryChanges": "Notificar mudanças de primary",
       "notifyPrimaryChangesHint": "Envia uma mensagem de sistema ao chat de IM quando esta conta se tornar (ou deixar de ser) a primary de uma sessão."
+    },
+    "fileBrowser": {
+      "panelTitle": "Arquivos",
+      "open": "Abrir navegador de arquivos",
+      "resizePanel": "Redimensionar painel de arquivos",
+      "noWorkingDir": "Defina um diretório de trabalho para navegar pelos arquivos",
+      "empty": "Esta pasta está vazia",
+      "selectFile": "Selecione um arquivo para visualizar",
+      "newFile": "Novo arquivo",
+      "newFolder": "Nova pasta",
+      "rename": "Renomear",
+      "delete": "Excluir",
+      "openInSystem": "Abrir no sistema",
+      "download": "Baixar",
+      "refresh": "Atualizar",
+      "collapseAll": "Recolher tudo",
+      "uploadHint": "Solte arquivos aqui para enviar",
+      "uploadFailed": "Falha no envio",
+      "createFailed": "Falha ao criar",
+      "renameFailed": "Falha ao renomear",
+      "deleteFailed": "Falha ao excluir",
+      "confirmDeleteFile": "Excluir este arquivo?",
+      "confirmDeleteFolder": "Excluir esta pasta e todo o seu conteúdo?",
+      "binaryFile": "Arquivo binário",
+      "fileTooLarge": "Arquivo grande demais para visualizar",
+      "viewSource": "Ver código-fonte",
+      "rendered": "Renderizado",
+      "extractedPreview": "Pré-visualização do conteúdo extraído — abra no sistema para o layout original.",
+      "quoteToChat": "Citar no chat",
+      "quoted": "Adicionado ao chat"
     }
   },
   "ru": {
@@ -5635,7 +5827,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "Разрешить удалённую запись файлов",
+      "fsRemoteWritesDesc": "Позволяет HTTP-клиентам создавать, изменять, удалять и загружать файлы в рабочем каталоге проекта. По умолчанию выключено — настольное приложение всегда может писать локально независимо от этой настройки."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -6024,6 +6218,36 @@
       "boundAgentHint": "Агент по умолчанию для новых сессий в этом канале — переключение не переносит уже созданные сессии. Для них используйте /agent (десктоп) или /handover.",
       "notifyPrimaryChanges": "Уведомлять о смене primary",
       "notifyPrimaryChangesHint": "Отправлять системное сообщение в IM, когда этот аккаунт становится (или перестаёт быть) primary для сессии."
+    },
+    "fileBrowser": {
+      "panelTitle": "Файлы",
+      "open": "Открыть файловый браузер",
+      "resizePanel": "Изменить размер панели файлов",
+      "noWorkingDir": "Укажите рабочий каталог для просмотра файлов",
+      "empty": "Эта папка пуста",
+      "selectFile": "Выберите файл для предпросмотра",
+      "newFile": "Новый файл",
+      "newFolder": "Новая папка",
+      "rename": "Переименовать",
+      "delete": "Удалить",
+      "openInSystem": "Открыть в системе",
+      "download": "Скачать",
+      "refresh": "Обновить",
+      "collapseAll": "Свернуть все",
+      "uploadHint": "Перетащите файлы сюда для загрузки",
+      "uploadFailed": "Не удалось загрузить",
+      "createFailed": "Не удалось создать",
+      "renameFailed": "Не удалось переименовать",
+      "deleteFailed": "Не удалось удалить",
+      "confirmDeleteFile": "Удалить этот файл?",
+      "confirmDeleteFolder": "Удалить эту папку и всё её содержимое?",
+      "binaryFile": "Двоичный файл",
+      "fileTooLarge": "Файл слишком большой для предпросмотра",
+      "viewSource": "Показать исходник",
+      "rendered": "Отрисовано",
+      "extractedPreview": "Предпросмотр извлечённого содержимого — откройте в системе для исходного оформления.",
+      "quoteToChat": "Цитировать в чат",
+      "quoted": "Добавлено в чат"
     }
   },
   "ar": {
@@ -6496,7 +6720,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "السماح بالكتابة عن بُعد للملفات",
+      "fsRemoteWritesDesc": "السماح لعملاء HTTP بإنشاء الملفات وتحريرها وحذفها ورفعها داخل دليل عمل المشروع. مُعطّل افتراضيًا — يمكن لتطبيق سطح المكتب الكتابة محليًا دائمًا بغض النظر عن هذا الإعداد."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -6885,6 +7111,36 @@
       "boundAgentHint": "الوكيل الافتراضي للجلسات الجديدة في هذه القناة — تغييره لا يُنقل الجلسات الموجودة. استخدم /agent (سطح المكتب) أو /handover لتلك.",
       "notifyPrimaryChanges": "الإشعار بتغيرات primary",
       "notifyPrimaryChangesHint": "إرسال رسالة نظام إلى محادثة IM عندما يصبح هذا الحساب (أو يتوقف عن كونه) primary لجلسة."
+    },
+    "fileBrowser": {
+      "panelTitle": "الملفات",
+      "open": "فتح متصفح الملفات",
+      "resizePanel": "تغيير حجم لوحة الملفات",
+      "noWorkingDir": "حدّد دليل عمل لتصفح الملفات",
+      "empty": "هذا المجلد فارغ",
+      "selectFile": "اختر ملفًا للمعاينة",
+      "newFile": "ملف جديد",
+      "newFolder": "مجلد جديد",
+      "rename": "إعادة تسمية",
+      "delete": "حذف",
+      "openInSystem": "فتح في النظام",
+      "download": "تنزيل",
+      "refresh": "تحديث",
+      "collapseAll": "طيّ الكل",
+      "uploadHint": "أفلت الملفات هنا للرفع",
+      "uploadFailed": "فشل الرفع",
+      "createFailed": "فشل الإنشاء",
+      "renameFailed": "فشلت إعادة التسمية",
+      "deleteFailed": "فشل الحذف",
+      "confirmDeleteFile": "حذف هذا الملف؟",
+      "confirmDeleteFolder": "حذف هذا المجلد وكل محتوياته؟",
+      "binaryFile": "ملف ثنائي",
+      "fileTooLarge": "الملف كبير جدًا للمعاينة",
+      "viewSource": "عرض المصدر",
+      "rendered": "معروض",
+      "extractedPreview": "معاينة المحتوى المستخرج — افتح في النظام لرؤية التنسيق الأصلي.",
+      "quoteToChat": "اقتباس إلى المحادثة",
+      "quoted": "تمت الإضافة إلى المحادثة"
     }
   },
   "es": {
@@ -7357,7 +7613,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "Permitir escritura remota de archivos",
+      "fsRemoteWritesDesc": "Permite que los clientes HTTP creen, editen, eliminen y suban archivos en el directorio de trabajo del proyecto. Desactivado de forma predeterminada — la aplicación de escritorio siempre puede escribir localmente sin importar este ajuste."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -7746,6 +8004,36 @@
       "boundAgentHint": "Agente por defecto para nuevas sesiones en este canal — cambiarlo no migra las sesiones ya existentes. Usa /agent (escritorio) o /handover para esas.",
       "notifyPrimaryChanges": "Notificar cambios de primary",
       "notifyPrimaryChangesHint": "Envía un mensaje del sistema al chat de IM cuando esta cuenta se convierta (o deje de ser) en la primary de una sesión."
+    },
+    "fileBrowser": {
+      "panelTitle": "Archivos",
+      "open": "Abrir explorador de archivos",
+      "resizePanel": "Redimensionar el panel de archivos",
+      "noWorkingDir": "Configura un directorio de trabajo para explorar archivos",
+      "empty": "Esta carpeta está vacía",
+      "selectFile": "Selecciona un archivo para previsualizar",
+      "newFile": "Nuevo archivo",
+      "newFolder": "Nueva carpeta",
+      "rename": "Renombrar",
+      "delete": "Eliminar",
+      "openInSystem": "Abrir en el sistema",
+      "download": "Descargar",
+      "refresh": "Actualizar",
+      "collapseAll": "Contraer todo",
+      "uploadHint": "Suelta archivos aquí para subirlos",
+      "uploadFailed": "Error al subir",
+      "createFailed": "Error al crear",
+      "renameFailed": "Error al renombrar",
+      "deleteFailed": "Error al eliminar",
+      "confirmDeleteFile": "¿Eliminar este archivo?",
+      "confirmDeleteFolder": "¿Eliminar esta carpeta y todo su contenido?",
+      "binaryFile": "Archivo binario",
+      "fileTooLarge": "Archivo demasiado grande para previsualizar",
+      "viewSource": "Ver código fuente",
+      "rendered": "Renderizado",
+      "extractedPreview": "Vista previa del contenido extraído — ábrelo en el sistema para el diseño original.",
+      "quoteToChat": "Citar en el chat",
+      "quoted": "Añadido al chat"
     }
   },
   "ms": {
@@ -8218,7 +8506,9 @@
         "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
         "narrativeModelDefault": "Follow active chat agent",
         "narrativeModelClear": "Clear"
-      }
+      },
+      "fsRemoteWrites": "Benarkan tulisan fail jarak jauh",
+      "fsRemoteWritesDesc": "Benarkan pelanggan HTTP mencipta, menyunting, memadam dan memuat naik fail dalam direktori kerja projek. Dimatikan secara lalai — aplikasi desktop sentiasa boleh menulis secara setempat tanpa mengira tetapan ini."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -8607,6 +8897,36 @@
       "boundAgentHint": "Agent lalai untuk sesi baru dalam saluran ini — menukarnya tidak memindahkan sesi sedia ada. Gunakan /agent (desktop) atau /handover untuk yang itu.",
       "notifyPrimaryChanges": "Beritahu perubahan primary",
       "notifyPrimaryChangesHint": "Hantar mesej sistem ke sembang IM apabila akaun ini menjadi (atau bukan lagi) primary untuk sesi."
+    },
+    "fileBrowser": {
+      "panelTitle": "Fail",
+      "open": "Buka pelayar fail",
+      "resizePanel": "Ubah saiz panel fail",
+      "noWorkingDir": "Tetapkan direktori kerja untuk melayari fail",
+      "empty": "Folder ini kosong",
+      "selectFile": "Pilih fail untuk pratonton",
+      "newFile": "Fail Baharu",
+      "newFolder": "Folder Baharu",
+      "rename": "Namakan semula",
+      "delete": "Padam",
+      "openInSystem": "Buka dalam sistem",
+      "download": "Muat turun",
+      "refresh": "Segar semula",
+      "collapseAll": "Runtuhkan semua",
+      "uploadHint": "Lepaskan fail di sini untuk memuat naik",
+      "uploadFailed": "Muat naik gagal",
+      "createFailed": "Gagal mencipta",
+      "renameFailed": "Gagal menamakan semula",
+      "deleteFailed": "Gagal memadam",
+      "confirmDeleteFile": "Padam fail ini?",
+      "confirmDeleteFolder": "Padam folder ini dan semua kandungannya?",
+      "binaryFile": "Fail binari",
+      "fileTooLarge": "Fail terlalu besar untuk pratonton",
+      "viewSource": "Lihat sumber",
+      "rendered": "Dipaparkan",
+      "extractedPreview": "Pratonton kandungan diekstrak — buka dalam sistem untuk susun atur asal.",
+      "quoteToChat": "Petik ke sembang",
+      "quoted": "Ditambah ke sembang"
     }
   },
   "zh": {
