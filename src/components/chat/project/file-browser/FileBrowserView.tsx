@@ -59,9 +59,15 @@ export interface FileBrowserViewProps {
   editable?: boolean
   layout?: "split" | "stacked"
   onQuote?: (payload: QuotePayload) => void
-  /** Reveal + select this file (from a composer quote-chip click). The nonce
-   *  re-triggers selection even when the path is unchanged. */
-  revealFile?: { path: string; name: string; nonce: number } | null
+  /** Reveal + select this file and highlight the quoted line range (from a
+   *  composer quote-chip click). The nonce re-triggers even for the same path. */
+  revealFile?: {
+    path: string
+    name: string
+    startLine: number
+    endLine: number
+    nonce: number
+  } | null
   className?: string
 }
 
@@ -84,6 +90,13 @@ export function FileBrowserView({
   // browsing the host scope), so clicking it returns to the writable main view.
   const [mainRootPath, setMainRootPath] = useState<string | null>(null)
   const [selected, setSelected] = useState<WorkspaceEntry | null>(null)
+  // Quoted line range to highlight in the preview after a reveal; cleared when
+  // the user picks a different file manually.
+  const [revealLines, setRevealLines] = useState<{
+    start: number
+    end: number
+    nonce: number
+  } | null>(null)
   const [draft, setDraft] = useState<DraftNode | null>(null)
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null)
 
@@ -95,6 +108,7 @@ export function FileBrowserView({
     setActiveWorktree(null)
     setMainRootPath(null)
     setSelected(null)
+    setRevealLines(null)
     setGitInfo(null)
   }
 
@@ -133,6 +147,15 @@ export function FileBrowserView({
       size: null,
       modifiedMs: null,
     })
+    setRevealLines({
+      start: revealFile.startLine,
+      end: revealFile.endLine,
+      nonce: revealFile.nonce,
+    })
+  }
+  // revealFile cleared (e.g. the quote chip was removed) → drop the highlight.
+  if (!revealFile && revealLines) {
+    setRevealLines(null)
   }
 
   // Read-only git context (branch + worktrees) for the active root. The
@@ -185,7 +208,10 @@ export function FileBrowserView({
     setActiveWorktree(null)
   }, [])
 
-  const onSelectFile = useCallback((entry: WorkspaceEntry) => setSelected(entry), [])
+  const onSelectFile = useCallback((entry: WorkspaceEntry) => {
+    setSelected(entry)
+    setRevealLines(null) // manual pick: drop any carried-over reveal highlight
+  }, [])
   const onRefresh = useCallback(() => void fs.refreshDir(""), [fs])
 
   const toolbar = useMemo(
@@ -314,7 +340,13 @@ export function FileBrowserView({
               {t("common.back", "Back")}
             </Button>
           </div>
-          <FilePreviewPane fs={fs} entry={selected} onQuote={onQuote} className="min-h-0 flex-1" />
+          <FilePreviewPane
+            fs={fs}
+            entry={selected}
+            onQuote={onQuote}
+            highlightLines={revealLines}
+            className="min-h-0 flex-1"
+          />
         </div>
       )
     }
@@ -342,6 +374,7 @@ export function FileBrowserView({
         fs={fs}
         entry={selected}
         onQuote={onQuote}
+        highlightLines={revealLines}
         onClose={selected ? () => setSelected(null) : undefined}
         className="min-h-0 min-w-0 flex-1"
       />

@@ -665,6 +665,10 @@ pre.hope-shiki-view {
   white-space: pre;
   color: var(--color-foreground);
 }
+/* Reveal highlight: the quoted line range jumped to from a composer quote chip. */
+.hope-shiki-view .line[data-reveal-hl] {
+  background-color: color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
 
 .message-markdown-content .markdown-content > div > div > :first-child,
 .message-markdown-content .markdown-content p:first-child {

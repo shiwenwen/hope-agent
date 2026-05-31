@@ -64,12 +64,15 @@ export function ShikiCodeView({
   content,
   lang,
   onQuote,
+  highlightLines,
   className,
 }: {
   content: string
   lang: string
   /** When provided, the right-click menu offers "quote to chat". */
   onQuote?: (sel: CodeSelection) => void
+  /** Highlight + scroll to this 1-based line range (e.g. a quote reveal). */
+  highlightLines?: { start: number; end: number; nonce: number } | null
   className?: string
 }) {
   const { t } = useTranslation()
@@ -133,6 +136,26 @@ export function ShikiCodeView({
       window.removeEventListener("scroll", close, true)
     }
   }, [menu])
+
+  // Highlight + scroll to the revealed line range once the HTML is rendered.
+  // Re-runs when the html or range changes; the range carries a nonce so a
+  // repeat reveal of the same lines re-triggers. Lines are marked with a data
+  // attribute styled in CSS (`.hope-shiki-view .line[data-reveal-hl]`).
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    root.querySelectorAll("[data-reveal-hl]").forEach((el) => el.removeAttribute("data-reveal-hl"))
+    if (!highlightLines) return
+    let first: Element | null = null
+    for (let n = highlightLines.start; n <= highlightLines.end; n++) {
+      const line = root.querySelector(`[data-line="${n}"]`)
+      if (line) {
+        line.setAttribute("data-reveal-hl", "")
+        if (!first) first = line
+      }
+    }
+    first?.scrollIntoView({ block: "center" })
+  }, [highlightLines, html])
 
   // Map a DOM node up to its 1-based line number via the `data-line` attribute.
   const lineOf = useCallback((n: Node | null): number | null => {

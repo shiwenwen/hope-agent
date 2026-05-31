@@ -46,8 +46,15 @@ interface FileBrowserPanelProps {
   panelWidth: number
   onPanelWidthChange: (w: number) => void
   onQuote?: (payload: QuotePayload) => void
-  /** A click on a quote chip in the composer: reveal + select this file. */
-  revealFile?: { path: string; name: string; nonce: number } | null
+  /** A click on a quote chip in the composer: reveal + select this file and
+   *  highlight the quoted line range. */
+  revealFile?: {
+    path: string
+    name: string
+    startLine: number
+    endLine: number
+    nonce: number
+  } | null
   onClose: () => void
 }
 

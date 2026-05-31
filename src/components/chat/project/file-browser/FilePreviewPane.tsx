@@ -41,10 +41,19 @@ export interface FilePreviewPaneProps {
   entry: WorkspaceEntry | null
   onClose?: () => void
   onQuote?: (payload: QuotePayload) => void
+  /** Quoted line range to highlight + scroll to in the preview (from a reveal). */
+  highlightLines?: { start: number; end: number; nonce: number } | null
   className?: string
 }
 
-export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: FilePreviewPaneProps) {
+export function FilePreviewPane({
+  fs,
+  entry,
+  onClose,
+  onQuote,
+  highlightLines,
+  className,
+}: FilePreviewPaneProps) {
   const { t } = useTranslation()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [loading, setLoading] = useState(false)
@@ -177,6 +186,7 @@ export function FilePreviewPane({ fs, entry, onClose, onQuote, className }: File
             viewSource={viewSource}
             fs={fs}
             onQuote={onQuote ? handleQuoteSelection : undefined}
+            highlightLines={highlightLines}
           />
         )}
       </div>
@@ -190,12 +200,14 @@ function PreviewBody({
   viewSource,
   fs,
   onQuote,
+  highlightLines,
 }: {
   loaded: Loaded | null
   entry: WorkspaceEntry
   viewSource: boolean
   fs: ProjectFsApi
   onQuote?: (sel: CodeSelection) => void
+  highlightLines?: { start: number; end: number; nonce: number } | null
 }) {
   const { t } = useTranslation()
   if (!loaded) return null
@@ -271,6 +283,7 @@ function PreviewBody({
         content={loaded.data.content}
         lang={shikiLang(entry.name)}
         onQuote={onQuote}
+        highlightLines={highlightLines}
         className="text-sm"
       />
     )

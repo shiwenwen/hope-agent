@@ -123,8 +123,12 @@ export function FileBrowserTree({
     for (const part of parts) {
       dir = dir ? `${dir}/${part}` : part
       expansion.setOpen(dir, true)
+      // Proactively load each ancestor's listing so the target row renders
+      // promptly, instead of waiting for the per-node load-on-expand to cascade
+      // level by level (which can stall before reaching a deep target).
+      if (!fs.getDir(dir)) void fs.loadDir(dir)
     }
-  }, [selectedPath, expansion])
+  }, [selectedPath, expansion, fs])
 
   const ctx: TreeContext = {
     fs,

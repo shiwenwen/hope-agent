@@ -277,6 +277,8 @@ export default function ChatScreen({
   const [revealFile, setRevealFile] = useState<{
     path: string
     name: string
+    startLine: number
+    endLine: number
     nonce: number
   } | null>(null)
   const [showMacControlPanel, setShowMacControlPanel] = useState(false)
@@ -1511,7 +1513,13 @@ export default function ChatScreen({
   const handleQuoteJump = useCallback((q: QuotePayload) => {
     setShowFilesPanel(true)
     revealQuoteNonce.current += 1
-    setRevealFile({ path: q.path, name: q.name, nonce: revealQuoteNonce.current })
+    setRevealFile({
+      path: q.path,
+      name: q.name,
+      startLine: q.startLine,
+      endLine: q.endLine,
+      nonce: revealQuoteNonce.current,
+    })
   }, [])
   const rightPanelKey = renderedExclusiveRightPanel
   const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
@@ -1890,9 +1898,10 @@ export default function ChatScreen({
                       stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
                     }
                     pendingQuotes={stream.pendingQuotes}
-                    onRemoveQuote={(index) =>
+                    onRemoveQuote={(index) => {
                       stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
-                    }
+                      setRevealFile(null) // dropping a quote clears its reveal highlight
+                    }}
                     onJumpToQuote={handleQuoteJump}
                     pendingMessage={stream.pendingMessage}
                     onCancelPending={() => {
