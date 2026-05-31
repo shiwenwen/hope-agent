@@ -42,6 +42,16 @@ export interface MediaItem {
   caption?: string
 }
 
+export interface MessageAttachment {
+  name: string
+  mimeType: string
+  sizeBytes: number
+  kind: "image" | "file"
+  localPath?: string
+  url?: string
+  previewUrl?: string
+}
+
 /**
  * Structured side-output emitted by file-mutating tools (write / edit /
  * apply_patch) and the file-reading tool (read). Drives the right-side diff
@@ -125,6 +135,8 @@ export interface Message {
   contextCompactedEvent?: ContextCompactedEvent
   /** If set, this user message was sent by a parent agent (not a human) */
   fromAgentId?: string
+  /** Attachments sent by the user with this message. */
+  attachments?: MessageAttachment[]
   /** If true, this user message is a sub-agent result injected by the backend */
   isSubagentResult?: boolean
   /** The child agent ID that produced the sub-agent result */
@@ -272,6 +284,7 @@ export interface SessionMeta {
   reasoningEffort?: string | null
   createdAt: string
   updatedAt: string
+  pinnedAt?: string | null
   messageCount: number
   unreadCount: number
   hasError: boolean

@@ -1,15 +1,24 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::HeaderValue;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Component, Path as FsPath, PathBuf};
 use std::sync::Arc;
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
 
 use crate::error::AppError;
+use crate::routes::file_serve::{
+    apply_inline_media_headers, resolve_mime_for_path, HeaderOpts, MimeOpts,
+};
 use crate::AppContext;
+
+type SessionMessage = ha_core::session::SessionMessage;
+type MessageRole = ha_core::session::MessageRole;
 
 // ── Query / Body Types ──────────────────────────────────────────
 
@@ -69,6 +78,13 @@ pub struct SearchInSessionQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionFileByPathQuery {
+    pub path: String,
+    pub download: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionBody {
     pub agent_id: Option<String>,
     /// When set, attaches the new session to this project.
@@ -79,6 +95,12 @@ pub struct CreateSessionBody {
 #[derive(Debug, Deserialize)]
 pub struct RenameSessionBody {
     pub title: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPinnedBody {
+    pub pinned: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +143,327 @@ pub struct SessionModelBody {
 pub struct PaginatedSessions {
     pub sessions: Vec<ha_core::session::SessionMeta>,
     pub total: u32,
+}
+
+fn rewrite_messages_for_http(
+    mut messages: Vec<SessionMessage>,
+    api_key: Option<&str>,
+) -> Vec<SessionMessage> {
+    for msg in &mut messages {
+        rewrite_tool_media_meta_for_http(msg, api_key);
+        rewrite_user_attachments_meta_for_http(msg, api_key);
+    }
+    messages
+}
+
+fn rewrite_tool_media_meta_for_http(msg: &mut SessionMessage, api_key: Option<&str>) {
+    let Some(raw) = msg.attachments_meta.as_deref() else {
+        return;
+    };
+    if !raw.contains(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS) {
+        return;
+    }
+
+    let Ok(mut meta) = serde_json::from_str::<Value>(raw) else {
+        return;
+    };
+    let Some(items) = meta
+        .get(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS)
+        .cloned()
+    else {
+        return;
+    };
+
+    let event = json!({ "media_items": items });
+    let rewritten = ha_core::agent::rewrite_event_for_http(&event.to_string(), api_key);
+    let Ok(rewritten_event) = serde_json::from_str::<Value>(&rewritten) else {
+        return;
+    };
+    let Some(rewritten_items) = rewritten_event.get("media_items").cloned() else {
+        return;
+    };
+    meta[ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS] = rewritten_items;
+    msg.attachments_meta = Some(meta.to_string());
+}
+
+fn rewrite_user_attachments_meta_for_http(msg: &mut SessionMessage, api_key: Option<&str>) {
+    if msg.role != MessageRole::User {
+        return;
+    }
+    let Some(raw) = msg.attachments_meta.as_deref() else {
+        return;
+    };
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(raw) else {
+        return;
+    };
+
+    let Some(rewritten_items) =
+        rewrite_user_attachment_items_for_http(&msg.session_id, items, api_key)
+    else {
+        return;
+    };
+    msg.attachments_meta = Some(Value::Array(rewritten_items).to_string());
+}
+
+fn rewrite_user_attachment_items_for_http(
+    session_id: &str,
+    items: Vec<Value>,
+    api_key: Option<&str>,
+) -> Option<Vec<Value>> {
+    let attachments_dir = ha_core::paths::attachments_dir(session_id).ok()?;
+    let canonical_attachments_dir = attachments_dir.canonicalize().ok();
+    let mut rewritten = Vec::with_capacity(items.len());
+
+    for item in items {
+        let Value::Object(mut obj) = item else {
+            continue;
+        };
+        let path = obj.get("path").and_then(Value::as_str).map(str::trim);
+        if let Some(path) = path {
+            let path = PathBuf::from(path);
+            let is_inside_session_dir = canonical_attachments_dir
+                .as_ref()
+                .and_then(|dir| path.canonicalize().ok().map(|p| p.starts_with(dir)))
+                .unwrap_or(false);
+            if is_inside_session_dir {
+                if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                    let mut url = format!(
+                        "/api/attachments/{}/{}",
+                        percent_encode_url_segment(session_id),
+                        percent_encode_url_segment(filename)
+                    );
+                    if let Some(key) = api_key {
+                        url.push_str("?token=");
+                        url.push_str(&percent_encode_query_value(key));
+                    }
+                    obj.insert("url".to_string(), Value::String(url));
+                }
+            }
+            obj.remove("path");
+        }
+        rewritten.push(Value::Object(obj));
+    }
+
+    if rewritten.is_empty() {
+        None
+    } else {
+        Some(rewritten)
+    }
+}
+
+fn collect_authorized_session_file_paths(messages: &[SessionMessage]) -> HashSet<String> {
+    let mut paths = HashSet::new();
+    for msg in messages {
+        if let Some(raw) = msg.tool_metadata.as_deref() {
+            collect_paths_from_tool_metadata(raw, &mut paths);
+        }
+        if let Some(raw) = msg.attachments_meta.as_deref() {
+            collect_paths_from_attachments_meta(raw, &mut paths);
+        }
+        let tool_name = msg.tool_name.as_deref().unwrap_or_default();
+        if let Some(result) = msg.tool_result.as_deref() {
+            collect_legacy_saved_to_paths(tool_name, &msg.session_id, result, &mut paths);
+            if tool_name == "apply_patch" {
+                collect_apply_patch_result_paths(result, &mut paths);
+            }
+        }
+        if let (Some(name), Some(args), Some(result)) = (
+            msg.tool_name.as_deref(),
+            msg.tool_arguments.as_deref(),
+            msg.tool_result.as_deref(),
+        ) {
+            collect_legacy_arg_paths(name, args, result, &mut paths);
+        }
+    }
+    paths
+}
+
+fn collect_paths_from_tool_metadata(raw: &str, paths: &mut HashSet<String>) {
+    let Ok(meta) = serde_json::from_str::<Value>(raw) else {
+        return;
+    };
+    match meta.get("kind").and_then(Value::as_str) {
+        Some("file_change") => collect_file_change_path(&meta, paths),
+        Some("file_changes") => {
+            if let Some(changes) = meta.get("changes").and_then(Value::as_array) {
+                for change in changes {
+                    collect_file_change_path(change, paths);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_file_change_path(change: &Value, paths: &mut HashSet<String>) {
+    if change.get("action").and_then(Value::as_str) == Some("delete") {
+        return;
+    }
+    add_nonempty_path(paths, change.get("path").and_then(Value::as_str));
+}
+
+fn collect_paths_from_attachments_meta(raw: &str, paths: &mut HashSet<String>) {
+    if !raw.contains(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS) {
+        return;
+    }
+    let Ok(meta) = serde_json::from_str::<Value>(raw) else {
+        return;
+    };
+    let Some(items) = meta
+        .get(ha_core::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS)
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for item in items {
+        add_nonempty_path(paths, item.get("localPath").and_then(Value::as_str));
+    }
+}
+
+fn collect_legacy_saved_to_paths(
+    tool_name: &str,
+    session_id: &str,
+    result: &str,
+    paths: &mut HashSet<String>,
+) {
+    if !matches!(tool_name, "send_attachment" | "image_generate") {
+        return;
+    }
+    for line in result.lines() {
+        let trimmed = line.trim();
+        if let Some(path) = trimmed.strip_prefix("Saved to: ") {
+            if legacy_saved_to_path_allowed(tool_name, session_id, path) {
+                add_nonempty_path(paths, Some(path));
+            }
+        }
+    }
+}
+
+fn legacy_saved_to_path_allowed(tool_name: &str, session_id: &str, raw_path: &str) -> bool {
+    let path = PathBuf::from(raw_path.trim());
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return false;
+    }
+
+    if let Ok(attachments_dir) = ha_core::paths::attachments_dir(session_id) {
+        if path.starts_with(attachments_dir) {
+            return true;
+        }
+    }
+
+    if tool_name == "image_generate" {
+        if let Ok(generated_images_dir) = ha_core::paths::generated_images_dir() {
+            if path.starts_with(generated_images_dir) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn collect_apply_patch_result_paths(result: &str, paths: &mut HashSet<String>) {
+    if !result.starts_with("Patch applied") {
+        return;
+    }
+    for line in result.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Deleted:") {
+            continue;
+        }
+        let Some(rest) = trimmed
+            .strip_prefix("Added: ")
+            .or_else(|| trimmed.strip_prefix("Modified: "))
+            .or_else(|| trimmed.strip_prefix("Renamed: "))
+        else {
+            continue;
+        };
+        for entry in rest.split(", ") {
+            let path = entry
+                .split_once(" -> ")
+                .map(|(_, to)| to)
+                .unwrap_or(entry)
+                .trim();
+            add_nonempty_path(paths, Some(path));
+        }
+    }
+}
+
+fn collect_legacy_arg_paths(name: &str, args: &str, result: &str, paths: &mut HashSet<String>) {
+    let is_file_write =
+        matches!(name, "write" | "write_file") && result.starts_with("Successfully wrote");
+    let is_file_edit =
+        matches!(name, "edit" | "patch_file") && result.starts_with("Successfully edited");
+    if !is_file_write && !is_file_edit {
+        return;
+    }
+    let Ok(args) = serde_json::from_str::<Value>(args) else {
+        return;
+    };
+    add_nonempty_path(
+        paths,
+        args.get("path")
+            .or_else(|| args.get("file_path"))
+            .and_then(Value::as_str),
+    );
+}
+
+fn add_nonempty_path(paths: &mut HashSet<String>, value: Option<&str>) {
+    let Some(path) = value.map(str::trim).filter(|p| !p.is_empty()) else {
+        return;
+    };
+    paths.insert(path.to_string());
+}
+
+async fn authorized_canonical_file_path(
+    requested: &str,
+    messages: &[SessionMessage],
+) -> Result<PathBuf, AppError> {
+    let requested_path = PathBuf::from(requested);
+    if !requested_path.is_absolute() {
+        return Err(AppError::bad_request("path must be absolute"));
+    }
+
+    let paths = collect_authorized_session_file_paths(messages);
+    for raw in paths {
+        if raw.trim() == requested {
+            return tokio::fs::canonicalize(&requested_path)
+                .await
+                .map_err(|_| AppError::not_found("file not found"));
+        }
+    }
+    Err(AppError::forbidden("file not referenced by session"))
+}
+
+fn parse_download_flag(value: Option<&str>) -> bool {
+    let Some(value) = value.map(str::trim) else {
+        return false;
+    };
+    value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")
+}
+
+fn content_disposition_for_file(path: &FsPath, mime: &str, force_download: bool) -> String {
+    let filename = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("download");
+    let kind = if force_download {
+        "attachment"
+    } else if mime.starts_with("image/")
+        || mime.starts_with("video/")
+        || mime.starts_with("audio/")
+        || mime == "application/pdf"
+    {
+        "inline"
+    } else {
+        "attachment"
+    };
+    let quoted = filename.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("{}; filename=\"{}\"", kind, quoted)
 }
 
 // ── Handlers ────────────────────────────────────────────────────
@@ -166,7 +509,7 @@ pub async fn list_sessions(
         ha_core::session::ProjectFilter::All
     };
 
-    let (mut sessions, total) = ctx.session_db.list_sessions_paged(
+    let (mut sessions, total) = ctx.session_db.list_sessions_paged_for_sidebar(
         q.agent_id.as_deref(),
         project_filter,
         q.limit,
@@ -208,6 +551,16 @@ pub async fn rename_session(
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db.update_session_title(&id, &body.title)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+/// `PATCH /api/sessions/:id/pinned` — pin/unpin a session in sidebar lists.
+pub async fn set_session_pinned(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionPinnedBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db.set_session_pinned(&id, body.pinned)?;
+    Ok(Json(json!({ "updated": true, "pinned": body.pinned })))
 }
 
 /// `PATCH /api/sessions/:id/incognito` — toggle per-session incognito mode.
@@ -347,6 +700,7 @@ pub async fn get_session_messages_around(
     let (messages, total, has_more_before, has_more_after) = ctx
         .session_db
         .load_session_messages_around(&id, q.target_message_id, before, after)?;
+    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([
         messages,
         total,
@@ -368,6 +722,7 @@ pub async fn get_session_messages_before(
     let (messages, has_more) =
         ctx.session_db
             .load_session_messages_before(&id, q.before_id, limit)?;
+    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([messages, has_more])))
 }
 
@@ -384,6 +739,7 @@ pub async fn get_session_messages_after(
     let (messages, has_more) = ctx
         .session_db
         .load_session_messages_after(&id, q.after_id, limit)?;
+    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([messages, has_more])))
 }
 
@@ -401,7 +757,66 @@ pub async fn get_session_messages(
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
     let (messages, total, has_more) = ctx.session_db.load_session_messages_latest(&id, limit)?;
+    let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([messages, total, has_more])))
+}
+
+/// `GET /api/sessions/:id/files/by-path?path=/abs/file&download=1` — serve a
+/// file only when that exact canonical path is referenced by this session's
+/// persisted tool side-output. This powers HTTP/Web clicks on the assistant
+/// message's generated/modified file chips without exposing arbitrary local
+/// files from the server machine.
+pub async fn download_session_file_by_path(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<SessionFileByPathQuery>,
+    request: Request,
+) -> Result<Response, AppError> {
+    let requested = q.path.trim();
+    if requested.is_empty() {
+        return Err(AppError::bad_request("missing path"));
+    }
+
+    let messages = ctx.session_db.load_session_messages(&id)?;
+    let file_canon = authorized_canonical_file_path(requested, &messages).await?;
+    let meta = tokio::fs::metadata(&file_canon)
+        .await
+        .map_err(|_| AppError::not_found("file not found"))?;
+    if !meta.is_file() {
+        return Err(AppError::bad_request("path is not a file"));
+    }
+
+    let mime = resolve_mime_for_path(
+        &file_canon,
+        MimeOpts {
+            html_charset: false,
+            sniff_fallback: true,
+        },
+    )
+    .await;
+    let disposition = content_disposition_for_file(
+        &file_canon,
+        &mime,
+        parse_download_flag(q.download.as_deref()),
+    );
+
+    let mut response = ServeFile::new(&file_canon)
+        .oneshot(request)
+        .await
+        .map_err(|e| AppError::internal(format!("serve session file: {}", e)))?
+        .into_response();
+
+    apply_inline_media_headers(
+        &mut response,
+        HeaderOpts {
+            mime: &mime,
+            cache_secs: 60,
+            disposition: &disposition,
+            no_referrer: false,
+        },
+    );
+
+    Ok(response)
 }
 
 /// `GET /api/sessions/:id/stream-state` — snapshot of whether the session
@@ -583,4 +998,137 @@ fn percent_encode_filename(name: &str) -> String {
         }
     }
     out
+}
+
+fn percent_encode_url_segment(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        let ok = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        if ok {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
+fn percent_encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        let ok = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        if ok {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ha_core::agent::Attachment;
+    use serde_json::json;
+    use std::path::Path as StdPath;
+    use std::sync::{Mutex, OnceLock};
+
+    fn with_ha_data_dir<T>(dir: &StdPath, f: impl FnOnce() -> T) -> T {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test env lock poisoned");
+        let previous = std::env::var_os("HA_DATA_DIR");
+        std::env::set_var("HA_DATA_DIR", dir);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        match previous {
+            Some(value) => std::env::set_var("HA_DATA_DIR", value),
+            None => std::env::remove_var("HA_DATA_DIR"),
+        }
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    #[test]
+    fn rewrites_persisted_user_attachment_paths_to_session_urls_for_http() {
+        let root = tempfile::tempdir().expect("tempdir");
+        with_ha_data_dir(root.path(), || {
+            let session_id = "s-http";
+            let saved = ha_core::attachments::save_attachment_bytes(None, "image.png", b"image")
+                .expect("save temp attachment");
+            let mut attachments = vec![Attachment {
+                name: "image.png".to_string(),
+                mime_type: "image/png".to_string(),
+                source: Some("upload".to_string()),
+                data: None,
+                file_path: Some(saved),
+            }];
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(
+                session_id,
+                &mut attachments,
+            )
+            .expect("persist attachment meta")
+            .expect("attachment meta");
+            let items = serde_json::from_str::<Vec<Value>>(&meta).expect("parse meta");
+
+            let rewritten =
+                rewrite_user_attachment_items_for_http(session_id, items, Some("key with space"))
+                    .expect("rewritten");
+
+            let url = rewritten[0]
+                .get("url")
+                .and_then(Value::as_str)
+                .expect("url");
+            assert!(url.starts_with("/api/attachments/s-http/"));
+            assert!(url.ends_with("_image.png?token=key%20with%20space"));
+            assert!(rewritten[0].get("path").is_none());
+        });
+    }
+
+    #[test]
+    fn strips_user_attachment_paths_outside_session_dir_without_url() {
+        let items = vec![json!({
+            "name": "image.png",
+            "mime_type": "image/png",
+            "size": 123,
+            "path": "/tmp/elsewhere/image.png",
+        })];
+
+        let rewritten =
+            rewrite_user_attachment_items_for_http("s-http", items, None).expect("rewritten");
+
+        assert!(rewritten[0].get("path").is_none());
+        assert!(rewritten[0].get("url").is_none());
+    }
+
+    #[test]
+    fn strips_user_attachment_traversal_paths_without_url() {
+        let root = tempfile::tempdir().expect("tempdir");
+        with_ha_data_dir(root.path(), || {
+            let session_id = "s-http";
+            let session_dir = ha_core::paths::attachments_dir(session_id).expect("attachments dir");
+            let sibling_dir = root.path().join("attachments").join("other");
+            std::fs::create_dir_all(&session_dir).expect("create session dir");
+            std::fs::create_dir_all(&sibling_dir).expect("create sibling dir");
+            let outside = sibling_dir.join("secret.png");
+            std::fs::write(&outside, b"secret").expect("write outside file");
+            let traversal = session_dir.join("..").join("other").join("secret.png");
+            let items = vec![json!({
+                "name": "secret.png",
+                "mime_type": "image/png",
+                "size": 6,
+                "path": traversal.to_string_lossy(),
+            })];
+
+            let rewritten =
+                rewrite_user_attachment_items_for_http(session_id, items, None).expect("rewritten");
+
+            assert!(rewritten[0].get("path").is_none());
+            assert!(rewritten[0].get("url").is_none());
+        });
+    }
 }

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::agent_config::{AgentConfig, AgentDefinition, AgentSummary};
@@ -195,7 +196,7 @@ fn default_agent_json(locale: &str, avatar: Option<String>) -> AgentConfig {
     AgentConfig {
         name: meta.name.to_string(),
         description: Some(meta.description.to_string()),
-        emoji: Some("🦭".to_string()),
+        emoji: None,
         avatar,
         ..AgentConfig::default()
     }
@@ -224,32 +225,21 @@ fn ensure_default_avatar() -> Result<std::path::PathBuf> {
 // ── Ensure Default Agent ─────────────────────────────────────────
 
 /// Create the default agent directory and files if they don't exist.
-/// Called on app startup. Also backfills the avatar field for existing
-/// pre-brand installs whose agent.json still has `avatar: null`.
+/// Called on app startup. Existing agent identity fields are left untouched so
+/// users can clear optional avatar / emoji values and keep them cleared.
 pub fn ensure_default_agent() -> Result<()> {
     let dir = paths::agent_dir(DEFAULT_AGENT_ID)?;
     let config_path = dir.join("agent.json");
 
-    let avatar_path = ensure_default_avatar()?;
-    let avatar_str = avatar_path.to_string_lossy().to_string();
-
     if config_path.exists() {
-        // Backfill avatar for existing installs that predate the logo default.
-        if let Ok(data) = std::fs::read_to_string(&config_path) {
-            if let Ok(mut config) = serde_json::from_str::<AgentConfig>(&data) {
-                if config.avatar.is_none() {
-                    config.avatar = Some(avatar_str);
-                    let json = serde_json::to_string_pretty(&config)?;
-                    std::fs::write(&config_path, json)?;
-                }
-            }
-        }
         return Ok(());
     }
 
     std::fs::create_dir_all(&dir)?;
 
     let locale = detect_system_locale();
+    let avatar_path = ensure_default_avatar()?;
+    let avatar_str = avatar_path.to_string_lossy().to_string();
 
     // Write agent.json
     let config = default_agent_json(&locale, Some(avatar_str));
@@ -411,14 +401,60 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
         });
     }
 
-    // Sort: main agent first, then alphabetical
-    summaries.sort_by(|a, b| {
-        let a_default = a.id == DEFAULT_AGENT_ID;
-        let b_default = b.id == DEFAULT_AGENT_ID;
-        b_default.cmp(&a_default).then(a.id.cmp(&b.id))
-    });
+    sort_agent_summaries(&mut summaries);
 
     Ok(summaries)
+}
+
+fn sort_agent_summaries(summaries: &mut [AgentSummary]) {
+    let order = crate::config::cached_config().agent_order.clone();
+    if order.is_empty() {
+        summaries.sort_by(default_agent_summary_order);
+        return;
+    }
+
+    let positions: HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(idx, id)| (id.as_str(), idx))
+        .collect();
+    summaries.sort_by(
+        |a, b| match (positions.get(a.id.as_str()), positions.get(b.id.as_str())) {
+            (Some(a_idx), Some(b_idx)) => a_idx.cmp(b_idx),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => default_agent_summary_order(a, b),
+        },
+    );
+}
+
+fn default_agent_summary_order(a: &AgentSummary, b: &AgentSummary) -> std::cmp::Ordering {
+    let a_default = a.id == DEFAULT_AGENT_ID;
+    let b_default = b.id == DEFAULT_AGENT_ID;
+    b_default.cmp(&a_default).then(a.id.cmp(&b.id))
+}
+
+/// Persist the display order used by `list_agents`. Unknown ids are ignored
+/// and newly-created agents keep falling through to the default tail order.
+pub fn reorder_agents(agent_ids: Vec<String>, source: &'static str) -> Result<()> {
+    let existing = list_agent_ids()?;
+    let mut seen = HashSet::new();
+    let normalized: Vec<String> = agent_ids
+        .into_iter()
+        .filter_map(|id| {
+            if existing.contains(&id) && seen.insert(id.clone()) {
+                Some(id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    crate::config::mutate_config(("agents.reorder", source), move |cfg| {
+        cfg.agent_order = normalized;
+        Ok(())
+    })?;
+    Ok(())
 }
 
 /// Lightweight variant of [`list_agents`] that only returns directory names.

@@ -86,11 +86,13 @@ pub fn apply_personality_preset(preset: PersonalityPreset) -> Result<()> {
     save_agent_config(DEFAULT_AGENT_ID, &config)
 }
 
-/// Step 5 — safety. Only the two approval fields are exposed; Dangerous
-/// Mode is deliberately unreachable from the wizard.
+/// Step 5 — safety. Only the approval behavior is exposed; Dangerous
+/// Mode is deliberately unreachable from the wizard, and automatic approval
+/// timeout stays under the dedicated Settings toggle.
 #[derive(Debug, Clone)]
 pub struct SafetyStepInput {
-    /// If `false`, future approvals auto-proceed with no timeout.
+    /// If `false`, keep automatic timeout disabled and preserve the legacy
+    /// "proceed on timeout" preference for any future explicit timeout setup.
     pub approvals_enabled: bool,
 }
 
@@ -101,12 +103,12 @@ pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
         if cfg.permission.approval_timeout_action == ApprovalTimeoutAction::Proceed {
             cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Deny;
         }
-        if cfg.permission.approval_timeout_secs == 0 {
+        if cfg.permission.approval_timeout_enabled && cfg.permission.approval_timeout_secs == 0 {
             cfg.permission.approval_timeout_secs = 300;
         }
     } else {
+        cfg.permission.approval_timeout_enabled = false;
         cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Proceed;
-        cfg.permission.approval_timeout_secs = 0;
     }
     save_config(&cfg)
 }

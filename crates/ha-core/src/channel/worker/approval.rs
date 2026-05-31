@@ -30,6 +30,7 @@ const APPROVAL_PREFIX: &str = "approval:";
 #[derive(Debug, Clone)]
 struct PendingTextApproval {
     request_id: String,
+    forbids_allow_always: bool,
 }
 
 /// Registry of pending text-reply approvals, keyed by (account_id, chat_id).
@@ -91,24 +92,40 @@ impl InlineButton {
 
 /// Build the standard 3-button row for approval prompts.
 /// The `callback_data` format is `approval:{request_id}:{action}`.
-pub(crate) fn build_approval_buttons(request_id: &str) -> Vec<Vec<InlineButton>> {
-    vec![vec![
-        InlineButton {
-            text: "✅ Allow Once".to_string(),
-            callback_data: Some(format!("{}{}:allow_once", APPROVAL_PREFIX, request_id)),
-            url: None,
-        },
-        InlineButton {
+pub(crate) fn build_approval_buttons(
+    request_id: &str,
+    reason: Option<&ApprovalReasonPayload>,
+) -> Vec<Vec<InlineButton>> {
+    let mut row = vec![InlineButton {
+        text: "✅ Allow Once".to_string(),
+        callback_data: Some(format!("{}{}:allow_once", APPROVAL_PREFIX, request_id)),
+        url: None,
+    }];
+    if !reason_forbids_allow_always(reason) {
+        row.push(InlineButton {
             text: "🔓 Always Allow".to_string(),
             callback_data: Some(format!("{}{}:allow_always", APPROVAL_PREFIX, request_id)),
             url: None,
-        },
-        InlineButton {
-            text: "❌ Deny".to_string(),
-            callback_data: Some(format!("{}{}:deny", APPROVAL_PREFIX, request_id)),
-            url: None,
-        },
-    ]]
+        });
+    }
+    row.push(InlineButton {
+        text: "❌ Deny".to_string(),
+        callback_data: Some(format!("{}{}:deny", APPROVAL_PREFIX, request_id)),
+        url: None,
+    });
+    vec![row]
+}
+
+fn reason_forbids_allow_always(reason: Option<&ApprovalReasonPayload>) -> bool {
+    matches!(
+        reason.map(|r| r.kind),
+        Some(
+            ApprovalReasonKind::DangerousCommand
+                | ApprovalReasonKind::ProtectedPath
+                | ApprovalReasonKind::MacControlDangerousAction
+                | ApprovalReasonKind::PlanModeAsk
+        )
+    )
 }
 
 /// Render the approval reason as a one-line suffix for IM prompts.
@@ -221,8 +238,19 @@ fn format_text_approval(
         String::new()
     };
     let reply_header = timeout_reply_header(timeout_secs);
+    let allow_always_forbidden = reason_forbids_allow_always(reason);
+    let always_line = if allow_always_forbidden {
+        ""
+    } else {
+        "\n  2 / always   — Always allow"
+    };
+    let zh_hint = if allow_always_forbidden {
+        "(中文也可: 同意 / 拒绝)"
+    } else {
+        "(中文也可: 同意 / 总是 / 拒绝)"
+    };
     format!(
-        "🔐 Tool approval required #{tag}:\n{preview}{smart}\n\n{reply_header}\n  1 / yes / ok — Allow once\n  2 / always   — Always allow\n  3 / no / deny — Deny\n(中文也可: 同意 / 总是 / 拒绝){stack_hint}",
+        "🔐 Tool approval required #{tag}:\n{preview}{smart}\n\n{reply_header}\n  1 / yes / ok — Allow once{always_line}\n  3 / no / deny — Deny\n{zh_hint}{stack_hint}",
         smart = reason_line(reason)
     )
 }
@@ -437,7 +465,7 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                         &request.command,
                         request.reason.as_ref(),
                     )),
-                    buttons: build_approval_buttons(&request.request_id),
+                    buttons: build_approval_buttons(&request.request_id, request.reason.as_ref()),
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
                 }
@@ -454,6 +482,7 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                     let list = pending.entry(key).or_default();
                     list.push(PendingTextApproval {
                         request_id: request.request_id.clone(),
+                        forbids_allow_always: reason_forbids_allow_always(request.reason.as_ref()),
                     });
                     list.len()
                 };
@@ -603,7 +632,13 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
     let key = (msg.account_id.clone(), msg.chat_id.clone());
     // Snapshot the available tags before popping so we can build a
     // helpful "did you mean" reply when the suffix doesn't match.
-    let (popped, available_tags) = {
+    enum TextReplySelection {
+        Popped(PendingTextApproval),
+        Missing { available_tags: Vec<String> },
+        AlwaysUnavailable { tag: String },
+    }
+
+    let selection = {
         let mut pending = get_text_pending().lock().await;
         let Some(list) = pending.get_mut(&key) else {
             return false;
@@ -616,34 +651,58 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
         // (`id_tag` prefix match). Without suffix, fall back to LIFO so the
         // most-recently-prompted approval is the default — matches what's
         // visually on screen.
-        let popped = match parsed.id_suffix {
+        let maybe_idx = match parsed.id_suffix {
             Some(target) => list
                 .iter()
                 .position(|entry| id_tag(&entry.request_id) == target)
-                .map(|idx| list.remove(idx)),
-            None => list.pop(),
+                .map(Some)
+                .unwrap_or(None),
+            None => Some(list.len() - 1),
         };
-        let tags: Vec<String> = list
-            .iter()
-            .map(|entry| id_tag(&entry.request_id).to_string())
-            .collect();
-        if list.is_empty() {
-            pending.remove(&key);
+        match maybe_idx {
+            Some(idx)
+                if parsed.response == ApprovalResponse::AllowAlways
+                    && list[idx].forbids_allow_always =>
+            {
+                TextReplySelection::AlwaysUnavailable {
+                    tag: id_tag(&list[idx].request_id).to_string(),
+                }
+            }
+            Some(idx) => {
+                let popped = list.remove(idx);
+                if list.is_empty() {
+                    pending.remove(&key);
+                }
+                TextReplySelection::Popped(popped)
+            }
+            None => {
+                let available_tags: Vec<String> = list
+                    .iter()
+                    .map(|entry| id_tag(&entry.request_id).to_string())
+                    .collect();
+                TextReplySelection::Missing { available_tags }
+            }
         }
-        (popped, tags)
     };
 
-    let Some(entry) = popped else {
-        // Suffix typo: the user clearly tried to reply to an approval
-        // (verb parsed, `#<tag>` provided) but the tag doesn't match any
-        // pending entry. Consume the message and tell them which tags are
-        // valid — falling through to a fresh chat turn would silently
-        // route the typo to the LLM and leave the approval pending.
-        if let Some(target) = parsed.id_suffix {
-            send_suffix_mismatch_notice(msg, target, &available_tags).await;
+    let entry = match selection {
+        TextReplySelection::Popped(entry) => entry,
+        TextReplySelection::AlwaysUnavailable { tag } => {
+            send_allow_always_unavailable_notice(msg, &tag).await;
             return true;
         }
-        return false;
+        TextReplySelection::Missing { available_tags } => {
+            // Suffix typo: the user clearly tried to reply to an approval
+            // (verb parsed, `#<tag>` provided) but the tag doesn't match any
+            // pending entry. Consume the message and tell them which tags are
+            // valid — falling through to a fresh chat turn would silently
+            // route the typo to the LLM and leave the approval pending.
+            if let Some(target) = parsed.id_suffix {
+                send_suffix_mismatch_notice(msg, target, &available_tags).await;
+                return true;
+            }
+            return false;
+        }
     };
     let request_id = entry.request_id;
 
@@ -705,6 +764,37 @@ async fn send_suffix_mismatch_notice(
             "channel",
             "approval",
             "Failed to send suffix-mismatch notice: {}",
+            e
+        );
+    }
+}
+
+/// Tell text-reply users that this strict approval cannot be persisted.
+/// Leave the approval pending so they can still reply `1` / `yes` or deny it.
+async fn send_allow_always_unavailable_notice(msg: &crate::channel::types::MsgContext, tag: &str) {
+    let store = crate::config::cached_config();
+    let Some(account_config) = store.channels.find_account(&msg.account_id).cloned() else {
+        return;
+    };
+    let registry = match crate::globals::get_channel_registry() {
+        Some(r) => r,
+        None => return,
+    };
+    let payload = ReplyPayload {
+        text: Some(format!(
+            "ℹ️ Approval `#{tag}` requires per-call confirmation. Reply `1` / `yes` to allow once, or `3` / `no` to deny."
+        )),
+        thread_id: msg.thread_id.clone(),
+        ..ReplyPayload::text("")
+    };
+    if let Err(e) = registry
+        .send_reply(&account_config, &msg.chat_id, &payload)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "approval",
+            "Failed to send AllowAlways-unavailable notice: {}",
             e
         );
     }
@@ -951,6 +1041,24 @@ mod tests {
     }
 
     #[test]
+    fn format_text_approval_hides_always_for_strict_reason() {
+        let txt = format_text_approval(
+            "exec rm -rf /",
+            Some(&ApprovalReasonPayload {
+                kind: ApprovalReasonKind::DangerousCommand,
+                detail: Some("rm -rf".to_string()),
+            }),
+            "abc123def456",
+            1,
+            300,
+        );
+        assert!(txt.contains("1 / yes / ok"));
+        assert!(!txt.contains("2 / always"));
+        assert!(!txt.contains("总是"));
+        assert!(txt.contains("3 / no / deny"));
+    }
+
+    #[test]
     fn format_text_approval_renders_stack_hint_when_multiple_pending() {
         let single = format_text_approval("exec ls", None, "abcdef123456", 1, 300);
         assert!(!single.contains("pending"));
@@ -1074,12 +1182,14 @@ mod tests {
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "older-id-aaa".to_string(),
+                    forbids_allow_always: false,
                 });
             pending
                 .entry(key.clone())
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "newer-id-bbb".to_string(),
+                    forbids_allow_always: false,
                 });
         }
         // Bare "yes" parses with no suffix → dispatcher uses `list.pop()`.
@@ -1111,12 +1221,14 @@ mod tests {
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "aaaaaa-older".to_string(),
+                    forbids_allow_always: false,
                 });
             pending
                 .entry(key.clone())
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "bbbbbb-newer".to_string(),
+                    forbids_allow_always: false,
                 });
         }
 
@@ -1160,18 +1272,21 @@ mod tests {
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "shared-id-xyz".to_string(),
+                    forbids_allow_always: false,
                 });
             pending
                 .entry(key_b.clone())
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "shared-id-xyz".to_string(),
+                    forbids_allow_always: false,
                 });
             pending
                 .entry(key_b.clone())
                 .or_default()
                 .push(PendingTextApproval {
                     request_id: "unrelated-id-pdq".to_string(),
+                    forbids_allow_always: false,
                 });
         }
 

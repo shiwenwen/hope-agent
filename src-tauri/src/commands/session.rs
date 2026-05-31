@@ -50,7 +50,7 @@ pub async fn list_sessions_cmd(
         ProjectFilter::All
     };
 
-    let (mut sessions, total) = state.session_db.list_sessions_paged(
+    let (mut sessions, total) = state.session_db.list_sessions_paged_for_sidebar(
         agent_id.as_deref(),
         project_filter,
         limit,
@@ -222,6 +222,18 @@ pub async fn rename_session_cmd(
     state
         .session_db
         .update_session_title(&session_id, &title)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_session_pinned_cmd(
+    session_id: String,
+    pinned: bool,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .set_session_pinned(&session_id, pinned)
         .map_err(Into::into)
 }
 

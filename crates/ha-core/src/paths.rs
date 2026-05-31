@@ -71,6 +71,11 @@ pub fn mcp_credential_path(server_id: &str) -> Result<PathBuf> {
     Ok(mcp_credentials_dir()?.join(format!("{server_id}.json")))
 }
 
+/// GitHub token used only by the Issue Reporting tool.
+pub fn github_issue_credential_path() -> Result<PathBuf> {
+    Ok(credentials_dir()?.join("github-issue.json"))
+}
+
 // ── Channels ─────────────────────────────────────────────────────
 
 /// Channels runtime state directory: ~/.hope-agent/channels/
@@ -146,6 +151,12 @@ pub fn hooks_dir() -> Result<PathBuf> {
 /// ~/.hope-agent/mac-control/snapshots/
 pub fn mac_control_snapshots_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("mac-control").join("snapshots"))
+}
+
+/// macOS control diagnostics bundle directory:
+/// ~/.hope-agent/mac-control/diagnostics/
+pub fn mac_control_diagnostics_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("mac-control").join("diagnostics"))
 }
 
 // ── Avatars ──────────────────────────────────────────────────────

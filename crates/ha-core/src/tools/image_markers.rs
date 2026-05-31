@@ -7,6 +7,7 @@ use super::browser::IMAGE_BASE64_PREFIX;
 
 pub(crate) const IMAGE_FILE_PREFIX: &str = "__IMAGE_FILE__";
 const MAX_IMAGE_FILE_BYTES: u64 = 20 * 1024 * 1024;
+const MANAGED_IMAGE_SUBDIRS: &[&str] = &["attachments", "tool_results", "mac-control/snapshots"];
 
 #[derive(Debug, Clone, Copy)]
 enum MarkerKind {
@@ -217,8 +218,13 @@ fn is_safe_managed_image_path(path: &str) -> bool {
 
 fn is_under_managed_media_root(path: &Path) -> anyhow::Result<bool> {
     let root = managed_root()?;
-    for subdir in ["attachments", "tool_results"] {
-        if let Ok(allowed) = root.join(subdir).canonicalize() {
+    is_under_managed_media_root_for_root(root, path)
+}
+
+fn is_under_managed_media_root_for_root(root: &Path, path: &Path) -> anyhow::Result<bool> {
+    for subdir in MANAGED_IMAGE_SUBDIRS {
+        let allowed = root.join(subdir).canonicalize();
+        if let Ok(allowed) = allowed {
             if path.starts_with(allowed) {
                 return Ok(true);
             }
@@ -257,7 +263,10 @@ fn is_valid_standard_base64(data: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_image_file_marker, parse_image_markers, IMAGE_FILE_PREFIX};
+    use super::{
+        build_image_file_marker, is_under_managed_media_root_for_root, parse_image_markers,
+        IMAGE_FILE_PREFIX,
+    };
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
 
     #[test]
@@ -306,5 +315,32 @@ mod tests {
         assert!(marker.starts_with(IMAGE_FILE_PREFIX));
         assert!(marker.contains("\"mime\":\"image/png\""));
         assert!(marker.contains("\"path\":\"/definitely/not/a/managed/file.png\""));
+    }
+
+    #[test]
+    fn managed_image_root_allows_mac_control_snapshots_only_under_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let snapshots = root.join("mac-control").join("snapshots");
+        std::fs::create_dir_all(&snapshots).expect("create snapshots dir");
+        let screenshot = snapshots.join("macsnap_test.jpg");
+        std::fs::write(&screenshot, b"fake").expect("write screenshot");
+        let canonical_screenshot = screenshot.canonicalize().expect("canonical screenshot");
+
+        assert!(
+            is_under_managed_media_root_for_root(root, &canonical_screenshot)
+                .expect("managed root check")
+        );
+
+        let outside = temp.path().join("mac-control").join("other");
+        std::fs::create_dir_all(&outside).expect("create outside dir");
+        let outside_file = outside.join("macsnap_test.jpg");
+        std::fs::write(&outside_file, b"fake").expect("write outside");
+        let canonical_outside = outside_file.canonicalize().expect("canonical outside");
+
+        assert!(
+            !is_under_managed_media_root_for_root(root, &canonical_outside)
+                .expect("managed root check")
+        );
     }
 }

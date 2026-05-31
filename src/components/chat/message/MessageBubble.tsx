@@ -20,12 +20,13 @@ import {
   formatTokens,
   formatDuration,
   formatMessageTime,
-  extractModifiedFiles,
+  extractMessageFileAttachments,
   isUserAlignedMessage,
 } from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import PlainTextRenderer from "@/components/common/PlainTextRenderer"
 import FileAttachments from "./FileAttachments"
+import UserAttachments from "./UserAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import ProfileRotationBanner from "@/components/chat/ProfileRotationBanner"
 import ContextCompactedBanner from "@/components/chat/ContextCompactedBanner"
@@ -47,6 +48,13 @@ import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
 import RecapProgressCard from "@/components/chat/RecapProgressCard"
 import SkillForkStatusCard from "@/components/chat/SkillForkStatusCard"
+import {
+  parseSubagentResultDetail,
+  parseSubagentResultStatus,
+  parseToolJobPayload,
+  TOOL_JOB_AGENT_PREFIX,
+  TOOL_JOB_STATUSES,
+} from "./asyncResultPayload"
 
 export interface MessageBubbleProps {
   msg: Message
@@ -83,72 +91,10 @@ export interface MessageBubbleProps {
   displayMode?: ChatDisplayMode
 }
 
-const TOOL_JOB_AGENT_PREFIX = "tool_job:"
-const TOOL_JOB_STATUSES = new Set([
-  "completed",
-  "failed",
-  "timed_out",
-  "cancelled",
-  "interrupted",
-  "running",
-])
-
 function hasRenderableTextContent(msg: Message): boolean {
   return (
     !!msg.content || !!msg.contentBlocks?.some((block) => block.type === "text" && !!block.content)
   )
-}
-
-function getXmlishAttribute(attrs: string, name: string): string | undefined {
-  const match = attrs.match(new RegExp(`\\b${name}="([^"]*)"`))
-  return match?.[1]
-}
-
-function getXmlishElement(content: string, name: string): string | undefined {
-  const match = content.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
-  return match?.[1]?.trim()
-}
-
-function parseToolJobPayload(
-  content: string,
-): { toolName?: string; status?: string; detail?: string } | null {
-  const match = content.match(/<tool-job-result\b([^>]*)>/)
-  if (!match) return null
-  const attrs = match[1] || ""
-  return {
-    toolName: getXmlishAttribute(attrs, "tool"),
-    status: getXmlishAttribute(attrs, "status"),
-    detail:
-      getXmlishElement(content, "output") ||
-      getXmlishElement(content, "error") ||
-      getXmlishElement(content, "note"),
-  }
-}
-
-function parseSubagentResultDetail(content: string): string | undefined {
-  const match = content.match(
-    /<<<BEGIN_SUBAGENT_RESULT>>>\n?([\s\S]*?)\n?<<<END_SUBAGENT_RESULT>>>/,
-  )
-  return match?.[1]?.trim()
-}
-
-function parseSubagentResultStatus(content: string): string {
-  const status = content.match(/^Status:\s*(\S+)/m)?.[1]
-  switch (status) {
-    case "completed":
-      return "completed"
-    case "timeout":
-      return "timed_out"
-    case "killed":
-      return "cancelled"
-    case "running":
-    case "spawning":
-      return "running"
-    case "error":
-      return "failed"
-    default:
-      return "completed"
-  }
 }
 
 function getSubagentResultDisplay(
@@ -298,9 +244,11 @@ function MessageBubbleInner({
   const [resultExpanded, setResultExpanded] = useState(false)
   const [contentRenderMode, setContentRenderMode] = useState<ContentRenderMode>("markdown")
 
-  const modifiedFiles = useMemo(
+  const messageFiles = useMemo(
     () =>
-      msg.role === "assistant" && msg.contentBlocks ? extractModifiedFiles(msg.contentBlocks) : [],
+      msg.role === "assistant" && msg.contentBlocks
+        ? extractMessageFileAttachments(msg.contentBlocks)
+        : [],
     [msg.role, msg.contentBlocks],
   )
 
@@ -653,9 +601,9 @@ function MessageBubbleInner({
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
           />
-          {modifiedFiles.length > 0 && (
+          {messageFiles.length > 0 && (
             <div className="ml-7">
-              <FileAttachments files={modifiedFiles} />
+              <FileAttachments files={messageFiles} sessionId={sessionId} />
             </div>
           )}
           {msg.timestamp && (
@@ -773,16 +721,23 @@ function MessageBubbleInner({
               onOpenDiff={onOpenDiff}
               contentRenderMode={contentRenderMode}
             />
-          ) : contentRenderMode === "markdown" ? (
-            <MarkdownRenderer content={msg.content} />
           ) : (
-            <PlainTextRenderer content={msg.content} />
+            <>
+              <UserAttachments attachments={msg.attachments} />
+              {contentRenderMode === "markdown" ? (
+                <MarkdownRenderer content={msg.content} />
+              ) : (
+                <PlainTextRenderer content={msg.content} />
+              )}
+            </>
           )}
           {/* URL Previews (only for non-streaming messages) */}
           {msg.content && !(loading && isLast) && (
             <MessageUrlPreviews content={msg.content} isStreaming={loading && isLast} />
           )}
-          {modifiedFiles.length > 0 && <FileAttachments files={modifiedFiles} />}
+          {messageFiles.length > 0 && (
+            <FileAttachments files={messageFiles} sessionId={sessionId} />
+          )}
           {msg.timestamp && (
             <div
               className={cn(

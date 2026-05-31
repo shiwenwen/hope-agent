@@ -12,15 +12,18 @@ import {
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Bot, MessageSquarePlus, PanelLeftDashed } from "lucide-react"
+import { Bot, MessageSquarePlus, PanelLeftDashed, Rows2, Rows3 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
 import {
   CHAT_SIDEBAR_MAX_WIDTH,
   CHAT_SIDEBAR_MIN_WIDTH,
+  DEFAULT_SIDEBAR_DISPLAY_MODE,
   type ChatSidebarProps,
+  type SidebarDisplayMode,
   type SessionFilterType,
+  normalizeSidebarDisplayMode,
 } from "./types"
 import { sortSessionSearchResults } from "../chatUtils"
 import { SEARCH_LIMIT } from "../hooks/constants"
@@ -64,6 +67,8 @@ export default function ChatSidebar({
   onNewChat,
   onDeleteSession,
   onEditAgent,
+  onToggleSessionPinned,
+  onReorderAgents,
   onMarkAllRead,
   onRenameSession,
   hasMoreSessions,
@@ -86,6 +91,9 @@ export default function ChatSidebar({
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
+  const [sidebarDisplayMode, setSidebarDisplayMode] = useState<SidebarDisplayMode>(
+    DEFAULT_SIDEBAR_DISPLAY_MODE,
+  )
 
   const setAgentsExpanded = useCallback((expanded: boolean) => {
     setAgentsExpandedState(expanded)
@@ -138,6 +146,28 @@ export default function ChatSidebar({
     if (searchFocusSignal === undefined || searchFocusSignal === 0) return
     onSidebarCollapsedChange(false)
   }, [searchFocusSignal, onSidebarCollapsedChange])
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<string>("get_sidebar_display_mode")
+      .then((mode) => {
+        if (!cancelled) setSidebarDisplayMode(normalizeSidebarDisplayMode(mode))
+      })
+      .catch((err) => {
+        logger.error("chat", "ChatSidebar::loadDisplayMode", "failed to load sidebar mode", err)
+      })
+
+    const handleModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: unknown }>).detail
+      setSidebarDisplayMode(normalizeSidebarDisplayMode(detail?.mode))
+    }
+    window.addEventListener("sidebar-display-mode-changed", handleModeChanged)
+    return () => {
+      cancelled = true
+      window.removeEventListener("sidebar-display-mode-changed", handleModeChanged)
+    }
+  }, [])
 
   useEffect(() => {
     const q = searchQuery.trim()
@@ -292,6 +322,24 @@ export default function ChatSidebar({
     setDeleteConfirmSessionId(null)
   }
 
+  async function toggleSidebarDisplayMode() {
+    const next = sidebarDisplayMode === "compact" ? "detailed" : "compact"
+    const previous = sidebarDisplayMode
+    setSidebarDisplayMode(next)
+    window.dispatchEvent(new CustomEvent("sidebar-display-mode-changed", { detail: { mode: next } }))
+    try {
+      await getTransport().call("set_sidebar_display_mode", { mode: next })
+    } catch (err) {
+      setSidebarDisplayMode(previous)
+      window.dispatchEvent(
+        new CustomEvent("sidebar-display-mode-changed", { detail: { mode: previous } }),
+      )
+      logger.error("chat", "ChatSidebar::toggleDisplayMode", "failed to save sidebar mode", err)
+    }
+  }
+
+  const SidebarDisplayModeIcon = sidebarDisplayMode === "compact" ? Rows2 : Rows3
+
   return (
     <>
       <div
@@ -319,6 +367,32 @@ export default function ChatSidebar({
                 {t("chat.conversations")}
               </h2>
               <div className="ml-auto flex items-center gap-1 pb-2">
+                <IconTip
+                  label={
+                    sidebarDisplayMode === "compact"
+                      ? t("chat.sidebarDetailedMode", "切换到详细模式")
+                      : t("chat.sidebarCompactMode", "切换到简约模式")
+                  }
+                >
+                  <button
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground",
+                      sidebarDisplayMode === "compact" && "bg-secondary/70 text-foreground",
+                    )}
+                    aria-label={
+                      sidebarDisplayMode === "compact"
+                        ? t("chat.sidebarDetailedMode", "切换到详细模式")
+                        : t("chat.sidebarCompactMode", "切换到简约模式")
+                    }
+                    aria-pressed={sidebarDisplayMode === "compact"}
+                    onClick={(e) => {
+                      e.currentTarget.blur()
+                      void toggleSidebarDisplayMode()
+                    }}
+                  >
+                    <SidebarDisplayModeIcon className="h-4 w-4" />
+                  </button>
+                </IconTip>
                 <IconTip label={t("chat.collapseSidebar")}>
                   <button
                     className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground"
@@ -359,19 +433,21 @@ export default function ChatSidebar({
                             setShowNewChatMenu(false)
                           }}
                         >
-                          <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
-                            {agent.avatar ? (
-                              <img
-                                src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                                className="w-full h-full object-cover"
-                                alt=""
-                              />
-                            ) : agent.emoji ? (
-                              <span>{agent.emoji}</span>
-                            ) : (
-                              <Bot className="h-3 w-3" />
-                            )}
-                          </div>
+                          {sidebarDisplayMode === "detailed" && (
+                            <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
+                              {agent.avatar ? (
+                                <img
+                                  src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
+                                  className="w-full h-full object-cover"
+                                  alt=""
+                                />
+                              ) : agent.emoji ? (
+                                <span>{agent.emoji}</span>
+                              ) : (
+                                <Bot className="h-3 w-3" />
+                              )}
+                            </div>
+                          )}
                           <span className="truncate">{agent.name}</span>
                         </button>
                       ))}
@@ -419,8 +495,10 @@ export default function ChatSidebar({
                   onCommitRename={commitRename}
                   onCancelRename={cancelRename}
                   onMoveSessionToProject={onMoveSessionToProject}
+                  onToggleSessionPinned={onToggleSessionPinned}
                   getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
+                  displayMode={sidebarDisplayMode}
                 />
               )}
 
@@ -433,7 +511,9 @@ export default function ChatSidebar({
                 toggleAgentFilter={toggleAgentFilter}
                 onNewChat={onNewChat}
                 onEditAgent={onEditAgent}
+                onReorderAgents={onReorderAgents}
                 panelWidth={panelWidth}
+                displayMode={sidebarDisplayMode}
               />
 
               {/* Session filter tabs + session list */}
@@ -466,11 +546,22 @@ export default function ChatSidebar({
                 agents={agents}
                 projects={projects}
                 onMoveToProject={onMoveSessionToProject}
+                onToggleSessionPinned={onToggleSessionPinned}
                 searchFocusSignal={sidebarCollapsed ? 0 : searchFocusSignal}
+                displayMode={sidebarDisplayMode}
               />
             </div>
           </div>
         </div>
+        {/* Keep the resize affordance inside the sidebar bounds so hover/active
+            color does not occupy a strip of the conversation canvas. */}
+        <div
+          className={cn(
+            "absolute inset-y-0 right-0 z-20 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50",
+            sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+          )}
+          onMouseDown={handleDragStart}
+        />
       </div>
 
       {/* Delete session confirmation dialog */}
@@ -494,14 +585,6 @@ export default function ChatSidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* Drag Handle */}
-      <div
-        className={cn(
-          "shrink-0 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50",
-          sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
-        )}
-        onMouseDown={handleDragStart}
-      />
     </>
   )
 }

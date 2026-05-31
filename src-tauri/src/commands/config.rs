@@ -60,6 +60,37 @@ pub async fn save_web_fetch_config(
 }
 
 #[tauri::command]
+pub async fn get_issue_reporting_config(
+) -> Result<ha_core::issue_reporting::IssueReportingConfigStatus, CmdError> {
+    Ok(ha_core::issue_reporting::get_config_status())
+}
+
+#[tauri::command]
+pub async fn save_issue_reporting_config(
+    config: ha_core::issue_reporting::IssueReportingConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("issue_reporting", "settings-ui"), |store| {
+        store.issue_reporting = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn save_issue_reporting_token(token: Option<String>) -> Result<(), CmdError> {
+    ha_core::issue_reporting::save_token(token).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn test_issue_reporting_connection(
+) -> Result<ha_core::issue_reporting::IssueReportingTestResult, CmdError> {
+    let cfg = ha_core::config::cached_config().issue_reporting.clone();
+    ha_core::issue_reporting::test_connection(&cfg)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_ssrf_config() -> Result<ha_core::security::ssrf::SsrfConfig, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.ssrf)
@@ -497,6 +528,23 @@ pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_sidebar_display_mode() -> Result<String, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(ha_core::config::normalize_sidebar_ui_mode(
+        &store.sidebar_ui_mode,
+    ))
+}
+
+#[tauri::command]
+pub async fn set_sidebar_display_mode(mode: String) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("sidebar_ui_mode", "settings-ui"), |store| {
+        store.sidebar_ui_mode = ha_core::config::normalize_sidebar_ui_mode(&mode);
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_tool_call_narration_enabled() -> Result<bool, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.tool_call_narration_enabled)
@@ -599,9 +647,24 @@ pub async fn get_approval_timeout() -> Result<u64, CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_approval_timeout_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.permission.approval_timeout_enabled)
+}
+
+#[tauri::command]
 pub async fn set_approval_timeout(seconds: u64) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("approval_timeout", "settings-ui"), |store| {
         store.permission.approval_timeout_secs = seconds;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_approval_timeout_enabled(enabled: bool) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("approval_timeout_enabled", "settings-ui"), |store| {
+        store.permission.approval_timeout_enabled = enabled;
         Ok(())
     })
     .map_err(Into::into)
@@ -715,11 +778,29 @@ pub async fn get_ask_user_question_timeout() -> Result<u64, CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_ask_user_question_timeout_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.ask_user_question_timeout_enabled)
+}
+
+#[tauri::command]
 pub async fn set_ask_user_question_timeout(secs: u64) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("ask_user_question_timeout", "settings-ui"), |store| {
         store.ask_user_question_timeout_secs = secs;
         Ok(())
     })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_ask_user_question_timeout_enabled(enabled: bool) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(
+        ("ask_user_question_timeout_enabled", "settings-ui"),
+        |store| {
+            store.ask_user_question_timeout_enabled = enabled;
+            Ok(())
+        },
+    )
     .map_err(Into::into)
 }
 

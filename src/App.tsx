@@ -698,7 +698,7 @@ export default function App() {
                               ? `发现新版本 v${globalPendingUpdate.version}`
                               : `Update v${globalPendingUpdate.version}`}
                           </p>
-                          <div className="mt-2.5 max-h-[180px] overflow-y-auto pr-2 text-xs leading-relaxed text-muted-foreground scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
+                          <div className="update-notes-markdown mt-2.5 max-h-[180px] overflow-y-auto pr-2 text-xs leading-relaxed text-muted-foreground scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
                             {globalPendingUpdate.body ? (
                               <MarkdownRenderer content={globalPendingUpdate.body} />
                             ) : (

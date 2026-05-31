@@ -22,5 +22,6 @@ pub use tasks::{
 };
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
-    build_chat_user_attachments_meta, MessageRole, NewMessage, SessionMessage, SessionMeta,
+    build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, MessageRole,
+    NewMessage, SessionMessage, SessionMeta, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
 };

@@ -48,6 +48,12 @@ impl Default for AgentCapsCache {
 pub struct Attachment {
     pub name: String,
     pub mime_type: String,
+    /// Optional frontend provenance marker. Uploaded files are persisted into
+    /// Hope Agent's attachment store; mention-derived references may point at
+    /// user-selected local files and are intentionally not exposed through
+    /// chat history attachment metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// Base64-encoded file data (used for images — passed directly through IPC)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<String>,

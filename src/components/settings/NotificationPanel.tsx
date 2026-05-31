@@ -90,6 +90,20 @@ export default function NotificationPanel() {
     }
   }
 
+  const handleShowChatContentToggle = async (showChatContent: boolean) => {
+    if (!config) return
+    const newConfig = { ...config, showChatContent }
+    setConfig(newConfig)
+    setSaving(true)
+    try {
+      await saveNotificationConfig(newConfig)
+    } catch (e) {
+      logger.error("settings", "NotificationPanel::saveContentPreview", "Failed to save config", e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleStartupToggle = async (enabled: boolean) => {
     if (!startupConfig) return
     const next = { ...startupConfig, enabled }
@@ -130,6 +144,19 @@ export default function NotificationPanel() {
             <p className="text-xs text-muted-foreground mt-0.5">{t("notification.globalDesc")}</p>
           </div>
           <Switch checked={config.enabled} onCheckedChange={handleGlobalToggle} disabled={saving} />
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">{t("notification.showChatContentToggle")}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t("notification.showChatContentDesc")}
+            </p>
+          </div>
+          <Switch
+            checked={config.showChatContent === true}
+            onCheckedChange={handleShowChatContentToggle}
+            disabled={saving}
+          />
         </div>
       </div>
 

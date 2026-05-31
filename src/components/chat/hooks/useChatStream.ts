@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import {
+  getCachedConfig,
   loadNotificationConfig,
   isAgentNotifyEnabled,
   notify,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/notifications"
 import type {
   Message,
+  MessageAttachment,
   ActiveModel,
   AgentSummaryForSidebar,
   SessionMode,
@@ -35,6 +37,7 @@ import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 
 const ACTIVE_STREAM_ERROR_CODE = "active_stream"
+const CHAT_NOTIFICATION_PREVIEW_MAX_CHARS = 220
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -50,6 +53,56 @@ function isActiveStreamError(error: unknown): boolean {
   return errorText(error).includes(ACTIVE_STREAM_ERROR_CODE)
 }
 
+function normalizeNotificationText(text: string): string {
+  return text.replace(/\s+/g, " ").trim()
+}
+
+function truncateNotificationText(text: string): string {
+  if (text.length <= CHAT_NOTIFICATION_PREVIEW_MAX_CHARS) return text
+  return `${text.slice(0, CHAT_NOTIFICATION_PREVIEW_MAX_CHARS - 3).trimEnd()}...`
+}
+
+function assistantNotificationText(message: Message): string {
+  const blockText = message.contentBlocks
+    ?.filter((block) => block.type === "text")
+    .map((block) => block.content)
+    .join("\n\n")
+  return truncateNotificationText(normalizeNotificationText(blockText || message.content || ""))
+}
+
+function latestAssistantNotificationPreview(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message.role !== "assistant") continue
+    const text = assistantNotificationText(message)
+    if (text) return text
+  }
+  return null
+}
+
+function chatCompletionNotificationBody(
+  sessionTitle: string,
+  messages: Message[],
+  showChatContent: boolean,
+): string {
+  if (!showChatContent) return sessionTitle
+  const preview = latestAssistantNotificationPreview(messages)
+  return preview ? `${sessionTitle}\n${preview}` : sessionTitle
+}
+
+function optimisticAttachmentForFile(file: File): MessageAttachment {
+  const mimeType = file.type || "application/octet-stream"
+  return {
+    name: file.name,
+    mimeType,
+    sizeBytes: file.size,
+    kind: mimeType.toLowerCase().startsWith("image/") ? "image" : "file",
+    ...(mimeType.toLowerCase().startsWith("image/")
+      ? { previewUrl: URL.createObjectURL(file) }
+      : {}),
+  }
+}
+
 interface SendOptions {
   displayText?: string
   planMode?: string
@@ -63,6 +116,16 @@ interface SendOptions {
 interface PendingSend {
   text: string
   options?: SendOptions
+  attachedFiles?: File[]
+}
+
+interface InputDraft {
+  input: string
+  attachedFiles: File[]
+}
+
+function inputDraftKey(sessionId: string | null): string {
+  return sessionId ? `session:${sessionId}` : "draft"
 }
 
 export interface UseChatStreamOptions {
@@ -171,8 +234,79 @@ export function useChatStream({
   draftWorkingDir = null,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const { t } = useTranslation()
-  const [input, setInput] = useState("")
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [input, setInputState] = useState("")
+  const [attachedFiles, setAttachedFilesState] = useState<File[]>([])
+  const inputRef = useRef(input)
+  const attachedFilesRef = useRef(attachedFiles)
+  const inputDraftsRef = useRef<Map<string, InputDraft>>(new Map())
+  const activeInputDraftKeyRef = useRef(inputDraftKey(currentSessionId))
+
+  const saveInputDraft = useCallback((key: string, draft: InputDraft) => {
+    if (!draft.input && draft.attachedFiles.length === 0) {
+      inputDraftsRef.current.delete(key)
+      return
+    }
+    inputDraftsRef.current.set(key, draft)
+  }, [])
+
+  const setInput = useCallback<React.Dispatch<React.SetStateAction<string>>>(
+    (value) => {
+      setInputState((prev) => {
+        const next = typeof value === "function" ? (value as (p: string) => string)(prev) : value
+        inputRef.current = next
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: next,
+          attachedFiles: attachedFilesRef.current,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  const setAttachedFiles = useCallback<React.Dispatch<React.SetStateAction<File[]>>>(
+    (value) => {
+      setAttachedFilesState((prev) => {
+        const next =
+          typeof value === "function" ? (value as (p: File[]) => File[])(prev) : value
+        attachedFilesRef.current = next
+        saveInputDraft(activeInputDraftKeyRef.current, {
+          input: inputRef.current,
+          attachedFiles: next,
+        })
+        return next
+      })
+    },
+    [saveInputDraft],
+  )
+
+  useLayoutEffect(() => {
+    const nextKey = inputDraftKey(currentSessionId)
+    const previousKey = activeInputDraftKeyRef.current
+    if (previousKey === nextKey) return
+
+    saveInputDraft(previousKey, {
+      input: inputRef.current,
+      attachedFiles: attachedFilesRef.current,
+    })
+
+    activeInputDraftKeyRef.current = nextKey
+    const nextDraft =
+      inputDraftsRef.current.get(nextKey) ??
+      (previousKey === "draft" ? inputDraftsRef.current.get(previousKey) : undefined) ?? {
+        input: "",
+        attachedFiles: [],
+      }
+    if (previousKey === "draft" && !inputDraftsRef.current.has(nextKey)) {
+      saveInputDraft(nextKey, nextDraft)
+      inputDraftsRef.current.delete(previousKey)
+    }
+    inputRef.current = nextDraft.input
+    attachedFilesRef.current = nextDraft.attachedFiles
+    setInputState(nextDraft.input)
+    setAttachedFilesState(nextDraft.attachedFiles)
+  }, [currentSessionId, saveInputDraft])
+
   // Pending send queued while a response is streaming. Stores the LLM-bound
   // `text` plus the original `options` (displayText / planMode / isPlanTrigger)
   // so the replay path can resend with the exact same metadata — otherwise a
@@ -183,7 +317,9 @@ export function useChatStream({
   // External views: keep the original `pendingMessage: string | null` API for
   // ChatScreen / ChatInput, derived from the user-facing displayed text.
   const pendingMessage = pendingSend
-    ? pendingSend.options?.displayText?.trim() || pendingSend.text
+    ? pendingSend.options?.displayText?.trim() ||
+      pendingSend.text ||
+      (pendingSend.attachedFiles?.length ? t("chat.attachPhotosAndFiles") : "")
     : null
   const setPendingMessage = useCallback<
     React.Dispatch<React.SetStateAction<string | null>>
@@ -424,23 +560,33 @@ export function useChatStream({
    */
   async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
-    if (!rawText.trim()) return
+    const hasAttachedFiles = !directText && attachedFiles.length > 0
+    if (!rawText.trim() && !hasAttachedFiles) return
 
     // If currently loading, queue the message as pending. Capture both the
     // LLM-bound text and the original options so the replay below resends
     // with identical metadata (Plan Mode triggers carry `isPlanTrigger`,
     // slash-skill expansions carry `displayText`, etc.).
     if (loading) {
-      setPendingSendState({ text: rawText.trim(), options })
-      if (!directText) setInput("")
+      const queuedFiles = directText ? [] : [...attachedFiles]
+      setPendingSendState({
+        text: rawText.trim(),
+        options,
+        ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
+      })
+      if (!directText) {
+        setInput("")
+        setAttachedFiles([])
+      }
       return
     }
 
     const text = rawText.trim()
     // `text` goes to the LLM; `displayed` is the user bubble. Slash-skill passThrough
     // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
-    const displayed = options?.displayText?.trim() || text
     const filesToSend = directText ? [] : [...attachedFiles]
+    const displayed = options?.displayText?.trim() || text
+    const optimisticAttachments = filesToSend.map(optimisticAttachmentForFile)
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
@@ -456,6 +602,7 @@ export function useChatStream({
       content: displayed,
       timestamp: now,
       _clientId: optimisticUserClientId,
+      ...(optimisticAttachments.length > 0 && { attachments: optimisticAttachments }),
       ...(options?.isPlanTrigger && { isPlanTrigger: true }),
       ...(options?.planComment && { planComment: options.planComment }),
     }
@@ -503,6 +650,7 @@ export function useChatStream({
           attachments.push({
             name: file.name,
             mime_type: mimeType,
+            source: "upload",
             data: btoa(binary),
           })
         } else {
@@ -516,6 +664,7 @@ export function useChatStream({
           attachments.push({
             name: file.name,
             mime_type: mimeType,
+            source: "upload",
             file_path: filePath,
           })
         }
@@ -834,10 +983,16 @@ export function useChatStream({
             status !== "interrupted" &&
             status !== "cancelling"
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
+          const notificationBody = chatCompletionNotificationBody(
+            sessionTitle,
+            sessionCacheRef.current.get(targetSessionId) ??
+              (currentSessionIdRef.current === targetSessionId ? messages : []),
+            getCachedConfig()?.showChatContent === true,
+          )
           if (completed && currentSessionIdRef.current !== targetSessionId) {
-            void notify(t("notification.chatCompleted"), sessionTitle)
+            void notify(t("notification.chatCompleted"), notificationBody)
           } else if (completed) {
-            void notifyIfBackground(t("notification.chatCompleted"), sessionTitle)
+            void notifyIfBackground(t("notification.chatCompleted"), notificationBody)
           }
         }
       }
@@ -865,6 +1020,7 @@ export function useChatStream({
           // User-typed drafts and non-auto-sent programmatic sends are
           // restored for editing / confirmation using the user-facing text.
           setInput(queued.options?.displayText?.trim() || queued.text)
+          setAttachedFiles(queued.attachedFiles ?? [])
           if (autoSendPendingRef.current) {
             autoSendRef.current = true
           }
@@ -886,11 +1042,11 @@ export function useChatStream({
       autoSendRef.current = false
       queuedReplayRef.current = null
       void handleSend(replay.text, replay.options)
-    } else if (input.trim()) {
+    } else if (input.trim() || attachedFiles.length > 0) {
       autoSendRef.current = false
       void handleSend()
     }
-  }, [input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [attachedFiles, input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     input,

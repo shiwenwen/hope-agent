@@ -34,6 +34,21 @@ export function useApprovals(currentSessionId: string | null): UseApprovalsRetur
     })
   }, [])
 
+  // Backend-enforced timeouts remove the pending request from the global
+  // registry; mirror that lifecycle locally so stale modals disappear.
+  useEffect(() => {
+    return getTransport().listen("approval_timed_out", (raw) => {
+      try {
+        const payload = parsePayload<{ request_id?: string; requestId?: string }>(raw)
+        const requestId = payload.request_id ?? payload.requestId
+        if (!requestId) return
+        setAllApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))
+      } catch (e) {
+        logger.error("ui", "ChatScreen::approval", "Failed to parse approval timeout", e)
+      }
+    })
+  }, [])
+
   async function handleApprovalResponse(
     requestId: string,
     response: "allow_once" | "allow_always" | "deny",

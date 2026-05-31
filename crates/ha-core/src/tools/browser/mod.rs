@@ -903,7 +903,7 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_ssrf_scan_allows_public_url() {
-        let script = r#"fetch("https://example.com/")"#;
+        let script = r#"fetch("https://1.1.1.1/")"#;
         let res = evaluate_with_ssrf_scan(script).await;
         assert!(res.is_ok(), "public URL must not be blocked: {res:?}");
     }

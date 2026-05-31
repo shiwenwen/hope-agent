@@ -62,6 +62,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
   create_session_cmd:              { method: "POST",   path: "/api/sessions" },
   get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
+  set_session_pinned_cmd:          { method: "PATCH",  path: "/api/sessions/{sessionId}/pinned" },
   set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },
   set_session_working_dir:         { method: "PATCH",  path: "/api/sessions/{sessionId}/working-dir" },
   update_session_agent_cmd:        { method: "PATCH",  path: "/api/sessions/{sessionId}/agent" },
@@ -149,6 +150,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Agents --
   list_agents:                     { method: "GET",    path: "/api/agents" },
+  reorder_agents:                  { method: "POST",   path: "/api/agents/reorder" },
   get_agent_template:              { method: "GET",    path: "/api/agents/template" },
   initialize_agent:                { method: "POST",   path: "/api/agents/initialize" },
   get_agent_config:                { method: "GET",    path: "/api/agents/{id}" },
@@ -258,6 +260,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
   set_ask_user_question_timeout:   { method: "POST",   path: "/api/config/ask-user-question-timeout" },
   get_ask_user_question_timeout:   { method: "GET",    path: "/api/config/ask-user-question-timeout" },
+  set_ask_user_question_timeout_enabled: { method: "POST", path: "/api/config/ask-user-question-timeout-enabled" },
+  get_ask_user_question_timeout_enabled: { method: "GET",  path: "/api/config/ask-user-question-timeout-enabled" },
 
   // -- Cron --
   cron_list_jobs:                  { method: "GET",    path: "/api/cron/jobs" },
@@ -359,6 +363,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Web search --
   get_web_search_config:           { method: "GET",    path: "/api/config/web-search" },
   save_web_search_config:          { method: "PUT",    path: "/api/config/web-search" },
+  get_issue_reporting_config:      { method: "GET",    path: "/api/config/issue-reporting" },
+  save_issue_reporting_config:     { method: "PUT",    path: "/api/config/issue-reporting" },
+  save_issue_reporting_token:      { method: "PUT",    path: "/api/config/issue-reporting/token" },
+  test_issue_reporting_connection: { method: "POST",   path: "/api/config/issue-reporting/test" },
 
   // -- Web fetch --
   get_web_fetch_config:            { method: "GET",    path: "/api/config/web-fetch" },
@@ -551,6 +559,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_language:                    { method: "POST",   path: "/api/config/language" },
   get_ui_effects_enabled:          { method: "GET",    path: "/api/config/ui-effects" },
   set_ui_effects_enabled:          { method: "POST",   path: "/api/config/ui-effects" },
+  get_sidebar_display_mode:        { method: "GET",    path: "/api/config/sidebar-display-mode" },
+  set_sidebar_display_mode:        { method: "POST",   path: "/api/config/sidebar-display-mode" },
   get_tool_call_narration_enabled: { method: "GET",    path: "/api/config/tool-call-narration" },
   set_tool_call_narration_enabled: { method: "POST",   path: "/api/config/tool-call-narration" },
   get_autostart_enabled:           { method: "GET",    path: "/api/config/autostart" },
@@ -561,6 +571,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_tool_timeout:                { method: "POST",   path: "/api/config/tool-timeout" },
   get_approval_timeout:            { method: "GET",    path: "/api/config/approval-timeout" },
   set_approval_timeout:            { method: "POST",   path: "/api/config/approval-timeout" },
+  get_approval_timeout_enabled:    { method: "GET",    path: "/api/config/approval-timeout-enabled" },
+  set_approval_timeout_enabled:    { method: "POST",   path: "/api/config/approval-timeout-enabled" },
   get_approval_timeout_action:     { method: "GET",    path: "/api/config/approval-timeout-action" },
   set_approval_timeout_action:     { method: "POST",   path: "/api/config/approval-timeout-action" },
 
@@ -831,7 +843,11 @@ export class HttpTransport implements Transport {
   async call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     // --- Special cases: binary uploads use multipart/form-data ---
     if (command === "save_attachment" && args) {
-      return this.uploadMultipart<T>("/api/chat/attachment", args);
+      const resp = await this.uploadMultipart<{ path: string }>(
+        "/api/chat/attachment",
+        args,
+      );
+      return resp.path as unknown as T;
     }
     if (command === "upload_project_file_cmd" && args) {
       const projectId = args.projectId as string;
@@ -1004,6 +1020,44 @@ export class HttpTransport implements Transport {
     return null;
   }
 
+  private appendToken(url: string): string {
+    if (!this.apiKey) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`;
+  }
+
+  private addDownloadParam(href: string): string {
+    if (!href.startsWith(`${this.baseUrl}/api/`)) return href;
+    const url = new URL(href);
+    url.searchParams.set("download", "1");
+    return url.toString();
+  }
+
+  private clickHref(href: string, filename?: string): void {
+    const a = document.createElement("a");
+    a.href = href;
+    if (filename) a.download = filename;
+    a.rel = "noopener";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  private sessionFileUrl(
+    path: string,
+    sessionId: string | null | undefined,
+    forceDownload: boolean,
+  ): string | null {
+    if (!sessionId) return null;
+    const url = new URL(
+      `${this.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/files/by-path`,
+    );
+    url.searchParams.set("path", path);
+    if (forceDownload) url.searchParams.set("download", "1");
+    if (this.apiKey) url.searchParams.set("token", this.apiKey);
+    return url.toString();
+  }
+
   resolveAssetUrl(path: string | null | undefined): string | null {
     if (!path) return null;
     if (
@@ -1017,10 +1071,7 @@ export class HttpTransport implements Transport {
     // in the stored absolute path. Each category needs a matching
     // server-side route. Anything unrecognized returns `null` so callers
     // fall back gracefully (emoji / default icon / broken state).
-    const stamped = (url: string) =>
-      this.apiKey
-        ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
-        : url;
+    const stamped = (url: string) => this.appendToken(url);
 
     // Avatars: `~/.hope-agent/avatars/{file}` → `/api/avatars/{file}`
     const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/);
@@ -1061,14 +1112,28 @@ export class HttpTransport implements Transport {
     if (!href) return;
     // Transient anchor click so the browser honors the server's
     // Content-Disposition (inline preview vs download prompt).
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = item.name || "";
-    a.rel = "noopener";
-    a.target = "_blank";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    this.clickHref(href);
+  }
+
+  async downloadMedia(item: MediaItem): Promise<void> {
+    const href = this.resolveMediaUrl(item);
+    if (!href) return;
+    this.clickHref(this.addDownloadParam(href), item.name || undefined);
+  }
+
+  async openFilePath(path: string, opts?: { sessionId?: string | null }): Promise<void> {
+    const href = this.sessionFileUrl(path, opts?.sessionId, false);
+    if (!href) return;
+    this.clickHref(href);
+  }
+
+  async downloadFilePath(
+    path: string,
+    opts?: { sessionId?: string | null; filename?: string },
+  ): Promise<void> {
+    const href = this.sessionFileUrl(path, opts?.sessionId, true);
+    if (!href) return;
+    this.clickHref(href, opts?.filename);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -4,6 +4,7 @@ import ToolGeneralPanel from "@/components/settings/ToolGeneralPanel"
 import WebSearchPanel from "@/components/settings/WebSearchPanel"
 import WebFetchPanel from "@/components/settings/WebFetchPanel"
 import ImageGeneratePanel from "@/components/settings/ImageGeneratePanel"
+import IssueReportingPanel from "@/components/settings/IssueReportingPanel"
 import CanvasSettingsPanel from "@/components/settings/CanvasSettingsPanel"
 import AsyncToolsPanel from "@/components/settings/AsyncToolsPanel"
 
@@ -18,6 +19,7 @@ export default function ToolSettingsPanel() {
           <TabsTrigger value="webSearch">{t("settings.webSearch")}</TabsTrigger>
           <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
           <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
+          <TabsTrigger value="issueReporting">Issue Reporting</TabsTrigger>
           <TabsTrigger value="canvas">{t("settings.canvas")}</TabsTrigger>
           <TabsTrigger value="asyncTools">{t("settings.asyncTools")}</TabsTrigger>
         </TabsList>
@@ -33,6 +35,9 @@ export default function ToolSettingsPanel() {
       </TabsContent>
       <TabsContent value="imageGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <ImageGeneratePanel />
+      </TabsContent>
+      <TabsContent value="issueReporting" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <IssueReportingPanel />
       </TabsContent>
       <TabsContent value="canvas" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <CanvasSettingsPanel />

@@ -82,11 +82,17 @@ pub struct NotificationConfig {
     /// Global on/off toggle (default: true)
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
+    /// Include assistant reply previews in chat-completion notifications.
+    #[serde(default)]
+    pub show_chat_content: bool,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            show_chat_content: false,
+        }
     }
 }
 
@@ -309,6 +315,21 @@ pub(crate) fn default_language() -> String {
     "auto".to_string()
 }
 
+pub const SIDEBAR_UI_MODE_COMPACT: &str = "compact";
+pub const SIDEBAR_UI_MODE_DETAILED: &str = "detailed";
+
+pub fn default_sidebar_ui_mode() -> String {
+    SIDEBAR_UI_MODE_DETAILED.to_string()
+}
+
+pub fn normalize_sidebar_ui_mode(mode: &str) -> String {
+    match mode {
+        SIDEBAR_UI_MODE_COMPACT => SIDEBAR_UI_MODE_COMPACT.to_string(),
+        SIDEBAR_UI_MODE_DETAILED => SIDEBAR_UI_MODE_DETAILED.to_string(),
+        _ => SIDEBAR_UI_MODE_DETAILED.to_string(),
+    }
+}
+
 // ── Recap Config ────────────────────────────────────────────────
 
 fn default_recap_default_range_days() -> u32 {
@@ -455,6 +476,10 @@ pub struct AppConfig {
     /// session/project/channel specifies one. Defaults to `"ha-main"`.
     #[serde(default = "default_default_agent_id")]
     pub default_agent_id: Option<String>,
+    /// User-defined display order for agent pickers and sidebar lists. Missing
+    /// or newly-created agents fall back to the default main-first ordering.
+    #[serde(default)]
+    pub agent_order: Vec<String>,
     /// Extra directories to scan for skills
     #[serde(default)]
     pub extra_skills_dirs: Vec<String>,
@@ -540,6 +565,10 @@ pub struct AppConfig {
     /// Image generation configuration
     #[serde(default)]
     pub image_generate: crate::tools::image_generate::ImageGenConfig,
+    /// GitHub issue reporting target and defaults. Token lives separately under
+    /// `~/.hope-agent/credentials/github-issue.json`.
+    #[serde(default)]
+    pub issue_reporting: crate::issue_reporting::IssueReportingConfig,
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
@@ -573,6 +602,9 @@ pub struct AppConfig {
     /// Whether UI background effects (stars, weather) are enabled
     #[serde(default = "crate::default_true")]
     pub ui_effects_enabled: bool,
+    /// Sidebar visual density: "compact" (default) | "detailed"
+    #[serde(default = "default_sidebar_ui_mode")]
+    pub sidebar_ui_mode: String,
     /// Global proxy configuration for all outgoing HTTP requests
     #[serde(default)]
     pub proxy: ProxyConfig,
@@ -608,8 +640,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub plan_subagent: bool,
 
-    /// Timeout in seconds for ask_user_question tool waiting for user response.
-    /// Default: 1800 (30 minutes). 0 = no timeout (wait forever).
+    /// Whether ask_user_question waits automatically expire.
+    #[serde(default)]
+    pub ask_user_question_timeout_enabled: bool,
+    /// Timeout in seconds for ask_user_question tool waiting for user response
+    /// when `ask_user_question_timeout_enabled` is true.
+    /// Default duration: 1800 (30 minutes). 0 = no timeout (wait forever).
     #[serde(default = "default_ask_user_question_timeout")]
     pub ask_user_question_timeout_secs: u64,
 
@@ -752,6 +788,7 @@ impl Default for AppConfig {
             active_model: None,
             fallback_models: Vec::new(),
             default_agent_id: default_default_agent_id(),
+            agent_order: Vec::new(),
             extra_skills_dirs: Vec::new(),
             disabled_skills: Vec::new(),
             skill_env_check: true,
@@ -777,6 +814,7 @@ impl Default for AppConfig {
             notification: NotificationConfig::default(),
             startup_notification: StartupNotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
+            issue_reporting: crate::issue_reporting::IssueReportingConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
             browser: None,
             image: crate::tools::image::ImageToolConfig::default(),
@@ -786,6 +824,7 @@ impl Default for AppConfig {
             theme: default_theme(),
             language: default_language(),
             ui_effects_enabled: true,
+            sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
             skill_allow_bundled: Vec::new(),
@@ -794,6 +833,7 @@ impl Default for AppConfig {
             plans_directory: None,
             temperature: None,
             plan_subagent: false,
+            ask_user_question_timeout_enabled: false,
             ask_user_question_timeout_secs: default_ask_user_question_timeout(),
             channels: crate::channel::ChannelStoreConfig::default(),
             deferred_tools: DeferredToolsConfig::default(),

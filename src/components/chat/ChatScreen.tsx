@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import {
   Brain,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   GitCompare,
   Globe,
@@ -126,6 +129,11 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 }
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
+
+interface MacControlFrameOpenHint {
+  mediaId?: string | null
+  path?: string | null
+}
 
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
@@ -1416,6 +1424,7 @@ export default function ChatScreen({
   const isDiffPanelVisible = diffPanel.showPanel && diffPanel.activeChanges.length > 0
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       diff: isDiffPanelVisible,
@@ -1439,10 +1448,16 @@ export default function ChatScreen({
     () => EXCLUSIVE_RIGHT_PANEL_ORDER.filter((panel) => rightPanelVisibility[panel]),
     [rightPanelVisibility],
   )
+  const hasOpenExclusiveRightPanel = openExclusiveRightPanels.length > 0
   const renderedExclusiveRightPanel =
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
       : (openExclusiveRightPanels[0] ?? null)
+  const shouldRenderRightPanelContent =
+    !!renderedExclusiveRightPanel && !rightPanelCollapsed
+  const rightPanelToggleLabel = rightPanelCollapsed
+    ? t("chat.rightPanel.expand", "Expand right panel")
+    : t("chat.rightPanel.collapse", "Collapse right panel")
   const getRightPanelLabel = useCallback(
     (panel: ExclusiveRightPanel) => {
       switch (panel) {
@@ -1462,15 +1477,11 @@ export default function ChatScreen({
     },
     [t],
   )
-  const rightPanelKey = renderedExclusiveRightPanel
-  const lastRightPanelKeyRef = useRef<string | null>(rightPanelKey)
-
   useEffect(() => {
-    if (rightPanelKey && rightPanelKey !== lastRightPanelKeyRef.current) {
-      setSidebarCollapsed(true)
+    if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
+      setRightPanelCollapsed(false)
     }
-    lastRightPanelKeyRef.current = rightPanelKey
-  }, [rightPanelKey])
+  }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
   // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
   // rail. Track rising edges so the panel that just opened wins while the
@@ -1522,9 +1533,11 @@ export default function ChatScreen({
   }, [])
 
   useEffect(() => {
-    const unlisten = getTransport().listen("mac_control:frame", () => {
+    const unlisten = getTransport().listen("mac_control:frame", (raw) => {
       if (macControlPanelDismissedRef.current) return
-      setShowMacControlPanel((prev) => (prev ? prev : true))
+      const payload = parsePayload<MacControlFrameOpenHint>(raw)
+      const isToolScreenshotFrame = !!(payload?.mediaId || payload?.path)
+      setShowMacControlPanel((prev) => (prev ? prev : isToolScreenshotFrame))
     })
     return () => {
       try {
@@ -1560,6 +1573,8 @@ export default function ChatScreen({
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
+        onToggleSessionPinned={session.handleToggleSessionPinned}
+        onReorderAgents={session.handleReorderAgents}
         onMarkAllRead={refreshUnreadState}
         onRenameSession={handleRenameSession}
         hasMoreSessions={session.hasMoreSessions}
@@ -1676,7 +1691,7 @@ export default function ChatScreen({
       />
 
       {/* Conversation workspace */}
-      <div className="flex-1 flex flex-col min-w-0 bg-surface-app">
+      <div className="flex-1 flex flex-col min-w-0 bg-background">
         <ChatTitleBar
           agentName={session.agentName}
           currentAgentId={session.currentAgentId}
@@ -1864,39 +1879,61 @@ export default function ChatScreen({
             )}
           </div>
 
-          {openExclusiveRightPanels.length > 1 && (
+          {hasOpenExclusiveRightPanel && (
             <div className="flex h-full shrink-0 items-start py-3 pl-1">
               <div className="flex flex-col gap-1 rounded-lg border border-border-soft bg-surface-panel/95 p-1 shadow-panel">
-                {openExclusiveRightPanels.map((panel) => {
-                  const PanelIcon = EXCLUSIVE_RIGHT_PANEL_ICONS[panel]
-                  const label = getRightPanelLabel(panel)
-                  const isActive = renderedExclusiveRightPanel === panel
+                {openExclusiveRightPanels.length > 1 &&
+                  openExclusiveRightPanels.map((panel) => {
+                    const PanelIcon = EXCLUSIVE_RIGHT_PANEL_ICONS[panel]
+                    const label = getRightPanelLabel(panel)
+                    const isActive = renderedExclusiveRightPanel === panel
 
-                  return (
-                    <IconTip key={panel} label={label} side="left">
-                      <button
-                        type="button"
-                        aria-label={label}
-                        aria-pressed={isActive}
-                        onClick={() => setActiveExclusiveRightPanel(panel)}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
-                          isActive
-                            ? "bg-secondary text-foreground shadow-sm"
-                            : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
-                        )}
-                      >
-                        <PanelIcon className="h-4 w-4" />
-                      </button>
-                    </IconTip>
-                  )
-                })}
+                    return (
+                      <IconTip key={panel} label={label} side="left">
+                        <button
+                          type="button"
+                          aria-label={label}
+                          aria-pressed={isActive}
+                          onClick={() => {
+                            setActiveExclusiveRightPanel(panel)
+                            setRightPanelCollapsed(false)
+                          }}
+                          className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
+                            isActive
+                              ? "bg-secondary text-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                          )}
+                        >
+                          <PanelIcon className="h-4 w-4" />
+                        </button>
+                      </IconTip>
+                    )
+                  })}
+                {openExclusiveRightPanels.length > 1 && (
+                  <div className="mx-1 my-0.5 h-px bg-border-soft" />
+                )}
+                <IconTip label={rightPanelToggleLabel} side="left">
+                  <button
+                    type="button"
+                    aria-label={rightPanelToggleLabel}
+                    aria-expanded={!rightPanelCollapsed}
+                    onClick={() => setRightPanelCollapsed((collapsed) => !collapsed)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                  >
+                    {rightPanelCollapsed ? (
+                      <ChevronLeft className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </button>
+                </IconTip>
               </div>
             </div>
           )}
 
           {/* Diff panel (right side, selected from the shared panel rail) */}
-          {renderedExclusiveRightPanel === "diff" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "diff" && (
             <RightPanelShell
               width={rightPanelWidth}
               onWidthChange={setRightPanelWidth}
@@ -1914,7 +1951,7 @@ export default function ChatScreen({
           )}
 
           {/* Plan workspace (right side, integrated under the shared title bar) */}
-          {renderedExclusiveRightPanel === "plan" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "plan" && (
             <RightPanelShell
               width={rightPanelWidth}
               onWidthChange={setRightPanelWidth}
@@ -1942,12 +1979,14 @@ export default function ChatScreen({
             onPanelWidthChange={setRightPanelWidth}
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
-            visible={renderedExclusiveRightPanel === "canvas"}
+            visible={
+              shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
+            }
           />
 
           {/* Browser live-mirror panel — open on first `browser:frame` push,
               close-only by user, then switchable from the shared panel rail. */}
-          {renderedExclusiveRightPanel === "browser" && (
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
@@ -1958,10 +1997,10 @@ export default function ChatScreen({
             />
           )}
 
-          {/* Mac Control live-mirror panel — open on first `mac_control:frame`
-              push. The panel remains read-only while `wait`/target matching
-              lands in Phase 2C. */}
-          {renderedExclusiveRightPanel === "mac-control" && (
+          {/* Mac Control live-mirror panel — opens on tool-produced managed
+              screenshot frames; panel polling frames only refresh an already
+              open panel and must not re-open after a session switch. */}
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "mac-control" && (
             <MacControlPanel
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
@@ -1973,15 +2012,17 @@ export default function ChatScreen({
           )}
 
           {/* Team Panel */}
-          {renderedExclusiveRightPanel === "team" && activeTeamId && (
-            <TeamPanel
-              teamId={activeTeamId}
-              panelWidth={rightPanelWidth}
-              onPanelWidthChange={setRightPanelWidth}
-              onClose={() => setShowTeamPanel(false)}
-              onSwitchSession={session.handleSwitchSession}
-            />
-          )}
+          {shouldRenderRightPanelContent &&
+            renderedExclusiveRightPanel === "team" &&
+            activeTeamId && (
+              <TeamPanel
+                teamId={activeTeamId}
+                panelWidth={rightPanelWidth}
+                onPanelWidthChange={setRightPanelWidth}
+                onClose={() => setShowTeamPanel(false)}
+                onSwitchSession={session.handleSwitchSession}
+              />
+            )}
         </div>
       </div>
 

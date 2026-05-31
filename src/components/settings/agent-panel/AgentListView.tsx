@@ -44,7 +44,7 @@ function AgentCreateView({
       const config: AgentConfig = {
         name: name.trim() || trimmedId,
         description: null,
-        emoji: "🤖",
+        emoji: null,
         avatar: null,
         model: { primary: null, fallbacks: [] },
         personality: { ...DEFAULT_PERSONALITY },

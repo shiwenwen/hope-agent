@@ -6,6 +6,13 @@ export const CHAT_SIDEBAR_DEFAULT_WIDTH = 260
 export const CHAT_SIDEBAR_MIN_WIDTH = 220
 export const CHAT_SIDEBAR_MAX_WIDTH = 360
 
+export type SidebarDisplayMode = "compact" | "detailed"
+export const DEFAULT_SIDEBAR_DISPLAY_MODE: SidebarDisplayMode = "detailed"
+
+export function normalizeSidebarDisplayMode(value: unknown): SidebarDisplayMode {
+  return value === "compact" ? "compact" : DEFAULT_SIDEBAR_DISPLAY_MODE
+}
+
 export interface ChatSidebarProps {
   sessions: SessionMeta[]
   agents: AgentSummaryForSidebar[]
@@ -24,6 +31,8 @@ export interface ChatSidebarProps {
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onDeleteSession: (sessionId: string) => void
   onEditAgent?: (agentId: string) => void
+  onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
+  onReorderAgents?: (agentIds: string[]) => void
   onMarkAllRead?: () => void
   onRenameSession?: (sessionId: string, title: string) => void
   hasMoreSessions?: boolean

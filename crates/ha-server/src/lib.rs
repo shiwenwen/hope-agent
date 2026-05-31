@@ -118,6 +118,10 @@ fn build_router_with_cors(
         .route("/sessions/{id}", delete(routes::sessions::delete_session))
         .route("/sessions/{id}", patch(routes::sessions::rename_session))
         .route(
+            "/sessions/{id}/pinned",
+            patch(routes::sessions::set_session_pinned),
+        )
+        .route(
             "/sessions/{id}/incognito",
             patch(routes::sessions::set_session_incognito),
         )
@@ -172,6 +176,10 @@ fn build_router_with_cors(
         .route(
             "/sessions/{id}/export",
             get(routes::sessions::export_session_http),
+        )
+        .route(
+            "/sessions/{id}/files/by-path",
+            get(routes::sessions::download_session_file_by_path),
         )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
@@ -503,6 +511,22 @@ fn build_router_with_cors(
             "/config/web-search",
             put(routes::config::save_web_search_config),
         )
+        .route(
+            "/config/issue-reporting",
+            get(routes::config::get_issue_reporting_config),
+        )
+        .route(
+            "/config/issue-reporting",
+            put(routes::config::save_issue_reporting_config),
+        )
+        .route(
+            "/config/issue-reporting/token",
+            put(routes::config::save_issue_reporting_token),
+        )
+        .route(
+            "/config/issue-reporting/test",
+            post(routes::config::test_issue_reporting_connection),
+        )
         .route("/config/proxy", get(routes::config::get_proxy_config))
         .route("/config/proxy", put(routes::config::save_proxy_config))
         .route(
@@ -597,8 +621,16 @@ fn build_router_with_cors(
             get(routes::config::get_approval_timeout),
         )
         .route(
+            "/config/approval-timeout-enabled",
+            get(routes::config::get_approval_timeout_enabled),
+        )
+        .route(
             "/config/approval-timeout",
             post(routes::config::set_approval_timeout),
+        )
+        .route(
+            "/config/approval-timeout-enabled",
+            post(routes::config::set_approval_timeout_enabled),
         )
         .route(
             "/config/approval-timeout-action",
@@ -631,8 +663,16 @@ fn build_router_with_cors(
             get(routes::config::get_ask_user_question_timeout),
         )
         .route(
+            "/config/ask-user-question-timeout-enabled",
+            get(routes::config::get_ask_user_question_timeout_enabled),
+        )
+        .route(
             "/config/ask-user-question-timeout",
             post(routes::config::set_ask_user_question_timeout),
+        )
+        .route(
+            "/config/ask-user-question-timeout-enabled",
+            post(routes::config::set_ask_user_question_timeout_enabled),
         )
         .route("/config/server", get(routes::config::get_server_config))
         .route("/config/server", put(routes::config::save_server_config))
@@ -770,6 +810,14 @@ fn build_router_with_cors(
             post(routes::config::set_ui_effects_enabled),
         )
         .route(
+            "/config/sidebar-display-mode",
+            get(routes::config::get_sidebar_display_mode),
+        )
+        .route(
+            "/config/sidebar-display-mode",
+            post(routes::config::set_sidebar_display_mode),
+        )
+        .route(
             "/config/tool-call-narration",
             get(routes::config::get_tool_call_narration_enabled),
         )
@@ -787,6 +835,7 @@ fn build_router_with_cors(
         )
         // Agents
         .route("/agents", get(routes::agents::list_agents))
+        .route("/agents/reorder", post(routes::agents::reorder_agents))
         .route("/agents/template", get(routes::agents::get_agent_template))
         .route("/agents/initialize", post(routes::agents::initialize_agent))
         .route(

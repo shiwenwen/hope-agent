@@ -49,11 +49,15 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // Reuse the global ask_user timeout so an unattended dialog (user away,
-    // client offline) doesn't pin the tool round indefinitely. On timeout we
-    // synthesize "no" — the conservative outcome is to keep the user in
-    // normal mode and let the model continue without planning.
-    let timeout_secs = crate::config::cached_config().ask_user_question_timeout_secs;
+    // Reuse the global ask_user timeout only when auto-expiry is enabled.
+    // On timeout we synthesize "no" — the conservative outcome is to keep the
+    // user in normal mode and let the model continue without planning.
+    let cfg = crate::config::cached_config();
+    let timeout_secs = if cfg.ask_user_question_timeout_enabled {
+        cfg.ask_user_question_timeout_secs
+    } else {
+        0
+    };
     let timeout_at = if timeout_secs > 0 {
         let now_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -150,6 +154,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 ask_user::cancel_pending_ask_user_question(&request_id).await;
                 let _ = ask_user::mark_group_answered(&request_id);
                 crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+                ask_user::emit_ask_user_timed_out(
+                    &request_id,
+                    sid,
+                    timeout_secs,
+                    true,
+                    Some("Enter Plan Mode?".to_string()),
+                );
                 app_warn!(
                     "plan",
                     "enter_plan_mode",

@@ -443,10 +443,14 @@ mod tests {
             vec![
                 "status",
                 "permissions",
+                "diagnostics",
                 "snapshot",
+                "visual",
                 "elements",
                 "wait",
                 "apps",
+                "dock",
+                "spaces",
                 "windows",
                 "act",
                 "menu",
@@ -462,17 +466,23 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
+        assert!(ops.contains(&"summary"));
+        assert!(ops.contains(&"export"));
         assert!(ops.contains(&"find"));
         assert!(ops.contains(&"dry_run"));
+        assert!(ops.contains(&"perform_action"));
         assert!(ops.contains(&"click"));
         assert!(ops.contains(&"click_point"));
+        assert!(ops.contains(&"move_cursor"));
         assert!(ops.contains(&"quit"));
         assert!(ops.contains(&"close"));
         assert!(ops.contains(&"double_click"));
         assert!(ops.contains(&"right_click"));
         assert!(ops.contains(&"type"));
         assert!(ops.contains(&"paste"));
+        assert!(ops.contains(&"press"));
         assert!(ops.contains(&"drag"));
+        assert!(ops.contains(&"swipe"));
         assert!(ops.contains(&"get"));
         assert!(ops.contains(&"set"));
         assert!(ops.contains(&"clear"));

@@ -323,6 +323,22 @@ export function usePlanMode(
     return getTransport().listen("ask_user_request", handler)
   }, [currentSessionId])
 
+  // Mirror backend timeout cleanup locally so expired questions no longer
+  // accept responses in the active chat UI.
+  useEffect(() => {
+    return getTransport().listen("ask_user_timed_out", (raw) => {
+      try {
+        const payload = parsePayload<{ requestId?: string; sessionId?: string }>(raw)
+        if (payload.sessionId !== currentSessionId) return
+        setPendingQuestionGroup((prev) =>
+          prev?.requestId === payload.requestId ? null : prev,
+        )
+      } catch {
+        // ignore parse errors
+      }
+    })
+  }, [currentSessionId])
+
   // Listen for plan_subagent_status events (plan sub-agent running/completed)
   useEffect(() => {
     return getTransport().listen("plan_subagent_status", (raw) => {

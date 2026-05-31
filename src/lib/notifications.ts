@@ -9,6 +9,7 @@ import { isTauriMode, parsePayload } from "@/lib/transport"
 
 export interface NotificationConfig {
   enabled: boolean
+  showChatContent?: boolean
 }
 
 let cachedConfig: NotificationConfig | null = null

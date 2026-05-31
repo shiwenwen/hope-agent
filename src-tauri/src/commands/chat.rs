@@ -7,7 +7,6 @@ use crate::session::{self, SessionDB};
 use crate::tools;
 use crate::truncate_utf8;
 use crate::AppState;
-use anyhow::Context;
 use ha_core::{app_error, app_info, app_warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -304,95 +303,8 @@ pub async fn chat(
         }
     };
 
-    // Build attachments metadata from file paths (files already saved by save_attachment)
-    let attachments_meta = if !attachments.is_empty() {
-        // Ensure session attachments directory exists and move temp files if needed
-        let att_dir = crate::paths::attachments_dir(&sid)?;
-        std::fs::create_dir_all(&att_dir).context("Failed to create attachments dir")?;
-
-        let temp_dir = crate::paths::root_dir()
-            .map(|r| r.join("attachments").join("_temp"))
-            .unwrap_or_default();
-
-        let mut meta_list = Vec::new();
-        for att in attachments.iter_mut() {
-            // Images: have base64 data directly, save to disk for persistence
-            if let Some(ref b64_data) = att.data {
-                use base64::Engine;
-                let decoded = base64::engine::general_purpose::STANDARD
-                    .decode(b64_data)
-                    .unwrap_or_default();
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                let safe_name = att.name.replace(['/', '\\', ':'], "_");
-                let filename = format!("{}_{}", ts, safe_name);
-                let file_path = att_dir.join(&filename);
-                if let Err(e) = std::fs::write(&file_path, &decoded) {
-                    app_warn!(
-                        "app",
-                        "chat",
-                        "Failed to save image attachment {}: {}",
-                        att.name,
-                        e
-                    );
-                    continue;
-                }
-                meta_list.push(serde_json::json!({
-                    "name": att.name,
-                    "mime_type": att.mime_type,
-                    "size": decoded.len(),
-                    "path": file_path.to_string_lossy(),
-                }));
-                continue;
-            }
-
-            // Non-image files: have file_path, move from temp dir if needed
-            if let Some(ref fp) = att.file_path {
-                let src_path = std::path::Path::new(fp);
-
-                let final_path = if src_path.starts_with(&temp_dir) {
-                    if let Some(fname) = src_path.file_name() {
-                        let dest = att_dir.join(fname);
-                        if let Err(e) = std::fs::rename(src_path, &dest) {
-                            if let Err(e2) = std::fs::copy(src_path, &dest) {
-                                app_warn!(
-                                    "app",
-                                    "chat",
-                                    "Failed to move attachment {}: rename={}, copy={}",
-                                    att.name,
-                                    e,
-                                    e2
-                                );
-                                continue;
-                            }
-                            let _ = std::fs::remove_file(src_path);
-                        }
-                        dest
-                    } else {
-                        src_path.to_path_buf()
-                    }
-                } else {
-                    src_path.to_path_buf()
-                };
-
-                // Update the attachment's file_path to the final location
-                att.file_path = Some(final_path.to_string_lossy().to_string());
-
-                let size = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
-                meta_list.push(serde_json::json!({
-                    "name": att.name,
-                    "mime_type": att.mime_type,
-                    "size": size,
-                    "path": final_path.to_string_lossy(),
-                }));
-            }
-        }
-        Some(serde_json::to_string(&meta_list).unwrap_or_default())
-    } else {
-        None
-    };
+    let attachments_meta =
+        ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut attachments)?;
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)

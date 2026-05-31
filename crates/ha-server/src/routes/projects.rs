@@ -189,7 +189,7 @@ pub async fn list_project_sessions(
     Path(id): Path<String>,
     Query(q): Query<ListProjectSessionsQuery>,
 ) -> Result<Json<PaginatedSessions>, AppError> {
-    let (mut sessions, total) = ctx.session_db.list_sessions_paged(
+    let (mut sessions, total) = ctx.session_db.list_sessions_paged_for_sidebar(
         None,
         ProjectFilter::InProject(&id),
         q.limit,

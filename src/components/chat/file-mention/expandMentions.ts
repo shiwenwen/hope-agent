@@ -97,6 +97,7 @@ export function expandMentionsToAttachments(
     out.push({
       name: baseName,
       mime_type: inferMimeType(baseName),
+      source: "mention",
       file_path: abs,
     });
   }

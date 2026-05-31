@@ -89,6 +89,52 @@ pub async fn save_web_search_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Issue Reporting Config ──────────────────────────────────────
+
+/// `GET /api/config/issue-reporting` -- get issue reporting config and token status.
+pub async fn get_issue_reporting_config(
+) -> Result<Json<ha_core::issue_reporting::IssueReportingConfigStatus>, AppError> {
+    Ok(Json(ha_core::issue_reporting::get_config_status()))
+}
+
+/// `PUT /api/config/issue-reporting` -- save issue reporting config.
+pub async fn save_issue_reporting_config(
+    Json(body): Json<ConfigBody<ha_core::issue_reporting::IssueReportingConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("issue_reporting", "http"), |store| {
+        store.issue_reporting = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IssueReportingTokenBody {
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+/// `PUT /api/config/issue-reporting/token` -- save or clear the GitHub token.
+pub async fn save_issue_reporting_token(
+    Json(body): Json<IssueReportingTokenBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::issue_reporting::save_token(body.token)?;
+    Ok(Json(json!({
+        "saved": true,
+        "hasToken": ha_core::issue_reporting::has_token(),
+    })))
+}
+
+/// `POST /api/config/issue-reporting/test` -- test token reachability.
+pub async fn test_issue_reporting_connection(
+) -> Result<Json<ha_core::issue_reporting::IssueReportingTestResult>, AppError> {
+    let cfg = ha_core::config::cached_config().issue_reporting.clone();
+    let result = ha_core::issue_reporting::test_connection(&cfg)
+        .await
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(result))
+}
+
 // ── Proxy Config ────────────────────────────────────────────────
 
 /// `GET /api/config/proxy` -- get proxy config.
@@ -354,11 +400,32 @@ pub async fn get_approval_timeout() -> Result<Json<Value>, AppError> {
     Ok(Json(json!(store.permission.approval_timeout_secs)))
 }
 
+/// `GET /api/config/approval-timeout-enabled` -- whether approval wait auto-expiry is enabled.
+pub async fn get_approval_timeout_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.permission.approval_timeout_enabled)))
+}
+
 /// `POST /api/config/approval-timeout` -- set tool approval wait timeout (seconds).
 pub async fn set_approval_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
     let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
     ha_core::config::mutate_config(("approval_timeout", "http"), |store| {
         store.permission.approval_timeout_secs = seconds;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `POST /api/config/approval-timeout-enabled` -- enable/disable approval wait auto-expiry.
+pub async fn set_approval_timeout_enabled(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config(("approval_timeout_enabled", "http"), |store| {
+        store.permission.approval_timeout_enabled = enabled;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))
@@ -462,6 +529,12 @@ pub async fn get_ask_user_question_timeout() -> Result<Json<Value>, AppError> {
     Ok(Json(json!(store.ask_user_question_timeout_secs)))
 }
 
+/// `GET /api/config/ask-user-question-timeout-enabled` -- whether ask_user auto-expiry is enabled.
+pub async fn get_ask_user_question_timeout_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.ask_user_question_timeout_enabled)))
+}
+
 /// `POST /api/config/ask-user-question-timeout` -- set ask_user_question timeout (seconds).
 pub async fn set_ask_user_question_timeout(
     Json(body): Json<Value>,
@@ -469,6 +542,21 @@ pub async fn set_ask_user_question_timeout(
     let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(1800);
     ha_core::config::mutate_config(("ask_user_question_timeout", "http"), |store| {
         store.ask_user_question_timeout_secs = secs;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `POST /api/config/ask-user-question-timeout-enabled` -- enable/disable ask_user auto-expiry.
+pub async fn set_ask_user_question_timeout_enabled(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config(("ask_user_question_timeout_enabled", "http"), |store| {
+        store.ask_user_question_timeout_enabled = enabled;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))
@@ -898,6 +986,28 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
         .unwrap_or(true);
     ha_core::config::mutate_config(("ui_effects", "http"), |store| {
         store.ui_effects_enabled = enabled;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/sidebar-display-mode` -- get sidebar density mode.
+pub async fn get_sidebar_display_mode() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(ha_core::config::normalize_sidebar_ui_mode(
+        &store.sidebar_ui_mode,
+    ))))
+}
+
+/// `POST /api/config/sidebar-display-mode` -- set sidebar density mode.
+pub async fn set_sidebar_display_mode(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let mode = body
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or(ha_core::config::SIDEBAR_UI_MODE_DETAILED)
+        .to_string();
+    ha_core::config::mutate_config(("sidebar_ui_mode", "http"), |store| {
+        store.sidebar_ui_mode = ha_core::config::normalize_sidebar_ui_mode(&mode);
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))

@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest"
 import type { Message, SessionMessage } from "@/types/chat"
 import type { Transport } from "@/lib/transport"
 import { setTransport } from "@/lib/transport-provider"
-import { reloadAndMergeSessionMessages } from "./chatUtils"
+import { parseSessionMessages, reloadAndMergeSessionMessages } from "./chatUtils"
 
 function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
   return {
@@ -14,6 +14,110 @@ function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
     ...patch,
   }
 }
+
+describe("parseSessionMessages user attachments", () => {
+  test("restores image attachments from user attachments metadata", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 7,
+        role: "user",
+        content: "分析下这张图",
+        attachmentsMeta: JSON.stringify([
+          {
+            name: "lake.png",
+            mime_type: "image/png",
+            size: 1024,
+            path: "/Users/me/.hope-agent/attachments/s1/123_lake.png",
+          },
+        ]),
+      }),
+    ])
+
+    expect(parsed[0]).toMatchObject({
+      role: "user",
+      content: "分析下这张图",
+      attachments: [
+        {
+          name: "lake.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          kind: "image",
+          localPath: "/Users/me/.hope-agent/attachments/s1/123_lake.png",
+        },
+      ],
+    })
+  })
+
+  test("does not treat object-shaped metadata as user attachments", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 8,
+        role: "user",
+        content: "approve",
+        attachmentsMeta: JSON.stringify({ plan_trigger: true }),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toBeUndefined()
+    expect(parsed[0]).toMatchObject({ isPlanTrigger: true })
+  })
+
+  test("restores non-image user attachments as file attachments", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 9,
+        role: "user",
+        content: "看下这个文件",
+        attachmentsMeta: JSON.stringify([
+          {
+            name: "brief.pdf",
+            mime_type: "application/pdf",
+            size: 2048,
+            path: "/Users/me/.hope-agent/attachments/s1/456_brief.pdf",
+          },
+        ]),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toEqual([
+      {
+        name: "brief.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 2048,
+        kind: "file",
+        localPath: "/Users/me/.hope-agent/attachments/s1/456_brief.pdf",
+      },
+    ])
+  })
+
+  test("restores http-rewritten user attachments from url-only metadata", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 10,
+        role: "user",
+        content: "web 图片",
+        attachmentsMeta: JSON.stringify([
+          {
+            name: "web.png",
+            mime_type: "image/png",
+            size: 512,
+            url: "/api/attachments/s1/789_web.png?token=secret",
+          },
+        ]),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toEqual([
+      {
+        name: "web.png",
+        mimeType: "image/png",
+        sizeBytes: 512,
+        kind: "image",
+        url: "/api/attachments/s1/789_web.png?token=secret",
+      },
+    ])
+  })
+})
 
 describe("reloadAndMergeSessionMessages", () => {
   test("merges against latest cache after async DB load resolves", async () => {

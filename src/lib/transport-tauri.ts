@@ -77,6 +77,19 @@ export class TauriTransport implements Transport {
     await invoke("open_directory", { path });
   }
 
+  async downloadMedia(item: MediaItem): Promise<void> {
+    await this.openMedia(item);
+  }
+
+  async openFilePath(path: string): Promise<void> {
+    if (!path) return;
+    await invoke("open_directory", { path });
+  }
+
+  async downloadFilePath(path: string): Promise<void> {
+    await this.openFilePath(path);
+  }
+
   async revealMedia(item: MediaItem): Promise<void> {
     const path = this.localSourceFor(item);
     if (!path) return;

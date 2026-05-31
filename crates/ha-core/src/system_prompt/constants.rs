@@ -182,7 +182,7 @@ const TOOL_DESC_SEND_NOTIFICATION: &str = "\
 const TOOL_DESC_SUBAGENT: &str = "\
 - subagent: Spawn and manage sub-agents to delegate tasks.\n\
   - Actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all, spawn_and_wait\n\
-  - Sub-agents run asynchronously — results are auto-pushed when complete\n\
+  - Sub-agents run asynchronously — results are auto-pushed as `<subagent-result>` user messages when complete\n\
   - spawn_and_wait: spawn + wait up to foreground_timeout (default 30s, max 120s). If completes in time, returns result inline. Otherwise auto-backgrounds — result injected later\n\
   - Use steer to redirect a running sub-agent without killing it";
 
@@ -270,7 +270,7 @@ currently forced to true by the runtime so a free-form input is always rendered)
 (default false), template (scope/tech_choice/priority), header (≤12 char chip), timeout_secs, default_values\n\
   - Per option: value, label, description, recommended (mark the first recommended option with \
 '(Recommended)' in label), preview (markdown / image URL / mermaid source for visual comparison), previewKind\n\
-  - When timeout_secs elapses the tool auto-returns using default_values — useful for cron / background flows\n\
+  - timeout_secs/default_values only take effect when ask-user auto-timeout is enabled in settings\n\
   - Do NOT use for Plan Mode readiness ('is my plan ready?') — use submit_plan instead\n\
   - Do NOT use for tool approval ('should I run this command?') — the approval mechanism handles it";
 

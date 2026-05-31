@@ -50,6 +50,8 @@ pub struct ResolveContext<'a> {
     pub project_id: Option<&'a str>,
     /// Optional agent ID used for agent_home-scoped allowlist lookup.
     pub agent_id: Option<&'a str>,
+    /// Default path used to resolve relative AllowAlways path matchers.
+    pub default_path: Option<&'a str>,
     /// `true` if the tool is internal (per `ToolDefinition.internal`); these
     /// always bypass approval regardless of mode.
     pub is_internal_tool: bool,
@@ -158,12 +160,23 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
     if let Some(reason) = check_dangerous_command(ctx) {
         return Decision::Ask { reason };
     }
-    if let Some(reason) = check_mac_control_action(ctx) {
+    if let Some(reason) = check_mac_control_action(ctx).filter(AskReason::forbids_allow_always) {
         return Decision::Ask { reason };
     }
 
-    // AllowAlways file-backed scopes (project / session / agent_home / global)
-    // will be queried here once the GUI editor lands.
+    if super::allowlist::allows_tool_call(
+        ctx.tool_name,
+        ctx.args,
+        ctx.session_id,
+        ctx.project_id,
+        ctx.agent_id,
+        ctx.default_path,
+    ) {
+        return Decision::Allow;
+    }
+    if let Some(reason) = check_mac_control_action(ctx) {
+        return Decision::Ask { reason };
+    }
 
     match ctx.session_mode {
         SessionMode::Default => resolve_default_mode(ctx),
@@ -308,8 +321,9 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
 }
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    use super::rules::normalize_lexical;
+    use super::rules::resolve_path_with_default;
     let patterns = super::protected_paths::current_patterns();
+    let default_path = ctx.default_path.map(std::path::Path::new);
 
     // Standard arg-level path (read/write/edit/ls/grep/find — and the cwd of
     // exec/process/apply_patch). Lex-normalize after expand_tilde so a
@@ -317,7 +331,7 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     // `~/.ssh/id_rsa` before the prefix matcher runs — otherwise the prefix
     // mismatch ("…/Documents/../…" vs "…/.ssh") silently slips past.
     if let Some(path) = extract_path_arg(ctx.tool_name, ctx.args) {
-        let normalized = normalize_lexical(&path);
+        let normalized = resolve_path_with_default(&path, default_path);
         if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
             return Some(AskReason::ProtectedPath {
                 matched_path: matched,
@@ -332,7 +346,8 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     if ctx.tool_name == "exec" {
         if let Some(cmd) = ctx.args.get("command").and_then(|v| v.as_str()) {
             for token in path_like_tokens_in_command(cmd) {
-                if let Some(matched) = super::protected_paths::matches(&token, &patterns) {
+                let normalized = resolve_path_with_default(&token, default_path);
+                if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
                     return Some(AskReason::ProtectedPath {
                         matched_path: matched,
                     });
@@ -346,8 +361,9 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     // pull each declared path and check it against the protected list.
     if ctx.tool_name == "apply_patch" {
         if let Some(patch) = ctx.args.get("input").and_then(|v| v.as_str()) {
-            for path in paths_in_patch_directives(patch) {
-                if let Some(matched) = super::protected_paths::matches(&path, &patterns) {
+            for path in super::rules::paths_in_patch_directives(patch) {
+                let normalized = resolve_path_with_default(&path, default_path);
+                if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
                     return Some(AskReason::ProtectedPath {
                         matched_path: matched,
                     });
@@ -397,30 +413,6 @@ fn path_like_tokens_in_command(command: &str) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-/// Pull each `*** Add File: ` / `*** Delete File: ` / `*** Update File: ` /
-/// `*** Move to: ` directive target out of an `apply_patch` body. Note the
-/// asymmetric naming — the parser in `tools::apply_patch` uses `*** Move to: `
-/// (not `Move File:`); the patch protected-path scan must match the same
-/// strings or rename targets slip through unchecked.
-fn paths_in_patch_directives(patch: &str) -> Vec<std::path::PathBuf> {
-    use crate::permission::rules::{expand_tilde, normalize_lexical};
-    let mut out = Vec::new();
-    for line in patch.lines() {
-        let trimmed = line.trim_start();
-        for prefix in [
-            "*** Add File: ",
-            "*** Delete File: ",
-            "*** Update File: ",
-            "*** Move to: ",
-        ] {
-            if let Some(path) = trimmed.strip_prefix(prefix) {
-                out.push(normalize_lexical(&expand_tilde(path.trim())));
-            }
-        }
-    }
-    out
-}
-
 fn check_dangerous_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     if ctx.tool_name != "exec" {
         return None;
@@ -456,21 +448,35 @@ fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let label = match (action, op) {
         ("apps", Some("activate")) => "apps.activate",
         ("apps", Some("launch")) => "apps.launch",
+        ("dock", Some("launch")) => "dock.launch",
+        ("dock", Some("hide")) => "dock.hide",
+        ("dock", Some("show")) => "dock.show",
+        ("dock", Some("menu")) => "dock.menu",
+        ("dock", Some("select_menu")) => "dock.select_menu",
+        ("spaces", Some("switch")) => "spaces.switch",
+        ("spaces", Some("move_window")) => "spaces.move_window",
         ("windows", Some("focus")) => "windows.focus",
         ("windows", Some("move")) => "windows.move",
         ("windows", Some("resize")) => "windows.resize",
         ("windows", Some("minimize")) => "windows.minimize",
         ("act", Some("click")) => "act.click",
         ("act", Some("click_point")) => "act.click_point",
+        ("act", Some("move_cursor")) => "act.move_cursor",
+        ("act", Some("perform_action")) => "act.perform_action",
         ("act", Some("double_click")) => "act.double_click",
         ("act", Some("right_click")) => "act.right_click",
         ("act", Some("type")) => "act.type",
         ("act", Some("paste")) => "act.paste",
         ("act", Some("set_value")) => "act.set_value",
         ("act", Some("hotkey")) => "act.hotkey",
+        ("act", Some("press")) => "act.press",
         ("act", Some("scroll")) => "act.scroll",
         ("act", Some("drag")) => "act.drag",
+        ("act", Some("swipe")) => "act.swipe",
         ("act", None) => "act.click",
+        ("dialog", Some("click")) => "dialog.click",
+        ("dialog", Some("input")) => "dialog.input",
+        ("dialog", Some("file")) => "dialog.file",
         ("dialog", Some("dismiss")) => "dialog.dismiss",
         ("menu", Some("click")) => "menu.click",
         ("clipboard", Some("get")) => "clipboard.get",
@@ -493,11 +499,30 @@ fn mac_control_dangerous_label(
         ("apps", Some("quit")) => Some("apps.quit"),
         ("windows", Some("close")) => Some("windows.close"),
         ("dialog", Some("accept")) => Some("dialog.accept"),
+        ("dialog", Some("click")) if mac_control_dialog_button_is_dangerous(args) => {
+            Some("dialog.click.dangerous")
+        }
+        ("dialog", Some("file")) if mac_control_dialog_button_is_dangerous(args) => {
+            Some("dialog.file.dangerous")
+        }
+        ("act", Some("perform_action")) if mac_control_ax_action_is_dangerous(args) => {
+            Some("act.perform_action.confirm")
+        }
         ("menu", Some("click")) if mac_control_menu_path_is_dangerous(args) => {
             Some("menu.click.dangerous")
         }
+        ("dock", Some("select_menu")) if mac_control_dock_menu_selection_is_dangerous(args) => {
+            Some("dock.select_menu.dangerous")
+        }
         _ => None,
     }
+}
+
+fn mac_control_ax_action_is_dangerous(args: &Value) -> bool {
+    args.get("axAction")
+        .and_then(|value| value.as_str())
+        .and_then(crate::mac_control::normalize_perform_ax_action)
+        .is_some_and(|action| action == "AXConfirm")
 }
 
 fn mac_control_menu_path_is_dangerous(args: &Value) -> bool {
@@ -507,6 +532,25 @@ fn mac_control_menu_path_is_dangerous(args: &Value) -> bool {
     path.iter()
         .filter_map(|value| value.as_str())
         .any(mac_control_text_is_dangerous)
+}
+
+fn mac_control_dialog_button_is_dangerous(args: &Value) -> bool {
+    ["buttonText", "button", "selectButton", "select"]
+        .iter()
+        .filter_map(|key| args.get(*key).and_then(|value| value.as_str()))
+        .any(mac_control_text_is_dangerous)
+}
+
+fn mac_control_dock_menu_selection_is_dangerous(args: &Value) -> bool {
+    if args
+        .get("menuItem")
+        .and_then(|value| value.as_str())
+        .is_some_and(mac_control_text_is_dangerous)
+    {
+        return true;
+    }
+
+    args.get("menuIndex").is_some() && args.get("menuItem").is_none()
 }
 
 fn mac_control_text_is_dangerous(value: &str) -> bool {
@@ -587,6 +631,7 @@ mod tests {
             session_id: None,
             project_id: None,
             agent_id: None,
+            default_path: Some("/tmp/project"),
             is_internal_tool: false,
             smart_config: None,
         }
@@ -809,15 +854,29 @@ mod tests {
             json!({"action": "windows", "op": "focus", "target": {"windowTitle": "Notes"}}),
             json!({"action": "act", "op": "click", "target": {"text": "OK"}}),
             json!({"action": "act", "op": "click_point", "x": 0, "y": 0}),
+            json!({"action": "act", "op": "move_cursor", "x": 0, "y": 0}),
+            json!({"action": "act", "op": "perform_action", "target": {"text": "More"}, "axAction": "AXShowMenu"}),
             json!({"action": "act", "op": "double_click", "target": {"text": "Open"}}),
             json!({"action": "act", "op": "right_click", "target": {"text": "Open"}}),
             json!({"action": "act", "op": "paste", "text": "hello"}),
+            json!({"action": "act", "op": "press", "key": "Enter"}),
             json!({"action": "act", "op": "drag", "target": {"text": "Open"}, "x": 200, "y": 200}),
+            json!({"action": "act", "op": "swipe", "x": 0, "y": 0, "deltaX": 100}),
+            json!({"action": "dialog", "op": "click", "buttonText": "OK"}),
+            json!({"action": "dialog", "op": "input", "text": "hello"}),
+            json!({"action": "dialog", "op": "file", "filePath": "/tmp", "selectButton": "Open"}),
             json!({"action": "dialog", "op": "dismiss"}),
             json!({"action": "menu", "op": "click", "path": ["File", "New"]}),
             json!({"action": "clipboard", "op": "get"}),
             json!({"action": "clipboard", "op": "set", "text": "hello"}),
             json!({"action": "clipboard", "op": "clear"}),
+            json!({"action": "dock", "op": "launch", "bundleId": "com.apple.TextEdit"}),
+            json!({"action": "dock", "op": "hide"}),
+            json!({"action": "dock", "op": "show"}),
+            json!({"action": "dock", "op": "menu", "bundleId": "com.apple.TextEdit"}),
+            json!({"action": "dock", "op": "select_menu", "bundleId": "com.apple.TextEdit", "menuItem": "Show in Finder"}),
+            json!({"action": "spaces", "op": "switch", "direction": "right"}),
+            json!({"action": "spaces", "op": "move_window", "windowId": "win_1", "spaceIndex": 2}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert!(matches!(
@@ -833,7 +892,17 @@ mod tests {
             json!({"action": "act", "op": "dry_run", "target": {"text": "Open"}}),
             json!({"action": "windows", "op": "list"}),
             json!({"action": "menu", "op": "list"}),
+            json!({"action": "menu", "op": "popover", "appHint": "Control Center"}),
             json!({"action": "dialog", "op": "inspect"}),
+            json!({"action": "dialog", "op": "list"}),
+            json!({"action": "diagnostics", "op": "summary"}),
+            json!({"action": "diagnostics", "op": "export"}),
+            json!({"action": "visual", "op": "observe"}),
+            json!({"action": "visual", "op": "point", "snapshotId": "macsnap_1", "x": 0, "y": 0}),
+            json!({"action": "visual", "op": "ocr", "snapshotId": "macsnap_1"}),
+            json!({"action": "visual", "op": "find_text", "snapshotId": "macsnap_1", "text": "Save"}),
+            json!({"action": "dock", "op": "list"}),
+            json!({"action": "spaces", "op": "list"}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert_eq!(resolve(&c), Decision::Allow);
@@ -848,7 +917,14 @@ mod tests {
             json!({"action": "apps", "op": "quit", "bundleId": "com.apple.TextEdit"}),
             json!({"action": "windows", "op": "close", "target": {"windowTitle": "Untitled"}}),
             json!({"action": "dialog", "op": "accept"}),
+            json!({"action": "dialog", "op": "click", "buttonText": "Don't Save"}),
+            json!({"action": "dialog", "op": "click", "button": "Delete"}),
+            json!({"action": "dialog", "op": "file", "selectButton": "Don't Save"}),
+            json!({"action": "act", "op": "perform_action", "target": {"text": "OK"}, "axAction": "AXConfirm"}),
+            json!({"action": "act", "op": "perform_action", "target": {"text": "OK"}, "axAction": "confirm"}),
             json!({"action": "menu", "op": "click", "path": ["File", "Move to Trash"]}),
+            json!({"action": "dock", "op": "select_menu", "bundleId": "com.apple.TextEdit", "menuItem": "Remove from Dock"}),
+            json!({"action": "dock", "op": "select_menu", "bundleId": "com.apple.TextEdit", "menuIndex": 0}),
         ] {
             let c = ctx("mac_control", &args, SessionMode::Default, &plan, &custom);
             assert!(matches!(
@@ -1027,6 +1103,37 @@ mod tests {
     }
 
     #[test]
+    fn relative_path_resolves_before_protected_path_check() {
+        let args = json!({"path": "id_rsa"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        c.default_path = Some("~/.ssh");
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath ask, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_patch_relative_directive_resolves_before_protected_path_check() {
+        let patch = "*** Begin Patch\n*** Update File: id_rsa\n@@ ...\n*** End Patch\n";
+        let args = json!({"input": patch});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("apply_patch", &args, SessionMode::Default, &plan, &custom);
+        c.default_path = Some("~/.ssh");
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath ask, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn internal_tools_skip_all_gates() {
         let args = json!({"path": "/tmp/foo"});
         let plan: Vec<String> = vec![];
@@ -1066,6 +1173,71 @@ mod tests {
         let custom: Vec<String> = vec![];
         let c = ctx("read", &args, SessionMode::Yolo, &plan, &custom);
         assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn allowalways_preempts_default_edit_layer() {
+        let args = json!({"path": "src/lib.rs"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        c.project_id = Some("project-allow");
+        c.default_path = Some("/tmp/project-allow");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            super::super::allowlist::clear_caches_for_tests();
+            super::super::allowlist::add_allow_always_for_call(
+                "write",
+                &args,
+                super::super::allowlist::GrantContext {
+                    session_id: c.session_id,
+                    project_id: c.project_id,
+                    agent_id: c.agent_id,
+                    default_path: c.default_path,
+                    home_dir: None,
+                },
+            )
+            .expect("persist allow grant");
+
+            assert_eq!(resolve(&c), Decision::Allow);
+            super::super::allowlist::clear_caches_for_tests();
+        });
+    }
+
+    #[test]
+    fn allowalways_preempts_non_dangerous_mac_control_action() {
+        let args = json!({"action": "act", "op": "click", "x": 1, "y": 2});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx(
+            crate::tools::TOOL_MAC_CONTROL,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        c.agent_id = Some("agent-allow");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            super::super::allowlist::clear_caches_for_tests();
+            super::super::allowlist::add_allow_always_for_call(
+                crate::tools::TOOL_MAC_CONTROL,
+                &args,
+                super::super::allowlist::GrantContext {
+                    session_id: c.session_id,
+                    project_id: c.project_id,
+                    agent_id: c.agent_id,
+                    default_path: c.default_path,
+                    home_dir: None,
+                },
+            )
+            .expect("persist allow grant");
+
+            assert_eq!(resolve(&c), Decision::Allow);
+            super::super::allowlist::clear_caches_for_tests();
+        });
     }
 
     #[test]

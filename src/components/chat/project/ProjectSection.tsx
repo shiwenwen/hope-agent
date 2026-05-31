@@ -39,6 +39,7 @@ import type {
   AgentSummaryForSidebar,
   SessionMeta,
 } from "@/types/chat"
+import type { SidebarDisplayMode } from "../sidebar/types"
 import SessionItem from "../sidebar/SessionItem"
 import SidebarSectionHeader from "../sidebar/SidebarSectionHeader"
 import ProjectIcon from "./ProjectIcon"
@@ -67,8 +68,10 @@ interface ProjectSectionProps {
   onCommitRename: () => void
   onCancelRename: () => void
   onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void
+  onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
+  displayMode: SidebarDisplayMode
 }
 
 const EXPANDED_STORAGE_KEY = "ha:project-expanded"
@@ -105,6 +108,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
     expanded,
     setExpanded,
     onAddProject,
+    displayMode,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
@@ -155,7 +159,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
   }, [sessions])
 
   return (
-    <div className="px-3 pt-3 pb-1">
+    <div className={cn("px-3 pb-1", displayMode === "compact" ? "pt-2" : "pt-3")}>
       <SidebarSectionHeader
         title={t("project.projects")}
         count={visibleProjects.length > 0 ? visibleProjects.length : undefined}
@@ -268,10 +272,12 @@ function ProjectGroup({
   onCommitRename,
   onCancelRename,
   onMoveSessionToProject,
+  onToggleSessionPinned,
   getAgentInfo,
   formatRelativeTime,
   projects,
   archivedView = false,
+  displayMode,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
   const currentSessionUnreadCount = useMemo(
@@ -307,6 +313,7 @@ function ProjectGroup({
           <div
             className={cn(
               "group/project flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 transition-colors text-left cursor-pointer",
+              displayMode === "compact" && "gap-1.5 py-1",
             )}
             onClick={handleToggleExpanded}
             role="button"
@@ -324,19 +331,23 @@ function ProjectGroup({
                 groupExpanded && "rotate-90",
               )}
             />
-            <div className="relative shrink-0">
-              <ProjectIcon project={project} size="sm" withColorChip />
-              {projectUnreadCount > 0 && (
-                <span
-                  className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
-                >
-                  {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
-                </span>
-              )}
-            </div>
+            {displayMode === "detailed" && (
+              <div className="relative shrink-0">
+                <ProjectIcon project={project} size="sm" withColorChip />
+                {projectUnreadCount > 0 && (
+                  <span
+                    className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
+                  >
+                    {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+                  </span>
+                )}
+              </div>
+            )}
 
             <div className="flex-1 min-w-0">
-              <div className="text-sm truncate text-foreground/90">{project.name}</div>
+              <div className={cn("truncate text-foreground/90", displayMode === "compact" ? "text-[12.5px]" : "text-sm")}>
+                {project.name}
+              </div>
             </div>
             {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
                 the two sections feel consistent. */}
@@ -376,6 +387,11 @@ function ProjectGroup({
                   <ArchiveRestore className="h-3.5 w-3.5" />
                 </button>
               </IconTip>
+            )}
+            {displayMode === "compact" && projectUnreadCount > 0 && (
+              <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums">
+                {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+              </span>
             )}
             {project.sessionCount > 0 && (
               <span
@@ -423,7 +439,12 @@ function ProjectGroup({
       </ContextMenu>
 
       {groupExpanded && (
-        <div className="pl-3 pr-1 mt-0.5 space-y-0.5">
+        <div
+          className={cn(
+            "pl-3 pr-1 mt-0.5",
+            displayMode === "compact" ? "space-y-1" : "space-y-0.5",
+          )}
+        >
           {projectSessions.length === 0 ? (
             archivedView ? (
               <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
@@ -458,8 +479,10 @@ function ProjectGroup({
                 onCancelRename={onCancelRename}
                 onMarkAllRead={onMarkAllRead}
                 onMoveToProject={onMoveSessionToProject}
+                onTogglePinned={onToggleSessionPinned}
                 getAgentInfo={getAgentInfo}
                 formatRelativeTime={formatRelativeTime}
+                displayMode={displayMode}
               />
             ))
           )}

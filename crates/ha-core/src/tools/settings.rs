@@ -45,6 +45,7 @@ fn risk_level(category: &str) -> &'static str {
         | "theme"
         | "language"
         | "ui_effects"
+        | "sidebar_ui"
         | "notification"
         | "startup_notification"
         | "canvas"
@@ -79,6 +80,7 @@ fn risk_level(category: &str) -> &'static str {
         | "tool_result_disk_threshold"
         | "ask_user_question_timeout"
         | "plan"
+        | "issue_reporting"
         | "skills_auto_review"
         | "recall_summary"
         | "tool_call_narration"
@@ -146,6 +148,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "smart_mode" => Some(
             "Affects every Smart-mode session: changing strategy / judgeModel / fallback alters which tool calls are auto-approved. JudgeModel-based strategies issue an extra side_query per approvable call (5s hard timeout, 60s TTL cache)."
+        ),
+        "issue_reporting" => Some(
+            "Controls the default GitHub repository and label mapping used by issue_report. The GitHub token is stored separately in the Settings UI; issue_report(action=\"create\") still asks the user before submitting."
         ),
         "mcp_global" => Some(
             "MCP subsystem master switch + concurrency / backoff caps. Flipping enabled=false disconnects every MCP server; loosening backoff caps can cause retry storms; deniedServers prevents users from re-adding listed server names."
@@ -400,6 +405,9 @@ fn read_category(category: &str) -> Result<Value> {
         "language" => Ok(json!({ "language": cfg.language })),
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
+        "sidebar_ui" => Ok(json!({
+            "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode)
+        })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
         "web_search" => Ok(redact_web_search_value(serde_json::to_value(
             &cfg.web_search,
@@ -416,6 +424,7 @@ fn read_category(category: &str) -> Result<Value> {
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
         "approval" => Ok(json!({
+            "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
             "approvalTimeoutAction": cfg.permission.approval_timeout_action,
         })),
@@ -456,6 +465,7 @@ fn read_category(category: &str) -> Result<Value> {
             "toolResultDiskThreshold": cfg.tool_result_disk_threshold,
         })),
         "ask_user_question_timeout" => Ok(json!({
+            "askUserQuestionTimeoutEnabled": cfg.ask_user_question_timeout_enabled,
             "askUserQuestionTimeoutSecs": cfg.ask_user_question_timeout_secs,
         })),
         "plan" => Ok(json!({
@@ -466,6 +476,10 @@ fn read_category(category: &str) -> Result<Value> {
         "recall_summary" => Ok(serde_json::to_value(&cfg.recall_summary)?),
         "tool_call_narration" => Ok(json!({
             "toolCallNarrationEnabled": cfg.tool_call_narration_enabled,
+        })),
+        "issue_reporting" => Ok(json!({
+            "config": cfg.issue_reporting,
+            "hasToken": crate::issue_reporting::has_token(),
         })),
         "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
         "local_llm_auto_maintenance" => Ok(serde_json::to_value(&cfg.local_llm)?),
@@ -534,11 +548,16 @@ fn get_all_overview() -> Result<String> {
         "theme": cfg.theme,
         "language": cfg.language,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
+        "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode),
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
+        "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
         "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
-        "notification": { "enabled": cfg.notification.enabled },
+        "notification": {
+            "enabled": cfg.notification.enabled,
+            "showChatContent": cfg.notification.show_chat_content,
+        },
         "proxy": {
             "mode": cfg.proxy.mode,
             "url": cfg.proxy.url,
@@ -551,6 +570,12 @@ fn get_all_overview() -> Result<String> {
         },
         "sessionTitle": cfg.session_title,
         "asyncTools": { "enabled": cfg.async_tools.enabled },
+        "issueReporting": {
+            "enabled": cfg.issue_reporting.enabled,
+            "owner": cfg.issue_reporting.owner,
+            "repo": cfg.issue_reporting.repo,
+            "hasToken": crate::issue_reporting::has_token(),
+        },
         "deferredTools": {
             "enabled": cfg.deferred_tools.enabled,
             "toolNames": cfg.deferred_tools.tool_names,
@@ -602,7 +627,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "notification", "startup_notification",
+            "user", "theme", "language", "ui_effects", "sidebar_ui", "notification", "startup_notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
@@ -612,7 +637,7 @@ fn get_all_overview() -> Result<String> {
             "mmr", "multimodal", "dreaming", "recap", "awareness", "web_fetch", "web_search",
             "deferred_tools", "async_tools", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
-            "skills_auto_review", "recall_summary", "tool_call_narration",
+            "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
             "teams", "im_auto_transcribe"
         ],
         "high": [
@@ -790,6 +815,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.ui_effects_enabled = v;
             }
         }
+        "sidebar_ui" => {
+            if let Some(v) = values.get("sidebarUiMode").and_then(|v| v.as_str()) {
+                store.sidebar_ui_mode = config::normalize_sidebar_ui_mode(v);
+            }
+        }
         "temperature" => {
             if let Some(v) = values.get("temperature") {
                 if v.is_null() {
@@ -808,6 +838,12 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
         }
         "approval" => {
+            if let Some(v) = values
+                .get("approvalTimeoutEnabled")
+                .and_then(|v| v.as_bool())
+            {
+                store.permission.approval_timeout_enabled = v;
+            }
             if let Some(v) = values.get("approvalTimeoutSecs").and_then(|v| v.as_u64()) {
                 store.permission.approval_timeout_secs = v;
             }
@@ -908,6 +944,12 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "ask_user_question_timeout" => {
             if let Some(v) = values
+                .get("askUserQuestionTimeoutEnabled")
+                .and_then(|v| v.as_bool())
+            {
+                store.ask_user_question_timeout_enabled = v;
+            }
+            if let Some(v) = values
                 .get("askUserQuestionTimeoutSecs")
                 .and_then(|v| v.as_u64())
             {
@@ -938,6 +980,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.tool_call_narration_enabled = v;
             }
         }
+        "issue_reporting" => merge_field(&mut store.issue_reporting, values)?,
         "smart_mode" => merge_field(&mut store.permission.smart, values)?,
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,

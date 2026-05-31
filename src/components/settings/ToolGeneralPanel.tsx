@@ -53,6 +53,8 @@ export default function ToolGeneralPanel() {
   const { t, i18n } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(300)
   const [savedTimeout, setSavedTimeout] = useState(300)
+  const [approvalTimeoutEnabled, setApprovalTimeoutEnabled] = useState(false)
+  const [savedApprovalTimeoutEnabled, setSavedApprovalTimeoutEnabled] = useState(false)
   const [approvalTimeout, setApprovalTimeout] = useState(300)
   const [savedApprovalTimeout, setSavedApprovalTimeout] = useState(300)
   const [approvalTimeoutAction, setApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
@@ -84,6 +86,10 @@ export default function ToolGeneralPanel() {
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
 
     // Load approval timeout
+    getTransport().call<boolean>("get_approval_timeout_enabled")
+      .then((v) => { if (!cancelled) { setApprovalTimeoutEnabled(v); setSavedApprovalTimeoutEnabled(v); } })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout enabled", e))
+
     getTransport().call<number>("get_approval_timeout")
       .then((v) => { if (!cancelled) { setApprovalTimeout(v); setSavedApprovalTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout", e))
@@ -154,6 +160,26 @@ export default function ToolGeneralPanel() {
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout", e)
     }
   }, [savedApprovalTimeout])
+
+  const saveApprovalTimeoutEnabled = useCallback(async (enabled: boolean) => {
+    try {
+      const nextTimeout = enabled && approvalTimeout <= 0 ? 300 : approvalTimeout
+      await Promise.all([
+        getTransport().call("set_approval_timeout_enabled", { enabled }),
+        nextTimeout !== approvalTimeout
+          ? getTransport().call("set_approval_timeout", { seconds: nextTimeout })
+          : Promise.resolve(),
+      ])
+      setSavedApprovalTimeoutEnabled(enabled)
+      if (nextTimeout !== approvalTimeout) {
+        setApprovalTimeout(nextTimeout)
+        setSavedApprovalTimeout(nextTimeout)
+      }
+    } catch (e) {
+      setApprovalTimeoutEnabled(savedApprovalTimeoutEnabled)
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout enabled", e)
+    }
+  }, [approvalTimeout, savedApprovalTimeoutEnabled])
 
   const saveApprovalTimeoutAction = useCallback(async (value: ApprovalTimeoutAction) => {
     try {
@@ -290,7 +316,14 @@ export default function ToolGeneralPanel() {
               <div className="text-sm font-medium">{t("settings.approvalTimeout")}</div>
               <div className="text-xs text-muted-foreground">{t("settings.approvalTimeoutDesc")}</div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={approvalTimeoutEnabled}
+                onCheckedChange={(checked) => {
+                  setApprovalTimeoutEnabled(checked)
+                  void saveApprovalTimeoutEnabled(checked)
+                }}
+              />
               <Input
                 type="number"
                 min={0}
@@ -302,6 +335,7 @@ export default function ToolGeneralPanel() {
                   setApprovalTimeout(clamped)
                   if (clamped !== savedApprovalTimeout) saveApprovalTimeout(clamped)
                 }}
+                disabled={!approvalTimeoutEnabled}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
@@ -319,6 +353,7 @@ export default function ToolGeneralPanel() {
                 setApprovalTimeoutAction(value)
                 void saveApprovalTimeoutAction(value)
               }}
+              disabled={!approvalTimeoutEnabled}
             >
               <SelectTrigger className="w-40 h-8 text-sm">
                 <SelectValue />

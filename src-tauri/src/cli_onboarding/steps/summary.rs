@@ -6,7 +6,7 @@
 use anyhow::Result;
 
 use ha_core::agent_loader::{load_agent, DEFAULT_AGENT_ID};
-use ha_core::config::cached_config;
+use ha_core::config::{cached_config, ApprovalTimeoutAction};
 use ha_core::user_config::load_user_config;
 
 use crate::cli_onboarding::prompt::{print_saved, println_step};
@@ -47,14 +47,19 @@ pub fn run(step: u32, total: u32, provider_done: bool) -> Result<()> {
 
     let personality_label = read_personality_label();
 
-    let approvals_on = cfg.permission.approval_timeout_secs > 0;
-    let safety_label = if approvals_on {
-        format!(
-            "Approvals on (timeout {}s)",
-            cfg.permission.approval_timeout_secs
-        )
+    let safety_label = if cfg.permission.approval_timeout_enabled {
+        match cfg.permission.approval_timeout_action {
+            ApprovalTimeoutAction::Deny => format!(
+                "Approval auto-timeout on (deny after {}s)",
+                cfg.permission.approval_timeout_secs
+            ),
+            ApprovalTimeoutAction::Proceed => format!(
+                "Approval auto-timeout on (proceed after {}s)",
+                cfg.permission.approval_timeout_secs
+            ),
+        }
     } else {
-        "Approvals off — tools auto-proceed".to_string()
+        "Approval auto-timeout off (waits for user response)".to_string()
     };
 
     let skills_label = format!("{} bundled skill(s) disabled", cfg.disabled_skills.len());

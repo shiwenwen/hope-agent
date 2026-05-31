@@ -193,12 +193,12 @@ flowchart TD
     C -->|是| D[返回 Error]
     C -->|否| E[create_session_id → request_id]
     E --> F[get_plan_owner_session_id<br/>路由到父 session]
-    F --> G[解析 effective_timeout_secs<br/>= max 每题 timeout, 全局默认]
+    F --> G[解析 effective_timeout_secs<br/>受全局开关控制]
     G --> H[构造 AskUserQuestionGroup]
     H --> I[persist_pending_group 写 DB]
     I --> J[register_ask_user_question 注册 oneshot]
     J --> K[EventBus emit ask_user_request]
-    K --> L{rx.await 带 timeout}
+    K --> L{rx.await<br/>可选 timeout}
     L -->|Answered| M[format_answers_for_llm]
     L -->|Cancelled| N[返回 cancelled 字符串]
     L -->|TimedOut| O[synthesize_default_answers]
@@ -216,9 +216,13 @@ flowchart TD
 2. **有效超时计算**（`ask_user_question.rs`）：
 
    ```rust
-   let global_default = crate::config::cached_config().ask_user_question_timeout_secs;
-   let per_q_max = questions.iter().filter_map(|q| q.timeout_secs).max().unwrap_or(0);
-   let effective_timeout_secs = if per_q_max > 0 { per_q_max } else { global_default };
+   let cfg = crate::config::cached_config();
+   let effective_timeout_secs = if cfg.ask_user_question_timeout_enabled {
+       let per_q_max = questions.iter().filter_map(|q| q.timeout_secs).max().unwrap_or(0);
+       if per_q_max > 0 { per_q_max } else { cfg.ask_user_question_timeout_secs }
+   } else {
+       0
+   };
    let timeout_at = if effective_timeout_secs > 0 {
        Some(now_secs + effective_timeout_secs)
    } else {
@@ -226,7 +230,7 @@ flowchart TD
    };
    ```
 
-   组级超时取**所有 per-question 超时的最大值**作为 wall-clock 门限；`timeout_at` 同时写入 DB，便于 UI 渲染倒计时和启动期扫描过期行。`0` 表示无限期等待。
+   全局 `ask_user_question_timeout_enabled=false` 时，所有 `timeout_secs` / `default_values` 都不触发自动超时；开启后，组级超时取**所有 per-question 超时的最大值**作为 wall-clock 门限，若未传则回退到全局默认。`timeout_at` 同时写入 DB，便于 UI 渲染倒计时和启动期扫描过期行。`0` 表示无限期等待。
 
 3. **持久化先于发射**（`ask_user_question.rs`）：`persist_pending_group` 在 `bus.emit` 之前调用，确保即使 emit 失败或进程立即崩溃，DB 也留有 pending 痕迹供下次启动识别并清理。
 
@@ -748,27 +752,33 @@ get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId
 **全局默认超时**（`crates/ha-core/src/config/mod.rs`）：
 
 ```rust
-/// Timeout in seconds for ask_user_question tool waiting for user response.
-/// Default: 1800 (30 minutes). 0 = no timeout (wait forever).
+/// Whether ask_user_question waits automatically expire.
+#[serde(default)]
+pub ask_user_question_timeout_enabled: bool,
+/// Timeout in seconds for ask_user_question when auto-expiry is enabled.
+/// Default duration: 1800 (30 minutes). 0 = no timeout (wait forever).
 #[serde(default = "default_ask_user_question_timeout")]
 pub ask_user_question_timeout_secs: u64,
 ```
 
-- 默认值：**1800 秒（30 分钟）**
-- `0` 表示无限等待（依赖 cancel 或手动答复）
+- 默认：**关闭自动超时**，即永远等待（依赖 cancel 或手动答复）
+- 开启后默认时长：**1800 秒（30 分钟）**
+- 时长 `0` 表示无限等待
 - 配置读写命令：
-  - Tauri：`get_ask_user_question_timeout` / `set_ask_user_question_timeout`（`commands/config.rs`）
-  - HTTP：`GET/POST /api/config/ask-user-question-timeout`（`routes/config.rs`）
+  - Tauri：`get_ask_user_question_timeout_enabled` / `set_ask_user_question_timeout_enabled` + `get_ask_user_question_timeout` / `set_ask_user_question_timeout`
+  - HTTP：`GET/POST /api/config/ask-user-question-timeout-enabled` + `GET/POST /api/config/ask-user-question-timeout`
 
 **优先级**（在 `ask_user_question.rs`）：
 
 ```
-max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 ask_user_question_timeout_secs
+ask_user_question_timeout_enabled
+  ? (max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 ask_user_question_timeout_secs)
+  : 0
 ```
 
-即**有任何一题指定了非零超时**，就以这组问题中最大的超时作为 group wall-clock。反之全部回退到全局默认。
+关闭全局开关时，模型传入的 `timeout_secs` 也会被忽略。开启后，**有任何一题指定了非零超时**，就以这组问题中最大的超时作为 group wall-clock；反之全部回退到全局默认。
 
-**与 approval_timeout 的关系**：两者独立，互不影响。`approval_timeout_secs` 控制工具审批等待，`ask_user_question_timeout_secs` 控制 `ask_user_question` 等待。默认值也不同（300 vs 1800），反映交互语义：审批应快速响应，而结构化问答可能需要用户更多思考时间。
+**与 approval_timeout 的关系**：两者独立，互不影响。`permission.approval_timeout_enabled` / `approval_timeout_secs` 控制工具审批等待，`ask_user_question_timeout_enabled` / `ask_user_question_timeout_secs` 控制 `ask_user_question` 等待。两者默认都关闭自动超时。
 
 **数据保留**：SQLite `ask_user_questions` 表的 answered 行自动保留 **7 天**（`app_init.rs` 的 `purge_old_answered_ask_user_groups(7)`），目前不可配置。
 

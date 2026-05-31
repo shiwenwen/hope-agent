@@ -6,22 +6,23 @@ use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 /// Tool for asking the user structured questions at any point in a conversation.
 ///
 /// Available in any conversation (not only Plan Mode). Supports rich
-/// markdown/image previews, per-question timeouts with default fall-backs,
-/// IM channel native buttons, and persistence across app restarts.
+/// markdown/image previews, optional per-question timeouts with default
+/// fall-backs, IM channel native buttons, and persistence across app restarts.
 pub fn get_ask_user_question_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_ASK_USER_QUESTION.into(),
-        description: "Ask the user one or more structured questions with multiple-choice options. \
+        description:
+            "Ask the user one or more structured questions with multiple-choice options. \
 Use this whenever you need to clarify requirements, pick between approaches, or confirm a \
 decision before continuing. Each question renders as an interactive UI in the desktop app, \
 as native buttons in IM channels that support them (Telegram, Slack, Feishu, QQ, Discord, \
 LINE, Google Chat), and as a text fallback (reply 1a/1b/2a) in the rest. \n\n\
 Guidelines: 1–4 questions per call, 2–4 options per question. Prefer single-select. Mark your \
 recommended choice as the first option with '(Recommended)' in the label. Use `preview` for \
-mockups, code comparisons or diagram snippets. Set `default_values` + `timeout_secs` when the \
-answer can safely fall back (useful for cron / background / IM async flows). Do NOT use this \
-tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
-            .into(),
+mockups, code comparisons or diagram snippets. Set `default_values` + `timeout_secs` only when \
+the answer can safely fall back; they take effect only if ask-user auto-timeout is enabled in \
+settings. Do NOT use this tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
+                .into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Interaction,
         },
@@ -82,12 +83,12 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
                             },
                             "timeout_secs": {
                                 "type": "integer",
-                                "description": "Per-question timeout in seconds. When exceeded, default_values are auto-applied. 0 or missing = use global default.",
+                                "description": "Per-question timeout in seconds. Only takes effect when ask-user auto-timeout is enabled in settings. When exceeded, default_values are auto-applied. 0 or missing = use global default.",
                                 "minimum": 0
                             },
                             "default_values": {
                                 "type": "array",
-                                "description": "Option values used automatically if the question times out. Each entry must be an existing option value, or a free-form custom string.",
+                                "description": "Option values used automatically if the question times out. Ignored unless ask-user auto-timeout is enabled. Each entry must be an existing option value, or a free-form custom string.",
                                 "items": { "type": "string" }
                             }
                         },

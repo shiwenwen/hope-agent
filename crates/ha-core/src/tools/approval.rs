@@ -220,12 +220,6 @@ fn load_allowlist() -> Result<Vec<String>> {
     }
 }
 
-async fn save_allowlist(list: &[String]) -> Result<()> {
-    let data = serde_json::to_string_pretty(list)?;
-    tokio::fs::write(allowlist_path(), data).await?;
-    Ok(())
-}
-
 /// Check if command is in the allowlist
 pub(crate) async fn is_command_allowed(command: &str) -> bool {
     let list = get_allowlist().lock().await;
@@ -234,30 +228,13 @@ pub(crate) async fn is_command_allowed(command: &str) -> bool {
         .any(|pattern| cmd_trimmed.starts_with(pattern) || cmd_trimmed == *pattern)
 }
 
-/// Add command prefix to allowlist
-pub(crate) async fn add_to_allowlist(command: &str) {
-    let mut list = get_allowlist().lock().await;
-    let prefix = extract_command_prefix(command);
-    if !list.contains(&prefix) {
-        list.push(prefix);
-        let _ = save_allowlist(&list).await;
-    }
-}
-
-/// Extract a meaningful command prefix for the allowlist
-fn extract_command_prefix(command: &str) -> String {
-    let trimmed = command.trim();
-    trimmed
-        .split_whitespace()
-        .next()
-        .unwrap_or(trimmed)
-        .to_string()
-}
-
 pub(crate) fn approval_timeout_secs() -> u64 {
-    crate::config::cached_config()
-        .permission
-        .approval_timeout_secs
+    let cfg = crate::config::cached_config();
+    if cfg.permission.approval_timeout_enabled {
+        cfg.permission.approval_timeout_secs
+    } else {
+        0
+    }
 }
 
 pub(crate) fn approval_timeout_action() -> crate::config::ApprovalTimeoutAction {
@@ -416,9 +393,8 @@ pub(crate) async fn check_and_request_approval(
             // "timed out" notification; cleanup is unconditional so cancel-
             // path and timeout-path stay symmetric.
             crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
-            // Notify subscribers (IM channel listener) so they can tell the
-            // user the approval expired. Desktop UI doesn't need this — the
-            // modal has its own countdown ring.
+            // Notify subscribers so IM and desktop clients can clear stale
+            // UI and tell the user the approval expired.
             if let Some(bus) = crate::globals::get_event_bus() {
                 bus.emit(
                     "approval_timed_out",

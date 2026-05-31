@@ -1205,86 +1205,89 @@ mod tests {
     use super::*;
     use crate::session::{ChatTurnInterruptReason, ChatTurnStatus, NewMessage};
 
-    fn temp_db() -> Arc<SessionDB> {
+    fn with_temp_data_dir<T>(f: impl FnOnce(Arc<SessionDB>) -> T) -> T {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("sessions.db");
-        // Leak tempdir for test lifetime so SQLite can keep the file open.
-        std::mem::forget(dir);
-        Arc::new(SessionDB::open(&path).expect("open session db"))
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", dir.path())], || {
+            let path = dir.path().join("sessions.db");
+            let db = Arc::new(SessionDB::open(&path).expect("open session db"));
+            f(db)
+        })
     }
 
     #[test]
     fn secondary_startup_recovery_does_not_mutate_shared_session_state() {
-        let db = temp_db();
-        let session = db
-            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, None)
-            .expect("create session");
-        let turn = db
-            .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
-            .expect("create turn");
-        let mut streaming = NewMessage::text_block("partial");
-        streaming.stream_status = Some("streaming".to_string());
-        db.append_message(&session.id, &streaming)
-            .expect("append streaming message");
+        with_temp_data_dir(|db| {
+            let session = db
+                .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, None)
+                .expect("create session");
+            let turn = db
+                .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
+                .expect("create turn");
+            let mut streaming = NewMessage::text_block("partial");
+            streaming.stream_status = Some("streaming".to_string());
+            db.append_message(&session.id, &streaming)
+                .expect("append streaming message");
 
-        recover_startup_session_state(&db, crate::runtime_lock::Tier::Secondary);
+            recover_startup_session_state(&db, crate::runtime_lock::Tier::Secondary);
 
-        let persisted_turn = db
-            .get_chat_turn(&turn.id)
-            .expect("load turn")
-            .expect("turn exists");
-        assert_eq!(persisted_turn.status, ChatTurnStatus::Running);
-        assert!(persisted_turn.interrupt_reason.is_none());
+            let persisted_turn = db
+                .get_chat_turn(&turn.id)
+                .expect("load turn")
+                .expect("turn exists");
+            assert_eq!(persisted_turn.status, ChatTurnStatus::Running);
+            assert!(persisted_turn.interrupt_reason.is_none());
 
-        let messages = db
-            .load_session_messages(&session.id)
-            .expect("load messages");
-        assert_eq!(messages[0].stream_status.as_deref(), Some("streaming"));
+            let messages = db
+                .load_session_messages(&session.id)
+                .expect("load messages");
+            assert_eq!(messages[0].stream_status.as_deref(), Some("streaming"));
+        });
     }
 
     #[test]
     fn primary_startup_recovery_marks_stale_state_and_clears_active_turns() {
-        let _lock = crate::chat_engine::active_turn::test_lock();
-        let db = temp_db();
-        let session = db
-            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, None)
-            .expect("create session");
-        let turn = db
-            .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
-            .expect("create turn");
-        let mut streaming = NewMessage::text_block("partial");
-        streaming.stream_status = Some("streaming".to_string());
-        db.append_message(&session.id, &streaming)
-            .expect("append streaming message");
+        with_temp_data_dir(|db| {
+            let _lock = crate::chat_engine::active_turn::test_lock();
+            let session = db
+                .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, None)
+                .expect("create session");
+            let turn = db
+                .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
+                .expect("create turn");
+            let mut streaming = NewMessage::text_block("partial");
+            streaming.stream_status = Some("streaming".to_string());
+            db.append_message(&session.id, &streaming)
+                .expect("append streaming message");
 
-        let _guard = crate::chat_engine::active_turn::try_acquire(
-            &session.id,
-            crate::chat_engine::stream_seq::ChatSource::Desktop,
-            turn.id.clone(),
-            Arc::new(AtomicBool::new(false)),
-        )
-        .expect("acquire active turn");
+            let _guard = crate::chat_engine::active_turn::try_acquire(
+                &session.id,
+                crate::chat_engine::stream_seq::ChatSource::Desktop,
+                turn.id.clone(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .expect("acquire active turn");
 
-        recover_startup_session_state(&db, crate::runtime_lock::Tier::Primary);
+            recover_startup_session_state(&db, crate::runtime_lock::Tier::Primary);
 
-        let persisted_turn = db
-            .get_chat_turn(&turn.id)
-            .expect("load turn")
-            .expect("turn exists");
-        assert_eq!(persisted_turn.status, ChatTurnStatus::Interrupted);
-        assert_eq!(
-            persisted_turn.interrupt_reason,
-            Some(ChatTurnInterruptReason::CrashRecovery)
-        );
+            let persisted_turn = db
+                .get_chat_turn(&turn.id)
+                .expect("load turn")
+                .expect("turn exists");
+            assert_eq!(persisted_turn.status, ChatTurnStatus::Interrupted);
+            assert_eq!(
+                persisted_turn.interrupt_reason,
+                Some(ChatTurnInterruptReason::CrashRecovery)
+            );
 
-        let messages = db
-            .load_session_messages(&session.id)
-            .expect("load messages");
-        assert_eq!(messages[0].stream_status.as_deref(), Some("orphaned"));
-        assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
+            let messages = db
+                .load_session_messages(&session.id)
+                .expect("load messages");
+            assert_eq!(messages[0].stream_status.as_deref(), Some("orphaned"));
+            assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
 
-        // Ensure the dropped guard cannot resurrect a cleared entry.
-        drop(_guard);
-        assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
+            // Ensure the dropped guard cannot resurrect a cleared entry.
+            drop(_guard);
+            assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
+        });
     }
 }

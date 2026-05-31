@@ -111,7 +111,7 @@ pub struct PlanMeta {
 
 | 工具 | 文件 | 作用 | 触发 |
 |---|---|---|---|
-| `enter_plan_mode` | [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) | 模型**建议**进入 plan mode（带可选 `reason` 参数）。复用 `ask_user_question` 底层基础设施触发 Yes/No dialog；用户接受才转 Planning state；用户拒绝则保持 Off + tool result 告知模型"用户决定不进 plan mode"。Guard 只拒 in-progress 状态（Planning/Review/Executing），允许 `Off` / `Completed` 走完整审批流程（Completed 是状态机允许的 re-entry 路径，让用户能在做完一个 plan 后基于上次 plan 重新规划）。等待用户响应复用 `AppConfig.ask_user_question_timeout_secs` 全局超时，超时按"Skip planning"默认处理（清 pending state + 返回超时 message）让模型继续直接做 | 模型建议 + 用户审批 |
+| `enter_plan_mode` | [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) | 模型**建议**进入 plan mode（带可选 `reason` 参数）。复用 `ask_user_question` 底层基础设施触发 Yes/No dialog；用户接受才转 Planning state；用户拒绝则保持 Off + tool result 告知模型"用户决定不进 plan mode"。Guard 只拒 in-progress 状态（Planning/Review/Executing），允许 `Off` / `Completed` 走完整审批流程（Completed 是状态机允许的 re-entry 路径，让用户能在做完一个 plan 后基于上次 plan 重新规划）。等待用户响应受 `AppConfig.ask_user_question_timeout_enabled` 控制：默认永不超时；开启后复用 `ask_user_question_timeout_secs`，超时按"Skip planning"默认处理（清 pending state + 返回超时 message）让模型继续直接做 | 模型建议 + 用户审批 |
 | `submit_plan` | [`tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs) | Planning 末尾写入 plan 文件 + 转 Review state | 模型自主 |
 | `ask_user_question` | [`tools/ask_user_question.rs`](../../crates/ha-core/src/tools/ask_user_question.rs) | 制定计划期间向用户结构化提问（澄清需求/方案选择） | Planning 期 |
 | `task_create` / `task_update` / `task_list` | [`tools/task.rs`](../../crates/ha-core/src/tools/task.rs) | 进度追踪（实施期唯一进度真相） | Executing 期 |
