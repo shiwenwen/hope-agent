@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "Çalışma alanı",
+    "sectionProgress": "İlerleme",
+    "sectionOutput": "Çıktı",
+    "sectionSources": "Kaynaklar",
+    "emptyProgress": "Henüz görev yok",
+    "emptyOutput": "Henüz dosyaya dokunulmadı",
+    "emptySources": "Henüz kaynak yok",
+    "openPanel": "Çalışma alanını aç",
+    "resizePanel": "Çalışma alanı panelini yeniden boyutlandır",
+    "sourceFromSearch": "Arama",
+    "action": {
+      "create": "Yeni",
+      "edit": "Düzenle",
+      "delete": "Sil",
+      "read": "Oku"
+    }
   }
 }

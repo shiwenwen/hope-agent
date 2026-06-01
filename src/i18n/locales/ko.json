@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "워크스페이스",
+    "sectionProgress": "진행",
+    "sectionOutput": "출력",
+    "sectionSources": "출처",
+    "emptyProgress": "아직 작업이 없습니다",
+    "emptyOutput": "아직 다룬 파일이 없습니다",
+    "emptySources": "아직 출처가 없습니다",
+    "openPanel": "워크스페이스 열기",
+    "resizePanel": "워크스페이스 패널 크기 조정",
+    "sourceFromSearch": "검색",
+    "action": {
+      "create": "생성",
+      "edit": "편집",
+      "delete": "삭제",
+      "read": "읽기"
+    }
   }
 }

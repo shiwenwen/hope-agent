@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "ワークスペース",
+    "sectionProgress": "進捗",
+    "sectionOutput": "出力",
+    "sectionSources": "ソース",
+    "emptyProgress": "タスクはまだありません",
+    "emptyOutput": "まだファイルに触れていません",
+    "emptySources": "ソースはまだありません",
+    "openPanel": "ワークスペースを開く",
+    "resizePanel": "ワークスペースパネルの幅を調整",
+    "sourceFromSearch": "検索",
+    "action": {
+      "create": "新規",
+      "edit": "編集",
+      "delete": "削除",
+      "read": "読み取り"
+    }
   }
 }

@@ -169,6 +169,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **异步 Tool 执行**：`exec` / `web_search` / `image_generate` 标 `async_capable=true`；落 `~/.hope-agent/async_jobs.db` + spool；`job_status` deferred 工具主动 poll/wait
 - **SSRF 统一策略**：出站 HTTP 必须走 `security::ssrf::check_url`；**新出站入口严禁自写 IP 校验**
 - **文件 Diff 元数据**：`write` / `edit` / `apply_patch` / `read` 通过 `ToolExecContext.metadata_sink` 旁路传出 JSON；持久化到 `messages.tool_metadata` 列；前端右侧 `DiffPanel` 渲染（与 PlanPanel / CanvasPanel 视觉互斥）
+- **工作台面板（Workspace）**：右侧互斥面板之一（`src/components/chat/workspace/`），三段聚合本会话任务进度 / 碰到的文件（读 + 改）/ URL 来源——`useSessionFileChanges` + `useSessionUrlSources` 扫 `messages` 聚合，纯展示不新增持久化。任务进度已从输入框上方移入此面板，输入框仅留 `WorkspaceStatusBar` 状态条；改写类文件点击复用 `DiffPanel`，只读类 reveal 文件浏览器。首次有内容自动展开、关闭后本会话不再自动弹（仿 BrowserPanel dismissed 模式）
 
 ### Hooks
 

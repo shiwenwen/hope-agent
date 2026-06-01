@@ -4631,5 +4631,23 @@
         "abort": "Abort upgrade"
       }
     }
+  },
+  "workspace": {
+    "panelTitle": "مساحة العمل",
+    "sectionProgress": "التقدم",
+    "sectionOutput": "المخرجات",
+    "sectionSources": "المصادر",
+    "emptyProgress": "لا توجد مهام بعد",
+    "emptyOutput": "لم يتم لمس أي ملفات بعد",
+    "emptySources": "لا توجد مصادر بعد",
+    "openPanel": "فتح مساحة العمل",
+    "resizePanel": "تغيير حجم لوحة مساحة العمل",
+    "sourceFromSearch": "بحث",
+    "action": {
+      "create": "جديد",
+      "edit": "تعديل",
+      "delete": "حذف",
+      "read": "قراءة"
+    }
   }
 }

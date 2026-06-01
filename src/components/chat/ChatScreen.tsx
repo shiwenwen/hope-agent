@@ -14,6 +14,7 @@ import {
   FolderTree,
   GitCompare,
   Globe,
+  LayoutDashboard,
   Monitor,
   MousePointer2,
   Users,
@@ -64,6 +65,10 @@ import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
+import WorkspacePanel from "./workspace/WorkspacePanel"
+import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionState"
+import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
+import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
@@ -101,7 +106,7 @@ interface ChatScreenProps {
   onChatInsertConsumed?: () => void
 }
 
-type ExclusiveRightPanel = "diff" | "plan" | "files" | "browser" | "mac-control" | "canvas" | "team"
+type ExclusiveRightPanel = "workspace" | "diff" | "plan" | "files" | "browser" | "mac-control" | "canvas" | "team"
 type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
 const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
@@ -112,9 +117,11 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "mac-control",
   "canvas",
   "team",
+  "workspace",
 ]
 
 const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
+  workspace: false,
   diff: false,
   plan: false,
   files: false,
@@ -125,6 +132,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
 }
 
 const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
+  workspace: LayoutDashboard,
   diff: GitCompare,
   plan: ClipboardList,
   files: FolderTree,
@@ -263,6 +271,11 @@ export default function ChatScreen({
 
   // Right side diff panel (write/edit/apply_patch metadata viewer)
   const diffPanel = useDiffPanel()
+
+  // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
+  // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
+  const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
+  const workspacePanelDismissedRef = useRef(false)
 
   // Browser live-mirror panel. Auto-opens on the **first** `browser:frame`
   // push of a session. After the user manually closes it, further frames in
@@ -1444,6 +1457,7 @@ export default function ChatScreen({
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
+      workspace: showWorkspacePanel,
       diff: isDiffPanelVisible,
       plan: shouldShowPlanPanel,
       files: showFilesPanel && !!effectiveWorkingDir,
@@ -1462,6 +1476,7 @@ export default function ChatScreen({
       showFilesPanel,
       showMacControlPanel,
       showTeamPanel,
+      showWorkspacePanel,
     ],
   )
   const openExclusiveRightPanels = useMemo(
@@ -1481,6 +1496,8 @@ export default function ChatScreen({
   const getRightPanelLabel = useCallback(
     (panel: ExclusiveRightPanel) => {
       switch (panel) {
+        case "workspace":
+          return t("workspace.panelTitle", "工作台")
         case "diff":
           return t("diffPanel.title", "Diff")
         case "plan":
@@ -1521,6 +1538,15 @@ export default function ChatScreen({
       nonce: revealQuoteNonce.current,
     })
   }, [])
+
+  // 打开并激活 Workspace 面板（状态条点击 / 重新打开）。
+  const openWorkspacePanel = useCallback(() => {
+    workspacePanelDismissedRef.current = false
+    setShowWorkspacePanel(true)
+    setActiveExclusiveRightPanel("workspace")
+    setRightPanelCollapsed(false)
+  }, [])
+
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
       setRightPanelCollapsed(false)
@@ -1556,8 +1582,10 @@ export default function ChatScreen({
   useEffect(() => {
     browserPanelDismissedRef.current = false
     macControlPanelDismissedRef.current = false
+    workspacePanelDismissedRef.current = false
     setShowBrowserPanel(false)
     setShowMacControlPanel(false)
+    setShowWorkspacePanel(false)
   }, [session.currentSessionId])
 
   // Auto-open the BrowserPanel only on the first `browser:frame` of a session
@@ -1591,6 +1619,28 @@ export default function ChatScreen({
       }
     }
   }, [])
+
+  // 首次有任务/文件/来源时自动展开 Workspace 面板一次；用户关闭后本会话不再
+  // 自动弹（仿 browser/mac-control 的 dismissed 模型）。用便宜的存在性检查(短路)，
+  // 完整聚合在 WorkspacePanel 内部、面板打开时才进行。
+  const hasWorkspaceContent =
+    (taskProgressSnapshot?.total ?? 0) > 0 ||
+    messagesHaveFileActivity(session.messages) ||
+    messagesHaveUrlActivity(session.messages)
+  // 依赖里带 currentSessionId：切到「已有内容」的旧会话时 hasWorkspaceContent 不发生
+  // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
+  // dismissedRef)，否则旧会话切回来面板不会自动展开。
+  useEffect(() => {
+    if (!hasWorkspaceContent || workspacePanelDismissedRef.current) return
+    setShowWorkspacePanel((prev) => (prev ? prev : true))
+  }, [hasWorkspaceContent, session.currentSessionId])
+
+  const workspaceTaskExecutionState = resolveWorkspaceTaskExecutionState(
+    session.currentSessionId
+      ? stream.executionStateBySession.get(session.currentSessionId)
+      : undefined,
+    session.loading,
+  )
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
@@ -1923,6 +1973,8 @@ export default function ChatScreen({
                     onExitPlanMode={planMode.exitPlanMode}
                     onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
                     taskProgressSnapshot={taskProgressSnapshot}
+                    onOpenWorkspace={openWorkspacePanel}
+                    workspaceHasContent={hasWorkspaceContent}
                     executionState={
                       session.currentSessionId
                         ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
@@ -2096,6 +2148,28 @@ export default function ChatScreen({
                 onSwitchSession={session.handleSwitchSession}
               />
             )}
+
+          {/* Workspace 面板 — 聚合任务进度 / 碰到的文件 / 引用来源 */}
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "workspace" && (
+            <RightPanelShell
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
+              resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
+              maxWidth={860}
+            >
+              <WorkspacePanel
+                taskSnapshot={taskProgressSnapshot}
+                taskExecutionState={workspaceTaskExecutionState}
+                messages={session.messages}
+                onOpenDiff={diffPanel.openDiff}
+                sessionId={session.currentSessionId}
+                onClose={() => {
+                  workspacePanelDismissedRef.current = true
+                  setShowWorkspacePanel(false)
+                }}
+              />
+            </RightPanelShell>
+          )}
         </div>
       </div>
 

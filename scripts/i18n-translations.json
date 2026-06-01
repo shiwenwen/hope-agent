@@ -909,6 +909,24 @@
       "extractedPreview": "抽出内容のプレビュー — 元のレイアウトはシステムで開いてください。",
       "quoteToChat": "チャットに引用",
       "quoted": "チャットに追加しました"
+    },
+    "workspace": {
+      "panelTitle": "ワークスペース",
+      "sectionProgress": "進捗",
+      "sectionOutput": "出力",
+      "sectionSources": "ソース",
+      "emptyProgress": "タスクはまだありません",
+      "emptyOutput": "まだファイルに触れていません",
+      "emptySources": "ソースはまだありません",
+      "openPanel": "ワークスペースを開く",
+      "resizePanel": "ワークスペースパネルの幅を調整",
+      "sourceFromSearch": "検索",
+      "action": {
+        "create": "新規",
+        "edit": "編集",
+        "delete": "削除",
+        "read": "読み取り"
+      }
     }
   },
   "ko": {
@@ -1821,6 +1839,24 @@
       "extractedPreview": "추출된 내용 미리보기 — 원본 레이아웃은 시스템에서 여세요.",
       "quoteToChat": "대화에 인용",
       "quoted": "대화에 추가됨"
+    },
+    "workspace": {
+      "panelTitle": "워크스페이스",
+      "sectionProgress": "진행",
+      "sectionOutput": "출력",
+      "sectionSources": "출처",
+      "emptyProgress": "아직 작업이 없습니다",
+      "emptyOutput": "아직 다룬 파일이 없습니다",
+      "emptySources": "아직 출처가 없습니다",
+      "openPanel": "워크스페이스 열기",
+      "resizePanel": "워크스페이스 패널 크기 조정",
+      "sourceFromSearch": "검색",
+      "action": {
+        "create": "생성",
+        "edit": "편집",
+        "delete": "삭제",
+        "read": "읽기"
+      }
     }
   },
   "zh-TW": {
@@ -3645,6 +3681,24 @@
       "extractedPreview": "Çıkarılan içerik önizlemesi — özgün düzen için sistemde açın.",
       "quoteToChat": "Sohbete alıntıla",
       "quoted": "Sohbete eklendi"
+    },
+    "workspace": {
+      "panelTitle": "Çalışma alanı",
+      "sectionProgress": "İlerleme",
+      "sectionOutput": "Çıktı",
+      "sectionSources": "Kaynaklar",
+      "emptyProgress": "Henüz görev yok",
+      "emptyOutput": "Henüz dosyaya dokunulmadı",
+      "emptySources": "Henüz kaynak yok",
+      "openPanel": "Çalışma alanını aç",
+      "resizePanel": "Çalışma alanı panelini yeniden boyutlandır",
+      "sourceFromSearch": "Arama",
+      "action": {
+        "create": "Yeni",
+        "edit": "Düzenle",
+        "delete": "Sil",
+        "read": "Oku"
+      }
     }
   },
   "vi": {
@@ -4557,6 +4611,24 @@
       "extractedPreview": "Xem trước nội dung trích xuất — mở trong hệ thống để xem bố cục gốc.",
       "quoteToChat": "Trích dẫn vào trò chuyện",
       "quoted": "Đã thêm vào trò chuyện"
+    },
+    "workspace": {
+      "panelTitle": "Không gian làm việc",
+      "sectionProgress": "Tiến độ",
+      "sectionOutput": "Đầu ra",
+      "sectionSources": "Nguồn",
+      "emptyProgress": "Chưa có nhiệm vụ",
+      "emptyOutput": "Chưa chạm vào tệp nào",
+      "emptySources": "Chưa có nguồn",
+      "openPanel": "Mở không gian làm việc",
+      "resizePanel": "Đổi kích thước bảng không gian làm việc",
+      "sourceFromSearch": "Tìm kiếm",
+      "action": {
+        "create": "Mới",
+        "edit": "Sửa",
+        "delete": "Xóa",
+        "read": "Đọc"
+      }
     }
   },
   "pt": {
@@ -5469,6 +5541,24 @@
       "extractedPreview": "Pré-visualização do conteúdo extraído — abra no sistema para o layout original.",
       "quoteToChat": "Citar no chat",
       "quoted": "Adicionado ao chat"
+    },
+    "workspace": {
+      "panelTitle": "Espaço de trabalho",
+      "sectionProgress": "Progresso",
+      "sectionOutput": "Saída",
+      "sectionSources": "Fontes",
+      "emptyProgress": "Ainda não há tarefas",
+      "emptyOutput": "Nenhum arquivo tocado ainda",
+      "emptySources": "Ainda não há fontes",
+      "openPanel": "Abrir espaço de trabalho",
+      "resizePanel": "Redimensionar painel do espaço de trabalho",
+      "sourceFromSearch": "Pesquisa",
+      "action": {
+        "create": "Novo",
+        "edit": "Editar",
+        "delete": "Excluir",
+        "read": "Ler"
+      }
     }
   },
   "ru": {
@@ -6381,6 +6471,24 @@
       "extractedPreview": "Предпросмотр извлечённого содержимого — откройте в системе для исходного оформления.",
       "quoteToChat": "Цитировать в чат",
       "quoted": "Добавлено в чат"
+    },
+    "workspace": {
+      "panelTitle": "Рабочая область",
+      "sectionProgress": "Прогресс",
+      "sectionOutput": "Вывод",
+      "sectionSources": "Источники",
+      "emptyProgress": "Пока нет задач",
+      "emptyOutput": "Файлы ещё не затронуты",
+      "emptySources": "Пока нет источников",
+      "openPanel": "Открыть рабочую область",
+      "resizePanel": "Изменить размер панели рабочей области",
+      "sourceFromSearch": "Поиск",
+      "action": {
+        "create": "Создать",
+        "edit": "Изменить",
+        "delete": "Удалить",
+        "read": "Чтение"
+      }
     }
   },
   "ar": {
@@ -7293,6 +7401,24 @@
       "extractedPreview": "معاينة المحتوى المستخرج — افتح في النظام لرؤية التنسيق الأصلي.",
       "quoteToChat": "اقتباس إلى المحادثة",
       "quoted": "تمت الإضافة إلى المحادثة"
+    },
+    "workspace": {
+      "panelTitle": "مساحة العمل",
+      "sectionProgress": "التقدم",
+      "sectionOutput": "المخرجات",
+      "sectionSources": "المصادر",
+      "emptyProgress": "لا توجد مهام بعد",
+      "emptyOutput": "لم يتم لمس أي ملفات بعد",
+      "emptySources": "لا توجد مصادر بعد",
+      "openPanel": "فتح مساحة العمل",
+      "resizePanel": "تغيير حجم لوحة مساحة العمل",
+      "sourceFromSearch": "بحث",
+      "action": {
+        "create": "جديد",
+        "edit": "تعديل",
+        "delete": "حذف",
+        "read": "قراءة"
+      }
     }
   },
   "es": {
@@ -8205,6 +8331,24 @@
       "extractedPreview": "Vista previa del contenido extraído — ábrelo en el sistema para el diseño original.",
       "quoteToChat": "Citar en el chat",
       "quoted": "Añadido al chat"
+    },
+    "workspace": {
+      "panelTitle": "Espacio de trabajo",
+      "sectionProgress": "Progreso",
+      "sectionOutput": "Salida",
+      "sectionSources": "Fuentes",
+      "emptyProgress": "Aún no hay tareas",
+      "emptyOutput": "Aún no se han tocado archivos",
+      "emptySources": "Aún no hay fuentes",
+      "openPanel": "Abrir espacio de trabajo",
+      "resizePanel": "Redimensionar panel del espacio de trabajo",
+      "sourceFromSearch": "Búsqueda",
+      "action": {
+        "create": "Nuevo",
+        "edit": "Editar",
+        "delete": "Eliminar",
+        "read": "Leer"
+      }
     }
   },
   "ms": {
@@ -9117,6 +9261,24 @@
       "extractedPreview": "Pratonton kandungan diekstrak — buka dalam sistem untuk susun atur asal.",
       "quoteToChat": "Petik ke sembang",
       "quoted": "Ditambah ke sembang"
+    },
+    "workspace": {
+      "panelTitle": "Ruang kerja",
+      "sectionProgress": "Kemajuan",
+      "sectionOutput": "Output",
+      "sectionSources": "Sumber",
+      "emptyProgress": "Belum ada tugas",
+      "emptyOutput": "Belum ada fail disentuh",
+      "emptySources": "Belum ada sumber",
+      "openPanel": "Buka ruang kerja",
+      "resizePanel": "Ubah saiz panel ruang kerja",
+      "sourceFromSearch": "Carian",
+      "action": {
+        "create": "Baharu",
+        "edit": "Sunting",
+        "delete": "Padam",
+        "read": "Baca"
+      }
     }
   },
   "zh": {
