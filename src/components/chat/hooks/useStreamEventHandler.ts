@@ -19,9 +19,16 @@ export interface StreamEventHandlerDeps {
 export interface StreamDeltaBuffers {
   pending: Map<string, { text: string; thinking: string }>
   rafs: Map<string, number>
+  lastFlushAt: Map<string, number>
 }
 
 const LEGACY_STREAM_ID = "__legacy__"
+
+// 流式 flush 节流：把每帧（≈60fps）flush 降到 ~30fps。每次 flush 都触发末块
+// markdown re-lex + Shiki 重高亮 + React reconcile，长内容下这是主成本之一。
+// char fadeIn 动画在视觉上补帧，掉到 30fps 几乎无感，CPU 直接减半。尾部因
+// stream_end 抢跑被丢的 delta 由 `mergeMessagesByDbId` 的 DB 终态重对账补回。
+const FLUSH_MIN_INTERVAL_MS = 33
 
 export function streamCursorKey(sessionId: string, streamId?: string | null): string {
   return `${sessionId}\u0000${streamId || LEGACY_STREAM_ID}`
@@ -41,6 +48,7 @@ export function createStreamDeltaBuffers(): StreamDeltaBuffers {
   return {
     pending: new Map(),
     rafs: new Map(),
+    lastFlushAt: new Map(),
   }
 }
 
@@ -55,6 +63,7 @@ export function discardPendingStreamDeltas(
   }
   state.rafs.delete(sid)
   state.pending.delete(sid)
+  state.lastFlushAt.delete(sid)
 }
 
 export function discardAllPendingStreamDeltas(
@@ -66,6 +75,7 @@ export function discardAllPendingStreamDeltas(
   }
   state.rafs.clear()
   state.pending.clear()
+  state.lastFlushAt.clear()
 }
 
 function pendingDeltasFor(
@@ -107,6 +117,7 @@ export function flushPendingStreamDeltas(
 ): void {
   const pending = takePendingStreamDeltas(sid, deps.deltaBuffersRef, cancelScheduled)
   if (!pending) return
+  deps.deltaBuffersRef.current.lastFlushAt.set(sid, Date.now())
 
   const textChunk = pending.text
   const thinkingChunk = pending.thinking
@@ -185,7 +196,16 @@ function schedulePendingStreamFlush(sid: string, deps: StreamEventHandlerDeps): 
   const state = deps.deltaBuffersRef.current
   if (state.rafs.has(sid)) return
   const raf = requestAnimationFrame(() => {
-    deps.deltaBuffersRef.current.rafs.delete(sid)
+    const s = deps.deltaBuffersRef.current
+    s.rafs.delete(sid)
+    // Throttle to ~30fps: if the previous flush was < FLUSH_MIN_INTERVAL_MS ago,
+    // wait one more frame instead of flushing now. Pending deltas keep
+    // accumulating in the buffer, so nothing is lost — just coalesced.
+    const last = s.lastFlushAt.get(sid) ?? 0
+    if (Date.now() - last < FLUSH_MIN_INTERVAL_MS) {
+      schedulePendingStreamFlush(sid, deps)
+      return
+    }
     flushPendingStreamDeltas(sid, deps, false)
   })
   state.rafs.set(sid, raf)
