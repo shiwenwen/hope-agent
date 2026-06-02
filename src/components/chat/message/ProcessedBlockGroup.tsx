@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertCircle, CheckCircle2, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 
 interface ProcessedBlockGroupProps {
   children: ReactNode
@@ -42,11 +43,11 @@ export default function ProcessedBlockGroup({
           </span>
         )}
       </button>
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="ml-3 border-l border-border/40 pl-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
           {children}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }

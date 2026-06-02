@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { cn } from "@/lib/utils"
+import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
@@ -208,11 +209,11 @@ function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => strin
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="w-full px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/15 text-xs text-foreground/80 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150">
           {msg.content}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }
@@ -304,93 +305,96 @@ function MessageBubbleInner({
           <Info className="h-3.5 w-3.5" />
         </button>
       </IconTip>
-      {detailsIndex === index && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-lg">
-          <div className="space-y-1.5 text-xs">
-            {msg.model && (
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                  {t("chat.statusModel")}
+      <AnimatedPresenceBox
+        open={detailsIndex === index}
+        className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] origin-bottom-left rounded-lg border border-border bg-popover p-2.5 shadow-lg"
+        enterClassName="translate-y-0 scale-100 opacity-100"
+        exitClassName="translate-y-1 scale-[0.98] opacity-0 pointer-events-none"
+      >
+        <div className="space-y-1.5 text-xs">
+          {msg.model && (
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+              <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                {t("chat.statusModel")}
+              </span>
+              <IconTip label={msg.model}>
+                <span className="block truncate text-right font-medium text-foreground">
+                  {msg.model}
                 </span>
-                <IconTip label={msg.model}>
-                  <span className="block truncate text-right font-medium text-foreground">
-                    {msg.model}
-                  </span>
-                </IconTip>
-              </div>
-            )}
-            {msg.model && msg.usage?.inputTokens != null && (
-              <div className="border-t border-border" />
-            )}
-            {(() => {
-              const inputTokens = msg.usage?.inputTokens
-              const lastInputTokens = msg.usage?.lastInputTokens
-              const showLastInput =
-                inputTokens != null &&
-                lastInputTokens != null &&
-                lastInputTokens !== inputTokens
-              if (inputTokens == null) return null
-              return (
-                <>
-                  <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                    <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                      {showLastInput
-                        ? t("chat.inputTokensCumulative")
-                        : t("chat.inputTokens")}
-                    </span>
-                    <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                      {formatTokens(inputTokens)}
-                    </span>
-                  </div>
-                  {showLastInput && lastInputTokens != null && (
-                    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                      <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                        {t("chat.lastRoundInputTokens")}
-                      </span>
-                      <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                        {formatTokens(lastInputTokens)}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )
-            })()}
-            {msg.usage?.outputTokens != null && (
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                  {t("chat.outputTokens")}
-                </span>
-                <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                  {formatTokens(msg.usage.outputTokens)}
-                </span>
-              </div>
-            )}
-            {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+              </IconTip>
+            </div>
+          )}
+          {msg.model && msg.usage?.inputTokens != null && (
+            <div className="border-t border-border" />
+          )}
+          {(() => {
+            const inputTokens = msg.usage?.inputTokens
+            const lastInputTokens = msg.usage?.lastInputTokens
+            const showLastInput =
+              inputTokens != null &&
+              lastInputTokens != null &&
+              lastInputTokens !== inputTokens
+            if (inputTokens == null) return null
+            return (
               <>
-                <div className="border-t border-border" />
                 <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                   <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                    {t("chat.totalTokens")}
+                    {showLastInput
+                      ? t("chat.inputTokensCumulative")
+                      : t("chat.inputTokens")}
                   </span>
                   <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                    {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
+                    {formatTokens(inputTokens)}
                   </span>
                 </div>
+                {showLastInput && lastInputTokens != null && (
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                    <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                      {t("chat.lastRoundInputTokens")}
+                    </span>
+                    <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                      {formatTokens(lastInputTokens)}
+                    </span>
+                  </div>
+                )}
               </>
-            )}
-            {msg.usage?.durationMs != null && (
+            )
+          })()}
+          {msg.usage?.outputTokens != null && (
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+              <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                {t("chat.outputTokens")}
+              </span>
+              <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                {formatTokens(msg.usage.outputTokens)}
+              </span>
+            </div>
+          )}
+          {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+            <>
+              <div className="border-t border-border" />
               <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                 <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                  {t("chat.duration")}
+                  {t("chat.totalTokens")}
                 </span>
                 <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
-                  {formatDuration(msg.usage.durationMs)}
+                  {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
                 </span>
               </div>
-            )}
-          </div>
+            </>
+          )}
+          {msg.usage?.durationMs != null && (
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+              <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                {t("chat.duration")}
+              </span>
+              <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                {formatDuration(msg.usage.durationMs)}
+              </span>
+            </div>
+          )}
         </div>
-      )}
+      </AnimatedPresenceBox>
     </div>
   ) : null
 
@@ -501,17 +505,19 @@ function MessageBubbleInner({
             />
           )}
         </button>
-        {hasDetail && resultExpanded && (
-          <div
-            className={cn(
-              "w-full max-h-[360px] overflow-auto px-3 py-2 rounded-lg border text-xs text-foreground/85 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150",
-              resultDisplay.isToolJob
-                ? cn(resultTone.detail, "font-mono text-[11px]")
-                : "bg-purple-500/5 border-purple-500/15",
-            )}
-          >
-            {resultDisplay.detail}
-          </div>
+        {hasDetail && (
+          <AnimatedCollapse open={resultExpanded}>
+            <div
+              className={cn(
+                "w-full max-h-[360px] overflow-auto px-3 py-2 rounded-lg border text-xs text-foreground/85 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150",
+                resultDisplay.isToolJob
+                  ? cn(resultTone.detail, "font-mono text-[11px]")
+                  : "bg-purple-500/5 border-purple-500/15",
+              )}
+            >
+              {resultDisplay.detail}
+            </div>
+          </AnimatedCollapse>
         )}
       </div>
     )

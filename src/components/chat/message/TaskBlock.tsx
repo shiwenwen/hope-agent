@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import { AlertCircle, ChevronRight, CirclePause, ListChecks } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import type { ChatTurnStatus, ToolCall } from "@/types/chat"
 import {
   createCurrentTaskProgressSnapshot,
@@ -97,7 +98,7 @@ export default function TaskBlock({ tool, executionState }: TaskBlockProps) {
         <span className="font-medium text-foreground">{summaryText}</span>
       </button>
 
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <ul className="space-y-0.5 px-2 pb-2">
           {tasks.map((tk) => {
             const baseIcon = TASK_STATUS_ICON[tk.status] ?? TASK_STATUS_ICON.pending
@@ -137,7 +138,7 @@ export default function TaskBlock({ tool, executionState }: TaskBlockProps) {
             )
           })}
         </ul>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }

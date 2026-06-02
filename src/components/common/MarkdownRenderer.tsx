@@ -4,6 +4,8 @@ import {
   useEffect,
   useMemo,
   type AnchorHTMLAttributes,
+  type ComponentProps,
+  type ImgHTMLAttributes,
 } from "react"
 import {
   Streamdown,
@@ -323,6 +325,26 @@ function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo
 }
 
 type MarkdownAnchorProps = AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }
+type MarkdownImageProps = ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }
+
+function MarkdownImage({
+  alt,
+  className,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  node: _node,
+  ...rest
+}: MarkdownImageProps) {
+  return (
+    <span className="markdown-image-wrapper" data-streamdown="image-wrapper">
+      <img
+        {...rest}
+        alt={alt ?? ""}
+        className={cn("markdown-image", className)}
+        data-streamdown="image"
+      />
+    </span>
+  )
+}
 
 export function MarkdownLink({
   href,
@@ -410,7 +432,18 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   )
 })
 
-const markdownComponents = { a: MarkdownLink }
+const markdownComponents = { a: MarkdownLink, img: MarkdownImage }
+
+export function MarkdownStreamdown({
+  children,
+  ...props
+}: Omit<ComponentProps<typeof Streamdown>, "components">) {
+  return (
+    <Streamdown {...props} components={markdownComponents}>
+      {children}
+    </Streamdown>
+  )
+}
 
 interface HastNode {
   type?: string

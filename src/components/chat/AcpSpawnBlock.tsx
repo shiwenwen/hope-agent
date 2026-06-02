@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
 interface AcpSpawnBlockProps {
@@ -163,7 +164,7 @@ export default function AcpSpawnBlock({
       </button>
 
       {/* Expanded content */}
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="border-t px-3 py-2 space-y-2">
           {/* Tool calls */}
           {toolCalls.length > 0 && (
@@ -198,7 +199,7 @@ export default function AcpSpawnBlock({
             Run: {runId}
           </div>
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }

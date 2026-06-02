@@ -1,6 +1,7 @@
 import { Fragment, useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -561,9 +562,9 @@ export default function ChatInput({
         <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
 
         {/* Staged "quote to chat" references */}
-        {pendingQuotes && pendingQuotes.length > 0 && (
+        <AnimatedCollapse open={!!pendingQuotes?.length}>
           <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-            {pendingQuotes.map((q, index) => {
+            {pendingQuotes?.map((q, index) => {
               const lines =
                 q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
               return (
@@ -598,10 +599,10 @@ export default function ChatInput({
               )
             })}
           </div>
-        )}
+        </AnimatedCollapse>
 
         {/* Pending message card */}
-        {loading && pendingMessage && (
+        <AnimatedCollapse open={loading && !!pendingMessage}>
           <div className="px-3 pt-2.5 pb-0 animate-in fade-in-0 slide-in-from-top-1 duration-200">
             <div className="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
               <BetweenHorizontalStart className="h-4 w-4 text-amber-500 shrink-0" />
@@ -645,10 +646,10 @@ export default function ChatInput({
               </DropdownMenu.Root>
             </div>
           </div>
-        )}
+        </AnimatedCollapse>
 
         {/* Plan Mode Banner */}
-        {planState === "planning" && (
+        <AnimatedCollapse open={planState === "planning"}>
           <div
             className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskBar && attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
           >
@@ -661,7 +662,7 @@ export default function ChatInput({
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-        )}
+        </AnimatedCollapse>
 
         {/* Textarea + mention chip mirror — `@` mentions get a chip backdrop
             from the overlay; the textarea renders the actual characters on
@@ -702,7 +703,7 @@ export default function ChatInput({
         </div>
 
         {/* URL Previews */}
-        {urlPreviews.size > 0 && (
+        <AnimatedCollapse open={urlPreviews.size > 0}>
           <div className="px-3 pb-1 flex flex-col gap-1.5 max-h-[200px] overflow-y-auto">
             {Array.from(urlPreviews.entries())
               .filter(([url]) => !dismissedUrls.has(url))
@@ -715,12 +716,12 @@ export default function ChatInput({
                 />
               ))}
           </div>
-        )}
+        </AnimatedCollapse>
 
         {/* Toolbar — replaced by RecordingBar while voice capture / STT
             is in flight, since the normal toolbar buttons are
             unreachable during recording anyway. */}
-        {voice.state === "recording" || voice.state === "transcribing" ? (
+        <AnimatedCollapse open={voice.state === "recording" || voice.state === "transcribing"}>
           <RecordingBar
             transcribing={voice.state === "transcribing"}
             durationMs={voice.durationMs}
@@ -728,8 +729,9 @@ export default function ChatInput({
             onCancel={handleVoiceCancel}
             onStop={() => void handleVoiceStop()}
           />
-        ) : (
-        <div className="flex items-end justify-between gap-2 px-2 pb-2">
+        </AnimatedCollapse>
+        <AnimatedCollapse open={voice.state !== "recording" && voice.state !== "transcribing"}>
+        <div className="flex items-end justify-between gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150">
           <div className="flex items-center gap-1 flex-wrap min-w-0">
             <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
               {renderInlineAddControls()}
@@ -869,7 +871,7 @@ export default function ChatInput({
             </IconTip>
           </div>
         </div>
-        )}
+        </AnimatedCollapse>
       </div>
     </div>
   )

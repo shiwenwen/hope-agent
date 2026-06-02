@@ -25,6 +25,7 @@ interface BrowserPanelProps {
    *  for the sibling Plan / Diff / Canvas panels. */
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  collapsed?: boolean
   onClose: () => void
 }
 
@@ -40,6 +41,7 @@ const POLL_INTERVAL_MS = 1000
 export default function BrowserPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  collapsed = false,
   onClose,
 }: BrowserPanelProps) {
   const { t } = useTranslation()
@@ -67,17 +69,28 @@ export default function BrowserPanel({
     }
   }, [t])
 
-  // Mount-only: initial frame + EventBus listener. Independent of paused so
-  // the interval can re-bind without tearing down the event subscription.
+  // Mount-only lifecycle flag. Keep it independent from collapsed/paused so
+  // in-flight capture responses from stale effects cannot update after unmount.
   useEffect(() => {
     mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
-    // setTimeout(0) defers the React-induced setState past the effect body so
-    // ESLint's react-hooks/set-state-in-effect rule stays happy.
+  // Initial frame when the visible panel opens. Skip while collapsed; the
+  // EventBus listener still tracks pushed frames, but active captures pause.
+  useEffect(() => {
+    if (collapsed) return
     const initialTimer = setTimeout(() => {
       if (mountedRef.current) void refresh()
     }, 0)
+    return () => clearTimeout(initialTimer)
+  }, [collapsed, refresh])
 
+  // Mount-only EventBus listener. Independent of paused/collapsed so pushed
+  // frames keep the local mirror fresh without active polling.
+  useEffect(() => {
     const unlisten = getTransport().listen(BROWSER_FRAME_EVENT, (raw) => {
       const payload = parsePayload<BrowserFramePayload>(raw)
       if (payload && mountedRef.current) {
@@ -87,24 +100,22 @@ export default function BrowserPanel({
     })
 
     return () => {
-      mountedRef.current = false
-      clearTimeout(initialTimer)
       try {
         unlisten?.()
       } catch {
         // ignore
       }
     }
-  }, [refresh])
+  }, [])
 
   // 1Hz fallback poll. Re-binds only when `paused` flips, not on every render.
   useEffect(() => {
-    if (paused) return
+    if (paused || collapsed) return
     const interval = setInterval(() => {
       void refresh()
     }, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [paused, refresh])
+  }, [collapsed, paused, refresh])
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -113,6 +124,8 @@ export default function BrowserPanel({
       width={panelWidth}
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize browser panel")}
+      collapsed={collapsed}
+      contentKey="browser"
     >
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">

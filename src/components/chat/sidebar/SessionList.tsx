@@ -286,7 +286,13 @@ export default function SessionList({
 
       {/* Search results or session list */}
       {isSearching ? (
-        <div className={cn("p-2", displayMode === "compact" ? "space-y-1" : "space-y-0.5")}>
+        <div
+          key={`search-${sessionFilter}-${displayMode}`}
+          className={cn(
+            "p-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
+            displayMode === "compact" ? "space-y-1" : "space-y-0.5",
+          )}
+        >
           {searching && visibleResults.length === 0 ? (
             <div className="flex justify-center py-6">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -327,7 +333,13 @@ export default function SessionList({
           )}
         </div>
       ) : (
-        <div className={cn("p-2", displayMode === "compact" ? "space-y-1" : "space-y-0.5")}>
+        <div
+          key={`sessions-${sessionFilter}-${selectedAgentId ?? "all"}-${displayMode}`}
+          className={cn(
+            "p-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
+            displayMode === "compact" ? "space-y-1" : "space-y-0.5",
+          )}
+        >
           {filteredSessions.length === 0 ? (
             <div className="text-center py-8">
               <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />

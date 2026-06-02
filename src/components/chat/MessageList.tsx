@@ -5,6 +5,7 @@ import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
+import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
@@ -723,14 +724,15 @@ export default function MessageList({
     planCardData && planState && planState !== "off" && planState !== "planning",
   )
   const showEmpty = items.length === 0
-  const hasFooterContent =
-    pendingQuestionGroup || planCardVisible || planSubagentRunning || showEmpty
+  const hasFooterContent = Boolean(
+    pendingQuestionGroup || planCardVisible || planSubagentRunning || showEmpty,
+  )
   // Show whenever user is scrolled away from bottom — independent of loading
   // state. Lets the user always have a one-click way back to latest.
   // Also surface it whenever a search-jump has detached the view from the
   // live tail so the user has an obvious way to re-anchor regardless of
   // scroll position.
-  const showJumpToLatest = (!atBottom && items.length > 0) || hasMoreAfter
+  const showJumpToLatest = Boolean((!atBottom && items.length > 0) || hasMoreAfter)
 
   return (
     <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -843,7 +845,7 @@ export default function MessageList({
           </div>
         )}
 
-        {hasFooterContent && (
+        <AnimatedCollapse open={hasFooterContent} durationMs={220}>
           <div className="flex flex-col gap-4 pt-2 pb-6">
             {pendingQuestionGroup && (
               <div className="w-full">
@@ -897,7 +899,7 @@ export default function MessageList({
               </div>
             )}
           </div>
-        )}
+        </AnimatedCollapse>
         </div>
       </div>
 
@@ -925,8 +927,12 @@ export default function MessageList({
         </div>
       )}
 
-      {showJumpToLatest && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+      <AnimatedPresenceBox
+        open={showJumpToLatest}
+        className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4"
+        enterClassName="translate-y-0 scale-100 opacity-100"
+        exitClassName="translate-y-2 scale-95 opacity-0 pointer-events-none"
+      >
           <button
             type="button"
             onClick={handleJumpToLatest}
@@ -935,8 +941,7 @@ export default function MessageList({
           >
             <ArrowDown className="h-4 w-4" />
           </button>
-        </div>
-      )}
+      </AnimatedPresenceBox>
 
       {contextMenu && (
         <MessageContextMenu

@@ -46,6 +46,7 @@ interface MacControlFrameResponse {
 interface MacControlPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  collapsed?: boolean
   onClose: () => void
 }
 
@@ -55,6 +56,7 @@ const POLL_INTERVAL_MS = 1000
 export default function MacControlPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  collapsed = false,
   onClose,
 }: MacControlPanelProps) {
   const { t } = useTranslation()
@@ -85,10 +87,20 @@ export default function MacControlPanel({
 
   useEffect(() => {
     mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (collapsed) return
     const initialTimer = setTimeout(() => {
       if (mountedRef.current) void refresh()
     }, 0)
+    return () => clearTimeout(initialTimer)
+  }, [collapsed, refresh])
 
+  useEffect(() => {
     const unlisten = getTransport().listen(MAC_CONTROL_FRAME_EVENT, (raw) => {
       const payload = parsePayload<MacControlFramePayload>(raw)
       if (payload && mountedRef.current) {
@@ -98,22 +110,21 @@ export default function MacControlPanel({
     })
 
     return () => {
-      mountedRef.current = false
-      clearTimeout(initialTimer)
       try {
         unlisten?.()
       } catch {
         // ignore
       }
     }
-  }, [refresh])
+  }, [])
 
   useEffect(() => {
+    if (collapsed) return
     const interval = setInterval(() => {
       void refresh()
     }, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [refresh])
+  }, [collapsed, refresh])
 
   const title = frame?.frontmostApp?.name || t("settings.macControl.title")
 
@@ -122,6 +133,8 @@ export default function MacControlPanel({
       width={panelWidth}
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize panel")}
+      collapsed={collapsed}
+      contentKey="mac-control"
     >
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <Monitor className="h-4 w-4 text-muted-foreground" />

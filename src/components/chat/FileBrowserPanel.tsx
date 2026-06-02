@@ -43,6 +43,7 @@ interface FileBrowserPanelProps {
   /** Whether this panel is the active right-side panel. Hidden (but kept
    *  mounted) when false, so detached state survives panel switches. */
   visible: boolean
+  collapsed?: boolean
   panelWidth: number
   onPanelWidthChange: (w: number) => void
   onQuote?: (payload: QuotePayload) => void
@@ -64,6 +65,7 @@ export function FileBrowserPanel({
   rootPath,
   sessionId,
   visible,
+  collapsed = false,
   panelWidth,
   onPanelWidthChange,
   onQuote,
@@ -246,6 +248,8 @@ export function FileBrowserPanel({
       resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
       maxWidth={1000}
       maximized={maximized}
+      collapsed={collapsed}
+      contentKey={detached ? "files-detached" : "files"}
     >
       {body}
     </RightPanelShell>

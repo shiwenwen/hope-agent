@@ -1,6 +1,7 @@
 import { useCallback, useRef, useMemo, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import { ImagePlus, Paperclip, X } from "lucide-react"
 import { useLightbox } from "@/components/common/ImageLightbox"
@@ -27,39 +28,39 @@ export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPre
     [blobUrls],
   )
 
-  if (attachedFiles.length === 0) return null
-
   return (
-    <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap">
-      {attachedFiles.map((file, index) => (
-        <div
-          key={`${file.name}-${index}`}
-          className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
-          style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
-        >
-          {blobUrls[index] ? (
-            <img
-              src={blobUrls[index]}
-              alt={file.name}
-              className="h-8 w-8 rounded object-cover cursor-zoom-in"
-              onClick={(e) => {
-                e.stopPropagation()
-                openLightbox(blobUrls[index], file.name)
-              }}
-            />
-          ) : (
-            <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
-          <span className="max-w-[120px] truncate">{file.name}</span>
-          <button
-            className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => onRemoveFile(index)}
+    <AnimatedCollapse open={attachedFiles.length > 0}>
+      <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap">
+        {attachedFiles.map((file, index) => (
+          <div
+            key={`${file.name}-${index}`}
+            className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+            style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
-    </div>
+            {blobUrls[index] ? (
+              <img
+                src={blobUrls[index]}
+                alt={file.name}
+                className="h-8 w-8 rounded object-cover cursor-zoom-in"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openLightbox(blobUrls[index], file.name)
+                }}
+              />
+            ) : (
+              <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            )}
+            <span className="max-w-[120px] truncate">{file.name}</span>
+            <button
+              className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => onRemoveFile(index)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </AnimatedCollapse>
   )
 }
 

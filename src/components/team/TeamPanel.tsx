@@ -15,6 +15,7 @@ interface TeamPanelProps {
   teamId: string
   panelWidth?: number
   onPanelWidthChange?: (w: number) => void
+  collapsed?: boolean
   onClose: () => void
   onSwitchSession?: (sessionId: string) => void
 }
@@ -27,6 +28,7 @@ export function TeamPanel({
   teamId,
   panelWidth,
   onPanelWidthChange,
+  collapsed = false,
   onClose,
   onSwitchSession,
 }: TeamPanelProps) {
@@ -58,6 +60,8 @@ export function TeamPanel({
         resizeLabel={t("team.resizePanel", "Resize team panel")}
         minWidth={MIN_WIDTH}
         maxWidth={MAX_WIDTH}
+        collapsed={collapsed}
+        contentKey="team-loading"
       >
         <div className="flex h-full min-h-0 w-full items-center justify-center text-sm text-muted-foreground">
           {t("team.loading", "Loading...")}
@@ -73,6 +77,8 @@ export function TeamPanel({
       resizeLabel={t("team.resizePanel", "Resize team panel")}
       minWidth={MIN_WIDTH}
       maxWidth={MAX_WIDTH}
+      collapsed={collapsed}
+      contentKey="team"
     >
       <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
         {/* Close button */}

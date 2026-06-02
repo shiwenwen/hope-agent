@@ -10,6 +10,8 @@ interface RightPanelShellProps {
   maxWidth?: number
   maxViewportRatio?: number
   maximized?: boolean
+  collapsed?: boolean
+  contentKey?: string | number | null
   surfaceClassName?: string
   bodyClassName?: string
 }
@@ -23,12 +25,14 @@ export function RightPanelShell({
   maxWidth = 960,
   maxViewportRatio = 0.55,
   maximized = false,
+  collapsed = false,
+  contentKey,
   surfaceClassName,
   bodyClassName,
 }: RightPanelShellProps) {
   const handleDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onWidthChange) return
+      if (!onWidthChange || collapsed) return
       e.preventDefault()
       const startX = e.clientX
       const startWidth = width
@@ -57,10 +61,10 @@ export function RightPanelShell({
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
     },
-    [maxViewportRatio, maxWidth, minWidth, onWidthChange, width],
+    [collapsed, maxViewportRatio, maxWidth, minWidth, onWidthChange, width],
   )
 
-  if (maximized) {
+  if (maximized && !collapsed) {
     return (
       <div
         className={cn(
@@ -75,13 +79,21 @@ export function RightPanelShell({
 
   return (
     <div
-      className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
-      style={{ width }}
+      className={cn(
+        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+        collapsed
+          ? "min-w-0 max-w-0 translate-x-2 p-0 opacity-0 pointer-events-none"
+          : "min-w-[360px] max-w-[55%] translate-x-0 p-3 pl-2 opacity-100",
+      )}
+      style={{ width: collapsed ? 0 : width }}
+      aria-hidden={collapsed ? true : undefined}
+      inert={collapsed ? true : undefined}
     >
       <div
         className={cn(
           "group absolute left-0 top-3 bottom-3 z-10 flex w-3 items-center justify-center",
-          onWidthChange && "cursor-col-resize",
+          onWidthChange && !collapsed && "cursor-col-resize",
+          collapsed && "hidden",
         )}
         onMouseDown={handleDragStart}
         role="separator"
@@ -96,7 +108,12 @@ export function RightPanelShell({
           bodyClassName,
         )}
       >
-        {children}
+        <div
+          key={contentKey ?? "right-panel-content"}
+          className="flex h-full min-h-0 w-full flex-col animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none"
+        >
+          {children}
+        </div>
       </div>
     </div>
   )

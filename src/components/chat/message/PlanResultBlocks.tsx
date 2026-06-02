@@ -2,6 +2,7 @@ import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Check,
@@ -66,7 +67,7 @@ export function AskUserQuestionResult({
         <Check className="h-4 w-4" />
         <span className="font-medium">{t("planMode.question.answered")}</span>
       </button>
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="px-4 pb-3 space-y-2 border-t border-green-500/10 pt-2">
           {items.map((item, i) => (
             <div key={i} className="text-xs text-muted-foreground">
@@ -80,7 +81,7 @@ export function AskUserQuestionResult({
             </div>
           ))}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { AlertCircle, ChevronRight, CirclePause, ListChecks, Trash2 } from "luci
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import type { Task, TaskStatus } from "@/types/chat"
 import {
@@ -120,7 +121,7 @@ export default function TaskProgressPanel({
         />
       </button>
 
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="border-t border-border/60 px-3 py-2">
           <ol className="max-h-[30vh] space-y-1 overflow-y-auto pr-1">
             {snapshot.tasks.map((task, index) => {
@@ -148,7 +149,7 @@ export default function TaskProgressPanel({
                 <li
                   key={task.id}
                   className={cn(
-                    "group/task flex min-h-7 items-start gap-2 rounded-md px-2 py-1 text-sm",
+                    "group/task flex min-h-7 items-start gap-2 rounded-md px-2 py-1 text-sm transition-[background-color,opacity] duration-150",
                     task.status === "in_progress" && "bg-blue-500/10",
                     task.status === "completed" && "opacity-75",
                   )}
@@ -195,7 +196,7 @@ export default function TaskProgressPanel({
             })}
           </ol>
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }

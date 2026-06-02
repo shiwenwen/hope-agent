@@ -1482,7 +1482,7 @@ export default function ChatScreen({
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
       : (openExclusiveRightPanels[0] ?? null)
-  const shouldRenderRightPanelContent = !!renderedExclusiveRightPanel && !rightPanelCollapsed
+  const shouldRenderRightPanelContent = !!renderedExclusiveRightPanel
   const getRightPanelLabel = useCallback(
     (panel: ExclusiveRightPanel) => {
       switch (panel) {
@@ -2022,6 +2022,8 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
               maxWidth={860}
+              collapsed={rightPanelCollapsed}
+              contentKey="diff"
             >
               <DiffPanel
                 changes={diffPanel.activeChanges}
@@ -2040,6 +2042,8 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
               maxWidth={860}
+              collapsed={rightPanelCollapsed}
+              contentKey="plan"
             >
               <PlanPanel
                 planState={planMode.planState}
@@ -2066,6 +2070,7 @@ export default function ChatScreen({
             rootPath={effectiveWorkingDir}
             sessionId={session.currentSessionId}
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
+            collapsed={rightPanelCollapsed}
             panelWidth={rightPanelWidth}
             onPanelWidthChange={setRightPanelWidth}
             onQuote={handleFileQuote}
@@ -2079,6 +2084,7 @@ export default function ChatScreen({
             onPanelWidthChange={setRightPanelWidth}
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
+            collapsed={rightPanelCollapsed}
             visible={
               shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
             }
@@ -2090,6 +2096,7 @@ export default function ChatScreen({
             <BrowserPanel
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
+              collapsed={rightPanelCollapsed}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
@@ -2104,6 +2111,7 @@ export default function ChatScreen({
             <MacControlPanel
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
+              collapsed={rightPanelCollapsed}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
@@ -2119,6 +2127,7 @@ export default function ChatScreen({
                 teamId={activeTeamId}
                 panelWidth={rightPanelWidth}
                 onPanelWidthChange={setRightPanelWidth}
+                collapsed={rightPanelCollapsed}
                 onClose={() => setShowTeamPanel(false)}
                 onSwitchSession={session.handleSwitchSession}
               />
@@ -2131,6 +2140,8 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
               maxWidth={860}
+              collapsed={rightPanelCollapsed}
+              contentKey="workspace"
             >
               <WorkspacePanel
                 taskSnapshot={taskProgressSnapshot}
@@ -2161,6 +2172,8 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
               maxWidth={860}
+              collapsed={rightPanelCollapsed}
+              contentKey="preview"
             >
               <FilePreviewPanel
                 target={filePreview.target}

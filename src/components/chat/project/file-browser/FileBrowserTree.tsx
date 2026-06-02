@@ -21,6 +21,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { iconForEntry } from "@/lib/fileKind"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Input } from "@/components/ui/input"
 import {
   ContextMenu,
@@ -383,7 +384,7 @@ function TreeNode({
         </ContextMenuContent>
       </ContextMenu>
 
-      {expanded ? (
+      <AnimatedCollapse open={expanded} durationMs={160}>
         <div>
           {childState?.loading && childEntries.length === 0 ? (
             <div
@@ -398,7 +399,7 @@ function TreeNode({
             <TreeNode key={child.relPath} entry={child} depth={depth + 1} ctx={ctx} />
           ))}
         </div>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   )
 }

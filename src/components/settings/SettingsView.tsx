@@ -342,7 +342,7 @@ export default function SettingsView({
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <div
             key={activeSection}
-            className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in-0 duration-150"
+            className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in-0 slide-in-from-right-1 duration-150"
           >
             {activeSection === "general" && <GeneralPanel />}
             {activeSection === "modelConfig" &&

@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Progress } from "@/components/ui/progress"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
@@ -327,7 +328,7 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
                       </div>
                     </div>
                   </div>
-                  {expanded && (
+                  <AnimatedCollapse open={expanded}>
                     <div className="border-t border-border bg-muted/30 p-3">
                       {jobLogs.length === 0 ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -344,7 +345,7 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
                         </div>
                       )}
                     </div>
-                  )}
+                  </AnimatedCollapse>
                 </div>
               )
             })}

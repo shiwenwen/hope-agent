@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import { basename } from "@/lib/path"
 import { openExternalUrl } from "@/lib/openExternalUrl"
@@ -93,7 +94,9 @@ function WorkspaceSection({
           )}
         />
       </button>
-      {expanded && <div className="border-t border-border/60 px-2 py-2">{children}</div>}
+      <AnimatedCollapse open={expanded}>
+        <div className="border-t border-border/60 px-2 py-2">{children}</div>
+      </AnimatedCollapse>
     </div>
   )
 }
