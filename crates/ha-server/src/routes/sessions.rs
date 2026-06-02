@@ -426,7 +426,18 @@ fn add_nonempty_path(paths: &mut HashSet<String>, value: Option<&str>) {
     paths.insert(path.to_string());
 }
 
+/// Resolve a requested absolute path to a canonical path the session is allowed
+/// to serve. Authorization = **referenced by a persisted tool side-output**
+/// (exact string match) ∪ **contained in the session's effective working
+/// directory** (the same scope the file browser exposes). Anything else — a
+/// host path that is neither referenced nor inside the workspace — is rejected,
+/// so a remote client can never read arbitrary files off the server machine.
+///
+/// To avoid an existence-probe oracle, a *referenced* path that no longer exists
+/// returns `not_found`, but any *unauthorized* path (missing or outside) returns
+/// a uniform `forbidden`.
 async fn authorized_canonical_file_path(
+    session_id: &str,
     requested: &str,
     messages: &[SessionMessage],
 ) -> Result<PathBuf, AppError> {
@@ -435,15 +446,46 @@ async fn authorized_canonical_file_path(
         return Err(AppError::bad_request("path must be absolute"));
     }
 
-    let paths = collect_authorized_session_file_paths(messages);
-    for raw in paths {
-        if raw.trim() == requested {
-            return tokio::fs::canonicalize(&requested_path)
-                .await
-                .map_err(|_| AppError::not_found("file not found"));
-        }
+    let referenced = collect_authorized_session_file_paths(messages)
+        .iter()
+        .any(|raw| raw.trim() == requested);
+    if referenced {
+        return tokio::fs::canonicalize(&requested_path)
+            .await
+            .map_err(|_| AppError::not_found("file not found"));
     }
-    Err(AppError::forbidden("file not referenced by session"))
+
+    // Fallback: any file inside the session's working directory is fair game
+    // (agent may have mentioned it without touching it through a tool). Uniform
+    // `forbidden` on any failure so missing-vs-outside can't be probed.
+    let canon = match tokio::fs::canonicalize(&requested_path).await {
+        Ok(c) => c,
+        Err(_) => return Err(AppError::forbidden("file not referenced by session")),
+    };
+    let session_id = session_id.to_string();
+    let in_workspace = {
+        let canon = canon.clone();
+        tokio::task::spawn_blocking(move || {
+            ha_core::filesystem::WorkspaceScope::for_session(&session_id)
+                .map(|scope| scope.contains(&canon))
+                .unwrap_or(false)
+        })
+        .await
+        .unwrap_or(false)
+    };
+    if in_workspace {
+        Ok(canon)
+    } else {
+        Err(AppError::forbidden("file not referenced by session"))
+    }
+}
+
+fn map_fs_err(e: ha_core::filesystem::FilesystemError) -> AppError {
+    if e.is_bad_input() {
+        AppError::bad_request(e.message().to_string())
+    } else {
+        AppError::internal(e.message().to_string())
+    }
 }
 
 fn parse_download_flag(value: Option<&str>) -> bool {
@@ -730,6 +772,18 @@ pub async fn get_session_messages_after(
     Ok(Json(json!([messages, has_more])))
 }
 
+/// `GET /api/sessions/:id/artifacts` — aggregate the session's workspace
+/// artifacts (files touched + URL sources) over its FULL history. Read-only
+/// summary (paths + URLs, no file contents); behind the same Bearer auth as
+/// the other session endpoints.
+pub async fn get_session_artifacts(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::session::SessionArtifacts>, AppError> {
+    let artifacts = ha_core::session::aggregate_session_artifacts(&ctx.session_db, &id)?;
+    Ok(Json(artifacts))
+}
+
 /// `GET /api/sessions/:id/messages?limit=N` — load latest messages for a session.
 ///
 /// Returns a JSON tuple `[messages, total, hasMore]` (same shape as Tauri IPC).
@@ -765,7 +819,7 @@ pub async fn download_session_file_by_path(
     }
 
     let messages = ctx.session_db.load_session_messages(&id)?;
-    let file_canon = authorized_canonical_file_path(requested, &messages).await?;
+    let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
     let meta = tokio::fs::metadata(&file_canon)
         .await
         .map_err(|_| AppError::not_found("file not found"))?;
@@ -804,6 +858,50 @@ pub async fn download_session_file_by_path(
     );
 
     Ok(response)
+}
+
+/// `GET /api/sessions/:id/files/read?path=/abs/file` — read a session-authorized
+/// file's text for in-app preview (code / text / markdown). Same authorization
+/// as `files/by-path`. Binary / oversized files come back `isBinary: true`.
+pub async fn read_session_file_by_path(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<SessionFileByPathQuery>,
+) -> Result<Json<ha_core::filesystem::FileTextContent>, AppError> {
+    let requested = q.path.trim();
+    if requested.is_empty() {
+        return Err(AppError::bad_request("missing path"));
+    }
+    let messages = ctx.session_db.load_session_messages(&id)?;
+    let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
+    let content =
+        tokio::task::spawn_blocking(move || ha_core::filesystem::read_text_abs(&file_canon))
+            .await
+            .map_err(|e| AppError::internal(format!("read task: {e}")))?
+            .map_err(map_fs_err)?;
+    Ok(Json(content))
+}
+
+/// `GET /api/sessions/:id/files/extract?path=/abs/file` — extract a
+/// session-authorized PDF / Office document for in-app preview. Same
+/// authorization as `files/by-path`.
+pub async fn extract_session_file_by_path(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<SessionFileByPathQuery>,
+) -> Result<Json<ha_core::filesystem::ExtractedContent>, AppError> {
+    let requested = q.path.trim();
+    if requested.is_empty() {
+        return Err(AppError::bad_request("missing path"));
+    }
+    let messages = ctx.session_db.load_session_messages(&id)?;
+    let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
+    let content =
+        tokio::task::spawn_blocking(move || ha_core::filesystem::extract_abs(&file_canon))
+            .await
+            .map_err(|e| AppError::internal(format!("extract task: {e}")))?
+            .map_err(map_fs_err)?;
+    Ok(Json(content))
 }
 
 /// `GET /api/sessions/:id/stream-state` — snapshot of whether the session

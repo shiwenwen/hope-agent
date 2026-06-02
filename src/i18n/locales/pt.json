@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "Pré-visualizar",
+    "open": "Abrir",
+    "download": "Baixar",
+    "revealInFolder": "Mostrar na pasta",
+    "more": "Mais ações"
+  },
+  "filePreview": {
+    "panelTitle": "Pré-visualização",
+    "resizePanel": "Redimensionar painel de pré-visualização"
+  },
   "fileBrowser": {
     "panelTitle": "Arquivos",
     "jumpToFile": "Mostrar no navegador de arquivos",
@@ -4643,6 +4654,7 @@
     "openPanel": "Abrir espaço de trabalho",
     "resizePanel": "Redimensionar painel do espaço de trabalho",
     "sourceFromSearch": "Pesquisa",
+    "truncatedNote": "Mostrando os 1000 mais recentes",
     "action": {
       "create": "Novo",
       "edit": "Editar",

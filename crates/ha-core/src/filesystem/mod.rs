@@ -73,9 +73,10 @@ mod workspace;
 
 pub use git::{git_info, GitInfo, WorktreeInfo};
 pub use ops::{
-    project_delete, project_fs_extract, project_list_dir, project_mkdir, project_read_text,
-    project_rename, project_upload, project_write_text, ExtractedContent, FileTextContent,
-    RenameResult, UploadResult, WorkspaceEntry, WorkspaceListing, WriteResult,
+    extract_abs, project_delete, project_fs_extract, project_list_dir, project_mkdir,
+    project_read_text, project_rename, project_upload, project_write_text, read_text_abs,
+    ExtractedContent, FileTextContent, RenameResult, UploadResult, WorkspaceEntry,
+    WorkspaceListing, WriteResult,
 };
 pub use workspace::WorkspaceScope;
 

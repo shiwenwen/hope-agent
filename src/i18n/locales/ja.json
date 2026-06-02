@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "プレビュー",
+    "open": "開く",
+    "download": "ダウンロード",
+    "revealInFolder": "フォルダーで表示",
+    "more": "その他の操作"
+  },
+  "filePreview": {
+    "panelTitle": "プレビュー",
+    "resizePanel": "プレビューパネルの幅を調整"
+  },
   "fileBrowser": {
     "panelTitle": "ファイル",
     "jumpToFile": "ファイルブラウザーで表示",
@@ -4643,6 +4654,7 @@
     "openPanel": "ワークスペースを開く",
     "resizePanel": "ワークスペースパネルの幅を調整",
     "sourceFromSearch": "検索",
+    "truncatedNote": "最新の1000件を表示",
     "action": {
       "create": "新規",
       "edit": "編集",

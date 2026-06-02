@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "Pratonton",
+    "open": "Buka",
+    "download": "Muat turun",
+    "revealInFolder": "Tunjuk dalam folder",
+    "more": "Tindakan lain"
+  },
+  "filePreview": {
+    "panelTitle": "Pratonton",
+    "resizePanel": "Ubah saiz panel pratonton"
+  },
   "fileBrowser": {
     "panelTitle": "Fail",
     "jumpToFile": "Tunjuk dalam pelayar fail",
@@ -4643,6 +4654,7 @@
     "openPanel": "Buka ruang kerja",
     "resizePanel": "Ubah saiz panel ruang kerja",
     "sourceFromSearch": "Carian",
+    "truncatedNote": "Memaparkan 1000 terkini",
     "action": {
       "create": "Baharu",
       "edit": "Sunting",

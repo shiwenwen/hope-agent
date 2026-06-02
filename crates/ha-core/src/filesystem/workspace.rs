@@ -130,6 +130,14 @@ impl WorkspaceScope {
         &self.root
     }
 
+    /// Whether an already-canonical absolute path lives under this root. Used by
+    /// authorization checks outside the rel-path API (e.g. the HTTP preview/
+    /// download gate broadening "tool-referenced" to "anything in the working
+    /// directory"). The caller must canonicalize before calling.
+    pub fn contains(&self, canonical_abs: &Path) -> bool {
+        canonical_abs.starts_with(&self.root)
+    }
+
     /// Turn an absolute path under the root into the `/`-separated relative path
     /// the API speaks. Returns `""` for the root itself.
     pub fn rel_of(&self, abs: &Path) -> String {

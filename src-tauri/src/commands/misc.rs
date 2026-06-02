@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context};
 use std::path::Path;
 use tauri;
 
-fn resolve_user_path(path: String) -> String {
+pub(crate) fn resolve_user_path(path: String) -> String {
     if path.starts_with("~/") {
         if let Some(home) = dirs::home_dir() {
             return home.join(&path[2..]).to_string_lossy().to_string();

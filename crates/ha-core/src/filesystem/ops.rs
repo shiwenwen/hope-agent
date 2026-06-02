@@ -165,16 +165,30 @@ pub fn project_list_dir(scope: &WorkspaceScope, rel: &str) -> Result<WorkspaceLi
 /// `is_binary = true` with no content, so the caller falls back to raw/preview).
 pub fn project_read_text(scope: &WorkspaceScope, rel: &str) -> Result<FileTextContent> {
     let abs = scope.resolve_existing(rel)?;
+    let rel_path = scope.rel_of(&abs);
+    read_text_at(&abs, rel_path)
+}
+
+/// Read a text file by **absolute path** (preview-by-path). Performs no scope
+/// containment — the caller must authorize the path first (desktop trusts local
+/// paths; the HTTP layer gates by session reference + working-dir containment,
+/// see `is_session_path_authorized`). The DTO's `rel_path` is the absolute path.
+pub fn read_text_abs(abs: &Path) -> Result<FileTextContent> {
+    read_text_at(abs, abs.to_string_lossy().to_string())
+}
+
+/// Shared body for scope-relative and absolute-path text reads. `rel_path` is
+/// the display/quote path embedded in the returned DTO.
+fn read_text_at(abs: &Path, rel_path: String) -> Result<FileTextContent> {
     let meta =
-        std::fs::metadata(&abs).map_err(|e| FilesystemError::internal(format!("stat: {}", e)))?;
+        std::fs::metadata(abs).map_err(|e| FilesystemError::internal(format!("stat: {}", e)))?;
     if meta.is_dir() {
         return Err(FilesystemError::bad_input("path is a directory"));
     }
     let size_bytes = meta.len();
-    let rel_path = scope.rel_of(&abs);
-    let mime = mime_for_path(&abs);
+    let mime = mime_for_path(abs);
 
-    if size_bytes > MAX_TEXT_PREVIEW_BYTES || looks_binary(&abs) {
+    if size_bytes > MAX_TEXT_PREVIEW_BYTES || looks_binary(abs) {
         return Ok(FileTextContent {
             rel_path,
             content: String::new(),
@@ -187,7 +201,7 @@ pub fn project_read_text(scope: &WorkspaceScope, rel: &str) -> Result<FileTextCo
     }
 
     let bytes =
-        std::fs::read(&abs).map_err(|e| FilesystemError::internal(format!("read: {}", e)))?;
+        std::fs::read(abs).map_err(|e| FilesystemError::internal(format!("read: {}", e)))?;
     let content = String::from_utf8_lossy(&bytes).to_string();
     let total_lines = content.lines().count();
     Ok(FileTextContent {
@@ -206,8 +220,20 @@ pub fn project_read_text(scope: &WorkspaceScope, rel: &str) -> Result<FileTextCo
 /// formats return extracted text (and any embedded images).
 pub fn project_fs_extract(scope: &WorkspaceScope, rel: &str) -> Result<ExtractedContent> {
     let abs = scope.resolve_existing(rel)?;
+    let rel_path = scope.rel_of(&abs);
+    extract_at(&abs, rel_path)
+}
+
+/// Extract a PDF / Office document by **absolute path** (preview-by-path).
+/// Same authorization contract as [`read_text_abs`].
+pub fn extract_abs(abs: &Path) -> Result<ExtractedContent> {
+    extract_at(abs, abs.to_string_lossy().to_string())
+}
+
+/// Shared body for scope-relative and absolute-path document extraction.
+fn extract_at(abs: &Path, rel_path: String) -> Result<ExtractedContent> {
     let meta =
-        std::fs::metadata(&abs).map_err(|e| FilesystemError::internal(format!("stat: {}", e)))?;
+        std::fs::metadata(abs).map_err(|e| FilesystemError::internal(format!("stat: {}", e)))?;
     if meta.len() > MAX_EXTRACT_BYTES {
         return Err(FilesystemError::bad_input(format!(
             "file too large to preview: {} bytes (max {} bytes)",
@@ -220,7 +246,7 @@ pub fn project_fs_extract(scope: &WorkspaceScope, rel: &str) -> Result<Extracted
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let mime = mime_for_path(&abs).unwrap_or_else(|| "application/octet-stream".to_string());
+    let mime = mime_for_path(abs).unwrap_or_else(|| "application/octet-stream".to_string());
     let kind = if mime == "application/pdf" {
         "pdf"
     } else {
@@ -237,7 +263,7 @@ pub fn project_fs_extract(scope: &WorkspaceScope, rel: &str) -> Result<Extracted
         })
         .collect();
     Ok(ExtractedContent {
-        rel_path: scope.rel_of(&abs),
+        rel_path,
         kind: kind.to_string(),
         text: extracted.text,
         images,

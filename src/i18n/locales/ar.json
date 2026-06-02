@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "معاينة",
+    "open": "فتح",
+    "download": "تنزيل",
+    "revealInFolder": "إظهار في المجلد",
+    "more": "إجراءات أخرى"
+  },
+  "filePreview": {
+    "panelTitle": "معاينة",
+    "resizePanel": "تغيير حجم لوحة المعاينة"
+  },
   "fileBrowser": {
     "panelTitle": "الملفات",
     "jumpToFile": "عرض في متصفح الملفات",
@@ -4643,6 +4654,7 @@
     "openPanel": "فتح مساحة العمل",
     "resizePanel": "تغيير حجم لوحة مساحة العمل",
     "sourceFromSearch": "بحث",
+    "truncatedNote": "عرض أحدث 1000",
     "action": {
       "create": "جديد",
       "edit": "تعديل",

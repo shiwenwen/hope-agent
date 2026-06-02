@@ -926,7 +926,19 @@
         "edit": "編集",
         "delete": "削除",
         "read": "読み取り"
-      }
+      },
+      "truncatedNote": "最新の1000件を表示"
+    },
+    "fileActions": {
+      "preview": "プレビュー",
+      "open": "開く",
+      "download": "ダウンロード",
+      "revealInFolder": "フォルダーで表示",
+      "more": "その他の操作"
+    },
+    "filePreview": {
+      "panelTitle": "プレビュー",
+      "resizePanel": "プレビューパネルの幅を調整"
     }
   },
   "ko": {
@@ -1856,7 +1868,19 @@
         "edit": "편집",
         "delete": "삭제",
         "read": "읽기"
-      }
+      },
+      "truncatedNote": "최근 1000개 표시 중"
+    },
+    "fileActions": {
+      "preview": "미리보기",
+      "open": "열기",
+      "download": "다운로드",
+      "revealInFolder": "폴더에서 표시",
+      "more": "추가 작업"
+    },
+    "filePreview": {
+      "panelTitle": "미리보기",
+      "resizePanel": "미리보기 패널 크기 조정"
     }
   },
   "zh-TW": {
@@ -2769,6 +2793,17 @@
       "extractedPreview": "擷取內容預覽 —— 在系統中開啟可檢視原始排版。",
       "quoteToChat": "引用到對話",
       "quoted": "已引用到對話"
+    },
+    "fileActions": {
+      "preview": "預覽",
+      "open": "開啟",
+      "download": "下載",
+      "revealInFolder": "在資料夾中顯示",
+      "more": "更多操作"
+    },
+    "filePreview": {
+      "panelTitle": "預覽",
+      "resizePanel": "調整預覽面板寬度"
     }
   },
   "tr": {
@@ -3698,7 +3733,19 @@
         "edit": "Düzenle",
         "delete": "Sil",
         "read": "Oku"
-      }
+      },
+      "truncatedNote": "En son 1000 gösteriliyor"
+    },
+    "fileActions": {
+      "preview": "Önizle",
+      "open": "Aç",
+      "download": "İndir",
+      "revealInFolder": "Klasörde göster",
+      "more": "Diğer işlemler"
+    },
+    "filePreview": {
+      "panelTitle": "Önizleme",
+      "resizePanel": "Önizleme panelini yeniden boyutlandır"
     }
   },
   "vi": {
@@ -4628,7 +4675,19 @@
         "edit": "Sửa",
         "delete": "Xóa",
         "read": "Đọc"
-      }
+      },
+      "truncatedNote": "Hiển thị 1000 mục gần nhất"
+    },
+    "fileActions": {
+      "preview": "Xem trước",
+      "open": "Mở",
+      "download": "Tải xuống",
+      "revealInFolder": "Hiện trong thư mục",
+      "more": "Thao tác khác"
+    },
+    "filePreview": {
+      "panelTitle": "Xem trước",
+      "resizePanel": "Đổi kích thước bảng xem trước"
     }
   },
   "pt": {
@@ -5558,7 +5617,19 @@
         "edit": "Editar",
         "delete": "Excluir",
         "read": "Ler"
-      }
+      },
+      "truncatedNote": "Mostrando os 1000 mais recentes"
+    },
+    "fileActions": {
+      "preview": "Pré-visualizar",
+      "open": "Abrir",
+      "download": "Baixar",
+      "revealInFolder": "Mostrar na pasta",
+      "more": "Mais ações"
+    },
+    "filePreview": {
+      "panelTitle": "Pré-visualização",
+      "resizePanel": "Redimensionar painel de pré-visualização"
     }
   },
   "ru": {
@@ -6488,7 +6559,19 @@
         "edit": "Изменить",
         "delete": "Удалить",
         "read": "Чтение"
-      }
+      },
+      "truncatedNote": "Показаны последние 1000"
+    },
+    "fileActions": {
+      "preview": "Просмотр",
+      "open": "Открыть",
+      "download": "Скачать",
+      "revealInFolder": "Показать в папке",
+      "more": "Другие действия"
+    },
+    "filePreview": {
+      "panelTitle": "Просмотр",
+      "resizePanel": "Изменить размер панели просмотра"
     }
   },
   "ar": {
@@ -7418,7 +7501,19 @@
         "edit": "تعديل",
         "delete": "حذف",
         "read": "قراءة"
-      }
+      },
+      "truncatedNote": "عرض أحدث 1000"
+    },
+    "fileActions": {
+      "preview": "معاينة",
+      "open": "فتح",
+      "download": "تنزيل",
+      "revealInFolder": "إظهار في المجلد",
+      "more": "إجراءات أخرى"
+    },
+    "filePreview": {
+      "panelTitle": "معاينة",
+      "resizePanel": "تغيير حجم لوحة المعاينة"
     }
   },
   "es": {
@@ -8348,7 +8443,19 @@
         "edit": "Editar",
         "delete": "Eliminar",
         "read": "Leer"
-      }
+      },
+      "truncatedNote": "Mostrando los 1000 más recientes"
+    },
+    "fileActions": {
+      "preview": "Vista previa",
+      "open": "Abrir",
+      "download": "Descargar",
+      "revealInFolder": "Mostrar en carpeta",
+      "more": "Más acciones"
+    },
+    "filePreview": {
+      "panelTitle": "Vista previa",
+      "resizePanel": "Redimensionar panel de vista previa"
     }
   },
   "ms": {
@@ -9278,7 +9385,19 @@
         "edit": "Sunting",
         "delete": "Padam",
         "read": "Baca"
-      }
+      },
+      "truncatedNote": "Memaparkan 1000 terkini"
+    },
+    "fileActions": {
+      "preview": "Pratonton",
+      "open": "Buka",
+      "download": "Muat turun",
+      "revealInFolder": "Tunjuk dalam folder",
+      "more": "Tindakan lain"
+    },
+    "filePreview": {
+      "panelTitle": "Pratonton",
+      "resizePanel": "Ubah saiz panel pratonton"
     }
   },
   "zh": {

@@ -16,10 +16,10 @@ import { toast } from "sonner"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
-import { fileKind, shikiLang } from "@/lib/fileKind"
+import { fileKindOf, shikiLang } from "@/lib/fileKind"
 import { cn } from "@/lib/utils"
-import type { ExtractedContent, FileTextContent, WorkspaceEntry } from "@/lib/transport"
-import type { ProjectFsApi } from "../hooks/useProjectFs"
+import type { ExtractedContent, FileTextContent } from "@/lib/transport"
+import type { PreviewSource } from "@/components/chat/files/previewSource"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
 import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
@@ -33,12 +33,12 @@ export interface QuotePayload {
 
 type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
-  | { kind: "image" | "pdf"; url: string | null }
+  | { kind: "image" | "pdf" | "audio" | "video"; url: string | null }
   | { kind: "office"; data: ExtractedContent }
 
 export interface FilePreviewPaneProps {
-  fs: ProjectFsApi
-  entry: WorkspaceEntry | null
+  /** The file to preview (memoize this — it drives the load effect), or `null`. */
+  source: PreviewSource | null
   onClose?: () => void
   onQuote?: (payload: QuotePayload) => void
   /** Quoted line range to highlight + scroll to in the preview (from a reveal). */
@@ -47,8 +47,7 @@ export interface FilePreviewPaneProps {
 }
 
 export function FilePreviewPane({
-  fs,
-  entry,
+  source,
   onClose,
   onQuote,
   highlightLines,
@@ -63,25 +62,28 @@ export function FilePreviewPane({
   useEffect(() => {
     let cancelled = false
     setViewSource(false)
-    if (!entry) {
+    if (!source) {
       setLoaded(null)
       return
     }
     setLoading(true)
     setError(null)
-    const kind = fileKind(entry.name)
+    const kind = fileKindOf(source.name, source.mime)
     void (async () => {
       try {
-        if (kind === "image" || kind === "pdf") {
-          const url = await fs.rawUrl(entry.relPath, false)
+        if (kind === "image" || kind === "pdf" || kind === "audio" || kind === "video") {
+          const url = await source.rawUrl(false)
           if (!cancelled) setLoaded({ kind, url })
         } else if (kind === "office") {
-          const data = await fs.extractDoc(entry.relPath)
+          const data = await source.extractDoc()
           if (!cancelled) setLoaded({ kind: "office", data })
         } else {
-          const data = await fs.readFile(entry.relPath)
+          const data = await source.readText()
           if (cancelled) return
-          setLoaded({ kind: data.isBinary ? "binary" : kind, data })
+          // code/text/markdown render as text; `other` renders as text when
+          // readable, else falls through to the binary placeholder.
+          const renderKind = data.isBinary ? "binary" : kind === "other" ? "text" : kind
+          setLoaded({ kind: renderKind, data })
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -92,24 +94,24 @@ export function FilePreviewPane({
     return () => {
       cancelled = true
     }
-  }, [entry, fs])
+  }, [source])
 
   const handleQuoteSelection = useCallback(
     (sel: CodeSelection) => {
-      if (!entry || !onQuote) return
+      if (!source || !onQuote) return
       onQuote({
-        path: entry.relPath,
-        name: entry.name,
+        path: source.displayPath ?? source.name,
+        name: source.name,
         startLine: sel.startLine,
         endLine: sel.endLine,
         content: sel.text,
       })
       toast.success(t("fileBrowser.quoted", "Added to chat"))
     },
-    [entry, onQuote, t],
+    [source, onQuote, t],
   )
 
-  if (!entry) {
+  if (!source) {
     return (
       <div className={cn("flex h-full items-center justify-center px-6 text-center", className)}>
         <span className="text-sm text-muted-foreground">
@@ -123,13 +125,13 @@ export function FilePreviewPane({
     <div className={cn("flex h-full min-w-0 flex-col", className)}>
       <div className="flex items-center gap-1.5 border-b px-3 py-1.5">
         <div className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-medium leading-tight">{entry.name}</span>
-          {entry.relPath && entry.relPath !== entry.name ? (
+          <span className="truncate text-sm font-medium leading-tight">{source.name}</span>
+          {source.displayPath && source.displayPath !== source.name ? (
             <span
               className="truncate font-mono text-[11px] leading-tight text-muted-foreground"
-              title={entry.relPath}
+              title={source.displayPath}
             >
-              {entry.relPath}
+              {source.displayPath}
             </span>
           ) : null}
         </div>
@@ -178,13 +180,20 @@ export function FilePreviewPane({
             <Loader2 className="h-4 w-4 animate-spin" />
           </div>
         ) : error ? (
-          <div className="px-4 py-3 text-sm text-destructive">{error}</div>
+          // Failed preview (remote Office extract, oversized, transient read
+          // error) still offers open/download so the file isn't a dead end.
+          <BinaryPlaceholder
+            name={source.name}
+            sizeBytes={source.sizeBytes ?? 0}
+            note={error}
+            onOpen={() => void source.rawUrl(false).then((u) => u && window.open(u, "_blank"))}
+            onDownload={() => void source.rawUrl(true).then((u) => u && window.open(u, "_blank"))}
+          />
         ) : (
           <PreviewBody
             loaded={loaded}
-            entry={entry}
+            source={source}
             viewSource={viewSource}
-            fs={fs}
             onQuote={onQuote ? handleQuoteSelection : undefined}
             highlightLines={highlightLines}
           />
@@ -196,16 +205,14 @@ export function FilePreviewPane({
 
 function PreviewBody({
   loaded,
-  entry,
+  source,
   viewSource,
-  fs,
   onQuote,
   highlightLines,
 }: {
   loaded: Loaded | null
-  entry: WorkspaceEntry
+  source: PreviewSource
   viewSource: boolean
-  fs: ProjectFsApi
   onQuote?: (sel: CodeSelection) => void
   highlightLines?: { start: number; end: number; nonce: number } | null
 }) {
@@ -215,18 +222,42 @@ function PreviewBody({
   if (loaded.kind === "image") {
     return loaded.url ? (
       <div className="flex h-full items-center justify-center bg-[repeating-conic-gradient(theme(colors.muted.DEFAULT)_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] p-4">
-        <img src={loaded.url} alt={entry.name} className="max-h-full max-w-full object-contain" />
+        <img src={loaded.url} alt={source.name} className="max-h-full max-w-full object-contain" />
       </div>
     ) : (
-      <BinaryPlaceholder name={entry.name} sizeBytes={entry.size ?? 0} />
+      <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
     )
   }
 
   if (loaded.kind === "pdf") {
     return loaded.url ? (
-      <iframe title={entry.name} src={loaded.url} className="h-full w-full border-0" />
+      <iframe title={source.name} src={loaded.url} className="h-full w-full border-0" />
     ) : (
-      <BinaryPlaceholder name={entry.name} sizeBytes={entry.size ?? 0} />
+      <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
+    )
+  }
+
+  if (loaded.kind === "audio") {
+    return loaded.url ? (
+      <div className="flex h-full items-center justify-center p-6">
+        <audio src={loaded.url} controls className="w-full max-w-xl">
+          <track kind="captions" />
+        </audio>
+      </div>
+    ) : (
+      <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
+    )
+  }
+
+  if (loaded.kind === "video") {
+    return loaded.url ? (
+      <div className="flex h-full items-center justify-center bg-black/90 p-2">
+        <video src={loaded.url} controls className="max-h-full max-w-full">
+          <track kind="captions" />
+        </video>
+      </div>
+    ) : (
+      <BinaryPlaceholder name={source.name} sizeBytes={source.sizeBytes ?? 0} />
     )
   }
 
@@ -235,7 +266,10 @@ function PreviewBody({
     return (
       <div className="space-y-4 px-4 py-3">
         <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          {t("fileBrowser.extractedPreview", "Extracted content preview — open in system for the original layout.")}
+          {t(
+            "fileBrowser.extractedPreview",
+            "Extracted preview — layout may differ from the original. Open the file for the exact formatting.",
+          )}
         </div>
         {images.map((img, i) => (
           <img
@@ -256,11 +290,11 @@ function PreviewBody({
   if (loaded.kind === "binary") {
     return (
       <BinaryPlaceholder
-        name={entry.name}
+        name={source.name}
         sizeBytes={loaded.data.sizeBytes}
         note={loaded.data.truncated ? t("fileBrowser.fileTooLarge", "File too large to preview") : undefined}
-        onOpen={() => void fs.rawUrl(entry.relPath, false).then((u) => u && window.open(u, "_blank"))}
-        onDownload={() => void fs.rawUrl(entry.relPath, true).then((u) => u && window.open(u, "_blank"))}
+        onOpen={() => void source.rawUrl(false).then((u) => u && window.open(u, "_blank"))}
+        onDownload={() => void source.rawUrl(true).then((u) => u && window.open(u, "_blank"))}
       />
     )
   }
@@ -279,9 +313,9 @@ function PreviewBody({
   if (loaded.kind === "code" || loaded.kind === "text" || loaded.kind === "markdown") {
     return (
       <ShikiCodeView
-        key={entry.relPath}
+        key={source.displayPath ?? source.name}
         content={loaded.data.content}
-        lang={shikiLang(entry.name)}
+        lang={shikiLang(source.name)}
         onQuote={onQuote}
         highlightLines={highlightLines}
         className="text-sm"

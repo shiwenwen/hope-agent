@@ -101,6 +101,17 @@ pub async fn load_session_messages_after_cmd(
         .map_err(Into::into)
 }
 
+/// Aggregate the session's workspace artifacts (files touched + URL sources)
+/// over its FULL history. Desktop is trusted; scope/auth is enforced at the
+/// HTTP boundary only.
+#[tauri::command]
+pub async fn load_session_artifacts_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<session::SessionArtifacts, CmdError> {
+    session::aggregate_session_artifacts(&state.session_db, &session_id).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn get_session_cmd(
     session_id: String,

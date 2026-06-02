@@ -87,6 +87,29 @@ pub async fn project_fs_extract(
     .await
 }
 
+// ── Preview by absolute path (file-operations unification) ──────
+//
+// Read / extract an arbitrary local file for the in-app preview panel, by
+// absolute path (not scope-relative). Desktop is the local machine, so reading
+// any path the user can already reach is consistent with `open_directory`
+// (which opens arbitrary paths). The HTTP transport has no equivalent unguarded
+// command — it gates the same reads behind session authorization in ha-server's
+// `/sessions/{id}/files/{read,extract}` endpoints.
+
+#[tauri::command]
+pub async fn preview_read_text(path: String) -> Result<FileTextContent, CmdError> {
+    // Expand `~/` like `open_directory` does, so `~/`-prefixed Markdown links
+    // preview instead of failing on a literal `~` path component.
+    let path = crate::commands::misc::resolve_user_path(path);
+    blocking(move || ha_core::filesystem::read_text_abs(std::path::Path::new(&path))).await
+}
+
+#[tauri::command]
+pub async fn preview_extract(path: String) -> Result<ExtractedContent, CmdError> {
+    let path = crate::commands::misc::resolve_user_path(path);
+    blocking(move || ha_core::filesystem::extract_abs(std::path::Path::new(&path))).await
+}
+
 /// Resolve a workspace-relative path to its canonical absolute path. Desktop
 /// only — used to feed `convertFileSrc` for image/PDF preview. (HTTP has no
 /// equivalent: an absolute server path is meaningless to a remote browser.)

@@ -1,4 +1,5 @@
 mod acp_db;
+mod artifacts;
 mod db;
 pub mod export;
 mod helpers;
@@ -8,6 +9,7 @@ mod tasks;
 mod turns;
 mod types;
 
+pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts, UrlSource};
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     LastAssistantTokens, ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,

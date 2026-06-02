@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
+import Icons from "unplugin-icons/vite"
 import path from "path"
 
 const packageJson = JSON.parse(
@@ -15,7 +16,13 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // Build-time inline of the curated vscode-icons file-type icons used by
+    // `FileTypeIcon` (offline, tree-shaken — only imported icons are bundled).
+    Icons({ compiler: "jsx", jsx: "react", autoInstall: false }),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

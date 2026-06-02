@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "Xem trước",
+    "open": "Mở",
+    "download": "Tải xuống",
+    "revealInFolder": "Hiện trong thư mục",
+    "more": "Thao tác khác"
+  },
+  "filePreview": {
+    "panelTitle": "Xem trước",
+    "resizePanel": "Đổi kích thước bảng xem trước"
+  },
   "fileBrowser": {
     "panelTitle": "Tệp",
     "jumpToFile": "Hiển thị trong trình duyệt tệp",
@@ -4643,6 +4654,7 @@
     "openPanel": "Mở không gian làm việc",
     "resizePanel": "Đổi kích thước bảng không gian làm việc",
     "sourceFromSearch": "Tìm kiếm",
+    "truncatedNote": "Hiển thị 1000 mục gần nhất",
     "action": {
       "create": "Mới",
       "edit": "Sửa",

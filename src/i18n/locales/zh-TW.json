@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "預覽",
+    "open": "開啟",
+    "download": "下載",
+    "revealInFolder": "在資料夾中顯示",
+    "more": "更多操作"
+  },
+  "filePreview": {
+    "panelTitle": "預覽",
+    "resizePanel": "調整預覽面板寬度"
+  },
   "fileBrowser": {
     "panelTitle": "檔案",
     "jumpToFile": "在檔案瀏覽器中顯示",
@@ -4643,6 +4654,7 @@
     "openPanel": "開啟工作台",
     "resizePanel": "調整工作台面板寬度",
     "sourceFromSearch": "搜尋",
+    "truncatedNote": "僅顯示最近 1000 條",
     "action": {
       "create": "新建",
       "edit": "修改",

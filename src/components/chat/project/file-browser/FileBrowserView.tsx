@@ -40,6 +40,7 @@ import { useTreeExpansion } from "../hooks/useTreeExpansion"
 import { useFileBrowserSplit } from "../hooks/useFileBrowserSplit"
 import { FileBrowserTree, type DraftNode } from "./FileBrowserTree"
 import { FilePreviewPane, type QuotePayload } from "./FilePreviewPane"
+import { projectFsPreviewSource } from "@/components/chat/files/previewSource"
 import { useDragWidth } from "./useDragWidth"
 
 // The read-only worktree-jump scope encodes its id as a triple
@@ -119,6 +120,12 @@ export function FileBrowserView({
   const effectiveEditable = editable && !isWorktreeView
 
   const fs = useProjectFs(activeScope, activeScopeId)
+  // Memoized so FilePreviewPane's load effect only re-runs when the selected
+  // file (or fs) actually changes, not on every unrelated render.
+  const previewSource = useMemo(
+    () => (selected ? projectFsPreviewSource(fs, selected) : null),
+    [fs, selected],
+  )
   const expansion = useTreeExpansion(activeScope, activeScopeId)
   const [treeWidth, setTreeWidth] = useFileBrowserSplit(activeScope, activeScopeId)
   const onDragDivider = useDragWidth({
@@ -341,8 +348,7 @@ export function FileBrowserView({
             </Button>
           </div>
           <FilePreviewPane
-            fs={fs}
-            entry={selected}
+            source={previewSource}
             onQuote={onQuote}
             highlightLines={revealLines}
             className="min-h-0 flex-1"
@@ -371,8 +377,7 @@ export function FileBrowserView({
         <div className="absolute inset-y-0 -left-px -right-px transition-colors group-hover:bg-primary/40" />
       </div>
       <FilePreviewPane
-        fs={fs}
-        entry={selected}
+        source={previewSource}
         onQuote={onQuote}
         highlightLines={revealLines}
         onClose={selected ? () => setSelected(null) : undefined}

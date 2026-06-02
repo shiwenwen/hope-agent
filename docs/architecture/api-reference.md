@@ -176,6 +176,9 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `resolveAssetUrl(path)` | `convertFileSrc` | 正则识别 `avatars`/`image_generate`/`canvas` → `/api/avatars/{n}?token=...` 等 |
 | `openMedia(item)` | `invoke("open_directory", {path})` | 临时 `<a download>` 触发浏览器下载 |
 | `revealMedia(item)` | `invoke("reveal_in_folder", {path})` | no-op |
+| `previewReadText(path,{sessionId})` | `invoke("preview_read_text", {path})` | `GET /api/sessions/{id}/files/read?path=`（会话鉴权） |
+| `previewExtractDoc(path,{sessionId})` | `invoke("preview_extract", {path})` | `GET /api/sessions/{id}/files/extract?path=`（会话鉴权） |
+| `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | tokened `/api/sessions/{id}/files/by-path?...&download=` |
 | `supportsLocalFileOps()` | `true` | `false` |
 | `pickLocalImage()` | `@tauri-apps/plugin-dialog.open` | 隐藏 `<input type="file">` + blob URL |
 
@@ -219,6 +222,10 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `project_fs_upload` | `POST /api/fs/upload` (multipart) | ✅ (写闸门，`projectFsUpload` 专用方法) |
 | `project_fs_resolve` | —（Tauri-only，图片预览 `convertFileSrc`） | N/A |
 | —（HTTP-only raw serve） | `GET /api/fs/raw?...&download=` | N/A (`projectFsRawUrl` 专用方法) |
+| `preview_read_text` | `GET /api/sessions/{id}/files/read?path=` | ✅ (preview-by-path，绝对路径，会话鉴权) |
+| `preview_extract` | `GET /api/sessions/{id}/files/extract?path=` | ✅ (preview-by-path，绝对路径，会话鉴权) |
+
+**preview-by-path（文件操作统一）**：`preview_read_text` / `preview_extract` 按**绝对路径**读取，供 Markdown 链接 / 下挂文件 / 工作台产物文件统一预览。桌面信任本机路径直接读；HTTP 经 `/api/sessions/{id}/files/{read,extract}`，与既有 `/files/by-path` 共用授权 `authorized_canonical_file_path` = **被会话 tool 消息引用 ∪ 落在会话工作目录内**，二者皆非的主机任意路径一律 403。详见 [file-operations.md](./file-operations.md)。
 
 写端点（write/delete/rename/mkdir/upload）在 HTTP handler 层读 `filesystem.allow_remote_writes`（默认 false）闸门，为 false 返 403；桌面 Tauri 不受限。配置读写：`get_filesystem_config` / `save_filesystem_config` ↔ `GET/PUT /api/config/filesystem`。
 
@@ -244,6 +251,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `load_session_messages_around_cmd` | `GET /api/sessions/{sessionId}/messages/around` | ✅ |
 | `load_session_messages_before_cmd` | `GET /api/sessions/{sessionId}/messages/before` | ✅ |
 | `load_session_messages_after_cmd` | `GET /api/sessions/{sessionId}/messages/after` | ✅ |
+| `load_session_artifacts_cmd` | `GET /api/sessions/{sessionId}/artifacts` | ✅ |
 | `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅ |
 | `delete_session_cmd` | `DELETE /api/sessions/{sessionId}` | ✅ |
 | `rename_session_cmd` | `PATCH /api/sessions/{sessionId}` | ✅ |

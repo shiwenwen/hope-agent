@@ -1,139 +1,17 @@
-import React, { useCallback } from "react"
-import { useTranslation } from "react-i18next"
-import {
-  FileText,
-  FileArchive,
-  FileType,
-  FileSpreadsheet,
-  FileCode,
-  FileAudio,
-  FileVideo,
-  FileImage,
-  File as FileIcon,
-  FolderOpen,
-  Download,
-} from "lucide-react"
-import { getTransport } from "@/lib/transport-provider"
-import { IconTip } from "@/components/ui/tooltip"
-import { logger } from "@/lib/logger"
+import React, { useMemo } from "react"
 import { formatBytes } from "@/lib/format"
 import type { MediaItem } from "@/types/chat"
+import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
+import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
+import { useFileActions } from "@/components/chat/files/useFileActions"
+import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 
-type IconKey =
-  | "image"
-  | "audio"
-  | "video"
-  | "pdf"
-  | "archive"
-  | "spreadsheet"
-  | "doc"
-  | "code"
-  | "file"
-
-/** Pick the icon key for a given MIME (falls back to filename extension). */
-function resolveIconKey(mime: string, name: string): IconKey {
-  const mimeLower = mime.toLowerCase()
-  if (mimeLower.startsWith("image/")) return "image"
-  if (mimeLower.startsWith("audio/")) return "audio"
-  if (mimeLower.startsWith("video/")) return "video"
-  if (mimeLower === "application/pdf") return "pdf"
-  if (
-    mimeLower === "application/zip" ||
-    mimeLower === "application/gzip" ||
-    mimeLower === "application/x-7z-compressed" ||
-    mimeLower === "application/vnd.rar" ||
-    mimeLower === "application/x-tar"
-  )
-    return "archive"
-  if (
-    mimeLower === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    mimeLower === "application/vnd.ms-excel" ||
-    mimeLower === "text/csv"
-  )
-    return "spreadsheet"
-  if (
-    mimeLower === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    mimeLower === "application/msword"
-  )
-    return "doc"
-  if (
-    mimeLower.startsWith("text/") ||
-    mimeLower === "application/json" ||
-    mimeLower === "application/xml" ||
-    mimeLower === "application/javascript"
-  )
-    return "code"
-
-  const ext = name.split(".").pop()?.toLowerCase()
-  switch (ext) {
-    case "png":
-    case "jpg":
-    case "jpeg":
-    case "gif":
-    case "webp":
-    case "svg":
-    case "bmp":
-    case "ico":
-      return "image"
-    case "mp3":
-    case "wav":
-    case "ogg":
-    case "flac":
-    case "m4a":
-      return "audio"
-    case "mp4":
-    case "mov":
-    case "webm":
-    case "mkv":
-    case "avi":
-      return "video"
-    case "pdf":
-      return "pdf"
-    case "zip":
-    case "tar":
-    case "gz":
-    case "tgz":
-    case "7z":
-    case "rar":
-      return "archive"
-    case "xlsx":
-    case "xls":
-    case "csv":
-      return "spreadsheet"
-    case "doc":
-    case "docx":
-      return "doc"
-    case "ts":
-    case "tsx":
-    case "js":
-    case "jsx":
-    case "json":
-    case "rs":
-    case "py":
-    case "go":
-    case "java":
-    case "kt":
-    case "swift":
-    case "c":
-    case "cc":
-    case "cpp":
-    case "h":
-    case "hpp":
-    case "css":
-    case "scss":
-    case "html":
-    case "xml":
-    case "md":
-    case "toml":
-    case "yaml":
-    case "yml":
-    case "sh":
-      return "code"
-    default:
-      return "file"
-  }
-}
-
+/**
+ * Colorful, format-specific file icon resolved from MIME (falling back to the
+ * filename). Thin adapter over the shared {@link FileTypeIcon} kept for the
+ * existing `(mime, name)` call sites (attachments, workspace panel). Size via
+ * `className`; the icon carries its own brand colors.
+ */
 export function FileMimeIcon({
   mime,
   name,
@@ -143,103 +21,36 @@ export function FileMimeIcon({
   name: string
   className?: string
 }) {
-  const key = resolveIconKey(mime, name)
-  switch (key) {
-    case "image":
-      return <FileImage className={className} />
-    case "audio":
-      return <FileAudio className={className} />
-    case "video":
-      return <FileVideo className={className} />
-    case "pdf":
-      return <FileText className={className} />
-    case "archive":
-      return <FileArchive className={className} />
-    case "spreadsheet":
-      return <FileSpreadsheet className={className} />
-    case "doc":
-      return <FileType className={className} />
-    case "code":
-      return <FileCode className={className} />
-    case "file":
-    default:
-      return <FileIcon className={className} />
-  }
+  return <FileTypeIcon name={name} mime={mime} className={className} />
 }
 
 /** Downloadable file card rendered for `send_attachment` and any other tool
- *  that emits structured media items via the `__MEDIA_ITEMS__` prefix. */
+ *  that emits structured media items via the `__MEDIA_ITEMS__` prefix.
+ *  Primary click follows the unified policy (preview / open / download by kind ×
+ *  mode); right-click and the ⋯ button expose the full action menu. */
 function FileCard({ item }: { item: MediaItem }) {
-  const { t } = useTranslation()
-  const transport = getTransport()
-  const canRevealLocal = transport.supportsLocalFileOps()
-
-  const handleOpen = useCallback(async () => {
-    try {
-      await transport.openMedia(item)
-    } catch (e) {
-      logger.error("chat", "FileCard::open", "Failed to open attachment", e)
-    }
-  }, [item, transport])
-
-  const handleDownload = useCallback(async () => {
-    try {
-      await transport.downloadMedia(item)
-    } catch (e) {
-      logger.error("chat", "FileCard::download", "Failed to download attachment", e)
-    }
-  }, [item, transport])
-
-  const handleReveal = useCallback(async () => {
-    try {
-      await transport.revealMedia(item)
-    } catch (e) {
-      logger.error("chat", "FileCard::reveal", "Failed to reveal attachment", e)
-    }
-  }, [item, transport])
+  const target = useMemo<PreviewTarget>(() => ({ kind: "media", item }), [item])
+  const { primary, run } = useFileActions(target)
 
   return (
-    <div className="inline-flex items-center gap-2 max-w-sm rounded-md border border-border/50 bg-secondary/30 hover:bg-secondary/50 transition-colors px-2.5 py-1.5 text-xs">
-      <FileMimeIcon
-        mime={item.mimeType}
-        name={item.name}
-        className="h-4 w-4 shrink-0 text-muted-foreground"
-      />
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="flex flex-col items-start min-w-0 flex-1 text-left hover:text-foreground transition-colors"
-      >
-        <span className="truncate max-w-[240px] font-medium text-foreground/90">
-          {item.name}
-        </span>
-        <span className="text-[10px] text-muted-foreground/70 tabular-nums">
-          {formatBytes(item.sizeBytes)}
-        </span>
-      </button>
-      <div className="flex items-center gap-0.5 shrink-0">
-        <IconTip label={t("localModels.actions.download", { defaultValue: "Download" })}>
-          <button
-            type="button"
-            onClick={handleDownload}
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-          </button>
-        </IconTip>
-        {canRevealLocal && (
-          <IconTip label={t("chat.revealInFolder")}>
-            <button
-              type="button"
-              onClick={handleReveal}
-              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
-        )}
+    <FileContextMenu target={target}>
+      <div className="inline-flex items-center gap-2 max-w-sm rounded-md border border-border/50 bg-secondary/30 hover:bg-secondary/50 transition-colors px-2.5 py-1.5 text-xs">
+        <FileMimeIcon mime={item.mimeType} name={item.name} className="h-4 w-4 shrink-0" />
+        <button
+          type="button"
+          onClick={() => run(primary)}
+          className="flex flex-col items-start min-w-0 flex-1 text-left hover:text-foreground transition-colors"
+        >
+          <span className="truncate max-w-[240px] font-medium text-foreground/90">
+            {item.name}
+          </span>
+          <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+            {formatBytes(item.sizeBytes)}
+          </span>
+        </button>
+        <FileActionsMoreButton target={target} className="shrink-0" />
       </div>
-    </div>
+    </FileContextMenu>
   )
 }
 

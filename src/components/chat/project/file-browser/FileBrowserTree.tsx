@@ -20,6 +20,7 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 import { iconForEntry } from "@/lib/fileKind"
+import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { Input } from "@/components/ui/input"
 import {
   ContextMenu,
@@ -321,7 +322,11 @@ function TreeNode({
             ) : (
               <span className="w-3.5 shrink-0" />
             )}
-            {createElement(icon, { className: "h-3.5 w-3.5 shrink-0 text-muted-foreground" })}
+            {entry.isDir ? (
+              createElement(icon, { className: "h-3.5 w-3.5 shrink-0 text-muted-foreground" })
+            ) : (
+              <FileTypeIcon name={entry.name} className="h-3.5 w-3.5 shrink-0" />
+            )}
             {isRenaming ? (
               <RenameInput initial={entry.name} onCommit={commitRename} onCancel={() => ctx.setRenaming(null)} />
             ) : (

@@ -1039,6 +1039,17 @@
     "resizePanel": "调整 diff 面板宽度",
     "title": "文件改动"
   },
+  "fileActions": {
+    "preview": "预览",
+    "open": "打开",
+    "download": "下载",
+    "revealInFolder": "在文件夹中打开",
+    "more": "更多操作"
+  },
+  "filePreview": {
+    "panelTitle": "预览",
+    "resizePanel": "调整预览面板宽度"
+  },
   "fileBrowser": {
     "panelTitle": "文件",
     "jumpToFile": "在文件浏览器中显示",
@@ -1079,7 +1090,7 @@
     "fileTooLarge": "文件过大，无法预览",
     "viewSource": "查看源码",
     "rendered": "渲染视图",
-    "extractedPreview": "提取内容预览 —— 在系统中打开可查看原始排版。",
+    "extractedPreview": "提取预览，排版可能与原文件有差异 —— 打开原文件查看完整版式。",
     "quoteToChat": "引用到会话",
     "quoted": "已引用到会话"
   },
@@ -4643,6 +4654,7 @@
     "openPanel": "打开工作台",
     "resizePanel": "调整工作台面板宽度",
     "sourceFromSearch": "搜索",
+    "truncatedNote": "仅显示最近 1000 条",
     "action": {
       "create": "新建",
       "edit": "修改",

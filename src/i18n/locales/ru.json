@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "Просмотр",
+    "open": "Открыть",
+    "download": "Скачать",
+    "revealInFolder": "Показать в папке",
+    "more": "Другие действия"
+  },
+  "filePreview": {
+    "panelTitle": "Просмотр",
+    "resizePanel": "Изменить размер панели просмотра"
+  },
   "fileBrowser": {
     "panelTitle": "Файлы",
     "jumpToFile": "Показать в файловом браузере",
@@ -4643,6 +4654,7 @@
     "openPanel": "Открыть рабочую область",
     "resizePanel": "Изменить размер панели рабочей области",
     "sourceFromSearch": "Поиск",
+    "truncatedNote": "Показаны последние 1000",
     "action": {
       "create": "Создать",
       "edit": "Изменить",

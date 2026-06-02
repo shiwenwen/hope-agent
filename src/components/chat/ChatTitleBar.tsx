@@ -15,6 +15,7 @@ import {
   FileText,
   FolderCheck,
   FolderOpen,
+  LayoutDashboard,
   Loader2,
   Search,
   Send,
@@ -109,6 +110,10 @@ interface ChatTitleBarProps {
   onToggleFilesPanel?: () => void
   /** Whether the file browser panel is currently open (controls active styling). */
   filesPanelOpen?: boolean
+  /** Toggle the right-side workspace panel (tasks / files / sources). */
+  onToggleWorkspacePanel?: () => void
+  /** Whether the workspace panel is currently open (controls active styling). */
+  workspacePanelOpen?: boolean
   /** Open right-side panels available for switching/collapsing. */
   rightPanels?: RightPanelTitleBarItem[]
   /** Active right-side panel id. */
@@ -154,6 +159,8 @@ export default function ChatTitleBar({
   onIncognitoChange,
   onToggleFilesPanel,
   filesPanelOpen = false,
+  onToggleWorkspacePanel,
+  workspacePanelOpen = false,
   rightPanels = [],
   activeRightPanelId,
   rightPanelCollapsed = false,
@@ -247,6 +254,7 @@ export default function ChatTitleBar({
     : t("chat.rightPanel.collapse", "收起右侧面板")
   const hasRightPanelControls =
     !!onToggleFilesPanel ||
+    !!onToggleWorkspacePanel ||
     (rightPanels.length > 0 && (rightPanels.length > 1 || !!onToggleRightPanelCollapsed))
   const workingDirChip = effectiveWorkingDir ? (
     <IconTip
@@ -285,6 +293,22 @@ export default function ChatTitleBar({
               onClick={onToggleFilesPanel}
             >
               <FolderOpen className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
+        {onToggleWorkspacePanel && (
+          <IconTip label={t("workspace.openPanel", "Open workspace")}>
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+                workspacePanelOpen && "text-foreground",
+              )}
+              aria-label={t("workspace.openPanel", "Open workspace")}
+              aria-pressed={workspacePanelOpen}
+              onClick={onToggleWorkspacePanel}
+            >
+              <LayoutDashboard className="h-4 w-4" />
             </button>
           </IconTip>
         )}

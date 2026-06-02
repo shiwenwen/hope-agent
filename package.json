@@ -85,6 +85,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@iconify-json/vscode-icons": "^1.2.53",
+    "@svgr/core": "^8.1.0",
+    "@svgr/plugin-jsx": "^8.1.0",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -102,6 +105,7 @@
     "prettier": "^3.8.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.56.1",
+    "unplugin-icons": "^23.0.1",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"
   },

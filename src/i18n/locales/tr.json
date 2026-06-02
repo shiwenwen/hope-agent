@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "Önizle",
+    "open": "Aç",
+    "download": "İndir",
+    "revealInFolder": "Klasörde göster",
+    "more": "Diğer işlemler"
+  },
+  "filePreview": {
+    "panelTitle": "Önizleme",
+    "resizePanel": "Önizleme panelini yeniden boyutlandır"
+  },
   "fileBrowser": {
     "panelTitle": "Dosyalar",
     "jumpToFile": "Dosya tarayıcısında göster",
@@ -4643,6 +4654,7 @@
     "openPanel": "Çalışma alanını aç",
     "resizePanel": "Çalışma alanı panelini yeniden boyutlandır",
     "sourceFromSearch": "Arama",
+    "truncatedNote": "En son 1000 gösteriliyor",
     "action": {
       "create": "Yeni",
       "edit": "Düzenle",

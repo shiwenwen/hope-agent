@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "미리보기",
+    "open": "열기",
+    "download": "다운로드",
+    "revealInFolder": "폴더에서 표시",
+    "more": "추가 작업"
+  },
+  "filePreview": {
+    "panelTitle": "미리보기",
+    "resizePanel": "미리보기 패널 크기 조정"
+  },
   "fileBrowser": {
     "panelTitle": "파일",
     "jumpToFile": "파일 브라우저에서 표시",
@@ -4643,6 +4654,7 @@
     "openPanel": "워크스페이스 열기",
     "resizePanel": "워크스페이스 패널 크기 조정",
     "sourceFromSearch": "검색",
+    "truncatedNote": "최근 1000개 표시 중",
     "action": {
       "create": "생성",
       "edit": "편집",

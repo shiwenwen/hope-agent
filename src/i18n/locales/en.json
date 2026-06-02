@@ -1030,6 +1030,17 @@
       }
     }
   },
+  "fileActions": {
+    "preview": "Preview",
+    "open": "Open",
+    "download": "Download",
+    "revealInFolder": "Reveal in folder",
+    "more": "More actions"
+  },
+  "filePreview": {
+    "panelTitle": "Preview",
+    "resizePanel": "Resize preview panel"
+  },
   "fileBrowser": {
     "panelTitle": "Files",
     "jumpToFile": "Show in file browser",
@@ -1070,7 +1081,7 @@
     "fileTooLarge": "File too large to preview",
     "viewSource": "View source",
     "rendered": "Rendered",
-    "extractedPreview": "Extracted content preview — open in system for the original layout.",
+    "extractedPreview": "Extracted preview — layout may differ from the original. Open the file for the exact formatting.",
     "quoteToChat": "Quote to chat",
     "quoted": "Added to chat"
   },
@@ -4643,6 +4654,7 @@
     "openPanel": "Open workspace",
     "resizePanel": "Resize workspace panel",
     "sourceFromSearch": "Search",
+    "truncatedNote": "Showing the most recent 1000",
     "action": {
       "create": "New",
       "edit": "Edit",

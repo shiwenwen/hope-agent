@@ -241,6 +241,41 @@ export interface Transport {
   ): Promise<string | null>;
 
   /**
+   * Read a file's text content for the in-app preview panel, by **absolute
+   * path** (the path-based sibling of {@link ProjectFsApi.readFile}). Binary /
+   * oversized files come back `isBinary: true`.
+   * - Tauri: `preview_read_text` (trusts local paths).
+   * - HTTP: `GET /api/sessions/{id}/files/read`, gated by session reference +
+   *   working-dir containment. Requires `sessionId`; throws without one.
+   */
+  previewReadText(
+    path: string,
+    opts?: { sessionId?: string | null },
+  ): Promise<FileTextContent>;
+
+  /**
+   * Extract a PDF / Office document for the in-app preview panel, by absolute
+   * path. Same modes / authorization as {@link previewReadText}.
+   */
+  previewExtractDoc(
+    path: string,
+    opts?: { sessionId?: string | null },
+  ): Promise<ExtractedContent>;
+
+  /**
+   * Resolve a raw URL for an absolute file path, for `<img>` / `<iframe>` /
+   * `<video>` / `<audio>` preview (and binary-placeholder open/download).
+   * - Tauri: `resolveAssetUrl(path)` (`convertFileSrc`); `download` is ignored.
+   * - HTTP: a tokened `/api/sessions/{id}/files/by-path` URL (with `download=1`
+   *   when requested). Returns `null` without a `sessionId`.
+   */
+  previewRawUrl(
+    path: string,
+    opts?: { sessionId?: string | null },
+    download?: boolean,
+  ): Promise<string | null>;
+
+  /**
    * Upload a single file into a workspace directory. Multipart on HTTP;
    * `invoke` with a byte array on Tauri.
    */
@@ -253,6 +288,15 @@ export interface Transport {
       overwrite?: boolean;
     },
   ): Promise<UploadResult>;
+
+  /**
+   * Aggregate the session's workspace artifacts (files touched + URL sources)
+   * over its FULL history — the complete set the workspace panel merges with
+   * its in-memory live tail. Summary only (no diff snapshots).
+   * - Tauri: `load_session_artifacts_cmd`.
+   * - HTTP: `GET /api/sessions/{id}/artifacts`.
+   */
+  loadSessionArtifacts(sessionId: string): Promise<SessionArtifacts>;
 }
 
 /**
@@ -380,6 +424,37 @@ export interface ExtractedContent {
   kind: string;
   text: string | null;
   images: ExtractedImageDto[];
+}
+
+/**
+ * Backend-aggregated file summary — the `diff`-less sibling of
+ * `SessionFileEntry`. The workspace panel maps it back with `diff: null`
+ * (window-外 files have no historical diff; they preview current content).
+ */
+export interface FileArtifactSummary {
+  path: string;
+  kind: "modified" | "read";
+  linesAdded: number;
+  linesRemoved: number;
+  readLines: number | null;
+}
+
+/** Backend-aggregated URL source (mirror of `SessionUrlSource`). */
+export interface UrlSourceDto {
+  url: string;
+  origin: "web_search" | "message";
+}
+
+/**
+ * Full-session workspace artifacts aggregated server-side over the whole
+ * message history. `*Truncated` flags whether the list was capped (most-recent
+ * 1000). See {@link Transport.loadSessionArtifacts}.
+ */
+export interface SessionArtifacts {
+  files: FileArtifactSummary[];
+  sources: UrlSourceDto[];
+  filesTruncated: boolean;
+  sourcesTruncated: boolean;
 }
 
 export interface WriteResult {

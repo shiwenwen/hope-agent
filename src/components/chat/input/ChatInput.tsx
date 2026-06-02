@@ -116,8 +116,6 @@ interface ChatInputProps {
   executionState?: ChatTurnStatus | null
   /** 打开右侧工作台面板（状态条点击）。 */
   onOpenWorkspace?: () => void
-  /** 工作台是否有任何内容（任务 / 文件 / 来源）——无未完成任务时仍显示状态条入口。 */
-  workspaceHasContent?: boolean
   /** Larger centered presentation for a brand-new empty conversation. */
   hero?: boolean
 }
@@ -161,7 +159,6 @@ export default function ChatInput({
   taskProgressSnapshot,
   executionState,
   onOpenWorkspace,
-  workspaceHasContent = false,
   hero = false,
 }: ChatInputProps) {
   const { t } = useTranslation()
@@ -557,7 +554,6 @@ export default function ChatInput({
         <WorkspaceStatusBar
           snapshot={taskProgressSnapshot}
           executionState={taskExecutionState}
-          hasContent={workspaceHasContent}
           onOpen={onOpenWorkspace ?? (() => {})}
         />
 

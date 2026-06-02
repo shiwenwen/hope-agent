@@ -181,6 +181,14 @@ fn build_router_with_cors(
             "/sessions/{id}/files/by-path",
             get(routes::sessions::download_session_file_by_path),
         )
+        .route(
+            "/sessions/{id}/files/read",
+            get(routes::sessions::read_session_file_by_path),
+        )
+        .route(
+            "/sessions/{id}/files/extract",
+            get(routes::sessions::extract_session_file_by_path),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))
@@ -219,6 +227,10 @@ fn build_router_with_cors(
         .route(
             "/sessions/{id}/messages/search",
             get(routes::sessions::search_session_messages),
+        )
+        .route(
+            "/sessions/{id}/artifacts",
+            get(routes::sessions::get_session_artifacts),
         )
         .route(
             "/sessions/{id}/stream-state",

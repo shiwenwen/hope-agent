@@ -33,13 +33,14 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import "streamdown/styles.css"
-import i18next from "i18next"
-import { toast } from "sonner"
-import { getTransport } from "@/lib/transport-provider"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
+import { basename } from "@/lib/path"
 import { findAutoLinkMatches } from "@/lib/autoLink"
 import { shouldRenderAsBareJson } from "./markdownJson"
+import { useFileActions } from "@/components/chat/files/useFileActions"
+import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
+import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -321,6 +322,8 @@ function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo
   return { Icon: Link2, kind: "link" }
 }
 
+type MarkdownAnchorProps = AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }
+
 export function MarkdownLink({
   href,
   children,
@@ -328,42 +331,38 @@ export function MarkdownLink({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   node: _node,
   ...rest
-}: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
+}: MarkdownAnchorProps) {
   const isIncomplete = href === "streamdown:incomplete-link"
-  const localPath = localPathFromHref(href)
-  const disabledLocal = localPath !== null && !getTransport().supportsLocalFileOps()
-  const linkIcon = linkIconForHref(href, localPath !== null)
+  const localPath = isIncomplete ? null : localPathFromHref(href)
+  // Local file links follow the unified file-operation policy (preview / open /
+  // download by kind × mode) + a right-click menu — but ONLY local links pay the
+  // useFileActions hook + Radix ContextMenu cost. External links (the vast
+  // majority, and the file's perf concern: a streamed message renders hundreds
+  // of anchors) render as a plain anchor with no hooks. So MarkdownLink itself
+  // calls no hooks and dispatches by kind.
+  if (localPath) {
+    return (
+      <MarkdownFileLink localPath={localPath} href={href} className={className} {...rest}>
+        {children}
+      </MarkdownFileLink>
+    )
+  }
+  const linkIcon = linkIconForHref(href, false)
   const LinkIcon = linkIcon?.Icon
-  // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百
-  // anchor，包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。Markdown
-  // 内联 disabled 提示属合理例外。
+  // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百 anchor，
+  // 包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。
   return (
     <a
       {...rest}
       href={href}
-      className={cn(
-        "wrap-anywhere markdown-link font-medium",
-        disabledLocal && "cursor-not-allowed opacity-70",
-        className,
-      )}
-      title={disabledLocal ? i18next.t("common.markdownLinkLocalDisabled") : rest.title}
+      className={cn("wrap-anywhere markdown-link font-medium", className)}
       data-incomplete={isIncomplete || undefined}
       data-link-kind={linkIcon?.kind}
       data-streamdown="link"
       onClick={(event) => {
         if (!href || isIncomplete) return
         event.preventDefault()
-        if (disabledLocal) return
-        if (localPath) {
-          void getTransport()
-            .call("open_directory", { path: localPath })
-            .catch((error) => {
-              const message = error instanceof Error ? error.message : String(error)
-              toast.error(message)
-            })
-        } else {
-          openExternalUrl(href)
-        }
+        openExternalUrl(href)
       }}
     >
       {LinkIcon && <LinkIcon aria-hidden="true" className="markdown-link-icon" />}
@@ -371,6 +370,45 @@ export function MarkdownLink({
     </a>
   )
 }
+
+/** Local-path Markdown link: unified primary-click + right-click action menu.
+ *  Split out so only local links instantiate the hook + ContextMenu (external
+ *  links stay zero-cost). `memo` + a memoized `target` keep streaming re-renders
+ *  from re-running the resolution per frame. */
+const MarkdownFileLink = memo(function MarkdownFileLink({
+  localPath,
+  href,
+  className,
+  children,
+  ...rest
+}: MarkdownAnchorProps & { localPath: string }) {
+  const target = useMemo<PreviewTarget>(
+    () => ({ kind: "path", path: localPath, name: basename(localPath) }),
+    [localPath],
+  )
+  const { primary, run } = useFileActions(target)
+  const linkIcon = linkIconForHref(href, true)
+  const LinkIcon = linkIcon?.Icon
+  return (
+    <FileContextMenu target={target}>
+      <a
+        {...rest}
+        href={href}
+        className={cn("wrap-anywhere markdown-link font-medium", className)}
+        data-link-kind={linkIcon?.kind}
+        data-streamdown="link"
+        onClick={(event) => {
+          if (!href) return
+          event.preventDefault()
+          run(primary)
+        }}
+      >
+        {LinkIcon && <LinkIcon aria-hidden="true" className="markdown-link-icon" />}
+        <span className="markdown-link-label">{children}</span>
+      </a>
+    </FileContextMenu>
+  )
+})
 
 const markdownComponents = { a: MarkdownLink }
 
