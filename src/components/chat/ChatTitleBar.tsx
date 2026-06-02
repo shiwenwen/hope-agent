@@ -163,9 +163,7 @@ export default function ChatTitleBar({
   const { t } = useTranslation()
   const appVersion = useAppVersion()
   const [showStatus, setShowStatus] = useState(false)
-  const [showRightPanelMenu, setShowRightPanelMenu] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
-  const rightPanelMenuRef = useRef<HTMLDivElement>(null)
 
   // Compact result toast
   const [compactToast, setCompactToast] = useState<{ success: boolean; message: string } | null>(
@@ -219,17 +217,6 @@ export default function ChatTitleBar({
   }, [showStatus])
 
   useEffect(() => {
-    if (!showRightPanelMenu) return
-    const handler = (e: MouseEvent) => {
-      if (rightPanelMenuRef.current && !rightPanelMenuRef.current.contains(e.target as Node)) {
-        setShowRightPanelMenu(false)
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [showRightPanelMenu])
-
-  useEffect(() => {
     return () => {
       if (sessionIdCopiedTimer.current) clearTimeout(sessionIdCopiedTimer.current)
     }
@@ -255,7 +242,6 @@ export default function ChatTitleBar({
     : null
   const activeRightPanel =
     rightPanels.find((panel) => panel.id === activeRightPanelId) ?? rightPanels[0] ?? null
-  const ActiveRightPanelIcon = activeRightPanel?.icon
   const rightPanelToggleLabel = rightPanelCollapsed
     ? t("chat.rightPanel.expand", "展开右侧面板")
     : t("chat.rightPanel.collapse", "收起右侧面板")
@@ -302,61 +288,33 @@ export default function ChatTitleBar({
             </button>
           </IconTip>
         )}
-        {rightPanels.length > 1 && activeRightPanel && ActiveRightPanelIcon && (
-          <div className="relative" ref={rightPanelMenuRef}>
-            <IconTip label={t("chat.rightPanel.switch", "切换右侧面板")}>
-              <button
-                type="button"
-                className={cn(
-                  "flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-                  showRightPanelMenu && "bg-secondary text-foreground",
-                )}
-                aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
-                aria-haspopup="menu"
-                aria-expanded={showRightPanelMenu}
-                onClick={() => setShowRightPanelMenu((v) => !v)}
-              >
-                <ActiveRightPanelIcon className="h-4 w-4" />
-                <span className="max-w-[72px] truncate text-[11px] font-medium">
-                  {activeRightPanel.label}
-                </span>
-              </button>
-            </IconTip>
-            <div
-              className={cn(
-                "absolute right-0 top-full z-50 mt-1.5 min-w-[164px] rounded-lg border border-border bg-popover p-1 shadow-xl transition-all duration-150 origin-top-right",
-                showRightPanelMenu
-                  ? "scale-100 opacity-100 pointer-events-auto"
-                  : "scale-95 opacity-0 pointer-events-none",
-              )}
-              role="menu"
-            >
-              {rightPanels.map((panel) => {
-                const PanelIcon = panel.icon
-                const active = panel.id === activeRightPanel.id
-                return (
+        {rightPanels.length > 1 && activeRightPanel && (
+          <div
+            className="flex h-7 max-w-[184px] items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/40 p-0.5"
+            role="tablist"
+            aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
+          >
+            {rightPanels.map((panel) => {
+              const PanelIcon = panel.icon
+              const active = panel.id === activeRightPanel.id
+              return (
+                <IconTip key={panel.id} label={panel.label}>
                   <button
-                    key={panel.id}
                     type="button"
-                    role="menuitemradio"
-                    aria-checked={active}
+                    role="tab"
+                    aria-selected={active}
+                    aria-label={panel.label}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-                      active
-                        ? "bg-secondary text-foreground"
-                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-background/80 hover:text-foreground",
+                      active && "bg-background text-foreground shadow-sm ring-1 ring-border/60",
                     )}
-                    onClick={() => {
-                      onSelectRightPanel?.(panel.id)
-                      setShowRightPanelMenu(false)
-                    }}
+                    onClick={() => onSelectRightPanel?.(panel.id)}
                   >
-                    <PanelIcon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{panel.label}</span>
+                    <PanelIcon className="h-3.5 w-3.5" />
                   </button>
-                )
-              })}
-            </div>
+                </IconTip>
+              )
+            })}
           </div>
         )}
         {onToggleRightPanelCollapsed && (
