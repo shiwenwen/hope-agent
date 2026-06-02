@@ -11,7 +11,7 @@
 import { useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { FolderTree, X } from "lucide-react"
+import { FolderOpen, X } from "lucide-react"
 
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
@@ -42,7 +42,7 @@ export default function FileBrowserDetachedWindow() {
           className="flex shrink-0 items-center gap-2 border-b border-border bg-secondary/30 px-3 py-2 pt-8"
           data-tauri-drag-region
         >
-          <FolderTree className="h-4 w-4 text-muted-foreground" />
+          <FolderOpen className="h-4 w-4 text-muted-foreground" />
           <span className="flex-1 truncate text-sm font-medium">
             {t("fileBrowser.panelTitle", "Files")}
           </span>

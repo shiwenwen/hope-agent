@@ -16,7 +16,7 @@ import {
   ChevronsDownUp,
   FilePlus,
   FolderPlus,
-  FolderTree,
+  FolderOpen,
   GitBranch,
   RefreshCw,
   RotateCcw,
@@ -224,7 +224,7 @@ export function FileBrowserView({
   const toolbar = useMemo(
     () => (
       <div className="flex items-center gap-0.5 border-b px-2 py-1">
-        <FolderTree className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
+        <FolderOpen className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
         <span className="mr-auto text-xs font-medium text-muted-foreground">
           {t("fileBrowser.panelTitle", "Files")}
         </span>

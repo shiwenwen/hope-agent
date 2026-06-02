@@ -15,19 +15,12 @@ import {
 import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
 import AwarenessPanel from "@/components/settings/AwarenessPanel"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
-import {
-  normalizeChatDisplayMode,
-  readChatDisplayModePreference,
-  writeChatDisplayModePreference,
-} from "@/components/chat/chatDisplayModePreference"
-import { Check, ListChecks, Loader2, MessagesSquare } from "lucide-react"
+import { Check, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { ChatDisplayMode } from "@/types/chat"
 
 interface ChatConfig {
   autoSendPending: boolean
   autoExpandThinking: boolean
-  chatDisplayMode: ChatDisplayMode
 }
 
 interface SessionTitleConfig {
@@ -48,7 +41,6 @@ export default function ChatSettingsPanel() {
   const [config, setConfig] = useState<ChatConfig>({
     autoSendPending: true,
     autoExpandThinking: true,
-    chatDisplayMode: readChatDisplayModePreference(),
   })
   const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [sessionTitleConfig, setSessionTitleConfig] = useState<SessionTitleConfig>({
@@ -67,21 +59,16 @@ export default function ChatSettingsPanel() {
       getTransport().call<{
         autoSendPending?: boolean
         autoExpandThinking?: boolean
-        chatDisplayMode?: unknown
       }>("get_user_config"),
       getTransport().call<boolean>("get_tool_call_narration_enabled"),
       getTransport().call<SessionTitleConfig>("get_session_title_config"),
       getTransport().call<ProviderOption[]>("get_providers"),
     ])
       .then(([cfg, narration, sessionTitle, providerList]) => {
-        const displayMode =
-          normalizeChatDisplayMode(cfg.chatDisplayMode) ?? readChatDisplayModePreference()
         setConfig({
           autoSendPending: cfg.autoSendPending !== false,
           autoExpandThinking: cfg.autoExpandThinking !== false,
-          chatDisplayMode: displayMode,
         })
-        writeChatDisplayModePreference(displayMode)
         setNarrationEnabled(narration === true)
         setSessionTitleConfig({
           enabled: sessionTitle.enabled === true,
@@ -110,26 +97,6 @@ export default function ChatSettingsPanel() {
       }
     } catch (e) {
       logger.error("settings", "ChatSettingsPanel::save", "Failed to save chat config", e)
-    }
-  }
-
-  async function updateChatDisplayMode(mode: ChatDisplayMode) {
-    if (mode === config.chatDisplayMode) return
-    const updated = { ...config, chatDisplayMode: mode }
-    setConfig(updated)
-    writeChatDisplayModePreference(mode)
-    try {
-      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
-      await getTransport().call("save_user_config", {
-        config: { ...full, chatDisplayMode: mode },
-      })
-    } catch (e) {
-      logger.error(
-        "settings",
-        "ChatSettingsPanel::saveDisplayMode",
-        "Failed to save chat display mode",
-        e,
-      )
     }
   }
 
@@ -216,39 +183,6 @@ export default function ChatSettingsPanel() {
                 checked={config.autoExpandThinking}
                 onCheckedChange={() => toggle("autoExpandThinking")}
               />
-            </div>
-
-            <div className="flex items-center justify-between gap-3 px-3 py-3 rounded-lg">
-              <div className="space-y-0.5 min-w-0">
-                <div className="text-sm font-medium">{t("settings.chatDisplayMode")}</div>
-                <div className="text-xs text-muted-foreground">{t("settings.chatDisplayModeDesc")}</div>
-              </div>
-              <div className="grid shrink-0 grid-cols-2 rounded-lg border border-border/60 bg-background p-0.5">
-                <button
-                  type="button"
-                  onClick={() => void updateChatDisplayMode("bubble")}
-                  className={cn(
-                    "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground transition-colors",
-                    config.chatDisplayMode === "bubble" &&
-                      "bg-secondary text-foreground shadow-sm",
-                  )}
-                >
-                  <MessagesSquare className="h-3.5 w-3.5" />
-                  {t("settings.chatDisplayModeBubble")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void updateChatDisplayMode("timeline")}
-                  className={cn(
-                    "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground transition-colors",
-                    config.chatDisplayMode === "timeline" &&
-                      "bg-secondary text-foreground shadow-sm",
-                  )}
-                >
-                  <ListChecks className="h-3.5 w-3.5" />
-                  {t("settings.chatDisplayModeTimeline")}
-                </button>
-              </div>
             </div>
 
             <div

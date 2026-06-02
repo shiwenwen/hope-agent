@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Bot, MessageSquarePlus, PanelLeftDashed, Rows2, Rows3 } from "lucide-react"
+import { Bot, MessageSquarePlus, PanelLeft } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -322,24 +322,6 @@ export default function ChatSidebar({
     setDeleteConfirmSessionId(null)
   }
 
-  async function toggleSidebarDisplayMode() {
-    const next = sidebarDisplayMode === "compact" ? "detailed" : "compact"
-    const previous = sidebarDisplayMode
-    setSidebarDisplayMode(next)
-    window.dispatchEvent(new CustomEvent("sidebar-display-mode-changed", { detail: { mode: next } }))
-    try {
-      await getTransport().call("set_sidebar_display_mode", { mode: next })
-    } catch (err) {
-      setSidebarDisplayMode(previous)
-      window.dispatchEvent(
-        new CustomEvent("sidebar-display-mode-changed", { detail: { mode: previous } }),
-      )
-      logger.error("chat", "ChatSidebar::toggleDisplayMode", "failed to save sidebar mode", err)
-    }
-  }
-
-  const SidebarDisplayModeIcon = sidebarDisplayMode === "compact" ? Rows2 : Rows3
-
   return (
     <>
       <div
@@ -367,42 +349,16 @@ export default function ChatSidebar({
                 {t("chat.conversations")}
               </h2>
               <div className="ml-auto flex items-center gap-1 pb-2">
-                <IconTip
-                  label={
-                    sidebarDisplayMode === "compact"
-                      ? t("chat.sidebarDetailedMode", "切换到详细模式")
-                      : t("chat.sidebarCompactMode", "切换到简约模式")
-                  }
-                >
-                  <button
-                    className={cn(
-                      "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground",
-                      sidebarDisplayMode === "compact" && "bg-secondary/70 text-foreground",
-                    )}
-                    aria-label={
-                      sidebarDisplayMode === "compact"
-                        ? t("chat.sidebarDetailedMode", "切换到详细模式")
-                        : t("chat.sidebarCompactMode", "切换到简约模式")
-                    }
-                    aria-pressed={sidebarDisplayMode === "compact"}
-                    onClick={(e) => {
-                      e.currentTarget.blur()
-                      void toggleSidebarDisplayMode()
-                    }}
-                  >
-                    <SidebarDisplayModeIcon className="h-4 w-4" />
-                  </button>
-                </IconTip>
                 <IconTip label={t("chat.collapseSidebar")}>
                   <button
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-foreground transition-colors hover:bg-surface-subtle"
                     aria-label={t("chat.collapseSidebar")}
                     onClick={(e) => {
                       e.currentTarget.blur()
                       onSidebarCollapsedChange(true)
                     }}
                   >
-                    <PanelLeftDashed className="h-4 w-4" />
+                    <PanelLeft className="h-4 w-4" />
                   </button>
                 </IconTip>
                 {/* New Chat button */}

@@ -2596,7 +2596,7 @@
     "chatAutoSendDesc": "Automatically send queued messages after reply finishes. When off, message is filled back to input.",
     "chatDisplayMode": "Default message view",
     "chatDisplayModeBubble": "Bubble",
-    "chatDisplayModeDesc": "Choose the default layout for new conversations and sessions without an override. The title bar toggle only affects the current session.",
+    "chatDisplayModeDesc": "Choose the default layout for chat messages.",
     "chatDisplayModeTimeline": "Task",
     "configBackupsDesc": "Every settings change is snapshotted automatically. Roll back to any previous version (last 50 kept).",
     "configBackupsEmpty": "No history yet",

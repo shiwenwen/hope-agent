@@ -2,12 +2,25 @@ import { useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { logger } from "@/lib/logger"
 import {
   DEFAULT_SIDEBAR_DISPLAY_MODE,
   normalizeSidebarDisplayMode,
   type SidebarDisplayMode,
 } from "@/components/chat/sidebar/types"
+import {
+  normalizeChatDisplayMode,
+  readChatDisplayModePreference,
+  writeChatDisplayModePreference,
+} from "@/components/chat/chatDisplayModePreference"
+import type { ChatDisplayMode } from "@/types/chat"
 
 /**
  * AutostartToggle -- rendered in the System tab
@@ -190,6 +203,78 @@ export function SidebarDisplayModeSelector() {
 }
 
 /**
+ * ChatDisplayModeSelector -- rendered in the Appearance tab
+ */
+export function ChatDisplayModeSelector() {
+  const { t } = useTranslation()
+
+  const [mode, setMode] = useState<ChatDisplayMode>(readChatDisplayModePreference())
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<{ chatDisplayMode?: unknown }>("get_user_config")
+      .then((cfg) => {
+        if (cancelled) return
+        const next = normalizeChatDisplayMode(cfg.chatDisplayMode) ?? readChatDisplayModePreference()
+        setMode(next)
+        writeChatDisplayModePreference(next, { emit: false })
+        setLoaded(true)
+      })
+      .catch((e) => {
+        logger.error("settings", "ChatDisplayModeSelector::load", "Failed to load chat display mode", e)
+        setLoaded(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  async function updateMode(next: ChatDisplayMode) {
+    if (next === mode) return
+    const previous = mode
+    setMode(next)
+    writeChatDisplayModePreference(next)
+    try {
+      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
+      await getTransport().call("save_user_config", {
+        config: { ...full, chatDisplayMode: next },
+      })
+    } catch (e) {
+      setMode(previous)
+      writeChatDisplayModePreference(previous)
+      logger.error(
+        "settings",
+        "ChatDisplayModeSelector::update",
+        "Failed to save chat display mode",
+        e,
+      )
+    }
+  }
+
+  return (
+    <div>
+      {loaded && (
+        <div className="flex items-center justify-between gap-3 px-3 py-3 rounded-lg transition-colors hover:bg-secondary/40">
+          <div className="space-y-0.5 min-w-0">
+            <div className="text-sm font-medium">{t("settings.chatDisplayMode")}</div>
+            <div className="text-xs text-muted-foreground">{t("settings.chatDisplayModeDesc")}</div>
+          </div>
+          <Select value={mode} onValueChange={(value) => void updateMode(value as ChatDisplayMode)}>
+            <SelectTrigger className="h-8 w-[128px] shrink-0 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bubble">{t("settings.chatDisplayModeBubble")}</SelectItem>
+              <SelectItem value="timeline">{t("settings.chatDisplayModeTimeline")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Default export combines both toggles (for use when rendering together)
  */
 export default function SystemSection() {
@@ -197,6 +282,7 @@ export default function SystemSection() {
     <>
       <AutostartToggle />
       <SidebarDisplayModeSelector />
+      <ChatDisplayModeSelector />
       <UiEffectsToggle />
     </>
   )

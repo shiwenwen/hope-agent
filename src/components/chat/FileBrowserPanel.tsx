@@ -21,7 +21,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import {
   ChevronRight,
   ExternalLink,
-  FolderTree,
+  FolderOpen,
   Maximize2,
   Minimize2,
   PanelLeftClose,
@@ -160,7 +160,7 @@ export function FileBrowserPanel({
     // When maximized the panel covers the whole window (fixed inset-0), so pad
     // the top to clear the macOS overlay traffic lights — mirrors CanvasPanel.
     <div className={cn("flex items-center gap-1 border-b px-2 py-1", maximized && "pt-7")}>
-      <FolderTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <span className="text-xs font-medium text-muted-foreground">
         {t("fileBrowser.panelTitle", "Files")}
       </span>

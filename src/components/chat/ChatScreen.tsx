@@ -8,11 +8,9 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import {
   Brain,
-  ChevronLeft,
-  ChevronRight,
   ClipboardList,
   Eye,
-  FolderTree,
+  FolderOpen,
   GitCompare,
   Globe,
   LayoutDashboard,
@@ -24,7 +22,6 @@ import {
 import type {
   ActiveModel,
   AvailableModel,
-  ChatDisplayMode,
   Message,
   SessionMode,
 } from "@/types/chat"
@@ -48,7 +45,6 @@ import { TeamPanel } from "@/components/team/TeamPanel"
 import TeamMiniIndicator from "@/components/team/TeamMiniIndicator"
 import { useActiveTeam } from "@/components/team/useTeam"
 import SessionSearchBar from "@/components/chat/SessionSearchBar"
-import { IconTip } from "@/components/ui/tooltip"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -150,7 +146,7 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   workspace: LayoutDashboard,
   diff: GitCompare,
   plan: ClipboardList,
-  files: FolderTree,
+  files: FolderOpen,
   browser: Globe,
   "mac-control": MousePointer2,
   canvas: Monitor,
@@ -244,13 +240,7 @@ export default function ChatScreen({
     window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
   }, [sidebarCollapsed])
 
-  const [defaultDisplayMode, setDefaultDisplayMode] = useState<ChatDisplayMode>(() =>
-    readChatDisplayModePreference(),
-  )
-  const [sessionDisplayModeOverrides, setSessionDisplayModeOverrides] = useState<
-    Record<string, ChatDisplayMode>
-  >({})
-
+  const [defaultDisplayMode, setDefaultDisplayMode] = useState(() => readChatDisplayModePreference())
   useEffect(() => {
     let cancelled = false
     getTransport()
@@ -415,9 +405,7 @@ export default function ChatScreen({
   const handleNewChat = session.handleNewChat
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
-  const displayModeSessionKey = currentSessionId ?? "draft"
-  const displayMode = sessionDisplayModeOverrides[displayModeSessionKey] ?? defaultDisplayMode
-  const previousDisplayModeSessionKeyRef = useRef(displayModeSessionKey)
+  const displayMode = defaultDisplayMode
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
   const handleSwitchSession = session.handleSwitchSession
@@ -426,29 +414,6 @@ export default function ChatScreen({
   const fileActionsValue = useMemo<FileActionsContextValue>(
     () => ({ sessionId: currentSessionId, onPreviewFile: filePreview.openPreview }),
     [currentSessionId, filePreview.openPreview],
-  )
-
-  useEffect(() => {
-    const previousKey = previousDisplayModeSessionKeyRef.current
-    if (previousKey === "draft" && currentSessionId) {
-      setSessionDisplayModeOverrides((prev) => {
-        const draftMode = prev.draft
-        if (!draftMode || prev[currentSessionId]) return prev
-        const next = { ...prev, [currentSessionId]: draftMode }
-        delete next.draft
-        return next
-      })
-    }
-    previousDisplayModeSessionKeyRef.current = displayModeSessionKey
-  }, [currentSessionId, displayModeSessionKey])
-
-  const handleDisplayModeChange = useCallback(
-    (mode: ChatDisplayMode) => {
-      setSessionDisplayModeOverrides((prev) =>
-        prev[displayModeSessionKey] === mode ? prev : { ...prev, [displayModeSessionKey]: mode },
-      )
-    },
-    [displayModeSessionKey],
   )
 
   const handleSessionEffortChange = useCallback(
@@ -1517,11 +1482,7 @@ export default function ChatScreen({
     activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
       ? activeExclusiveRightPanel
       : (openExclusiveRightPanels[0] ?? null)
-  const shouldRenderRightPanelContent =
-    !!renderedExclusiveRightPanel && !rightPanelCollapsed
-  const rightPanelToggleLabel = rightPanelCollapsed
-    ? t("chat.rightPanel.expand", "Expand right panel")
-    : t("chat.rightPanel.collapse", "Collapse right panel")
+  const shouldRenderRightPanelContent = !!renderedExclusiveRightPanel && !rightPanelCollapsed
   const getRightPanelLabel = useCallback(
     (panel: ExclusiveRightPanel) => {
       switch (panel) {
@@ -1547,6 +1508,20 @@ export default function ChatScreen({
     },
     [t],
   )
+  const titleBarRightPanels = useMemo(
+    () =>
+      openExclusiveRightPanels.map((panel) => ({
+        id: panel,
+        label: getRightPanelLabel(panel),
+        icon: EXCLUSIVE_RIGHT_PANEL_ICONS[panel],
+      })),
+    [getRightPanelLabel, openExclusiveRightPanels],
+  )
+  const handleSelectRightPanel = useCallback((panelId: string) => {
+    if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
+    setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
+    setRightPanelCollapsed(false)
+  }, [])
 
   // Stage a "quote to chat" reference as a removable chip above the composer.
   // On send it becomes a quote attachment: the model sees a <file_reference>
@@ -1853,8 +1828,6 @@ export default function ChatScreen({
           onChangeAgent={handleChangeAgent}
           sidebarCollapsed={sidebarCollapsed}
           onExpandSidebar={() => setSidebarCollapsed(false)}
-          displayMode={displayMode}
-          onDisplayModeChange={handleDisplayModeChange}
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
@@ -1862,6 +1835,15 @@ export default function ChatScreen({
             effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
           }
           filesPanelOpen={showFilesPanel}
+          rightPanels={titleBarRightPanels}
+          activeRightPanelId={renderedExclusiveRightPanel}
+          rightPanelCollapsed={rightPanelCollapsed}
+          onSelectRightPanel={handleSelectRightPanel}
+          onToggleRightPanelCollapsed={
+            hasOpenExclusiveRightPanel
+              ? () => setRightPanelCollapsed((collapsed) => !collapsed)
+              : undefined
+          }
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -2025,60 +2007,7 @@ export default function ChatScreen({
             )}
           </div>
 
-          {hasOpenExclusiveRightPanel && (
-            <div className="flex h-full shrink-0 items-start py-3 pl-1">
-              <div className="flex flex-col gap-1 rounded-lg border border-border-soft bg-surface-panel/95 p-1 shadow-panel">
-                {openExclusiveRightPanels.length > 1 &&
-                  openExclusiveRightPanels.map((panel) => {
-                    const PanelIcon = EXCLUSIVE_RIGHT_PANEL_ICONS[panel]
-                    const label = getRightPanelLabel(panel)
-                    const isActive = renderedExclusiveRightPanel === panel
-
-                    return (
-                      <IconTip key={panel} label={label} side="left">
-                        <button
-                          type="button"
-                          aria-label={label}
-                          aria-pressed={isActive}
-                          onClick={() => {
-                            setActiveExclusiveRightPanel(panel)
-                            setRightPanelCollapsed(false)
-                          }}
-                          className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
-                            isActive
-                              ? "bg-secondary text-foreground shadow-sm"
-                              : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
-                          )}
-                        >
-                          <PanelIcon className="h-4 w-4" />
-                        </button>
-                      </IconTip>
-                    )
-                  })}
-                {openExclusiveRightPanels.length > 1 && (
-                  <div className="mx-1 my-0.5 h-px bg-border-soft" />
-                )}
-                <IconTip label={rightPanelToggleLabel} side="left">
-                  <button
-                    type="button"
-                    aria-label={rightPanelToggleLabel}
-                    aria-expanded={!rightPanelCollapsed}
-                    onClick={() => setRightPanelCollapsed((collapsed) => !collapsed)}
-                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
-                  >
-                    {rightPanelCollapsed ? (
-                      <ChevronLeft className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                  </button>
-                </IconTip>
-              </div>
-            </div>
-          )}
-
-          {/* Diff panel (right side, selected from the shared panel rail) */}
+          {/* Diff panel (right side, selected from the title-bar panel switcher) */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "diff" && (
             <RightPanelShell
               width={rightPanelWidth}
@@ -2148,7 +2077,7 @@ export default function ChatScreen({
           />
 
           {/* Browser live-mirror panel — open on first `browser:frame` push,
-              close-only by user, then switchable from the shared panel rail. */}
+              close-only by user, then switchable from the title bar. */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
               panelWidth={rightPanelWidth}
