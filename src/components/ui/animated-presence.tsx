@@ -21,13 +21,27 @@ export function AnimatedCollapse({
 }: AnimatedCollapseProps) {
   const [present, setPresent] = useState(open || !unmountOnExit)
   const [visible, setVisible] = useState(open)
+  const [renderedChildren, setRenderedChildren] = useState(children)
   const timerRef = useRef<number | null>(null)
   const frameRef = useRef<number | null>(null)
-  const lastChildrenRef = useRef<ReactNode>(children)
+  const childrenTimerRef = useRef<number | null>(null)
 
-  if (open) {
-    lastChildrenRef.current = children
-  }
+  useEffect(() => {
+    if (!open) return
+    if (childrenTimerRef.current !== null) {
+      window.clearTimeout(childrenTimerRef.current)
+    }
+    childrenTimerRef.current = window.setTimeout(() => {
+      setRenderedChildren(children)
+      childrenTimerRef.current = null
+    }, 0)
+    return () => {
+      if (childrenTimerRef.current !== null) {
+        window.clearTimeout(childrenTimerRef.current)
+        childrenTimerRef.current = null
+      }
+    }
+  }, [children, open])
 
   useEffect(() => {
     if (timerRef.current !== null) {
@@ -40,10 +54,12 @@ export function AnimatedCollapse({
     }
 
     if (open) {
-      setPresent(true)
       frameRef.current = window.requestAnimationFrame(() => {
-        setVisible(true)
-        frameRef.current = null
+        setPresent(true)
+        frameRef.current = window.requestAnimationFrame(() => {
+          setVisible(true)
+          frameRef.current = null
+        })
       })
       return () => {
         if (frameRef.current !== null) {
@@ -53,14 +69,28 @@ export function AnimatedCollapse({
       }
     }
 
-    setVisible(false)
-    if (!unmountOnExit) return
+    frameRef.current = window.requestAnimationFrame(() => {
+      setVisible(false)
+      frameRef.current = null
+    })
+    if (!unmountOnExit) {
+      return () => {
+        if (frameRef.current !== null) {
+          window.cancelAnimationFrame(frameRef.current)
+          frameRef.current = null
+        }
+      }
+    }
     timerRef.current = window.setTimeout(() => {
       setPresent(false)
       timerRef.current = null
     }, durationMs)
 
     return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current)
         timerRef.current = null
@@ -83,7 +113,7 @@ export function AnimatedCollapse({
       aria-hidden={open ? undefined : true}
     >
       <div className={cn("min-h-0 overflow-hidden", innerClassName)}>
-        {open ? children : lastChildrenRef.current}
+        {open ? children : renderedChildren}
       </div>
     </div>
   )
@@ -110,13 +140,27 @@ export function AnimatedPresenceBox({
 }: AnimatedPresenceBoxProps) {
   const [present, setPresent] = useState(open || !unmountOnExit)
   const [visible, setVisible] = useState(open)
+  const [renderedChildren, setRenderedChildren] = useState(children)
   const timerRef = useRef<number | null>(null)
   const frameRef = useRef<number | null>(null)
-  const lastChildrenRef = useRef<ReactNode>(children)
+  const childrenTimerRef = useRef<number | null>(null)
 
-  if (open) {
-    lastChildrenRef.current = children
-  }
+  useEffect(() => {
+    if (!open) return
+    if (childrenTimerRef.current !== null) {
+      window.clearTimeout(childrenTimerRef.current)
+    }
+    childrenTimerRef.current = window.setTimeout(() => {
+      setRenderedChildren(children)
+      childrenTimerRef.current = null
+    }, 0)
+    return () => {
+      if (childrenTimerRef.current !== null) {
+        window.clearTimeout(childrenTimerRef.current)
+        childrenTimerRef.current = null
+      }
+    }
+  }, [children, open])
 
   useEffect(() => {
     if (timerRef.current !== null) {
@@ -129,10 +173,12 @@ export function AnimatedPresenceBox({
     }
 
     if (open) {
-      setPresent(true)
       frameRef.current = window.requestAnimationFrame(() => {
-        setVisible(true)
-        frameRef.current = null
+        setPresent(true)
+        frameRef.current = window.requestAnimationFrame(() => {
+          setVisible(true)
+          frameRef.current = null
+        })
       })
       return () => {
         if (frameRef.current !== null) {
@@ -142,14 +188,28 @@ export function AnimatedPresenceBox({
       }
     }
 
-    setVisible(false)
-    if (!unmountOnExit) return
+    frameRef.current = window.requestAnimationFrame(() => {
+      setVisible(false)
+      frameRef.current = null
+    })
+    if (!unmountOnExit) {
+      return () => {
+        if (frameRef.current !== null) {
+          window.cancelAnimationFrame(frameRef.current)
+          frameRef.current = null
+        }
+      }
+    }
     timerRef.current = window.setTimeout(() => {
       setPresent(false)
       timerRef.current = null
     }, durationMs)
 
     return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current)
         timerRef.current = null
@@ -169,7 +229,7 @@ export function AnimatedPresenceBox({
       style={{ transitionDuration: `${durationMs}ms` }}
       aria-hidden={open ? undefined : true}
     >
-      {open ? children : lastChildrenRef.current}
+      {open ? children : renderedChildren}
     </div>
   )
 }

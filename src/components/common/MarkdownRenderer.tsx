@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   type AnchorHTMLAttributes,
+  type ComponentProps,
   type ImgHTMLAttributes,
 } from "react"
 import {
@@ -431,7 +432,18 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   )
 })
 
-export const markdownComponents = { a: MarkdownLink, img: MarkdownImage }
+const markdownComponents = { a: MarkdownLink, img: MarkdownImage }
+
+export function MarkdownStreamdown({
+  children,
+  ...props
+}: Omit<ComponentProps<typeof Streamdown>, "components">) {
+  return (
+    <Streamdown {...props} components={markdownComponents}>
+      {children}
+    </Streamdown>
+  )
+}
 
 interface HastNode {
   type?: string
