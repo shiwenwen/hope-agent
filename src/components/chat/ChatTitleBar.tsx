@@ -259,6 +259,9 @@ export default function ChatTitleBar({
   const rightPanelToggleLabel = rightPanelCollapsed
     ? t("chat.rightPanel.expand", "展开右侧面板")
     : t("chat.rightPanel.collapse", "收起右侧面板")
+  const hasRightPanelControls =
+    !!onToggleFilesPanel ||
+    (rightPanels.length > 0 && (rightPanels.length > 1 || !!onToggleRightPanelCollapsed))
   const workingDirChip = effectiveWorkingDir ? (
     <IconTip
       label={
@@ -281,8 +284,24 @@ export default function ChatTitleBar({
     </IconTip>
   ) : null
   const rightPanelControls =
-    rightPanels.length > 0 && (rightPanels.length > 1 || onToggleRightPanelCollapsed) ? (
+    hasRightPanelControls ? (
       <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
+        {onToggleFilesPanel && (
+          <IconTip label={t("fileBrowser.open", "Show files")}>
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+                filesPanelOpen && "text-foreground",
+              )}
+              aria-label={t("fileBrowser.open", "Show files")}
+              aria-pressed={filesPanelOpen}
+              onClick={onToggleFilesPanel}
+            >
+              <FolderTree className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
         {rightPanels.length > 1 && activeRightPanel && ActiveRightPanelIcon && (
           <div className="relative" ref={rightPanelMenuRef}>
             <IconTip label={t("chat.rightPanel.switch", "切换右侧面板")}>
@@ -467,21 +486,6 @@ export default function ChatTitleBar({
             showLabel={false}
             onChange={onIncognitoChange}
           />
-        )}
-        {/* Show Files Button — opens the right-side file browser panel. */}
-        {onToggleFilesPanel && (
-          <IconTip label={t("fileBrowser.open", "Show files")}>
-            <button
-              className={cn(
-                "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                filesPanelOpen && "text-foreground",
-              )}
-              aria-pressed={filesPanelOpen}
-              onClick={onToggleFilesPanel}
-            >
-              <FolderTree className="h-4 w-4" />
-            </button>
-          </IconTip>
         )}
         {/* In-session Search Button */}
         {currentSessionId && onOpenSearch && (
