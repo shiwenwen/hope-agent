@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { markdownComponents } from "@/components/common/MarkdownRenderer"
 import {
   HelpCircle,
   Check,
@@ -134,7 +135,9 @@ function OptionPreview({ option }: { option: AskUserQuestionOption }) {
   const body = kind === "mermaid" ? "```mermaid\n" + preview + "\n```" : preview
   return (
     <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs max-h-[28rem] overflow-auto">
-      <Streamdown plugins={staticPlugins}>{body}</Streamdown>
+      <Streamdown plugins={staticPlugins} components={markdownComponents}>
+        {body}
+      </Streamdown>
     </div>
   )
 }

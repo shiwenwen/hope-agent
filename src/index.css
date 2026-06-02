@@ -317,6 +317,20 @@
   cursor: zoom-in;
 }
 
+.markdown-content .markdown-image-wrapper {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.markdown-content .markdown-image {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 640px);
+  border-radius: 0.5rem;
+  object-fit: contain;
+}
+
 .markdown-content [data-streamdown="link"] {
   color: hsl(210 100% 32%);
   border-radius: 0.25rem;
