@@ -1,6 +1,6 @@
 # Knowledge Base 知识库系统架构（设计草案）
 
-> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约、D13 编辑器选型 CodeMirror 6；v4.1：清端点旧两平面残留、D14 offset 坐标系契约、外部只读编辑器硬禁用、账本同步 origin_source/D13/D14）
+> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约、D13 编辑器选型 CodeMirror 6；v4.1：清端点旧两平面残留、D14 offset 坐标系契约、外部只读编辑器硬禁用、账本同步 origin_source/D13/D14；v4.2：D14 钉死 base/换行/tab + note_patch 文本式、模块/路线图补 origin_source、工具 kb 参数约定、D12 账本补 line/col）
 
 > ⚠️ 本文是**设计契约文档**，不是已落地子系统的描述。它先于实现存在，用于锁定方向、记录取舍、指导分阶段迭代。每次方案打磨都应回到本文更新「决策账本」与「路线图」，保持单一真相源。代码落地后，本文逐步转为实现描述，并把 `规划中` 的源码路径替换为真实链接。
 
@@ -131,9 +131,9 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | D9 | KB registry 真相源 | **KB 注册表落 `sessions.db` 的 `knowledge_bases` 表**（与 `projects` 表并排）；`~/.hope-agent/knowledge/index.db` **只存可重建索引缓存**（note/chunk/link/fts/vec） | KB 是一级关系实体（有列表/归档/绑定/统计/权限/attach），不是轻量偏好。放 `config.json` 会变成大对象并发写、跨进程 stale、关系难查。修复原草案"索引可删但又存唯一真相"的自相矛盾——删 `index.db` 后必须能全量重建 |
 | D10 | KB 访问作用域 | **默认 deny + 显式 attach**：普通 session 默认无 KB 访问，用户 attach 后才可 `note_search/read`；project 可 attach、项目内 session 继承；session attach 可叠加 project attach，但**当前生效 KB 必须 UI 可见列出**；**incognito 强制零访问/零写/零被动召回**；**IM Phase 1 一律禁用 KB 访问**（即便有 project/session attach），Phase 2 才开 account/chat 级显式 opt-in，群聊单独确认 | KB 不能像 memory 那样默认全局可见，否则工作 vault / 私人 vault / IM 会话互相泄漏。唯一入口 `effective_kb_access(KnowledgeAccessContext { session_id, source, origin_source, channel_info? })`——**必须带 `source` + `origin_source`（调用链根，#2）**`∈ Gui\|HttpUi\|AgentTool\|IM\|Cron\|Subagent`：① 同一 session 可被 GUI 与 IM 共用/接管，仅凭 session_id 判不出本次是否 IM turn；② IM turn spawn 的子 Agent 不能借 `source=Subagent` 重新拿回权限——**cap 取整条调用链最严值**。`note_search(kb?)` 省略 `kb` 时只搜可访问集合，绝不搜全局。详见 [KB 访问作用域](#kb-访问作用域与预览鉴权) |
 | D11 | 外部 vault Phase 1 可写性 | **外部 root Phase 1 彻底只读**——AI 不写、GUI 也不写，写入口统一拒绝并 UI 显示只读；内部 `notes/` 完整读写。GUI 写外部 + `resolve_writable(actor=user\|agent)` 拆分 + mtime/hash 冲突检测整体推 Phase 2 | 原草案"GUI 可写外部 Phase 1"与"冲突检测 Phase 2"自相矛盾，正好踩 lost-update。**Phase 1 价值是「点亮老 vault」不是「托管老 vault」**，果断只读，避免提前付清冲突检测/原子写/半写/三方 rename 噪声全套 |
-| D12 | 检索粒度 | **Phase 1 即上 chunk 级**：`note` 只存文件级元数据；新增 `note_chunk(note_id, chunk_index, heading_path, body, start_offset, end_offset, content_hash, embedding_signature)`；FTS5 external-content 与 vec 都建在 chunk 上；检索返回 chunk hits 再聚合回 note（带命中片段 + heading 定位） | 整篇 note 一个 embedding 会在日报/会议纪要/长文剪藏上失效（超 embedding 上限 + 命中整篇却定位不到段落）。先做 note 级、后迁 chunk 级要改 schema/检索/UI hit 展示/工具返回结构，更疼。`content_hash` 支持按 chunk 增量 re-embedding 省成本 |
+| D12 | 检索粒度 | **Phase 1 即上 chunk 级**：`note` 只存文件级元数据；新增 `note_chunk(note_id, chunk_index, heading_path, body, start_offset, end_offset, start_line, start_col, end_line, end_col, content_hash, embedding_signature)`（坐标系见 D14）；FTS5 external-content 与 vec 都建在 chunk 上；检索返回 chunk hits 再聚合回 note（带命中片段 + heading 定位） | 整篇 note 一个 embedding 会在日报/会议纪要/长文剪藏上失效（超 embedding 上限 + 命中整篇却定位不到段落）。先做 note 级、后迁 chunk 级要改 schema/检索/UI hit 展示/工具返回结构，更疼。`content_hash` 支持按 chunk 增量 re-embedding 省成本 |
 | D13 | Markdown 编辑器选型 | **Phase 1 = CodeMirror 6（强 source editor）+ 分屏/同屏实时预览（Source / Preview / Split 三模式）**；预览复用现有 streamdown 渲染栈。**不**第一步上 Tiptap/Milkdown（WYSIWYG）。现状代码**无任何编辑器库**（只有 streamdown 渲染 + 裸 textarea），故 CM6 是**新增前端依赖**。Phase 2 在 CM6 上增强（inline preview / wikilink hover card / heading outline / 同步滚动 / AI rewrite diff）；Phase 3 再评估 Milkdown/Tiptap 作为可选「视觉编辑模式」，**不替代 CM6 底座** | 第一步直接上 Tiptap/Milkdown WYSIWYG | 知识空间核心是**真实 `.md` + wikilink + 字符 offset + AI patch + diff + Obsidian/Logseq 兼容**，要求**源文档稳定可控**。CM6 是可扩展 source editor，原生服务 `[[`/`#tag` 补全、broken-link lint、heading outline、AI patch 定位，decorations 把 wikilink 渲成可点 chip 但**底层仍纯文本**（守"`.md` 唯一真相"、对齐 D12 offset、D11 外部只读 lint）。Tiptap/Milkdown 是 Markdown⇄ProseMirror JSON 转换层（Markdown ext 仍 beta），对 wikilink/frontmatter/精确 offset/局部 patch 多一层序列化风险 |
-| D14 | offset 坐标系契约 | **持久 offset = Unicode 码点偏移（索引内部）；跨端 UI 定位主字段 = `line`+`col`（码点列）**。CM6（内部 UTF-16）跳转/`note_patch` 定位走 line/col，前端做 UTF-16↔码点转换；offset 不当 UI 定位主键 | 直接用单一 offset 跨端传 | Rust UTF-8 字节 / Unicode 码点 / JS·CM6 UTF-16 三套坐标不一致，astral 字符（emoji/CJK 扩展）1 码点=2 UTF-16 单元——混用必错位。line/col 绕开歧义、是编辑器原生导航单位 |
+| D14 | offset 坐标系契约 | **持久 offset = Unicode 码点偏移（索引内部）；跨端 UI 定位主字段 = `line`+`col`（码点列）**。硬规范：`line` **1-based**，`col` **0-based 码点列**（tab 记 1 码点、不展开），按 `\n` 分行、`\r\n` 视作单个行终止符（`\r` 不计入 col）、**不改写原文件**。CM6（内部 UTF-16）跳转/检索命中定位走 line/col，前端做 UTF-16↔码点转换。**`note_patch` 不用坐标寻址**——走 `old/new` 文本匹配（仿 `edit` 工具，对模型更鲁棒，坐标会漂移） | 直接用单一 offset 跨端传 / note_patch 用坐标 | 三套坐标（Rust UTF-8 字节 / 码点 / CM6 UTF-16）+ CRLF + tab 全是错位源，必须钉死 base/换行/tab；LLM 产不准坐标且坐标随上文漂移，patch 用文本匹配更稳 |
 
 ### 待定决策
 
@@ -196,7 +196,11 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 
 > **向量单一存放（#6）**：chunk 向量**只存 `note_vec`**（sqlite-vec vec0，rowid = `note_chunk.id`，复用 memory `EmbeddingProvider` + `embedding_cache`）；`note_chunk` 行内**不**再存 `embedding BLOB`，避免两套并存。index.db 可从文件全量重建，无需行内备份向量。
 
-> **坐标系契约（D14）**：三套坐标不可混——Rust UTF-8 字节 / Unicode 码点 / JS·CM6 UTF-16 code unit。**持久 offset = 码点偏移（索引内部）；跨端 UI 定位主字段 = `line`+`col`（码点列）**。CM6 文档内部是 UTF-16，跳转/`note_patch` 定位**一律走 line/col**，由前端做 UTF-16↔码点转换；offset 不作 UI 定位主键（astral 字符 1 码点=2 UTF-16 单元，line/col 正好绕开歧义）。
+> **坐标系契约（D14）**：三套坐标不可混——Rust UTF-8 字节 / Unicode 码点 / JS·CM6 UTF-16 code unit。
+> - **持久 offset = 码点偏移（索引内部）**；**跨端 UI 定位主字段 = `line`+`col`（码点列）**，offset 不作 UI 定位主键。
+> - **硬规范**：`line` **1-based**；`col` **0-based 码点列**（tab 当 1 个码点，不做 tab-width 展开）；按 `\n` 分行，`\r\n` 视作**单个**行终止符（`\r` 不计入 col）；**索引/定位不改写原文件换行**（保留 CRLF 落盘，写回时原样）。
+> - CM6 文档内部是 UTF-16，**跳转 / 检索命中定位一律走 line/col**，前端做 UTF-16↔码点转换（astral 字符 1 码点=2 UTF-16 单元，line/col 正好绕开歧义）。
+> - **`note_patch` 不走坐标**：用 `old/new` 文本匹配（仿 `edit` 工具）+ 可选 `expected`/唯一性守卫；坐标只服务 UI 跳转与 chunk 命中高亮，不做 patch 寻址（LLM 产不准坐标、坐标随上文漂移）。
 
 > chunking 策略 Phase 1 保持简单：按 heading 分段 + 大小封顶（+ 少量 overlap）。检索：chunk 级 FTS+vec → RRF/MMR → **聚合回 note**（取 best-chunk 分），返回 note + 命中 chunk snippet + heading 定位。
 
@@ -406,7 +410,7 @@ knowledge/
   mod.rs           # 门面
   types.rs         # KnowledgeBase / Note / NoteChunk / NoteLink
   registry.rs      # KB CRUD + 访问绑定（sessions.db 真相源，D9）
-  access.rs        # KnowledgeAccessContext{session,source,channel} / effective_kb_access(ctx)（D10，source-aware）
+  access.rs        # KnowledgeAccessContext{session,source,origin_source,channel} / effective_kb_access(ctx)（D10，source-aware + 调用链 cap）
   db.rs            # index.db 读写（写连接 + reader pool，仿 memory backend）
   parser.rs        # Markdown + wikilink 扫描（pulldown-cmark + [[ ]] / #tag，跳过 code）
   chunker.rs       # 按 heading 分段 + 封顶（D12），产出 NoteChunk（含字符 offset / content_hash）
@@ -519,7 +523,9 @@ KB 文件读取有两类权限主体，**分在不同层**，从根上消除 fal
 
 agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元数据 / 高阶知识操作。所有**写操作走统一权限引擎审批**、锁定在 `WorkspaceScope::for_knowledge` 内、emit `knowledge:changed` 事件。
 
-> **阶段列说明（#4）**：每张工具表标 **Phase**，实现时别把 Phase 2 进阶工具一起做进 MVP。所有 `note_*` 的 `kb` 参数都过 `effective_kb_access(ctx)` 校验；`note_search` 省略 `kb` 只搜可访问集合（已滤 archived），不搜全局。
+> **阶段列说明（#4）**：每张工具表标 **Phase**，实现时别把 Phase 2 进阶工具一起做进 MVP。
+>
+> **`kb` 参数约定（#4，统一适用，表中省略以省篇幅）**：所有 `note_*` 都过 `effective_kb_access(ctx)`；**写操作 `kb` 必填**（`note_create/update/patch/append/delete/link`）；**读操作 `kb?` 可省**（`note_read/search/backlinks/by_tag/tags`），省略时只在 **effective KB 集合**内查（已滤 archived），跨 KB 同名/歧义则返回 **disambiguation**（候选列表）而非猜测；显式传 `kb` 须在 effective 集合内否则拒。`note_link({from,to})` 的 `from/to` 为 `{kb,path}` 引用。
 
 **CRUD**
 
@@ -609,7 +615,7 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 - **一级导航新增「知识空间」Tab**（与聊天 / Dashboard 平级；对外品牌名见 D5，代码内部仍为 `knowledge`）。
 - 笔记列表 / 目录树 + 复用现有 [`FilePreviewPane`](../../src/components/chat/project/file-browser/FilePreviewPane.tsx) 的 Markdown 渲染（Render / Source 切换已有）。
 - **MVP 重点：Backlinks 面板**——在笔记预览侧显示"链接到本页的笔记"，并对悬空链接给出"新建该笔记"提示。
-- **编辑器（D13）：CodeMirror 6**——左源码 / 右预览，`Source / Preview / Split` 三模式;预览复用 streamdown 渲染栈。`[[note]]` / `[[note#heading]]` / `#tag` 自动补全（`@codemirror/autocomplete`）；decorations 把 wikilink 渲成可点 chip（**底层仍纯文本**）；lint **提示** broken link / 重复标题；跳转/patch 定位走 `line/col`（D14）；保存走真实 `.md`，AI patch 直接作用文本。**CM6 是新增前端依赖**（现状无编辑器库）。
+- **编辑器（D13）：CodeMirror 6**——左源码 / 右预览，`Source / Preview / Split` 三模式;预览复用 streamdown 渲染栈。`[[note]]` / `[[note#heading]]` / `#tag` 自动补全（`@codemirror/autocomplete`）；decorations 把 wikilink 渲成可点 chip（**底层仍纯文本**）；lint **提示** broken link / 重复标题；跳转 / 检索命中定位走 `line/col`（D14），`note_patch` 走 `old/new` 文本匹配；保存走真实 `.md`，AI patch 直接作用文本。**CM6 是新增前端依赖**（现状无编辑器库）。
 - **外部 root 只读硬禁用（D11，非靠 lint）**：外部绑定 root 打开的 CM6 强制 `editable=false / readOnly`、隐藏/禁用保存按钮——真正闸门是后端 `resolve_writable` 拒写，lint/UI 只读只是提示与体验，**不是**权限控制。
 - 图谱视图：Phase 2/3，用 `react-force-graph`，数据源直接来自 `note_link` 表。
 - 所有新 invoke 走 [`transport.ts`](../../src/lib/transport.ts) 双适配；i18n 12 语言齐全；Tooltip 用 `@/components/ui/tooltip`；保存按钮三态。
@@ -634,7 +640,7 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 ### Phase 1（双链地基 + 核心读写 + 外部只读绑定，对应 D4/D6 选定的 MVP）
 
 1. KB 概念：`sessions.db` 的 `knowledge_bases` registry（D9）+ `index.db` 缓存 schema（chunk 级 + `note_tag`，D12/#5）+ `WorkspaceScope::for_knowledge`。
-2. **KB 访问作用域（D10）**：`session/project_knowledge_bases`（带 FK/cascade/CHECK，#7）+ **`effective_kb_access(ctx{session,source,channel})`**（source-aware，#2）+ 叠加公式 max-then-min-cap（#8）+ UI 列出当前生效 KB；incognito/IM 零访问。
+2. **KB 访问作用域（D10）**：`session/project_knowledge_bases`（带 FK/cascade/CHECK，#7）+ **`effective_kb_access(ctx{session,source,origin_source,channel})`**（source-aware + 调用链 cap，#2）+ 叠加公式 max-then-min-cap（#8）+ UI 列出当前生效 KB；incognito/IM 零访问。
 3. `notify` watcher（生产级）+ 增量索引（`note` + `note_chunk` + `note_tag` + `note_link`）+ 绑定/启动 reconcile + chunker。
 4. Wikilink 扫描 + **确定性 resolve**（#8，路径式 / basename / 稳定歧义，不用 mtime，跳过 code）+ 反链查询。
 5. 前端「知识空间」Tab + **CodeMirror 6 编辑器（D13，三模式 + `[[`/`#` 补全 + wikilink chip decoration + broken-link lint，预览复用 streamdown）** + 笔记 CRUD（含 `delete`，**不含 rename/move**）+ **Backlinks 面板** + 悬空链接提示 + 当前生效 KB 列表。
