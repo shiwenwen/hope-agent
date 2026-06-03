@@ -730,7 +730,10 @@ export default function ChatInput({
             onStop={() => void handleVoiceStop()}
           />
         </AnimatedCollapse>
-        <AnimatedCollapse open={voice.state !== "recording" && voice.state !== "transcribing"}>
+        <AnimatedCollapse
+          open={voice.state !== "recording" && voice.state !== "transcribing"}
+          overflow="visible-when-open"
+        >
         <div className="flex items-end justify-between gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150">
           <div className="flex items-center gap-1 flex-wrap min-w-0">
             <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
