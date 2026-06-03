@@ -1,6 +1,6 @@
 # Knowledge Base 知识库系统架构（设计草案）
 
-> 返回 [文档索引](../README.md) | 状态：**设计草案 v2 契约修订（Draft，尚未实现）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、补 KB 访问作用域、收紧预览鉴权、chunk 级检索、外部只读统一）
+> 返回 [文档索引](../README.md) | 状态：**设计草案 v3 契约修订（Draft，尚未实现）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、补 KB 访问作用域、收紧预览鉴权、chunk 级检索、外部只读统一；v3：source-aware 访问上下文、两鉴权平面、明文索引措辞、note_tag、向量单存 note_vec、attach FK/cascade、access 叠加公式、清旧文案残留）
 
 > ⚠️ 本文是**设计契约文档**，不是已落地子系统的描述。它先于实现存在，用于锁定方向、记录取舍、指导分阶段迭代。每次方案打磨都应回到本文更新「决策账本」与「路线图」，保持单一真相源。代码落地后，本文逐步转为实现描述，并把 `规划中` 的源码路径替换为真实链接。
 
@@ -129,7 +129,7 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | # | 决策点 | 结论 | 理由 |
 |---|---|---|---|
 | D9 | KB registry 真相源 | **KB 注册表落 `sessions.db` 的 `knowledge_bases` 表**（与 `projects` 表并排）；`~/.hope-agent/knowledge/index.db` **只存可重建索引缓存**（note/chunk/link/fts/vec） | KB 是一级关系实体（有列表/归档/绑定/统计/权限/attach），不是轻量偏好。放 `config.json` 会变成大对象并发写、跨进程 stale、关系难查。修复原草案"索引可删但又存唯一真相"的自相矛盾——删 `index.db` 后必须能全量重建 |
-| D10 | KB 访问作用域 | **默认 deny + 显式 attach**：普通 session 默认无 KB 访问，用户 attach 后才可 `note_search/read`；project 可 attach、项目内 session 继承；session attach 可叠加 project attach，但**当前生效 KB 必须 UI 可见列出**；**incognito 强制零访问/零写/零被动召回**；**IM Phase 1 一律禁用 KB 访问**（即便有 project/session attach），Phase 2 才开 account/chat 级显式 opt-in，群聊单独确认 | KB 不能像 memory 那样默认全局可见，否则工作 vault / 私人 vault / IM 会话互相泄漏。唯一入口 `effective_kb_access(session)`；`note_search(kb?)` 省略 `kb` 时只搜可访问集合，绝不搜全局。详见 [KB 访问作用域](#kb-访问作用域与预览鉴权) |
+| D10 | KB 访问作用域 | **默认 deny + 显式 attach**：普通 session 默认无 KB 访问，用户 attach 后才可 `note_search/read`；project 可 attach、项目内 session 继承；session attach 可叠加 project attach，但**当前生效 KB 必须 UI 可见列出**；**incognito 强制零访问/零写/零被动召回**；**IM Phase 1 一律禁用 KB 访问**（即便有 project/session attach），Phase 2 才开 account/chat 级显式 opt-in，群聊单独确认 | KB 不能像 memory 那样默认全局可见，否则工作 vault / 私人 vault / IM 会话互相泄漏。唯一入口 `effective_kb_access(KnowledgeAccessContext { session_id, source, channel_info? })`——**必须带调用来源 `source ∈ Gui\|HttpUi\|AgentTool\|IM\|Cron\|Subagent`**：同一 session 可被 GUI 与 IM 共用/接管，仅凭 session_id 判不出本次是否 IM turn，IM 红线就执行不了。`note_search(kb?)` 省略 `kb` 时只搜可访问集合，绝不搜全局。详见 [KB 访问作用域](#kb-访问作用域与预览鉴权) |
 | D11 | 外部 vault Phase 1 可写性 | **外部 root Phase 1 彻底只读**——AI 不写、GUI 也不写，写入口统一拒绝并 UI 显示只读；内部 `notes/` 完整读写。GUI 写外部 + `resolve_writable(actor=user\|agent)` 拆分 + mtime/hash 冲突检测整体推 Phase 2 | 原草案"GUI 可写外部 Phase 1"与"冲突检测 Phase 2"自相矛盾，正好踩 lost-update。**Phase 1 价值是「点亮老 vault」不是「托管老 vault」**，果断只读，避免提前付清冲突检测/原子写/半写/三方 rename 噪声全套 |
 | D12 | 检索粒度 | **Phase 1 即上 chunk 级**：`note` 只存文件级元数据；新增 `note_chunk(note_id, chunk_index, heading_path, body, start_offset, end_offset, content_hash, embedding_signature)`；FTS5 external-content 与 vec 都建在 chunk 上；检索返回 chunk hits 再聚合回 note（带命中片段 + heading 定位） | 整篇 note 一个 embedding 会在日报/会议纪要/长文剪藏上失效（超 embedding 上限 + 命中整篇却定位不到段落）。先做 note 级、后迁 chunk 级要改 schema/检索/UI hit 展示/工具返回结构，更疼。`content_hash` 支持按 chunk 增量 re-embedding 省成本 |
 
@@ -189,8 +189,9 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | `body` | `TEXT` | chunk 正文（剥 frontmatter；FTS external-content 取此列） |
 | `start_offset` / `end_offset` | `i64` | 在文件内的**字符偏移**（UTF-8 安全，不用字节偏移——守 hope-agent「禁字节切片字符串」红线），用于命中跳转 / 以后 `^block` 锚定 |
 | `content_hash` | `TEXT` | chunk 内容 hash，**按 chunk 增量 re-embedding**（只重嵌变更段） |
-| `embedding` | `BLOB` | chunk 向量（复用 memory `EmbeddingProvider` + `embedding_cache`） |
 | `embedding_signature` | `Option<String>` | 产出该向量的 embedding 模型签名；换模型时识别需重嵌的 chunk |
+
+> **向量单一存放（#6）**：chunk 向量**只存 `note_vec`**（sqlite-vec vec0，rowid = `note_chunk.id`，复用 memory `EmbeddingProvider` + `embedding_cache`）；`note_chunk` 行内**不**再存 `embedding BLOB`，避免两套并存。index.db 可从文件全量重建，无需行内备份向量。
 
 > chunking 策略 Phase 1 保持简单：按 heading 分段 + 大小封顶（+ 少量 overlap）。检索：chunk 级 FTS+vec → RRF/MMR → **聚合回 note**（取 best-chunk 分），返回 note + 命中 chunk snippet + heading 定位。
 
@@ -251,18 +252,20 @@ CREATE TABLE knowledge_bases (
 
 -- 访问绑定（默认 deny：无行 = 无访问）
 CREATE TABLE session_knowledge_bases (
-  session_id TEXT NOT NULL,
-  kb_id TEXT NOT NULL,
-  access TEXT NOT NULL DEFAULT 'read',     -- 'read' | 'write'
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  access TEXT NOT NULL DEFAULT 'read' CHECK (access IN ('read','write')),
   PRIMARY KEY (session_id, kb_id)
 );
 CREATE TABLE project_knowledge_bases (
-  project_id TEXT NOT NULL,
-  kb_id TEXT NOT NULL,
-  access TEXT NOT NULL DEFAULT 'read',
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  access TEXT NOT NULL DEFAULT 'read' CHECK (access IN ('read','write')),
   PRIMARY KEY (project_id, kb_id)
 );
 ```
+
+> **约束与级联（#7）**：FK + `ON DELETE CASCADE` + `CHECK(access IN ...)` 写全，避免 KB/会话/项目删除后留孤儿 attach 行（= 潜在泄漏）。SQLite FK 需 per-connection `PRAGMA foreign_keys=ON`；与现有 `sessions.db` 删除多走**代码手动级联**（见 [Project 删除三步](project.md)）的约定对齐——KB/项目/会话删除路径里**一并显式清 attach**，FK 作双保险。
 
 ### B. 可重建缓存 —— `index.db`（D12 chunk 级）
 
@@ -314,6 +317,14 @@ CREATE TABLE note_link (
 );
 CREATE INDEX idx_link_src ON note_link(src_note_id);
 CREATE INDEX idx_link_target ON note_link(target_note_id);   -- 反链查询
+
+-- 标签索引（#5；从 frontmatter tags + 正文 #tag 抽取，缓存可重建）
+CREATE TABLE note_tag (
+  note_id INTEGER NOT NULL,
+  tag TEXT NOT NULL,                        -- 归一化后（NFC + 小写）
+  PRIMARY KEY (note_id, tag)
+);
+CREATE INDEX idx_tag ON note_tag(tag);      -- note_by_tag / note_tags 用
 ```
 
 **检索流程（D12）**：query → chunk 级 FTS5(BM25) + vec ANN → RRF 融合（**算法复用** memory，独立 store）→ MMR 去冗 → **聚合回 note**（best-chunk 分代表该 note）→ 返回 note + 命中 chunk snippet + `heading_path` 定位。
@@ -384,7 +395,7 @@ knowledge/
   mod.rs           # 门面
   types.rs         # KnowledgeBase / Note / NoteChunk / NoteLink
   registry.rs      # KB CRUD + 访问绑定（sessions.db 真相源，D9）
-  access.rs        # KnowledgeAccessContext / effective_kb_access(session)（D10）
+  access.rs        # KnowledgeAccessContext{session,source,channel} / effective_kb_access(ctx)（D10，source-aware）
   db.rs            # index.db 读写（写连接 + reader pool，仿 memory backend）
   parser.rs        # Markdown + wikilink 扫描（pulldown-cmark + [[ ]] / #tag，跳过 code）
   chunker.rs       # 按 heading 分段 + 封顶（D12），产出 NoteChunk（含字符 offset / content_hash）
@@ -425,7 +436,7 @@ knowledge/
 2. **绑定 / 启动 reconcile**：bind 时与每次启动扫 mtime，增量重索引变更文件、prune 已删文件——外部 vault 可能在 App 未运行时被其它设备/同步改动。
 3. **大库冷启动**：首次绑几千篇 = 全量解析 + 全量 embedding，走后台任务（复用 `async_jobs` / `local_model_jobs` 模式）+ 进度 UI + 断点续跑。
 4. **忽略规则**：gitignore 风格，默认排除 `.obsidian/` `logseq/` `.git/` `.trash/` 附件目录 `node_modules/` 等，防 watcher 自我抖动 + 索引污染（**可配 UI 放 Phase 2**，Phase 1 用内置默认列表）。
-5. **安全面收口（红线调整）**：绑外部目录后 KB 作用域**合法包含 `~/.hope-agent` 之外的主机路径**。preview-by-path 鉴权判定从「路径 ∈ `~/.hope-agent`」精确改为「路径 ∈ 已绑定 KB root（经 `WorkspaceScope` 容器校验）」。桌面信任本机；**HTTP/远端模式绑外部主机路径属敏感场景**，读由 scope 容器兜、写由 `allow_remote_writes` 兜，落地时**专门走一遍安全 review**。
+5. **安全面收口**：绑外部目录后 KB 作用域**合法包含 `~/.hope-agent` 之外的主机路径**。**鉴权不走"路径命中任意 KB root"**（v2 已否掉该模型，会击穿会话鉴权）——KB 文件读取走**独立 KB 端点 + `effective_kb_access`（caller 对该 `kb_id` 有读权限）+ `WorkspaceScope` 容器校验（scope contains）**三重判定，详见 [KB 访问作用域与预览鉴权](#kb-访问作用域与预览鉴权)。桌面信任本机；**HTTP/远端绑外部主机路径属敏感场景**，写由 `allow_remote_writes` 兜，落地**专门走一遍安全 review**。
 
 ### 留给 Phase 2 的（写外部才付）
 
@@ -438,24 +449,50 @@ knowledge/
 
 > 决策 D10：KB **不能像 memory 那样默认全局可见**，否则工作 vault / 私人 vault / IM 会话互相泄漏。访问模型 = **默认 deny + 显式 attach**。
 
-### KnowledgeAccessContext（D10）
+### KnowledgeAccessContext（D10，source-aware）
 
-唯一入口 `effective_kb_access(session) -> {kb_id: access}`，规则：
+唯一入口必须**带调用来源**（#2）：
+
+```
+effective_kb_access(KnowledgeAccessContext {
+    session_id,
+    source,            // Gui | HttpUi | AgentTool | IM | Cron | Subagent（从 ToolExecContext 透传）
+    channel_info?,     // IM 时的 account/chat
+}) -> { kb_id: access }   // access ∈ read | write
+```
+
+**为什么必须带 source**：同一 session 可被 GUI 与 IM **共用/接管**（`channel_conversations` attach 模型），仅凭 `session_id` **判不出本次调用是不是 IM turn**——D10 的「IM Phase 1 零访问」红线就无法执行。
+
+授予规则：
 
 - **普通 session**：默认**无任何 KB 访问**；用户显式 attach（`session_knowledge_bases`）后才可 `note_search / note_read`。
 - **project**：可 attach KB（`project_knowledge_bases`）；项目内 session **继承** project 的 KB。
-- **叠加可见**：session attach ∪ project 继承，二者叠加；但**当前生效的 KB 必须在 UI 上明确列出**（用户随时知道"现在能被搜到的是哪几个库"——防泄漏的最后人因防线）。
-- **`note_search(kb?)` 省略 `kb`**：只搜 `effective_kb_access` 内的 KB，**绝不默认搜全局**。显式传 `kb` 也须通过访问校验，否则拒绝。
-- **incognito**：强制**零访问 / 零写入 / 零被动召回**（对齐 memory/awareness 的无痕红线）。
-- **IM（D10 红线）**：**Phase 1 一律禁用 KB 访问**——即便该 session 有 project/session attach 也不开放。Phase 2 才开 **account / chat 级显式 opt-in**，**群聊必须单独确认**。
+- **叠加公式（#8）**：`granted = max(session_attach, project_attach)`（**最高权限胜出**，write > read），再做 **min-cap** 往下夹：
+  - 外部绑定 root → 上限 `read`（D11，Phase 1）
+  - `source = IM`（Phase 1）/ `incognito` → **0**（零访问/零写/零被动召回）
+  - `source ∈ Cron | Subagent` → 按继承的 session 上下文，但不超过其 cap
+  - 即：**写**需同时满足 `授予 write ∧ 内部 root ∧ source 允许 ∧ 非 incognito`
+- **`note_search(kb?)` 省略 `kb`**：只搜 `effective_kb_access` 内的 KB，**绝不默认搜全局**；显式传 `kb` 也须过校验否则拒绝。
+- **UI 可见**：当前生效的 KB（session ∪ project）**必须在界面明确列出**——防泄漏的最后人因防线。
+
+### 两个鉴权平面（#3）
+
+KB 文件的读取有**两类完全不同的权限主体**，分平面处理：
+
+| 平面 | 主体 | 鉴权 | 用途 |
+|---|---|---|---|
+| **Owner / 管理平面** | 用户本人（KB owner） | 桌面=本机信任；**HTTP=持 API key 即 owner-equivalent** | 「知识空间」Tab 浏览/管理自己**所有** KB，**不走 session attach** |
+| **Agent / session 平面** | turn 内的 agent/工具 | `effective_kb_access(ctx)`（session + source） | `note_search / note_read` 及 turn 内预览，受 attach + source 约束 |
+
+> **API key = owner（写死）**：远端 HTTP 下持有 server API key 的调用者**等同 owner**，走管理平面拿全量 KB 访问。owner 平面不被 session attach 限制（attach 只约束 agent/session 平面）。
 
 ### KB 文件预览端点（#2，关键安全修订）
 
-原 v1 把 preview-by-path 鉴权放宽成「路径命中任意已绑定 KB root」——这会让**任何 session 只要猜到路径就能读所有 KB 文件**，击穿现有「被会话引用 ∪ 落在会话工作目录」红线。v2 收口：
+原 v1 把 preview-by-path 鉴权放宽成「路径命中任意已绑定 KB root」——这会让**任何 session 只要猜到路径就能读所有 KB 文件**，击穿现有「被会话引用 ∪ 落在会话工作目录」红线。收口：
 
 - **不动**现有 `/api/sessions/{id}/files/{read,extract,by-path}` 的判定，一个字都不放宽。
-- **新增独立 KB 端点** `GET /api/knowledge/{kb_id}/files/{read,raw,extract}`，鉴权条件 = **本请求对该 `kb_id` 有读权限**（查 `effective_kb_access`），**而非**"路径落在某个 KB root 内"。
-- 两套端点、两套鉴权，互不污染；KB 端点 + 远端写仍叠加 `allow_remote_writes` / scope 容器校验；非授权 `kb_id` 或越界路径一律 403。
+- **新增独立 KB 端点** `GET /api/knowledge/{kb_id}/files/{read,raw,extract}`：管理平面（owner / API key）放行全部；若由 agent/session 上下文发起则叠加 `effective_kb_access(ctx)`。鉴权**而非**"路径落在某个 KB root 内"，并叠加 `WorkspaceScope` 容器校验（scope contains）。
+- 两套端点、两套鉴权，互不污染；远端写仍叠加 `allow_remote_writes`；非授权 `kb_id` / 越界路径一律 403。
 
 ---
 
@@ -572,7 +609,7 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 - ✅ 核心逻辑全进 `ha-core`（零 Tauri 依赖），`src-tauri` / `ha-server` 只做薄壳。
 - ✅ 新 Tauri 命令进 `invoke_handler!`；新 HTTP 路由进 [`router.rs`](../../crates/ha-server/src/router.rs)；同步 [`api-reference.md`](api-reference.md)。
 - ✅ 前端新 invoke 同时实现 Tauri + HTTP 两套适配。
-- ✅ KB 配置走 config contract（`cached_config()` / `mutate_config`）；GUI + `ha-settings` 技能双入口零偏差（知识库偏好属 LOW/MEDIUM 风险）。
+- ✅ 存储分流（D9）：**KB 偏好/开关**（默认忽略规则、UI 偏好等）走 config contract（`cached_config()` / `mutate_config`）；**KB registry + attach** 走 `sessions.db` CRUD（不进 config）。GUI + `ha-settings` 技能双入口零偏差（KB 偏好属 LOW/MEDIUM 风险）。
 - ✅ 日志用 `app_info!` 等；核心路径（索引、解析、检索、AI 提炼）埋点。
 - ✅ 新增架构能力 → 本文 + 登记 [`docs/README.md`](../README.md)；落地时 `CHANGELOG.md`（单行用户视角）+ `AGENTS.md`（契约面）补充。
 
@@ -582,14 +619,14 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 
 ### Phase 1（双链地基 + 核心读写 + 外部只读绑定，对应 D4/D6 选定的 MVP）
 
-1. KB 概念：`sessions.db` 的 `knowledge_bases` registry（D9）+ `index.db` 缓存 schema（chunk 级，D12）+ `WorkspaceScope::for_knowledge`。
-2. **KB 访问作用域（D10）**：`session/project_knowledge_bases` 绑定 + `effective_kb_access` + UI 列出当前生效 KB；incognito 零访问、IM 禁用。
-3. `notify` watcher（生产级）+ 增量索引（`note` + `note_chunk` + `note_link`）+ 绑定/启动 reconcile + chunker。
+1. KB 概念：`sessions.db` 的 `knowledge_bases` registry（D9）+ `index.db` 缓存 schema（chunk 级 + `note_tag`，D12/#5）+ `WorkspaceScope::for_knowledge`。
+2. **KB 访问作用域（D10）**：`session/project_knowledge_bases`（带 FK/cascade/CHECK，#7）+ **`effective_kb_access(ctx{session,source,channel})`**（source-aware，#2）+ 叠加公式 max-then-min-cap（#8）+ UI 列出当前生效 KB；incognito/IM 零访问。
+3. `notify` watcher（生产级）+ 增量索引（`note` + `note_chunk` + `note_tag` + `note_link`）+ 绑定/启动 reconcile + chunker。
 4. Wikilink 扫描 + **确定性 resolve**（#8，路径式 / basename / 稳定歧义，不用 mtime，跳过 code）+ 反链查询。
 5. 前端「知识空间」Tab + 笔记 CRUD（含 `delete`，**不含 rename/move**）+ **Backlinks 面板** + 悬空链接提示 + 当前生效 KB 列表。
-6. Layer 1 核心工具：`note_create / read / update / patch / append / delete / search / link / backlinks`（`kb` 过 `effective_kb_access`）。
+6. Layer 1 核心工具：`note_create / read / update / patch / append / delete / search / link / backlinks`（`kb` 过 `effective_kb_access(ctx)`）。
 7. **读取桥通道 ①②（D7）**：聊天内 `[[笔记名]]` 确定性引用注入（untrusted 信封，#7）+ 独立 `note_search`（不动 `recall_memory`）。
-8. **KB 文件预览端点（#2）**：独立 `/api/knowledge/{kb_id}/files/*`，按 `effective_kb_access` 鉴权，不放宽 session 端点。
+8. **KB 文件预览端点（#2/#3）**：独立 `/api/knowledge/{kb_id}/files/*`，两平面鉴权（owner/API key 全量 + agent/session 过 `effective_kb_access`）+ scope contains，不放宽 session 端点。
 9. **外部 vault 只读绑定（D6/D11）**：`root_dir` 指向现成 Obsidian/Logseq vault → 索引/双链/搜索/AI 读；**外部 root 一切写（AI + GUI）禁用**，UI 显示只读；内置默认忽略列表；大库冷启动后台索引 + 进度。
 
 ### Phase 2（图谱 + 完整 AI 操作面 + 自主维护 + 外部可写）
@@ -615,12 +652,13 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 
 ## 安全约束
 
-- **真相 / 缓存分家（D9）**：KB registry + 访问绑定在 `sessions.db`；`index.db` 纯缓存，删了能重建。`index.db` 只存笔记结构/向量，**不存任何 API Key / Token**。
-- **访问默认 deny（D10）**：KB 不全局可见；`note_search / read` 与 KB 预览端点全过 `effective_kb_access`。incognito 零访问/零写/零被动召回；**IM Phase 1 禁用 KB 访问**。
+- **真相 / 缓存分家（D9）**：KB registry + 访问绑定在 `sessions.db`；`index.db` 纯缓存，删了能重建。
+- **`index.db` 含明文笔记片段（#4）**：`note_chunk.body` 与 FTS external-content **存明文 chunk 正文/片段**（snippet 高亮 + 离线检索所需），**敏感度等同笔记本身**（笔记本就是磁盘明文 `.md`）——按用户数据保护，随数据目录权限走；红线是**绝不存 API Key / Token / 凭据**。（备选 contentless FTS 可不落 body，但外部 vault 回读慢，不采用。）
+- **访问默认 deny（D10，source-aware）**：KB 不全局可见；`note_search / read` 与 KB 预览端点全过 `effective_kb_access(ctx)`（带 source）。incognito 零访问/零写/零被动召回；**IM Phase 1 禁用 KB 访问**（即便 session 有 attach）。
 - **作用域闭合**：所有读写经 `WorkspaceScope::for_knowledge`，canonicalize + `starts_with` 失败即拒，禁止越出 `root_dir`（含外部绑定 root）。
 - **外部 root 写隔离（D11）**：Phase 1 外部绑定 root 彻底只读，`resolve_writable` 对外部 root 拒绝一切写（AI + GUI）；Phase 2 放开时叠加 actor 拆分 + 写冲突检测。
 - **远端写门控**：HTTP `/api/knowledge/*` 写端点受 `filesystem.allow_remote_writes`（默认 false）闸门；桌面 Tauri 不受限。
-- **preview-by-path 红线（#2 收口）**：**不放宽**现有 `/api/sessions/{id}/files/*` 端点；KB 文件读取走**独立** `/api/knowledge/{kb_id}/files/*`，鉴权 = 「caller 对该 `kb_id` 有读权限」（`effective_kb_access`），**不是**「路径命中任意 KB root」。非授权 kb_id / 越界路径 / 主机任意路径一律 403。HTTP 远端绑外部主机路径属敏感场景，落地走专门安全 review。
+- **preview-by-path 红线（#2/#3 收口）**：**不放宽**现有 `/api/sessions/{id}/files/*` 端点；KB 文件读取走**独立** `/api/knowledge/{kb_id}/files/*`，按**两平面**鉴权——owner/API key 走管理平面（全量），agent/session 走 `effective_kb_access(ctx)`——再叠加 `WorkspaceScope` scope contains 校验，**不是**「路径命中任意 KB root」。非授权 kb_id / 越界路径 / 主机任意路径一律 403。HTTP 远端绑外部主机路径属敏感场景，落地走专门安全 review。
 - **注入即非可信（#7）**：笔记内容注入上下文一律套 `<untrusted_external_data>` 信封 + 来源 + 截断，永不提升为 system 指令。
 
 ---
