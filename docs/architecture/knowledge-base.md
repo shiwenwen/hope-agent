@@ -120,14 +120,14 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | D4 | 第一阶段 MVP | **双链基础：Wikilink 解析 + Backlinks 面板** | 最小可用、最快出效果，是图谱/嵌入/召回的地基 |
 | D5 | 对外命名（品牌） | **功能名 = 「知识空间 / Knowledge Space」**；**营销定位语可打「第二大脑 / Second Brain」**（slogan，非功能本名）；**代码内部保持中性**——模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge` 不变 | 「知识库」在中文被 RAG / 客服知识库语义占领，易误读成被动静态存储；「笔记」撑不起双链+图谱+AI 自主维护的体量；「空间」开放、非 RAG、可 i18n。功能名中性精确不误导，营销借「第二大脑」高认知度拉心智。**三层解耦**（代码标识符 / 功能展示名 / 营销 slogan），各自可独立低风险调整 |
 | D6 | 外部目录绑定（Obsidian/Logseq 互通） | **切「只读」一刀**：Phase 1 = 内部 `notes/` 完整读写 **+ 外部 vault 只读绑定**（索引/双链/反链/搜索/AI 读，AI 与工具对外部 root 的写一律禁用）；Phase 2 放开 AI 写外部（带冲突检测）+ 忽略规则配置 UI + 大库索引进度打磨 | A 纯内部（外部整体 Phase 2）/ C 全功能外部读写 Phase 1 | 外部绑定是最大获客杠杆（"指向你现成的 Obsidian vault，AI 瞬间点亮"）。读外部的成本（watcher/reconcile/大库索引/忽略规则/安全 review）本就在关键路径；**写外部的写冲突/lost-update 是回归风险最高的部分**，只读切法把它隔离到 Phase 2，早拿 demo 又不背最毒的债。详见 [外部目录绑定](#外部目录绑定obsidianlogseq-vault) |
+| D7 | 召回形态（笔记 vs 记忆） | 笔记检索是**独立通道**，Phase 1 出独立工具 `note_search`，**绝不折进 `recall_memory`**；笔记走自己完整的检索逻辑（向量化 + 图谱感知），知识库检索做成旗舰最强。聊天内 `[[ ]]` 确定性引用注入提到 **Phase 1**。若日后要「一次拿记忆+笔记」，**加薄编排工具**分别查两 store 再 store-aware 合并，仍不动 `recall_memory` | 折进 `recall_memory` 一次拿全 | 记忆=一句话事实、笔记=整篇文档，性质/作用域/排序不可比，混排会污染成熟 memory 路径。**影响方向反过来**：知识库检索做强后，反哺给记忆系统借鉴，而非笔记降格塞进记忆 |
 
 ### 待定决策（已填默认取向，待确认）
 
-> P1（命名）已拍板转入 D5；P2（外部目录绑定）已拍板转入 D6。
+> P1（命名）已拍板转入 D5；P2（外部目录绑定）已拍板转入 D6；P3（召回形态）已拍板转入 D7。
 
 | # | 决策点 | 默认取向 | 备选 | 取舍 |
 |---|---|---|---|---|
-| P3 | 召回融合形态 | **Phase 1 独立 `note_search` 工具**；笔记与 memory 是否在 `recall_memory` 内融合检索，放 **Phase 3** 评估 | 直接折进 `recall_memory` 一次拿记忆+笔记 | 独立工具干净、不动成熟的 memory 路径；融合体验更好但改动面大、回归风险高 |
 | P4 | 文档优先 vs 大纲优先 | **以文档优先为基座（对齐 Obsidian）**；对 Logseq 做文件级 + 公共语法子集互通；深度大纲语义（block 树 / `((block-ref))`）放 **Phase 3** 可选 | 一开始就做 Logseq 式大纲优先 | Obsidian（文档优先）与 Logseq（大纲优先）数据模型不同，无法一套实现原生兼容两者；文档优先覆盖面更广、与现有 Markdown 渲染栈一致。详见 [兼容性](#与-obsidian--logseq-兼容性) |
 
 ---
@@ -417,13 +417,22 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 - **知识缺口**：反复出现的悬空链接 = 高需求但缺失的笔记 → 提议创建。
 - **记忆 → 笔记（可读层）**：扩展 dreaming，把同主题碎片 memory 提炼成主题笔记 / MOC（D1 落点）。
 
-### Layer 3 — 检索引擎（共享底座 + 召回桥）
+### Layer 3 — 检索引擎（共享底座 + 三通道读取桥）
 
-Layer 1 工具与 Layer 2 任务共用同一检索底座：
+笔记检索是**独立旗舰**，走自己完整的检索逻辑（向量化 + 图谱感知），不与 memory 混排（D7）。Layer 1 工具与 Layer 2 任务共用同一检索底座：
 
-- **混合检索**：FTS5 关键词 + sqlite-vec 向量 → RRF 融合 → MMR 去冗（直接复用 [memory](memory.md) 实现）。
+- **混合检索**：FTS5 关键词 + sqlite-vec 向量 → RRF 融合 → MMR 去冗（**算法复用** [memory](memory.md) 实现，但**独立 store、独立排序**）。
 - **图谱感知检索**：把链接结构（反链 / 共引）与语义相似度融合排序，做「关联阅读」。
-- **召回桥**：`note_search` 让 agent 把笔记按需召回进上下文（**不**默认全量注入 system prompt，避免上下文膨胀）。与 `recall_memory` 是否融合成「一次拿记忆 + 笔记」，见 P3，Phase 3 评估。
+
+**读取桥分三通道**（注入上下文的三条路，互不替代）：
+
+| 通道 | 机制 | 阶段 |
+|---|---|---|
+| ① 显式引用 | 聊天里打 `[[笔记名]]` / `@note` → **确定性注入**该笔记内容（无排序、用户可控，复用双链 `[[ ]]` 解析） | **Phase 1** |
+| ② Agent 主动拉取 | `note_search` 工具，agent 按需混合检索召回（**不**默认全量注入 system prompt，避免膨胀） | **Phase 1** |
+| ③ 被动提示 | 每轮注入「相关笔记标题 + 一行」（仿 awareness suffix，独立 cache block，只给标题不给正文，cache-safe） | Phase 3 opt-in |
+
+**与 memory 的关系（D7）**：`note_search` **绝不折进 `recall_memory`**——两者性质/作用域/排序不可比。若日后要「一次拿记忆 + 笔记」，**加一个薄编排工具**分别查两 store、各自用各自排序再 store-aware 合并，仍不动成熟的 `recall_memory`。**影响方向是反的**：知识库检索做成最强后，反哺给记忆系统借鉴，而非笔记降格塞进记忆。
 
 形成闭环：**对话 → 记忆 → 笔记 → 召回喂回上下文 → 更好的对话**。
 
@@ -462,7 +471,8 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 3. Wikilink 解析（`[[ ]]` / 别名 / `#heading` / `#tag`）+ 反链查询。
 4. 前端「知识空间」Tab + 笔记 CRUD + **Backlinks 面板** + 悬空链接提示。
 5. Layer 1 核心工具：`note_create / read / update / patch / append / search / link / backlinks`（agent 完整读写 + 检索）。
-6. **外部 vault 只读绑定（D6）**：`root_dir` 指向现成 Obsidian/Logseq vault → 索引/双链/搜索/AI 读；外部 root 的 AI/工具写禁用；内置默认忽略列表；大库冷启动后台索引 + 进度。
+6. **读取桥通道 ①②（D7）**：聊天内 `[[笔记名]]` 确定性引用注入（复用双链解析）+ 独立 `note_search` 工具（不动 `recall_memory`）。
+7. **外部 vault 只读绑定（D6）**：`root_dir` 指向现成 Obsidian/Logseq vault → 索引/双链/搜索/AI 读；外部 root 的 AI/工具写禁用；内置默认忽略列表；大库冷启动后台索引 + 进度。
 
 ### Phase 2（图谱 + 完整 AI 操作面 + 自主维护 + 外部可写）
 
@@ -478,7 +488,8 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 - 块级引用（读 Obsidian `^block-id` + Logseq `((uuid))`）。
 - 深度大纲语义（Logseq block 树，P4）。
 - Layer 2 进阶：去重合并、孤岛救援、知识缺口检测、自动打标签。
-- 笔记 ↔ memory 深度召回融合（P3）。
+- 读取桥通道 ③：被动「相关笔记标题」提示（awareness 风格 cache block，opt-in）。
+- 可选编排工具「一次拿记忆 + 笔记」（store-aware 合并，**不动 `recall_memory`**，D7）；记忆系统反向借鉴知识库检索。
 - Canvas 知识白板。
 
 ---
