@@ -36,7 +36,7 @@
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
 | [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/文件/指令、Bound Channel + 5 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
 | [记忆系统](architecture/memory.md)                 | SQLite + FTS5 + vec0 混合检索、多模型 Embedding 配置、自动提取、Active Memory、Dreaming、Recall Summary、向量重建 | `memory/`                                      |
-| [知识库系统](architecture/knowledge-base.md)         | **设计草案 v3**：独立 PKM 知识库（真实 `.md` 真相源 + `sessions.db` registry + `index.db` chunk 级可重建缓存）、Wikilink 双链/反链、AI 三层读写/检索/自主维护、KB 访问作用域（默认 deny + attach）、KB 预览鉴权、Obsidian/Logseq 兼容矩阵、决策账本（D1–D12）+ 路线图 | `knowledge/`（规划中）                            |
+| [知识库系统](architecture/knowledge-base.md)         | **设计草案 v4 定稿**：独立 PKM 知识库（真实 `.md` 真相源 + `sessions.db` registry + `index.db` chunk 级可重建缓存）、Wikilink 双链/反链、AI 三层读写/检索/自主维护、KB 访问作用域（默认 deny + attach）、KB 预览鉴权、Obsidian/Logseq 兼容矩阵、决策账本（D1–D12）+ 路线图 | `knowledge/`（规划中）                            |
 
 
 ## Agent 能力

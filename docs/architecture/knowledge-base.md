@@ -1,6 +1,6 @@
 # Knowledge Base 知识库系统架构（设计草案）
 
-> 返回 [文档索引](../README.md) | 状态：**设计草案 v3 契约修订（Draft，尚未实现）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、补 KB 访问作用域、收紧预览鉴权、chunk 级检索、外部只读统一；v3：source-aware 访问上下文、两鉴权平面、明文索引措辞、note_tag、向量单存 note_vec、attach FK/cascade、access 叠加公式、清旧文案残留）
+> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约）
 
 > ⚠️ 本文是**设计契约文档**，不是已落地子系统的描述。它先于实现存在，用于锁定方向、记录取舍、指导分阶段迭代。每次方案打磨都应回到本文更新「决策账本」与「路线图」，保持单一真相源。代码落地后，本文逐步转为实现描述，并把 `规划中` 的源码路径替换为真实链接。
 
@@ -287,7 +287,7 @@ CREATE INDEX idx_note_title ON note(kb_id, title);   -- [[Title]] resolve 用
 -- chunk 级检索单元（FTS / vec 都建在 chunk 上）
 CREATE TABLE note_chunk (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  note_id INTEGER NOT NULL,
+  note_id INTEGER NOT NULL REFERENCES note(id) ON DELETE CASCADE,
   chunk_index INTEGER NOT NULL,
   heading_path TEXT,
   body TEXT NOT NULL,                       -- FTS external-content 取此列（列名对齐）
@@ -309,9 +309,9 @@ CREATE VIRTUAL TABLE note_chunk_fts USING fts5(
 -- CREATE VIRTUAL TABLE note_vec USING vec0(embedding float[N]);   -- rowid = note_chunk.id
 
 CREATE TABLE note_link (
-  src_note_id INTEGER NOT NULL,
+  src_note_id INTEGER NOT NULL REFERENCES note(id) ON DELETE CASCADE,    -- 删源 note → 删其出链
   target_ref TEXT NOT NULL,      -- 原文：标题或 folder/note 路径式
-  target_note_id INTEGER,        -- NULL = 悬空链接
+  target_note_id INTEGER REFERENCES note(id) ON DELETE SET NULL,         -- 删目标 note → 链接变悬空（不删行）
   link_type TEXT NOT NULL,       -- 'wiki' | 'embed' | 'md'
   anchor TEXT                    -- heading slug 或 ^block-id（Phase 3）
 );
@@ -320,12 +320,14 @@ CREATE INDEX idx_link_target ON note_link(target_note_id);   -- 反链查询
 
 -- 标签索引（#5；从 frontmatter tags + 正文 #tag 抽取，缓存可重建）
 CREATE TABLE note_tag (
-  note_id INTEGER NOT NULL,
+  note_id INTEGER NOT NULL REFERENCES note(id) ON DELETE CASCADE,
   tag TEXT NOT NULL,                        -- 归一化后（NFC + 小写）
   PRIMARY KEY (note_id, tag)
 );
 CREATE INDEX idx_tag ON note_tag(tag);      -- note_by_tag / note_tags 用
 ```
+
+> **缓存清理契约（#5）**：FK cascade 语义——删 note 自动 prune 其 `note_chunk`/`note_tag`/出链；删目标 note 时**指向它的链接 `SET NULL` 变悬空**（不删行，正好编码「删一篇笔记→指向它的链接自动变 broken」）。需 per-connection `PRAGMA foreign_keys=ON`。**重索引某 note 必须在单事务内**：先删该 note 的 chunks/tags/outgoing links（含同步 `note_chunk_fts` 与 `note_vec`），再重建——否则已删文件的旧 chunk/tag 仍会被 FTS/tag 搜到。
 
 **检索流程（D12）**：query → chunk 级 FTS5(BM25) + vec ANN → RRF 融合（**算法复用** memory，独立 store）→ MMR 去冗 → **聚合回 note**（best-chunk 分代表该 note）→ 返回 note + 命中 chunk snippet + `heading_path` 定位。
 
@@ -408,7 +410,7 @@ knowledge/
 **WorkspaceScope 扩展**：在 [`filesystem/workspace.rs`](../../crates/ha-core/src/filesystem/workspace.rs) 增加 `for_knowledge(kb_id)` 入口，把读写锁死在 KB 的 `root_dir` 内，完全复用现有 canonicalize + `starts_with` 闭合逻辑。
 
 - **写门控（D11）**：`resolve_writable` 对**外部绑定 root** Phase 1 一律拒绝（AI / GUI 皆不可写）；内部 `notes/` 正常可写。HTTP 写端点叠加 `filesystem.allow_remote_writes` 闸门。
-- **preview-by-path 不再走"路径命中任意 KB root"**（那会击穿会话鉴权）：KB 文件读取走**独立的 KB 端点**，鉴权按 `effective_kb_access`（caller 对该 `kb_id` 有读权限），与现有 `/api/sessions/{id}/files/*` 端点**完全隔离、互不放宽**。详见 [KB 访问作用域与预览鉴权](#kb-访问作用域与预览鉴权)。
+- **preview-by-path 不再走"路径命中任意 KB root"**（那会击穿会话鉴权）：KB 文件读取走**独立 KB 端点 = 纯 owner 平面**，agent/session 访问走工具层 `effective_kb_access(ctx)`，两平面分层、与现有 `/api/sessions/{id}/files/*` 端点**完全隔离、互不放宽**。详见 [KB 访问作用域与预览鉴权](#kb-访问作用域与预览鉴权)。
 
 ---
 
@@ -456,43 +458,47 @@ knowledge/
 ```
 effective_kb_access(KnowledgeAccessContext {
     session_id,
-    source,            // Gui | HttpUi | AgentTool | IM | Cron | Subagent（从 ToolExecContext 透传）
+    source,            // 本跳来源 Gui | HttpUi | AgentTool | IM | Cron | Subagent（从 ToolExecContext 透传）
+    origin_source,     // spawn 链根来源（#2 调用链 cap）——IM turn spawn 的子 Agent，origin 仍是 IM
     channel_info?,     // IM 时的 account/chat
 }) -> { kb_id: access }   // access ∈ read | write
 ```
 
-**为什么必须带 source**：同一 session 可被 GUI 与 IM **共用/接管**（`channel_conversations` attach 模型），仅凭 `session_id` **判不出本次调用是不是 IM turn**——D10 的「IM Phase 1 零访问」红线就无法执行。
+**为什么必须带 source + origin_source**：① 同一 session 可被 GUI 与 IM **共用/接管**（`channel_conversations` attach 模型），仅凭 `session_id` **判不出本次是不是 IM turn**；② IM turn 若 **spawn 子 Agent**，子 Agent `source=Subagent` 可能**重新拿回** session/project 的 KB 权限，洗掉 IM 红线（confused-deputy）。故 cap 必须取**整条调用链最严值**。
 
 授予规则：
 
 - **普通 session**：默认**无任何 KB 访问**；用户显式 attach（`session_knowledge_bases`）后才可 `note_search / note_read`。
 - **project**：可 attach KB（`project_knowledge_bases`）；项目内 session **继承** project 的 KB。
-- **叠加公式（#8）**：`granted = max(session_attach, project_attach)`（**最高权限胜出**，write > read），再做 **min-cap** 往下夹：
+- **叠加公式（#8/#2）**：`granted = max(session_attach, project_attach)`（**最高权限胜出**，write > read），再 **min-cap = 整条调用链最严值** `min over lineage {origin_source … current source}` 往下夹：
   - 外部绑定 root → 上限 `read`（D11，Phase 1）
-  - `source = IM`（Phase 1）/ `incognito` → **0**（零访问/零写/零被动召回）
-  - `source ∈ Cron | Subagent` → 按继承的 session 上下文，但不超过其 cap
-  - 即：**写**需同时满足 `授予 write ∧ 内部 root ∧ source 允许 ∧ 非 incognito`
-- **`note_search(kb?)` 省略 `kb`**：只搜 `effective_kb_access` 内的 KB，**绝不默认搜全局**；显式传 `kb` 也须过校验否则拒绝。
-- **UI 可见**：当前生效的 KB（session ∪ project）**必须在界面明确列出**——防泄漏的最后人因防线。
+  - **lineage 中任一跳是 `IM`（Phase 1）或 `incognito` → 全链归 0**（子 Agent 不能洗权限，#2）
+  - `source ∈ Cron | Subagent` → 继承 origin 上下文，但**不超过 origin 的 cap**
+  - 即：**写**需同时满足 `授予 write ∧ 内部 root ∧ 全链 source 允许 ∧ 非 incognito`
+- **archived 过滤（#3）**：`archived = 1` 的 KB **不进 agent/session 平面的 effective access**（即便旧 attach 还在）；attach 行**保留不删**（归档=挂起），un-archive 后自动恢复。owner 管理平面仍可浏览 archived KB。
+- **`note_search(kb?)` 省略 `kb`**：只搜 `effective_kb_access` 内的 KB（已滤 archived），**绝不默认搜全局**；显式传 `kb` 也须过校验否则拒绝。
+- **UI 可见**：当前生效的 KB（session ∪ project，非 archived）**必须在界面明确列出**——防泄漏的最后人因防线。
 
-### 两个鉴权平面（#3）
+### 两个鉴权平面（#1/#3）——**按层物理隔离，不在同一端点共存**
 
-KB 文件的读取有**两类完全不同的权限主体**，分平面处理：
+KB 文件读取有两类权限主体，**分在不同层**，从根上消除 fallback 歧义：
 
-| 平面 | 主体 | 鉴权 | 用途 |
+| 平面 | 在哪一层 | 主体 / 鉴权 | 用途 |
 |---|---|---|---|
-| **Owner / 管理平面** | 用户本人（KB owner） | 桌面=本机信任；**HTTP=持 API key 即 owner-equivalent** | 「知识空间」Tab 浏览/管理自己**所有** KB，**不走 session attach** |
-| **Agent / session 平面** | turn 内的 agent/工具 | `effective_kb_access(ctx)`（session + source） | `note_search / note_read` 及 turn 内预览，受 attach + source 约束 |
+| **Owner / 管理平面** | **HTTP 端点 / Tauri 命令** | 用户本人（owner）；桌面=本机信任，**HTTP=持 API key 即 owner-equivalent** | 「知识空间」Tab + 聊天里点开笔记预览（操作者就是 owner），访问自己**所有** KB，**不经 attach** |
+| **Agent / session 平面** | **ha-core 工具执行（进程内）** | turn 内 agent；`effective_kb_access(ctx)`（session + source + origin） | `note_search / note_read` 工具，内容在 ha-core 内校验后直接进 tool result，**不经 HTTP 文件端点** |
 
-> **API key = owner（写死）**：远端 HTTP 下持有 server API key 的调用者**等同 owner**，走管理平面拿全量 KB 访问。owner 平面不被 session attach 限制（attach 只约束 agent/session 平面）。
+> **为什么这样分（#1）**：HTTP 请求基本都带 server API key，若同一端点"owner 全放 + 有 session 才叠加"，则**任何带 session 的预览也先命中 owner 平面、绕过 attach**。而在 hope-agent 里 agent 读笔记走 `note_read` 工具（ha-core 进程内返回内容），**根本不需要 HTTP 文件端点**。故把两平面落到**两层**：HTTP 端点=纯 owner；agent access=工具层（`effective_kb_access`）。一端点一平面，无 fallback。
+> **API key = owner（写死）**：远端 HTTP 持 server API key 即 owner-equivalent，管理平面拿全量；owner 平面不被 attach 限制（attach 只约束工具层 agent 访问）。
 
-### KB 文件预览端点（#2，关键安全修订）
+### KB 文件预览端点（#1/#2，关键安全修订）
 
-原 v1 把 preview-by-path 鉴权放宽成「路径命中任意已绑定 KB root」——这会让**任何 session 只要猜到路径就能读所有 KB 文件**，击穿现有「被会话引用 ∪ 落在会话工作目录」红线。收口：
+原 v1 把 preview-by-path 鉴权放宽成「路径命中任意已绑定 KB root」——会让**任何 session 只要猜到路径就能读所有 KB 文件**，击穿现有「被会话引用 ∪ 落在会话工作目录」红线。收口：
 
 - **不动**现有 `/api/sessions/{id}/files/{read,extract,by-path}` 的判定，一个字都不放宽。
-- **新增独立 KB 端点** `GET /api/knowledge/{kb_id}/files/{read,raw,extract}`：管理平面（owner / API key）放行全部；若由 agent/session 上下文发起则叠加 `effective_kb_access(ctx)`。鉴权**而非**"路径落在某个 KB root 内"，并叠加 `WorkspaceScope` 容器校验（scope contains）。
-- 两套端点、两套鉴权，互不污染；远端写仍叠加 `allow_remote_writes`；非授权 `kb_id` / 越界路径一律 403。
+- **新增独立 KB 端点** `GET /api/knowledge/{kb_id}/files/{read,raw,extract}` = **纯 owner / 管理平面**（API key=owner / 桌面本机信任），服务前端 KB 浏览与笔记预览；叠加 `WorkspaceScope` 容器校验（scope contains）。**此端点不承载 agent/session 平面，无 session 参数、无 owner fallback 分支**。
+- agent/session 访问**不经此端点**——`note_*` 工具在 ha-core 内经 `effective_kb_access(ctx)` 校验后直接返回内容。
+- 远端写仍叠加 `allow_remote_writes`；非授权 / 越界路径一律 403。
 
 ---
 
@@ -504,55 +510,53 @@ KB 文件的读取有**两类完全不同的权限主体**，分平面处理：
 
 agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元数据 / 高阶知识操作。所有**写操作走统一权限引擎审批**、锁定在 `WorkspaceScope::for_knowledge` 内、emit `knowledge:changed` 事件。
 
+> **阶段列说明（#4）**：每张工具表标 **Phase**，实现时别把 Phase 2 进阶工具一起做进 MVP。所有 `note_*` 的 `kb` 参数都过 `effective_kb_access(ctx)` 校验；`note_search` 省略 `kb` 只搜可访问集合（已滤 archived），不搜全局。
+
 **CRUD**
 
-| 工具 | 作用 |
-|---|---|
-| `note_create({kb, path, title, content, frontmatter?, template?})` | 新建笔记（可套模板） |
-| `note_read({kb, path\|title, include?})` | 读原文 + 出链 / 反链 / 标签 |
-| `note_update({kb, path, content})` | 全量替换 |
-| `note_patch({kb, path, old, new})` | 外科手术式局部编辑（仿现有 `edit` 工具） |
-| `note_append({kb, path, content, section?})` | 追加（可指定 heading 下，适配每日笔记） |
-| `note_delete({kb, path})` | 删除（Phase 1；只留悬空链接，不连带改其它文件） |
-| `note_rename` / `note_move` | 改名 / 移动 — **Phase 2**（见下，多文件写） |
-
-> **阶段归属（#9）**：Phase 1 = `create / read / update / patch / append / delete`。`note_rename` / `note_move` 要**批量改写所有指向它的 `[[ ]]`**（多文件连带写），与外部只读 + 链接完整性一起放 **Phase 2**。
->
-> **访问校验（#4）**：所有 `note_*` 工具的 `kb` 参数都过 `effective_kb_access` 校验；`note_search` 省略 `kb` 时只搜可访问集合，不搜全局。
+| 工具 | 作用 | Phase |
+|---|---|---|
+| `note_create({kb, path, title, content, frontmatter?, template?})` | 新建笔记（可套模板） | 1 |
+| `note_read({kb, path\|title, include?})` | 读原文 + 出链 / 反链 / 标签 | 1 |
+| `note_update({kb, path, content})` | 全量替换 | 1 |
+| `note_patch({kb, path, old, new})` | 外科手术式局部编辑（仿现有 `edit` 工具） | 1 |
+| `note_append({kb, path, content, section?})` | 追加（可指定 heading 下，适配每日笔记） | 1 |
+| `note_delete({kb, path})` | 删除（只留悬空链接，不连带改其它文件） | 1 |
+| `note_rename` / `note_move` | 改名 / 移动 — **批量改写指向它的 `[[ ]]`（多文件写）** | **2** |
 
 **链接与图谱**
 
-| 工具 | 作用 |
-|---|---|
-| `note_link({from, to, alias?})` | 插入 `[[ ]]` |
-| `note_backlinks({note})` | 谁链接到本页 |
-| `note_graph({note, depth})` | N 跳邻域（nodes+edges），图谱视图与「关联阅读」数据源 |
-| `note_broken_links({kb})` | 悬空链接清单 |
-| `note_orphans({kb})` | 孤岛笔记（无任何链接） |
+| 工具 | 作用 | Phase |
+|---|---|---|
+| `note_link({from, to, alias?})` | 插入 `[[ ]]` | 1 |
+| `note_backlinks({note})` | 谁链接到本页 | 1 |
+| `note_graph({note, depth})` | N 跳邻域（nodes+edges），图谱视图数据源 | **2** |
+| `note_broken_links({kb})` | 悬空链接清单 | **2** |
+| `note_orphans({kb})` | 孤岛笔记（无任何链接） | **2** |
 
 **检索**
 
-| 工具 | 作用 |
-|---|---|
-| `note_search({query, kb?, filters?})` | FTS5 + 向量混合检索（复用 memory RRF/MMR） |
-| `note_similar({note, k})` | 向量近邻（「更多类似」） |
-| `note_related({note})` | 融合召回：反链 ∪ 向量近邻 ∪ 同标签（图谱感知） |
-| `note_suggest_links({note})` | 给出**该笔记应建但还没建**的 `[[ ]]` 候选（自动织网按需版） |
+| 工具 | 作用 | Phase |
+|---|---|---|
+| `note_search({query, kb?, filters?})` | FTS5 + 向量混合检索（chunk 级聚合回 note） | 1 |
+| `note_similar({note, k})` | 向量近邻（「更多类似」） | **2** |
+| `note_related({note})` | 融合召回：反链 ∪ 向量近邻 ∪ 同标签（图谱感知） | **2** |
+| `note_suggest_links({note})` | 给出**该笔记应建但还没建**的 `[[ ]]` 候选 | **2** |
 
 **标签与元数据**
 
-| 工具 | 作用 |
-|---|---|
-| `note_by_tag({tag})` / `note_tags({kb})` | 标签过滤 / 枚举 |
-| `note_set_frontmatter({note, props})` | 读写 frontmatter 属性 |
+| 工具 | 作用 | Phase |
+|---|---|---|
+| `note_by_tag({tag})` / `note_tags({kb})` | 标签过滤 / 枚举 | 1 |
+| `note_set_frontmatter({note, props})` | 读写 frontmatter 属性 | **2** |
 
 **高阶知识操作（AI 原生）**
 
-| 工具 | 作用 |
-|---|---|
-| `note_distill({source})` | 原始捕获 / 长文 → 原子永久笔记（BASB 的 CODE / Zettelkasten 拆分） |
-| `note_moc({topic\|tag})` | 生成 / 刷新某主题的 MOC（Maps of Content）枢纽页 |
-| `session_to_note({session_id})` | 把一段对话沉淀成结构化笔记 |
+| 工具 | 作用 | Phase |
+|---|---|---|
+| `note_distill({source})` | 原始捕获 / 长文 → 原子永久笔记（BASB / Zettelkasten 拆分） | **2** |
+| `note_moc({topic\|tag})` | 生成 / 刷新某主题的 MOC 枢纽页 | **2** |
+| `session_to_note({session_id})` | 把一段对话沉淀成结构化笔记 | **2** |
 
 ### Layer 2 — 自主维护（后台，提案制）
 
@@ -658,7 +662,9 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 - **作用域闭合**：所有读写经 `WorkspaceScope::for_knowledge`，canonicalize + `starts_with` 失败即拒，禁止越出 `root_dir`（含外部绑定 root）。
 - **外部 root 写隔离（D11）**：Phase 1 外部绑定 root 彻底只读，`resolve_writable` 对外部 root 拒绝一切写（AI + GUI）；Phase 2 放开时叠加 actor 拆分 + 写冲突检测。
 - **远端写门控**：HTTP `/api/knowledge/*` 写端点受 `filesystem.allow_remote_writes`（默认 false）闸门；桌面 Tauri 不受限。
-- **preview-by-path 红线（#2/#3 收口）**：**不放宽**现有 `/api/sessions/{id}/files/*` 端点；KB 文件读取走**独立** `/api/knowledge/{kb_id}/files/*`，按**两平面**鉴权——owner/API key 走管理平面（全量），agent/session 走 `effective_kb_access(ctx)`——再叠加 `WorkspaceScope` scope contains 校验，**不是**「路径命中任意 KB root」。非授权 kb_id / 越界路径 / 主机任意路径一律 403。HTTP 远端绑外部主机路径属敏感场景，落地走专门安全 review。
+- **preview-by-path 红线（#1/#2 收口）**：**不放宽**现有 `/api/sessions/{id}/files/*` 端点；KB 文件读取走**独立** `/api/knowledge/{kb_id}/files/*` = **纯 owner/管理平面**（API key=owner / 本机信任，无 session 参数、无 owner fallback）+ `WorkspaceScope` scope contains，**不是**「路径命中任意 KB root」。agent/session 访问不经此端点，走工具层 `effective_kb_access(ctx)`。非授权 / 越界路径一律 403。
+- **subagent 不洗权限（#2）**：`effective_kb_access` 按调用链 cap——origin 为 IM(Phase 1)/incognito 时全链归零，子 Agent 不能借 `source=Subagent` 重新拿回 KB 权限。
+- **archived 隔离（#3）**：归档 KB 不进 agent/session effective access（attach 保留挂起），仅 owner 管理平面可见。
 - **注入即非可信（#7）**：笔记内容注入上下文一律套 `<untrusted_external_data>` 信封 + 来源 + 截断，永不提升为 system 指令。
 
 ---
