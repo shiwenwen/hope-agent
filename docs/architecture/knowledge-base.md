@@ -4,6 +4,8 @@
 
 > ⚠️ 本文是**设计契约文档**，不是已落地子系统的描述。它先于实现存在，用于锁定方向、记录取舍、指导分阶段迭代。每次方案打磨都应回到本文更新「决策账本」与「路线图」，保持单一真相源。代码落地后，本文逐步转为实现描述，并把 `规划中` 的源码路径替换为真实链接。
 
+> 📛 **命名约定（D5）**：本文是技术文档，沿用技术名 **Knowledge Base（代码模块 `knowledge`、工具 `note_*`、作用域 `for_knowledge`）**。**对外功能名 = 「知识空间 / Knowledge Space」**，**营销定位语可打「第二大脑 / Second Brain」**。三者解耦，各自独立可调。
+
 ## 目录
 
 - [背景与动机](#背景与动机)
@@ -115,12 +117,14 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | D2 | 存储真相源 | **真实 `.md` 文件 + SQLite 旁路索引** | 贴合「文件即真实文件」红线；可与 Obsidian 互通；索引可重建；检索复用 memory embedding 基建 |
 | D3 | 挂载的容器概念 | **独立的「知识库」容器**（非复用 Project） | 用户要一级功能、独立心智模型。代价是新建一套容器/作用域/权限，已接受 |
 | D4 | 第一阶段 MVP | **双链基础：Wikilink 解析 + Backlinks 面板** | 最小可用、最快出效果，是图谱/嵌入/召回的地基 |
+| D5 | 对外命名（品牌） | **功能名 = 「知识空间 / Knowledge Space」**；**营销定位语可打「第二大脑 / Second Brain」**（slogan，非功能本名）；**代码内部保持中性**——模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge` 不变 | 「知识库」在中文被 RAG / 客服知识库语义占领，易误读成被动静态存储；「笔记」撑不起双链+图谱+AI 自主维护的体量；「空间」开放、非 RAG、可 i18n。功能名中性精确不误导，营销借「第二大脑」高认知度拉心智。**三层解耦**（代码标识符 / 功能展示名 / 营销 slogan），各自可独立低风险调整 |
 
 ### 待定决策（已填默认取向，待确认）
 
+> P1（命名）已拍板，转入上方已定决策 D5。
+
 | # | 决策点 | 默认取向 | 备选 | 取舍 |
 |---|---|---|---|---|
-| P1 | 命名 | 对内对外统一「知识库 / Knowledge Base（KB）」 | 第二大脑 / Brain / Notes / Vault | "知识库"直白、中性、可 i18n；"第二大脑"营销感强但易与 Memory 概念混淆 |
 | P2 | 外部目录绑定（Obsidian 互通） | **Phase 1 只做内置 `notes/` 目录**；Schema 从第一天就预留 `root_dir: Option<path>`，外部 vault 绑定放 **Phase 2** | Phase 1 即支持绑定现成 Obsidian vault | 绑外部目录要额外处理 `.obsidian`/`.git` 忽略、外部并发编辑冲突、watcher 噪声；MVP 先收敛风险，但数据模型不留债 |
 | P3 | 召回融合形态 | **Phase 1 独立 `note_search` 工具**；笔记与 memory 是否在 `recall_memory` 内融合检索，放 **Phase 3** 评估 | 直接折进 `recall_memory` 一次拿记忆+笔记 | 独立工具干净、不动成熟的 memory 路径；融合体验更好但改动面大、回归风险高 |
 | P4 | 文档优先 vs 大纲优先 | **以文档优先为基座（对齐 Obsidian）**；对 Logseq 做文件级 + 公共语法子集互通；深度大纲语义（block 树 / `((block-ref))`）放 **Phase 3** 可选 | 一开始就做 Logseq 式大纲优先 | Obsidian（文档优先）与 Logseq（大纲优先）数据模型不同，无法一套实现原生兼容两者；文档优先覆盖面更广、与现有 Markdown 渲染栈一致。详见 [兼容性](#与-obsidian--logseq-兼容性) |
@@ -394,7 +398,7 @@ Layer 1 工具与 Layer 2 任务共用同一检索底座：
 
 ## 前端 UI
 
-- **一级导航新增「知识库」Tab**（与聊天 / Dashboard 平级）。
+- **一级导航新增「知识空间」Tab**（与聊天 / Dashboard 平级；对外品牌名见 D5，代码内部仍为 `knowledge`）。
 - 笔记列表 / 目录树 + 复用现有 [`FilePreviewPane`](../../src/components/chat/project/file-browser/FilePreviewPane.tsx) 的 Markdown 渲染（Render / Source 切换已有）。
 - **MVP 重点：Backlinks 面板**——在笔记预览侧显示"链接到本页的笔记"，并对悬空链接给出"新建该笔记"提示。
 - 编辑器：Phase 1 复用现有 Markdown 编辑能力 + `[[` 自动补全；富文本编辑器（Tiptap/Milkdown）Phase 2 评估。
@@ -423,7 +427,7 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 1. KB 概念 + `index.db` schema + `WorkspaceScope::for_knowledge`。
 2. `notify` watcher + 增量索引（`note` + `note_link` 表）。
 3. Wikilink 解析（`[[ ]]` / 别名 / `#heading` / `#tag`）+ 反链查询。
-4. 前端「知识库」Tab + 笔记 CRUD + **Backlinks 面板** + 悬空链接提示。
+4. 前端「知识空间」Tab + 笔记 CRUD + **Backlinks 面板** + 悬空链接提示。
 5. Layer 1 核心工具：`note_create / read / update / patch / append / search / link / backlinks`（agent 完整读写 + 检索）。
 
 ### Phase 2（图谱 + 完整 AI 操作面 + 自主维护起步）
