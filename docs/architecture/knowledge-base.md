@@ -1,6 +1,6 @@
 # Knowledge Base 知识库系统架构（设计草案）
 
-> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约、D13 编辑器选型 CodeMirror 6；v4.1：清端点旧两平面残留、D14 offset 坐标系契约、外部只读编辑器硬禁用、账本同步 origin_source/D13/D14；v4.2：D14 钉死 base/换行/tab + note_patch 文本式、模块/路线图补 origin_source、工具 kb 参数约定、D12 账本补 line/col；v4.3：note_link 加链接位置/alias/raw_text、note_patch 唯一命中契约、坐标相对原文件、incognito 入 ctx short-circuit、工具签名展开；v4.4：note.content_hash + expected_file_hash guard、note_link 同 KB 约束 + 插入位置、清 incognito 残留、note_read kb? 统一；v4.5：stale-write 写前重读磁盘真相源、append/link 加 guard、hash 钉死 BLAKE3 raw bytes、note_link 坐标文案校正）
+> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约、D13 编辑器选型 CodeMirror 6；v4.1：清端点旧两平面残留、D14 offset 坐标系契约、外部只读编辑器硬禁用、账本同步 origin_source/D13/D14；v4.2：D14 钉死 base/换行/tab + note_patch 文本式、模块/路线图补 origin_source、工具 kb 参数约定、D12 账本补 line/col；v4.3：note_link 加链接位置/alias/raw_text、note_patch 唯一命中契约、坐标相对原文件、incognito 入 ctx short-circuit、工具签名展开；v4.4：note.content_hash + expected_file_hash guard、note_link 同 KB 约束 + 插入位置、清 incognito 残留、note_read kb? 统一；v4.5：stale-write 写前重读磁盘真相源、append/link 加 guard、hash 钉死 BLAKE3 raw bytes、note_link 坐标文案校正；v4.6：统一 expected_file_hash 比磁盘 raw（清 note.content_hash 矛盾文案）、note_delete 加 guard、Phase2 外部写对齐 hash 契约）
 
 > ⚠️ 本文是**设计契约文档**，不是已落地子系统的描述。它先于实现存在，用于锁定方向、记录取舍、指导分阶段迭代。每次方案打磨都应回到本文更新「决策账本」与「路线图」，保持单一真相源。代码落地后，本文逐步转为实现描述，并把 `规划中` 的源码路径替换为真实链接。
 
@@ -177,7 +177,7 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | `title` | `String` | 取自 frontmatter `title` > 首个 H1 > 文件名（去扩展名） |
 | `frontmatter_json` | `Option<String>` | YAML frontmatter 解析后的 JSON |
 | `mtime` / `size` | `i64` | 文件修改时间 / 字节数，增量索引判脏用 |
-| `content_hash` | `String` | **整篇文件** hash = **BLAKE3 over raw 文件字节**（不做换行归一化，保留 CRLF，对齐 D14）；区别于 chunk 级 `note_chunk.content_hash`。作为返给调用方的**版本 token**（stale-write guard 比对、mtime 不可靠时兜底判脏）。前后端必须同算法同输入 |
+| `content_hash` | `String` | **整篇文件** hash = **BLAKE3 over raw 文件字节**（不做换行归一化，保留 CRLF，对齐 D14）；区别于 chunk 级 `note_chunk.content_hash`。**仅作返给调用方的"最近索引 token"**（用于乐观并发的版本对照、mtime 不可靠时兜底判脏）；**非写入判定源**——写入判定一律以磁盘当前 raw BLAKE3 为准（见强契约）。前后端必须同算法同输入 |
 
 > Note 行**不再直接挂 embedding/fts**——正文检索全下沉到 `NoteChunk`（D12）。
 
@@ -294,7 +294,7 @@ CREATE TABLE note (
   title TEXT NOT NULL,
   frontmatter_json TEXT,
   mtime INTEGER NOT NULL,
-  content_hash TEXT NOT NULL,    -- 整篇文件 hash（≠ note_chunk.content_hash）；expected_file_hash 比对源
+  content_hash TEXT NOT NULL,    -- 整篇文件 BLAKE3（≠ note_chunk.content_hash）；最近索引 token，非写入判定源（写入比磁盘当前 raw hash）
   size INTEGER NOT NULL,
   UNIQUE(kb_id, rel_path)
 );
@@ -468,7 +468,7 @@ knowledge/
 
 ### 留给 Phase 2 的（写外部才付）
 
-- AI 写外部的**写冲突检测**：写前比对 mtime，自上次读后被改则中止或落 `.conflict` 旁车；Layer 2 提案制 apply 时同样校验。
+- AI 写外部的**写冲突检测**：**mtime 快速判脏 + 磁盘当前 raw BLAKE3 最终确认**（对齐 v4.5 hash 契约），自上次读后被改则中止或落 `.conflict` 旁车；Layer 2 提案制 apply 时同样校验。
 - 忽略规则配置 UI；大库索引进度的精细化打磨。
 
 ---
@@ -549,13 +549,13 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 |---|---|---|
 | `note_create({kb, path, title, content, frontmatter?, template?})` | 新建笔记（可套模板） | 1 |
 | `note_read({kb?, path\|title, include?})` | 读原文 + 出链 / 反链 / 标签 | 1 |
-| `note_update({kb, path, content, expected_file_hash?})` | 全量替换；给 `expected_file_hash` 则与 `note.content_hash` 不符即拒（防 stale write） | 1 |
-| `note_patch({kb, path, old, new, expected_file_hash?})` | 局部编辑（仿 `edit`）：`old` **必须全文唯一命中一次**，0 次/多次都**拒绝**并返候选上下文；给 `expected_file_hash` 则与 `note.content_hash` 不符也拒（防 stale write）。**禁止"悄悄替换第一处"** | 1 |
+| `note_update({kb, path, content, expected_file_hash?})` | 全量替换；给 `expected_file_hash` 则与**磁盘当前 raw BLAKE3**不符即拒（防 stale write，见强契约） | 1 |
+| `note_patch({kb, path, old, new, expected_file_hash?})` | 局部编辑（仿 `edit`）：`old` **必须全文唯一命中一次**，0 次/多次都**拒绝**并返候选上下文；给 `expected_file_hash` 则与**磁盘当前 raw BLAKE3**不符也拒。**禁止"悄悄替换第一处"** | 1 |
 | `note_append({kb, path, content, section?, expected_file_hash?})` | 追加（可指定 heading 下，适配每日笔记）；RMW，支持 stale-write guard | 1 |
-| `note_delete({kb, path})` | 删除（只留悬空链接，不连带改其它文件） | 1 |
+| `note_delete({kb, path, expected_file_hash?})` | 删除（破坏性写）；给 `expected_file_hash` 则写锁内重读磁盘 raw BLAKE3 校验、不符拒删；只留悬空链接，不连带改其它文件 | 1 |
 | `note_rename` / `note_move` | 改名 / 移动 — **批量改写指向它的 `[[ ]]`（多文件写）** | **2** |
 
-> **stale-write guard 真相源（#1，强契约）**：`expected_file_hash` **不与 `note.content_hash`（索引缓存，watcher 可能滞后）比**。所有 RMW 写工具（`note_update/patch/append/link`）在**同一写锁内**：① 重读磁盘**当前文件**算 raw BLAKE3 → ② 与 `expected_file_hash` 比，不符即拒（返回最新 token + 当前内容）→ ③ 写盘 → ④ 同步更新 index（含 `note.content_hash`）。`note.content_hash` 只是**返给调用方的版本 token**，写入判定一律以磁盘为准。
+> **stale-write guard 真相源（#1，强契约）**：`expected_file_hash` **不与 `note.content_hash`（索引缓存，watcher 可能滞后）比**。所有带 `expected_file_hash` 的写工具（RMW 的 `note_update/patch/append/link` + 破坏性的 `note_delete`）在**同一写锁内**：① 重读磁盘**当前文件**算 raw BLAKE3 → ② 与 `expected_file_hash` 比，不符即拒（返回最新 token + 当前内容）→ ③ 写盘/删除 → ④ 同步更新 index（含 `note.content_hash`）。`note.content_hash` 只是**返给调用方的最近索引 token**，写入判定一律以磁盘为准。
 
 **链接与图谱**
 
