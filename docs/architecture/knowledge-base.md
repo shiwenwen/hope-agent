@@ -1,6 +1,6 @@
 # Knowledge Base 知识库系统架构（设计草案）
 
-> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约、D13 编辑器选型 CodeMirror 6；v4.1：清端点旧两平面残留、D14 offset 坐标系契约、外部只读编辑器硬禁用、账本同步 origin_source/D13/D14；v4.2：D14 钉死 base/换行/tab + note_patch 文本式、模块/路线图补 origin_source、工具 kb 参数约定、D12 账本补 line/col；v4.3：note_link 加链接位置/alias/raw_text、note_patch 唯一命中契约、坐标相对原文件、incognito 入 ctx short-circuit、工具签名展开；v4.4：note.content_hash + expected_file_hash guard、note_link 同 KB 约束 + 插入位置、清 incognito 残留、note_read kb? 统一）
+> 返回 [文档索引](../README.md) | 状态：**设计草案 v4 定稿（Draft，尚未实现，契约就绪可进 Phase 1）** | 创建时间：2026-06-02 | 修订：2026-06-03（v2：拆 registry/index、KB 访问作用域、收紧预览鉴权、chunk 检索、外部只读；v3：source-aware 上下文、两鉴权平面、明文索引措辞、note_tag、向量单存、attach FK、access 叠加公式；v4 定稿：KB 端点收纯 owner 平面、subagent 调用链 cap、archived 过滤、工具表加 Phase 列、index.db FK cascade + 事务重索引契约、D13 编辑器选型 CodeMirror 6；v4.1：清端点旧两平面残留、D14 offset 坐标系契约、外部只读编辑器硬禁用、账本同步 origin_source/D13/D14；v4.2：D14 钉死 base/换行/tab + note_patch 文本式、模块/路线图补 origin_source、工具 kb 参数约定、D12 账本补 line/col；v4.3：note_link 加链接位置/alias/raw_text、note_patch 唯一命中契约、坐标相对原文件、incognito 入 ctx short-circuit、工具签名展开；v4.4：note.content_hash + expected_file_hash guard、note_link 同 KB 约束 + 插入位置、清 incognito 残留、note_read kb? 统一；v4.5：stale-write 写前重读磁盘真相源、append/link 加 guard、hash 钉死 BLAKE3 raw bytes、note_link 坐标文案校正）
 
 > ⚠️ 本文是**设计契约文档**，不是已落地子系统的描述。它先于实现存在，用于锁定方向、记录取舍、指导分阶段迭代。每次方案打磨都应回到本文更新「决策账本」与「路线图」，保持单一真相源。代码落地后，本文逐步转为实现描述，并把 `规划中` 的源码路径替换为真实链接。
 
@@ -177,7 +177,7 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 | `title` | `String` | 取自 frontmatter `title` > 首个 H1 > 文件名（去扩展名） |
 | `frontmatter_json` | `Option<String>` | YAML frontmatter 解析后的 JSON |
 | `mtime` / `size` | `i64` | 文件修改时间 / 字节数，增量索引判脏用 |
-| `content_hash` | `String` | **整篇文件** hash（区别于 chunk 级 `note_chunk.content_hash`）——stale-write guard `expected_file_hash` 的比对源、mtime 不可靠时的兜底判脏 |
+| `content_hash` | `String` | **整篇文件** hash = **BLAKE3 over raw 文件字节**（不做换行归一化，保留 CRLF，对齐 D14）；区别于 chunk 级 `note_chunk.content_hash`。作为返给调用方的**版本 token**（stale-write guard 比对、mtime 不可靠时兜底判脏）。前后端必须同算法同输入 |
 
 > Note 行**不再直接挂 embedding/fts**——正文检索全下沉到 `NoteChunk`（D12）。
 
@@ -197,7 +197,7 @@ Hope Agent 已有三层知识容器，知识库（Knowledge Base, KB）是平行
 
 > **向量单一存放（#6）**：chunk 向量**只存 `note_vec`**（sqlite-vec vec0，rowid = `note_chunk.id`，复用 memory `EmbeddingProvider` + `embedding_cache`）；`note_chunk` 行内**不**再存 `embedding BLOB`，避免两套并存。index.db 可从文件全量重建，无需行内备份向量。
 
-> **坐标基准（#3）**：`note_chunk` 与 `note_link` 的所有 `offset / line / col` 都**相对原始完整文件**（含 frontmatter、含原始 CRLF），**不是**相对剥离后的 `body`——否则带 frontmatter 的笔记命中会跳错行。`body` 只是检索文本，与坐标解耦。
+> **坐标基准（#3）**：`note_chunk` 的 `offset / line / col` 与 `note_link` 的 `line / col`（链接只存 line/col、无 offset）都**相对原始完整文件**（含 frontmatter、含原始 CRLF），**不是**相对剥离后的 `body`——否则带 frontmatter 的笔记命中会跳错行。`body` 只是检索文本，与坐标解耦。
 
 > **坐标系契约（D14）**：三套坐标不可混——Rust UTF-8 字节 / Unicode 码点 / JS·CM6 UTF-16 code unit。
 > - **持久 offset = 码点偏移（索引内部）**；**跨端 UI 定位主字段 = `line`+`col`（码点列）**，offset 不作 UI 定位主键。
@@ -551,15 +551,17 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 | `note_read({kb?, path\|title, include?})` | 读原文 + 出链 / 反链 / 标签 | 1 |
 | `note_update({kb, path, content, expected_file_hash?})` | 全量替换；给 `expected_file_hash` 则与 `note.content_hash` 不符即拒（防 stale write） | 1 |
 | `note_patch({kb, path, old, new, expected_file_hash?})` | 局部编辑（仿 `edit`）：`old` **必须全文唯一命中一次**，0 次/多次都**拒绝**并返候选上下文；给 `expected_file_hash` 则与 `note.content_hash` 不符也拒（防 stale write）。**禁止"悄悄替换第一处"** | 1 |
-| `note_append({kb, path, content, section?})` | 追加（可指定 heading 下，适配每日笔记） | 1 |
+| `note_append({kb, path, content, section?, expected_file_hash?})` | 追加（可指定 heading 下，适配每日笔记）；RMW，支持 stale-write guard | 1 |
 | `note_delete({kb, path})` | 删除（只留悬空链接，不连带改其它文件） | 1 |
 | `note_rename` / `note_move` | 改名 / 移动 — **批量改写指向它的 `[[ ]]`（多文件写）** | **2** |
+
+> **stale-write guard 真相源（#1，强契约）**：`expected_file_hash` **不与 `note.content_hash`（索引缓存，watcher 可能滞后）比**。所有 RMW 写工具（`note_update/patch/append/link`）在**同一写锁内**：① 重读磁盘**当前文件**算 raw BLAKE3 → ② 与 `expected_file_hash` 比，不符即拒（返回最新 token + 当前内容）→ ③ 写盘 → ④ 同步更新 index（含 `note.content_hash`）。`note.content_hash` 只是**返给调用方的版本 token**，写入判定一律以磁盘为准。
 
 **链接与图谱**
 
 | 工具 | 作用 | Phase |
 |---|---|---|
-| `note_link({from:{kb,path}, to:{kb,path}, alias?, section?})` | 在 `from` 插入指向 `to` 的 `[[ ]]`。**Phase 1 要求 `from.kb == to.kb`，跨 KB 拒绝**（wikilink 无 KB 概念）；插入位置默认追加到 `section`（缺省 `Related` heading，无则创建） | 1 |
+| `note_link({from:{kb,path}, to:{kb,path}, alias?, section?, expected_file_hash?})` | 在 `from` 插入指向 `to` 的 `[[ ]]`。**Phase 1 要求 `from.kb == to.kb`，跨 KB 拒绝**（wikilink 无 KB 概念）；插入位置默认追加到 `section`（缺省 `Related` heading，无则创建）；RMW，支持 stale-write guard | 1 |
 | `note_backlinks({kb?, note})` | 谁链接到本页（返回带 `src_*_line/col` 可精确跳转） | 1 |
 | `note_graph({note, depth})` | N 跳邻域（nodes+edges），图谱视图数据源 | **2** |
 | `note_broken_links({kb})` | 悬空链接清单 | **2** |
