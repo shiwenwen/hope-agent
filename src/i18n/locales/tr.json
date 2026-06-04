@@ -25,7 +25,7 @@
     "updateErrorDetails": "Hata ayrıntıları",
     "updateErrorLogHint": "Tam izleme ~/.hope-agent/logs.db dosyasına yazıldı (category: updater). Araştırmak için /ha-logs kullanın veya sorunu bildirirken bu dosyayı ekleyin.",
     "updateHistory": "Güncelleme geçmişi",
-    "updateHistoryDesc": "Uygulamadan ayrılmadan pakete dahil edilen tüm sürüm notlarına göz atın.",
+    "updateHistoryDesc": "Uygulamadan ayrılmadan paketlenmiş notlara ve senkronize GitHub Releases kayıtlarına göz atın.",
     "updateHistoryEmpty": "Bu derlemede sürüm notu bulunamadı.",
     "updateHistoryLatest": "En yeni",
     "updateHistoryNoNotes": "Bu sürüm için not yok.",

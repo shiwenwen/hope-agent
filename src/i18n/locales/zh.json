@@ -25,7 +25,7 @@
     "updateErrorDetails": "错误详情",
     "updateErrorLogHint": "完整堆栈已写入 ~/.hope-agent/logs.db（category: updater），可通过 /ha-logs 排查或在反馈时附上该文件。",
     "updateHistory": "更新历史",
-    "updateHistoryDesc": "在应用内查看随当前版本打包的所有发布说明。",
+    "updateHistoryDesc": "在应用内查看随当前版本打包并从 GitHub Releases 同步的发布记录。",
     "updateHistoryEmpty": "当前构建中没有找到发布说明。",
     "updateHistoryLatest": "最新",
     "updateHistoryNoNotes": "这个版本暂时没有可显示的发布说明。",

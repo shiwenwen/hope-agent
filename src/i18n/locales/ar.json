@@ -25,7 +25,7 @@
     "updateErrorDetails": "تفاصيل الخطأ",
     "updateErrorLogHint": "تم تسجيل التتبع الكامل في ~/.hope-agent/logs.db (category: updater). استخدم /ha-logs للتحقيق أو أرفق هذا الملف عند الإبلاغ عن المشكلة.",
     "updateHistory": "سجل التحديثات",
-    "updateHistoryDesc": "تصفّح كل ملاحظات الإصدار المضمّنة دون مغادرة التطبيق.",
+    "updateHistoryDesc": "تصفّح الملاحظات المضمّنة وإصدارات GitHub المتزامنة دون مغادرة التطبيق.",
     "updateHistoryEmpty": "لم يتم العثور على ملاحظات إصدار في هذا البناء.",
     "updateHistoryLatest": "الأحدث",
     "updateHistoryNoNotes": "لا توجد ملاحظات متاحة لهذا الإصدار.",
