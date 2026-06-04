@@ -183,6 +183,14 @@ pub fn model_catalog() -> Vec<ModelCandidate> {
             reasoning: true,
         },
         ModelCandidate {
+            id: "gemma4:12b".into(),
+            display_name: "Gemma 4 12B".into(),
+            family: "gemma4".into(),
+            size_mb: 10_240,
+            context_window: 131_072,
+            reasoning: false,
+        },
+        ModelCandidate {
             id: "gemma4:e4b".into(),
             display_name: "Gemma 4 E4B".into(),
             family: "gemma4".into(),

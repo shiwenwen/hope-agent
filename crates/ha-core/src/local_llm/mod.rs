@@ -1078,11 +1078,11 @@ mod tests {
     #[test]
     fn recommends_largest_fitting_model() {
         // 32 GiB Mac → budget is capped below qwen3.6:27b in this fixture.
-        // gemma4:e4b (9830 MiB) is the largest entry that fits; the next
+        // gemma4:12b (10240 MiB) is the largest entry that fits; the next
         // step up (qwen3.6:27b @ 17408) overshoots.
         let rec = recommend_model(&budget_hw(15 * 1024, BudgetSource::UnifiedMemory));
         let r = rec.recommended.expect("should recommend");
-        assert_eq!(r.id, "gemma4:e4b");
+        assert_eq!(r.id, "gemma4:12b");
         assert_eq!(rec.reason, RecommendationReason::UnifiedMemory);
         assert!(rec
             .alternatives
