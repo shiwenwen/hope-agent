@@ -506,6 +506,7 @@ pub fn run() {
             commands::session::load_session_messages_after_cmd,
             commands::session::load_session_messages_around_cmd,
             commands::session::load_session_artifacts_cmd,
+            commands::session::load_session_environment_cmd,
             commands::session::get_session_stream_state,
             commands::session::search_sessions_cmd,
             commands::session::search_session_messages_cmd,

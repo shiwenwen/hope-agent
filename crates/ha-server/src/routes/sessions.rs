@@ -784,6 +784,22 @@ pub async fn get_session_artifacts(
     Ok(Json(artifacts))
 }
 
+/// `GET /api/sessions/:id/environment` — read-only workspace environment
+/// snapshot for the UI. Git/filesystem reads are anchored to the session's
+/// `WorkspaceScope`; clients cannot supply an arbitrary path.
+pub async fn get_session_environment(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::session::WorkspaceEnvironmentSnapshot>, AppError> {
+    let db = ctx.session_db.clone();
+    let env =
+        tokio::task::spawn_blocking(move || ha_core::session::load_session_environment(&db, &id))
+            .await
+            .map_err(|e| AppError::internal(format!("environment task failed: {e}")))?
+            .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(env))
+}
+
 /// `GET /api/sessions/:id/messages?limit=N` — load latest messages for a session.
 ///
 /// Returns a JSON tuple `[messages, total, hasMore]` (same shape as Tauri IPC).

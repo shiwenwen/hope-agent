@@ -1,12 +1,29 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Bot,
+  CalendarClock,
   ChevronRight,
+  CheckCircle2,
+  CircleAlert,
+  Cpu,
+  EyeOff,
   Files,
+  FolderGit2,
+  FolderOpen,
   GitCompare,
+  GitBranch,
+  GitCommitHorizontal,
+  GitPullRequest,
   Globe,
+  HardDrive,
   LayoutDashboard,
+  MessageCircle,
+  Radio,
   Search,
+  Server,
+  Shield,
+  ShieldAlert,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -16,18 +33,29 @@ import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import { basename } from "@/lib/path"
 import { openExternalUrl } from "@/lib/openExternalUrl"
-import type { FileChangeMetadata, Message } from "@/types/chat"
+import { getTransport } from "@/lib/transport-provider"
+import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
+import type { WorkspaceGitSnapshot } from "@/lib/transport"
+import type { ActiveModel, FileChangeMetadata, Message, SessionMeta, SessionMode } from "@/types/chat"
+import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
 import { useFileActions } from "@/components/chat/files/useFileActions"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
 import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
+import type { PlanModeState } from "@/components/chat/plan-mode/usePlanMode"
 import type { SessionFileEntry } from "./useSessionFileChanges"
 import type { SessionUrlSource } from "./useSessionUrlSources"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
+import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
+import {
+  formatGitRef,
+  resolveWorkspaceEnvironmentStatus,
+  workingDirSourceLabelKey,
+} from "./workspaceEnvironment"
 
 interface WorkspacePanelProps {
   taskSnapshot: TaskProgressSnapshot | null
@@ -40,6 +68,15 @@ interface WorkspacePanelProps {
   onPreviewFile?: (target: PreviewTarget) => void
   /** 当前会话 id,后端聚合 + 文件作用域解析都需要它。 */
   sessionId?: string | null
+  /** 当前会话元信息,用于渲染项目/IM/Cron/Subagent/权限等环境上下文。 */
+  sessionMeta?: SessionMeta | null
+  /** 当前会话所属项目(若有),由 ChatScreen 传入避免面板内部散查全局状态。 */
+  project?: ProjectMeta | null
+  effectiveWorkingDir?: string | null
+  workingDirSource?: "session" | "project"
+  permissionMode?: SessionMode
+  planState?: PlanModeState
+  activeModel?: ActiveModel | null
   /** 无痕会话:跳过后端聚合,只用 live tail（守「关闭即焚」）。 */
   incognito?: boolean
   /** 当前会话是否正在跑一轮:true→false 跳变时面板重新拉后端聚合。 */
@@ -64,12 +101,14 @@ function WorkspaceSection({
   count,
   icon: Icon,
   children,
+  meta,
   defaultExpanded = true,
 }: {
   title: string
-  count: number
+  count?: number
   icon: LucideIcon
   children: ReactNode
+  meta?: ReactNode
   defaultExpanded?: boolean
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
@@ -84,9 +123,14 @@ function WorkspaceSection({
         <Icon className="h-4 w-4 shrink-0 text-blue-500" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
           {title}
-          <span className="px-1.5 font-normal text-muted-foreground">·</span>
-          <span className="font-normal text-muted-foreground tabular-nums">{count}</span>
+          {typeof count === "number" ? (
+            <>
+              <span className="px-1.5 font-normal text-muted-foreground">·</span>
+              <span className="font-normal text-muted-foreground tabular-nums">{count}</span>
+            </>
+          ) : null}
         </span>
+        {meta}
         <ChevronRight
           className={cn(
             "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
@@ -207,6 +251,359 @@ function EmptyHint({ children }: { children: ReactNode }) {
   return <div className="px-2 py-3 text-center text-xs text-muted-foreground/70">{children}</div>
 }
 
+const STATUS_TONE_CLASS: Record<string, string> = {
+  muted: "border-border bg-muted/50 text-muted-foreground",
+  good: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  warn: "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  danger: "border-destructive/35 bg-destructive/10 text-destructive",
+  info: "border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+}
+
+function StatusPill({
+  label,
+  tone,
+  loading,
+}: {
+  label: string
+  tone: "muted" | "good" | "warn" | "danger" | "info"
+  loading?: boolean
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-[8rem] shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+        STATUS_TONE_CLASS[tone],
+        loading && "animate-pulse",
+      )}
+    >
+      <span className="truncate">{label}</span>
+    </span>
+  )
+}
+
+function EnvRow({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone = "muted",
+  title,
+}: {
+  icon: LucideIcon
+  label: string
+  value: ReactNode
+  detail?: ReactNode
+  tone?: "muted" | "good" | "warn" | "danger" | "info"
+  title?: string
+}) {
+  const iconClass =
+    tone === "good"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : tone === "warn"
+        ? "text-amber-600 dark:text-amber-400"
+        : tone === "danger"
+          ? "text-destructive"
+          : tone === "info"
+            ? "text-blue-500"
+            : "text-muted-foreground"
+  const row = (
+    <div className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary/35">
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", iconClass)} />
+      <span className="w-14 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">{value}</span>
+      {detail ? <span className="max-w-[45%] shrink-0 truncate text-muted-foreground">{detail}</span> : null}
+    </div>
+  )
+  return title ? <IconTip label={title}>{row}</IconTip> : row
+}
+
+function planStateLabel(t: ReturnType<typeof useTranslation>["t"], state: PlanModeState): string {
+  switch (state) {
+    case "planning":
+      return t("planMode.planning", "正在制定计划...")
+    case "review":
+      return t("workspace.environment.planReview", "等待审核")
+    case "executing":
+      return t("planMode.executing", "正在按计划执行...")
+    case "completed":
+      return t("planMode.completed", "执行完成")
+    case "off":
+      return t("workspace.environment.planOff", "关闭")
+  }
+}
+
+function gitSyncLabel(t: ReturnType<typeof useTranslation>["t"], git: WorkspaceGitSnapshot | null): string | null {
+  if (!git) return null
+  const { sync } = git
+  switch (sync.state) {
+    case "ahead":
+      return t("workspace.environment.syncAhead", "领先 {{count}}", { count: sync.ahead })
+    case "behind":
+      return t("workspace.environment.syncBehind", "落后 {{count}}", { count: sync.behind })
+    case "diverged":
+      return t("workspace.environment.syncDiverged", "领先 {{ahead}} / 落后 {{behind}}", {
+        ahead: sync.ahead,
+        behind: sync.behind,
+      })
+    case "upToDate":
+      return sync.upstream ? t("workspace.environment.syncUpToDate", "已同步") : null
+    case "noUpstream":
+      return t("workspace.environment.syncNoUpstream", "无 upstream")
+    case "unknown":
+      return sync.upstream ? t("workspace.environment.syncUnknown", "同步状态未知") : null
+  }
+}
+
+function EnvironmentSection({
+  sessionId,
+  sessionMeta,
+  project,
+  effectiveWorkingDir,
+  workingDirSource,
+  permissionMode = "default",
+  planState = "off",
+  activeModel,
+  turnActive,
+}: {
+  sessionId?: string | null
+  sessionMeta?: SessionMeta | null
+  project?: ProjectMeta | null
+  effectiveWorkingDir?: string | null
+  workingDirSource?: "session" | "project"
+  permissionMode?: SessionMode
+  planState?: PlanModeState
+  activeModel?: ActiveModel | null
+  turnActive?: boolean
+}) {
+  const { t } = useTranslation()
+  const environmentRefreshKey = useMemo(
+    () =>
+      [
+        effectiveWorkingDir ?? "",
+        workingDirSource ?? "",
+        sessionMeta?.projectId ?? "",
+        project?.workingDir ?? "",
+      ].join("\u001f"),
+    [effectiveWorkingDir, workingDirSource, sessionMeta?.projectId, project?.workingDir],
+  )
+  const env = useWorkspaceEnvironment(sessionId, { turnActive, refreshKey: environmentRefreshKey })
+  const dangerous = useDangerousModeStatus()
+  const isLocalRuntime = useMemo(() => getTransport().supportsLocalFileOps(), [])
+  const status = resolveWorkspaceEnvironmentStatus(
+    env.snapshot,
+    effectiveWorkingDir,
+    !!env.error,
+  )
+  const statusLabel = t(status.labelKey, status.fallback)
+  const workingDir = env.snapshot?.workingDir.path ?? effectiveWorkingDir ?? null
+  const workingDirName = env.snapshot?.workingDir.name ?? (workingDir ? basename(workingDir) : null)
+  const source =
+    env.snapshot?.workingDir.source ??
+    (workingDirSource === "project" ? "project" : workingDirSource === "session" ? "session" : "none")
+  const sourceLabel = workingDirSourceLabelKey(source)
+  const git = env.snapshot?.git ?? null
+  const currentWorktree = git?.worktrees.find((w) => w.isCurrent) ?? null
+  const syncLabel = git ? gitSyncLabel(t, git) : null
+
+  const sessionSource = sessionMeta?.channelInfo
+    ? {
+        icon: MessageCircle,
+        value: sessionMeta.channelInfo.channelId,
+        detail:
+          sessionMeta.channelInfo.senderName ||
+          sessionMeta.channelInfo.chatId ||
+          sessionMeta.channelInfo.chatType,
+      }
+    : sessionMeta?.isCron
+      ? { icon: CalendarClock, value: t("workspace.environment.sourceCron", "定时任务"), detail: null }
+      : sessionMeta?.parentSessionId
+        ? {
+            icon: Bot,
+            value: t("workspace.environment.sourceSubagent", "子 Agent"),
+            detail: sessionMeta.parentSessionId.slice(0, 8),
+          }
+        : { icon: Radio, value: t("workspace.environment.sourceChat", "普通会话"), detail: null }
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.sectionEnvironment", "环境")}
+      icon={Cpu}
+      meta={<StatusPill label={statusLabel} tone={status.tone} loading={env.loading} />}
+    >
+      <div className="space-y-0.5">
+        <EnvRow
+          icon={isLocalRuntime ? HardDrive : Server}
+          label={t("workspace.environment.runtime", "运行")}
+          value={
+            isLocalRuntime
+              ? t("workspace.environment.runtimeLocal", "本机桌面")
+              : t("workspace.environment.runtimeRemote", "远端服务")
+          }
+        />
+
+        <EnvRow
+          icon={FolderOpen}
+          label={t("workspace.environment.workingDir", "目录")}
+          value={workingDirName || t("workspace.environment.noWorkingDir", "未设置")}
+          detail={t(sourceLabel.key, sourceLabel.fallback)}
+          title={workingDir ?? undefined}
+          tone={status.kind === "missingWorkingDir" ? "danger" : "muted"}
+        />
+
+        {project ? (
+          <EnvRow
+            icon={FolderGit2}
+            label={t("workspace.environment.project", "项目")}
+            value={project.name}
+            detail={project.archived ? t("workspace.environment.archived", "已归档") : undefined}
+          />
+        ) : null}
+
+        <EnvRow
+          icon={sessionSource.icon}
+          label={t("workspace.environment.source", "来源")}
+          value={sessionSource.value}
+          detail={sessionSource.detail}
+        />
+
+        {sessionMeta?.incognito ? (
+          <EnvRow
+            icon={EyeOff}
+            label={t("workspace.environment.privacy", "隐私")}
+            value={t("chat.incognito", "无痕")}
+            detail={t("workspace.environment.incognitoDetail", "不读取历史产物")}
+            tone="info"
+          />
+        ) : null}
+
+        <EnvRow
+          icon={dangerous.active ? ShieldAlert : Shield}
+          label={t("workspace.environment.permission", "权限")}
+          value={t(`chat.permissionMode.${permissionMode}.label`, permissionMode)}
+          detail={
+            dangerous.active ? t("workspace.environment.dangerousMode", "危险模式") : undefined
+          }
+          tone={dangerous.active || permissionMode === "yolo" ? "danger" : "muted"}
+        />
+
+        {planState !== "off" ? (
+          <EnvRow
+            icon={GitPullRequest}
+            label={t("workspace.environment.plan", "计划")}
+            value={planStateLabel(t, planState)}
+            tone={planState === "executing" ? "info" : planState === "completed" ? "good" : "muted"}
+          />
+        ) : null}
+
+        {activeModel ? (
+          <EnvRow
+            icon={Bot}
+            label={t("workspace.environment.model", "模型")}
+            value={activeModel.modelId}
+            detail={activeModel.providerId}
+          />
+        ) : null}
+
+        {env.error ? (
+          <EnvRow
+            icon={CircleAlert}
+            label={t("workspace.environment.statusLabel", "状态")}
+            value={t("workspace.environment.unavailable", "无法读取环境状态")}
+            detail={env.error}
+            tone="warn"
+          />
+        ) : null}
+
+        {git ? (
+          <>
+            <EnvRow
+              icon={GitBranch}
+              label={t("workspace.environment.branch", "分支")}
+              value={formatGitRef(git)}
+              detail={git.detached ? t("fileBrowser.gitDetached", "detached") : git.head ?? undefined}
+            />
+            {currentWorktree || git.worktrees.length > 1 ? (
+              <EnvRow
+                icon={FolderGit2}
+                label={t("workspace.environment.worktree", "工作树")}
+                value={currentWorktree ? basename(currentWorktree.path) : basename(git.root)}
+                detail={
+                  git.worktrees.length > 1
+                    ? t("workspace.environment.worktreeCount", "{{count}} 个", {
+                        count: git.worktrees.length,
+                      })
+                    : undefined
+                }
+                title={currentWorktree?.path ?? git.root}
+              />
+            ) : null}
+            <EnvRow
+              icon={git.status.clean ? CheckCircle2 : GitCompare}
+              label={t("workspace.environment.changes", "变更")}
+              value={
+                git.status.clean
+                  ? t("workspace.environment.clean", "无本地变更")
+                  : t("workspace.environment.changedFiles", "{{count}} 个文件", {
+                      count: git.status.changedFiles,
+                    })
+              }
+              detail={
+                git.status.linesAdded > 0 || git.status.linesRemoved > 0 ? (
+                  <span>
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      +{git.status.linesAdded}
+                    </span>{" "}
+                    <span className="text-rose-600 dark:text-rose-400">
+                      -{git.status.linesRemoved}
+                    </span>
+                  </span>
+                ) : git.status.conflictedFiles > 0 ? (
+                  t("workspace.environment.conflictCount", "{{count}} 个冲突", {
+                    count: git.status.conflictedFiles,
+                  })
+                ) : undefined
+              }
+              tone={git.status.conflictedFiles > 0 ? "danger" : git.status.clean ? "good" : "warn"}
+            />
+            {(syncLabel || git.sync.upstream || git.sync.remote) && (
+              <EnvRow
+                icon={GitPullRequest}
+                label={t("workspace.environment.sync", "同步")}
+                value={syncLabel ?? git.sync.upstream ?? t("workspace.environment.syncUnknown", "同步状态未知")}
+                detail={git.sync.upstream ?? git.sync.remote ?? undefined}
+                tone={
+                  git.sync.state === "diverged"
+                    ? "danger"
+                    : git.sync.state === "behind"
+                      ? "warn"
+                      : git.sync.state === "ahead"
+                        ? "info"
+                        : "muted"
+                }
+                title={git.sync.remote ?? git.sync.upstream ?? undefined}
+              />
+            )}
+            {git.lastCommit ? (
+              <EnvRow
+                icon={GitCommitHorizontal}
+                label={t("workspace.environment.commit", "提交")}
+                value={git.lastCommit.subject}
+                detail={git.lastCommit.hash}
+              />
+            ) : null}
+          </>
+        ) : workingDir ? (
+          <EnvRow
+            icon={GitBranch}
+            label={t("workspace.environment.git", "Git")}
+            value={t("workspace.environment.nonGit", "非 Git 工作目录")}
+          />
+        ) : null}
+      </div>
+    </WorkspaceSection>
+  )
+}
+
 /**
  * 右侧「工作台」面板:把本会话的任务进度、碰到的文件、引用来源聚合到一处。
  * 文件 / 来源走 useWorkspaceArtifacts —— 后端读时聚合全会话历史 + 当前轮 live tail
@@ -219,6 +616,13 @@ export default function WorkspacePanel({
   onOpenDiff,
   onPreviewFile,
   sessionId,
+  sessionMeta,
+  project,
+  effectiveWorkingDir,
+  workingDirSource,
+  permissionMode = "default",
+  planState = "off",
+  activeModel,
   incognito = false,
   turnActive = false,
   onClose,
@@ -259,6 +663,18 @@ export default function WorkspacePanel({
       </div>
 
       <div className="flex-1 space-y-2 overflow-auto p-2">
+        <EnvironmentSection
+          sessionId={sessionId}
+          sessionMeta={sessionMeta}
+          project={project}
+          effectiveWorkingDir={effectiveWorkingDir}
+          workingDirSource={workingDirSource}
+          permissionMode={permissionMode}
+          planState={planState}
+          activeModel={activeModel}
+          turnActive={turnActive}
+        />
+
         {/* 进度 — 复用 TaskProgressPanel(自带「任务 · N/M」折叠头)。 */}
         {taskSnapshot && taskSnapshot.total > 0 ? (
           <TaskProgressPanel snapshot={taskSnapshot} variant="card" executionState={taskExecutionState} />

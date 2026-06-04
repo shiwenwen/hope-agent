@@ -1,6 +1,7 @@
 mod acp_db;
 mod artifacts;
 mod db;
+mod environment;
 pub mod export;
 mod helpers;
 mod pending;
@@ -13,6 +14,11 @@ pub use artifacts::{aggregate_session_artifacts, FileArtifact, SessionArtifacts,
 pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     LastAssistantTokens, ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,
+};
+pub use environment::{
+    load_session_environment, WorkspaceEnvironmentSnapshot, WorkspaceGitCommit,
+    WorkspaceGitSnapshot, WorkspaceGitStatus, WorkspaceGitSync, WorkspaceGitSyncState,
+    WorkspaceWorkingDirSnapshot, WorkspaceWorkingDirSource,
 };
 pub use helpers::{
     auto_title, cleanup_orphan_incognito, db_path, effective_session_working_dir,

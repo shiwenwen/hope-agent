@@ -19,6 +19,7 @@ import type {
   ProjectFsScope,
   UploadResult,
   SessionArtifacts,
+  WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage";
@@ -85,6 +86,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
   load_session_artifacts_cmd:      { method: "GET",    path: "/api/sessions/{sessionId}/artifacts" },
+  load_session_environment_cmd:    { method: "GET",    path: "/api/sessions/{sessionId}/environment" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
   load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },
   load_session_messages_before_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/before" },
@@ -1106,6 +1108,10 @@ export class HttpTransport implements Transport {
 
   async loadSessionArtifacts(sessionId: string): Promise<SessionArtifacts> {
     return this.call<SessionArtifacts>("load_session_artifacts_cmd", { sessionId });
+  }
+
+  async loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot> {
+    return this.call<WorkspaceEnvironmentSnapshot>("load_session_environment_cmd", { sessionId });
   }
 
   async projectFsUpload(

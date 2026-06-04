@@ -593,12 +593,16 @@ export default function ChatScreen({
   }, [currentSessionId, currentAgentId])
 
   const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
-  const projectWorkingDir = useMemo(
+  const currentProject = useMemo(
     () =>
       currentSessionMeta?.projectId
-        ? (projects.find((p) => p.id === currentSessionMeta.projectId)?.workingDir ?? null)
+        ? (projects.find((p) => p.id === currentSessionMeta.projectId) ?? null)
         : null,
     [projects, currentSessionMeta?.projectId],
+  )
+  const projectWorkingDir = useMemo(
+    () => currentProject?.workingDir ?? null,
+    [currentProject],
   )
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
@@ -2150,6 +2154,13 @@ export default function ChatScreen({
                 onOpenDiff={diffPanel.openDiff}
                 onPreviewFile={filePreview.openPreview}
                 sessionId={session.currentSessionId}
+                sessionMeta={currentSessionMeta}
+                project={currentProject}
+                effectiveWorkingDir={effectiveWorkingDir}
+                workingDirSource={workingDirSource}
+                permissionMode={stream.permissionMode}
+                planState={planMode.planState}
+                activeModel={activeModel}
                 incognito={incognitoEnabled}
                 turnActive={
                   workspaceTaskExecutionState === "running" ||

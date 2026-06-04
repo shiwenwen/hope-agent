@@ -233,6 +233,10 @@ fn build_router_with_cors(
             get(routes::sessions::get_session_artifacts),
         )
         .route(
+            "/sessions/{id}/environment",
+            get(routes::sessions::get_session_environment),
+        )
+        .route(
             "/sessions/{id}/stream-state",
             get(routes::sessions::get_session_stream_state),
         )
