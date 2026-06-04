@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **工作台环境信息面板**：工作台顶部新增只读「环境」区块，按普通会话、项目会话、无痕、IM、Cron、Subagent、Plan Mode 与远端 Server 等场景展示运行位置、工作目录来源、权限模式、计划状态、模型与来源信息；Git 工作区会展示分支 / worktree、变更统计、ahead/behind、upstream 与最后提交，remote URL 展示前会移除凭据、query 与 fragment。新增 Tauri / HTTP 会话级环境快照接口，仅通过会话工作区读取本地状态，不注入模型上下文，也不会主动 `git fetch`。 (#269)
+
 ## [0.5.1] - 2026-06-03
 
 ### Fixed
