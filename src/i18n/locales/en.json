@@ -25,7 +25,7 @@
     "updateErrorDetails": "Error details",
     "updateErrorLogHint": "Full traces are written to ~/.hope-agent/logs.db (category: updater) — run /ha-logs or share that file when reporting an issue.",
     "updateHistory": "Update history",
-    "updateHistoryDesc": "Browse every bundled release note without leaving the app.",
+    "updateHistoryDesc": "Browse bundled notes plus synced GitHub Releases without leaving the app.",
     "updateHistoryEmpty": "No release notes were found in this build.",
     "updateHistoryLatest": "Latest",
     "updateHistoryNoNotes": "No notes are available for this release.",
