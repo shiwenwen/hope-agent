@@ -7,6 +7,7 @@ interface AnimatedCollapseProps {
   children: ReactNode
   className?: string
   innerClassName?: string
+  overflow?: "hidden" | "visible-when-open"
   durationMs?: number
   unmountOnExit?: boolean
 }
@@ -16,6 +17,7 @@ export function AnimatedCollapse({
   children,
   className,
   innerClassName,
+  overflow = "hidden",
   durationMs = 200,
   unmountOnExit = true,
 }: AnimatedCollapseProps) {
@@ -100,10 +102,13 @@ export function AnimatedCollapse({
 
   if (!present && !open && unmountOnExit) return null
 
+  const allowOverflow = overflow === "visible-when-open" && visible
+
   return (
     <div
       className={cn(
-        "grid overflow-hidden transition-[grid-template-rows,opacity] ease-out motion-reduce:transition-none",
+        "grid transition-[grid-template-rows,opacity] ease-out motion-reduce:transition-none",
+        allowOverflow ? "overflow-visible" : "overflow-hidden",
         visible
           ? "grid-rows-[1fr] opacity-100"
           : "grid-rows-[0fr] opacity-0 pointer-events-none",
@@ -112,7 +117,13 @@ export function AnimatedCollapse({
       style={{ transitionDuration: `${durationMs}ms` }}
       aria-hidden={open ? undefined : true}
     >
-      <div className={cn("min-h-0 overflow-hidden", innerClassName)}>
+      <div
+        className={cn(
+          "min-h-0",
+          allowOverflow ? "overflow-visible" : "overflow-hidden",
+          innerClassName,
+        )}
+      >
         {open ? children : renderedChildren}
       </div>
     </div>
