@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-03
+
+### Fixed
+
+- **输入框工具栏弹出菜单裁剪修复**：修复 v0.5.0 动画打磨后，聊天输入框里的模型选择、Think/思考强度、温度、权限模式与 Awareness 等弹出菜单被折叠动画容器裁掉的问题。 (#264)
+
 ## [0.5.0] - 2026-06-02
 
 ### Added
