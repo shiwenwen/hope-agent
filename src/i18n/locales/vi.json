@@ -25,7 +25,7 @@
     "updateErrorDetails": "Chi tiết lỗi",
     "updateErrorLogHint": "Toàn bộ trace đã được ghi vào ~/.hope-agent/logs.db (category: updater). Dùng /ha-logs để tra cứu hoặc đính kèm tệp đó khi báo lỗi.",
     "updateHistory": "Lịch sử cập nhật",
-    "updateHistoryDesc": "Xem mọi ghi chú phát hành được đóng gói mà không rời ứng dụng.",
+    "updateHistoryDesc": "Xem ghi chú được đóng gói cùng GitHub Releases đã đồng bộ mà không rời ứng dụng.",
     "updateHistoryEmpty": "Không tìm thấy ghi chú phát hành trong bản dựng này.",
     "updateHistoryLatest": "Mới nhất",
     "updateHistoryNoNotes": "Không có ghi chú nào cho bản phát hành này.",

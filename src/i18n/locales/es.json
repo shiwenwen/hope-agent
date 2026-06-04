@@ -25,7 +25,7 @@
     "updateErrorDetails": "Detalles del error",
     "updateErrorLogHint": "El registro completo se guardó en ~/.hope-agent/logs.db (category: updater). Usa /ha-logs para revisarlo o adjunta ese archivo al reportar el problema.",
     "updateHistory": "Historial de actualizaciones",
-    "updateHistoryDesc": "Consulta todas las notas de versión incluidas sin salir de la app.",
+    "updateHistoryDesc": "Consulta las notas incluidas y los lanzamientos sincronizados de GitHub sin salir de la app.",
     "updateHistoryEmpty": "No se encontraron notas de versión en esta compilación.",
     "updateHistoryLatest": "Más reciente",
     "updateHistoryNoNotes": "No hay notas disponibles para esta versión.",
