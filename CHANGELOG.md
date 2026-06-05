@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **聊天左右面板窄窗口响应式与动画优化**：窗口缩小时右侧工作面板会先自动折叠，继续缩小时左侧会话栏再自动折叠，窗口变宽后仅恢复由响应式路径自动折叠的面板，不覆盖用户手动折叠选择；聊天输入框保留最小交互宽度，极窄宽度下工具栏改为上下布局。自动折叠阈值改用 `matchMedia` 监听，避免拖拽窗口时每个 resize 像素都触发 React 重渲染；左右面板动画拆为短布局占位过渡与 `transform`/`opacity` 视觉滑动，降低重排压力。
 
+### Fixed
+
+- **GUI → IM 交班与流式稳定性修复**：修复桌面 / HTTP 会话正在回复时交班到 IM 后目标 chat 无交班提示、无法接入后续流式回复的问题；交班会补发当前用户问题引用并在回复完成时用完整最终答案收尾。IM 端 reply-only 斜杠命令不再伪造 `channel:stream_end`，避免打断 GUI 正在进行的流式回复；会话 detach / 接管后旧 IM chat 不再继续收到后续 mirror 帧。
+
 ## [0.5.1] - 2026-06-03
 
 ### Fixed
