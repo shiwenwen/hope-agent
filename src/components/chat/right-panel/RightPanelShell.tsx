@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react"
+import { useCallback, useRef, type CSSProperties, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 interface RightPanelShellProps {
@@ -9,6 +9,7 @@ interface RightPanelShellProps {
   minWidth?: number
   maxWidth?: number
   maxViewportRatio?: number
+  reservedMainWidth?: number
   maximized?: boolean
   collapsed?: boolean
   contentKey?: string | number | null
@@ -24,26 +25,33 @@ export function RightPanelShell({
   minWidth = 360,
   maxWidth = 960,
   maxViewportRatio = 0.55,
+  reservedMainWidth = 420,
   maximized = false,
   collapsed = false,
   contentKey,
   surfaceClassName,
   bodyClassName,
 }: RightPanelShellProps) {
+  const shellRef = useRef<HTMLDivElement>(null)
+
   const handleDragStart = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!onWidthChange || collapsed) return
       e.preventDefault()
       const startX = e.clientX
       const startWidth = width
-      const effectiveMaxWidth = Math.min(
-        maxWidth,
-        Math.max(420, window.innerWidth * maxViewportRatio),
+      const containerWidth =
+        shellRef.current?.parentElement?.getBoundingClientRect().width ?? window.innerWidth
+      const availableWidth = Math.max(0, containerWidth - reservedMainWidth)
+      const effectiveMinWidth = Math.min(minWidth, availableWidth)
+      const effectiveMaxWidth = Math.max(
+        effectiveMinWidth,
+        Math.min(maxWidth, containerWidth * maxViewportRatio, availableWidth),
       )
       const onMouseMove = (ev: MouseEvent) => {
         const nextWidth = Math.min(
           effectiveMaxWidth,
-          Math.max(minWidth, startWidth - (ev.clientX - startX)),
+          Math.max(effectiveMinWidth, startWidth - (ev.clientX - startX)),
         )
         onWidthChange(nextWidth)
       }
@@ -61,8 +69,17 @@ export function RightPanelShell({
       document.body.style.cursor = "col-resize"
       document.body.style.userSelect = "none"
     },
-    [collapsed, maxViewportRatio, maxWidth, minWidth, onWidthChange, width],
+    [collapsed, maxViewportRatio, maxWidth, minWidth, onWidthChange, reservedMainWidth, width],
   )
+
+  const availableWidthCss = `max(0px, calc(100% - ${reservedMainWidth}px))`
+  const panelStyle: CSSProperties = collapsed
+    ? { width: 0, minWidth: 0, maxWidth: 0 }
+    : {
+        width: `min(${width}px, ${availableWidthCss})`,
+        minWidth: `min(${minWidth}px, ${availableWidthCss})`,
+        maxWidth: `min(${maxWidth}px, ${maxViewportRatio * 100}%, ${availableWidthCss})`,
+      }
 
   if (maximized && !collapsed) {
     return (
@@ -79,13 +96,14 @@ export function RightPanelShell({
 
   return (
     <div
+      ref={shellRef}
       className={cn(
-        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width,opacity,transform] motion-reduce:transition-none",
         collapsed
           ? "min-w-0 max-w-0 translate-x-2 p-0 opacity-0 pointer-events-none"
-          : "min-w-[360px] max-w-[55%] translate-x-0 p-3 pl-2 opacity-100",
+          : "translate-x-0 p-3 pl-2 opacity-100",
       )}
-      style={{ width: collapsed ? 0 : width }}
+      style={panelStyle}
       aria-hidden={collapsed ? true : undefined}
       inert={collapsed ? true : undefined}
     >
