@@ -155,6 +155,10 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 }
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
+const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
+const RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH = 360
+const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
+const RESPONSIVE_PANEL_HYSTERESIS = 120
 
 interface MacControlFrameOpenHint {
   mediaId?: string | null
@@ -163,6 +167,28 @@ interface MacControlFrameOpenHint {
 
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
+}
+
+function useViewportMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia(query).matches,
+  )
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const media = window.matchMedia(query)
+    const handleChange = () => setMatches(media.matches)
+    handleChange()
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange)
+      return () => media.removeEventListener("change", handleChange)
+    }
+    media.addListener(handleChange)
+    return () => media.removeListener(handleChange)
+  }, [query])
+
+  return matches
 }
 
 function isSessionMode(value: unknown): value is SessionMode {
@@ -229,6 +255,8 @@ export default function ChatScreen({
     if (typeof window === "undefined") return false
     return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
   })
+  const autoCollapsedSidebarRef = useRef(false)
+  const userSidebarCollapsedPreferenceRef = useRef(sidebarCollapsed)
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -237,8 +265,15 @@ export default function ChatScreen({
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    if (autoCollapsedSidebarRef.current) return
     window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
   }, [sidebarCollapsed])
+
+  const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
+    autoCollapsedSidebarRef.current = false
+    userSidebarCollapsedPreferenceRef.current = collapsed
+    setSidebarCollapsed(collapsed)
+  }, [])
 
   const [defaultDisplayMode, setDefaultDisplayMode] = useState(() => readChatDisplayModePreference())
   useEffect(() => {
@@ -1451,6 +1486,7 @@ export default function ChatScreen({
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const autoCollapsedRightPanelRef = useRef(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
@@ -1524,6 +1560,7 @@ export default function ChatScreen({
   const handleSelectRightPanel = useCallback((panelId: string) => {
     if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
     setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
+    autoCollapsedRightPanelRef.current = false
     setRightPanelCollapsed(false)
   }, [])
 
@@ -1554,14 +1591,77 @@ export default function ChatScreen({
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
     setActiveExclusiveRightPanel("workspace")
+    autoCollapsedRightPanelRef.current = false
     setRightPanelCollapsed(false)
   }, [])
 
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
+      autoCollapsedRightPanelRef.current = false
       setRightPanelCollapsed(false)
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
+
+  const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current ? 0 : panelWidth
+  const rightPanelCollapseAt =
+    preferredSidebarWidthForResponsive +
+    CHAT_MAIN_MIN_INTERACTIVE_WIDTH +
+    RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH
+  const rightPanelExpandAt = rightPanelCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  const sidebarCollapseAt =
+    panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
+  const sidebarExpandAt = sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  const shouldAutoCollapseRightPanel = useViewportMediaQuery(
+    `(max-width: ${rightPanelCollapseAt}px)`,
+  )
+  const shouldAutoExpandRightPanel = useViewportMediaQuery(
+    `(min-width: ${rightPanelExpandAt}px)`,
+  )
+  const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
+  const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
+
+  useEffect(() => {
+    if (hasOpenExclusiveRightPanel) {
+      if (shouldAutoCollapseRightPanel && !rightPanelCollapsed) {
+        autoCollapsedRightPanelRef.current = true
+        setRightPanelCollapsed(true)
+      } else if (
+        shouldAutoExpandRightPanel &&
+        rightPanelCollapsed &&
+        autoCollapsedRightPanelRef.current
+      ) {
+        autoCollapsedRightPanelRef.current = false
+        setRightPanelCollapsed(false)
+      }
+    } else {
+      autoCollapsedRightPanelRef.current = false
+    }
+
+    if (
+      shouldAutoCollapseSidebar &&
+      !sidebarCollapsed &&
+      !userSidebarCollapsedPreferenceRef.current
+    ) {
+      autoCollapsedSidebarRef.current = true
+      setSidebarCollapsed(true)
+    } else if (
+      shouldAutoExpandSidebar &&
+      sidebarCollapsed &&
+      autoCollapsedSidebarRef.current &&
+      !userSidebarCollapsedPreferenceRef.current
+    ) {
+      autoCollapsedSidebarRef.current = false
+      setSidebarCollapsed(false)
+    }
+  }, [
+    hasOpenExclusiveRightPanel,
+    rightPanelCollapsed,
+    sidebarCollapsed,
+    shouldAutoCollapseRightPanel,
+    shouldAutoCollapseSidebar,
+    shouldAutoExpandRightPanel,
+    shouldAutoExpandSidebar,
+  ])
 
   // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
   // rail. Track rising edges so the panel that just opened wins while the
@@ -1677,7 +1777,7 @@ export default function ChatScreen({
         panelWidth={panelWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
-        onSidebarCollapsedChange={setSidebarCollapsed}
+        onSidebarCollapsedChange={handleSidebarCollapsedChange}
         onSwitchSession={session.handleSwitchSession}
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
@@ -1831,7 +1931,7 @@ export default function ChatScreen({
           agents={session.agents}
           onChangeAgent={handleChangeAgent}
           sidebarCollapsed={sidebarCollapsed}
-          onExpandSidebar={() => setSidebarCollapsed(false)}
+          onExpandSidebar={() => handleSidebarCollapsedChange(false)}
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
@@ -1854,13 +1954,19 @@ export default function ChatScreen({
           onSelectRightPanel={handleSelectRightPanel}
           onToggleRightPanelCollapsed={
             hasOpenExclusiveRightPanel
-              ? () => setRightPanelCollapsed((collapsed) => !collapsed)
+              ? () => {
+                  autoCollapsedRightPanelRef.current = false
+                  setRightPanelCollapsed((collapsed) => !collapsed)
+                }
               : undefined
           }
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
-          <div className="relative flex-1 flex flex-col min-w-0">
+          <div
+            className="relative flex-1 flex flex-col min-w-0"
+            style={{ minWidth: `min(100%, ${CHAT_MAIN_MIN_INTERACTIVE_WIDTH}px)` }}
+          >
             {activeTeamId && !showTeamPanel && (
               <div className="px-3 py-1 border-b border-border">
                 <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />

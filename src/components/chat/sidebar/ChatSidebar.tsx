@@ -328,7 +328,8 @@ export default function ChatSidebar({
         style={{ width: sidebarCollapsed ? 0 : panelWidth }}
         className={cn(
           "relative h-full shrink-0",
-          !isResizing && "transition-[width] duration-200 ease-out",
+          !isResizing &&
+            "transition-[width] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
         )}
       >
         <div className="h-full overflow-hidden">
@@ -337,9 +338,9 @@ export default function ChatSidebar({
             aria-hidden={sidebarCollapsed}
             inert={sidebarCollapsed ? true : undefined}
             className={cn(
-              "h-full border-r border-border-soft bg-surface-panel shadow-panel flex flex-col transition-[opacity,transform] duration-200 ease-out",
+              "h-full border-r border-border-soft bg-surface-panel shadow-panel flex flex-col transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
               sidebarCollapsed
-                ? "pointer-events-none -translate-x-3 opacity-0"
+                ? "pointer-events-none -translate-x-4 opacity-0"
                 : "translate-x-0 opacity-100",
             )}
           >

@@ -62,6 +62,7 @@ import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
   CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
+  CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX,
   getChatInputOverflowActionIds,
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
@@ -168,6 +169,7 @@ export default function ChatInput({
   const inputShellRef = useRef<HTMLDivElement>(null)
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
   const [toolbarCompact, setToolbarCompact] = useState(false)
+  const [toolbarStacked, setToolbarStacked] = useState(false)
 
   // Slash commands
   const slashActions: SlashCommandActions = {
@@ -359,6 +361,7 @@ export default function ChatInput({
 
     const update = (width = el.getBoundingClientRect().width) => {
       setToolbarCompact(width <= CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
+      setToolbarStacked(width <= CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX)
     }
 
     update()
@@ -529,11 +532,11 @@ export default function ChatInput({
   )
 
   return (
-    <div className={cn("px-3 pb-3 pt-2", hero && "px-0 pb-0 pt-0")}>
+    <div className={cn("min-w-0 px-3 pb-3 pt-2", hero && "px-0 pb-0 pt-0")}>
       <div
         ref={inputShellRef}
         className={cn(
-          "relative rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
+          "relative min-w-0 overflow-hidden rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",
         )}
       >
@@ -747,8 +750,13 @@ export default function ChatInput({
           open={voice.state !== "recording" && voice.state !== "transcribing"}
           overflow="visible-when-open"
         >
-        <div className="flex items-end justify-between gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150">
-          <div className="flex items-center gap-1 flex-wrap min-w-0">
+        <div
+          className={cn(
+            "flex gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
+            toolbarStacked ? "flex-col items-stretch" : "items-end justify-between",
+          )}
+        >
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
             <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
               {renderInlineAddControls()}
             </div>
@@ -839,7 +847,12 @@ export default function ChatInput({
 
           {/* Send & Stop — kept in its own column so toolbar wrapping never
               orphans the send button onto a half-empty row. */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div
+            className={cn(
+              "flex items-center gap-1 shrink-0",
+              toolbarStacked && "ml-auto",
+            )}
+          >
             <VoiceRecordButton
               state={voice.state}
               durationMs={voice.durationMs}
