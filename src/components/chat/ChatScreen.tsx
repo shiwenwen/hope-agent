@@ -157,6 +157,7 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
 const RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH = 360
+const RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH = 640
 const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
 const RESPONSIVE_PANEL_HYSTERESIS = 120
 
@@ -167,6 +168,15 @@ interface MacControlFrameOpenHint {
 
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
+}
+
+function clampResponsiveRightPanelWidth(width: number): number {
+  return Math.round(
+    Math.min(
+      RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH,
+      Math.max(RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH, width),
+    ),
+  )
 }
 
 function useViewportMediaQuery(query: string): boolean {
@@ -1603,10 +1613,11 @@ export default function ChatScreen({
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
   const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current ? 0 : panelWidth
+  const responsiveRightPanelWidth = clampResponsiveRightPanelWidth(rightPanelWidth)
   const rightPanelCollapseAt =
     preferredSidebarWidthForResponsive +
     CHAT_MAIN_MIN_INTERACTIVE_WIDTH +
-    RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH
+    responsiveRightPanelWidth
   const rightPanelExpandAt = rightPanelCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
   const sidebarCollapseAt =
     panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
