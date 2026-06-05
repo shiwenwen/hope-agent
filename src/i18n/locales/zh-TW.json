@@ -293,6 +293,8 @@
     "compactNoChange": "當前上下文無需壓縮",
     "compactNow": "壓縮上下文",
     "compacting": "壓縮中...",
+    "contextCompactingMsgs": "摘要 {{count}} 則",
+    "contextCompactingTitle": "正在壓縮上下文",
     "contextCompactedMsgs": "{{count}} 則",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "上下文已壓縮",

@@ -71,12 +71,13 @@ fn format_context_compacted(obj: &serde_json::Map<String, Value>) -> Option<Stri
     if tier < 2 {
         return None;
     }
-    // Tier 3 emits a `summarizing` start marker before the actual
-    // compaction; the final event arrives next with real
-    // `messages_affected`. Suppress the start so IM doesn't get two
-    // notices per Tier-3 compaction (and so the first one isn't a lie
-    // saying "compacted" while we're still compacting).
-    if data.get("description").and_then(Value::as_str) == Some("summarizing") {
+    // Tier 3/4 emit live-only start markers before the actual compaction;
+    // the final event arrives next with real `messages_affected`. Suppress
+    // starts so IM doesn't get two notices per compaction.
+    if matches!(
+        data.get("description").and_then(Value::as_str),
+        Some("summarizing" | "emergency_compacting")
+    ) {
         return None;
     }
     let msgs = data.get("messages_affected").and_then(Value::as_u64);
@@ -246,6 +247,20 @@ mod tests {
                 "tier_applied": 3,
                 "description": "summarizing",
                 "messages_to_summarize": 12,
+            }
+        });
+        assert_eq!(format_im_system_event(&event), None);
+    }
+
+    #[test]
+    fn context_compacted_emergency_start_marker_suppressed() {
+        let event = json!({
+            "type": "context_compacted",
+            "data": {
+                "tier_applied": 4,
+                "description": "emergency_compacting",
+                "attempt": 1,
+                "max_attempts": 1,
             }
         });
         assert_eq!(format_im_system_event(&event), None);

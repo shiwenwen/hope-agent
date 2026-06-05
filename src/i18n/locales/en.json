@@ -293,6 +293,8 @@
     "compactNoChange": "Context does not need compression",
     "compactNow": "Compress Context",
     "compacting": "Compressing...",
+    "contextCompactingMsgs": "summarizing {{count}} msgs",
+    "contextCompactingTitle": "Compacting context",
     "contextCompactedMsgs": "{{count}} msgs",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Context compacted",

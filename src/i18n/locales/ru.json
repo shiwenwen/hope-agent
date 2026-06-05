@@ -293,6 +293,8 @@
     "compactNoChange": "Контекст не нуждается в сжатии",
     "compactNow": "Сжать контекст",
     "compacting": "Сжатие...",
+    "contextCompactingMsgs": "суммируется {{count}} сообщ.",
+    "contextCompactingTitle": "Сжатие контекста",
     "contextCompactedMsgs": "{{count}} сообщ.",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Контекст сжат",

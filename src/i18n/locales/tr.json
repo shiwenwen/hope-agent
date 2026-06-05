@@ -293,6 +293,8 @@
     "compactNoChange": "Bağlamın sıkıştırılmasına gerek yok",
     "compactNow": "Bağlamı sıkıştır",
     "compacting": "Sıkıştırılıyor...",
+    "contextCompactingMsgs": "{{count}} mesaj özetleniyor",
+    "contextCompactingTitle": "Bağlam sıkıştırılıyor",
     "contextCompactedMsgs": "{{count}} mesaj",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Bağlam sıkıştırıldı",

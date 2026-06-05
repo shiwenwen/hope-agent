@@ -293,6 +293,8 @@
     "compactNoChange": "Konteks tidak perlu dimampatkan",
     "compactNow": "Mampatkan konteks",
     "compacting": "Memampatkan...",
+    "contextCompactingMsgs": "meringkaskan {{count}} mesej",
+    "contextCompactingTitle": "Memampatkan konteks",
     "contextCompactedMsgs": "{{count}} mesej",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Konteks dipadatkan",
