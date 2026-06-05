@@ -51,6 +51,7 @@ import WorkingDirectoryButton from "./WorkingDirectoryButton"
 import { VoiceRecordButton } from "./VoiceRecordButton"
 import { useVoiceInput } from "./useVoiceInput"
 import { RecordingBar } from "./RecordingBar"
+import { getNextPermissionMode } from "./permissionModes"
 import WorkspaceStatusBar from "@/components/chat/workspace/WorkspaceStatusBar"
 import { resolveWorkspaceTaskExecutionState } from "@/components/chat/workspace/taskExecutionState"
 import {
@@ -404,9 +405,21 @@ export default function ChatInput({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    // Slash menu first (owns header `/...` slot), then mention popper, then send.
+    // Slash menu first (owns header `/...` slot), then mention popper, then
+    // local chat shortcuts.
     if (slash.handleKeyDown(e)) return
     if (mention.handleKeyDown(e)) return
+    if (
+      e.key === "Tab" &&
+      e.shiftKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey
+    ) {
+      e.preventDefault()
+      onPermissionModeChange(getNextPermissionMode(permissionMode))
+      return
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       onSend()

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
-import type { ActiveModel, AvailableModel } from "@/types/chat"
+import type { ActiveModel, AvailableModel, SessionMode } from "@/types/chat"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "./ChatInput"
@@ -15,18 +15,43 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
-const transportMock = vi.hoisted(() => ({
-  call: vi.fn(() => Promise.resolve([])),
-  searchFiles: vi.fn(() => Promise.resolve({ entries: [], truncated: false })),
-}))
+type MockTransportCall = (command: string, args?: unknown) => Promise<unknown>
+type MockDirEntry = { name: string; path: string; isDir: boolean }
+type MockDirectoryResult = { path: string; entries: MockDirEntry[]; truncated: boolean }
+
+const transportMock = vi.hoisted(() => {
+  const defaultCall: MockTransportCall = (command) => {
+    if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+    return Promise.resolve([])
+  }
+  return {
+    defaultCall,
+    call: vi.fn<MockTransportCall>(defaultCall),
+    searchFiles: vi.fn(() => Promise.resolve({ entries: [], truncated: false })),
+    listServerDirectory: vi.fn<() => Promise<MockDirectoryResult>>(() =>
+      Promise.resolve({ path: "/tmp", entries: [], truncated: false }),
+    ),
+  }
+})
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
 }))
 
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn()
+}
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  transportMock.call.mockImplementation(transportMock.defaultCall)
+  transportMock.searchFiles.mockResolvedValue({ entries: [], truncated: false })
+  transportMock.listServerDirectory.mockResolvedValue({
+    path: "/tmp",
+    entries: [],
+    truncated: false,
+  })
 })
 
 const model: AvailableModel = {
@@ -158,6 +183,84 @@ describe("ChatInput", () => {
 
     fireEvent.click(sendButton)
     expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  test.each([
+    ["default", "smart"],
+    ["smart", "yolo"],
+    ["yolo", "default"],
+  ] satisfies Array<[SessionMode, SessionMode]>)(
+    "cycles permission mode from %s to %s with Shift+Tab",
+    (permissionMode, nextMode) => {
+      const onPermissionModeChange = vi.fn()
+      renderChatInput({ permissionMode, onPermissionModeChange })
+
+      fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
+
+      expect(onPermissionModeChange).toHaveBeenCalledTimes(1)
+      expect(onPermissionModeChange).toHaveBeenCalledWith(nextMode)
+    },
+  )
+
+  test("does not cycle permission mode on plain Tab", () => {
+    const onPermissionModeChange = vi.fn()
+    renderChatInput({ onPermissionModeChange })
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab" })
+
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+  })
+
+  test("lets slash command menu consume Shift+Tab before permission cycling", async () => {
+    const onPermissionModeChange = vi.fn()
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "list_slash_commands") {
+        return Promise.resolve([
+          {
+            name: "new",
+            category: "session",
+            descriptionKey: "slashCommands.new.description",
+            hasArgs: false,
+          },
+        ])
+      }
+      return Promise.resolve([])
+    })
+
+    renderChatInput({ input: "/", onPermissionModeChange })
+
+    await waitFor(() => expect(screen.getByText("/new")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
+
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+  })
+
+  test("lets file mention menu consume Shift+Tab before permission cycling", async () => {
+    const onInputChange = vi.fn()
+    const onPermissionModeChange = vi.fn()
+    transportMock.listServerDirectory.mockResolvedValue({
+      path: "/tmp",
+      entries: [{ name: "notes.md", path: "/tmp/notes.md", isDir: false }],
+      truncated: false,
+    })
+
+    renderChatInput({
+      input: "@",
+      onInputChange,
+      onPermissionModeChange,
+      workingDir: "/tmp",
+    })
+
+    const textbox = screen.getByRole("textbox") as HTMLTextAreaElement
+    textbox.setSelectionRange(1, 1)
+    fireEvent.select(textbox)
+
+    await waitFor(() => expect(screen.getByText("notes.md")).toBeTruthy())
+    fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })
+
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+    expect(onInputChange).toHaveBeenCalledWith("@notes.md ")
   })
 
   test("explicit interrupted execution state wins over loading for task progress", () => {

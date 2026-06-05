@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Check, Loader2 } from "lucide-react"
 
@@ -57,6 +58,7 @@ function labelsToText(labels: string[]): string {
 }
 
 export default function IssueReportingPanel() {
+  const { t } = useTranslation()
   const [config, setConfig] = useState<IssueReportingConfig>(DEFAULT_CONFIG)
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [hasToken, setHasToken] = useState(false)
@@ -115,29 +117,37 @@ export default function IssueReportingPanel() {
       })
       setHasToken(Boolean(token.trim()))
       setToken("")
-      toast.success(token.trim() ? "GitHub token saved" : "GitHub token cleared")
+      toast.success(
+        token.trim()
+          ? t("settings.issueReportingTokenSaved")
+          : t("settings.issueReportingTokenCleared"),
+      )
     } catch (e) {
       logger.error("settings", "IssueReportingPanel::saveToken", "Failed to save token", e)
-      toast.error("Failed to save GitHub token")
+      toast.error(t("settings.issueReportingTokenSaveFailed"))
     } finally {
       setTokenSaving(false)
     }
-  }, [token])
+  }, [t, token])
 
   const testConnection = useCallback(async () => {
     setTesting(true)
     try {
-      const result = await getTransport().call<{ message: string }>(
+      const result = await getTransport().call<{ hasToken: boolean }>(
         "test_issue_reporting_connection",
       )
-      toast.success(result.message)
+      toast.success(
+        result.hasToken
+          ? t("settings.issueReportingTestSuccessToken")
+          : t("settings.issueReportingTestSuccessGh"),
+      )
     } catch (e) {
       logger.error("settings", "IssueReportingPanel::test", "Failed to test connection", e)
-      toast.error("GitHub connection test failed")
+      toast.error(t("settings.issueReportingTestFailed"))
     } finally {
       setTesting(false)
     }
-  }, [])
+  }, [t])
 
   if (!loaded) return null
 
@@ -146,9 +156,9 @@ export default function IssueReportingPanel() {
       <div className="space-y-6">
         <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
           <div className="space-y-0.5 pr-4">
-            <div className="text-sm font-medium">Issue Reporting</div>
+            <div className="text-sm font-medium">{t("settings.issueReportingTitle")}</div>
             <div className="text-xs text-muted-foreground">
-              Enables the issue_report tool to submit confirmed GitHub issues.
+              {t("settings.issueReportingDesc")}
             </div>
           </div>
           <Switch
@@ -160,14 +170,14 @@ export default function IssueReportingPanel() {
         <div className={cn("space-y-4", !config.enabled && "opacity-50")}>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <span className="text-sm font-medium">Owner</span>
+              <span className="text-sm font-medium">{t("settings.issueReportingOwner")}</span>
               <Input
                 value={config.owner}
                 onChange={(e) => setConfig((prev) => ({ ...prev, owner: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
-              <span className="text-sm font-medium">Repository</span>
+              <span className="text-sm font-medium">{t("settings.issueReportingRepo")}</span>
               <Input
                 value={config.repo}
                 onChange={(e) => setConfig((prev) => ({ ...prev, repo: e.target.value }))}
@@ -177,14 +187,18 @@ export default function IssueReportingPanel() {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <span className="text-sm font-medium">GitHub API base URL</span>
+              <span className="text-sm font-medium">
+                {t("settings.issueReportingApiBaseUrl")}
+              </span>
               <Input
                 value={config.apiBaseUrl}
                 onChange={(e) => setConfig((prev) => ({ ...prev, apiBaseUrl: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
-              <span className="text-sm font-medium">Max evidence characters</span>
+              <span className="text-sm font-medium">
+                {t("settings.issueReportingMaxEvidenceChars")}
+              </span>
               <Input
                 type="number"
                 min={1000}
@@ -205,12 +219,14 @@ export default function IssueReportingPanel() {
 
           <div className="space-y-3">
             <div className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              Labels
+              {t("settings.issueReportingLabels")}
             </div>
             <div className="grid grid-cols-3 gap-4">
               {(["bug", "feature", "improvement"] as const).map((kind) => (
                 <div key={kind} className="space-y-1.5">
-                  <span className="text-sm font-medium capitalize">{kind}</span>
+                  <span className="text-sm font-medium">
+                    {t(`settings.issueReportingKind.${kind}`)}
+                  </span>
                   <Input
                     value={labelsToText(config.labelsByKind[kind])}
                     onChange={(e) =>
@@ -230,9 +246,11 @@ export default function IssueReportingPanel() {
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5 pr-4">
-              <div className="text-sm font-medium">Duplicate search</div>
+              <div className="text-sm font-medium">
+                {t("settings.issueReportingDuplicateSearch")}
+              </div>
               <div className="text-xs text-muted-foreground">
-                Prompt the skill workflow to search existing open issues before drafting.
+                {t("settings.issueReportingDuplicateSearchDesc")}
               </div>
             </div>
             <Switch
@@ -247,28 +265,32 @@ export default function IssueReportingPanel() {
         <div className="space-y-3 border-t border-border pt-5">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <div className="text-sm font-medium">GitHub token</div>
+              <div className="text-sm font-medium">{t("settings.issueReportingToken")}</div>
               <div className="text-xs text-muted-foreground">
                 {hasToken
-                  ? "A token is configured."
-                  : "No token is configured. Hope Agent will try the authenticated gh CLI."}
+                  ? t("settings.issueReportingTokenConfigured")
+                  : t("settings.issueReportingTokenMissing")}
               </div>
             </div>
             <Button variant="outline" size="sm" onClick={testConnection} disabled={testing}>
               {testing && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-              Test
+              {testing ? t("common.testing") : t("common.test")}
             </Button>
           </div>
           <div className="flex gap-2">
             <SecretInput
               value={token}
               onChange={setToken}
-              placeholder={hasToken ? "Leave blank and save to clear" : "Fine-grained PAT"}
+              placeholder={
+                hasToken
+                  ? t("settings.issueReportingTokenPlaceholderClear")
+                  : t("settings.issueReportingTokenPlaceholderNew")
+              }
               className="flex-1"
             />
             <Button onClick={saveToken} disabled={tokenSaving}>
               {tokenSaving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-              Save Token
+              {t("settings.issueReportingSaveToken")}
             </Button>
           </div>
         </div>
@@ -281,7 +303,11 @@ export default function IssueReportingPanel() {
           ) : saveStatus === "saved" ? (
             <Check className="h-4 w-4 mr-1.5" />
           ) : null}
-          {saveStatus === "saved" ? "Saved" : saveStatus === "failed" ? "Failed" : "Save"}
+          {saveStatus === "saved"
+            ? t("common.saved")
+            : saveStatus === "failed"
+              ? t("common.saveFailed")
+              : t("common.save")}
         </Button>
       </div>
     </div>

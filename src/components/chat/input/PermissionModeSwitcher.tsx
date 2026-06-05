@@ -4,6 +4,7 @@ import { useClickOutside } from "@/hooks/useClickOutside"
 import { cn } from "@/lib/utils"
 import { Shield, ShieldCheck, ShieldAlert } from "lucide-react"
 import type { SessionMode } from "@/types/chat"
+import { SESSION_PERMISSION_MODE_ORDER } from "./permissionModes"
 
 interface PermissionModeSwitcherProps {
   permissionMode: SessionMode
@@ -34,8 +35,6 @@ const MODE_THEME: Record<SessionMode, ModeTheme> = {
   },
 }
 
-const MODE_ORDER: ReadonlyArray<SessionMode> = ["default", "smart", "yolo"]
-
 export default function PermissionModeSwitcher({
   permissionMode,
   onPermissionModeChange,
@@ -48,10 +47,14 @@ export default function PermissionModeSwitcher({
 
   const activeTheme = MODE_THEME[permissionMode]
   const ActiveIcon = activeTheme.Icon
+  const activeLabel = t(`chat.permissionMode.${permissionMode}.label`)
 
   return (
     <div className="relative" ref={menuRef}>
       <button
+        type="button"
+        aria-label={`${activeLabel} (Shift+Tab)`}
+        title={`${activeLabel} (Shift+Tab)`}
         onClick={() => setOpen(!open)}
         className={cn(
           "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
@@ -59,13 +62,13 @@ export default function PermissionModeSwitcher({
         )}
       >
         <ActiveIcon className="h-4 w-4 shrink-0" />
-        <span>{t(`chat.permissionMode.${permissionMode}.label`)}</span>
+        <span>{activeLabel}</span>
       </button>
 
       {open && (
         <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[200px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
           <div className="flex flex-col gap-0.5">
-            {MODE_ORDER.map((mode) => {
+            {SESSION_PERMISSION_MODE_ORDER.map((mode) => {
               const theme = MODE_THEME[mode]
               const Icon = theme.Icon
               return (
