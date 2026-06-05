@@ -19,9 +19,9 @@ export default function ToolSettingsPanel() {
           <TabsTrigger value="webSearch">{t("settings.webSearch")}</TabsTrigger>
           <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
           <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
-          <TabsTrigger value="issueReporting">Issue Reporting</TabsTrigger>
           <TabsTrigger value="canvas">{t("settings.canvas")}</TabsTrigger>
           <TabsTrigger value="asyncTools">{t("settings.asyncTools")}</TabsTrigger>
+          <TabsTrigger value="issueReporting">{t("settings.issueReporting")}</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="general" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
@@ -36,14 +36,14 @@ export default function ToolSettingsPanel() {
       <TabsContent value="imageGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <ImageGeneratePanel />
       </TabsContent>
-      <TabsContent value="issueReporting" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
-        <IssueReportingPanel />
-      </TabsContent>
       <TabsContent value="canvas" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <CanvasSettingsPanel />
       </TabsContent>
       <TabsContent value="asyncTools" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <AsyncToolsPanel />
+      </TabsContent>
+      <TabsContent value="issueReporting" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <IssueReportingPanel />
       </TabsContent>
     </Tabs>
   )
