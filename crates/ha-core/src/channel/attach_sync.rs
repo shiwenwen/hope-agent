@@ -190,9 +190,8 @@ async fn deliver_attach_catchup_inner(
 fn active_desktop_or_http_turn(
     session_id: &str,
 ) -> Option<crate::chat_engine::active_turn::ActiveTurnSnapshot> {
-    crate::chat_engine::active_turn::current(session_id).filter(|active| {
-        matches!(active.source, ChatSource::Desktop | ChatSource::Http)
-    })
+    crate::chat_engine::active_turn::current(session_id)
+        .filter(|active| matches!(active.source, ChatSource::Desktop | ChatSource::Http))
 }
 
 async fn send_handover_notice(
@@ -372,14 +371,9 @@ impl LateMirror {
             .and_then(|user_id| turn_snapshot_after_user(&session_db, &session_id, user_id));
 
         if let Some(snapshot) = snapshot {
-            let metrics = deliver_full_response(
-                &plugin,
-                &target,
-                &outcome,
-                &snapshot.text,
-                &snapshot.medias,
-            )
-            .await;
+            let metrics =
+                deliver_full_response(&plugin, &target, &outcome, &snapshot.text, &snapshot.medias)
+                    .await;
             crate::app_info!(
                 "channel",
                 "attach_sync",
