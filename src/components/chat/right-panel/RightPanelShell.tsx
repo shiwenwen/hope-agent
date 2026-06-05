@@ -98,10 +98,10 @@ export function RightPanelShell({
     <div
       ref={shellRef}
       className={cn(
-        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width,opacity,transform] motion-reduce:transition-none",
+        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
         collapsed
-          ? "min-w-0 max-w-0 translate-x-2 p-0 opacity-0 pointer-events-none"
-          : "translate-x-0 p-3 pl-2 opacity-100",
+          ? "min-w-0 max-w-0 p-0 pointer-events-none"
+          : "p-3 pl-2",
       )}
       style={panelStyle}
       aria-hidden={collapsed ? true : undefined}
@@ -122,7 +122,8 @@ export function RightPanelShell({
       </div>
       <div
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-panel border border-border-soft bg-surface-panel shadow-panel transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
+          collapsed ? "translate-x-4 opacity-0" : "translate-x-0 opacity-100",
           bodyClassName,
         )}
       >

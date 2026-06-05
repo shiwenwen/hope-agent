@@ -169,6 +169,28 @@ function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
 }
 
+function useViewportMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia(query).matches,
+  )
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const media = window.matchMedia(query)
+    const handleChange = () => setMatches(media.matches)
+    handleChange()
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange)
+      return () => media.removeEventListener("change", handleChange)
+    }
+    media.addListener(handleChange)
+    return () => media.removeListener(handleChange)
+  }, [query])
+
+  return matches
+}
+
 function isSessionMode(value: unknown): value is SessionMode {
   return value === "default" || value === "smart" || value === "yolo"
 }
@@ -251,17 +273,6 @@ export default function ChatScreen({
     autoCollapsedSidebarRef.current = false
     userSidebarCollapsedPreferenceRef.current = collapsed
     setSidebarCollapsed(collapsed)
-  }, [])
-
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? 0 : window.innerWidth,
-  )
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const handleResize = () => setViewportWidth(window.innerWidth)
-    handleResize()
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
   }, [])
 
   const [defaultDisplayMode, setDefaultDisplayMode] = useState(() => readChatDisplayModePreference())
@@ -1591,25 +1602,31 @@ export default function ChatScreen({
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
+  const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current ? 0 : panelWidth
+  const rightPanelCollapseAt =
+    preferredSidebarWidthForResponsive +
+    CHAT_MAIN_MIN_INTERACTIVE_WIDTH +
+    RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH
+  const rightPanelExpandAt = rightPanelCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  const sidebarCollapseAt =
+    panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
+  const sidebarExpandAt = sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  const shouldAutoCollapseRightPanel = useViewportMediaQuery(
+    `(max-width: ${rightPanelCollapseAt}px)`,
+  )
+  const shouldAutoExpandRightPanel = useViewportMediaQuery(
+    `(min-width: ${rightPanelExpandAt}px)`,
+  )
+  const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
+  const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
+
   useEffect(() => {
-    if (viewportWidth <= 0) return
-
-    // Collapse the right rail first. When the sidebar was only auto-collapsed,
-    // still reserve the user's preferred sidebar width so the right panel does
-    // not briefly reopen at widths where the sidebar is about to come back.
     if (hasOpenExclusiveRightPanel) {
-      const preferredSidebarWidth = userSidebarCollapsedPreferenceRef.current ? 0 : panelWidth
-      const rightCollapseAt =
-        preferredSidebarWidth +
-        CHAT_MAIN_MIN_INTERACTIVE_WIDTH +
-        RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH
-      const rightExpandAt = rightCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
-
-      if (viewportWidth < rightCollapseAt && !rightPanelCollapsed) {
+      if (shouldAutoCollapseRightPanel && !rightPanelCollapsed) {
         autoCollapsedRightPanelRef.current = true
         setRightPanelCollapsed(true)
       } else if (
-        viewportWidth > rightExpandAt &&
+        shouldAutoExpandRightPanel &&
         rightPanelCollapsed &&
         autoCollapsedRightPanelRef.current
       ) {
@@ -1620,22 +1637,15 @@ export default function ChatScreen({
       autoCollapsedRightPanelRef.current = false
     }
 
-    // Collapse the conversation sidebar after the right rail has yielded.
-    // Restore it only when it was collapsed by this responsive path, preserving
-    // a user's manually collapsed sidebar across resize.
-    const sidebarCollapseAt =
-      panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
-    const sidebarExpandAt = sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
-
     if (
-      viewportWidth < sidebarCollapseAt &&
+      shouldAutoCollapseSidebar &&
       !sidebarCollapsed &&
       !userSidebarCollapsedPreferenceRef.current
     ) {
       autoCollapsedSidebarRef.current = true
       setSidebarCollapsed(true)
     } else if (
-      viewportWidth > sidebarExpandAt &&
+      shouldAutoExpandSidebar &&
       sidebarCollapsed &&
       autoCollapsedSidebarRef.current &&
       !userSidebarCollapsedPreferenceRef.current
@@ -1645,10 +1655,12 @@ export default function ChatScreen({
     }
   }, [
     hasOpenExclusiveRightPanel,
-    panelWidth,
     rightPanelCollapsed,
     sidebarCollapsed,
-    viewportWidth,
+    shouldAutoCollapseRightPanel,
+    shouldAutoCollapseSidebar,
+    shouldAutoExpandRightPanel,
+    shouldAutoExpandSidebar,
   ])
 
   // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
