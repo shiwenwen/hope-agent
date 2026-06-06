@@ -278,10 +278,10 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision
 
 模型在 tool_call args 里**主动**加 `_confidence: "high"` 表示"高度确信此次安全"。约束：
 
-- 工具 schema 不暴露这个字段——通过 system prompt（`SMART_MODE_GUIDANCE`）引导
+- 工具 schema 不暴露这个字段——通过 system prompt（`build_permission_mode_guidance(SessionMode::Smart)`）引导
 - 命中 high 直接 Allow（除非命中保护路径 / 危险命令的 strict 层）
 - 字段缺失或值非 "high" 不命中，走 fallback
-- system prompt guidance 注入位置：`system_prompt/build.rs` 在 `TOOL_CALL_NARRATION_GUIDANCE` 之后；只在 `permission_mode == Smart` 时 push，最大化 prefix cache 复用
+- system prompt guidance 注入位置：`system_prompt/build.rs` 在 `TOOL_CALL_NARRATION_GUIDANCE` 之后；三种 `permission_mode` 都会注入当前模式说明，Smart 模式额外说明 `_confidence` 用法
 
 ### `judge_model` 独立 side_query
 
@@ -585,7 +585,7 @@ useEffect(() => {
 
 3. **`SessionMeta.permission_mode` 仍是 `String`**：消费方各自 `SessionMode::parse_or_default(&m.permission_mode)`。enum 已存在但未替换字段类型
 
-4. **Smart 模式 system prompt cache 失效**：`SMART_MODE_GUIDANCE` 注入位置在 `TOOL_CALL_NARRATION_GUIDANCE` 之后但仍在 prefix 里——session 切 mode 会作废静态前缀缓存一次。原 plan 描述的"作为 suffix cache block 不作废静态前缀"未实现（需要改 chat_round provider 适配，跨 4 个 provider）
+4. **权限模式 system prompt cache 失效**：`build_permission_mode_guidance` 注入位置在 `TOOL_CALL_NARRATION_GUIDANCE` 之后但仍在 prefix 里——session 切 mode 会作废静态前缀缓存一次。原 plan 描述的"作为 suffix cache block 不作废静态前缀"未实现（需要改 chat_round provider 适配，跨 4 个 provider）
 
 5. **判官 cache key 不规范化对象键序**：`args.to_string()` 哈希——同语义不同键序产生不同 cache key
 
@@ -617,8 +617,8 @@ useEffect(() => {
 | `crates/ha-core/src/tools/execution.rs` | tool dispatch 入口，调 `engine::resolve_async` |
 | `crates/ha-core/src/tools/exec.rs` | exec 工具内置审批门 + 命令前缀 allowlist 兼容 |
 | `crates/ha-core/src/agent/side_query.rs` | `judge_one_shot` 静态方法 |
-| `crates/ha-core/src/system_prompt/build.rs` | Smart mode guidance 注入位置 |
-| `crates/ha-core/src/system_prompt/constants.rs` | `SMART_MODE_GUIDANCE` 常量 |
+| `crates/ha-core/src/system_prompt/build.rs` | Permission mode guidance 注入位置 |
+| `crates/ha-core/src/system_prompt/constants.rs` | `build_permission_mode_guidance` |
 | `src-tauri/src/commands/permission.rs` | 12 个 Tauri 命令 |
 | `crates/ha-server/src/routes/permission.rs` | 12 个 HTTP 路由（镜像） |
 
