@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **项目会话新建归属修复**：当前会话属于某个 Project 时，`Cmd/Ctrl+N` 与托盘「新建对话」创建的新会话会继续归属同一个 Project，避免首条消息丢失项目记忆、文件与指令上下文。
+
 ## [0.6.0] - 2026-06-06
 
 ### Added

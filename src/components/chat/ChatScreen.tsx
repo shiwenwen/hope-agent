@@ -482,6 +482,21 @@ export default function ChatScreen({
     [handleNewChat],
   )
 
+  const handleStartNewChatFromCurrentContext = useCallback(async () => {
+    const projectId = currentSessionMeta?.projectId
+    if (projectId) {
+      setDraftIncognito(false)
+      await handleNewChatInProject(projectId, currentAgentId, false)
+      return
+    }
+    await handleStartNewChat(currentAgentId)
+  }, [
+    currentAgentId,
+    currentSessionMeta?.projectId,
+    handleNewChatInProject,
+    handleStartNewChat,
+  ])
+
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
    * session already has user/assistant messages (defense layer); the UI
@@ -849,8 +864,8 @@ export default function ChatScreen({
     return () => window.removeEventListener("keydown", handler)
   }, [currentSessionId, openSessionSearch, focusGlobalSearch])
 
-  // Cmd/Ctrl+N: start a fresh draft chat with the current agent, matching the
-  // sidebar New Chat button and tray "new-session" behavior.
+  // Cmd/Ctrl+N: start a fresh chat with the current agent. When the active
+  // session belongs to a Project, keep the new session in that Project too.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey
@@ -861,18 +876,18 @@ export default function ChatScreen({
       if (target?.isContentEditable) return
 
       e.preventDefault()
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatFromCurrentContext()
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [handleStartNewChat, currentAgentId])
+  }, [handleStartNewChatFromCurrentContext])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     return getTransport().listen("new-session", () => {
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatFromCurrentContext()
     })
-  }, [handleStartNewChat, currentAgentId])
+  }, [handleStartNewChatFromCurrentContext])
 
   // Listen for tray "focus-session" event — emitted when the user clicks an
   // in-progress regular conversation entry inside the system tray dropdown.
