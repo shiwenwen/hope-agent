@@ -1,14 +1,19 @@
 import { useState, useRef, useCallback } from "react"
 import { useTranslation } from "react-i18next"
+import { Switch } from "@/components/ui/switch"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { cn } from "@/lib/utils"
 import { Shield, ShieldCheck, ShieldAlert } from "lucide-react"
 import type { SessionMode } from "@/types/chat"
 import { SESSION_PERMISSION_MODE_ORDER } from "./permissionModes"
 
+export interface PermissionModeChangeOptions {
+  applyToAgentDefault?: boolean
+}
+
 interface PermissionModeSwitcherProps {
   permissionMode: SessionMode
-  onPermissionModeChange: (mode: SessionMode) => void
+  onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
 }
 
 interface ModeTheme {
@@ -41,6 +46,7 @@ export default function PermissionModeSwitcher({
 }: PermissionModeSwitcherProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [applyToAgentDefault, setApplyToAgentDefault] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useClickOutside(menuRef, useCallback(() => setOpen(false), []))
@@ -66,7 +72,7 @@ export default function PermissionModeSwitcher({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[200px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
+        <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[240px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
           <div className="flex flex-col gap-0.5">
             {SESSION_PERMISSION_MODE_ORDER.map((mode) => {
               const theme = MODE_THEME[mode]
@@ -81,7 +87,9 @@ export default function PermissionModeSwitcher({
                       : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
                   )}
                   onClick={() => {
-                    onPermissionModeChange(mode)
+                    onPermissionModeChange(mode, {
+                      applyToAgentDefault,
+                    })
                     setOpen(false)
                   }}
                 >
@@ -97,6 +105,22 @@ export default function PermissionModeSwitcher({
                 </button>
               )
             })}
+            <div className="my-1 h-px bg-border/60" />
+            <div className="flex items-center gap-3 px-2.5 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium text-foreground">
+                  {t("chat.permissionMode.applyToAgentDefault.label")}
+                </div>
+                <div className="text-[11px] leading-snug text-muted-foreground">
+                  {t("chat.permissionMode.applyToAgentDefault.desc")}
+                </div>
+              </div>
+              <Switch
+                checked={applyToAgentDefault}
+                onCheckedChange={setApplyToAgentDefault}
+                aria-label={t("chat.permissionMode.applyToAgentDefault.label")}
+              />
+            </div>
           </div>
         </div>
       )}

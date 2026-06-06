@@ -409,6 +409,11 @@
     "pendingInteractionInline": "Yanıt bekleniyor · {{count}}",
     "pendingQueued": "Mesaj sıraya alındı, yanıt tamamlandıktan sonra gönderilecek...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Açıkken, bir mod seçmek bu Agent'ın yeni sohbet varsayılanını da günceller.",
+        "failed": "Bu Agent'ın varsayılan izin modu güncellenemedi.",
+        "label": "Agent varsayılanını da güncelle"
+      },
       "default": {
         "desc": "Düzenleme araçları ve riskli komutlar onay gerektirir, diğerleri çalıştırılır.",
         "label": "Varsayılan"
