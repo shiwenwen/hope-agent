@@ -168,10 +168,10 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
     PermissionDef {
         id: "system_audio_capture",
         group: SystemPermissionGroup::ControlCapture,
-        request_mode: SystemPermissionRequestMode::OpenSettings,
+        request_mode: SystemPermissionRequestMode::None,
         settings_pane: Some("Privacy_AudioCapture"),
         usage: "Capture system audio when a future workflow explicitly needs it.",
-        note: Some("macOS does not expose a reliable public preflight API for this permission."),
+        note: None,
     },
     PermissionDef {
         id: "input_monitoring",
@@ -368,7 +368,7 @@ const PERMISSION_DEFS: &[PermissionDef] = &[
     PermissionDef {
         id: "notifications",
         group: SystemPermissionGroup::SystemServices,
-        request_mode: SystemPermissionRequestMode::OpenSettings,
+        request_mode: SystemPermissionRequestMode::NativePrompt,
         settings_pane: Some("Notifications"),
         usage: "Show system notifications. Delivery preferences remain in Notification settings.",
         note: Some("Notification configuration stays on the Notifications settings page."),
