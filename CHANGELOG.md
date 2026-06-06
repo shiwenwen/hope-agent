@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Office OOXML 包结构稳定性**：修复 DOCX helper 在最终 `w:sectPr` 之后追加内容的问题，避免 Word/LibreOffice 打开时修复或忽略新增段落；水印 helper 不再覆盖既有 `word/header1.xml`，会分配新的 header part 和 relationship id；PPTX slide 重排不再重建并丢弃 slide master/theme/view properties 等非 slide relationships，避免源 deck 样式丢失。
+- **项目会话新建归属修复**：当前会话属于某个 Project 时，`Cmd/Ctrl+N` 与托盘「新建对话」创建的新会话会继续归属同一个 Project，避免首条消息丢失项目记忆、文件与指令上下文。
 
 ## [0.6.0] - 2026-06-06
 
