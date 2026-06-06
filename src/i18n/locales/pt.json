@@ -409,6 +409,11 @@
     "pendingInteractionInline": "Aguardando resposta · {{count}}",
     "pendingQueued": "Mensagem em fila, será enviada após a resposta...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Quando ativado, escolher um modo também atualiza o padrão deste agente para novos chats.",
+        "failed": "Falha ao atualizar o modo de permissão padrão deste agente.",
+        "label": "Atualizar padrão do agente"
+      },
       "default": {
         "desc": "Ferramentas de edição e comandos perigosos exigem aprovação; o resto é executado.",
         "label": "Padrão"

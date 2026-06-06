@@ -1,11 +1,13 @@
 import { Fragment, useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import { getTransport } from "@/lib/transport-provider"
 import {
   Send,
   Square,
@@ -44,7 +46,9 @@ import {
   AttachmentPreview,
 } from "./AttachmentBar"
 import ModelPicker from "./ModelPicker"
-import PermissionModeSwitcher from "./PermissionModeSwitcher"
+import PermissionModeSwitcher, {
+  type PermissionModeChangeOptions,
+} from "./PermissionModeSwitcher"
 import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
@@ -66,6 +70,7 @@ import {
   getChatInputOverflowActionIds,
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
+import type { AgentConfig } from "@/components/settings/types"
 
 interface ChatInputProps {
   input: string
@@ -94,7 +99,7 @@ interface ChatInputProps {
   onCommandAction?: (result: CommandResult) => void
   // Tool permission mode
   permissionMode: SessionMode
-  onPermissionModeChange: (mode: SessionMode) => void
+  onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
   // Temperature
   sessionTemperature?: number | null
   onSessionTemperatureChange?: (temp: number | null) => void
@@ -170,6 +175,41 @@ export default function ChatInput({
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
   const [toolbarCompact, setToolbarCompact] = useState(false)
   const [toolbarStacked, setToolbarStacked] = useState(false)
+
+  const handlePermissionModeChange = useCallback(
+    (mode: SessionMode, options?: PermissionModeChangeOptions) => {
+      onPermissionModeChange(mode, options)
+      if (!options?.applyToAgentDefault) return
+
+      void (async () => {
+        try {
+          const transport = getTransport()
+          const config = await transport.call<AgentConfig>("get_agent_config", {
+            id: currentAgentId,
+          })
+          await transport.call("save_agent_config_cmd", {
+            id: currentAgentId,
+            config: {
+              ...config,
+              capabilities: {
+                ...config.capabilities,
+                defaultSessionPermissionMode: mode,
+              },
+            },
+          })
+        } catch (e) {
+          logger.error(
+            "chat",
+            "ChatInput::setAgentDefaultPermissionMode",
+            "Failed to save agent default permission mode",
+            e,
+          )
+          toast.error(t("chat.permissionMode.applyToAgentDefault.failed"))
+        }
+      })()
+    },
+    [currentAgentId, onPermissionModeChange, t],
+  )
 
   // Slash commands
   const slashActions: SlashCommandActions = {
@@ -841,7 +881,7 @@ export default function ChatInput({
             {/* Tool Permission Mode */}
             <PermissionModeSwitcher
               permissionMode={permissionMode}
-              onPermissionModeChange={onPermissionModeChange}
+              onPermissionModeChange={handlePermissionModeChange}
             />
           </div>
 

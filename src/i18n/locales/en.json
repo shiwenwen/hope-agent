@@ -409,6 +409,11 @@
     "pendingInteractionInline": "Waiting for response · {{count}}",
     "pendingQueued": "Message queued, will send after reply...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "When enabled, choosing a mode also updates this agent's default for new chats.",
+        "failed": "Failed to update this agent's default permission mode.",
+        "label": "Also update agent default"
+      },
       "default": {
         "desc": "Edit-class tools and high-risk commands need approval; everything else runs.",
         "label": "Default"

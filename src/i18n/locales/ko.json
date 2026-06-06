@@ -409,6 +409,11 @@
     "pendingInteractionInline": "응답 대기 중 · {{count}}",
     "pendingQueued": "메시지가 대기열에 추가되었습니다. 응답 완료 후 전송됩니다...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "켜면 모드를 선택할 때 이 Agent의 새 대화 기본값도 업데이트합니다.",
+        "failed": "이 Agent의 기본 권한 모드를 업데이트하지 못했습니다.",
+        "label": "Agent 기본값도 업데이트"
+      },
       "default": {
         "desc": "편집 도구와 고위험 명령은 승인 필요, 나머지는 바로 실행",
         "label": "기본"
