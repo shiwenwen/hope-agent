@@ -297,6 +297,8 @@
     "compactNoChange": "컨텍스트 압축 불필요",
     "compactNow": "컨텍스트 압축",
     "compacting": "압축 중...",
+    "contextCompactingMsgs": "메시지 {{count}}개 요약 중",
+    "contextCompactingTitle": "컨텍스트 압축 중",
     "contextCompactedMsgs": "메시지 {{count}}개",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "컨텍스트 압축됨",

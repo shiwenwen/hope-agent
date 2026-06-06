@@ -216,6 +216,59 @@ function stringField(event: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : ""
 }
 
+function objectField(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function eventPayloadFromMessage(message: Message): Record<string, unknown> | null {
+  if (message.role !== "event") return null
+  try {
+    return objectField(JSON.parse(message.content))
+  } catch {
+    return null
+  }
+}
+
+function contextCompactionData(event: Record<string, unknown>): Record<string, unknown> {
+  return objectField(event.data) ?? {}
+}
+
+function isContextCompactionStartDescription(description: unknown): boolean {
+  return description === "summarizing" || description === "emergency_compacting"
+}
+
+function isContextCompactionStartNotice(message: Message): boolean {
+  const payload = eventPayloadFromMessage(message)
+  if (payload?.type !== "context_compacted") return false
+  return isContextCompactionStartDescription(contextCompactionData(payload).description)
+}
+
+function contextCompactionStartNoticeIndex(messages: Message[]): number {
+  let idx = messages.length - 1
+  if (messages[idx]?.role === "assistant") idx -= 1
+  if (idx >= 0 && isContextCompactionStartNotice(messages[idx])) return idx
+  return -1
+}
+
+function mergeWithContextCompactionStart(
+  previous: Message,
+  event: Record<string, unknown>,
+): string {
+  const previousPayload = eventPayloadFromMessage(previous)
+  const previousData = previousPayload ? contextCompactionData(previousPayload) : {}
+  const nextData = contextCompactionData(event)
+  const shouldCarrySummarizedCount =
+    nextData.messages_to_summarize == null && previousData.messages_to_summarize != null
+  const mergedData = {
+    ...nextData,
+    ...(shouldCarrySummarizedCount
+      ? { messages_to_summarize: previousData.messages_to_summarize }
+      : {}),
+  }
+  return JSON.stringify({ ...event, data: mergedData })
+}
+
 /**
  * Processes a single parsed stream event (text_delta, thinking_delta, tool_call, tool_result, usage, etc.)
  * and updates the message list accordingly.
@@ -267,14 +320,13 @@ export function handleStreamEvent(
     event.type === "context_compacted" ||
     event.type === "round_limit_reached"
   ) {
-    // Mirror the backend persister + IM formatter: skip Tier 0/1 noise and
-    // the Tier 3 "summarizing" start marker so live and post-reload views
-    // render the same banners (no flash-and-disappear chips during a
-    // session that get dropped on refresh).
+    // Mirror the backend persister for Tier 0/1 noise, but keep Tier 3/4
+    // start markers live-only so a long compaction does not look like a
+    // frozen turn. The final `context_compacted` event replaces them below.
     if (event.type === "context_compacted") {
-      const data = (event as { data?: Record<string, unknown> }).data ?? {}
+      const data = contextCompactionData(event)
       const tier = typeof data.tier_applied === "number" ? data.tier_applied : 0
-      if (tier < 2 || data.description === "summarizing") {
+      if (tier < 2) {
         return true
       }
     }
@@ -282,6 +334,22 @@ export function handleStreamEvent(
       const notice: Message = {
         role: "event",
         content: JSON.stringify(event),
+      }
+      if (event.type === "context_compacted") {
+        const startIdx = contextCompactionStartNoticeIndex(prev)
+        if (startIdx >= 0) {
+          const previousNotice = prev[startIdx]
+          if (!previousNotice) return prev
+          const updated = [...prev]
+          updated[startIdx] = {
+            ...notice,
+            content:
+              isContextCompactionStartDescription(contextCompactionData(event).description)
+                ? notice.content
+                : mergeWithContextCompactionStart(previousNotice, event),
+          }
+          return updated
+        }
       }
       const last = prev[prev.length - 1]
       if (last?.role === "assistant") {

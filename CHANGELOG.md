@@ -19,9 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ask_user_question 卡片自动滚动**：修复结构化提问卡片出现在消息列表 footer 时，因为没有新增 message 而不会触发自动追底、导致待回答卡片藏在屏幕下方的问题；现在新问题出现时会自动滚到卡片位置，并跟随展开动画保持可见。
-
-### Fixed
-
+- **上下文压缩进行中状态**：自动 Tier 3 摘要压缩与执行过程中触发的上下文压缩现在会在聊天流中显示「正在压缩上下文」，完成后替换为最终压缩提示；T1/T2 快速本地压缩仍保持静默或仅显示完成提示，避免提示闪烁。
 - **GUI → IM 交班与流式稳定性修复**：修复桌面 / HTTP 会话正在回复时交班到 IM 后目标 chat 无交班提示、无法接入后续流式回复的问题；交班会补发当前用户问题引用并在回复完成时用完整最终答案收尾。IM 端 reply-only 斜杠命令不再伪造 `channel:stream_end`，避免打断 GUI 正在进行的流式回复；会话 detach / 接管后旧 IM chat 不再继续收到后续 mirror 帧。
 
 ## [0.5.1] - 2026-06-03

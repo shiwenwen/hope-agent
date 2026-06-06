@@ -1124,6 +1124,27 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         model_ref.model_id
                     );
 
+                    if let Ok(event_str) = serde_json::to_string(&serde_json::json!({
+                        "type": "context_compacted",
+                        "data": {
+                            "tier_applied": 4,
+                            "description": "emergency_compacting",
+                            "attempt": compaction_attempts,
+                            "max_attempts": MAX_COMPACTION_RETRIES,
+                            "provider_id": model_ref.provider_id,
+                            "model_id": model_ref.model_id,
+                        },
+                    })) {
+                        let _ = emit_stream_event(
+                            &db,
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            &event_str,
+                        );
+                    }
+
                     // Build a temporary agent to run the compaction. Same
                     // profile that just hit overflow so the cache prefix is
                     // identical.

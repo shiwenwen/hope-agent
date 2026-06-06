@@ -297,6 +297,8 @@
     "compactNoChange": "コンテキストの圧縮は不要です",
     "compactNow": "コンテキストを圧縮",
     "compacting": "圧縮中...",
+    "contextCompactingMsgs": "{{count}} 件を要約中",
+    "contextCompactingTitle": "コンテキストを圧縮中",
     "contextCompactedMsgs": "{{count}} 件",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "コンテキスト圧縮",

@@ -297,6 +297,8 @@
     "compactNoChange": "السياق لا يحتاج إلى ضغط",
     "compactNow": "ضغط السياق",
     "compacting": "جاري الضغط...",
+    "contextCompactingMsgs": "تلخيص {{count}} رسالة",
+    "contextCompactingTitle": "جاري ضغط السياق",
     "contextCompactedMsgs": "{{count}} رسالة",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "تم ضغط السياق",

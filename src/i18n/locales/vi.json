@@ -297,6 +297,8 @@
     "compactNoChange": "Ngữ cảnh không cần nén",
     "compactNow": "Nén ngữ cảnh",
     "compacting": "Đang nén...",
+    "contextCompactingMsgs": "đang tóm tắt {{count}} tin",
+    "contextCompactingTitle": "Đang nén context",
     "contextCompactedMsgs": "{{count}} tin",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Đã nén context",
