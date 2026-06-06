@@ -576,7 +576,7 @@ export default function ChatInput({
       <div
         ref={inputShellRef}
         className={cn(
-          "relative min-w-0 overflow-hidden rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
+          "relative min-w-0 overflow-visible rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",
         )}
       >

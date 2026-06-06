@@ -185,6 +185,16 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("keeps the input dock from clipping upward toolbar menus", () => {
+    renderChatInput()
+
+    const inputDock = screen.getByRole("textbox").closest(".rounded-input-dock")
+
+    expect(inputDock).toBeTruthy()
+    expect(inputDock?.className).toContain("overflow-visible")
+    expect(inputDock?.className).not.toContain("overflow-hidden")
+  })
+
   test.each([
     ["default", "smart"],
     ["smart", "yolo"],
