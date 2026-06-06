@@ -744,6 +744,19 @@
         "cron": "cron",
         "idle": "idle",
         "manual": "manual"
+      },
+      "runs": {
+        "title": "Run history",
+        "empty": "No runs recorded yet.",
+        "decisions": "Decisions",
+        "noDecisions": "No promotions in this run.",
+        "selectRun": "Select a run to see its decisions.",
+        "status": {
+          "running": "running",
+          "completed": "completed",
+          "failed": "failed",
+          "skipped": "skipped"
+        }
       }
     },
     "error": {

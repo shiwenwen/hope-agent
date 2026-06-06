@@ -744,6 +744,19 @@
         "cron": "cron",
         "idle": "アイドル",
         "manual": "手動"
+      },
+      "runs": {
+        "title": "実行履歴",
+        "empty": "実行記録はまだありません",
+        "decisions": "決定",
+        "noDecisions": "この実行では昇格はありません。",
+        "selectRun": "実行を選択すると決定が表示されます。",
+        "status": {
+          "running": "実行中",
+          "completed": "完了",
+          "failed": "失敗",
+          "skipped": "スキップ"
+        }
       }
     },
     "error": {

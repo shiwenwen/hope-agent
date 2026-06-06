@@ -29,17 +29,22 @@ mod pipeline;
 mod promotion;
 mod scanner;
 mod scoring;
+mod store;
 mod triggers;
 mod types;
 
 pub use config::{CronTriggerConfig, DreamingConfig, IdleTriggerConfig, PromotionThresholds};
 pub use cron_loop::spawn_dreaming_cron_loop;
 pub use pipeline::{last_report_snapshot, run_cycle};
+pub use store::{get_run, init_store, list_runs, recover_on_startup, spawn_retention_loop};
 pub use triggers::{
     check_idle_trigger, dreaming_running, last_activity_epoch_secs, manual_run, touch_activity,
     DreamTrigger,
 };
-pub use types::{DreamReport, PromotionRecord};
+pub use types::{
+    DreamPhase, DreamReport, DreamRunStatus, DreamingDecisionRecord, DreamingRunDetail,
+    DreamingRunRecord, PromotionRecord,
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

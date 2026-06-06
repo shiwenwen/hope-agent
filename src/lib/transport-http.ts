@@ -184,6 +184,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dreaming_is_running:             { method: "GET",    path: "/api/dreaming/status" },
   dreaming_last_report:            { method: "GET",    path: "/api/dreaming/last-report" },
   dreaming_idle_status:            { method: "GET",    path: "/api/dreaming/idle-status" },
+  dreaming_list_runs:              { method: "GET",    path: "/api/dreaming/runs" },
+  dreaming_get_run:                { method: "GET",    path: "/api/dreaming/runs/{id}" },
   validate_cron_expression:        { method: "POST",   path: "/api/cron/validate" },
   scan_openclaw_agents:            { method: "GET",    path: "/api/agents/openclaw/scan" },
   import_openclaw_agents:          { method: "POST",   path: "/api/agents/openclaw/import" },

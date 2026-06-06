@@ -744,6 +744,19 @@
         "cron": "cron",
         "idle": "inactivo",
         "manual": "manual"
+      },
+      "runs": {
+        "title": "Historial de ejecuciones",
+        "empty": "Aún no hay ejecuciones registradas.",
+        "decisions": "Decisiones",
+        "noDecisions": "Sin promociones en esta ejecución.",
+        "selectRun": "Selecciona una ejecución para ver sus decisiones.",
+        "status": {
+          "running": "en ejecución",
+          "completed": "completado",
+          "failed": "fallido",
+          "skipped": "omitido"
+        }
       }
     },
     "error": {

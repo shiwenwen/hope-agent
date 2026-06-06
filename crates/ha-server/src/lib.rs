@@ -896,6 +896,8 @@ fn build_router_with_cors(
         .route("/dreaming/status", get(routes::dreaming::status))
         .route("/dreaming/last-report", get(routes::dreaming::last_report))
         .route("/dreaming/idle-status", get(routes::dreaming::idle_status))
+        .route("/dreaming/runs", get(routes::dreaming::list_runs))
+        .route("/dreaming/runs/{id}", get(routes::dreaming::get_run))
         .route(
             "/cron/validate",
             post(routes::config::validate_cron_expression),

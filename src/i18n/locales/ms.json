@@ -744,6 +744,19 @@
         "cron": "cron",
         "idle": "terbiar",
         "manual": "manual"
+      },
+      "runs": {
+        "title": "Sejarah larian",
+        "empty": "Tiada larian direkodkan lagi.",
+        "decisions": "Keputusan",
+        "noDecisions": "Tiada peningkatan dalam larian ini.",
+        "selectRun": "Pilih larian untuk melihat keputusannya.",
+        "status": {
+          "running": "berjalan",
+          "completed": "selesai",
+          "failed": "gagal",
+          "skipped": "dilangkau"
+        }
       }
     },
     "error": {

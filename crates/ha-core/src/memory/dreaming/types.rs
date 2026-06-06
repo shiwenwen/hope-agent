@@ -21,11 +21,62 @@ pub struct PromotionRecord {
     pub rationale: String,
 }
 
+/// Phase of a dreaming run. Phase 0 only runs `Light`; `Deep` is reserved
+/// for the long-window consolidation landing in a later phase. Persisted as
+/// the lowercase string into `dreaming_runs.phase` / lock keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DreamPhase {
+    Light,
+    Deep,
+}
+
+impl DreamPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DreamPhase::Light => "light",
+            DreamPhase::Deep => "deep",
+        }
+    }
+}
+
+/// Lifecycle status of a durable `dreaming_runs` row.
+///
+/// `Running` is the transient state while a cycle is in flight; a crash
+/// leaves it `Running` until startup recovery flips it to `Failed`. Pre-run
+/// gating (disabled / lock contention) never creates a row, so `Skipped` is
+/// reserved for future use and not written in Phase 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DreamRunStatus {
+    Running,
+    Completed,
+    Failed,
+    Skipped,
+}
+
+impl DreamRunStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DreamRunStatus::Running => "running",
+            DreamRunStatus::Completed => "completed",
+            DreamRunStatus::Failed => "failed",
+            DreamRunStatus::Skipped => "skipped",
+        }
+    }
+}
+
 /// Terminal outcome of a dreaming cycle. Serialised into the trigger
 /// response payload and logged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DreamReport {
+    /// Id of the durable `dreaming_runs` row for this cycle. `None` when the
+    /// cycle was skipped before a run row was created (feature disabled,
+    /// manual gating, or lock contention) or when the durable store is
+    /// unavailable. Lets the Dashboard correlate the report to `get_run`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     /// Which trigger fired this cycle.
     pub trigger: DreamTrigger,
     /// Total candidates scanned from the memory backend.
@@ -43,4 +94,61 @@ pub struct DreamReport {
     /// Human-readable notes (e.g. "no active agent", "backend empty").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+/// A durable run row from `dreaming_runs`, returned by `dreaming_list_runs`
+/// / `dreaming_get_run`. Survives restart (unlike the in-process
+/// `last_report_snapshot`), so the Dashboard can show real run history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingRunRecord {
+    pub id: String,
+    /// "idle" | "cron" | "manual".
+    pub trigger: String,
+    /// "light" | "deep".
+    pub phase: String,
+    /// "running" | "completed" | "failed" | "skipped".
+    pub status: String,
+    pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    pub duration_ms: u64,
+    pub candidates_scanned: usize,
+    pub candidates_nominated: usize,
+    pub promoted_count: usize,
+    pub decision_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diary_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// A single decision row from `dreaming_decisions` (Phase 0 writes only
+/// `promote`). Returned inside `DreamingRunDetail`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingDecisionRecord {
+    pub id: String,
+    /// promote | merge | supersede | expire | archive | needs_review | no_op.
+    pub decision_type: String,
+    /// memory | claim | profile | task | skill_suggestion.
+    pub target_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    pub rationale: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_json: Option<String>,
+    pub created_at: String,
+}
+
+/// A run plus its decision log — returned by `dreaming_get_run`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingRunDetail {
+    pub run: DreamingRunRecord,
+    pub decisions: Vec<DreamingDecisionRecord>,
 }

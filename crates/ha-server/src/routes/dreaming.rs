@@ -17,6 +17,12 @@ pub struct ListDiariesQuery {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ListRunsQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
 use crate::error::AppError;
 
 /// `POST /api/dreaming/run` — kick off a cycle inline (trigger=manual).
@@ -61,4 +67,20 @@ pub async fn idle_status() -> Result<Json<Value>, AppError> {
         "lastActivityEpochSecs": dreaming::last_activity_epoch_secs(),
         "idleMinutes": cfg.dreaming.idle_trigger.idle_minutes,
     })))
+}
+
+/// `GET /api/dreaming/runs?limit=N&offset=M` — durable run history, newest
+/// first. Survives restart, unlike `/last-report`.
+pub async fn list_runs(
+    Query(q): Query<ListRunsQuery>,
+) -> Result<Json<Vec<dreaming::DreamingRunRecord>>, AppError> {
+    Ok(Json(dreaming::list_runs(q.limit, q.offset)?))
+}
+
+/// `GET /api/dreaming/runs/{id}` — a single run plus its decision log.
+/// Returns `null` when the id is unknown (mirrors the Tauri command).
+pub async fn get_run(
+    Path(id): Path<String>,
+) -> Result<Json<Option<dreaming::DreamingRunDetail>>, AppError> {
+    Ok(Json(dreaming::get_run(&id)?))
 }

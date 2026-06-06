@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **记忆梦境（Dreaming）持久化运行历史**：离线记忆固化的每次运行（手动 / 空闲 / 定时）现在落库留痕，重启后仍可在 Dashboard → 记忆梦境查看运行历史与每轮的晋升决策记录；多进程同时触发时通过 SQLite 租约确保只跑一次，崩溃残留的运行 / 租约 / 待处理来源会在下次启动自动恢复清理。新增 `dreaming_list_runs` / `dreaming_get_run` 接口（Tauri + HTTP）。 (#280)
 - **工作台环境信息面板**：工作台顶部新增只读「环境」区块，按普通会话、项目会话、无痕、IM、Cron、Subagent、Plan Mode 与远端 Server 等场景展示运行位置、工作目录来源、权限模式、计划状态、模型与来源信息；Git 工作区会展示分支 / worktree、变更统计、ahead/behind、upstream 与最后提交，remote URL 展示前会移除凭据、query 与 fragment。新增 Tauri / HTTP 会话级环境快照接口，仅通过会话工作区读取本地状态，不注入模型上下文，也不会主动 `git fetch`。 (#269)
 
 ### Changed

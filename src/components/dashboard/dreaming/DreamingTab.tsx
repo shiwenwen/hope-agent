@@ -12,7 +12,11 @@ interface DiaryEntry {
   sizeBytes: number
 }
 
+// Result of a manual run-now. A skipped run (pre-run gate: disabled / overlap
+// / lease contention) has runId=null and is NOT persisted to run history, so
+// its note is surfaced ephemerally instead of silently dropped.
 interface DreamReport {
+  runId?: string | null
   trigger: string
   candidatesScanned: number
   candidatesNominated: number
@@ -22,6 +26,46 @@ interface DreamReport {
   note?: string | null
 }
 
+// Durable run record — mirrors ha-core `DreamingRunRecord` (camelCase).
+// Survives restart, unlike the old in-process last-report snapshot.
+interface DreamingRun {
+  id: string
+  trigger: string
+  phase: string
+  status: string
+  startedAt: string
+  finishedAt?: string | null
+  durationMs: number
+  candidatesScanned: number
+  candidatesNominated: number
+  promotedCount: number
+  decisionCount: number
+  diaryPath?: string | null
+  note?: string | null
+}
+
+interface DreamingDecision {
+  id: string
+  decisionType: string
+  targetType: string
+  targetId?: string | null
+  score?: number | null
+  rationale: string
+  createdAt: string
+}
+
+interface DreamingRunDetail {
+  run: DreamingRun
+  decisions: DreamingDecision[]
+}
+
+const STATUS_DOT: Record<string, string> = {
+  running: "bg-amber-500",
+  completed: "bg-emerald-500",
+  failed: "bg-red-500",
+  skipped: "bg-muted-foreground/50",
+}
+
 export default function DreamingTab() {
   const { t } = useTranslation()
   const [diaries, setDiaries] = useState<DiaryEntry[]>([])
@@ -29,7 +73,12 @@ export default function DreamingTab() {
   const [content, setContent] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
-  const [lastReport, setLastReport] = useState<DreamReport | null>(null)
+  const [runs, setRuns] = useState<DreamingRun[]>([])
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [runDetail, setRunDetail] = useState<DreamingRunDetail | null>(null)
+  // Ephemeral note from the most recent manual run that was skipped before a
+  // durable row existed (cleared when a real cycle completes).
+  const [skipNotice, setSkipNotice] = useState<string | null>(null)
   // Mirror `dreaming.manualEnabled` so flipping the Settings toggle hides
   // the Run-now button instead of leaving it clickable but no-op.
   const [manualEnabled, setManualEnabled] = useState(true)
@@ -43,6 +92,32 @@ export default function DreamingTab() {
       setDiaries(list ?? [])
     } catch (e) {
       logger.error("dashboard", "DreamingTab::list", "Failed to list diaries", e)
+    }
+  }, [])
+
+  // Durable run history — the source of truth for the status summary, so it
+  // survives a restart (the old `dreaming_last_report` was process-local).
+  const loadRuns = useCallback(async () => {
+    try {
+      const list = await getTransport().call<DreamingRun[]>("dreaming_list_runs", {
+        limit: 20,
+      })
+      setRuns(list ?? [])
+    } catch (e) {
+      logger.error("dashboard", "DreamingTab::runs", "Failed to list runs", e)
+    }
+  }, [])
+
+  const loadRunDetail = useCallback(async (runId: string) => {
+    try {
+      const detail = await getTransport().call<DreamingRunDetail | null>(
+        "dreaming_get_run",
+        { id: runId },
+      )
+      setRunDetail(detail ?? null)
+    } catch (e) {
+      logger.error("dashboard", "DreamingTab::runDetail", "Failed to load run", e)
+      setRunDetail(null)
     }
   }, [])
 
@@ -79,10 +154,13 @@ export default function DreamingTab() {
     if (running) return
     setRunning(true)
     setLoading(true)
+    setSkipNotice(null)
     try {
       const report = await getTransport().call<DreamReport>("dreaming_run_now")
-      setLastReport(report)
-      await loadDiaries()
+      // A real cycle gets a durable row (shown in history); a skipped run has
+      // no runId — surface its note so the click isn't silent.
+      setSkipNotice(report && !report.runId ? report.note ?? null : null)
+      await Promise.all([loadDiaries(), loadRuns()])
     } catch (e) {
       logger.error("dashboard", "DreamingTab::run", "Run-now failed", e)
     } finally {
@@ -93,13 +171,23 @@ export default function DreamingTab() {
 
   useEffect(() => {
     loadDiaries()
+    loadRuns()
     refreshStatus()
-    const unlisten = getTransport().listen("dreaming:cycle_complete", () => {
+    const unlistenComplete = getTransport().listen("dreaming:cycle_complete", () => {
+      setSkipNotice(null) // a real cycle ran — clear any stale skip notice
       loadDiaries()
+      loadRuns()
       refreshStatus()
     })
-    return unlisten
-  }, [loadDiaries, refreshStatus])
+    const unlistenStarted = getTransport().listen("dreaming:cycle_started", () => {
+      loadRuns()
+      refreshStatus()
+    })
+    return () => {
+      unlistenComplete()
+      unlistenStarted()
+    }
+  }, [loadDiaries, loadRuns, refreshStatus])
 
   useEffect(() => {
     const sync = async () => {
@@ -131,6 +219,13 @@ export default function DreamingTab() {
     if (selected) void loadContent(selected)
   }, [selected, loadContent])
 
+  useEffect(() => {
+    if (selectedRunId) void loadRunDetail(selectedRunId)
+    else setRunDetail(null)
+  }, [selectedRunId, loadRunDetail])
+
+  const latest = runs[0] ?? null
+
   return (
     <div className="flex flex-col gap-4 mt-4">
       <div className="flex items-center justify-between">
@@ -147,6 +242,7 @@ export default function DreamingTab() {
             variant="outline"
             onClick={() => {
               loadDiaries()
+              loadRuns()
               refreshStatus()
             }}
             disabled={loading}
@@ -172,23 +268,125 @@ export default function DreamingTab() {
         </div>
       </div>
 
-      {lastReport && (
-        <div className="rounded-lg border border-border/60 bg-secondary/20 p-3 text-xs space-y-1">
-          <div className="font-medium">
-            {t("dashboard.dreaming.lastCycle")} (
-            {t(`dashboard.dreaming.trigger.${lastReport.trigger}`)})
-          </div>
-          <div className="text-muted-foreground">
-            {t("dashboard.dreaming.scanned", { count: lastReport.candidatesScanned })} ·{" "}
-            {t("dashboard.dreaming.nominated", { count: lastReport.candidatesNominated })} ·{" "}
-            {t("dashboard.dreaming.promoted", { count: lastReport.promoted.length })} ·{" "}
-            {lastReport.durationMs}ms
-          </div>
-          {lastReport.note && (
-            <div className="text-muted-foreground italic">{lastReport.note}</div>
-          )}
+      {skipNotice && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-muted-foreground italic">
+          {skipNotice}
         </div>
       )}
+
+      {latest && (
+        <div className="rounded-lg border border-border/60 bg-secondary/20 p-3 text-xs space-y-1">
+          <div className="font-medium flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${STATUS_DOT[latest.status] ?? "bg-muted-foreground/50"}`}
+            />
+            {t("dashboard.dreaming.lastCycle")} (
+            {t(`dashboard.dreaming.trigger.${latest.trigger}`, latest.trigger)})
+          </div>
+          <div className="text-muted-foreground">
+            {t("dashboard.dreaming.scanned", { count: latest.candidatesScanned })} ·{" "}
+            {t("dashboard.dreaming.nominated", { count: latest.candidatesNominated })} ·{" "}
+            {t("dashboard.dreaming.promoted", { count: latest.promotedCount })} ·{" "}
+            {latest.durationMs}ms
+          </div>
+          {latest.note && <div className="text-muted-foreground italic">{latest.note}</div>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-[240px_1fr] gap-4">
+        {/* Run history list */}
+        <div className="border border-border/60 rounded-lg overflow-hidden">
+          <div className="px-3 py-2 border-b border-border/60 bg-secondary/20 text-xs font-medium">
+            {t("dashboard.dreaming.runs.title")} ({runs.length})
+          </div>
+          <div className="max-h-[260px] overflow-y-auto">
+            {runs.length === 0 ? (
+              <div className="px-3 py-6 text-xs text-muted-foreground text-center">
+                {t("dashboard.dreaming.runs.empty")}
+              </div>
+            ) : (
+              runs.map((run) => (
+                <button
+                  key={run.id}
+                  onClick={() => setSelectedRunId(run.id)}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-secondary/40 transition-colors border-b border-border/30 ${
+                    selectedRunId === run.id ? "bg-secondary/60 font-medium" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[run.status] ?? "bg-muted-foreground/50"}`}
+                    />
+                    <span className="truncate">
+                      {t(`dashboard.dreaming.trigger.${run.trigger}`, run.trigger)} ·{" "}
+                      {t(`dashboard.dreaming.runs.status.${run.status}`, run.status)}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {new Date(run.startedAt).toLocaleString()} ·{" "}
+                    {t("dashboard.dreaming.promoted", { count: run.promotedCount })}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Selected run detail (decisions) */}
+        <div className="border border-border/60 rounded-lg p-3 overflow-y-auto max-h-[260px]">
+          {runDetail ? (
+            <div className="text-xs space-y-2">
+              <div className="text-muted-foreground">
+                {t("dashboard.dreaming.scanned", {
+                  count: runDetail.run.candidatesScanned,
+                })}{" "}
+                ·{" "}
+                {t("dashboard.dreaming.nominated", {
+                  count: runDetail.run.candidatesNominated,
+                })}{" "}
+                ·{" "}
+                {t("dashboard.dreaming.promoted", {
+                  count: runDetail.run.promotedCount,
+                })}{" "}
+                · {runDetail.run.durationMs}ms
+              </div>
+              {runDetail.run.note && (
+                <div className="text-muted-foreground italic">{runDetail.run.note}</div>
+              )}
+              <div className="font-medium pt-1">
+                {t("dashboard.dreaming.runs.decisions")} ({runDetail.decisions.length})
+              </div>
+              {runDetail.decisions.length === 0 ? (
+                <div className="text-muted-foreground">
+                  {t("dashboard.dreaming.runs.noDecisions")}
+                </div>
+              ) : (
+                <ul className="space-y-1.5">
+                  {runDetail.decisions.map((d) => (
+                    <li key={d.id} className="rounded border border-border/40 px-2 py-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {d.targetType}#{d.targetId ?? "?"}
+                        </span>
+                        {typeof d.score === "number" && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {d.score.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-muted-foreground">{d.rationale}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground text-center py-12">
+              {t("dashboard.dreaming.runs.selectRun")}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-[240px_1fr] gap-4 min-h-[400px]">
         <div className="border border-border/60 rounded-lg overflow-hidden">

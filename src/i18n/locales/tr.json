@@ -744,6 +744,19 @@
         "cron": "cron",
         "idle": "boşta",
         "manual": "el ile"
+      },
+      "runs": {
+        "title": "Çalışma geçmişi",
+        "empty": "Henüz çalışma kaydı yok.",
+        "decisions": "Kararlar",
+        "noDecisions": "Bu çalışmada terfi yok.",
+        "selectRun": "Kararları görmek için bir çalışma seçin.",
+        "status": {
+          "running": "çalışıyor",
+          "completed": "tamamlandı",
+          "failed": "başarısız",
+          "skipped": "atlandı"
+        }
       }
     },
     "error": {

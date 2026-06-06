@@ -185,6 +185,108 @@ impl SqliteMemoryBackend {
             );
         }
 
+        // ── Dreaming durable state (next-gen Dreaming Phase 0) ──────────
+        // Audit trail + cross-process coordination for the offline
+        // consolidation pipeline. Co-located in memory.db (not a separate
+        // dreaming.db) so future claim / evidence tables (Phase 2+) can sync
+        // transactionally against `memories.id`. All timestamps are RFC3339
+        // UTC strings to match the rest of this database; lexical comparison
+        // (`lease_expires_at < now`) is therefore valid for lease expiry.
+        //
+        // Schema mirrors docs/plans/dreaming-next-generation.md §3 with three
+        // parity columns added on `dreaming_runs` (nominated_count,
+        // duration_ms, diary_path) so a durable run losslessly carries what
+        // the in-memory `DreamReport` shows in the Dashboard.
+        //
+        // NOTE: when Phase 1+ starts writing agent/project-scoped
+        // `scope_key`s (e.g. "agent:<id>"), those columns must be registered
+        // with `agent::migration` for the `default → ha-main` rename. Phase 0
+        // only writes global scope, so nothing here needs the rename yet.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS dreaming_runs (
+                id TEXT PRIMARY KEY,
+                trigger TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                status TEXT NOT NULL,
+                owner_instance_id TEXT,
+                heartbeat_at TEXT,
+                lease_expires_at TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                scope_json TEXT NOT NULL DEFAULT '{}',
+                scanned_count INTEGER NOT NULL DEFAULT 0,
+                nominated_count INTEGER NOT NULL DEFAULT 0,
+                decision_count INTEGER NOT NULL DEFAULT 0,
+                promoted_count INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                diary_path TEXT,
+                note TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_runs_started
+                ON dreaming_runs(started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_dreaming_runs_status
+                ON dreaming_runs(status);
+
+            -- Cross-process lease. `lock_key` = phase+scope (e.g. light:global).
+            -- The in-process AtomicBool guards same-process overlap; this row
+            -- guards desktop / server / ACP multi-process overlap.
+            CREATE TABLE IF NOT EXISTS dreaming_locks (
+                lock_key TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                owner_instance_id TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                lease_expires_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_locks_expires
+                ON dreaming_locks(lease_expires_at);
+
+            -- Cross-run scan progress (foundation; the Light scanner still
+            -- uses a time window in Phase 0 and only writes these).
+            CREATE TABLE IF NOT EXISTS dreaming_watermarks (
+                scope_key TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                last_source_id TEXT,
+                last_source_ts TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (scope_key, source_type)
+            );
+
+            -- Durable queue so high-frequency source capture is not lost when
+            -- a lease is held by another run. `updated_at` doubles as the
+            -- claim timestamp for stale-claim recovery.
+            CREATE TABLE IF NOT EXISTS dreaming_pending_sources (
+                id TEXT PRIMARY KEY,
+                scope_key TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_ts TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_pending_sources_scope_status
+                ON dreaming_pending_sources(scope_key, status, created_at);
+
+            -- Machine-readable decision log (turns the Dream Diary into an
+            -- auditable event stream). Phase 0 writes only `promote` rows.
+            CREATE TABLE IF NOT EXISTS dreaming_decisions (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                decision_type TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT,
+                score REAL,
+                rationale TEXT NOT NULL,
+                before_json TEXT,
+                after_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES dreaming_runs(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_decisions_run
+                ON dreaming_decisions(run_id);",
+        )?;
+
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
         for _ in 0..READ_POOL_SIZE {

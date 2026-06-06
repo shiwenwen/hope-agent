@@ -99,7 +99,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | 事件名 | 触发点 |
 |---|---|
 | `core_memory_updated` / `memory_extracted` | tools/memory.rs 及自动提取 |
-| `dreaming:cycle_complete` | dreaming 固化周期 |
+| `dreaming:cycle_started` / `dreaming:cycle_complete` | dreaming 固化周期开始 / 结束（payload 含 `runId`） |
 | `cron:run_completed` | cron/executor.rs |
 | `async_tool_job:completed` / `async_tool_job:updated` / `async_tool_job:mark_injected_failed` | 异步 tool 执行器（与 [`transport-modes.md`](transport-modes.md) 保持一致；`updated` 覆盖运行中状态变化，`mark_injected_failed` 覆盖结果注入主对话失败） |
 | `app_update:progress` / `app_update:completed` | 自升级 (`app_update` 工具) 进度上报。`progress` payload `{ job_id, label, phase, percent?, written?, total? }`（每 5% / 1s 节流）；`completed` payload `{ job_id, status: "done"|"failed", outcome?, error? }`，详见 [`self-update.md`](self-update.md) |
@@ -360,6 +360,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dreaming_is_running` | `GET /api/dreaming/status` | ✅ |
 | `dreaming_last_report` | `GET /api/dreaming/last-report` | ✅ |
 | `dreaming_idle_status` | `GET /api/dreaming/idle-status` | ✅ |
+| `dreaming_list_runs` | `GET /api/dreaming/runs` | ✅ |
+| `dreaming_get_run` | `GET /api/dreaming/runs/{id}` | ✅ |
 | `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
 | `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
 | `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |

@@ -744,6 +744,19 @@
         "cron": "定時觸發",
         "idle": "閒置觸發",
         "manual": "手動觸發"
+      },
+      "runs": {
+        "title": "運行歷史",
+        "empty": "暫無運行記錄",
+        "decisions": "決策記錄",
+        "noDecisions": "本輪沒有晉升記憶",
+        "selectRun": "選擇一次運行查看其決策",
+        "status": {
+          "running": "運行中",
+          "completed": "已完成",
+          "failed": "失敗",
+          "skipped": "已跳過"
+        }
       }
     },
     "error": {

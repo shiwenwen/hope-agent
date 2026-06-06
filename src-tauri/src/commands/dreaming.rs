@@ -61,3 +61,21 @@ pub async fn dreaming_idle_status() -> Result<DreamingIdleStatus, CmdError> {
         idle_minutes: cfg.dreaming.idle_trigger.idle_minutes,
     })
 }
+
+/// List durable run records, newest first. Survives restart (unlike
+/// `dreaming_last_report`, which is process-local). Maps to
+/// `GET /api/dreaming/runs`.
+#[tauri::command]
+pub async fn dreaming_list_runs(
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<dreaming::DreamingRunRecord>, CmdError> {
+    dreaming::list_runs(limit, offset).map_err(Into::into)
+}
+
+/// Fetch a single run plus its decision log. Returns `null` if the id is
+/// unknown. Maps to `GET /api/dreaming/runs/{id}`.
+#[tauri::command]
+pub async fn dreaming_get_run(id: String) -> Result<Option<dreaming::DreamingRunDetail>, CmdError> {
+    dreaming::get_run(&id).map_err(Into::into)
+}

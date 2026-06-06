@@ -166,10 +166,16 @@ pub fn init_runtime(role: &'static str) {
         paths::memory_db_path(),
         "Cannot resolve memory database path",
     );
-    let memory_backend: Arc<dyn memory::MemoryBackend> = Arc::new(fatal(
+    // Build the concrete backend Arc once: the trait object goes into
+    // MEMORY_BACKEND, and a clone seeds the Dreaming durable store. The
+    // dreaming_* tables live in the same memory.db, so the store reuses this
+    // backend's write/read connections rather than opening its own.
+    let sqlite_backend = Arc::new(fatal(
         memory::SqliteMemoryBackend::open(&memory_db_path),
         "Cannot open memory database",
     ));
+    crate::memory::dreaming::init_store(sqlite_backend.clone());
+    let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 
     // Auto-initialize memory embedding model if enabled in config
@@ -335,6 +341,11 @@ pub fn init_runtime(role: &'static str) {
         // Backstop the live close-on-leave path: incognito sessions left from a
         // crash / SIGKILL / power loss never reach the frontend purge call.
         crate::session::cleanup_orphan_incognito(&session_db);
+
+        // Recover crash-orphaned Dreaming state from a previous process:
+        // fail stale `running` rows, clear expired locks, and return abandoned
+        // `claimed` pending sources to the queue (next-gen Dreaming Phase 0).
+        crate::memory::dreaming::recover_on_startup();
 
         // One-shot rename of the legacy `"default"` agent id to the new
         // hardcoded `DEFAULT_AGENT_ID` (`"ha-main"`). Idempotent — writes a
@@ -851,6 +862,10 @@ pub async fn start_background_tasks() {
         // Retention sweep for recap session facets. Runs once at startup and
         // then once per day. Disabled when `recap.cache_retention_days == 0`.
         crate::recap::spawn_facet_retention_loop();
+
+        // Retention sweep for the Dreaming pending-source queue + expired
+        // locks (next-gen Dreaming Phase 0). Runs once at startup, then daily.
+        crate::memory::dreaming::spawn_retention_loop();
 
         // Dreaming idle-trigger loop (Phase B3). Every minute, check whether
         // the app has been idle long enough and fire an offline consolidation

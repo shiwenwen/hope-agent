@@ -744,6 +744,19 @@
         "cron": "cron",
         "idle": "nhàn rỗi",
         "manual": "thủ công"
+      },
+      "runs": {
+        "title": "Lịch sử chạy",
+        "empty": "Chưa có lần chạy nào.",
+        "decisions": "Quyết định",
+        "noDecisions": "Không có mục nào được thăng trong lần chạy này.",
+        "selectRun": "Chọn một lần chạy để xem quyết định.",
+        "status": {
+          "running": "đang chạy",
+          "completed": "hoàn tất",
+          "failed": "thất bại",
+          "skipped": "đã bỏ qua"
+        }
       }
     },
     "error": {
