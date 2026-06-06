@@ -86,12 +86,12 @@ mod imp {
             "desktop_folder" => folder_status("Desktop"),
             "documents_folder" => folder_status("Documents"),
             "downloads_folder" => folder_status("Downloads"),
+            "system_audio_capture" => SystemPermissionStatus::NotUsed,
             "homekit" => SystemPermissionStatus::NotUsed,
             "automation_system_events"
             | "automation_messages"
             | "app_management"
             | "developer_tools"
-            | "system_audio_capture"
             | "removable_volumes"
             | "network_volumes"
             | "media_library"
@@ -126,6 +126,7 @@ mod imp {
             "photos" => request_photos(def),
             "bluetooth" => request_bluetooth(def),
             "speech_recognition" => request_speech(def),
+            "notifications" => request_notifications(def),
             "automation_system_events" => {
                 trigger_automation_probe("System Events");
                 open_settings_pane(def.settings_pane);
@@ -483,6 +484,38 @@ mod imp {
         receiver
             .recv_timeout(Duration::from_secs(2))
             .unwrap_or(SystemPermissionStatus::ManualCheck)
+    }
+
+    fn request_notifications(def: PermissionDef) -> SystemPermissionStatus {
+        let status = notification_status();
+        if let Some(status) = requestable_status_or_open(def, status) {
+            return status;
+        }
+        if !running_from_app_bundle() {
+            open_settings_pane(def.settings_pane);
+            return SystemPermissionStatus::ManualCheck;
+        }
+
+        let Some(cls) = objc_class(c"UNUserNotificationCenter") else {
+            return SystemPermissionStatus::NotApplicable;
+        };
+        let center: Retained<AnyObject> = unsafe { msg_send![cls, currentNotificationCenter] };
+        let (sender, receiver) = mpsc::channel();
+        let block = RcBlock::new(move |granted: Bool, _error: *mut AnyObject| {
+            let _ = sender.send(bool_status(granted.as_bool()));
+        });
+
+        // UNAuthorizationOptionBadge | Sound | Alert
+        let options: usize = (1 << 0) | (1 << 1) | (1 << 2);
+        unsafe {
+            let _: () = msg_send![
+                &*center,
+                requestAuthorizationWithOptions: options,
+                completionHandler: &*block
+            ];
+        }
+
+        wait_for_prompt(def.id, receiver)
     }
 
     fn full_disk_access_status() -> SystemPermissionStatus {
