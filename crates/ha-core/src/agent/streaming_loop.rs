@@ -16,11 +16,11 @@ use futures_util::future::join_all;
 use serde_json::json;
 
 use super::api_types::FunctionCallItem;
+use super::content::build_user_content_for_provider;
 use super::events::{
     emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_call_args_rewritten,
     emit_tool_result, emit_usage, extract_media_items,
 };
-use super::content::build_user_content_for_provider;
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
 use super::types::{AssistantAgent, ChatUsage};
 use crate::tools::{self, ToolExecContext};

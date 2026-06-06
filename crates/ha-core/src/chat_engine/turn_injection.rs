@@ -115,11 +115,12 @@ pub fn enqueue(args: QueueTurnUserMessageArgs) -> QueueTurnUserMessageResult {
         plan_comment: args.plan_comment,
         source: active.source,
     };
-    let mut map = registry()
-        .lock()
-        .expect("turn injection registry poisoned");
+    let mut map = registry().lock().expect("turn injection registry poisoned");
     let queue = map.entry(key(&args.session_id, &args.turn_id)).or_default();
-    if queue.iter().any(|existing| existing.request_id == request_id) {
+    if queue
+        .iter()
+        .any(|existing| existing.request_id == request_id)
+    {
         return QueueTurnUserMessageResult {
             queued: true,
             request_id,
@@ -135,14 +136,8 @@ pub fn enqueue(args: QueueTurnUserMessageArgs) -> QueueTurnUserMessageResult {
     }
 }
 
-pub fn cancel(
-    session_id: &str,
-    turn_id: &str,
-    request_id: &str,
-) -> CancelQueuedTurnMessageResult {
-    let mut map = registry()
-        .lock()
-        .expect("turn injection registry poisoned");
+pub fn cancel(session_id: &str, turn_id: &str, request_id: &str) -> CancelQueuedTurnMessageResult {
+    let mut map = registry().lock().expect("turn injection registry poisoned");
     let queue_key = key(session_id, turn_id);
     let (cancelled, empty) = {
         let Some(queue) = map.get_mut(&queue_key) else {
@@ -159,9 +154,7 @@ pub fn cancel(
 }
 
 pub(crate) fn drain(session_id: &str, turn_id: &str) -> Vec<QueuedTurnUserMessage> {
-    let mut map = registry()
-        .lock()
-        .expect("turn injection registry poisoned");
+    let mut map = registry().lock().expect("turn injection registry poisoned");
     map.remove(&key(session_id, turn_id))
         .unwrap_or_default()
         .into_iter()
@@ -169,9 +162,7 @@ pub(crate) fn drain(session_id: &str, turn_id: &str) -> Vec<QueuedTurnUserMessag
 }
 
 pub(crate) fn clear_turn(session_id: &str, turn_id: &str) {
-    let mut map = registry()
-        .lock()
-        .expect("turn injection registry poisoned");
+    let mut map = registry().lock().expect("turn injection registry poisoned");
     map.remove(&key(session_id, turn_id));
 }
 
@@ -223,7 +214,10 @@ mod tests {
         assert!(first.queued);
         assert!(second.queued);
         let drained = drain(&session_id, &turn_id);
-        let ids: Vec<_> = drained.iter().map(|item| item.request_id.as_str()).collect();
+        let ids: Vec<_> = drained
+            .iter()
+            .map(|item| item.request_id.as_str())
+            .collect();
         assert_eq!(ids, vec!["first", "second"]);
         assert!(drain(&session_id, &turn_id).is_empty());
     }
