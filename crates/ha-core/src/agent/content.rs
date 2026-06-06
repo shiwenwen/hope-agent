@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::types::Attachment;
+use super::types::{Attachment, ProviderFormat};
 use crate::file_extract;
 
 /// Process non-image attachments: extract text and images from files (PDF, Word, Excel, PPT, text).
@@ -277,4 +277,18 @@ pub(super) fn build_user_content_responses(
 
     parts.push(json!({ "type": "input_text", "text": full_message }));
     json!(parts)
+}
+
+pub(super) fn build_user_content_for_provider(
+    provider_format: ProviderFormat,
+    message: &str,
+    attachments: &[Attachment],
+) -> serde_json::Value {
+    match provider_format {
+        ProviderFormat::Anthropic => build_user_content_anthropic(message, attachments),
+        ProviderFormat::OpenAIChat => build_user_content_openai_chat(message, attachments),
+        ProviderFormat::OpenAIResponses | ProviderFormat::Codex => {
+            build_user_content_responses(message, attachments)
+        }
+    }
 }

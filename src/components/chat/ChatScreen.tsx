@@ -2099,6 +2099,7 @@ export default function ChatScreen({
                     }}
                     onJumpToQuote={handleQuoteJump}
                     pendingMessage={stream.pendingMessage}
+                    pendingSends={stream.pendingSends}
                     onCancelPending={() => {
                       stream.setInput(stream.pendingMessage || "")
                       stream.setPendingMessage(null)
@@ -2106,6 +2107,10 @@ export default function ChatScreen({
                     onDiscardPending={() => {
                       stream.setPendingMessage(null)
                     }}
+                    onEditPending={stream.editPendingSend}
+                    onDiscardPendingItem={stream.discardPendingSend}
+                    onForceInsertPending={stream.forceInsertPendingSend}
+                    onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
                     onStop={stream.handleStop}
                     currentSessionId={session.currentSessionId}
                     currentAgentId={session.currentAgentId}

@@ -104,6 +104,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Chat --
   chat:                            { method: "POST",   path: "/api/chat" },
+  queue_turn_user_message:         { method: "POST",   path: "/api/chat/turn-message" },
+  cancel_queued_turn_user_message: { method: "POST",   path: "/api/chat/turn-message/cancel" },
   stop_chat:                       { method: "POST",   path: "/api/chat/stop" },
   cancel_runtime_task:             { method: "POST",   path: "/api/runtime-tasks/cancel" },
 

@@ -242,6 +242,14 @@ fn build_router_with_cors(
         )
         // Chat
         .route("/chat", post(routes::chat::chat))
+        .route(
+            "/chat/turn-message",
+            post(routes::chat::queue_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/cancel",
+            post(routes::chat::cancel_queued_turn_user_message),
+        )
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
             "/sessions/{sessionId}/tasks",

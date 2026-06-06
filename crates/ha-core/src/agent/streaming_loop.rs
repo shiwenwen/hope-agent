@@ -20,6 +20,7 @@ use super::events::{
     emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_call_args_rewritten,
     emit_tool_result, emit_usage, extract_media_items,
 };
+use super::content::build_user_content_for_provider;
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
 use super::types::{AssistantAgent, ChatUsage};
 use crate::tools::{self, ToolExecContext};
@@ -183,6 +184,155 @@ async fn fire_post_tool_use_hook(
         clean_result.push_str("\n\n<hook-context>\n");
         clean_result.push_str(&extra);
         clean_result.push_str("\n</hook-context>");
+    }
+}
+
+async fn drain_queued_turn_user_messages<F>(
+    agent: &AssistantAgent,
+    adapter: &dyn StreamingChatAdapter,
+    messages: &mut Vec<serde_json::Value>,
+    on_delta: &F,
+) where
+    F: Fn(&str) + Send + Sync,
+{
+    let Some(session_id) = agent.session_id.as_deref() else {
+        return;
+    };
+    let Some(active) = crate::chat_engine::active_turn::current(session_id) else {
+        return;
+    };
+    if !matches!(
+        active.source,
+        crate::chat_engine::stream_seq::ChatSource::Desktop
+            | crate::chat_engine::stream_seq::ChatSource::Http
+    ) {
+        return;
+    }
+
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+    let queued = crate::chat_engine::turn_injection::drain(session_id, &active.turn_id);
+    if queued.is_empty() {
+        return;
+    }
+
+    for mut item in queued {
+        if active.cancel.load(Ordering::SeqCst) {
+            break;
+        }
+        let raw_prompt =
+            crate::util::non_empty_trim_or(item.display_text.as_deref(), &item.message);
+        let effective_prompt = match crate::agent::preflight::user_prompt_preflight(
+            crate::agent::preflight::PreflightArgs {
+                session_id,
+                agent_id: Some(&agent.agent_id),
+                raw_prompt,
+            },
+        )
+        .await
+        {
+            crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+                if let Some(extra) = crate::hooks::take_user_prompt_context(session_id) {
+                    agent.push_pending_hook_context(extra);
+                }
+                effective_prompt
+            }
+            crate::agent::preflight::PreflightOutcome::Block { reason } => {
+                let notice = if reason.trim().is_empty() {
+                    "🚫 Prompt blocked by a UserPromptSubmit hook.".to_string()
+                } else {
+                    format!("🚫 {reason}")
+                };
+                let _ = db.append_message(
+                    session_id,
+                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                );
+                if let Ok(event) = serde_json::to_string(&json!({
+                    "type": "queued_user_message_blocked",
+                    "request_id": item.request_id,
+                    "session_id": item.session_id,
+                    "turn_id": item.turn_id,
+                    "reason": notice,
+                })) {
+                    on_delta(&event);
+                }
+                continue;
+            }
+        };
+
+        let attachment_meta = match crate::attachments::persist_chat_user_attachments_meta(
+            session_id,
+            &mut item.attachments,
+        ) {
+            Ok(meta) => meta,
+            Err(err) => {
+                let notice = format!("🚫 Failed to insert queued message attachments: {err}");
+                let _ = db.append_message(
+                    session_id,
+                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                );
+                if let Ok(event) = serde_json::to_string(&json!({
+                    "type": "queued_user_message_blocked",
+                    "request_id": item.request_id,
+                    "session_id": item.session_id,
+                    "turn_id": item.turn_id,
+                    "reason": notice,
+                })) {
+                    on_delta(&event);
+                }
+                continue;
+            }
+        };
+        let attachments_meta = crate::session::build_chat_user_attachments_meta(
+            item.is_plan_trigger,
+            item.plan_comment.as_ref(),
+            attachment_meta,
+        );
+        let mut user_msg =
+            crate::session::NewMessage::user(&effective_prompt).with_source(item.source);
+        user_msg.attachments_meta = attachments_meta.clone();
+        let message_id = match db.append_message(session_id, &user_msg) {
+            Ok(id) => id,
+            Err(err) => {
+                let notice = format!("🚫 Failed to insert queued message: {err}");
+                let _ = db.append_message(
+                    session_id,
+                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                );
+                if let Ok(event) = serde_json::to_string(&json!({
+                    "type": "queued_user_message_blocked",
+                    "request_id": item.request_id,
+                    "session_id": item.session_id,
+                    "turn_id": item.turn_id,
+                    "reason": notice,
+                })) {
+                    on_delta(&event);
+                }
+                continue;
+            }
+        };
+
+        let user_content = build_user_content_for_provider(
+            adapter.provider_format(),
+            &item.message,
+            &item.attachments,
+        );
+        AssistantAgent::push_user_message(messages, user_content);
+
+        if let Ok(event) = serde_json::to_string(&json!({
+            "type": "queued_user_message_inserted",
+            "request_id": item.request_id,
+            "session_id": item.session_id,
+            "turn_id": item.turn_id,
+            "message_id": message_id,
+            "content": effective_prompt,
+            "attachments_meta": attachments_meta,
+            "is_plan_trigger": item.is_plan_trigger,
+            "plan_comment": item.plan_comment,
+        })) {
+            on_delta(&event);
+        }
     }
 }
 
@@ -758,6 +908,8 @@ impl AssistantAgent {
             // native shape (Anthropic content blocks / OpenAI tool_calls /
             // Responses function_call+function_call_output items).
             adapter.append_round_to_history(&mut messages, round, &outcome, &executed);
+
+            drain_queued_turn_user_messages(self, adapter, &mut messages, on_delta).await;
 
             self.check_manual_memory_save(&outcome.tool_calls);
 

@@ -156,6 +156,9 @@ impl StreamLifecycle {
         if let Some(ref stream_id) = self.stream_id {
             let released = stream_seq::end_if_stream(&self.session_id, stream_id);
             if !released {
+                if let Some(ref turn_id) = self.turn_id {
+                    super::turn_injection::clear_turn(&self.session_id, turn_id);
+                }
                 self.finished = true;
                 return;
             }
@@ -169,6 +172,9 @@ impl StreamLifecycle {
                     self.terminal_error.as_deref(),
                 );
             }
+        }
+        if let Some(ref turn_id) = self.turn_id {
+            super::turn_injection::clear_turn(&self.session_id, turn_id);
         }
         self.finished = true;
     }

@@ -173,6 +173,8 @@ pub fn run() {
             commands::auth::set_reasoning_effort,
             // Chat
             commands::chat::save_attachment,
+            commands::chat::queue_turn_user_message,
+            commands::chat::cancel_queued_turn_user_message,
             commands::chat::chat,
             commands::chat::stop_chat,
             commands::runtime_tasks::cancel_runtime_task,

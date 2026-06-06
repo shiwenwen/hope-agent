@@ -15,12 +15,14 @@ import {
   ClipboardList,
   Pencil,
   Trash2,
-  MoreHorizontal,
   BetweenHorizontalStart,
+  ChevronDown,
+  ChevronUp,
   X,
   Plus,
   FolderPlus,
   Quote,
+  Undo2,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type {
@@ -29,6 +31,7 @@ import type {
   ChatTurnStatus,
   SessionMode,
   PendingFileQuote,
+  PendingSendPreview,
 } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
@@ -90,8 +93,13 @@ interface ChatInputProps {
   /** Click a staged quote chip to reveal that file in the file browser. */
   onJumpToQuote?: (q: PendingFileQuote) => void
   pendingMessage?: string | null
+  pendingSends?: PendingSendPreview[]
   onCancelPending?: () => void
   onDiscardPending?: () => void
+  onEditPending?: (id: string) => void
+  onDiscardPendingItem?: (id: string) => void
+  onForceInsertPending?: (id: string) => void
+  onCancelForceInsertPending?: (id: string) => void
   onStop?: () => void
   // Slash command support
   currentSessionId?: string | null
@@ -145,8 +153,13 @@ export default function ChatInput({
   onRemoveQuote,
   onJumpToQuote,
   pendingMessage,
+  pendingSends,
   onCancelPending,
   onDiscardPending,
+  onEditPending,
+  onDiscardPendingItem,
+  onForceInsertPending,
+  onCancelForceInsertPending,
   onStop,
   currentSessionId,
   currentAgentId = DEFAULT_AGENT_ID,
@@ -175,6 +188,7 @@ export default function ChatInput({
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
   const [toolbarCompact, setToolbarCompact] = useState(false)
   const [toolbarStacked, setToolbarStacked] = useState(false)
+  const [pendingExpanded, setPendingExpanded] = useState(false)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -495,6 +509,57 @@ export default function ChatInput({
   // 状态条是否会渲染（WorkspaceStatusBar 内部同款判断）——决定其下方 Plan
   // Banner 是否需要补顶部圆角。
   const hasVisibleTaskBar = shouldShowTaskProgressPanel(taskProgressSnapshot)
+  const pendingQueueItems: PendingSendPreview[] =
+    pendingSends && pendingSends.length > 0
+      ? pendingSends
+      : pendingMessage
+        ? [
+            {
+              id: "__legacy__",
+              text: pendingMessage,
+              mode: "queue",
+              status: "queued",
+              canForceInsert: false,
+              attachmentCount: 0,
+              quoteCount: 0,
+            },
+          ]
+        : []
+  const pendingVisibleItems = pendingExpanded
+    ? pendingQueueItems
+    : pendingQueueItems.slice(0, 2)
+  const hasPendingQueue = loading && pendingQueueItems.length > 0
+
+  const pendingStatusLabel = (item: PendingSendPreview) => {
+    switch (item.status) {
+      case "waiting_tool_boundary":
+        return t("chat.pendingWaitingToolBoundary", "等待工具完成点")
+      case "inserted":
+        return t("chat.pendingInserted", "已插入")
+      case "fallback_after_reply":
+        return t("chat.pendingFallbackAfterReply", "回复后发送")
+      case "queued":
+      default:
+        return t("chat.pendingQueuedShort", "排队中")
+    }
+  }
+
+  const pendingStatusTip = (item: PendingSendPreview) => {
+    switch (item.status) {
+      case "waiting_tool_boundary":
+        return t(
+          "chat.pendingWaitingToolBoundaryTip",
+          "等待最近一次工具调用完成；如果本轮不再调用工具，将改为回复结束后发送。",
+        )
+      case "fallback_after_reply":
+        return t("chat.pendingFallbackAfterReplyTip", "未遇到工具完成点，将在当前回复结束后发送。")
+      case "inserted":
+        return t("chat.pendingInsertedTip", "已在本轮工具完成后插入给模型。")
+      case "queued":
+      default:
+        return t("chat.pendingQueuedTip", "已加入待发送队列，将在当前回复结束后发送。")
+    }
+  }
 
   const renderInlineAddControls = () => (
     <>
@@ -657,49 +722,120 @@ export default function ChatInput({
           </div>
         </AnimatedCollapse>
 
-        {/* Pending message card */}
-        <AnimatedCollapse open={loading && !!pendingMessage}>
+        {/* Pending send queue */}
+        <AnimatedCollapse open={hasPendingQueue}>
           <div className="px-3 pt-2.5 pb-0 animate-in fade-in-0 slide-in-from-top-1 duration-200">
-            <div className="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
-              <BetweenHorizontalStart className="h-4 w-4 text-amber-500 shrink-0" />
-              <span className="flex-1 text-sm text-foreground/90 truncate">{pendingMessage}</span>
-              <IconTip label={t("chat.pendingDelete")}>
-                <button
-                  className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  onClick={onDiscardPending}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="min-w-[140px] bg-surface-floating/95 backdrop-blur-xl border border-border-soft rounded-floating shadow-floating p-1.5 z-50 animate-in fade-in-0 zoom-in-95 duration-150"
-                    sideOffset={6}
-                    align="end"
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/8 px-2.5 py-2">
+              <div className="mb-1.5 flex items-center gap-2">
+                <BetweenHorizontalStart className="h-4 w-4 shrink-0 text-amber-500" />
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/80">
+                  {t("chat.pendingQueueTitle", "待发送")} · {pendingQueueItems.length}
+                </span>
+                {pendingQueueItems.length > 2 && (
+                  <IconTip
+                    label={
+                      pendingExpanded
+                        ? t("common.collapse", "收起")
+                        : t("common.expand", "展开")
+                    }
                   >
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground/80 rounded-md cursor-pointer transition-colors hover:bg-secondary/60 hover:text-foreground outline-none"
-                      onSelect={onCancelPending}
+                    <button
+                      type="button"
+                      onClick={() => setPendingExpanded((v) => !v)}
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                      {t("chat.pendingEdit")}
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground/80 rounded-md cursor-pointer transition-colors hover:bg-secondary/60 hover:text-foreground outline-none"
-                      onSelect={onDiscardPending}
+                      {pendingExpanded ? (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </IconTip>
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {pendingVisibleItems.map((item) => {
+                  const edit = () =>
+                    item.id === "__legacy__" ? onCancelPending?.() : onEditPending?.(item.id)
+                  const discard = () =>
+                    item.id === "__legacy__"
+                      ? onDiscardPending?.()
+                      : onDiscardPendingItem?.(item.id)
+                  const readonly = item.status === "inserted"
+                  const canCancelForce =
+                    item.mode === "force_insert" && item.status === "waiting_tool_boundary"
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex min-w-0 items-center gap-1.5 rounded-md bg-background/45 px-2 py-1.5"
                     >
-                      <X className="h-3.5 w-3.5" />
-                      {t("chat.pendingDiscard")}
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+                      <IconTip label={pendingStatusTip(item)}>
+                        <span className="shrink-0 rounded-sm bg-amber-500/12 px-1.5 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                          {pendingStatusLabel(item)}
+                        </span>
+                      </IconTip>
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                        {item.text}
+                        {(item.attachmentCount > 0 || item.quoteCount > 0) && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            +{item.attachmentCount + item.quoteCount}
+                          </span>
+                        )}
+                      </span>
+                      {canCancelForce ? (
+                        <IconTip label={t("chat.pendingCancelForceInsert", "取消插入本轮")}>
+                          <button
+                            type="button"
+                            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            onClick={() => onCancelForceInsertPending?.(item.id)}
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      ) : (
+                        item.canForceInsert && (
+                          <IconTip
+                            label={t(
+                              "chat.pendingForceInsertTip",
+                              "会等正在执行的工具完成后插入给模型，不会打断当前工具。",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              onClick={() => onForceInsertPending?.(item.id)}
+                            >
+                              <BetweenHorizontalStart className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                        )
+                      )}
+                      {!readonly && (
+                        <>
+                          <IconTip label={t("chat.pendingEdit")}>
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              onClick={edit}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                          <IconTip label={t("chat.pendingDelete")}>
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              onClick={discard}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </AnimatedCollapse>
@@ -707,7 +843,7 @@ export default function ChatInput({
         {/* Plan Mode Banner */}
         <AnimatedCollapse open={planState === "planning"}>
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskBar && attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
+            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskBar && attachedFiles.length === 0 && !hasPendingQueue ? " rounded-t-2xl" : ""}`}
           >
             <ClipboardList className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1">{t("planMode.restricted")}</span>
@@ -735,7 +871,7 @@ export default function ChatInput({
             placeholder={
               planState === "planning"
                 ? t("planMode.placeholder")
-                : loading && pendingMessage
+                : hasPendingQueue
                   ? t("chat.pendingQueued")
                   : t("chat.askAnything")
             }
@@ -897,7 +1033,7 @@ export default function ChatInput({
               state={voice.state}
               durationMs={voice.durationMs}
               audioLevel={voice.audioLevel}
-              disabled={loading && !!pendingMessage}
+              disabled={false}
               onStart={() => void startVoice()}
               onStop={() => void handleVoiceStop()}
               onCancel={handleVoiceCancel}
@@ -932,7 +1068,7 @@ export default function ChatInput({
                 size="icon"
                 className="h-8 w-8 rounded-full shrink-0"
                 onClick={onSend}
-                disabled={!hasSendableContent || (loading && !!pendingMessage)}
+                disabled={!hasSendableContent}
                 aria-label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
               >
                 <Send className="h-4 w-4" />
