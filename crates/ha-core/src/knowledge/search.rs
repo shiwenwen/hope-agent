@@ -144,3 +144,93 @@ pub fn search_notes(
     }
     Ok(hits)
 }
+
+/// Vector-only "similar notes" (WS4 `note_similar`): embed `source_text`, KNN over
+/// chunks, aggregate to the best chunk per note, exclude `source_note_id`, return
+/// up to `k` notes ordered by similarity. Returns empty when vector search is not
+/// enabled (no embedder / no active signature) — the tool layer surfaces that.
+/// **Errors** (rather than returning empty) when the embedding call itself fails,
+/// so a transient outage isn't reported to the user as "no similar notes"; this is
+/// the vector-only path with no FTS fallback. `note_related` tolerates the error
+/// (degrades to link/tag recall); `note_similar` surfaces it.
+pub fn similar_notes(
+    db: &IndexDb,
+    kb_ids: &[String],
+    source_note_id: i64,
+    source_text: &str,
+    k: usize,
+) -> anyhow::Result<Vec<NoteSearchHit>> {
+    if kb_ids.is_empty() || k == 0 || source_text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let (Some(embedder), Some(signature)) = (
+        db.embedder(),
+        super::embedding::knowledge_active_embedding_signature(),
+    ) else {
+        return Ok(Vec::new());
+    };
+    let query = embedder
+        .embed(source_text)
+        .map_err(|e| anyhow::anyhow!("knowledge embedding failed: {e}"))?;
+    // Over-fetch generously: the source note's own chunks (excluded below) sit at
+    // the top of its own similarity ranking, so a multi-chunk source would starve
+    // the k budget with a tighter window.
+    let fetch = (k * 8).max(48);
+    let hits = db.vec_search(kb_ids, &query, &signature, fetch)?;
+
+    // Best (lowest distance) chunk per note, excluding the source note itself.
+    let mut best: HashMap<i64, (i64, f64)> = HashMap::new();
+    for (chunk_id, note_id, dist) in hits {
+        if note_id == source_note_id {
+            continue;
+        }
+        best.entry(note_id)
+            .and_modify(|(bc, bd)| {
+                if dist < *bd {
+                    *bc = chunk_id;
+                    *bd = dist;
+                }
+            })
+            .or_insert((chunk_id, dist));
+    }
+    let mut ranked: Vec<(i64, i64, f64)> = best.into_iter().map(|(n, (c, d))| (n, c, d)).collect();
+    // Distance asc, then note_id for a deterministic tiebreak (HashMap iteration
+    // order is randomized, so equal-distance notes would otherwise swap per run).
+    ranked.sort_by(|a, b| {
+        a.2.partial_cmp(&b.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    ranked.truncate(k);
+    if ranked.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let chunk_ids: Vec<i64> = ranked.iter().map(|(_, c, _)| *c).collect();
+    let note_ids: Vec<i64> = ranked.iter().map(|(n, _, _)| *n).collect();
+    let snippets = db.chunk_snippets(&chunk_ids)?;
+    let notes = db.notes_for_ids(&note_ids)?;
+
+    let mut out = Vec::new();
+    for (note_id, chunk_id, dist) in ranked {
+        let Some((kb_id, rel_path, title)) = notes.get(&note_id) else {
+            continue;
+        };
+        let (snippet, heading_path, start_line) = snippets
+            .get(&chunk_id)
+            .map(|(b, h, l)| (truncate_utf8(b, SNIPPET_BYTES).to_string(), h.clone(), *l))
+            .unwrap_or_default();
+        out.push(NoteSearchHit {
+            kb_id: kb_id.clone(),
+            note_id,
+            rel_path: rel_path.clone(),
+            title: title.clone(),
+            // Map cosine/L2 distance to a 0–1 similarity for display/ranking.
+            score: (1.0 / (1.0 + dist.max(0.0))) as f32,
+            snippet,
+            heading_path,
+            start_line,
+        });
+    }
+    Ok(out)
+}

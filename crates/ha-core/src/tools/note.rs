@@ -6,7 +6,7 @@
 //! the v4.6 contract. Mutations re-index synchronously and emit
 //! `knowledge:changed`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
@@ -577,10 +577,7 @@ pub(crate) async fn tool_note_graph(args: &Value, ctx: &ToolExecContext) -> Resu
             // Cap the ego neighbourhood too — a hub note at depth 3 can pull in a
             // whole connected component; the cap bounds the tool output + sets
             // `truncated` so the model isn't told an oversized result is complete.
-            knowledge::graph::cap_nodes(
-                knowledge::graph::ego_subgraph(&full, center, depth),
-                200,
-            )
+            knowledge::graph::cap_nodes(knowledge::graph::ego_subgraph(&full, center, depth), 200)
         }
         None => knowledge::graph::cap_nodes(full, 200),
     };
@@ -593,6 +590,617 @@ pub(crate) async fn tool_note_graph(args: &Value, ctx: &ToolExecContext) -> Resu
         "nodes": graph.nodes,
         "edges": graph.edges,
     }))?)
+}
+
+// ── Tools: smart retrieval (WS4) ────────────────────────────────
+
+/// Resolve a note reference to `(kb_id, note, raw_content)` over the accessible
+/// set — the shared front-half of the retrieval/AI tools.
+fn read_resolved_note(
+    ctx: &ToolExecContext,
+    kb_opt: Option<&str>,
+    reference: &str,
+) -> Result<(String, knowledge::Note, String)> {
+    let (kb_id, rel) = resolve_target(ctx, kb_opt, reference)?;
+    let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+    let note = db
+        .get_note_by_rel_path(&kb_id, &rel)?
+        .ok_or_else(|| anyhow!("note not indexed yet: {}", rel))?;
+    let scope = read_scope(&kb_id)?;
+    let bytes = read_note_raw(&scope, &rel)?;
+    let content = String::from_utf8_lossy(&bytes).to_string();
+    Ok((kb_id, note, content))
+}
+
+/// `note_similar({kb?, note, k?})` — vector nearest-neighbour notes.
+pub(crate) async fn tool_note_similar(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let reference = str_arg(args, "note")
+        .or_else(|| str_arg(args, "path"))
+        .or_else(|| str_arg(args, "title"))
+        .ok_or_else(|| anyhow!("Missing 'note' parameter"))?;
+    let k = args
+        .get("k")
+        .and_then(|v| v.as_u64())
+        .map(|n| n.clamp(1, 25) as usize)
+        .unwrap_or(8);
+    let (kb_id, note, content) = read_resolved_note(ctx, str_arg(args, "kb"), reference)?;
+    let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+    let source_text = format!("{}\n\n{}", note.title, crate::truncate_utf8(&content, 8000));
+    let hits = search::similar_notes(&db, std::slice::from_ref(&kb_id), note.id, &source_text, k)?;
+    if hits.is_empty() {
+        // Distinguish "vectors off" from "vectors on, no neighbours" so we don't
+        // tell the user to enable an already-enabled model.
+        let vectors_on =
+            db.embedder().is_some() && knowledge::knowledge_active_embedding_signature().is_some();
+        return Ok(if vectors_on {
+            "No similar notes found.".to_string()
+        } else {
+            "No similar notes found. (note_similar needs vector search — enable a knowledge embedding model in Settings → Knowledge Space.)".to_string()
+        });
+    }
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "kbId": kb_id,
+        "note": note.rel_path,
+        "count": hits.len(),
+        "similar": hits,
+    }))?)
+}
+
+/// `note_related({kb?, note})` — fused recall: backlinks ∪ resolved out-links ∪
+/// vector neighbours ∪ shared tags, ranked by how many channels agree.
+pub(crate) async fn tool_note_related(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let reference = str_arg(args, "note")
+        .or_else(|| str_arg(args, "path"))
+        .or_else(|| str_arg(args, "title"))
+        .ok_or_else(|| anyhow!("Missing 'note' parameter"))?;
+    let (kb_id, note, content) = read_resolved_note(ctx, str_arg(args, "kb"), reference)?;
+    let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+
+    struct Related {
+        rel_path: String,
+        title: String,
+        reasons: BTreeSet<String>,
+        score: f32,
+    }
+    let mut map: HashMap<i64, Related> = HashMap::new();
+    let mut bump = |id: i64, rel: &str, title: &str, reason: &str, score: f32| {
+        if id == note.id {
+            return;
+        }
+        let e = map.entry(id).or_insert_with(|| Related {
+            rel_path: rel.to_string(),
+            title: title.to_string(),
+            reasons: BTreeSet::new(),
+            score: 0.0,
+        });
+        e.reasons.insert(reason.to_string());
+        e.score += score;
+    };
+
+    // Backlinks (who links to this note). Dedupe by source note — a source that
+    // links here multiple times still counts as one backlink (no score inflation).
+    let mut seen_back: HashSet<i64> = HashSet::new();
+    for b in db.backlinks(note.id)? {
+        if seen_back.insert(b.src_note_id) {
+            bump(
+                b.src_note_id,
+                &b.src_rel_path,
+                &b.src_title,
+                "backlink",
+                0.5,
+            );
+        }
+    }
+    // Resolved outgoing links (what this note links to) — dedupe parallel links
+    // to the same target so it scores once.
+    let mut out_targets: Vec<i64> = Vec::new();
+    let mut seen_out: HashSet<i64> = HashSet::new();
+    for l in db.outgoing_links(note.id)? {
+        if let Some(id) = l.target_note_id {
+            if seen_out.insert(id) {
+                out_targets.push(id);
+            }
+        }
+    }
+    if !out_targets.is_empty() {
+        let meta = db.notes_for_ids(&out_targets)?;
+        for id in out_targets {
+            if let Some((_kb, rel, title)) = meta.get(&id) {
+                bump(id, rel, title, "link", 0.5);
+            }
+        }
+    }
+    // Shared tags.
+    for tag in db.tags_for_note(note.id)? {
+        for n in db.notes_by_tag(std::slice::from_ref(&kb_id), &tag)? {
+            bump(n.id, &n.rel_path, &n.title, &format!("tag:{tag}"), 0.3);
+        }
+    }
+    // Vector neighbours. One of four fused channels — tolerate an embedding outage
+    // (degrade to link/tag recall) rather than failing the whole tool.
+    let source_text = format!("{}\n\n{}", note.title, crate::truncate_utf8(&content, 8000));
+    for h in search::similar_notes(&db, std::slice::from_ref(&kb_id), note.id, &source_text, 10)
+        .unwrap_or_default()
+    {
+        bump(
+            h.note_id,
+            &h.rel_path,
+            &h.title,
+            "similar",
+            0.4 + h.score * 0.6,
+        );
+    }
+
+    let mut ranked: Vec<(i64, Related)> = map.into_iter().collect();
+    ranked.sort_by(|a, b| {
+        b.1.score
+            .partial_cmp(&a.1.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.rel_path.cmp(&b.1.rel_path))
+    });
+    ranked.truncate(20);
+    let rows: Vec<_> = ranked
+        .iter()
+        .map(|(_, r)| {
+            serde_json::json!({
+                "path": r.rel_path,
+                "title": r.title,
+                "score": (r.score * 1000.0).round() / 1000.0,
+                "reasons": r.reasons.iter().collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "kbId": kb_id,
+        "note": note.rel_path,
+        "count": rows.len(),
+        "related": rows,
+    }))?)
+}
+
+/// `note_suggest_links({kb?, note})` — other notes whose title/basename appears in
+/// this note's body but isn't linked yet (candidates to wire up with `[[ ]]`).
+pub(crate) async fn tool_note_suggest_links(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let reference = str_arg(args, "note")
+        .or_else(|| str_arg(args, "path"))
+        .or_else(|| str_arg(args, "title"))
+        .ok_or_else(|| anyhow!("Missing 'note' parameter"))?;
+    let (kb_id, note, content) = read_resolved_note(ctx, str_arg(args, "kb"), reference)?;
+    let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+
+    // Notes this one already links to (don't re-suggest them).
+    let already: HashSet<i64> = db
+        .outgoing_links(note.id)?
+        .into_iter()
+        .filter_map(|l| l.target_note_id)
+        .collect();
+
+    let haystack = strip_links_and_code(&content).to_lowercase();
+    // `note_refs` has no ORDER BY (rowid order drifts after reindex) — sort by
+    // rel_path so the scan window + the 25-cap are deterministic across runs.
+    let mut candidates = db.note_refs(&kb_id)?;
+    candidates.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    let mut suggestions: Vec<(String, String, String)> = Vec::new(); // (path, title, matched)
+    let mut seen: HashSet<i64> = HashSet::new();
+    for c in candidates.iter().take(5000) {
+        if c.id == note.id || already.contains(&c.id) || seen.contains(&c.id) {
+            continue;
+        }
+        let stem = basename_no_md(&c.rel_path);
+        // Prefer the longer/more specific term; require ≥3 chars to cut noise.
+        let mut terms = [c.title.trim(), stem.trim()];
+        terms.sort_by_key(|t| std::cmp::Reverse(t.chars().count()));
+        for term in terms {
+            if term.chars().count() < 3 {
+                continue;
+            }
+            if contains_word(&haystack, &term.to_lowercase()) {
+                suggestions.push((c.rel_path.clone(), c.title.clone(), term.to_string()));
+                seen.insert(c.id);
+                break;
+            }
+        }
+        if suggestions.len() >= 25 {
+            break;
+        }
+    }
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "kbId": kb_id,
+        "note": note.rel_path,
+        "count": suggestions.len(),
+        "suggestions": suggestions.iter().map(|(p, t, m)| serde_json::json!({
+            "path": p, "title": t, "matched": m,
+        })).collect::<Vec<_>>(),
+    }))?)
+}
+
+// ── Tools: AI high-level operations (WS5, side_query driven) ─────
+
+/// Build a background analysis agent + run one bounded side-query, returning the
+/// trimmed text. Shared by the WS5 AI note tools (decoupled from the main chat
+/// agent via `recap.analysisAgent`, like recall-summary / dreaming).
+async fn run_kb_side_query(prompt: &str, max_tokens: u32) -> Result<String> {
+    let config = crate::config::cached_config();
+    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
+    let res = agent.side_query(prompt, max_tokens).await?;
+    Ok(res.text.trim().to_string())
+}
+
+/// Title → filesystem-safe note name (kept readable: collapse whitespace, strip
+/// path separators + frontmatter/wikilink-hostile chars). Never empty.
+fn slugify(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '#' | '^' | '[' | ']' => ' ',
+            c if c.is_control() => ' ',
+            c => c,
+        })
+        .collect();
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed.trim().trim_matches('.').trim();
+    if trimmed.is_empty() {
+        "untitled".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Free rel-path under `scope`, appending ` 2`, ` 3`… on collision so AI writes
+/// never silently overwrite an existing note. `resolve_existing` errors = free.
+fn unique_rel_path(scope: &WorkspaceScope, base_rel: &str) -> String {
+    if scope.resolve_existing(base_rel).is_err() {
+        return base_rel.to_string();
+    }
+    let (stem, ext) = match base_rel.rsplit_once('.') {
+        Some((s, e)) => (s.to_string(), format!(".{e}")),
+        None => (base_rel.to_string(), String::new()),
+    };
+    for n in 2..1000 {
+        let candidate = format!("{stem} {n}{ext}");
+        if scope.resolve_existing(&candidate).is_err() {
+            return candidate;
+        }
+    }
+    base_rel.to_string()
+}
+
+/// Whether an existing file looks like a previously-generated MOC (carries the
+/// `moc: true` frontmatter marker). Lets `note_moc` refresh its own output while
+/// never clobbering a user-authored note that merely shares the slug.
+fn is_generated_moc(content: &str) -> bool {
+    let mut lines = content.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return false;
+    }
+    for l in lines {
+        let t = l.trim();
+        if t == "---" {
+            break;
+        }
+        if t == "moc: true" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Pick the MOC write path: refresh `base_rel` only if it's our own prior MOC,
+/// otherwise fall back to a unique path so a same-slug user note isn't destroyed.
+fn moc_target_path(scope: &WorkspaceScope, base_rel: &str) -> String {
+    match scope.resolve_existing(base_rel) {
+        Ok(abs) => {
+            let is_moc = std::fs::read_to_string(&abs)
+                .map(|c| is_generated_moc(&c))
+                .unwrap_or(false);
+            if is_moc {
+                base_rel.to_string()
+            } else {
+                unique_rel_path(scope, base_rel)
+            }
+        }
+        Err(_) => base_rel.to_string(),
+    }
+}
+
+/// Quote a YAML scalar when it could be misparsed (special leading/inner chars).
+fn yaml_inline(s: &str) -> String {
+    let risky = s.is_empty()
+        || s.trim() != s
+        || s.contains([':', '#', '[', ']', '{', '}', ',', '"', '\'', '\n'].as_slice());
+    if risky {
+        // Double-quoted YAML scalar: escape backslash + quote, and turn raw
+        // control chars into their YAML escapes so a multi-line title stays a
+        // single valid scalar (otherwise the frontmatter block breaks on reindex).
+        let escaped = s
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t");
+        format!("\"{escaped}\"")
+    } else {
+        s.to_string()
+    }
+}
+
+/// Strip a single wrapping ```lang … ``` fence the model may have added.
+fn strip_code_fence(text: &str) -> String {
+    let t = text.trim();
+    if let Some(rest) = t.strip_prefix("```") {
+        let inner = rest.split_once('\n').map(|(_, b)| b).unwrap_or("");
+        return inner
+            .strip_suffix("```")
+            .unwrap_or(inner)
+            .trim()
+            .to_string();
+    }
+    t.to_string()
+}
+
+#[derive(serde::Deserialize)]
+struct DistilledNote {
+    title: String,
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+/// Parse the distill side-query output: the outermost JSON array of notes,
+/// tolerating a wrapping code fence + leading/trailing prose.
+fn parse_distilled(text: &str) -> Result<Vec<DistilledNote>> {
+    let cleaned = strip_code_fence(text);
+    let (Some(s), Some(e)) = (cleaned.find('['), cleaned.rfind(']')) else {
+        bail!("distill output was not a JSON array");
+    };
+    if e <= s {
+        bail!("distill output was not a JSON array");
+    }
+    serde_json::from_str::<Vec<DistilledNote>>(&cleaned[s..=e])
+        .map_err(|err| anyhow!("could not parse distilled notes JSON: {err}"))
+}
+
+/// `note_distill({kb, source?|text?, folder?})` — split a long note / capture into
+/// multiple atomic permanent notes (LLM via side_query). Creates new `.md` files.
+pub(crate) async fn tool_note_distill(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let kb = str_arg(args, "kb").ok_or_else(|| anyhow!("Missing 'kb' parameter"))?;
+    require_write(ctx, kb)?;
+    // Fail fast (also rejects an external read-only root) before the LLM call.
+    let scope = writable_scope(kb)?;
+    let source_text =
+        if let Some(reference) = str_arg(args, "source").or_else(|| str_arg(args, "note")) {
+            let (_kb, note, content) = read_resolved_note(ctx, Some(kb), reference)?;
+            format!("# {}\n\n{}", note.title, content)
+        } else if let Some(text) = str_arg(args, "text") {
+            text.to_string()
+        } else {
+            bail!("provide 'source' (a note path/title) or 'text' to distill");
+        };
+    let folder = str_arg(args, "folder")
+        .map(|f| f.trim_matches('/').to_string())
+        .unwrap_or_default();
+
+    let prompt = format!(
+        "You are organizing material into atomic permanent notes (Zettelkasten style). Split the \
+         SOURCE into self-contained atomic notes — each capturing ONE idea, with a concise \
+         descriptive title and a markdown body that stands on its own. Produce 2 to 8 notes. \
+         Return ONLY a JSON array (no prose, no code fence) of objects \
+         {{\"title\": string, \"content\": markdown string, \"tags\": [string]}}.\n\nSOURCE:\n{}",
+        crate::truncate_utf8(&source_text, 16000)
+    );
+    let out = run_kb_side_query(&prompt, 4096).await?;
+    let notes = parse_distilled(&out)?;
+    if notes.is_empty() {
+        bail!("distill produced no notes");
+    }
+
+    let mut created = Vec::new();
+    for n in notes.into_iter().take(12) {
+        let title = if n.title.trim().is_empty() {
+            "untitled".to_string()
+        } else {
+            n.title.trim().to_string()
+        };
+        let base = if folder.is_empty() {
+            format!("{}.md", slugify(&title))
+        } else {
+            format!("{}/{}.md", folder, slugify(&title))
+        };
+        let rel = unique_rel_path(&scope, &base);
+        let mut body = String::from("---\n");
+        body.push_str(&format!("title: {}\n", yaml_inline(&title)));
+        let tags: Vec<String> = n.tags.iter().map(|t| yaml_inline(t)).collect();
+        if !tags.is_empty() {
+            body.push_str(&format!("tags: [{}]\n", tags.join(", ")));
+        }
+        body.push_str("---\n\n");
+        body.push_str(n.content.trim());
+        body.push('\n');
+        write_and_index(&scope, kb, &rel, &body, true)?;
+        created.push(rel);
+    }
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "kbId": kb,
+        "count": created.len(),
+        "created": created,
+    }))?)
+}
+
+/// `note_moc({kb, topic?|tag?})` — generate/refresh a Map-of-Content hub note
+/// linking the topic's related notes (LLM via side_query).
+pub(crate) async fn tool_note_moc(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let kb = str_arg(args, "kb").ok_or_else(|| anyhow!("Missing 'kb' parameter"))?;
+    require_write(ctx, kb)?;
+    let topic = str_arg(args, "topic");
+    let tag = str_arg(args, "tag").map(knowledge::parser::normalize_tag);
+    if topic.is_none() && tag.is_none() {
+        bail!("provide 'topic' or 'tag' to build a MOC");
+    }
+    // Fail fast (also rejects an external read-only root) before spending an LLM call.
+    let scope = writable_scope(kb)?;
+    let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+
+    // A MOC links a curated set; a popular tag (#inbox/#todo) in a big KB can match
+    // thousands of notes, which would blow up the side-query prompt (context overflow,
+    // latency, cost). Cap the tag fetch — notes_by_tag is ORDER BY rel_path, so the
+    // truncation is deterministic — and surface that it was capped.
+    const MOC_MAX_TAG_NOTES: usize = 100;
+    let mut tag_total: Option<usize> = None;
+    let mut collected: Vec<(String, String)> = Vec::new(); // (rel_path, title)
+    if let Some(t) = &tag {
+        let all = db.notes_by_tag(&[kb.to_string()], t)?;
+        if all.len() > MOC_MAX_TAG_NOTES {
+            tag_total = Some(all.len());
+        }
+        for n in all.into_iter().take(MOC_MAX_TAG_NOTES) {
+            collected.push((n.rel_path, n.title));
+        }
+    }
+    if let Some(tp) = topic {
+        for h in search::search_notes(&db, &[kb.to_string()], tp, 30)? {
+            collected.push((h.rel_path, h.title));
+        }
+    }
+    let mut seen = HashSet::new();
+    collected.retain(|(p, _)| seen.insert(p.clone()));
+    if collected.is_empty() {
+        bail!("no notes matched this topic/tag to build a MOC");
+    }
+
+    let label = topic
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("#{}", tag.as_deref().unwrap_or("")));
+    // Disambiguate same-basename notes (a/Intro.md vs b/Intro.md): use the path
+    // form for collisions so the LLM's `[[ ]]` resolve to the intended note.
+    let mut base_counts: HashMap<String, usize> = HashMap::new();
+    for (p, _) in &collected {
+        *base_counts
+            .entry(basename_no_md(p).to_lowercase())
+            .or_insert(0) += 1;
+    }
+    let list = collected
+        .iter()
+        .map(|(p, t)| {
+            let bn = basename_no_md(p);
+            let r = if base_counts.get(&bn.to_lowercase()).copied().unwrap_or(0) > 1 {
+                p.strip_suffix(".md")
+                    .or_else(|| p.strip_suffix(".markdown"))
+                    .unwrap_or(p)
+                    .to_string()
+            } else {
+                bn
+            };
+            format!("- [[{r}]] — {t}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = format!(
+        "Create a Map of Content (MOC) hub note for \"{label}\". Below are related notes in the \
+         knowledge base. Write a concise markdown MOC: a short intro paragraph, then the notes \
+         grouped into thematic sections with a one-line annotation each, linking every note with \
+         [[wikilinks]] using exactly the refs given. Return ONLY the markdown body (no frontmatter, \
+         no code fence).\n\nRELATED NOTES (ref — title):\n{list}"
+    );
+
+    let slug = slugify(topic.unwrap_or_else(|| tag.as_deref().unwrap_or("topic")));
+    let rel = moc_target_path(&scope, &format!("MOCs/{slug}.md"));
+
+    let body_md = strip_code_fence(&run_kb_side_query(&prompt, 2048).await?);
+    if body_md.trim().is_empty() {
+        bail!("MOC generation returned empty content");
+    }
+    // `moc: true` marks this as a generated MOC so a later refresh recognizes it.
+    let mut content = format!(
+        "---\ntitle: {}\nmoc: true\n---\n\n",
+        yaml_inline(&format!("{label} (MOC)"))
+    );
+    content.push_str(body_md.trim());
+    content.push('\n');
+    write_and_index(&scope, kb, &rel, &content, false)?;
+    let truncated_note = match tag_total {
+        Some(total) => format!(
+            " Tag matched {total} notes; linked the first {MOC_MAX_TAG_NOTES} (by path) — narrow the tag or split the MOC."
+        ),
+        None => String::new(),
+    };
+    Ok(format!(
+        "Wrote MOC '{}' in knowledge base '{}' ({} related note(s) linked).{}",
+        rel,
+        kb,
+        collected.len(),
+        truncated_note
+    ))
+}
+
+/// `session_to_note({kb, session?, path?})` — distill a conversation into a single
+/// structured permanent note (LLM via side_query). Refuses incognito sources.
+pub(crate) async fn tool_session_to_note(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let kb = str_arg(args, "kb").ok_or_else(|| anyhow!("Missing 'kb' parameter"))?;
+    require_write(ctx, kb)?;
+    // Fail fast (also rejects an external read-only root) before the LLM call.
+    let scope = writable_scope(kb)?;
+    let session_id = str_arg(args, "session")
+        .or_else(|| str_arg(args, "session_id"))
+        .map(|s| s.to_string())
+        .or_else(|| ctx.session_id.clone())
+        .ok_or_else(|| anyhow!("no session id — pass 'session' or call from within a session"))?;
+    // "Close = burn": never persist an incognito conversation into a note.
+    if crate::session::is_session_incognito(Some(&session_id)) {
+        bail!("refusing to distill an incognito session into a permanent note");
+    }
+    let sdb = crate::get_session_db().ok_or_else(|| anyhow!("session db not available"))?;
+    let messages = sdb.load_session_messages(&session_id)?;
+    let mut transcript = String::new();
+    for m in &messages {
+        let role = match m.role {
+            crate::session::MessageRole::User => "User",
+            crate::session::MessageRole::Assistant => "Assistant",
+            _ => continue,
+        };
+        if m.content.trim().is_empty() {
+            continue;
+        }
+        transcript.push_str(&format!("{role}: {}\n\n", m.content.trim()));
+    }
+    if transcript.trim().is_empty() {
+        bail!(
+            "session '{}' has no user/assistant text to distill",
+            session_id
+        );
+    }
+
+    let prompt = format!(
+        "Distill the following conversation into a single, well-structured permanent note in \
+         markdown. Capture the topic, key points, decisions, and any action items. Begin with a \
+         concise H1 title. Be faithful — do not invent. Return ONLY the markdown (no frontmatter, \
+         no code fence).\n\nCONVERSATION:\n{}",
+        crate::truncate_utf8(&transcript, 16000)
+    );
+    let body_md = strip_code_fence(&run_kb_side_query(&prompt, 3072).await?);
+    if body_md.trim().is_empty() {
+        bail!("session distillation returned empty content");
+    }
+    let title = body_md
+        .lines()
+        .find_map(|l| l.strip_prefix("# ").map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Session note".to_string());
+
+    let base = match str_arg(args, "path") {
+        Some(p) => norm_note_path(p),
+        None => format!("Sessions/{}.md", slugify(&title)),
+    };
+    let rel = unique_rel_path(&scope, &base);
+    let mut content = body_md.trim().to_string();
+    content.push('\n');
+    write_and_index(&scope, kb, &rel, &content, true)?;
+    Ok(format!(
+        "Wrote session note '{}' in knowledge base '{}' from {} message(s).",
+        rel,
+        kb,
+        messages.len()
+    ))
 }
 
 // ── Tools: search / tags ────────────────────────────────────────
@@ -745,6 +1353,103 @@ fn _root_of(scope: &WorkspaceScope) -> &Path {
     scope.root()
 }
 
+/// `folder/Note.md` → `Note` (stem, no extension), `/`-normalized.
+fn basename_no_md(rel: &str) -> String {
+    let norm = rel.replace('\\', "/");
+    let base = norm.rsplit('/').next().unwrap_or(&norm);
+    base.strip_suffix(".md")
+        .or_else(|| base.strip_suffix(".markdown"))
+        .unwrap_or(base)
+        .to_string()
+}
+
+/// Remove the text between each `open`/`close` pair (inclusive). A dangling
+/// `open` with no matching `close` drops only the delimiter and keeps the trailing
+/// text (so a stray ``` ` ``` in prose doesn't truncate the rest of the haystack).
+fn strip_spans(s: &str, open: &str, close: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find(open) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + open.len()..];
+        match after.find(close) {
+            Some(end) => rest = &after[end + close.len()..],
+            None => {
+                // Unbalanced open: keep the remaining text (minus the delimiter).
+                out.push_str(after);
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Strip fenced code, inline code, and existing `[[ ]]` / `![[ ]]` spans from a
+/// note body so link suggestions never match inside code or already-linked text.
+fn strip_links_and_code(content: &str) -> String {
+    let mut body = String::with_capacity(content.len());
+    let mut in_fence = false;
+    // Lines held while inside a fence — discarded on a proper close, but restored
+    // if the fence is never closed (a lone ``` in prose shouldn't eat the rest).
+    let mut pending: Vec<&str> = Vec::new();
+    for line in content.lines() {
+        let t = line.trim_start();
+        if t.starts_with("```") || t.starts_with("~~~") {
+            in_fence = !in_fence;
+            pending.clear();
+            continue;
+        }
+        if in_fence {
+            pending.push(line);
+        } else {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    if in_fence {
+        for l in pending {
+            body.push_str(l);
+            body.push('\n');
+        }
+    }
+    // `![[x]]` is covered by the `[[`..`]]` pass (the `!` is left, harmless).
+    let body = strip_spans(&body, "[[", "]]");
+    strip_spans(&body, "`", "`")
+}
+
+/// Case-insensitive whole-word-ish containment: `needle` occurs in `haystack`
+/// with non-alphanumeric ASCII boundaries (so "cat" doesn't match "category").
+/// Both inputs must already be lowercased. CJK (no ASCII boundary) → substring.
+fn contains_word(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let mut from = 0;
+    while let Some(rel) = haystack[from..].find(needle) {
+        let start = from + rel;
+        let end = start + needle.len();
+        let before_ok = start == 0
+            || !haystack[..start]
+                .chars()
+                .next_back()
+                .map(|c| c.is_ascii_alphanumeric())
+                .unwrap_or(false);
+        let after_ok = end >= haystack.len()
+            || !haystack[end..]
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphanumeric())
+                .unwrap_or(false);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,5 +1478,79 @@ mod tests {
         let out = append_under_heading(c, "Related", "- [[b]]");
         assert!(out.contains("## Related"));
         assert!(out.contains("[[b]]"));
+    }
+
+    #[test]
+    fn contains_word_respects_ascii_boundaries() {
+        assert!(contains_word("a cat sits", "cat"));
+        assert!(!contains_word("category theory", "cat"));
+        assert!(contains_word("see [foo] here", "foo"));
+        // CJK has no ASCII boundary → substring match is fine.
+        assert!(contains_word("机器学习很有趣", "机器学习"));
+        assert!(!contains_word("anything", ""));
+    }
+
+    #[test]
+    fn strip_links_and_code_removes_links_and_code() {
+        let src = "see [[Linked Note]] and `code` here\n```\n[[InFence]]\n```\nplain Other Note";
+        let out = strip_links_and_code(src);
+        assert!(!out.contains("Linked Note"));
+        assert!(!out.contains("InFence"));
+        assert!(!out.contains("code"));
+        assert!(out.contains("Other Note"));
+    }
+
+    #[test]
+    fn strip_links_and_code_survives_stray_backtick() {
+        // A lone inline backtick must not truncate the rest of the haystack.
+        let out = strip_links_and_code("use the `--flag and mention Other Note");
+        assert!(out.contains("Other Note"));
+    }
+
+    #[test]
+    fn strip_links_and_code_survives_unclosed_fence() {
+        // An unclosed fence must not swallow the remainder for suggestions.
+        let out = strip_links_and_code("intro\n```\ncode line\nmention Other Note");
+        assert!(out.contains("Other Note"));
+    }
+
+    #[test]
+    fn is_generated_moc_detects_marker() {
+        assert!(is_generated_moc(
+            "---\ntitle: X (MOC)\nmoc: true\n---\n\nbody"
+        ));
+        assert!(!is_generated_moc("---\ntitle: X\n---\n\nbody"));
+        assert!(!is_generated_moc("# Just a user note\n\nmoc: true")); // not in frontmatter
+        assert!(!is_generated_moc("no frontmatter"));
+    }
+
+    #[test]
+    fn slugify_sanitizes() {
+        assert_eq!(slugify("Hello / World: test"), "Hello World test");
+        assert_eq!(slugify("  spaced   out  "), "spaced out");
+        assert_eq!(slugify("///"), "untitled");
+    }
+
+    #[test]
+    fn parse_distilled_handles_fenced_array() {
+        let out = "```json\n[{\"title\":\"A\",\"content\":\"body\",\"tags\":[\"x\"]}]\n```";
+        let notes = parse_distilled(out).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].title, "A");
+        assert_eq!(notes[0].tags, vec!["x".to_string()]);
+        // Prose with an embedded array still parses.
+        let messy = "Here you go:\n[{\"title\":\"B\",\"content\":\"\"}]\nDone.";
+        assert_eq!(parse_distilled(messy).unwrap()[0].title, "B");
+        // Non-array → error.
+        assert!(parse_distilled("not json").is_err());
+    }
+
+    #[test]
+    fn yaml_inline_quotes_risky() {
+        assert_eq!(yaml_inline("plain"), "plain");
+        assert_eq!(yaml_inline("a: b"), "\"a: b\"");
+        assert_eq!(yaml_inline(" leading"), "\" leading\"");
+        // A newline must become a `\n` escape, not a raw line break.
+        assert_eq!(yaml_inline("line1\nline2"), "\"line1\\nline2\"");
     }
 }

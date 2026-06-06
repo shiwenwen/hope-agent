@@ -574,9 +574,9 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 | 工具 | 作用 | Phase |
 |---|---|---|
 | `note_search({query, kb?, filters?})` | FTS5 + 向量混合检索（chunk 级聚合回 note） | 1 |
-| `note_similar({note, k})` | 向量近邻（「更多类似」） | **2** |
-| `note_related({note})` | 融合召回：反链 ∪ 向量近邻 ∪ 同标签（图谱感知） | **2** |
-| `note_suggest_links({note})` | 给出**该笔记应建但还没建**的 `[[ ]]` 候选 | **2** |
+| `note_similar({kb?, note, k?})` | 向量近邻（「更多类似」），向量未开启时优雅降级 | **2 ✅** |
+| `note_related({kb?, note})` | 融合召回：反链 ∪ resolved 出链 ∪ 向量近邻 ∪ 同标签，按信号数排序（带 reasons） | **2 ✅** |
+| `note_suggest_links({kb?, note})` | 给出**该笔记应建但还没建**的 `[[ ]]` 候选（标题/basename 出现在正文但未链接） | **2 ✅** |
 
 **标签与元数据**
 
@@ -589,9 +589,9 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 
 | 工具 | 作用 | Phase |
 |---|---|---|
-| `note_distill({source})` | 原始捕获 / 长文 → 原子永久笔记（BASB / Zettelkasten 拆分） | **2** |
-| `note_moc({topic\|tag})` | 生成 / 刷新某主题的 MOC 枢纽页 | **2** |
-| `session_to_note({session_id})` | 把一段对话沉淀成结构化笔记 | **2** |
+| `note_distill({kb, source?\|text?, folder?})` | 原始捕获 / 长文 → 原子永久笔记（side_query 拆分成 2–8 篇，slug 去重不覆盖） | **2 ✅** |
+| `note_moc({kb, topic?\|tag?})` | 生成 / 刷新某主题的 MOC 枢纽页（写 `MOCs/<name>.md`） | **2 ✅** |
+| `session_to_note({kb, session?, path?})` | 把一段对话沉淀成结构化笔记（拒绝无痕会话源） | **2 ✅** |
 
 ### Layer 2 — 自主维护（后台，提案制）
 

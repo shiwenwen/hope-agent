@@ -299,7 +299,7 @@ fn rewrite_content(
         return None;
     }
     // Apply right-to-left so earlier byte offsets stay valid.
-    splices.sort_by(|a, b| b.0.cmp(&a.0));
+    splices.sort_by_key(|s| std::cmp::Reverse(s.0));
     let mut out = content.to_string();
     for (start, len, new_raw) in &splices {
         out.replace_range(*start..(*start + *len), new_raw);

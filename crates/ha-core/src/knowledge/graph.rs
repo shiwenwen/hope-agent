@@ -176,10 +176,16 @@ mod tests {
         let db = IndexDb::open(&dir.path().join("index.db")).unwrap();
         let kb = "kb1";
         // A → B (twice, collapses), A → C, D is an orphan, E → missing (broken).
-        db.replace_note_index(input(kb, "A.md", "# A\n\n[[B]] and again [[B]] plus [[C]].\n"))
+        db.replace_note_index(input(
+            kb,
+            "A.md",
+            "# A\n\n[[B]] and again [[B]] plus [[C]].\n",
+        ))
+        .unwrap();
+        db.replace_note_index(input(kb, "B.md", "# B\n\nbody.\n"))
             .unwrap();
-        db.replace_note_index(input(kb, "B.md", "# B\n\nbody.\n")).unwrap();
-        db.replace_note_index(input(kb, "C.md", "# C\n\nbody.\n")).unwrap();
+        db.replace_note_index(input(kb, "C.md", "# C\n\nbody.\n"))
+            .unwrap();
         db.replace_note_index(input(kb, "D.md", "# D\n\njust text.\n"))
             .unwrap();
         db.replace_note_index(input(kb, "E.md", "# E\n\n[[missing]].\n"))
@@ -205,10 +211,14 @@ mod tests {
         let db = IndexDb::open(&dir.path().join("index.db")).unwrap();
         let kb = "kb1";
         // chain A → B → C; D unrelated.
-        db.replace_note_index(input(kb, "A.md", "# A\n\n[[B]].\n")).unwrap();
-        db.replace_note_index(input(kb, "B.md", "# B\n\n[[C]].\n")).unwrap();
-        db.replace_note_index(input(kb, "C.md", "# C\n\nbody.\n")).unwrap();
-        db.replace_note_index(input(kb, "D.md", "# D\n\nbody.\n")).unwrap();
+        db.replace_note_index(input(kb, "A.md", "# A\n\n[[B]].\n"))
+            .unwrap();
+        db.replace_note_index(input(kb, "B.md", "# B\n\n[[C]].\n"))
+            .unwrap();
+        db.replace_note_index(input(kb, "C.md", "# C\n\nbody.\n"))
+            .unwrap();
+        db.replace_note_index(input(kb, "D.md", "# D\n\nbody.\n"))
+            .unwrap();
         db.reresolve_kb_links(kb).unwrap();
 
         let full = build_kb_graph(&db, kb).unwrap();
@@ -226,11 +236,32 @@ mod tests {
     fn cap_keeps_most_connected() {
         let g = KnowledgeGraph {
             nodes: vec![
-                GraphNode { id: 1, rel_path: "hub.md".into(), title: "hub".into(), in_degree: 5, out_degree: 0 },
-                GraphNode { id: 2, rel_path: "a.md".into(), title: "a".into(), in_degree: 0, out_degree: 1 },
-                GraphNode { id: 3, rel_path: "b.md".into(), title: "b".into(), in_degree: 0, out_degree: 0 },
+                GraphNode {
+                    id: 1,
+                    rel_path: "hub.md".into(),
+                    title: "hub".into(),
+                    in_degree: 5,
+                    out_degree: 0,
+                },
+                GraphNode {
+                    id: 2,
+                    rel_path: "a.md".into(),
+                    title: "a".into(),
+                    in_degree: 0,
+                    out_degree: 1,
+                },
+                GraphNode {
+                    id: 3,
+                    rel_path: "b.md".into(),
+                    title: "b".into(),
+                    in_degree: 0,
+                    out_degree: 0,
+                },
             ],
-            edges: vec![GraphEdge { source: 2, target: 1 }],
+            edges: vec![GraphEdge {
+                source: 2,
+                target: 1,
+            }],
             truncated: false,
         };
         let capped = cap_nodes(g, 2);

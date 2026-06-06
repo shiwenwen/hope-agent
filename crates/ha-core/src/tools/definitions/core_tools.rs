@@ -5,12 +5,13 @@ use super::super::{
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
     TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
     TOOL_NOTE_APPEND, TOOL_NOTE_BACKLINKS, TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG,
-    TOOL_NOTE_CREATE, TOOL_NOTE_DELETE, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOVE,
-    TOOL_NOTE_ORPHANS,
-    TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER,
-    TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL,
+    TOOL_NOTE_CREATE, TOOL_NOTE_DELETE, TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK,
+    TOOL_NOTE_MOC, TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ,
+    TOOL_NOTE_RELATED, TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER,
+    TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF,
+    TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL,
+    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
     TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
@@ -2018,6 +2019,89 @@ fn note_tools() -> Vec<ToolDefinition> {
                     "note": { "type": "string", "description": "Center note (path or title) for an ego neighbourhood; omit for the whole KB." },
                     "depth": { "type": "integer", "description": "Ego hops when `note` is given (1–3, default 1)." }
                 },
+                "additionalProperties": false
+            }),
+        ),
+        read_tool(
+            TOOL_NOTE_SIMILAR,
+            "Find notes semantically similar to a given note (vector nearest-neighbour). Requires a knowledge embedding model to be enabled; returns an empty result with a hint otherwise. `kb` optional.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string" },
+                    "note": { "type": "string", "description": "Source note (path or title)." },
+                    "k": { "type": "integer", "description": "Max similar notes (1–25, default 8)." }
+                },
+                "required": ["note"],
+                "additionalProperties": false
+            }),
+        ),
+        read_tool(
+            TOOL_NOTE_RELATED,
+            "Fused 'related notes' for a note: backlinks ∪ resolved outgoing links ∪ vector neighbours ∪ shared tags, ranked by how many signals agree (each result lists its `reasons`). `kb` optional.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string" },
+                    "note": { "type": "string", "description": "Source note (path or title)." }
+                },
+                "required": ["note"],
+                "additionalProperties": false
+            }),
+        ),
+        read_tool(
+            TOOL_NOTE_SUGGEST_LINKS,
+            "Suggest unlinked connections: other notes whose title/filename appears in this note's body but isn't yet a `[[ ]]` link (candidates to wire up). `kb` optional.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string" },
+                    "note": { "type": "string", "description": "Note to scan (path or title)." }
+                },
+                "required": ["note"],
+                "additionalProperties": false
+            }),
+        ),
+        write_tool(
+            TOOL_NOTE_DISTILL,
+            "Split a long note or pasted text into multiple atomic permanent notes (Zettelkasten). Provide `source` (an existing note path/title) OR `text` (raw content). Creates new `.md` files (2–8) under `folder` if given. Uses an LLM — may take a few seconds.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string", "description": "Knowledge base id (write access required)." },
+                    "source": { "type": "string", "description": "Existing note (path or title) to distill." },
+                    "text": { "type": "string", "description": "Raw text to distill (alternative to `source`)." },
+                    "folder": { "type": "string", "description": "Optional destination folder for the new notes." }
+                },
+                "required": ["kb"],
+                "additionalProperties": false
+            }),
+        ),
+        write_tool(
+            TOOL_NOTE_MOC,
+            "Generate or refresh a Map-of-Content (MOC) hub note for a topic or tag, linking its related notes with [[wikilinks]]. Provide `topic` (free text, hybrid-searched) and/or `tag`. Written to `MOCs/<name>.md`. Uses an LLM.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string", "description": "Knowledge base id (write access required)." },
+                    "topic": { "type": "string", "description": "Topic to gather related notes for (hybrid search)." },
+                    "tag": { "type": "string", "description": "Tag to gather notes for (with or without leading #)." }
+                },
+                "required": ["kb"],
+                "additionalProperties": false
+            }),
+        ),
+        write_tool(
+            TOOL_SESSION_TO_NOTE,
+            "Distill a conversation into a single structured permanent note. `session` defaults to the current session. Refuses incognito sessions. Written to `path` or `Sessions/<title>.md`. Uses an LLM.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string", "description": "Knowledge base id (write access required)." },
+                    "session": { "type": "string", "description": "Session id to distill (default: current session)." },
+                    "path": { "type": "string", "description": "Optional destination note path." }
+                },
+                "required": ["kb"],
                 "additionalProperties": false
             }),
         ),

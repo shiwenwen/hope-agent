@@ -855,7 +855,10 @@ mod tests {
         assert_eq!(wikilink_target("Note#Heading"), "Note");
         assert_eq!(wikilink_target("Note|Alias"), "Note");
         // alias split happens first, so a `#` inside the alias is ignored.
-        assert_eq!(wikilink_target("folder/Note#Heading|Alias#x"), "folder/Note");
+        assert_eq!(
+            wikilink_target("folder/Note#Heading|Alias#x"),
+            "folder/Note"
+        );
         assert_eq!(wikilink_target("  spaced  | a "), "spaced");
     }
 }
