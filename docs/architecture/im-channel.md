@@ -1439,6 +1439,14 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 IM 用户可在渠道内直接发 `/permission default | smart | yolo`，命令在 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) `SetToolPermission` 分支调用 `SessionDB::update_session_permission_mode` 写入 `SessionMeta.permission_mode`，并 emit `permission:mode_changed` 事件供桌面端订阅。命令必传参；`arg_options` 在支持按钮的渠道（Telegram / Discord 等）让无参 `/permission` 直接弹出 `default / smart / yolo` 三个内联按钮。查看当前模式走 `/status`（输出包含 `Permission Mode` 行）。详情见 [permission-system.md](permission-system.md)。
 
+### Prompt 注入：IM attach 状态
+
+IM 入站消息触发的 turn 会继续通过 [`channel/worker/dispatcher.rs`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 构造 `## IM Channel Context`，作为 `ChatEngineParams.extra_system_context` 注入本轮 prompt，包含 channel、chat type、chat id、sender 与 group/topic/channel 额外 system prompt。
+
+除此之外，只要会话已绑定 IM chat，`build_system_prompt_with_session()` 会从 `SessionMeta.channel_info` 读取 `channel_conversations` join 结果，并在主 system prompt 中追加 `# IM Channel Attachment`。这个段落覆盖桌面 / HTTP 在同一 IM 绑定 session 里发起 turn 的场景：模型会知道回复可能被 GUI → IM mirror 发送到该 IM chat，因此需要注意 IM 受众与格式，但仍按普通任务正常执行。
+
+安全边界：`sender_name`、chat id 等 IM metadata 可能来自外部平台，不能作为可信 system/user 指令。`# IM Channel Attachment` 用单行 JSON 渲染这些字段，并明确标注为 untrusted routing/audience context；模型只能把字段值当作数据使用。
+
 **源码**：`crates/ha-core/src/channel/worker/approval.rs`
 
 ---

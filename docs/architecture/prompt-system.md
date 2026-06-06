@@ -36,7 +36,7 @@
 
 ## 概述
 
-Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。Runtime Info 只展示 Agent 自己的 home/scratch 目录；用户为当前会话选择的工作目录会作为独立的 `# Working Directory` 条件段注入。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
+Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。Runtime Info 只展示 Agent 自己的 home/scratch 目录；用户为当前会话选择的工作目录会作为独立的 `# Working Directory` 条件段注入。当前会话的权限审批模式会注入为 `# Current Permission Mode`，让模型知道 `default` / `smart` / `yolo` 的自主执行边界；绑定 IM chat 的会话还会注入 `# IM Channel Attachment`，提醒桌面 / HTTP 发起的回复也可能镜像到 IM。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
 
 ```mermaid
 graph TD
@@ -45,8 +45,9 @@ graph TD
         S1["① Identity"] --> S2["② agent.md / Project Context"] --> S3["③ persona.md"]
         S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions (filtered)"]
         S6 --> S6b["⑥c Tool-Call Narration (hardcoded, always)"]
-        S6b --> S6c["⑥d Human-in-the-loop (hardcoded, conditional)"]
-        S6c --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S8["⑧ Memory"]
+        S6b --> S6c["⑥c¹ Permission Mode (session)"]
+        S6c --> S6d["⑥d Human-in-the-loop (hardcoded, conditional)"]
+        S6d --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S7e["⑦e IM Attachment (conditional)"] --> S8["⑧ Memory"]
         S9["⑨ Runtime Info (Agent home)"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
         S12["⑫ reserved"] --> S13["⑬ ACP Ext Agents"]
     end
@@ -75,7 +76,7 @@ graph LR
 | **动态过滤**         | 工具描述和技能描述按 allow/deny 列表过滤，减少无关 token                                                  |
 | **缓存友好**         | 日期只精确到天，避免每次请求都改变 system prompt                                                          |
 | **安全截断**         | 注入的 markdown 文件限制 20,000 字符，head(70%)+tail(20%) 截断                                            |
-| **条件注入**         | Sandbox、SubAgent、ACP 段仅在配置启用时注入                                                               |
+| **条件注入**         | Working Directory、IM Attachment、Sandbox、SubAgent、ACP 段按会话或配置条件注入                           |
 | **OpenClaw 兼容**    | 支持 OpenClaw 风格 4 文件配置（AGENTS/IDENTITY/SOUL/TOOLS.md），与 OpenClaw 的 MEMORY.md 核心记忆格式互通 |
 
 ---
@@ -94,10 +95,12 @@ graph LR
     AD --> S5["⑤ tools.md"]
     AD --> S6["⑥ Tool Descriptions (dispatch::resolve_tool_fate)"]
     S6 --> S6b["⑥c Tool-Call Narration guidance (hardcoded, always injected)"]
-    S6b --> S6c["⑥d Human-in-the-loop guidance (hardcoded, always injected)"]
+    S6b --> S6c["⑥c¹ Permission Mode guidance (session)"]
+    S6c --> S6d["⑥d Human-in-the-loop guidance (hardcoded, always injected)"]
     AD --> S7["⑦ Skills (FilterConfig)"]
     S7 --> S7d["⑦d Working Directory (conditional)"]
-    S7d --> S8["⑧ Memory"]
+    S7d --> S7e["⑦e IM Channel Attachment (conditional)"]
+    S7e --> S8["⑧ Memory"]
     S8 --> S8a["8a: Core Memory (Global)"]
     S8 --> S8b["8b: Core Memory (Agent)"]
     S8 --> S8c["8c: SQLite Memories"]
@@ -181,6 +184,28 @@ The following project context files have been loaded:
 - Runtime / Working Directory 段：`crates/ha-core/src/system_prompt/sections.rs`
 - 注入顺序：`crates/ha-core/src/system_prompt/build.rs`
 - 会话 working dir 取值：`crates/ha-core/src/agent/config.rs`、`crates/ha-core/src/agent/mod.rs`
+
+### Permission Mode 与 IM Channel Attachment
+
+`build_system_prompt_with_session()` 会从 `SessionMeta` 读取当前会话状态，并在主 system prompt 中注入两类轻量状态段：
+
+| 段落 | 来源 | 触发条件 | 作用 |
+| ---- | ---- | -------- | ---- |
+| `# Current Permission Mode` | `sessions.permission_mode` | 所有正常 `system_prompt::build()` 路径 | 告诉模型当前会话处于 `default` / `smart` / `yolo`，让它合理决定工具调用自主度；权限引擎仍是唯一真相 |
+| `# IM Channel Attachment` | `SessionMeta.channel_info`（`channel_conversations` join） | 会话绑定 IM chat 时 | 告诉模型该 session 的回复可能镜像到 IM chat，包括桌面 / HTTP 发起的 turn |
+
+`# Current Permission Mode` 由 `build_permission_mode_guidance()` 生成：
+
+- `default`：提示模型照常调用必要工具，是否弹审批由系统决定，避免因为"可能弹窗"而提前停下。
+- `smart`：在 default 语义上说明 `_confidence: "high"` 自报字段，只用于模型高度确信安全的低风险调用；保护路径与危险命令仍不能靠该字段放行。
+- `yolo`：明确当前会话审批层已授予全部权限，鼓励模型在任务目标与范围明确时更自由主动地推进；同时强调授权不代表可偏离用户目标，Plan Mode 与后端硬安全仍可覆盖。
+
+`# IM Channel Attachment` 只描述稳定的 attach 状态，区别于 IM 入站 turn 通过 `ChatEngineParams.extra_system_context` 携带的 `## IM Channel Context`。后者只在 IM 消息触发的 turn 存在，包含当前 inbound sender / chat context；前者覆盖桌面 / HTTP 在同一 IM 绑定 session 中继续发消息并镜像到 IM 的场景。IM metadata 来自外部平台，prompt 中以单行 JSON 作为**不可信 routing/audience context**渲染，模型必须把字段值当作数据而非指令。
+
+**代码位置**：
+- Permission mode guidance：`crates/ha-core/src/system_prompt/constants.rs`
+- IM attachment section：`crates/ha-core/src/system_prompt/sections.rs`
+- 会话状态解析：`crates/ha-core/src/agent/config.rs`
 
 ---
 

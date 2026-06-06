@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **System Prompt 会话状态注入增强**：所有会话现在都会在 system prompt 中看到当前权限审批模式（`default` / `smart` / `yolo`），Smart 模式继续引导 `_confidence: "high"`，YOLO 模式明确本会话审批层已授予全部权限以鼓励更主动执行。绑定 IM chat 的会话新增 `# IM Channel Attachment`，让桌面 / HTTP 发起的回复也知道可能镜像到 IM；IM metadata 以不可信 routing/audience JSON 渲染，避免外部 sender/chat 字段影响 prompt 结构。同步清理未接线的 Awareness 静态 overview prompt builder，保留实际生效的动态 awareness suffix。
 - **聊天左右面板窄窗口响应式与动画优化**：窗口缩小时右侧工作面板会先自动折叠，继续缩小时左侧会话栏再自动折叠，窗口变宽后仅恢复由响应式路径自动折叠的面板，不覆盖用户手动折叠选择；右侧面板自动折叠阈值会参考用户当前面板宽度并设置舒适上限，避免超宽面板被硬挤压或轻微缩窗就过激收起；主窗口默认启动尺寸小幅调大，聊天输入框保留最小交互宽度，极窄宽度下工具栏改为上下布局。自动折叠阈值改用 `matchMedia` 监听，避免拖拽窗口时每个 resize 像素都触发 React 重渲染；左右面板动画拆为短布局占位过渡与 `transform`/`opacity` 视觉滑动，降低重排压力。
 - **浏览器脚本执行审批接入统一权限引擎**：`browser.control.evaluate` 不再绕过 session 权限模式单独走 `ask_user_question`，而是作为 `BrowserEvaluate` soft approval 进入统一工具审批链；Default 继续弹审批，Smart 可按高置信标记或 judge model 自动放行，Yolo / Global YOLO / 自动批准工具场景直接放行，同时保留 SSRF 字面量扫描。
 - **权限模式切换器可同步 Agent 默认值**：聊天输入区的权限模式菜单新增「同时更新 Agent 默认」开关。开启后切换 `default` / `smart` / `yolo` 会同时更新当前 Agent 的新会话默认权限模式；关闭时仍只影响当前会话。
