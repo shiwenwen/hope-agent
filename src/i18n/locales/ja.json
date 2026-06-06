@@ -409,6 +409,11 @@
     "pendingInteractionInline": "応答待ち · {{count}}",
     "pendingQueued": "メッセージがキューに追加されました。返信完了後に送信されます...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "オンにすると、モード選択時にこの Agent の新規チャット既定値も更新します。",
+        "failed": "この Agent の既定権限モードを更新できませんでした。",
+        "label": "Agent の既定値も更新"
+      },
       "default": {
         "desc": "編集系ツールと高リスクコマンドは承認が必要、それ以外は実行",
         "label": "デフォルト"

@@ -409,6 +409,11 @@
     "pendingInteractionInline": "Esperando respuesta · {{count}}",
     "pendingQueued": "Mensaje en cola, se enviará tras la respuesta...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Si está activado, elegir un modo también actualiza el valor predeterminado de este agente para chats nuevos.",
+        "failed": "No se pudo actualizar el modo de permisos predeterminado de este agente.",
+        "label": "Actualizar predeterminado del agente"
+      },
       "default": {
         "desc": "Las herramientas de edición y comandos peligrosos requieren aprobación; el resto se ejecuta.",
         "label": "Predeterminado"

@@ -409,6 +409,11 @@
     "pendingInteractionInline": "Đang chờ phản hồi · {{count}}",
     "pendingQueued": "Tin nhắn đã xếp hàng, sẽ gửi sau khi trả lời xong...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Khi bật, chọn một chế độ cũng cập nhật mặc định của Agent này cho cuộc trò chuyện mới.",
+        "failed": "Không thể cập nhật chế độ quyền mặc định của Agent này.",
+        "label": "Cập nhật mặc định Agent"
+      },
       "default": {
         "desc": "Các công cụ chỉnh sửa và lệnh nguy hiểm cần phê duyệt, các công cụ khác chạy ngay.",
         "label": "Mặc định"

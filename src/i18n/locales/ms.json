@@ -409,6 +409,11 @@
     "pendingInteractionInline": "Menunggu respons · {{count}}",
     "pendingQueued": "Mesej dalam barisan, akan dihantar selepas balasan...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Apabila dihidupkan, memilih mod juga mengemas kini lalai Agent ini untuk chat baharu.",
+        "failed": "Gagal mengemas kini mod kebenaran lalai Agent ini.",
+        "label": "Kemas kini lalai Agent"
+      },
       "default": {
         "desc": "Alat suntingan dan arahan berbahaya perlu kelulusan; selainnya dijalankan.",
         "label": "Lalai"

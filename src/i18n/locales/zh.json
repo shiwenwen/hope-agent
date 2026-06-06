@@ -409,6 +409,11 @@
     "pendingInteractionInline": "等待回应 · {{count}} 项",
     "pendingQueued": "消息已排队，等待回复完成后发送...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "开启后，选择模式会同时更新此 Agent 的新对话默认权限。",
+        "failed": "更新此 Agent 默认权限模式失败",
+        "label": "同时更新 Agent 默认"
+      },
       "default": {
         "desc": "编辑类工具与高危命令需要审批，其余直接放行",
         "label": "默认权限"

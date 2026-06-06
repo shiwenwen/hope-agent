@@ -409,6 +409,11 @@
     "pendingInteractionInline": "等待回應 · {{count}} 項",
     "pendingQueued": "消息已排隊，等待回複完成後發送...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "開啟後，選擇模式會同時更新此 Agent 的新對話預設權限。",
+        "failed": "更新此 Agent 預設權限模式失敗",
+        "label": "同時更新 Agent 預設"
+      },
       "default": {
         "desc": "編輯類工具與高危命令需要審批，其餘直接放行",
         "label": "預設權限"
