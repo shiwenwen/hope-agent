@@ -686,7 +686,12 @@
     "weekSun": "日",
     "weekThu": "四",
     "weekTue": "二",
-    "weekWed": "三"
+    "weekWed": "三",
+    "archivedProject": "（已封存）",
+    "autoAgent": "自動（專案/預設）",
+    "missingProject": "專案不存在",
+    "noProject": "無專案",
+    "project": "專案"
   },
   "dangerousMode": {
     "bannerBoth": "危險模式已啟用（CLI + 設定）—— 所有工具呼叫跳過審批",

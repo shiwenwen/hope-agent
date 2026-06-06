@@ -100,6 +100,7 @@ interface ChatScreenProps {
   onUnreadCountChange?: (count: number) => void
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
+  onCurrentProjectChange?: (projectId: string | null) => void
   /** Free-form text to append to the chat input on next render (e.g. `@plan:abcd:v0`). */
   pendingChatInsert?: string
   /** Called once the insert has been consumed so App can clear the pending slot. */
@@ -229,6 +230,7 @@ export default function ChatScreen({
   onUnreadCountChange,
   onOpenDashboardTab,
   sessionsRefreshTrigger,
+  onCurrentProjectChange,
   pendingChatInsert,
   onChatInsertConsumed,
 }: ChatScreenProps) {
@@ -645,6 +647,9 @@ export default function ChatScreen({
         : null,
     [projects, currentSessionMeta?.projectId],
   )
+  useEffect(() => {
+    onCurrentProjectChange?.(currentSessionMeta?.projectId ?? null)
+  }, [currentSessionMeta?.projectId, onCurrentProjectChange])
   const projectWorkingDir = useMemo(
     () => currentProject?.workingDir ?? null,
     [currentProject],

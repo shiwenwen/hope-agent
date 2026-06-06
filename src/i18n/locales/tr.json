@@ -686,7 +686,12 @@
     "weekSun": "Paz",
     "weekThu": "Per",
     "weekTue": "Sal",
-    "weekWed": "Çar"
+    "weekWed": "Çar",
+    "archivedProject": "(arşivlendi)",
+    "autoAgent": "Otomatik (proje/varsayılan)",
+    "missingProject": "Proje bulunamadı",
+    "noProject": "Proje yok",
+    "project": "Proje"
   },
   "dangerousMode": {
     "bannerBoth": "Tehlikeli Mod aktif (CLI + yapılandırma) — tüm araç onayları atlanıyor",

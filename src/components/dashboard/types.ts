@@ -209,6 +209,7 @@ export interface CronJob {
   id: string
   name: string
   description: string | null
+  projectId?: string | null
   schedule: CronSchedule
   status: string
   nextRunAt: string | null

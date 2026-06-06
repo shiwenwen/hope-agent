@@ -54,10 +54,12 @@ pub(crate) fn tool_manage_cron<'a>(
 
                 let (delivery_targets, inferred) =
                     resolve_delivery_targets_for_create(args, session_id.as_deref())?;
+                let project_id = resolve_project_id_for_create(args, session_id.as_deref())?;
 
                 let input = NewCronJob {
                     name: name.to_string(),
                     description,
+                    project_id,
                     schedule,
                     payload: CronPayload::AgentTurn {
                         prompt: prompt.to_string(),
@@ -89,6 +91,9 @@ pub(crate) fn tool_manage_cron<'a>(
                              pass delivery_targets=[] to opt out)",
                         );
                     }
+                }
+                if let Some(project_id) = job.project_id.as_deref() {
+                    out.push_str(&format!("\nProject: {}", project_label(project_id)));
                 }
                 Ok(out)
             }
@@ -127,6 +132,10 @@ pub(crate) fn tool_manage_cron<'a>(
                 if let Some(b) = args.get("notify_on_complete").and_then(|v| v.as_bool()) {
                     job.notify_on_complete = b;
                 }
+                if let Some(v) = args.get("project_id") {
+                    job.project_id = parse_project_id_value(v)?;
+                    validate_project_id(job.project_id.as_deref())?;
+                }
                 // delivery_targets tri-state on update (no inference — never silently
                 // clobber what the user set in the GUI).
                 if let Some(v) = args.get("delivery_targets") {
@@ -139,10 +148,14 @@ pub(crate) fn tool_manage_cron<'a>(
 
                 cron_db.update_job(&job)?;
                 Ok(format!(
-                    "Updated scheduled task '{}' (id: {}). Next run: {} | Targets: {}",
+                    "Updated scheduled task '{}' (id: {}). Next run: {} | Project: {} | Targets: {}",
                     job.name,
                     job.id,
                     job.next_run_at.as_deref().unwrap_or("none"),
+                    job.project_id
+                        .as_deref()
+                        .map(project_label)
+                        .unwrap_or_else(|| "none".to_string()),
                     if job.delivery_targets.is_empty() {
                         "none".to_string()
                     } else {
@@ -168,13 +181,19 @@ pub(crate) fn tool_manage_cron<'a>(
                             format_targets_inline(&job.delivery_targets)
                         )
                     };
+                    let project = job
+                        .project_id
+                        .as_deref()
+                        .map(|pid| format!(" | Project: {}", project_label(pid)))
+                        .unwrap_or_default();
                     lines.push(format!(
-                        "  - [{}] {} ({}) | Next: {} | Status: {}{}",
+                        "  - [{}] {} ({}) | Next: {} | Status: {}{}{}",
                         crate::truncate_utf8(&job.id, 8),
                         job.name,
                         schedule_summary(&job.schedule),
                         next,
                         job.status.as_str(),
+                        project,
                         targets,
                     ));
                 }
@@ -251,13 +270,68 @@ pub(crate) fn tool_manage_cron<'a>(
 
             "list_channel_targets" => Ok(list_channel_targets_text()),
 
+            "list_projects" => Ok(list_projects_text(
+                args.get("include_archived")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            )),
+
             _ => Err(anyhow::anyhow!(
                 "Unknown action: '{}'. Valid actions: create, update, list, get, delete, \
-                 pause, resume, run_now, list_channel_targets",
+                 pause, resume, run_now, list_channel_targets, list_projects",
                 action
             )),
         }
     })
+}
+
+fn resolve_project_id_for_create(args: &Value, session_id: Option<&str>) -> Result<Option<String>> {
+    if let Some(v) = args.get("project_id") {
+        let project_id = parse_project_id_value(v)?;
+        validate_project_id(project_id.as_deref())?;
+        return Ok(project_id);
+    }
+
+    let project_id = session_id
+        .and_then(|sid| crate::session::lookup_session_meta(Some(sid)))
+        .and_then(|meta| meta.project_id);
+    validate_project_id(project_id.as_deref())?;
+    Ok(project_id)
+}
+
+fn parse_project_id_value(value: &Value) -> Result<Option<String>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let Some(raw) = value.as_str() else {
+        return Err(anyhow::anyhow!(
+            "Invalid 'project_id': expected string, null, or omitted"
+        ));
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
+fn validate_project_id(project_id: Option<&str>) -> Result<()> {
+    let Some(project_id) = project_id else {
+        return Ok(());
+    };
+    let project_db = crate::require_project_db()?;
+    if project_db.get(project_id)?.is_none() {
+        anyhow::bail!("Project '{}' not found", project_id);
+    }
+    Ok(())
+}
+
+fn project_label(project_id: &str) -> String {
+    crate::get_project_db()
+        .and_then(|db| db.get(project_id).ok().flatten())
+        .map(|project| format!("{} ({})", project.display_label(), project.id))
+        .unwrap_or_else(|| format!("{} (missing)", project_id))
 }
 
 /// Parse schedule from tool arguments.
@@ -473,4 +547,74 @@ fn list_channel_targets_text() -> String {
         total,
         blocks.join("\n\n"),
     )
+}
+
+fn list_projects_text(include_archived: bool) -> String {
+    let project_db = match crate::require_project_db() {
+        Ok(db) => db,
+        Err(e) => return format!("Project service not initialized: {}", e),
+    };
+
+    let projects = match project_db.list(include_archived) {
+        Ok(projects) => projects,
+        Err(e) => return format!("Failed to list projects: {}", e),
+    };
+
+    if projects.is_empty() {
+        return "No projects found.".to_string();
+    }
+
+    let mut lines = vec![format!("{} project(s):", projects.len())];
+    for meta in projects {
+        let project = meta.project;
+        let archived = if project.archived { " | archived" } else { "" };
+        let default_agent = project
+            .default_agent_id
+            .as_deref()
+            .map(|id| format!(" | default_agent={}", id))
+            .unwrap_or_default();
+        let description = project
+            .description
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| format!(" — {}", crate::truncate_utf8(s, 120)))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  - {} | project_id=\"{}\"{}{}{}",
+            project.display_label(),
+            project.id,
+            default_agent,
+            archived,
+            description
+        ));
+    }
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_project_id_value;
+    use serde_json::json;
+
+    #[test]
+    fn parse_project_id_value_clears_null_and_empty_string() {
+        assert_eq!(parse_project_id_value(&json!(null)).unwrap(), None);
+        assert_eq!(parse_project_id_value(&json!("")).unwrap(), None);
+        assert_eq!(parse_project_id_value(&json!("  ")).unwrap(), None);
+    }
+
+    #[test]
+    fn parse_project_id_value_trims_project_id() {
+        assert_eq!(
+            parse_project_id_value(&json!(" project-1 "))
+                .unwrap()
+                .as_deref(),
+            Some("project-1")
+        );
+    }
+
+    #[test]
+    fn parse_project_id_value_rejects_non_string() {
+        assert!(parse_project_id_value(&json!(123)).is_err());
+    }
 }

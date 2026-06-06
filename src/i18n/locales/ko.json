@@ -686,7 +686,12 @@
     "weekSun": "일",
     "weekThu": "목",
     "weekTue": "화",
-    "weekWed": "수"
+    "weekWed": "수",
+    "archivedProject": "(보관됨)",
+    "autoAgent": "자동(프로젝트/기본값)",
+    "missingProject": "프로젝트 없음",
+    "noProject": "프로젝트 없음",
+    "project": "프로젝트"
   },
   "dangerousMode": {
     "bannerBoth": "위험 모드 활성 (CLI + 설정) — 모든 도구 승인을 건너뜀",

@@ -686,7 +686,12 @@
     "weekSun": "Вс",
     "weekThu": "Чт",
     "weekTue": "Вт",
-    "weekWed": "Ср"
+    "weekWed": "Ср",
+    "archivedProject": "(в архиве)",
+    "autoAgent": "Авто (проект/по умолчанию)",
+    "missingProject": "Проект отсутствует",
+    "noProject": "Без проекта",
+    "project": "Проект"
   },
   "dangerousMode": {
     "bannerBoth": "Опасный режим активен (CLI + конфиг) — все подтверждения инструментов пропускаются",

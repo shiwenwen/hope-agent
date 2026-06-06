@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **定时任务关联 Project**：Cron 任务可绑定 Project，人工表单和 `manage_cron` 工具都能设置；执行时会创建带 Project 上下文的隔离会话，复用 Project 指令、项目记忆、工作目录与工具 cwd 解析。Agent 支持 `Auto`，按显式 Agent → Project 默认 Agent → 全局默认 → `ha-main` 解析；Project 被删除后任务会自动清空关联并按普通 Cron 降级执行。任务列表、详情、日历 API 与模型工具输出同步展示 `projectId` / Project 标签。
+
 ## [0.6.0] - 2026-06-06
 
 ### Added

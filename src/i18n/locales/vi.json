@@ -686,7 +686,12 @@
     "weekSun": "CN",
     "weekThu": "T5",
     "weekTue": "T3",
-    "weekWed": "T4"
+    "weekWed": "T4",
+    "archivedProject": "(đã lưu trữ)",
+    "autoAgent": "Tự động (dự án/mặc định)",
+    "missingProject": "Thiếu dự án",
+    "noProject": "Không có dự án",
+    "project": "Dự án"
   },
   "dangerousMode": {
     "bannerBoth": "Chế độ Nguy hiểm đang bật (CLI + config) — mọi phê duyệt công cụ bị bỏ qua",
