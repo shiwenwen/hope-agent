@@ -43,6 +43,19 @@ pub struct ImportPromptQuery {
     pub locale: Option<String>,
 }
 
+/// `GET /api/claims` query. `scope` is JSON-encoded (or `agentId` shorthand),
+/// matching the memory-list convention.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListClaimsQuery {
+    pub scope: Option<String>,
+    pub agent_id: Option<String>,
+    pub status: Option<String>,
+    pub claim_type: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn get_backend() -> Result<&'static std::sync::Arc<dyn ha_core::memory::MemoryBackend>, AppError> {
@@ -134,6 +147,28 @@ pub async fn list_memories(
         q.offset.unwrap_or(0),
     )?;
     Ok(Json(entries))
+}
+
+/// `GET /api/claims` -- list structured claims (next-gen Dreaming, read-only).
+pub async fn list_claims(
+    Query(q): Query<ListClaimsQuery>,
+) -> Result<Json<Vec<ha_core::memory::claims::ClaimRecord>>, AppError> {
+    let claims = ha_core::memory::claims::list_claims(ha_core::memory::claims::ClaimListFilter {
+        scope: parse_scope(&q.scope, &q.agent_id),
+        status: q.status,
+        claim_type: q.claim_type,
+        limit: q.limit,
+        offset: q.offset,
+    })?;
+    Ok(Json(claims))
+}
+
+/// `GET /api/claims/{id}` -- a single claim plus its evidence + legacy-memory
+/// links. Returns `null` when the id is unknown (mirrors the Tauri command).
+pub async fn get_claim(
+    Path(id): Path<String>,
+) -> Result<Json<Option<ha_core::memory::claims::ClaimDetail>>, AppError> {
+    Ok(Json(ha_core::memory::claims::get_claim(&id)?))
 }
 
 /// `POST /api/memory/search` -- semantic search over memories.

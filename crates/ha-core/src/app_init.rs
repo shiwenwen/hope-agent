@@ -167,14 +167,16 @@ pub fn init_runtime(role: &'static str) {
         "Cannot resolve memory database path",
     );
     // Build the concrete backend Arc once: the trait object goes into
-    // MEMORY_BACKEND, and a clone seeds the Dreaming durable store. The
-    // dreaming_* tables live in the same memory.db, so the store reuses this
-    // backend's write/read connections rather than opening its own.
+    // MEMORY_BACKEND, and clones seed the Dreaming durable store + the claim
+    // store. The dreaming_* and claim tables live in the same memory.db, so
+    // both stores reuse this backend's write/read connections rather than
+    // opening their own.
     let sqlite_backend = Arc::new(fatal(
         memory::SqliteMemoryBackend::open(&memory_db_path),
         "Cannot open memory database",
     ));
     crate::memory::dreaming::init_store(sqlite_backend.clone());
+    crate::memory::claims::init_claim_store(sqlite_backend.clone());
     let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 

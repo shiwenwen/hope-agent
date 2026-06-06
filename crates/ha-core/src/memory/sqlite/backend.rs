@@ -287,6 +287,99 @@ impl SqliteMemoryBackend {
                 ON dreaming_decisions(run_id);",
         )?;
 
+        // ── Claim schema (next-gen Dreaming, design §3.2 / §3.3 / §3.3.1) ──
+        //
+        // Structured long-term memory lives in this same memory.db alongside
+        // `memories` (design §9.1). These tables are the dual-track foundation:
+        // claims + per-claim evidence + a link table that keeps legacy
+        // `memories` rows in sync without state drift. This PR only creates the
+        // schema + a read API; claim extraction / dual-write / canonicalize (and
+        // the `memory_claims_fts` index that canonicalize needs) land in a later
+        // PR.
+        //
+        // The `ON DELETE CASCADE` foreign keys encode intent but are NOT
+        // enforced yet — `PRAGMA foreign_keys` is off on this connection (see
+        // top of `open`). Cascade enforcement + the pragma are enabled when the
+        // claim write/delete path lands; until then there is no claim deletion
+        // path so nothing relies on the cascade.
+        //
+        // NOTE: `memory_claims.scope_id` (when `scope_type='agent'`) is an
+        // agent-id-bearing column and is registered with `agent::migration` for
+        // the `default → ha-main` rename, per the §11 contract. It is empty
+        // until dual-write starts, so the rename is defensive.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_claims (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT,
+                claim_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                confidence REAL NOT NULL DEFAULT 0.5,
+                confidence_source TEXT NOT NULL DEFAULT 'derived',
+                salience REAL NOT NULL DEFAULT 0.5,
+                freshness_policy_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'active',
+                valid_from TEXT,
+                valid_until TEXT,
+                supersedes_claim_id TEXT,
+                source_run_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_scope
+                ON memory_claims(scope_type, scope_id);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_status
+                ON memory_claims(status);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_type
+                ON memory_claims(claim_type);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_spo
+                ON memory_claims(subject, predicate);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_updated
+                ON memory_claims(updated_at DESC);
+
+            -- Per-claim provenance. `evidence_class` baseline drives confidence;
+            -- `quote` is short + redacted; incognito sources never persisted.
+            CREATE TABLE IF NOT EXISTS memory_evidence (
+                id TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                evidence_class TEXT NOT NULL DEFAULT 'assistant_inferred',
+                source_id TEXT NOT NULL,
+                session_id TEXT,
+                message_id TEXT,
+                file_path TEXT,
+                url TEXT,
+                quote TEXT,
+                redaction_status TEXT NOT NULL DEFAULT 'redacted',
+                access_scope_json TEXT NOT NULL DEFAULT '{}',
+                weight REAL NOT NULL DEFAULT 1.0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (claim_id) REFERENCES memory_claims(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_evidence_claim
+                ON memory_evidence(claim_id);
+
+            -- Sync relationship between a claim and the legacy `memories` row(s)
+            -- it manages, so dual-track state can't drift (design §3.3.1).
+            CREATE TABLE IF NOT EXISTS memory_claim_links (
+                claim_id TEXT NOT NULL,
+                memory_id INTEGER NOT NULL,
+                sync_mode TEXT NOT NULL DEFAULT 'managed',
+                last_synced_claim_status TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (claim_id, memory_id),
+                FOREIGN KEY (claim_id) REFERENCES memory_claims(id) ON DELETE CASCADE,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_claim_links_memory
+                ON memory_claim_links(memory_id);",
+        )?;
+
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
         for _ in 0..READ_POOL_SIZE {

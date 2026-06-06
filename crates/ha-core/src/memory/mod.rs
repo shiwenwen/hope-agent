@@ -1,3 +1,4 @@
+pub mod claims;
 pub mod dreaming;
 pub mod embedding;
 pub mod helpers;

@@ -384,6 +384,8 @@ fn build_router_with_cors(
         // Memory
         .route("/memory", post(routes::memory::add_memory))
         .route("/memory", get(routes::memory::list_memories))
+        .route("/claims", get(routes::memory::list_claims))
+        .route("/claims/{id}", get(routes::memory::get_claim))
         .route("/memory/{id}", get(routes::memory::get_memory))
         .route("/memory/{id}", put(routes::memory::update_memory))
         .route("/memory/{id}", delete(routes::memory::delete_memory))

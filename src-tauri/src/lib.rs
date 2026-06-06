@@ -250,6 +250,8 @@ pub fn run() {
             commands::memory::memory_get,
             commands::memory::memory_list,
             commands::memory::memory_search,
+            commands::memory::claim_list,
+            commands::memory::claim_get,
             commands::memory::memory_count,
             commands::memory::memory_export,
             commands::memory::memory_find_similar,

@@ -37,6 +37,34 @@ pub async fn memory_get(id: i64) -> Result<Option<memory::MemoryEntry>, CmdError
     backend.get(id).map_err(Into::into)
 }
 
+/// List structured claims (next-gen Dreaming, read-only). Optional scope /
+/// status / claim_type filters; newest-updated first. Maps to
+/// `GET /api/claims`.
+#[tauri::command]
+pub async fn claim_list(
+    scope: Option<memory::MemoryScope>,
+    status: Option<String>,
+    claim_type: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<memory::claims::ClaimRecord>, CmdError> {
+    memory::claims::list_claims(memory::claims::ClaimListFilter {
+        scope,
+        status,
+        claim_type,
+        limit,
+        offset,
+    })
+    .map_err(Into::into)
+}
+
+/// Fetch a single claim plus its evidence + legacy-memory links. Returns
+/// `null` if the id is unknown. Maps to `GET /api/claims/{id}`.
+#[tauri::command]
+pub async fn claim_get(id: String) -> Result<Option<memory::claims::ClaimDetail>, CmdError> {
+    memory::claims::get_claim(&id).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn memory_list(
     scope: Option<memory::MemoryScope>,
