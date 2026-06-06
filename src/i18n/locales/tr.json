@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "Her zaman arka planda",
-        "desc": "Asenkron destekli her çağrı anında arka plana alınır ve bir iş kimliği döner. Model `job_status` ile yoklamalıdır."
+        "desc": "Asenkron destekli her çağrı anında arka plana alınır ve bir iş kimliği döner. Sonuçlar otomatik olarak enjekte edilir; `job_status` yalnızca ara sıra durum görüntüsü almak içindir."
       },
       "neverBackground": {
         "label": "Asla arka planda",

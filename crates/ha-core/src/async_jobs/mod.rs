@@ -10,7 +10,8 @@
 //! - The auto-background budget (`config.async_tools.auto_background_secs`)
 //!   for sync calls of async-capable tools
 //!
-//! The `job_status` deferred tool lets the model actively wait for results.
+//! The `job_status` meta tool is a snapshot/status escape hatch; completion
+//! primarily flows through auto-injected `<task-notification>` messages.
 
 pub(crate) mod cancel;
 pub(crate) mod db;

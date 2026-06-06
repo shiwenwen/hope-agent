@@ -141,17 +141,24 @@ pub(super) fn build_async_tools_section() -> Option<String> {
          and returns immediately with a synthetic `{{job_id, status: \"started\"}}` response. The \
          conversation can continue while the job runs, and the real result is auto-injected back \
          into the chat as a `<task-notification>` user message when the session is idle.\n\n\
-         Async-capable tools also accept optional `job_timeout_secs`. Use it only to set a shorter \
-         per-call outer async-job timeout; it cannot extend the user-configured `asyncTools.maxJobSecs` \
-         hard limit, and individual tools may still have their own internal timeouts.\n\n\
+         Async-capable tools also accept optional `job_timeout_secs`. Use it only when this specific \
+         background job should have an outer timeout. If `asyncTools.maxJobSecs` is `0`, a positive \
+         `job_timeout_secs` sets the per-call cap; if `asyncTools.maxJobSecs` is positive, it can only \
+         shorten that hard limit. Individual tools may still have their own internal timeouts.\n\n\
          **Use `run_in_background: true` when:**\n\
          - The task is expected to take more than a few seconds (long builds, slow web searches, \
            image generation, network-heavy operations), AND\n\
          - You can make progress on other things while it runs, OR\n\
          - The user explicitly asked you to continue working in parallel.\n\n\
-         **Keep the call synchronous (default) when:** you need the result to decide your very next step.\n\n\
-         **Polling:** use `job_status(job_id)` only for a quick non-blocking snapshot. Do not wait in \
-         the chat turn; rely on the completion notification instead.\n\n\
+         **Keep the call synchronous (default) when:** you need the result to decide your very next step. \
+         Do not background a tool and then immediately poll it just to recreate synchronous waiting.\n\n\
+         **After a background job starts:** continue independent work if any exists. If no independent \
+         work is available, tell the user the job is running and stop the turn; the completion \
+         notification will resume the conversation.\n\n\
+         **Polling:** use `job_status(job_id)` only for a quick non-blocking snapshot after meaningful \
+         elapsed time or when the user explicitly asks for status. Do not call it immediately after a \
+         `started` response, and do not repeatedly poll in the same chat turn; rely on the completion \
+         notification instead.\n\n\
          **Result injection:** when the job finishes, you'll see a `<task-notification>` user message. \
          Match `task-id` against the original synthetic `job_id`; when `output-file` is present, use \
          `read` only if you need the detailed output.\n\n\

@@ -99,8 +99,9 @@ pub struct ToolDefinition {
     /// in the arguments and the tool returns an immediate synthetic job_id. The real
     /// execution continues in a tokio task and the result is delivered to the parent
     /// session via the async_jobs injection pipeline when the session becomes idle.
-    /// The model may also pass `job_timeout_secs` to tighten, but never loosen,
-    /// the user-configured async job timeout. Also participates in the
+    /// The model may also pass `job_timeout_secs` to set a per-call async job
+    /// timeout when the user-configured max is unlimited, or to tighten (but
+    /// never loosen) a positive user-configured max. Also participates in the
     /// sync-execution auto-background budget.
     #[serde(default)]
     pub async_capable: bool,
@@ -229,7 +230,7 @@ impl ToolDefinition {
                 "run_in_background".to_string(),
                 json!({
                     "type": "boolean",
-                    "description": "Run in background and return immediately with a job_id. Set to true when: (1) the task is expected to take more than a few seconds (long builds, lengthy web searches, image generation, network-heavy operations), AND (2) you can make progress on other things while it runs, OR (3) the user explicitly asked you to continue working in parallel. Set to false (default) when you need the result to decide your very next step. Results are auto-injected into the conversation as `<task-notification>` messages when ready; use job_status(job_id) only for a quick non-blocking snapshot."
+                    "description": "Run in background and return immediately with a job_id. Set to true when: (1) the task is expected to take more than a few seconds (long builds, lengthy web searches, image generation, network-heavy operations), AND (2) you can make progress on other things while it runs, OR (3) the user explicitly asked you to continue working in parallel. Set to false (default) when you need the result to decide your very next step; do not background a tool and immediately call job_status just to wait. Results are auto-injected into the conversation as `<task-notification>` messages when ready; use job_status(job_id) only for a quick non-blocking snapshot after meaningful elapsed time or when the user asks for status."
                 }),
             );
         }
@@ -239,7 +240,7 @@ impl ToolDefinition {
                 json!({
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Optional per-call timeout in seconds for the outer async background job. It only applies if the call runs as an async job (explicitly or via auto-background), and it can only shorten the user-configured asyncTools.maxJobSecs hard limit. Omit or set 0 to use the user-configured limit."
+                    "description": "Optional per-call timeout in seconds for the outer async background job. It only applies if the call runs as an async job (explicitly or via auto-background). If asyncTools.maxJobSecs is 0, a positive value sets this job's outer timeout; if asyncTools.maxJobSecs is positive, it can only shorten that hard limit. Omit or set 0 to use the user-configured behavior."
                 }),
             );
         }

@@ -268,7 +268,7 @@ pub fn build_tool_job_push_message(
             format!("Async tool \"{tool_name}\" was interrupted by application restart.")
         }
         AsyncJobStatus::Running => {
-            format!("Async tool \"{tool_name}\" is still running; call job_status to check.")
+            format!("Async tool \"{tool_name}\" is still running; wait for the terminal notification, or use job_status only for an occasional status snapshot.")
         }
         AsyncJobStatus::Cancelling => {
             format!("Async tool \"{tool_name}\" is cancelling; wait for terminal notification.")

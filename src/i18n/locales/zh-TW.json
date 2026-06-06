@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "總是背景執行",
-        "desc": "每次非同步可背景化呼叫都立即轉背景並回傳 job id，模型需用 `job_status` 主動輪詢。"
+        "desc": "每次非同步可背景化呼叫都立即轉背景並回傳 job id；完成結果會自動注入，`job_status` 僅用於偶爾查看狀態。"
       },
       "neverBackground": {
         "label": "停用背景執行",

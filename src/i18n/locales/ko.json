@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "항상 백그라운드 실행",
-        "desc": "모든 비동기 가능 호출이 즉시 백그라운드로 전환되어 job id를 반환합니다. 모델은 `job_status`로 폴링해야 합니다."
+        "desc": "모든 비동기 가능 호출이 즉시 백그라운드로 전환되어 job id를 반환합니다. 결과는 자동으로 주입되며 `job_status`는 가끔 상태를 확인할 때만 사용합니다."
       },
       "neverBackground": {
         "label": "백그라운드 사용 안 함",

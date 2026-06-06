@@ -33,7 +33,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Timeout in seconds. Defaults to 1800 (30 min). Positive values are capped at 7200; set 0 to disable the exec command timeout."
+                        "description": "Timeout in seconds. Defaults to 0 (no exec command timeout). Positive values are capped at 7200; set a positive value when you want this command to be killed after that many seconds."
                     },
                     "env": {
                         "type": "object",

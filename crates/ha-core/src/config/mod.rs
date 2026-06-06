@@ -200,9 +200,10 @@ pub struct AsyncToolsConfig {
     #[serde(default = "default_async_auto_background_secs")]
     pub auto_background_secs: u64,
     /// Maximum time (seconds) a backgrounded job may run before being killed.
-    /// Default: 1800 (30 min). 0 = no async-job limit; individual tools may
-    /// still enforce their own timeouts (for example `exec.timeout`).
-    /// Per-call `job_timeout_secs` can only tighten this limit, not extend it.
+    /// Default: 0 (no async-job limit); individual tools may still enforce
+    /// their own timeouts when the model sets one (for example `exec.timeout`).
+    /// Per-call `job_timeout_secs` can set a timeout when this is 0, or tighten
+    /// the configured limit when this is positive.
     #[serde(default = "default_async_max_job_secs")]
     pub max_job_secs: u64,
     /// Number of result bytes to keep as the SQLite preview. Full completed
@@ -236,7 +237,7 @@ fn default_async_auto_background_secs() -> u64 {
     30
 }
 fn default_async_max_job_secs() -> u64 {
-    1800
+    0
 }
 fn default_async_inline_result_bytes() -> usize {
     4096

@@ -125,8 +125,9 @@ pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
 /// Optional per-call async-job timeout injected into async-capable tool schemas.
 ///
 /// This is intentionally separate from tool-specific timeouts such as
-/// `exec.timeout`: it caps the outer async job and can only tighten the user's
-/// configured `asyncTools.maxJobSecs` safety boundary.
+/// `exec.timeout`: it caps the outer async job, sets a per-call cap when the
+/// user's `asyncTools.maxJobSecs` is unlimited, and can only tighten a positive
+/// user-configured boundary.
 pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
 
 // ── Shared Helpers ────────────────────────────────────────────────

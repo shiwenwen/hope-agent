@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "总是后台执行",
-        "desc": "每次异步可后台化调用都立即转后台并返回 job id，模型需用 `job_status` 主动 poll。"
+        "desc": "每次异步可后台化调用都立即转后台并返回 job id；完成结果会自动注入，`job_status` 仅用于偶尔查看状态。"
       },
       "neverBackground": {
         "label": "禁用后台执行",

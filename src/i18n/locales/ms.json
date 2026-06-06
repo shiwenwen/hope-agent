@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "Sentiasa di latar belakang",
-        "desc": "Setiap panggilan yang menyokong async dialihkan serta-merta ke latar belakang dan mengembalikan id kerja. Model perlu poll dengan `job_status`."
+        "desc": "Setiap panggilan yang menyokong async dialihkan serta-merta ke latar belakang dan mengembalikan id kerja. Hasil disuntik secara automatik; `job_status` hanya untuk semakan status sekali-sekala."
       },
       "neverBackground": {
         "label": "Tidak pernah di latar belakang",

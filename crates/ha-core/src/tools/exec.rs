@@ -15,7 +15,7 @@ use super::approval::{
 };
 use super::TOOL_EXEC;
 
-pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800; // 30 minutes
+pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 0; // unlimited by default
 pub(crate) const MAX_EXEC_TIMEOUT_SECS: u64 = 7200; // 2 hours max
 
 /// Default output truncation (200K chars)
@@ -1082,7 +1082,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn exec_timeout_defaults_and_clamps_positive_values() {
+    fn exec_timeout_defaults_to_unlimited_and_clamps_positive_values() {
         assert_eq!(
             parse_exec_timeout_secs(&json!({})),
             DEFAULT_EXEC_TIMEOUT_SECS

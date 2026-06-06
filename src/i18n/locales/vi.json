@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "Luôn chạy nền",
-        "desc": "Mỗi lệnh gọi hỗ trợ async sẽ ngay lập tức tách thành tác vụ nền và trả về job id. Mô hình phải dùng `job_status` để hỏi trạng thái."
+        "desc": "Mỗi lệnh gọi hỗ trợ async sẽ ngay lập tức tách thành tác vụ nền và trả về job id. Kết quả được tự động chèn lại; `job_status` chỉ dùng để xem nhanh trạng thái khi cần."
       },
       "neverBackground": {
         "label": "Không chạy nền",

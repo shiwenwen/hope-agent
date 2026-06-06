@@ -16,6 +16,7 @@ use crate::async_jobs::{self, wait, AsyncJobStatus};
 
 const DEFAULT_WAIT_SECS: u64 = 5;
 const MAX_BLOCK_WAIT_SECS: u64 = 10;
+const STATUS_SNAPSHOT_COOLDOWN_SECS: i64 = 30;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
 
@@ -156,15 +157,17 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
                 }
             }
             AsyncJobStatus::Running => {
+                insert_running_poll_guidance(map, job);
                 map.insert(
                     "hint".to_string(),
-                    json!("Job is still running. Continue with other work; a task-notification will be auto-injected when ready."),
+                    json!("Job is still running. Do not wait or repeatedly call job_status in this chat turn; continue independent work if possible, otherwise stop and rely on the auto-injected task-notification."),
                 );
             }
             AsyncJobStatus::Cancelling => {
+                insert_running_poll_guidance(map, job);
                 map.insert(
                     "hint".to_string(),
-                    json!("Cancellation has been requested; the job is shutting down."),
+                    json!("Cancellation has been requested; the job is shutting down. Do not repeatedly poll in this chat turn; wait for the terminal task-notification."),
                 );
             }
         }
@@ -172,16 +175,39 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
     payload.to_string()
 }
 
-/// Tool definition for `job_status` — registered as deferred so it doesn't
-/// pollute the always-loaded tool catalog. Discoverable via `tool_search`.
+fn insert_running_poll_guidance(
+    map: &mut serde_json::Map<String, Value>,
+    job: &crate::async_jobs::AsyncJob,
+) {
+    let age_secs = chrono::Utc::now()
+        .timestamp()
+        .saturating_sub(job.created_at)
+        .max(0);
+    let next_check_after_secs = STATUS_SNAPSHOT_COOLDOWN_SECS
+        .saturating_sub(age_secs)
+        .max(0);
+    map.insert("age_secs".to_string(), json!(age_secs));
+    map.insert(
+        "polling_guidance".to_string(),
+        json!({
+            "should_poll_again_this_turn": false,
+            "next_check_after_secs": next_check_after_secs,
+            "completion_channel": "task-notification",
+            "instruction": "Do not call job_status again in this chat turn just to wait. Continue independent work, answer that the job is still running, or wait for the auto-injected task-notification."
+        }),
+    );
+}
+
+/// Tool definition for `job_status` — feature-gated core meta tool.
 pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
     super::definitions::ToolDefinition {
         name: super::TOOL_JOB_STATUS.into(),
         description: "Inspect an async tool job created by `run_in_background: true` \
             or auto-backgrounded by the runtime. Use after the model received a synthetic \
             `{job_id, status: \"started\"}` response from another tool. This is a non-blocking \
-            snapshot tool; rely on the auto-injected `<task-notification>` for completion. Read \
-            `result_path`/`output-file` only when you need detailed output."
+            snapshot tool; do not call it immediately after `started` just to wait, and do not \
+            repeatedly poll in the same chat turn. Rely on the auto-injected `<task-notification>` \
+            for completion. Read `result_path`/`output-file` only when you need detailed output."
             .into(),
         tier: super::definitions::ToolTier::Core {
             subclass: super::definitions::CoreSubclass::Meta,

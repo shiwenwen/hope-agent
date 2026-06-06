@@ -2281,7 +2281,7 @@
       },
       "alwaysBackground": {
         "label": "Sempre em segundo plano",
-        "desc": "Toda chamada async-capable é desacoplada imediatamente e retorna um id de job. O modelo precisa fazer polling com `job_status`."
+        "desc": "Toda chamada async-capable é desacoplada imediatamente e retorna um id de job. Os resultados são injetados automaticamente; `job_status` serve apenas para consultas ocasionais de status."
       },
       "neverBackground": {
         "label": "Nunca em segundo plano",
