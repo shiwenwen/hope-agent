@@ -499,3 +499,97 @@ pub fn set_chunk_config(
     }
     Ok(cfg)
 }
+
+/// Strip a ```markdown … ``` wrapper the model may add around its reply. Only unwraps
+/// when it's confidently a *markdown wrapper* of the whole reply: opening fence whose
+/// info string is empty / `markdown` / `md`, + a closing ``` at the very end. A reply
+/// that is a real code block in some language (```python …), one that merely *starts*
+/// with a code block (content after the inner closing fence), or a single-line fence is
+/// returned untouched — so a rewrite the user explicitly asked to be a fenced code
+/// block isn't silently de-fenced.
+fn strip_md_fence(text: &str) -> String {
+    let t = text.trim();
+    if let Some(rest) = t.strip_prefix("```") {
+        if let Some((info, body)) = rest.split_once('\n') {
+            let info = info.trim().to_ascii_lowercase();
+            let is_md_wrapper = info.is_empty() || info == "markdown" || info == "md";
+            if is_md_wrapper {
+                if let Some(inner) = body.strip_suffix("```") {
+                    return inner.trim().to_string();
+                }
+            }
+        }
+    }
+    t.to_string()
+}
+
+/// AI-assisted note rewrite (WS9, owner plane): run an LLM rewrite of `text`
+/// following `instruction` and return the rewritten Markdown. The GUI shows a diff
+/// and the user confirms before saving — **this never touches disk**, so it needs
+/// no `WorkspaceScope` / write gate (the eventual save goes through `note_save`).
+/// Decoupled background call via the analysis agent (like recap / distill).
+pub async fn ai_rewrite(text: &str, instruction: &str) -> Result<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        bail!("nothing to rewrite");
+    }
+    let instruction = instruction.trim();
+    if instruction.is_empty() {
+        bail!("provide a rewrite instruction");
+    }
+    let prompt = format!(
+        "You are editing a Markdown note. Rewrite the TEXT below following the \
+         INSTRUCTION. Preserve Markdown structure and any [[wikilinks]] / #tags \
+         unless the instruction says otherwise. Return ONLY the rewritten Markdown — \
+         no preamble, no commentary, no surrounding code fence.\n\n\
+         INSTRUCTION:\n{instruction}\n\nTEXT:\n{text}"
+    );
+    // Output budget ~1 token/char + headroom (CJK ≈ 1 token/char, so don't halve),
+    // saturating to avoid an overflow on a pathological length. Hard-capped at 8192
+    // tokens — a very long whole-note rewrite can still hit the cap (rewrite a
+    // selection instead), but that's an explicit ceiling, not silent under-budgeting.
+    let max_tokens = u32::try_from(text.chars().count())
+        .unwrap_or(u32::MAX)
+        .saturating_add(512)
+        .clamp(512, 8192);
+    let config = crate::config::cached_config();
+    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
+    let res = agent.side_query(&prompt, max_tokens).await?;
+    let out = strip_md_fence(res.text.trim());
+    if out.is_empty() {
+        bail!("the model returned empty content");
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod strip_md_fence_tests {
+    use super::strip_md_fence;
+
+    #[test]
+    fn unwraps_markdown_wrapper() {
+        assert_eq!(
+            strip_md_fence("```markdown\n# Title\n\nbody\n```"),
+            "# Title\n\nbody"
+        );
+        assert_eq!(strip_md_fence("```\n# Title\n```"), "# Title");
+    }
+
+    #[test]
+    fn preserves_language_code_block() {
+        // User asked to turn the selection into a code block — don't de-fence it.
+        let py = "```python\nprint(\"hi\")\n```";
+        assert_eq!(strip_md_fence(py), py);
+    }
+
+    #[test]
+    fn preserves_content_that_only_starts_with_a_code_block() {
+        let s = "```rust\nlet x = 1;\n```\n\nmore prose";
+        assert_eq!(strip_md_fence(s), s);
+    }
+
+    #[test]
+    fn leaves_plain_markdown_untouched() {
+        assert_eq!(strip_md_fence("# Title\n\nbody"), "# Title\n\nbody");
+    }
+}

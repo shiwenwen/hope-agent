@@ -14,6 +14,7 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  hoverTooltip,
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view"
@@ -166,6 +167,69 @@ export function brokenLinkLinter(getData: () => WikilinkData) {
   })
 }
 
+/** Preview a `[[ref]]` target's title + first paragraph on hover (WS9). The host
+ *  supplies the resolver: `fetchExcerpt` reads through the owner-plane note cache
+ *  (returns null for a broken/missing ref); `getKbId` gates the tooltip off when
+ *  no KB context is available (e.g. external preview without a KB). */
+export function wikilinkHover(
+  getKbId: () => string | null,
+  fetchExcerpt: (
+    kbId: string,
+    reference: string,
+  ) => Promise<{ title: string; excerpt: string } | null>,
+) {
+  return hoverTooltip(
+    (view, pos) => {
+      const kbId = getKbId()
+      if (!kbId) return null
+      const text = view.state.doc.toString()
+      WIKILINK_RE.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = WIKILINK_RE.exec(text)) !== null) {
+        const start = m.index
+        const end = m.index + m[0].length
+        if (pos < start || pos > end) continue
+        const inner = m[1]
+        return {
+          pos: start,
+          end,
+          above: true,
+          create() {
+            const dom = document.createElement("div")
+            dom.className = "cm-wikilink-tooltip"
+            const titleEl = document.createElement("div")
+            titleEl.className = "cm-wikilink-tooltip-title"
+            titleEl.textContent = inner.trim()
+            const bodyEl = document.createElement("div")
+            bodyEl.className = "cm-wikilink-tooltip-body"
+            bodyEl.textContent = "…"
+            dom.append(titleEl, bodyEl)
+            let disposed = false
+            void fetchExcerpt(kbId, inner).then((res) => {
+              if (disposed) return
+              if (!res) {
+                dom.classList.add("cm-wikilink-tooltip-broken")
+                bodyEl.textContent = "No note matches this link."
+                return
+              }
+              if (res.title) titleEl.textContent = res.title
+              bodyEl.textContent = res.excerpt || "(empty note)"
+            })
+            return {
+              dom,
+              destroy() {
+                disposed = true
+              },
+            }
+          },
+        }
+      }
+      return null
+    },
+    { hoverTime: 300 },
+  )
+}
+
 /** Theme for wikilink chips. */
 export const wikilinkTheme = EditorView.baseTheme({
   ".cm-wikilink": {
@@ -178,6 +242,32 @@ export const wikilinkTheme = EditorView.baseTheme({
     color: "var(--destructive, #ef4444)",
     backgroundColor: "color-mix(in srgb, var(--destructive, #ef4444) 12%, transparent)",
     textDecoration: "underline wavy",
+  },
+  ".cm-tooltip.cm-wikilink-tooltip": {
+    maxWidth: "320px",
+    padding: "8px 10px",
+    borderRadius: "6px",
+    border: "1px solid var(--border, #e5e7eb)",
+    backgroundColor: "var(--popover, #fff)",
+    color: "var(--popover-foreground, #111)",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+  },
+  ".cm-wikilink-tooltip-title": {
+    fontWeight: "600",
+    fontSize: "12px",
+    marginBottom: "4px",
+  },
+  ".cm-wikilink-tooltip-body": {
+    fontSize: "12px",
+    lineHeight: "1.5",
+    opacity: "0.85",
+    maxHeight: "8rem",
+    overflow: "hidden",
+  },
+  ".cm-wikilink-tooltip-broken .cm-wikilink-tooltip-body": {
+    color: "var(--destructive, #ef4444)",
+    opacity: "1",
   },
 })
 

@@ -671,13 +671,13 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 
 ### Phase 2（图谱 + 完整 AI 操作面 + 自主维护 + 外部可写）
 
-- 图谱视图（`react-force-graph`，数据源 `note_graph`）。
-- `![[ ]]` 嵌入 / transclusion；`[[` 自动补全。
-- Layer 1 进阶工具：`note_rename / move`（**多文件 `[[ ]]` 链接完整性改写**，#9）、`note_similar / related / suggest_links / graph / orphans / broken_links`、`note_distill / moc / session_to_note`。
-- Layer 2 自主维护起步：自动建链提案、MOC 自动维护、记忆 → 笔记写入桥。
-- **外部 root 放开写（D11）**：`resolve_writable(actor=user|agent)` 拆分 + 写冲突检测（mtime/hash 比对 / `.conflict` 旁车）+ GUI 编辑外部 + 忽略规则配置 UI + 大库索引进度打磨。
-- **IM KB 访问 opt-in（D10）**：account / chat 级显式授权，群聊单独确认。
-- **CM6 编辑器增强（D13）**：inline preview（图片/公式）、wikilink hover card、heading outline、同步滚动、选中引用到聊天、AI rewrite diff。
+- ✅ 图谱视图（`react-force-graph`，数据源 `note_graph`）。〔Batch B〕
+- ✅ `![[ ]]` 嵌入 / transclusion；`[[` 自动补全。〔Batch B（补全 Phase 1）〕
+- ✅ Layer 1 进阶工具：`note_rename / move`（**多文件 `[[ ]]` 链接完整性改写**，#9）、`note_similar / related / suggest_links / graph / orphans / broken_links`、`note_distill / moc / session_to_note`。〔Batch A + C〕
+- Layer 2 自主维护起步：自动建链提案、MOC 自动维护、记忆 → 笔记写入桥。〔Batch E，待〕
+- **外部 root 放开写（D11）**：`resolve_writable(actor=user|agent)` 拆分 + 写冲突检测（mtime/hash 比对 / `.conflict` 旁车）+ GUI 编辑外部 + 忽略规则配置 UI + 大库索引进度打磨。〔Batch F，待〕
+- **IM KB 访问 opt-in（D10）**：account / chat 级显式授权，群聊单独确认。〔Batch F，待〕
+- **CM6 编辑器增强（D13）**：✅ wikilink hover card / heading outline / 源码-预览同步滚动 / 源码内联图片 + KaTeX 公式预览（光标移入还原可编辑）/ AI rewrite diff。〔Batch D；「选中引用到聊天」仍待〕
 
 ### Phase 3（深度网络 + 融合）
 

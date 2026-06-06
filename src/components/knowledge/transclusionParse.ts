@@ -92,3 +92,28 @@ export function stripFrontmatter(md: string): string {
   }
   return md // no closing delimiter — not real frontmatter, leave intact
 }
+
+/**
+ * A short plain-text excerpt for the wikilink hover card (WS9): drop frontmatter,
+ * skip leading blank lines / ATX headings, then take the first non-empty block of
+ * body text collapsed to a single line, capped at `max` code points (… elided).
+ */
+export function noteExcerpt(content: string, max = 240): string {
+  const body = stripFrontmatter(content)
+  const lines = body.split("\n")
+  const para: string[] = []
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (para.length === 0) {
+      // Skip leading blanks and a leading heading so the excerpt is real prose.
+      if (!line || /^#{1,6}\s/.test(line)) continue
+      para.push(line)
+    } else {
+      if (!line) break // first paragraph ended
+      para.push(line)
+    }
+  }
+  const text = para.join(" ").replace(/\s+/g, " ").trim()
+  const chars = Array.from(text)
+  return chars.length > max ? `${chars.slice(0, max).join("")}…` : text
+}

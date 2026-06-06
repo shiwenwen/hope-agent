@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { cleanEmbedRef, parseEmbedSegments, stripFrontmatter } from "./transclusionParse"
+import {
+  cleanEmbedRef,
+  noteExcerpt,
+  parseEmbedSegments,
+  stripFrontmatter,
+} from "./transclusionParse"
 
 describe("parseEmbedSegments", () => {
   it("splits block embeds out of surrounding markdown", () => {
@@ -123,5 +128,24 @@ describe("stripFrontmatter", () => {
 
   it("does not treat a horizontal rule mid-document as frontmatter", () => {
     expect(stripFrontmatter("# Title\n\n---\n\nbody")).toBe("# Title\n\n---\n\nbody")
+  })
+})
+
+describe("noteExcerpt", () => {
+  it("drops frontmatter and a leading heading, returns first paragraph", () => {
+    const md = "---\ntitle: A\n---\n\n# Heading\n\nFirst para line one.\nLine two.\n\nSecond para."
+    expect(noteExcerpt(md)).toBe("First para line one. Line two.")
+  })
+
+  it("collapses whitespace and skips leading blanks", () => {
+    expect(noteExcerpt("\n\n   hello    world  \n")).toBe("hello world")
+  })
+
+  it("truncates by code points with an ellipsis", () => {
+    expect(noteExcerpt("abcdef", 3)).toBe("abc…")
+  })
+
+  it("returns empty string for a heading-only note", () => {
+    expect(noteExcerpt("# Only a title")).toBe("")
   })
 })

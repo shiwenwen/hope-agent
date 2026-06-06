@@ -1011,7 +1011,18 @@
         "cycle": "循環埋め込みをスキップしました",
         "depth": "埋め込みの深さの上限に達しました",
         "loading": "埋め込みを読み込み中…"
-      }
+      },
+      "outline": "アウトライン",
+      "outlineEmpty": "見出しがありません",
+      "aiRewrite": "AI リライト",
+      "aiRewriteScope": "リライト対象：{{scope}}",
+      "aiRewriteSelection": "選択範囲",
+      "aiRewriteWholeNote": "ノート全体",
+      "aiRewritePlaceholder": "リライト方法を入力 —— 例：簡潔に、文法を修正、英語に翻訳…",
+      "aiRewriteGenerate": "生成",
+      "aiRewriteRegenerate": "再生成",
+      "aiRewriteApply": "適用",
+      "aiRewriteFailed": "AI リライトに失敗しました"
     },
     "common": {
       "create": "作成",
@@ -2030,7 +2041,18 @@
         "cycle": "순환 임베드를 건너뜀",
         "depth": "임베드 깊이 한도에 도달했습니다",
         "loading": "임베드 불러오는 중…"
-      }
+      },
+      "outline": "개요",
+      "outlineEmpty": "제목 없음",
+      "aiRewrite": "AI 다시 쓰기",
+      "aiRewriteScope": "다시 쓰는 중: {{scope}}",
+      "aiRewriteSelection": "선택 영역",
+      "aiRewriteWholeNote": "전체 노트",
+      "aiRewritePlaceholder": "다시 쓰는 방법을 입력하세요 —— 예: 더 간결하게, 문법 수정, 영어로 번역…",
+      "aiRewriteGenerate": "생성",
+      "aiRewriteRegenerate": "다시 생성",
+      "aiRewriteApply": "적용",
+      "aiRewriteFailed": "AI 다시 쓰기 실패"
     },
     "common": {
       "create": "만들기",
@@ -3030,7 +3052,18 @@
         "cycle": "已略過循環嵌入",
         "depth": "已達嵌入深度上限",
         "loading": "正在載入嵌入…"
-      }
+      },
+      "outline": "大綱",
+      "outlineEmpty": "無標題",
+      "aiRewrite": "AI 改寫",
+      "aiRewriteScope": "正在改寫：{{scope}}",
+      "aiRewriteSelection": "選取內容",
+      "aiRewriteWholeNote": "整篇筆記",
+      "aiRewritePlaceholder": "描述如何改寫 —— 例如：更簡潔、修正文法、翻譯成英文…",
+      "aiRewriteGenerate": "生成",
+      "aiRewriteRegenerate": "重新生成",
+      "aiRewriteApply": "套用",
+      "aiRewriteFailed": "AI 改寫失敗"
     },
     "common": {
       "create": "建立",
@@ -4049,7 +4082,18 @@
         "cycle": "Döngüsel gömme atlandı",
         "depth": "Gömme derinliği sınırına ulaşıldı",
         "loading": "Gömme yükleniyor…"
-      }
+      },
+      "outline": "Anahat",
+      "outlineEmpty": "Başlık yok",
+      "aiRewrite": "AI ile yeniden yaz",
+      "aiRewriteScope": "Yeniden yazılıyor: {{scope}}",
+      "aiRewriteSelection": "seçim",
+      "aiRewriteWholeNote": "tüm not",
+      "aiRewritePlaceholder": "Nasıl yeniden yazılacağını açıklayın — örn. daha kısa yap, dil bilgisini düzelt, İngilizceye çevir…",
+      "aiRewriteGenerate": "Oluştur",
+      "aiRewriteRegenerate": "Yeniden oluştur",
+      "aiRewriteApply": "Uygula",
+      "aiRewriteFailed": "AI ile yeniden yazma başarısız"
     },
     "common": {
       "create": "Oluştur",
@@ -5068,7 +5112,18 @@
         "cycle": "Đã bỏ qua nhúng vòng lặp",
         "depth": "Đã đạt giới hạn độ sâu nhúng",
         "loading": "Đang tải nội dung nhúng…"
-      }
+      },
+      "outline": "Dàn ý",
+      "outlineEmpty": "Không có tiêu đề",
+      "aiRewrite": "AI viết lại",
+      "aiRewriteScope": "Đang viết lại: {{scope}}",
+      "aiRewriteSelection": "vùng chọn",
+      "aiRewriteWholeNote": "toàn bộ ghi chú",
+      "aiRewritePlaceholder": "Mô tả cách viết lại — ví dụ: ngắn gọn hơn, sửa ngữ pháp, dịch sang tiếng Anh…",
+      "aiRewriteGenerate": "Tạo",
+      "aiRewriteRegenerate": "Tạo lại",
+      "aiRewriteApply": "Áp dụng",
+      "aiRewriteFailed": "Viết lại bằng AI thất bại"
     },
     "common": {
       "create": "Tạo",
@@ -6087,7 +6142,18 @@
         "cycle": "Incorporação circular ignorada",
         "depth": "Limite de profundidade de incorporação atingido",
         "loading": "A carregar incorporação…"
-      }
+      },
+      "outline": "Estrutura",
+      "outlineEmpty": "Sem títulos",
+      "aiRewrite": "Reescrever com IA",
+      "aiRewriteScope": "Reescrevendo: {{scope}}",
+      "aiRewriteSelection": "seleção",
+      "aiRewriteWholeNote": "nota inteira",
+      "aiRewritePlaceholder": "Descreva como reescrever — ex.: tornar mais conciso, corrigir gramática, traduzir para inglês…",
+      "aiRewriteGenerate": "Gerar",
+      "aiRewriteRegenerate": "Gerar novamente",
+      "aiRewriteApply": "Aplicar",
+      "aiRewriteFailed": "Falha ao reescrever com IA"
     },
     "common": {
       "create": "Criar",
@@ -7106,7 +7172,18 @@
         "cycle": "Циклическое вложение пропущено",
         "depth": "Достигнут предел глубины вложения",
         "loading": "Загрузка вложения…"
-      }
+      },
+      "outline": "Структура",
+      "outlineEmpty": "Нет заголовков",
+      "aiRewrite": "ИИ-переписывание",
+      "aiRewriteScope": "Переписывается: {{scope}}",
+      "aiRewriteSelection": "выделение",
+      "aiRewriteWholeNote": "вся заметка",
+      "aiRewritePlaceholder": "Опишите, как переписать — напр.: короче, исправить грамматику, перевести на английский…",
+      "aiRewriteGenerate": "Сгенерировать",
+      "aiRewriteRegenerate": "Сгенерировать заново",
+      "aiRewriteApply": "Применить",
+      "aiRewriteFailed": "Не удалось переписать с помощью ИИ"
     },
     "common": {
       "create": "Создать",
@@ -8125,7 +8202,18 @@
         "cycle": "تم تخطّي التضمين الدائري",
         "depth": "تم الوصول إلى حد عمق التضمين",
         "loading": "جارٍ تحميل التضمين…"
-      }
+      },
+      "outline": "المخطط",
+      "outlineEmpty": "لا توجد عناوين",
+      "aiRewrite": "إعادة الكتابة بالذكاء الاصطناعي",
+      "aiRewriteScope": "جارٍ إعادة الكتابة: {{scope}}",
+      "aiRewriteSelection": "التحديد",
+      "aiRewriteWholeNote": "الملاحظة كاملة",
+      "aiRewritePlaceholder": "صِف كيفية إعادة الكتابة — مثل: اجعلها أكثر إيجازًا، صحّح القواعد، ترجم إلى الإنجليزية…",
+      "aiRewriteGenerate": "إنشاء",
+      "aiRewriteRegenerate": "إعادة الإنشاء",
+      "aiRewriteApply": "تطبيق",
+      "aiRewriteFailed": "فشلت إعادة الكتابة بالذكاء الاصطناعي"
     },
     "common": {
       "create": "إنشاء",
@@ -9144,7 +9232,18 @@
         "cycle": "Inserción circular omitida",
         "depth": "Se alcanzó el límite de profundidad de inserción",
         "loading": "Cargando inserción…"
-      }
+      },
+      "outline": "Esquema",
+      "outlineEmpty": "Sin encabezados",
+      "aiRewrite": "Reescribir con IA",
+      "aiRewriteScope": "Reescribiendo: {{scope}}",
+      "aiRewriteSelection": "selección",
+      "aiRewriteWholeNote": "nota completa",
+      "aiRewritePlaceholder": "Describe cómo reescribir — p. ej.: hazlo más conciso, corrige la gramática, tradúcelo al inglés…",
+      "aiRewriteGenerate": "Generar",
+      "aiRewriteRegenerate": "Volver a generar",
+      "aiRewriteApply": "Aplicar",
+      "aiRewriteFailed": "Error al reescribir con IA"
     },
     "common": {
       "create": "Crear",
@@ -10163,7 +10262,18 @@
         "cycle": "Benaman kitaran dilangkau",
         "depth": "Had kedalaman benaman dicapai",
         "loading": "Memuatkan benaman…"
-      }
+      },
+      "outline": "Rangka",
+      "outlineEmpty": "Tiada tajuk",
+      "aiRewrite": "Tulis semula dengan AI",
+      "aiRewriteScope": "Menulis semula: {{scope}}",
+      "aiRewriteSelection": "pilihan",
+      "aiRewriteWholeNote": "seluruh nota",
+      "aiRewritePlaceholder": "Terangkan cara menulis semula — cth.: jadikan lebih ringkas, betulkan tatabahasa, terjemah ke bahasa Inggeris…",
+      "aiRewriteGenerate": "Jana",
+      "aiRewriteRegenerate": "Jana semula",
+      "aiRewriteApply": "Guna",
+      "aiRewriteFailed": "Gagal menulis semula dengan AI"
     },
     "common": {
       "create": "Cipta",

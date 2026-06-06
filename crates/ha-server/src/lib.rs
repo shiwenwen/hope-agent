@@ -294,6 +294,10 @@ fn build_router_with_cors(
                 .post(routes::knowledge::knowledge_chunk_set),
         )
         .route(
+            "/knowledge/ai/rewrite",
+            post(routes::knowledge::kb_ai_rewrite),
+        )
+        .route(
             "/knowledge/{kb_id}/dir",
             post(routes::knowledge::kb_mkdir).delete(routes::knowledge::kb_delete_dir),
         )

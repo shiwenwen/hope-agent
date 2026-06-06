@@ -370,6 +370,15 @@ pub async fn kb_graph_cmd(kb_id: String) -> Result<KnowledgeGraph, CmdError> {
     service::graph(&kb_id).map_err(Into::into)
 }
 
+/// AI-assisted note rewrite (WS9): returns rewritten Markdown for the GUI to diff;
+/// nothing is written until the user confirms and the normal save runs.
+#[tauri::command]
+pub async fn kb_ai_rewrite_cmd(text: String, instruction: String) -> Result<String, CmdError> {
+    service::ai_rewrite(&text, &instruction)
+        .await
+        .map_err(Into::into)
+}
+
 /// Resolve a `[[ ]]` reference to a note and return its full read result (for
 /// `![[ ]]` transclusion preview). `Ok(None)` = broken embed.
 #[tauri::command]

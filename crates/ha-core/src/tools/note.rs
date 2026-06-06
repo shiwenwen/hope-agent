@@ -924,16 +924,18 @@ fn yaml_inline(s: &str) -> String {
     }
 }
 
-/// Strip a single wrapping ```lang … ``` fence the model may have added.
+/// Strip a single wrapping ```lang … ``` fence the model may have added. Only unwraps
+/// a *whole-reply* wrap (opening fence + info line + a closing ``` at the very end);
+/// content that merely starts with a code block, or a single-line fence, is left
+/// untouched so a legitimate leading code block isn't corrupted.
 fn strip_code_fence(text: &str) -> String {
     let t = text.trim();
     if let Some(rest) = t.strip_prefix("```") {
-        let inner = rest.split_once('\n').map(|(_, b)| b).unwrap_or("");
-        return inner
-            .strip_suffix("```")
-            .unwrap_or(inner)
-            .trim()
-            .to_string();
+        if let Some((_info, body)) = rest.split_once('\n') {
+            if let Some(inner) = body.strip_suffix("```") {
+                return inner.trim().to_string();
+            }
+        }
     }
     t.to_string()
 }

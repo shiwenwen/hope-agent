@@ -12,17 +12,21 @@ import {
   highlightSpecialChars,
   keymap,
 } from "@codemirror/view"
-import { memo, useEffect, useMemo, useRef } from "react"
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef } from "react"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import type { NoteEditorMode } from "@/types/knowledge"
 
+import { fetchNoteRef } from "./noteRefFetch"
 import NoteTransclusionView from "./NoteTransclusionView"
+import { cleanEmbedRef, noteExcerpt } from "./transclusionParse"
 
+import { notePreviewTheme, notePreviewWidgets } from "./cm/previewExtensions"
 import {
   brokenLinkLinter,
   wikilinkCompletion,
   wikilinkDecorations,
+  wikilinkHover,
   wikilinkTheme,
   type WikilinkData,
 } from "./cm/wikilinkExtensions"
@@ -51,6 +55,14 @@ interface NoteEditorProps {
   embedCacheKey?: number
 }
 
+/** Imperative handle for AI-rewrite (WS9): read the current selection and splice
+ *  rewritten text back in. Offsets are CM6 document positions. */
+export interface NoteEditorHandle {
+  getSelection: () => { from: number; to: number; text: string } | null
+  replaceRange: (from: number, to: number, text: string) => void
+  docLength: () => number
+}
+
 const editorTheme = EditorView.theme({
   "&": {
     height: "100%",
@@ -72,22 +84,30 @@ const editorTheme = EditorView.theme({
  * Preview (streamdown), Split. The document is always plain `.md` text — wikilink
  * chip decorations / autocomplete / broken-link lint operate on top of it.
  */
-function NoteEditor({
-  value,
-  onChange,
-  readOnly = false,
-  mode,
-  data,
-  revealTarget,
-  kbId,
-  notePath,
-  onOpenNote,
-  embedCacheKey = 0,
-}: NoteEditorProps) {
+const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
+  {
+    value,
+    onChange,
+    readOnly = false,
+    mode,
+    data,
+    revealTarget,
+    kbId,
+    notePath,
+    onOpenNote,
+    embedCacheKey = 0,
+  },
+  ref,
+) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const dataRef = useRef<WikilinkData>(data)
+  // Hover card (WS9) reads these so the once-built extension always sees the
+  // current KB / cache epoch without rebuilding the editor.
+  const kbIdRef = useRef<string | null | undefined>(kbId)
+  const bustRef = useRef(embedCacheKey)
   const readOnlyComp = useRef(new Compartment())
   // True only while we push an external `value` into the editor programmatically
   // (opening / switching a note). The updateListener checks it so a programmatic
@@ -97,6 +117,8 @@ function NoteEditor({
 
   onChangeRef.current = onChange
   dataRef.current = data
+  kbIdRef.current = kbId
+  bustRef.current = embedCacheKey
 
   const showSource = mode === "source" || mode === "split"
   const showPreview = mode === "preview" || mode === "split"
@@ -128,6 +150,17 @@ function NoteEditor({
         wikilinkDecorations(getData),
         wikilinkCompletion(getData),
         brokenLinkLinter(getData),
+        wikilinkHover(
+          () => kbIdRef.current ?? null,
+          (kb, reference) =>
+            // Drop `|alias` / `#anchor` so the shared ref cache keys match the
+            // transclusion view's (both resolve to the same target note).
+            fetchNoteRef(kb, cleanEmbedRef(reference), bustRef.current).then((res) =>
+              res ? { title: res.title, excerpt: noteExcerpt(res.content) } : null,
+            ),
+        ),
+        notePreviewTheme,
+        notePreviewWidgets(),
         keymap.of([
           ...closeBracketsKeymap,
           ...defaultKeymap,
@@ -202,6 +235,64 @@ function NoteEditor({
     })
   }, [readOnly])
 
+  // Sync scroll between the source and preview panes in split mode (WS9): map by
+  // scroll fraction, with a one-frame lock so the programmatic scroll on one pane
+  // doesn't echo back from the other. Re-binds whenever the editor is (re)built.
+  useEffect(() => {
+    if (mode !== "split") return
+    const view = viewRef.current
+    const preview = previewRef.current
+    if (!view || !preview) return
+    const source = view.scrollDOM
+    let locked = false
+    const fraction = (el: HTMLElement) => {
+      const max = el.scrollHeight - el.clientHeight
+      return max > 0 ? el.scrollTop / max : 0
+    }
+    const sync = (from: HTMLElement, to: HTMLElement) => {
+      if (locked) return
+      locked = true
+      to.scrollTop = fraction(from) * (to.scrollHeight - to.clientHeight)
+      requestAnimationFrame(() => {
+        locked = false
+      })
+    }
+    const onSource = () => sync(source, preview)
+    const onPreview = () => sync(preview, source)
+    source.addEventListener("scroll", onSource, { passive: true })
+    preview.addEventListener("scroll", onPreview, { passive: true })
+    return () => {
+      source.removeEventListener("scroll", onSource)
+      preview.removeEventListener("scroll", onPreview)
+    }
+    // Only `mode` — the editor is rebuilt solely on a source-visibility toggle, so
+    // scrollDOM is stable across edits; no need to re-bind on every keystroke.
+  }, [mode])
+
+  // Imperative API for AI rewrite (WS9). Splicing via dispatch goes through the
+  // updateListener, so the host's onChange fires (marks the note dirty) naturally.
+  useImperativeHandle(ref, () => ({
+    getSelection: () => {
+      const view = viewRef.current
+      if (!view) return null
+      const { from, to } = view.state.selection.main
+      return { from, to, text: view.state.sliceDoc(from, to) }
+    },
+    replaceRange: (from, to, text) => {
+      const view = viewRef.current
+      if (!view) return
+      const len = view.state.doc.length
+      const f = Math.max(0, Math.min(from, len))
+      const tt = Math.max(f, Math.min(to, len))
+      view.dispatch({
+        changes: { from: f, to: tt, insert: text },
+        selection: EditorSelection.cursor(f + text.length),
+      })
+      view.focus()
+    },
+    docLength: () => viewRef.current?.state.doc.length ?? 0,
+  }))
+
   return (
     <div className="flex h-full min-h-0 w-full">
       {showSource && (
@@ -212,6 +303,7 @@ function NoteEditor({
       )}
       {showPreview && (
         <div
+          ref={previewRef}
           className={`h-full min-h-0 overflow-auto p-4 ${showSource ? "w-1/2" : "w-full"}`}
         >
           {kbId ? (
@@ -229,6 +321,6 @@ function NoteEditor({
       )}
     </div>
   )
-}
+})
 
 export default memo(NoteEditor)

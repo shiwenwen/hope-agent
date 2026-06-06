@@ -158,6 +158,13 @@ pub struct KbDirBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct KbAiRewriteBody {
+    pub text: String,
+    pub instruction: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct KbFileQuery {
     #[serde(default)]
     pub path: Option<String>,
@@ -569,6 +576,14 @@ pub async fn kb_orphans(Path(kb_id): Path<String>) -> Result<Json<Vec<Note>>, Ap
 /// `GET /api/knowledge/{kb_id}/graph`
 pub async fn kb_graph(Path(kb_id): Path<String>) -> Result<Json<KnowledgeGraph>, AppError> {
     Ok(Json(service::graph(&kb_id)?))
+}
+
+/// `POST /api/knowledge/ai/rewrite` — AI rewrite of a text selection (WS9). Returns
+/// rewritten Markdown; the client diffs it and the user saves through `note_save`.
+pub async fn kb_ai_rewrite(Json(body): Json<KbAiRewriteBody>) -> Result<Json<String>, AppError> {
+    Ok(Json(
+        service::ai_rewrite(&body.text, &body.instruction).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/note/resolve?reference=` — resolve a `[[ ]]` ref

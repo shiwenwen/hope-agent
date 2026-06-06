@@ -94,6 +94,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   kb_broken_links_cmd:             { method: "GET",    path: "/api/knowledge/{kbId}/broken-links" },
   kb_orphans_cmd:                  { method: "GET",    path: "/api/knowledge/{kbId}/orphans" },
   kb_graph_cmd:                    { method: "GET",    path: "/api/knowledge/{kbId}/graph" },
+  kb_ai_rewrite_cmd:               { method: "POST",   path: "/api/knowledge/ai/rewrite" },
   kb_note_read_ref_cmd:            { method: "GET",    path: "/api/knowledge/{kbId}/note/resolve" },
   kb_search_cmd:                   { method: "GET",    path: "/api/knowledge/search" },
   kb_file_read_cmd:                { method: "GET",    path: "/api/knowledge/{kbId}/files/read" },

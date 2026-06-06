@@ -11,9 +11,9 @@ import { memo, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
-import { getTransport } from "@/lib/transport-provider"
 import type { NoteReadResult } from "@/types/knowledge"
 
+import { fetchNoteRef } from "./noteRefFetch"
 import { cleanEmbedRef, parseEmbedSegments, stripFrontmatter } from "./transclusionParse"
 
 /** Max embed nesting before we stop recursing — the root note is depth 0, so up
@@ -21,41 +21,6 @@ import { cleanEmbedRef, parseEmbedSegments, stripFrontmatter } from "./transclus
 const MAX_EMBED_DEPTH = 4
 
 const EMPTY_SEEN: ReadonlySet<string> = new Set()
-
-// ── Resolved-embed cache (busted when the KB changes) ───────────────
-// Keyed by `kbId::normalizedRef`; the whole map clears when `cacheBustKey`
-// advances (a knowledge:changed tick) so edits to embedded notes show through.
-
-let cacheBust = -1
-const refCache = new Map<string, Promise<NoteReadResult | null>>()
-
-function fetchEmbed(
-  kbId: string,
-  reference: string,
-  bust: number,
-): Promise<NoteReadResult | null> {
-  if (bust !== cacheBust) {
-    refCache.clear()
-    cacheBust = bust
-  }
-  const key = `${kbId}::${reference.trim().toLowerCase()}`
-  let p = refCache.get(key)
-  if (!p) {
-    const tx = getTransport()
-    p = tx
-      .call<NoteReadResult | null>("kb_note_read_ref_cmd", { kbId, reference })
-      .catch((e) => {
-        console.error("kb_note_read_ref failed", e)
-        // Don't pin a transient transport failure as a permanent broken embed —
-        // drop the entry so the next render retries. A successful null (genuinely
-        // unresolved ref) stays cached.
-        refCache.delete(key)
-        return null
-      })
-    refCache.set(key, p)
-  }
-  return p
-}
 
 interface NoteTransclusionViewProps {
   kbId: string
@@ -128,7 +93,7 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
   useEffect(() => {
     if (overDepth) return
     let alive = true
-    void fetchEmbed(kbId, target, cacheBustKey).then((note) => {
+    void fetchNoteRef(kbId, target, cacheBustKey).then((note) => {
       if (alive) setEntry({ ref: reference, bust: cacheBustKey, note })
     })
     return () => {

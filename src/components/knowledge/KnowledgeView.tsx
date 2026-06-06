@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Sparkles,
   Trash2,
   Waypoints,
   X,
@@ -62,11 +63,13 @@ import type {
 import { useReembedJob } from "@/hooks/useReembedJob"
 import { isLocalModelJobActive } from "@/types/local-model-jobs"
 
+import AiRewriteDialog from "./AiRewriteDialog"
+import HeadingOutline from "./HeadingOutline"
 import KnowledgeEmbeddingBadge from "./KnowledgeEmbeddingBadge"
 import KnowledgeGraphView from "./KnowledgeGraphView"
 import KnowledgeJobsButton from "./KnowledgeJobsButton"
 import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
-import NoteEditor from "./NoteEditor"
+import NoteEditor, { type NoteEditorHandle } from "./NoteEditor"
 import { buildKnownTargets, type WikilinkData } from "./cm/wikilinkExtensions"
 
 interface KnowledgeViewProps {
@@ -102,6 +105,15 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const [baseHash, setBaseHash] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [mode, setMode] = useState<NoteEditorMode>("split")
+  // AI rewrite (WS9): imperative handle into the saved-note editor + the captured
+  // rewrite scope (selection range or whole doc) opened in the diff dialog.
+  const editorRef = useRef<NoteEditorHandle>(null)
+  const [rewrite, setRewrite] = useState<{
+    before: string
+    from: number
+    to: number
+    scope: "selection" | "all"
+  } | null>(null)
   // Whole-KB graph view (WS1) — a per-KB toggle, orthogonal to the per-note
   // source/split/preview mode.
   const [graphMode, setGraphMode] = useState(false)
@@ -1609,6 +1621,37 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                     {t("knowledge.readOnly", "Read-only (external vault)")}
                   </span>
                 )}
+                {mode !== "preview" && (
+                  <HeadingOutline
+                    content={editorValue}
+                    onJump={(line) => setRevealTarget({ line })}
+                  />
+                )}
+                {!readOnly && mode !== "preview" && (
+                  <IconTip label={t("knowledge.aiRewrite", "AI rewrite")}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2"
+                      onClick={() => {
+                        const sel = editorRef.current?.getSelection()
+                        if (sel && sel.from !== sel.to && sel.text.trim()) {
+                          setRewrite({
+                            before: sel.text,
+                            from: sel.from,
+                            to: sel.to,
+                            scope: "selection",
+                          })
+                        } else {
+                          const len = editorRef.current?.docLength() ?? editorValue.length
+                          setRewrite({ before: editorValue, from: 0, to: len, scope: "all" })
+                        }
+                      }}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </Button>
+                  </IconTip>
+                )}
                 <ModeSwitch mode={mode} onChange={setMode} />
                 {!readOnly && (
                   <Button
@@ -1635,6 +1678,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               </div>
               <div className="flex-1 min-h-0">
                 <NoteEditor
+                  ref={editorRef}
                   value={editorValue}
                   onChange={(v) => {
                     setEditorValue(v)
@@ -2197,6 +2241,24 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* AI rewrite (WS9) */}
+      {rewrite && (
+        <AiRewriteDialog
+          open
+          onOpenChange={(o) => !o && setRewrite(null)}
+          before={rewrite.before}
+          scopeLabel={
+            rewrite.scope === "selection"
+              ? t("knowledge.aiRewriteSelection", "selection")
+              : t("knowledge.aiRewriteWholeNote", "whole note")
+          }
+          onApply={(after) => {
+            editorRef.current?.replaceRange(rewrite.from, rewrite.to, after)
+            setRewrite(null)
+          }}
+        />
+      )}
     </div>
   )
 }
