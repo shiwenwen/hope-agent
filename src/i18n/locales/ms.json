@@ -756,7 +756,10 @@
           "completed": "selesai",
           "failed": "gagal",
           "skipped": "dilangkau"
-        }
+        },
+        "evidence": "Sumber",
+        "evidenceIncognito": "Sumber inkognito — tidak boleh dilihat",
+        "evidenceUnavailable": "Sumber tidak tersedia"
       }
     },
     "error": {

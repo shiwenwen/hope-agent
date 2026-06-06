@@ -24,6 +24,7 @@
 
 mod config;
 mod cron_loop;
+mod evidence;
 mod narrative;
 mod pipeline;
 mod promotion;
@@ -35,6 +36,7 @@ mod types;
 
 pub use config::{CronTriggerConfig, DreamingConfig, IdleTriggerConfig, PromotionThresholds};
 pub use cron_loop::spawn_dreaming_cron_loop;
+pub use evidence::evidence_quote;
 pub use pipeline::{last_report_snapshot, run_cycle};
 pub use store::{get_run, init_store, list_runs, recover_on_startup, spawn_retention_loop};
 pub use triggers::{
@@ -43,7 +45,7 @@ pub use triggers::{
 };
 pub use types::{
     DreamPhase, DreamReport, DreamRunStatus, DreamingDecisionRecord, DreamingRunDetail,
-    DreamingRunRecord, PromotionRecord,
+    DreamingRunRecord, EvidenceQuote, EvidenceRef, PromotionRecord,
 };
 
 use anyhow::{Context, Result};

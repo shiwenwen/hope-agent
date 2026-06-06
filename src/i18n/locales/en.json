@@ -756,7 +756,10 @@
           "completed": "completed",
           "failed": "failed",
           "skipped": "skipped"
-        }
+        },
+        "evidence": "Evidence",
+        "evidenceIncognito": "Incognito source — not viewable",
+        "evidenceUnavailable": "Source unavailable"
       }
     },
     "error": {

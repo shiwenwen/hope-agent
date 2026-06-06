@@ -362,6 +362,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dreaming_idle_status` | `GET /api/dreaming/idle-status` | ✅ |
 | `dreaming_list_runs` | `GET /api/dreaming/runs` | ✅ |
 | `dreaming_get_run` | `GET /api/dreaming/runs/{id}` | ✅ |
+| `dreaming_evidence_quote` | `GET /api/dreaming/evidence/quote` | ✅ owner 平面；incognito 来源归零（后端门控） |
 | `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
 | `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
 | `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |

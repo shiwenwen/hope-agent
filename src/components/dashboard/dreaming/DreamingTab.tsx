@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Loader2, Moon, Play, RefreshCw } from "lucide-react"
+import { FileText, Loader2, Moon, Play, RefreshCw } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -44,6 +44,25 @@ interface DreamingRun {
   note?: string | null
 }
 
+// Provenance pointer (Evidence Layer) — mirrors ha-core `EvidenceRef`.
+interface EvidenceRef {
+  sourceType: string
+  memoryId?: number | null
+  sessionId?: string | null
+  messageId?: number | null
+}
+
+// Authorized, redacted excerpt — mirrors ha-core `EvidenceQuote`.
+interface EvidenceQuote {
+  sessionId: string
+  messageId?: number | null
+  role?: string | null
+  quote: string
+  truncated: boolean
+  available: boolean
+  reason?: string | null
+}
+
 interface DreamingDecision {
   id: string
   decisionType: string
@@ -52,6 +71,21 @@ interface DreamingDecision {
   score?: number | null
   rationale: string
   createdAt: string
+  // Provenance lives in the decision's `afterJson` blob (Phase 1 keeps
+  // evidence lightweight — no dedicated table). Parsed via `parseEvidence`.
+  afterJson?: string | null
+}
+
+// Pull evidence refs out of a decision's `afterJson` blob, tolerating the
+// pre-Evidence-Layer shape (`{pinned,title}` with no `evidence` key).
+function parseEvidence(afterJson?: string | null): EvidenceRef[] {
+  if (!afterJson) return []
+  try {
+    const parsed = JSON.parse(afterJson) as { evidence?: unknown }
+    return Array.isArray(parsed.evidence) ? (parsed.evidence as EvidenceRef[]) : []
+  } catch {
+    return []
+  }
 }
 
 interface DreamingRunDetail {
@@ -64,6 +98,117 @@ const STATUS_DOT: Record<string, string> = {
   completed: "bg-emerald-500",
   failed: "bg-red-500",
   skipped: "bg-muted-foreground/50",
+}
+
+// Evidence chips for one decision, with an authorized expand for session
+// sources. The quote is resolved server-side (incognito-gated + redacted),
+// so the control never reveals anything the backend wouldn't.
+function DecisionEvidence({ refs }: { refs: EvidenceRef[] }) {
+  const { t } = useTranslation()
+  const [openIdx, setOpenIdx] = useState<number | null>(null)
+  const [quote, setQuote] = useState<EvidenceQuote | null>(null)
+  const [loadingQuote, setLoadingQuote] = useState(false)
+
+  if (refs.length === 0) return null
+
+  const expand = async (idx: number, sessionId: string, messageId?: number | null) => {
+    if (openIdx === idx) {
+      setOpenIdx(null)
+      return
+    }
+    setOpenIdx(idx)
+    setQuote(null)
+    setLoadingQuote(true)
+    try {
+      const q = await getTransport().call<EvidenceQuote>("dreaming_evidence_quote", {
+        sessionId,
+        messageId: messageId ?? undefined,
+      })
+      setQuote(q ?? null)
+    } catch (e) {
+      logger.error("dashboard", "DreamingTab::evidence", "Failed to load evidence quote", e)
+      setQuote(null)
+    } finally {
+      setLoadingQuote(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 mt-1">
+      <span className="text-[10px] text-muted-foreground">
+        {t("dashboard.dreaming.runs.evidence")}:
+      </span>
+      {refs.map((r, idx) => {
+        if (r.sourceType === "memory" && r.memoryId != null) {
+          return (
+            <span
+              key={idx}
+              className="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
+            >
+              memory #{r.memoryId}
+            </span>
+          )
+        }
+        if (r.sourceType === "session_message" && r.sessionId) {
+          const sid = r.sessionId
+          // Only a precise message anchor can be expanded to the correct
+          // source. Phase 1 session refs carry no messageId, so they render
+          // as display-only chips; the expand path lights up automatically
+          // once claim extraction supplies per-claim message anchors.
+          if (r.messageId == null) {
+            return (
+              <span
+                key={idx}
+                className="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground inline-flex items-center gap-1"
+              >
+                <FileText className="h-3 w-3" />
+                session {sid.slice(0, 8)}…
+              </span>
+            )
+          }
+          const mid = r.messageId
+          return (
+            <button
+              key={idx}
+              onClick={() => void expand(idx, sid, mid)}
+              className="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground hover:bg-secondary inline-flex items-center gap-1"
+            >
+              <FileText className="h-3 w-3" />
+              session {sid.slice(0, 8)}…
+            </button>
+          )
+        }
+        return null
+      })}
+      {openIdx !== null && (
+        <div className="w-full mt-1 rounded border border-border/40 bg-muted/30 px-2 py-1.5 text-[11px]">
+          {loadingQuote ? (
+            <span className="text-muted-foreground inline-flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t("common.loading")}
+            </span>
+          ) : quote?.available ? (
+            <div className="space-y-0.5">
+              {quote.role && (
+                <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                  {quote.role}
+                </span>
+              )}
+              <div className="text-muted-foreground whitespace-pre-wrap break-words">
+                {quote.quote}
+              </div>
+            </div>
+          ) : (
+            <span className="italic text-muted-foreground">
+              {quote?.reason === "incognito"
+                ? t("dashboard.dreaming.runs.evidenceIncognito")
+                : t("dashboard.dreaming.runs.evidenceUnavailable")}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function DreamingTab() {
@@ -375,6 +520,7 @@ export default function DreamingTab() {
                         )}
                       </div>
                       <div className="text-muted-foreground">{d.rationale}</div>
+                      <DecisionEvidence refs={parseEvidence(d.afterJson)} />
                     </li>
                   ))}
                 </ul>

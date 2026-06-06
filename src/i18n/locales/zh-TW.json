@@ -756,7 +756,10 @@
           "completed": "已完成",
           "failed": "失敗",
           "skipped": "已跳過"
-        }
+        },
+        "evidence": "來源",
+        "evidenceIncognito": "無痕工作階段來源，無法檢視",
+        "evidenceUnavailable": "來源不可用"
       }
     },
     "error": {

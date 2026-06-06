@@ -23,6 +23,13 @@ pub struct ListRunsQuery {
     pub offset: Option<usize>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceQuoteQuery {
+    pub session_id: String,
+    pub message_id: Option<i64>,
+}
+
 use crate::error::AppError;
 
 /// `POST /api/dreaming/run` — kick off a cycle inline (trigger=manual).
@@ -83,4 +90,17 @@ pub async fn get_run(
     Path(id): Path<String>,
 ) -> Result<Json<Option<dreaming::DreamingRunDetail>>, AppError> {
     Ok(Json(dreaming::get_run(&id)?))
+}
+
+/// `GET /api/dreaming/evidence/quote?sessionId=&messageId=` — resolve a
+/// redacted, length-capped excerpt for an evidence ref (Evidence Layer).
+///
+/// Owner-plane (API-key trust, like `/api/sessions/{id}/messages`); it
+/// surfaces a strict subset of that data. The incognito gate lives in the
+/// core so expansion can't be unlocked by the frontend alone (design
+/// §5.3 / §8.1) — incognito sources come back `available: false`.
+pub async fn evidence_quote(
+    Query(q): Query<EvidenceQuoteQuery>,
+) -> Result<Json<dreaming::EvidenceQuote>, AppError> {
+    Ok(Json(dreaming::evidence_quote(&q.session_id, q.message_id)))
 }

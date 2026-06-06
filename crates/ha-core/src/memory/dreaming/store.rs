@@ -324,7 +324,15 @@ impl DreamingStore {
         let before = serde_json::json!({ "pinned": false }).to_string();
         let mut count = 0usize;
         for p in promotions {
-            let after = serde_json::json!({ "pinned": true, "title": p.title }).to_string();
+            // Persist provenance in `after_json` so the audit trail + Dashboard
+            // can trace each promotion to its source without a dedicated
+            // evidence table (Evidence Layer Phase 1).
+            let after = serde_json::json!({
+                "pinned": true,
+                "title": p.title,
+                "evidence": p.evidence,
+            })
+            .to_string();
             conn.execute(
                 "INSERT INTO dreaming_decisions
                     (id, run_id, decision_type, target_type, target_id, score,
@@ -651,6 +659,7 @@ fn row_to_decision(row: &rusqlite::Row) -> rusqlite::Result<DreamingDecisionReco
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::EvidenceRef;
     use super::*;
     use crate::memory::dreaming::DreamTrigger;
 
@@ -674,6 +683,7 @@ mod tests {
                     score: 0.9,
                     title: format!("t{i}"),
                     rationale: format!("r{i}"),
+                    evidence: vec![EvidenceRef::memory(i as i64 + 1)],
                 })
                 .collect(),
             diary_path: Some("/tmp/diary.md".to_string()),

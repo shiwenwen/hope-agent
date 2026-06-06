@@ -756,7 +756,10 @@
           "completed": "hoàn tất",
           "failed": "thất bại",
           "skipped": "đã bỏ qua"
-        }
+        },
+        "evidence": "Nguồn",
+        "evidenceIncognito": "Nguồn ẩn danh — không thể xem",
+        "evidenceUnavailable": "Nguồn không khả dụng"
       }
     },
     "error": {

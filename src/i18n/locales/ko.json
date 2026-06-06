@@ -756,7 +756,10 @@
           "completed": "완료",
           "failed": "실패",
           "skipped": "건너뜀"
-        }
+        },
+        "evidence": "출처",
+        "evidenceIncognito": "시크릿 세션 출처 — 볼 수 없음",
+        "evidenceUnavailable": "출처를 사용할 수 없음"
       }
     },
     "error": {

@@ -756,7 +756,10 @@
           "completed": "اكتمل",
           "failed": "فشل",
           "skipped": "تم التخطي"
-        }
+        },
+        "evidence": "المصدر",
+        "evidenceIncognito": "مصدر من جلسة خفية — غير قابل للعرض",
+        "evidenceUnavailable": "المصدر غير متاح"
       }
     },
     "error": {

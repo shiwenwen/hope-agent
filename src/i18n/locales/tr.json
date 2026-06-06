@@ -756,7 +756,10 @@
           "completed": "tamamlandı",
           "failed": "başarısız",
           "skipped": "atlandı"
-        }
+        },
+        "evidence": "Kaynak",
+        "evidenceIncognito": "Gizli oturum kaynağı — görüntülenemez",
+        "evidenceUnavailable": "Kaynak kullanılamıyor"
       }
     },
     "error": {

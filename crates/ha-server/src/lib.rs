@@ -899,6 +899,10 @@ fn build_router_with_cors(
         .route("/dreaming/runs", get(routes::dreaming::list_runs))
         .route("/dreaming/runs/{id}", get(routes::dreaming::get_run))
         .route(
+            "/dreaming/evidence/quote",
+            get(routes::dreaming::evidence_quote),
+        )
+        .route(
             "/cron/validate",
             post(routes::config::validate_cron_expression),
         )

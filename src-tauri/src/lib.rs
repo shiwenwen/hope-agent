@@ -269,6 +269,7 @@ pub fn run() {
             commands::dreaming::dreaming_idle_status,
             commands::dreaming::dreaming_list_runs,
             commands::dreaming::dreaming_get_run,
+            commands::dreaming::dreaming_evidence_quote,
             // Onboarding wizard
             commands::onboarding::get_onboarding_state,
             commands::onboarding::save_onboarding_draft,

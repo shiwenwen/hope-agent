@@ -4,6 +4,53 @@ use serde::{Deserialize, Serialize};
 
 use super::triggers::DreamTrigger;
 
+/// A single provenance pointer for a promoted memory (Evidence Layer,
+/// design §3.3). Phase 1 keeps evidence lightweight — it rides on the
+/// fields the legacy `memories` row already carries (`source_session_id`
+/// + the memory id), so no new schema is introduced. The dedicated
+/// `memory_evidence` table with per-claim quotes lands with the claim
+/// schema in a later PR.
+///
+/// `message_id` is reserved: the extraction path operates on API-shaped
+/// history (role + content only, no DB ids), so precise message-level
+/// anchors arrive once claim extraction has the LLM cite them per claim.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceRef {
+    /// "memory" | "session_message".
+    pub source_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Reserved for precise message anchors (filled by claim extraction).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<i64>,
+}
+
+impl EvidenceRef {
+    /// Trace to the promoted memory itself — always available.
+    pub fn memory(memory_id: i64) -> Self {
+        Self {
+            source_type: "memory".to_string(),
+            memory_id: Some(memory_id),
+            session_id: None,
+            message_id: None,
+        }
+    }
+
+    /// Trace to the originating session. Only built for non-incognito
+    /// sources (see `scanner::evidence_for_candidate`).
+    pub fn session(session_id: impl Into<String>) -> Self {
+        Self {
+            source_type: "session_message".to_string(),
+            memory_id: None,
+            session_id: Some(session_id.into()),
+            message_id: None,
+        }
+    }
+}
+
 /// Summary of a single promotion decision.
 /// Emitted back to the UI / diary; also written into the Dream Diary
 /// markdown as a `<!-- ha-dream-promotion: ... -->` comment so the file
@@ -19,6 +66,11 @@ pub struct PromotionRecord {
     pub title: String,
     /// Short human-readable rationale for why it was promoted.
     pub rationale: String,
+    /// Provenance pointers for this promotion (Evidence Layer). Empty when
+    /// the source candidate could not be matched. Defaults to empty on
+    /// deserialize so older serialized reports stay readable.
+    #[serde(default)]
+    pub evidence: Vec<EvidenceRef>,
 }
 
 /// Phase of a dreaming run. Phase 0 only runs `Light`; `Deep` is reserved
@@ -151,4 +203,35 @@ pub struct DreamingDecisionRecord {
 pub struct DreamingRunDetail {
     pub run: DreamingRunRecord,
     pub decisions: Vec<DreamingDecisionRecord>,
+}
+
+/// Authorized, redacted excerpt of an evidence source — returned by
+/// `dreaming_evidence_quote`. The backend resolves the quote so expansion
+/// can never bypass the incognito gate by hiding it only in the frontend
+/// (design §8.1 / §5.3: "Evidence 展开经过后端授权").
+///
+/// When the source can't be surfaced (`available = false`), `quote` is
+/// empty and `reason` explains why (`incognito` / `not_found` /
+/// `no_session_db` / `load_failed`); the backend never leaks incognito
+/// content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceQuote {
+    pub session_id: String,
+    /// The message the quote came from (resolved server-side; `None` when
+    /// unavailable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<i64>,
+    /// Role of the quoted message ("user" / "assistant" / ...).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Redacted + length-capped excerpt. Empty when `available = false`.
+    pub quote: String,
+    /// Whether the excerpt was truncated to the char cap.
+    pub truncated: bool,
+    /// Whether a quote could be surfaced at all.
+    pub available: bool,
+    /// Machine-readable reason when `available = false`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }

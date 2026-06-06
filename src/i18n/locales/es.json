@@ -756,7 +756,10 @@
           "completed": "completado",
           "failed": "fallido",
           "skipped": "omitido"
-        }
+        },
+        "evidence": "Origen",
+        "evidenceIncognito": "Origen en incógnito: no visible",
+        "evidenceUnavailable": "Origen no disponible"
       }
     },
     "error": {

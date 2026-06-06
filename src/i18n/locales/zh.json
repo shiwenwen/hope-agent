@@ -756,7 +756,10 @@
           "completed": "已完成",
           "failed": "失败",
           "skipped": "已跳过"
-        }
+        },
+        "evidence": "来源",
+        "evidenceIncognito": "无痕会话来源，不可查看",
+        "evidenceUnavailable": "来源不可用"
       }
     },
     "error": {

@@ -79,3 +79,15 @@ pub async fn dreaming_list_runs(
 pub async fn dreaming_get_run(id: String) -> Result<Option<dreaming::DreamingRunDetail>, CmdError> {
     dreaming::get_run(&id).map_err(Into::into)
 }
+
+/// Resolve a redacted, length-capped excerpt for an evidence ref (Evidence
+/// Layer). Incognito sources are never expandable; the backend gate can't
+/// be bypassed from the frontend. Maps to
+/// `GET /api/dreaming/evidence/quote`.
+#[tauri::command]
+pub async fn dreaming_evidence_quote(
+    session_id: String,
+    message_id: Option<i64>,
+) -> Result<dreaming::EvidenceQuote, CmdError> {
+    Ok(dreaming::evidence_quote(&session_id, message_id))
+}

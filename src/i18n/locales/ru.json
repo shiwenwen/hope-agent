@@ -756,7 +756,10 @@
           "completed": "завершено",
           "failed": "ошибка",
           "skipped": "пропущено"
-        }
+        },
+        "evidence": "Источник",
+        "evidenceIncognito": "Источник в режиме инкогнито — недоступен",
+        "evidenceUnavailable": "Источник недоступен"
       }
     },
     "error": {

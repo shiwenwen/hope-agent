@@ -756,7 +756,10 @@
           "completed": "完了",
           "failed": "失敗",
           "skipped": "スキップ"
-        }
+        },
+        "evidence": "出典",
+        "evidenceIncognito": "シークレットセッションのため表示できません",
+        "evidenceUnavailable": "出典を表示できません"
       }
     },
     "error": {
