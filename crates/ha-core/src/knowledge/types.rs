@@ -325,6 +325,41 @@ pub struct RenameOutcome {
     pub links_rewritten: usize,
 }
 
+// ── Graph types (WS1, Phase 2) ───────────────────────────────────
+
+/// One node in a knowledge-base link graph = a note. `inDegree` / `outDegree`
+/// are computed over **resolved** edges (broken links contribute nothing), so a
+/// node with both at 0 is an orphan (an island the UI colours distinctly).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNode {
+    pub id: i64,
+    pub rel_path: String,
+    pub title: String,
+    pub in_degree: u32,
+    pub out_degree: u32,
+}
+
+/// One directed edge `source → target` (note ids), from a resolved `[[ ]]` /
+/// `![[ ]]` link. Parallel links between the same pair are collapsed to one edge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphEdge {
+    pub source: i64,
+    pub target: i64,
+}
+
+/// A note link graph (whole KB or an ego neighbourhood). `truncated` is set when
+/// a node cap dropped part of the graph (agent tool guard against huge output).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
 /// A backlink with enough context to jump to the exact link occurrence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

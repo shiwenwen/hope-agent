@@ -9,8 +9,8 @@ use crate::commands::CmdError;
 use ha_core::filesystem::{self, ExtractedContent, FileTextContent, WorkspaceScope};
 use ha_core::knowledge::{
     self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, KbAccess, KbAttachment,
-    KnowledgeBase, KnowledgeBaseMeta, Note, NoteReadResult, NoteSearchHit, ReferenceableNote,
-    RenameOutcome, UpdateKnowledgeBaseInput,
+    KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult, NoteSearchHit,
+    ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
 };
 
 fn registry() -> Result<&'static std::sync::Arc<knowledge::KnowledgeRegistry>, CmdError> {
@@ -363,6 +363,21 @@ pub async fn kb_broken_links_cmd(kb_id: String) -> Result<Vec<BrokenLink>, CmdEr
 #[tauri::command]
 pub async fn kb_orphans_cmd(kb_id: String) -> Result<Vec<Note>, CmdError> {
     service::orphans(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_graph_cmd(kb_id: String) -> Result<KnowledgeGraph, CmdError> {
+    service::graph(&kb_id).map_err(Into::into)
+}
+
+/// Resolve a `[[ ]]` reference to a note and return its full read result (for
+/// `![[ ]]` transclusion preview). `Ok(None)` = broken embed.
+#[tauri::command]
+pub async fn kb_note_read_ref_cmd(
+    kb_id: String,
+    reference: String,
+) -> Result<Option<NoteReadResult>, CmdError> {
+    service::note_read_ref(&kb_id, &reference).map_err(Into::into)
 }
 
 #[tauri::command]

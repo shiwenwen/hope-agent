@@ -997,6 +997,20 @@
         "brokenLinks": "壊れたリンク",
         "orphans": "孤立ノート",
         "inNote": "場所:"
+      },
+      "graph": {
+        "toggle": "グラフ表示",
+        "stats": "{{nodes}} 件のノート · {{edges}} 件のリンク",
+        "orphanLegend": "孤立",
+        "truncated": "大きなグラフです — 接続の多いノートのみ表示しています。",
+        "empty": "グラフ化できるノートがありません。",
+        "loading": "グラフを生成中…"
+      },
+      "embed": {
+        "broken": "一致するノートがありません「{{ref}}」",
+        "cycle": "循環埋め込みをスキップしました",
+        "depth": "埋め込みの深さの上限に達しました",
+        "loading": "埋め込みを読み込み中…"
       }
     },
     "common": {
@@ -2002,6 +2016,20 @@
         "brokenLinks": "끊어진 링크",
         "orphans": "고립된 노트",
         "inNote": "위치:"
+      },
+      "graph": {
+        "toggle": "그래프 보기",
+        "stats": "노트 {{nodes}}개 · 링크 {{edges}}개",
+        "orphanLegend": "고립",
+        "truncated": "그래프가 큽니다 — 연결이 많은 노트만 표시합니다.",
+        "empty": "그래프로 표시할 노트가 없습니다.",
+        "loading": "그래프 생성 중…"
+      },
+      "embed": {
+        "broken": "일치하는 노트가 없습니다 \"{{ref}}\"",
+        "cycle": "순환 임베드를 건너뜀",
+        "depth": "임베드 깊이 한도에 도달했습니다",
+        "loading": "임베드 불러오는 중…"
       }
     },
     "common": {
@@ -2988,6 +3016,20 @@
         "brokenLinks": "失效連結",
         "orphans": "孤立筆記",
         "inNote": "位於"
+      },
+      "graph": {
+        "toggle": "圖譜檢視",
+        "stats": "{{nodes}} 篇筆記 · {{edges}} 條連結",
+        "orphanLegend": "孤立",
+        "truncated": "圖譜較大 —— 僅顯示連結最密集的筆記。",
+        "empty": "暫無可繪製的筆記。",
+        "loading": "正在產生圖譜…"
+      },
+      "embed": {
+        "broken": "沒有符合的筆記「{{ref}}」",
+        "cycle": "已略過循環嵌入",
+        "depth": "已達嵌入深度上限",
+        "loading": "正在載入嵌入…"
       }
     },
     "common": {
@@ -3993,6 +4035,20 @@
         "brokenLinks": "Kırık bağlantılar",
         "orphans": "Yetim notlar",
         "inNote": "konum:"
+      },
+      "graph": {
+        "toggle": "Grafik görünümü",
+        "stats": "{{nodes}} not · {{edges}} bağlantı",
+        "orphanLegend": "Yetim",
+        "truncated": "Büyük grafik — en bağlantılı notlar gösteriliyor.",
+        "empty": "Henüz grafiklenecek not yok.",
+        "loading": "Grafik oluşturuluyor…"
+      },
+      "embed": {
+        "broken": "\"{{ref}}\" ile eşleşen not yok",
+        "cycle": "Döngüsel gömme atlandı",
+        "depth": "Gömme derinliği sınırına ulaşıldı",
+        "loading": "Gömme yükleniyor…"
       }
     },
     "common": {
@@ -4998,6 +5054,20 @@
         "brokenLinks": "Liên kết hỏng",
         "orphans": "Ghi chú mồ côi",
         "inNote": "trong"
+      },
+      "graph": {
+        "toggle": "Xem dạng đồ thị",
+        "stats": "{{nodes}} ghi chú · {{edges}} liên kết",
+        "orphanLegend": "Mồ côi",
+        "truncated": "Đồ thị lớn — chỉ hiển thị các ghi chú liên kết nhiều nhất.",
+        "empty": "Chưa có ghi chú để vẽ đồ thị.",
+        "loading": "Đang dựng đồ thị…"
+      },
+      "embed": {
+        "broken": "Không có ghi chú nào khớp \"{{ref}}\"",
+        "cycle": "Đã bỏ qua nhúng vòng lặp",
+        "depth": "Đã đạt giới hạn độ sâu nhúng",
+        "loading": "Đang tải nội dung nhúng…"
       }
     },
     "common": {
@@ -6003,6 +6073,20 @@
         "brokenLinks": "Links quebrados",
         "orphans": "Notas órfãs",
         "inNote": "em"
+      },
+      "graph": {
+        "toggle": "Vista de grafo",
+        "stats": "{{nodes}} notas · {{edges}} ligações",
+        "orphanLegend": "Órfã",
+        "truncated": "Grafo grande — a mostrar as notas mais conectadas.",
+        "empty": "Ainda não há notas para o grafo.",
+        "loading": "A gerar o grafo…"
+      },
+      "embed": {
+        "broken": "Nenhuma nota corresponde a \"{{ref}}\"",
+        "cycle": "Incorporação circular ignorada",
+        "depth": "Limite de profundidade de incorporação atingido",
+        "loading": "A carregar incorporação…"
       }
     },
     "common": {
@@ -7008,6 +7092,20 @@
         "brokenLinks": "Битые ссылки",
         "orphans": "Заметки-сироты",
         "inNote": "в"
+      },
+      "graph": {
+        "toggle": "Граф связей",
+        "stats": "{{nodes}} заметок · {{edges}} связей",
+        "orphanLegend": "Изолированная",
+        "truncated": "Большой граф — показаны наиболее связанные заметки.",
+        "empty": "Пока нет заметок для графа.",
+        "loading": "Построение графа…"
+      },
+      "embed": {
+        "broken": "Нет заметки, соответствующей «{{ref}}»",
+        "cycle": "Циклическое вложение пропущено",
+        "depth": "Достигнут предел глубины вложения",
+        "loading": "Загрузка вложения…"
       }
     },
     "common": {
@@ -8013,6 +8111,20 @@
         "brokenLinks": "روابط معطلة",
         "orphans": "ملاحظات يتيمة",
         "inNote": "في"
+      },
+      "graph": {
+        "toggle": "عرض الرسم البياني",
+        "stats": "{{nodes}} ملاحظة · {{edges}} رابط",
+        "orphanLegend": "يتيمة",
+        "truncated": "رسم بياني كبير — يتم عرض الملاحظات الأكثر ترابطًا.",
+        "empty": "لا توجد ملاحظات للرسم البياني بعد.",
+        "loading": "جارٍ إنشاء الرسم البياني…"
+      },
+      "embed": {
+        "broken": "لا توجد ملاحظة تطابق \"{{ref}}\"",
+        "cycle": "تم تخطّي التضمين الدائري",
+        "depth": "تم الوصول إلى حد عمق التضمين",
+        "loading": "جارٍ تحميل التضمين…"
       }
     },
     "common": {
@@ -9018,6 +9130,20 @@
         "brokenLinks": "Enlaces rotos",
         "orphans": "Notas huérfanas",
         "inNote": "en"
+      },
+      "graph": {
+        "toggle": "Vista de grafo",
+        "stats": "{{nodes}} notas · {{edges}} enlaces",
+        "orphanLegend": "Huérfana",
+        "truncated": "Grafo grande: se muestran las notas más conectadas.",
+        "empty": "Aún no hay notas para graficar.",
+        "loading": "Generando grafo…"
+      },
+      "embed": {
+        "broken": "Ninguna nota coincide con \"{{ref}}\"",
+        "cycle": "Inserción circular omitida",
+        "depth": "Se alcanzó el límite de profundidad de inserción",
+        "loading": "Cargando inserción…"
       }
     },
     "common": {
@@ -10023,6 +10149,20 @@
         "brokenLinks": "Pautan rosak",
         "orphans": "Nota yatim",
         "inNote": "dalam"
+      },
+      "graph": {
+        "toggle": "Paparan graf",
+        "stats": "{{nodes}} nota · {{edges}} pautan",
+        "orphanLegend": "Yatim",
+        "truncated": "Graf besar — memaparkan nota yang paling banyak berpaut.",
+        "empty": "Belum ada nota untuk graf.",
+        "loading": "Menjana graf…"
+      },
+      "embed": {
+        "broken": "Tiada nota sepadan dengan \"{{ref}}\"",
+        "cycle": "Benaman kitaran dilangkau",
+        "depth": "Had kedalaman benaman dicapai",
+        "loading": "Memuatkan benaman…"
       }
     },
     "common": {

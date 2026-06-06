@@ -4751,6 +4751,20 @@
       "orphans": "Notas órfãs",
       "inNote": "em"
     },
+    "graph": {
+      "toggle": "Vista de grafo",
+      "stats": "{{nodes}} notas · {{edges}} ligações",
+      "orphanLegend": "Órfã",
+      "truncated": "Grafo grande — a mostrar as notas mais conectadas.",
+      "empty": "Ainda não há notas para o grafo.",
+      "loading": "A gerar o grafo…"
+    },
+    "embed": {
+      "broken": "Nenhuma nota corresponde a \"{{ref}}\"",
+      "cycle": "Incorporação circular ignorada",
+      "depth": "Limite de profundidade de incorporação atingido",
+      "loading": "A carregar incorporação…"
+    },
     "embeddingOff": "Busca vetorial desativada",
     "embeddingModelTip": "Modelo de incorporação: {{name}} — abrir configurações",
     "embeddingOffTip": "A busca vetorial está desativada — abrir configurações",

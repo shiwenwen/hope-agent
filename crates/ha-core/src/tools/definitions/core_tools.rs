@@ -5,7 +5,8 @@ use super::super::{
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
     TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
     TOOL_NOTE_APPEND, TOOL_NOTE_BACKLINKS, TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG,
-    TOOL_NOTE_CREATE, TOOL_NOTE_DELETE, TOOL_NOTE_LINK, TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS,
+    TOOL_NOTE_CREATE, TOOL_NOTE_DELETE, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOVE,
+    TOOL_NOTE_ORPHANS,
     TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER,
     TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
@@ -2004,6 +2005,19 @@ fn note_tools() -> Vec<ToolDefinition> {
                     "kb": { "type": "string" }
                 },
                 "required": ["kb"],
+                "additionalProperties": false
+            }),
+        ),
+        read_tool(
+            TOOL_NOTE_GRAPH,
+            "Return the note link graph (nodes = notes with in/out degree, edges = resolved `[[ ]]`/`![[ ]]` links). Pass `note` for that note's ego neighbourhood (`depth` 1–3, default 1); omit it for the whole-KB graph (capped — `truncated:true` flags a clipped result). `kb` optional when a `note` pins it down or only one KB is accessible.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string", "description": "Knowledge base id." },
+                    "note": { "type": "string", "description": "Center note (path or title) for an ego neighbourhood; omit for the whole KB." },
+                    "depth": { "type": "integer", "description": "Ego hops when `note` is given (1–3, default 1)." }
+                },
                 "additionalProperties": false
             }),
         ),

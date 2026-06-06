@@ -4751,6 +4751,20 @@
       "orphans": "孤立ノート",
       "inNote": "場所:"
     },
+    "graph": {
+      "toggle": "グラフ表示",
+      "stats": "{{nodes}} 件のノート · {{edges}} 件のリンク",
+      "orphanLegend": "孤立",
+      "truncated": "大きなグラフです — 接続の多いノートのみ表示しています。",
+      "empty": "グラフ化できるノートがありません。",
+      "loading": "グラフを生成中…"
+    },
+    "embed": {
+      "broken": "一致するノートがありません「{{ref}}」",
+      "cycle": "循環埋め込みをスキップしました",
+      "depth": "埋め込みの深さの上限に達しました",
+      "loading": "埋め込みを読み込み中…"
+    },
     "embeddingOff": "ベクトル検索オフ",
     "embeddingModelTip": "埋め込みモデル：{{name}} · 設定を開く",
     "embeddingOffTip": "ベクトル検索はオフです · 設定を開く",

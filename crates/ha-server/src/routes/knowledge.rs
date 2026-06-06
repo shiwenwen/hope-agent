@@ -22,8 +22,8 @@ use ha_core::filesystem::{
 };
 use ha_core::knowledge::{
     self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, KbAccess, KbAttachment,
-    KnowledgeBase, KnowledgeBaseMeta, Note, NoteReadResult, NoteSearchHit, ReferenceableNote,
-    RenameOutcome, UpdateKnowledgeBaseInput,
+    KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult, NoteSearchHit,
+    ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
 };
 
 use super::file_serve::{
@@ -114,6 +114,12 @@ pub struct ListSessionKbsQuery {
 #[serde(rename_all = "camelCase")]
 pub struct KbNotePathQuery {
     pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbNoteRefQuery {
+    pub reference: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -558,6 +564,21 @@ pub async fn kb_broken_links(Path(kb_id): Path<String>) -> Result<Json<Vec<Broke
 /// `GET /api/knowledge/{kb_id}/orphans`
 pub async fn kb_orphans(Path(kb_id): Path<String>) -> Result<Json<Vec<Note>>, AppError> {
     Ok(Json(service::orphans(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/graph`
+pub async fn kb_graph(Path(kb_id): Path<String>) -> Result<Json<KnowledgeGraph>, AppError> {
+    Ok(Json(service::graph(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/note/resolve?reference=` — resolve a `[[ ]]` ref
+/// to a note read result (for `![[ ]]` transclusion). Body is `null` (not a 404)
+/// when the ref is broken, so the client treats it identically to the Tauri path.
+pub async fn kb_note_read_ref(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbNoteRefQuery>,
+) -> Result<Json<Option<NoteReadResult>>, AppError> {
+    Ok(Json(service::note_read_ref(&kb_id, &q.reference)?))
 }
 
 /// `GET /api/knowledge/search?query=&kbId=&limit=`

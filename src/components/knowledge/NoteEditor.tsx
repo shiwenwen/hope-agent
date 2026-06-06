@@ -12,10 +12,12 @@ import {
   highlightSpecialChars,
   keymap,
 } from "@codemirror/view"
-import { memo, useEffect, useRef } from "react"
+import { memo, useEffect, useMemo, useRef } from "react"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import type { NoteEditorMode } from "@/types/knowledge"
+
+import NoteTransclusionView from "./NoteTransclusionView"
 
 import {
   brokenLinkLinter,
@@ -39,6 +41,14 @@ interface NoteEditorProps {
    * only — no-op in preview-only mode (no editor view).
    */
   revealTarget?: { line: number; col?: number } | null
+  /** KB id — enables `![[ ]]` transclusion in the preview pane (WS2). */
+  kbId?: string | null
+  /** Current note rel-path — seeds the transclusion cycle guard (self-embed). */
+  notePath?: string | null
+  /** Open a note when an embed header is clicked. */
+  onOpenNote?: (relPath: string) => void
+  /** Bumped on knowledge:changed to invalidate the embed cache. */
+  embedCacheKey?: number
 }
 
 const editorTheme = EditorView.theme({
@@ -62,7 +72,18 @@ const editorTheme = EditorView.theme({
  * Preview (streamdown), Split. The document is always plain `.md` text — wikilink
  * chip decorations / autocomplete / broken-link lint operate on top of it.
  */
-function NoteEditor({ value, onChange, readOnly = false, mode, data, revealTarget }: NoteEditorProps) {
+function NoteEditor({
+  value,
+  onChange,
+  readOnly = false,
+  mode,
+  data,
+  revealTarget,
+  kbId,
+  notePath,
+  onOpenNote,
+  embedCacheKey = 0,
+}: NoteEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
@@ -79,6 +100,13 @@ function NoteEditor({ value, onChange, readOnly = false, mode, data, revealTarge
 
   const showSource = mode === "source" || mode === "split"
   const showPreview = mode === "preview" || mode === "split"
+
+  // Seed the transclusion cycle guard with the note itself so `![[self]]` is
+  // caught at depth 0. New Set identity per note path.
+  const embedSeen = useMemo(
+    () => (notePath ? new Set([notePath]) : new Set<string>()),
+    [notePath],
+  )
 
   // Create the editor once when the source pane mounts.
   useEffect(() => {
@@ -186,7 +214,17 @@ function NoteEditor({ value, onChange, readOnly = false, mode, data, revealTarge
         <div
           className={`h-full min-h-0 overflow-auto p-4 ${showSource ? "w-1/2" : "w-full"}`}
         >
-          <MarkdownRenderer content={value} />
+          {kbId ? (
+            <NoteTransclusionView
+              kbId={kbId}
+              content={value}
+              cacheBustKey={embedCacheKey}
+              onOpenNote={onOpenNote}
+              seen={embedSeen}
+            />
+          ) : (
+            <MarkdownRenderer content={value} />
+          )}
         </div>
       )}
     </div>

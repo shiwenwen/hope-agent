@@ -21,6 +21,7 @@ import {
   Save,
   Search,
   Trash2,
+  Waypoints,
   X,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -62,6 +63,7 @@ import { useReembedJob } from "@/hooks/useReembedJob"
 import { isLocalModelJobActive } from "@/types/local-model-jobs"
 
 import KnowledgeEmbeddingBadge from "./KnowledgeEmbeddingBadge"
+import KnowledgeGraphView from "./KnowledgeGraphView"
 import KnowledgeJobsButton from "./KnowledgeJobsButton"
 import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
 import NoteEditor from "./NoteEditor"
@@ -100,6 +102,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const [baseHash, setBaseHash] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [mode, setMode] = useState<NoteEditorMode>("split")
+  // Whole-KB graph view (WS1) — a per-KB toggle, orthogonal to the per-note
+  // source/split/preview mode.
+  const [graphMode, setGraphMode] = useState(false)
+  // Bumped on knowledge:changed to bust the `![[ ]]` transclusion embed cache.
+  const [embedCacheKey, setEmbedCacheKey] = useState(0)
 
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
@@ -236,6 +243,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     async (kbId: string, path: string, reveal?: { line: number; col?: number }) => {
       try {
         const data = await tx.call<NoteReadResult>("kb_note_read_cmd", { kbId, path })
+        setGraphMode(false) // opening a note leaves graph view
         setDraftMode(false)
         setTitleEditing(false)
         setNoteData(data)
@@ -292,6 +300,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     }
   }, [activeKbId, openKbId])
 
+  // Graph view is per-KB and transient: leave it whenever the active space
+  // changes (sidebar switch, or a delete/archive that re-picks another space),
+  // so a lingering toggle never drops the user into the next KB's graph. Resets
+  // to the same value (false) bail out of re-render, so this is cheap.
+  useEffect(() => setGraphMode(false), [activeKbId])
+
   // If the open note vanished from the active KB's list (deleted/moved/renamed
   // outside the app — agent tools, external vault watcher, another window), drop
   // the editor so a save can't resurrect it at the stale path (#2). Gated on the
@@ -313,6 +327,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   useEffect(() => {
     return tx.listen("knowledge:changed", () => {
       void loadKbs()
+      setEmbedCacheKey((n) => n + 1) // invalidate transclusion embed cache
       if (activeKbId) {
         void loadNotes(activeKbId)
         void loadDirs(activeKbId)
@@ -1280,6 +1295,17 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           />
         </div>
         {onOpenSettings && <KnowledgeEmbeddingBadge onOpenSettings={onOpenSettings} />}
+        <IconTip label={t("knowledge.graph.toggle", "Graph view")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-7 w-7", graphMode && "bg-primary/15 text-primary")}
+            disabled={!activeKbId}
+            onClick={() => setGraphMode((g) => !g)}
+          >
+            <Waypoints className="h-4 w-4" />
+          </Button>
+        </IconTip>
         <KnowledgeMaintenanceButton
           // Remount per space so a previous KB's broken/orphan lists never render
           // under the new one, and an in-flight refresh for the old KB can't
@@ -1287,7 +1313,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           key={activeKbId ?? "none"}
           kbId={activeKbId}
           onOpenNote={(path, line) => {
-            if (activeKbId) void openNote(activeKbId, path, line ? { line } : undefined)
+            if (activeKbId)
+              guardNavigation(() => void openNote(activeKbId, path, line ? { line } : undefined))
           }}
         />
         <KnowledgeJobsButton />
@@ -1463,6 +1490,16 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           </div>
         </div>
 
+        {graphMode && activeKbId ? (
+          <KnowledgeGraphView
+            key={activeKbId}
+            kbId={activeKbId}
+            activePath={openPath}
+            refreshKey={embedCacheKey}
+            onOpenNote={(rel) => guardNavigation(() => void openNote(activeKbId, rel))}
+          />
+        ) : (
+          <>
         {/* Center: editor */}
         <div className="flex flex-1 min-w-0 flex-col">
           {draftMode ? (
@@ -1512,6 +1549,11 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   readOnly={false}
                   mode={mode}
                   data={wikilinkData}
+                  kbId={activeKbId}
+                  onOpenNote={(rel) => {
+                    if (activeKbId) guardNavigation(() => void openNote(activeKbId, rel))
+                  }}
+                  embedCacheKey={embedCacheKey}
                 />
               </div>
             </>
@@ -1602,6 +1644,13 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   mode={mode}
                   data={wikilinkData}
                   revealTarget={revealTarget}
+                  kbId={openKbId}
+                  notePath={openPath}
+                  onOpenNote={(rel) => {
+                    const k = openKbId ?? activeKbId
+                    if (k) guardNavigation(() => void openNote(k, rel))
+                  }}
+                  embedCacheKey={embedCacheKey}
                 />
               </div>
             </>
@@ -1756,6 +1805,8 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* Create KB dialog */}

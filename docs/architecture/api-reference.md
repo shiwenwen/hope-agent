@@ -264,6 +264,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `kb_backlinks_cmd` | `GET /api/knowledge/{kbId}/backlinks?path=` | ✅ |
 | `kb_broken_links_cmd` | `GET /api/knowledge/{kbId}/broken-links` | ✅ (维护面板：悬空 `[[ ]]` 清单) |
 | `kb_orphans_cmd` | `GET /api/knowledge/{kbId}/orphans` | ✅ (维护面板：无链接孤岛笔记) |
+| `kb_graph_cmd` | `GET /api/knowledge/{kbId}/graph` | ✅ (WS1 图谱视图：nodes+edges，含 degree，节点上限 2000 截断标 `truncated`) |
+| `kb_note_read_ref_cmd` | `GET /api/knowledge/{kbId}/note/resolve?reference=` | ✅ (WS2 transclusion：按 `[[ ]]` ref 经 resolver 取目标 `NoteReadResult`，broken 返回 `null`) |
 | `kb_search_cmd` | `GET /api/knowledge/search?query=&kbId=&limit=` | ✅ (FTS+向量混合) |
 | `kb_file_read_cmd` | `GET /api/knowledge/{kbId}/files/read?path=` | ✅ (纯 owner 平面 + scope contains) |
 | `kb_file_extract_cmd` | `GET /api/knowledge/{kbId}/files/extract?path=` | ✅ |

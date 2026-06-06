@@ -4793,6 +4793,20 @@
       "orphans": "Orphan notes",
       "inNote": "in"
     },
+    "graph": {
+      "toggle": "Graph view",
+      "stats": "{{nodes}} notes · {{edges}} links",
+      "orphanLegend": "Orphan",
+      "truncated": "Large graph — showing the most connected notes.",
+      "empty": "No notes to graph yet.",
+      "loading": "Building graph…"
+    },
+    "embed": {
+      "broken": "No note matches \"{{ref}}\"",
+      "cycle": "Circular embed skipped",
+      "depth": "Embed depth limit reached",
+      "loading": "Loading embed…"
+    },
     "embeddingOff": "Vector search off",
     "embeddingModelTip": "Embedding model: {{name}} — open settings",
     "embeddingOffTip": "Vector search is off — open settings",

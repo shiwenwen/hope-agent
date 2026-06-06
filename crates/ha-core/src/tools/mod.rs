@@ -109,6 +109,7 @@ pub const TOOL_NOTE_MOVE: &str = "note_move";
 pub const TOOL_NOTE_SET_FRONTMATTER: &str = "note_set_frontmatter";
 pub const TOOL_NOTE_BROKEN_LINKS: &str = "note_broken_links";
 pub const TOOL_NOTE_ORPHANS: &str = "note_orphans";
+pub const TOOL_NOTE_GRAPH: &str = "note_graph";
 pub const TOOL_SESSIONS_LIST: &str = "sessions_list";
 pub const TOOL_SESSION_STATUS: &str = "session_status";
 pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";

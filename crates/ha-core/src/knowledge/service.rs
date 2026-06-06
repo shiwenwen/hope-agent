@@ -253,6 +253,53 @@ pub fn orphans(kb_id: &str) -> Result<Vec<Note>> {
     index_db()?.list_orphan_notes(kb_id)
 }
 
+/// Owner-plane node cap for the graph view. Force-directed layout stays
+/// responsive well below this; beyond it we return the most-connected slice
+/// flagged `truncated` so the UI can say so rather than freeze on a huge vault.
+const OWNER_GRAPH_NODE_CAP: usize = 2000;
+
+/// Owner: the whole-KB link graph (WS1), capped to the most-connected nodes.
+pub fn graph(kb_id: &str) -> Result<super::types::KnowledgeGraph> {
+    let db = index_db()?;
+    let g = super::graph::build_kb_graph(&db, kb_id)?;
+    Ok(super::graph::cap_nodes(g, OWNER_GRAPH_NODE_CAP))
+}
+
+/// Owner: read a note by its `[[ ]]` reference (title or `folder/note` path
+/// form), resolved deterministically (design #8) over the KB — the single source
+/// of truth for transclusion (`![[ ]]`) preview. Returns `None` when the ref
+/// resolves to nothing (broken embed) so the UI shows a placeholder.
+pub fn note_read_ref(kb_id: &str, reference: &str) -> Result<Option<NoteReadResult>> {
+    let db = index_db()?;
+    let notes = db.note_refs(kb_id)?;
+    // Strip `#anchor` / `|alias` before resolving (the resolver expects a clean
+    // target, like the parser stores for graph edges) so `![[Note#H]]` /
+    // `![[Note|label]]` embeds resolve instead of showing as broken.
+    let target = super::parser::wikilink_target(reference);
+    let Some(id) = super::resolver::resolve(target, &notes) else {
+        return Ok(None);
+    };
+    let Some(rel) = notes.into_iter().find(|n| n.id == id).map(|n| n.rel_path) else {
+        return Ok(None);
+    };
+    // The ref resolved against the index, but the `.md` may be gone on disk
+    // (deleted/moved before the watcher reconciled). Honor the broken-embed
+    // contract (`None`) instead of surfacing a hard error to the caller.
+    match note_read(kb_id, &rel) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) => {
+            crate::app_warn!(
+                "knowledge",
+                "service",
+                "note_read_ref resolved '{}' but read failed (stale index?): {}",
+                rel,
+                e
+            );
+            Ok(None)
+        }
+    }
+}
+
 /// Owner: delete a folder and all its contents (recursive), then reconcile index.
 /// rm -rf + reconcile run off the async worker.
 pub async fn delete_dir(kb_id: &str, rel: &str) -> Result<()> {

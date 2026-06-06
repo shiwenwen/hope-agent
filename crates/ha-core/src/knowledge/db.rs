@@ -906,6 +906,27 @@ impl IndexDb {
         Ok(out)
     }
 
+    /// Every **resolved** link edge `(src_note_id, target_note_id)` in a KB —
+    /// the raw material for the link graph (WS1). Broken links (NULL target) are
+    /// excluded; parallel edges are returned as-is (the graph builder collapses
+    /// them). Both endpoints are notes in `kb_id` (wikilinks are intra-KB).
+    pub fn all_resolved_links(&self, kb_id: &str) -> Result<Vec<(i64, i64)>> {
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT l.src_note_id, l.target_note_id
+             FROM note_link l JOIN note n ON n.id = l.src_note_id
+             WHERE n.kb_id = ?1 AND l.target_note_id IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(params![kb_id], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Orphan notes: no resolved inbound link **and** no resolved outbound link
     /// (broken links don't count as a connection). The "islands" in the graph.
     pub fn list_orphan_notes(&self, kb_id: &str) -> Result<Vec<Note>> {

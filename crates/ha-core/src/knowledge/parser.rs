@@ -577,6 +577,19 @@ fn find_close(s: &str) -> Option<usize> {
     None
 }
 
+/// The resolution target inside a `[[ ]]` / `![[ ]]` reference — drop the
+/// `|alias` then the `#anchor`, trimmed. The single source for splitting a
+/// wikilink reference, so any non-parser caller (e.g. the transclusion owner
+/// entry `service::note_read_ref`) resolves the same notes the link graph does.
+pub fn wikilink_target(inner: &str) -> &str {
+    let before_alias = inner.split_once('|').map(|(t, _)| t).unwrap_or(inner);
+    before_alias
+        .split_once('#')
+        .map(|(t, _)| t)
+        .unwrap_or(before_alias)
+        .trim()
+}
+
 fn parse_wikilink_inner(
     inner: &str,
     link_start: usize,
@@ -595,11 +608,12 @@ fn parse_wikilink_inner(
         Some((t, a)) => (t.trim(), Some(a.trim().to_string())),
         None => (inner, None),
     };
-    // anchor: split on first `#`.
-    let (target_ref, anchor) = match target_and_anchor.split_once('#') {
-        Some((t, a)) => (t.trim().to_string(), Some(a.trim().to_string())),
-        None => (target_and_anchor.to_string(), None),
-    };
+    // anchor: split on first `#`. Target derives from the shared helper so the
+    // split convention stays single-sourced.
+    let anchor = target_and_anchor
+        .split_once('#')
+        .map(|(_, a)| a.trim().to_string());
+    let target_ref = wikilink_target(inner).to_string();
     if target_ref.is_empty() && anchor.is_none() {
         return None;
     }
@@ -832,5 +846,16 @@ mod tests {
         assert!(doc.body_start_byte > 0);
         // The link is on line 5 of the full file.
         assert_eq!(doc.links[0].start.line, 5);
+    }
+
+    #[test]
+    fn wikilink_target_strips_anchor_and_alias() {
+        assert_eq!(wikilink_target("Note"), "Note");
+        assert_eq!(wikilink_target("folder/Note"), "folder/Note");
+        assert_eq!(wikilink_target("Note#Heading"), "Note");
+        assert_eq!(wikilink_target("Note|Alias"), "Note");
+        // alias split happens first, so a `#` inside the alias is ignored.
+        assert_eq!(wikilink_target("folder/Note#Heading|Alias#x"), "folder/Note");
+        assert_eq!(wikilink_target("  spaced  | a "), "spaced");
     }
 }

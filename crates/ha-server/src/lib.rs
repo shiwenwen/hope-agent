@@ -313,6 +313,11 @@ fn build_router_with_cors(
             "/knowledge/{kb_id}/orphans",
             get(routes::knowledge::kb_orphans),
         )
+        .route("/knowledge/{kb_id}/graph", get(routes::knowledge::kb_graph))
+        .route(
+            "/knowledge/{kb_id}/note/resolve",
+            get(routes::knowledge::kb_note_read_ref),
+        )
         .route(
             "/knowledge/{kb_id}/files/read",
             get(routes::knowledge::kb_file_read),

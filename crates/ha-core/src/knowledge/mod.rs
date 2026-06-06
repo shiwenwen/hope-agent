@@ -14,6 +14,7 @@ pub mod access;
 pub mod chunker;
 pub mod db;
 pub mod embedding;
+pub mod graph;
 pub mod index;
 pub mod inject;
 pub mod parser;

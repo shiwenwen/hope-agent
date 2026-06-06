@@ -370,7 +370,7 @@ CREATE INDEX idx_tag ON note_tag(tag);      -- note_by_tag / note_tags 用
 | `[[笔记标题\|别名]]` | Phase 1 | 显示别名，索引仍按目标解析 |
 | `[[笔记#某标题]]` | Phase 1 | 跳转到 heading 锚点 |
 | `#标签` | Phase 1 | 标签进 fts，支持 tag 过滤 |
-| `![[笔记]]` 嵌入/transclusion | Phase 2 | 内容内联渲染 |
+| `![[笔记]]` 嵌入/transclusion | Phase 2 ✅ | 笔记预览块级内联渲染（深度上限 + 循环检测；owner resolver 单源），WS2 |
 | `^block-id` 块引用 | Phase 3 | 需块级 ID 体系 |
 
 - 语法兼容 Obsidian/Logseq，用户可直接导入现成 vault。
@@ -565,7 +565,7 @@ agent 在对话中可直接调用，覆盖 CRUD / 链接 / 图谱 / 检索 / 元
 |---|---|---|
 | `note_link({from:{kb,path}, to:{kb,path}, alias?, section?, expected_file_hash?})` | 在 `from` 插入指向 `to` 的 `[[ ]]`。**Phase 1 要求 `from.kb == to.kb`，跨 KB 拒绝**（wikilink 无 KB 概念）；插入位置默认追加到 `section`（缺省 `Related` heading，无则创建）；RMW，支持 stale-write guard | 1 |
 | `note_backlinks({kb?, note})` | 谁链接到本页（返回带 `src_*_line/col` 可精确跳转） | 1 |
-| `note_graph({note, depth})` | N 跳邻域（nodes+edges），图谱视图数据源 | **2** |
+| `note_graph({kb?, note?, depth?})` | 有 `note` = N 跳 ego 邻域（depth 1–3）；无 = 全 KB 图（capped 200，`truncated` 标记），图谱视图数据源 | **2 ✅** |
 | `note_broken_links({kb})` | 悬空链接清单 | **2 ✅** |
 | `note_orphans({kb})` | 孤岛笔记（无任何链接） | **2 ✅** |
 

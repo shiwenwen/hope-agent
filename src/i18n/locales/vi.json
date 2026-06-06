@@ -4751,6 +4751,20 @@
       "orphans": "Ghi chú mồ côi",
       "inNote": "trong"
     },
+    "graph": {
+      "toggle": "Xem dạng đồ thị",
+      "stats": "{{nodes}} ghi chú · {{edges}} liên kết",
+      "orphanLegend": "Mồ côi",
+      "truncated": "Đồ thị lớn — chỉ hiển thị các ghi chú liên kết nhiều nhất.",
+      "empty": "Chưa có ghi chú để vẽ đồ thị.",
+      "loading": "Đang dựng đồ thị…"
+    },
+    "embed": {
+      "broken": "Không có ghi chú nào khớp \"{{ref}}\"",
+      "cycle": "Đã bỏ qua nhúng vòng lặp",
+      "depth": "Đã đạt giới hạn độ sâu nhúng",
+      "loading": "Đang tải nội dung nhúng…"
+    },
     "embeddingOff": "Tìm kiếm vector đang tắt",
     "embeddingModelTip": "Mô hình nhúng: {{name}} — mở cài đặt",
     "embeddingOffTip": "Tìm kiếm vector đang tắt — mở cài đặt",

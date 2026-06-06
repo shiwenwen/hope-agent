@@ -4751,6 +4751,20 @@
       "orphans": "孤立筆記",
       "inNote": "位於"
     },
+    "graph": {
+      "toggle": "圖譜檢視",
+      "stats": "{{nodes}} 篇筆記 · {{edges}} 條連結",
+      "orphanLegend": "孤立",
+      "truncated": "圖譜較大 —— 僅顯示連結最密集的筆記。",
+      "empty": "暫無可繪製的筆記。",
+      "loading": "正在產生圖譜…"
+    },
+    "embed": {
+      "broken": "沒有符合的筆記「{{ref}}」",
+      "cycle": "已略過循環嵌入",
+      "depth": "已達嵌入深度上限",
+      "loading": "正在載入嵌入…"
+    },
     "embeddingOff": "向量檢索未開啟",
     "embeddingModelTip": "向量模型：{{name}} · 點擊進入設定",
     "embeddingOffTip": "向量檢索未開啟 · 點擊進入設定",

@@ -534,6 +534,67 @@ pub(crate) async fn tool_note_orphans(args: &Value, ctx: &ToolExecContext) -> Re
     }))?)
 }
 
+/// `note_graph({kb?, note?, depth?})` — the resolved link graph (nodes = notes,
+/// edges = resolved `[[ ]]`/`![[ ]]`). With `note`: the ego neighbourhood
+/// (default depth 1, max 3). Without it: the whole-KB graph, capped. `kb` is
+/// required unless a `note` pins it down or exactly one KB is accessible.
+pub(crate) async fn tool_note_graph(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+    let kb_opt = str_arg(args, "kb");
+    let note_ref = str_arg(args, "note")
+        .or_else(|| str_arg(args, "path"))
+        .or_else(|| str_arg(args, "title"));
+
+    // Resolve which KB the graph is for (and check access).
+    let kb_id = match (kb_opt, note_ref) {
+        (Some(kb), _) => {
+            require_read(ctx, kb)?;
+            kb.to_string()
+        }
+        (None, Some(reference)) => resolve_target(ctx, None, reference)?.0,
+        (None, None) => {
+            let kbs = accessible_kbs(ctx);
+            match kbs.len() {
+                0 => bail!("no accessible knowledge bases for this session"),
+                1 => kbs.into_iter().next().expect("len checked == 1"),
+                _ => bail!("multiple knowledge bases accessible — pass 'kb' to choose one"),
+            }
+        }
+    };
+
+    let full = knowledge::graph::build_kb_graph(&db, &kb_id)?;
+    let graph = match note_ref {
+        Some(reference) => {
+            let notes = db.note_refs(&kb_id)?;
+            let Some(center) = knowledge::resolver::resolve(reference, &notes) else {
+                bail!("note not found: '{}'", reference);
+            };
+            let depth = args
+                .get("depth")
+                .and_then(|v| v.as_u64())
+                .map(|d| d.clamp(1, 3) as usize)
+                .unwrap_or(1);
+            // Cap the ego neighbourhood too — a hub note at depth 3 can pull in a
+            // whole connected component; the cap bounds the tool output + sets
+            // `truncated` so the model isn't told an oversized result is complete.
+            knowledge::graph::cap_nodes(
+                knowledge::graph::ego_subgraph(&full, center, depth),
+                200,
+            )
+        }
+        None => knowledge::graph::cap_nodes(full, 200),
+    };
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "kbId": kb_id,
+        "nodeCount": graph.nodes.len(),
+        "edgeCount": graph.edges.len(),
+        "truncated": graph.truncated,
+        "nodes": graph.nodes,
+        "edges": graph.edges,
+    }))?)
+}
+
 // ── Tools: search / tags ────────────────────────────────────────
 
 /// `note_search({query, kb?, limit?})`

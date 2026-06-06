@@ -4793,6 +4793,20 @@
       "orphans": "孤立笔记",
       "inNote": "位于"
     },
+    "graph": {
+      "toggle": "图谱视图",
+      "stats": "{{nodes}} 篇笔记 · {{edges}} 条链接",
+      "orphanLegend": "孤立",
+      "truncated": "图谱较大 —— 仅显示连接最密集的笔记。",
+      "empty": "暂无可绘制的笔记。",
+      "loading": "正在生成图谱…"
+    },
+    "embed": {
+      "broken": "没有匹配的笔记“{{ref}}”",
+      "cycle": "已跳过循环嵌入",
+      "depth": "已达嵌入深度上限",
+      "loading": "正在加载嵌入…"
+    },
     "embeddingOff": "向量检索未开启",
     "embeddingModelTip": "向量模型：{{name}} · 点击进入设置",
     "embeddingOffTip": "向量检索未开启 · 点击进入设置",

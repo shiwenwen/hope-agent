@@ -4751,6 +4751,20 @@
       "orphans": "고립된 노트",
       "inNote": "위치:"
     },
+    "graph": {
+      "toggle": "그래프 보기",
+      "stats": "노트 {{nodes}}개 · 링크 {{edges}}개",
+      "orphanLegend": "고립",
+      "truncated": "그래프가 큽니다 — 연결이 많은 노트만 표시합니다.",
+      "empty": "그래프로 표시할 노트가 없습니다.",
+      "loading": "그래프 생성 중…"
+    },
+    "embed": {
+      "broken": "일치하는 노트가 없습니다 \"{{ref}}\"",
+      "cycle": "순환 임베드를 건너뜀",
+      "depth": "임베드 깊이 한도에 도달했습니다",
+      "loading": "임베드 불러오는 중…"
+    },
     "embeddingOff": "벡터 검색 꺼짐",
     "embeddingModelTip": "임베딩 모델: {{name}} · 설정 열기",
     "embeddingOffTip": "벡터 검색이 꺼져 있습니다 · 설정 열기",

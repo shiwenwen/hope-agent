@@ -4751,6 +4751,20 @@
       "orphans": "Yetim notlar",
       "inNote": "konum:"
     },
+    "graph": {
+      "toggle": "Grafik görünümü",
+      "stats": "{{nodes}} not · {{edges}} bağlantı",
+      "orphanLegend": "Yetim",
+      "truncated": "Büyük grafik — en bağlantılı notlar gösteriliyor.",
+      "empty": "Henüz grafiklenecek not yok.",
+      "loading": "Grafik oluşturuluyor…"
+    },
+    "embed": {
+      "broken": "\"{{ref}}\" ile eşleşen not yok",
+      "cycle": "Döngüsel gömme atlandı",
+      "depth": "Gömme derinliği sınırına ulaşıldı",
+      "loading": "Gömme yükleniyor…"
+    },
     "embeddingOff": "Vektör arama kapalı",
     "embeddingModelTip": "Gömme modeli: {{name}} — ayarları aç",
     "embeddingOffTip": "Vektör arama kapalı — ayarları aç",

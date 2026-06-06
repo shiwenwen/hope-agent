@@ -116,6 +116,30 @@ export interface NoteReadResult {
   tags: string[]
 }
 
+/** One node in the KB link graph (WS1). Degrees count resolved links only; a
+ *  node with both at 0 is an orphan. Mirrors ha-core `GraphNode`. */
+export interface GraphNode {
+  id: number
+  relPath: string
+  title: string
+  inDegree: number
+  outDegree: number
+}
+
+/** A directed resolved-link edge `source → target` (note ids). */
+export interface GraphEdge {
+  source: number
+  target: number
+}
+
+/** The KB link graph. `truncated` = a node cap clipped a huge vault. Wire shape
+ *  of `kb_graph_cmd`. */
+export interface KnowledgeGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  truncated: boolean
+}
+
 export interface NoteSearchHit {
   kbId: string
   noteId: number
