@@ -686,7 +686,12 @@
     "weekSun": "Aha",
     "weekThu": "Kha",
     "weekTue": "Sel",
-    "weekWed": "Rab"
+    "weekWed": "Rab",
+    "archivedProject": "(diarkibkan)",
+    "autoAgent": "Auto (projek/lalai)",
+    "missingProject": "Projek tiada",
+    "noProject": "Tiada projek",
+    "project": "Projek"
   },
   "dangerousMode": {
     "bannerBoth": "Mod Berbahaya aktif (CLI + konfig) — semua kelulusan alat dipintas",

@@ -33,15 +33,20 @@ import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
 import type { CronJob, CalendarEvent } from "./CronJobForm.types"
 import { statusColor, formatSchedule } from "./cronHelpers"
+import type { ProjectMeta } from "@/types/project"
 
 type ViewMode = "calendar" | "list"
 
 interface CronCalendarViewProps {
   onBack: () => void
   onNavigateToSession?: (sessionId: string) => void
+  defaultProjectId?: string | null
 }
 
-export default function CronCalendarView({ onNavigateToSession }: CronCalendarViewProps) {
+export default function CronCalendarView({
+  onNavigateToSession,
+  defaultProjectId,
+}: CronCalendarViewProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<ViewMode>("calendar")
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -53,6 +58,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
 
   // List-view state
   const [jobs, setJobs] = useState<CronJob[]>([])
+  const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [jobsLoaded, setJobsLoaded] = useState(false)
   const [listLoading, setListLoading] = useState(false)
   const [search, setSearch] = useState("")
@@ -80,8 +86,12 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
   const fetchJobs = useCallback(async () => {
     setListLoading(true)
     try {
-      const result = await getTransport().call<CronJob[]>("cron_list_jobs")
+      const [result, projectList] = await Promise.all([
+        getTransport().call<CronJob[]>("cron_list_jobs"),
+        getTransport().call<ProjectMeta[]>("list_projects_cmd", { includeArchived: true }),
+      ])
       setJobs(result)
+      setProjects(Array.isArray(projectList) ? projectList : [])
       setJobsLoaded(true)
     } catch {
       // ignore
@@ -175,6 +185,13 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     if (statusFilter !== "all" && job.status !== statusFilter) return false
     return true
   })
+  const projectMap = new Map(projects.map((p) => [p.id, p]))
+  const projectLabel = (projectId?: string | null) => {
+    if (!projectId) return t("cron.noProject")
+    const project = projectMap.get(projectId)
+    if (!project) return t("cron.missingProject")
+    return `${project.emoji ? `${project.emoji} ` : ""}${project.name}`
+  }
 
   function handleDayClick(day: number) {
     setSelectedDate(new Date(year, month, day))
@@ -280,6 +297,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
             <CronJobForm
               job={editingJob}
               defaultDate={mode === "calendar" ? selectedDate : null}
+              defaultProjectId={defaultProjectId}
               onSave={handleFormClose}
               onCancel={() => {
                 setShowForm(false)
@@ -559,6 +577,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
                     <div className="text-sm font-medium truncate">{job.name}</div>
                     <div className="text-xs text-muted-foreground truncate">
                       {formatSchedule(job.schedule, t)}
+                      {` · ${projectLabel(job.projectId)}`}
                       {job.nextRunAt &&
                         ` · ${t("cron.nextRun")}: ${new Date(job.nextRunAt).toLocaleString()}`}
                     </div>
@@ -622,6 +641,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
         <CronJobForm
           job={editingJob}
           defaultDate={mode === "calendar" ? selectedDate : null}
+          defaultProjectId={defaultProjectId}
           onSave={handleFormClose}
           onCancel={() => {
             setShowForm(false)

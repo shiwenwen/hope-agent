@@ -686,7 +686,12 @@
     "weekSun": "أح",
     "weekThu": "خم",
     "weekTue": "ثل",
-    "weekWed": "أر"
+    "weekWed": "أر",
+    "archivedProject": "(مؤرشف)",
+    "autoAgent": "تلقائي (المشروع/الافتراضي)",
+    "missingProject": "المشروع مفقود",
+    "noProject": "بدون مشروع",
+    "project": "المشروع"
   },
   "dangerousMode": {
     "bannerBoth": "الوضع الخطير مفعّل (CLI + التكوين) — تم تجاوز جميع موافقات الأدوات",

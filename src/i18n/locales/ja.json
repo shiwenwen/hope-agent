@@ -686,7 +686,12 @@
     "weekSun": "日",
     "weekThu": "木",
     "weekTue": "火",
-    "weekWed": "水"
+    "weekWed": "水",
+    "archivedProject": "（アーカイブ済み）",
+    "autoAgent": "自動（プロジェクト/既定）",
+    "missingProject": "存在しないプロジェクト",
+    "noProject": "プロジェクトなし",
+    "project": "プロジェクト"
   },
   "dangerousMode": {
     "bannerBoth": "危険モード有効（CLI + 設定）— すべてのツール承認をバイパス中",

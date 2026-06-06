@@ -41,11 +41,14 @@ impl CronDB {
                 consecutive_failures INTEGER NOT NULL DEFAULT 0,
                 max_failures INTEGER NOT NULL DEFAULT 5,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                project_id TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
                 ON cron_jobs(status, next_run_at);
+            CREATE INDEX IF NOT EXISTS idx_cron_jobs_project
+                ON cron_jobs(project_id);
 
             CREATE TABLE IF NOT EXISTS cron_run_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +95,18 @@ impl CronDB {
             )?;
         }
 
+        // Migration: add project_id column if missing (for existing DBs)
+        let has_project_id: bool = conn
+            .prepare("SELECT project_id FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_project_id {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN project_id TEXT;")?;
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_cron_jobs_project
+                ON cron_jobs(project_id);",
+        )?;
+
         backfill_every_schedule_start_at(&conn)?;
 
         Ok(Self {
@@ -129,15 +144,28 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?10, ?10)",
-            params![id, input.name, input.description, schedule_json, payload_json, next_run, max_failures, notify as i32, delivery_targets_json, now_str],
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9, ?10, ?11, ?11)",
+            params![
+                id,
+                input.name,
+                input.description,
+                normalize_optional_string(input.project_id.as_deref()),
+                schedule_json,
+                payload_json,
+                next_run,
+                max_failures,
+                notify as i32,
+                delivery_targets_json,
+                now_str
+            ],
         )?;
 
         Ok(CronJob {
             id,
             name: input.name.clone(),
             description: input.description.clone(),
+            project_id: normalize_optional_string(input.project_id.as_deref()),
             schedule,
             payload: input.payload.clone(),
             status: CronJobStatus::Active,
@@ -180,12 +208,36 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, schedule_json=?3, payload_json=?4, status=?5, next_run_at=?6, max_failures=?7, notify_on_complete=?8, delivery_targets_json=?9, updated_at=?10
-             WHERE id=?11",
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, updated_at=?11
+             WHERE id=?12",
             params![
-                job.name, job.description, schedule_json, payload_json,
-                job.status.as_str(), next_run, job.max_failures, job.notify_on_complete as i32, delivery_targets_json, now_str, job.id
+                job.name,
+                job.description,
+                normalize_optional_string(job.project_id.as_deref()),
+                schedule_json,
+                payload_json,
+                job.status.as_str(),
+                next_run,
+                job.max_failures,
+                job.notify_on_complete as i32,
+                delivery_targets_json,
+                now_str,
+                job.id
             ],
+        )?;
+        Ok(())
+    }
+
+    /// Clear a job's Project association without changing its schedule.
+    pub fn clear_job_project(&self, id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET project_id=NULL, updated_at=?1 WHERE id=?2",
+            params![now, id],
         )?;
         Ok(())
     }
@@ -207,7 +259,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -225,7 +277,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -251,7 +303,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
@@ -446,6 +498,7 @@ impl CronDB {
                 events.push(CalendarEvent {
                     job_id: job.id.clone(),
                     job_name: job.name.clone(),
+                    project_id: job.project_id.clone(),
                     scheduled_at: occ_str,
                     status: job.status.clone(),
                     run_log,
@@ -720,6 +773,17 @@ fn normalize_every_schedule_start_at(schedule: &mut CronSchedule, reference_now:
     }
 }
 
+fn normalize_optional_string(input: Option<&str>) -> Option<String> {
+    input.and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
 fn resolve_every_start_at(
     job: &CronJob,
     interval_ms: i64,
@@ -908,6 +972,7 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         id: row.get(0)?,
         name: row.get(1)?,
         description: row.get(2)?,
+        project_id: row.get(15).ok().flatten(),
         schedule: serde_json::from_str(&schedule_json)?,
         payload: serde_json::from_str(&payload_json)?,
         status: CronJobStatus::from_str(&status_str),
@@ -955,6 +1020,7 @@ mod tests {
             .add_job(&NewCronJob {
                 name: "Hydrate".into(),
                 description: None,
+                project_id: None,
                 schedule: CronSchedule::Every {
                     interval_ms: 300_000,
                     start_at: None,
@@ -985,6 +1051,46 @@ mod tests {
             }
             other => panic!("unexpected schedule: {other:?}"),
         }
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn job_project_id_persists_updates_and_clears() {
+        let path = temp_db_path("project-id");
+        let db = CronDB::open(&path).expect("open db");
+
+        let mut job = db
+            .add_job(&NewCronJob {
+                name: "Project digest".into(),
+                description: None,
+                project_id: Some("project-a".into()),
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "summarize project".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+
+        assert_eq!(job.project_id.as_deref(), Some("project-a"));
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(stored.project_id.as_deref(), Some("project-a"));
+
+        job.project_id = Some("project-b".into());
+        db.update_job(&job).expect("update");
+        let updated = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(updated.project_id.as_deref(), Some("project-b"));
+
+        db.clear_job_project(&job.id).expect("clear project");
+        let cleared = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(cleared.project_id, None);
 
         cleanup_db_files(&path);
     }
@@ -1133,6 +1239,7 @@ mod tests {
             .add_job(&NewCronJob {
                 name: "Hydrate".into(),
                 description: None,
+                project_id: None,
                 schedule: CronSchedule::At {
                     timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
                 },
@@ -1184,6 +1291,7 @@ mod tests {
             .add_job(&NewCronJob {
                 name: "Hydrate".into(),
                 description: None,
+                project_id: None,
                 schedule: CronSchedule::At {
                     timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
                 },
@@ -1213,6 +1321,7 @@ mod tests {
             .add_job(&NewCronJob {
                 name: "Hydrate".into(),
                 description: None,
+                project_id: None,
                 schedule: CronSchedule::At {
                     timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
                 },

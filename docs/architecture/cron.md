@@ -1,9 +1,11 @@
 # Cron 定时任务架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-22
+> 返回 [文档索引](../README.md) | 更新时间：2026-06-06
 
 ## 概述
 
 Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（Every）和 cron 表达式（Cron）三种调度模式。任务触发后在隔离会话中执行 Agent 对话，具备完整的 failover 模型链重试、任务级指数退避、连续失败自动禁用、启动恢复和日历视图。
+
+任务可选绑定 Project（`project_id` / API `projectId`）。绑定后，每次执行创建的隔离会话会写入 `sessions.project_id`，因此 Project 指令、Project 记忆、Project 工作目录和工具 cwd 解析都与正常 Project 对话一致。未显式指定 `agent_id` 时，Agent 解析顺序为：任务 payload 显式 Agent > `project.default_agent_id` > 全局默认 > `ha-main`。如果任务关联的 Project 已被删除，执行器会清空该 job 的 `project_id` 并按普通 cron 继续执行，本次不计失败。
 
 `Every` 调度在 2026-04-22 起补齐了持久化 `start_at`（首个计划触发时间）语义。这样日历展开不再从查询窗口起点“硬铺”，旧数据库里的 `Every` 任务也会在 `CronDB::open` 时自动按 `created_at + interval_ms` 回填 `start_at`，修复“4 月 22 日刚创建的喝水提醒在 4 月 1 日开始出现”的错位问题。
 
@@ -59,6 +61,7 @@ serde tag 区分，目前仅一种类型：
 | `id` | `String` | UUID v4 |
 | `name` | `String` | 任务名称 |
 | `description` | `Option<String>` | 任务描述 |
+| `project_id` | `Option<String>` | 可选 Project 关联；执行时创建 Project 会话并注入 Project 上下文。Project 缺失时自愈清空并降级为普通 cron |
 | `schedule` | `CronSchedule` | 调度配置（At / Every / Cron） |
 | `payload` | `CronPayload` | 执行内容（AgentTurn） |
 | `status` | `CronJobStatus` | 五态状态 |
@@ -104,6 +107,7 @@ serde tag 区分，目前仅一种类型：
 |------|------|------|
 | `name` | `String` | 任务名称 |
 | `description` | `Option<String>` | 描述 |
+| `project_id` | `Option<String>` | 可选 Project 关联；`None` = 普通 cron。模型工具 `manage_cron create` 缺省继承当前会话 Project，显式 `null` / 空串表示不关联 |
 | `schedule` | `CronSchedule` | 调度配置 |
 | `payload` | `CronPayload` | 执行内容 |
 | `max_failures` | `Option<u32>` | 最大失败数（默认 5） |
@@ -116,9 +120,17 @@ serde tag 区分，目前仅一种类型：
 |------|------|------|
 | `job_id` | `String` | 任务 ID |
 | `job_name` | `String` | 任务名称 |
+| `project_id` | `Option<String>` | 可选 Project 关联；API 暴露为 `projectId`，与对应 CronJob 一致 |
 | `scheduled_at` | `String` | 计划执行时间 |
 | `status` | `CronJobStatus` | 任务状态 |
 | `run_log` | `Option<CronRunLog>` | 匹配的执行日志（+-2 分钟窗口匹配） |
+
+### `manage_cron` 工具 Project 语义
+
+- `action="list_projects"` 枚举可传给 `project_id` 的 Project；`include_archived=true` 时包含归档项目
+- `create`：省略 `project_id` 时若当前会话在 Project 内，则自动继承该 Project；传 `project_id=null` 或空串表示显式不关联 Project
+- `update`：省略 `project_id` 保持原值；传 Project id 切换关联；传 `null` 或空串清空关联
+- 工具层会校验显式传入的 Project id 必须存在；执行层仍保留 Project 删除后的降级自愈兜底
 
 ## 调度机制
 
@@ -169,8 +181,12 @@ sequenceDiagram
 flowchart TD
     A[execute_job 开始] --> B[try_mark_running<br/>原子 claim: UPDATE running_at<br/>WHERE running_at IS NULL]
     B -->|already running| B1[跳过执行]
-    B -->|claimed| C[提取 prompt + agent_id<br/>从 CronPayload]
-    C --> D[create_session<br/>隔离会话 + mark_session_cron]
+    B -->|claimed| C[提取 prompt + 显式 agent_id<br/>从 CronPayload]
+    C --> C1[解析 Project + Agent<br/>显式 Agent > Project 默认 > 全局默认 > ha-main]
+    C1 --> C2{Project 是否存在?}
+    C2 -->|存在或未绑定| D[create_session_with_project<br/>隔离会话 + mark_session_cron]
+    C2 -->|已删除| C3[clear_job_project<br/>降级普通 cron]
+    C3 --> D
     D --> E[tokio::time::timeout<br/>CRON_JOB_TIMEOUT_SECS = 300s]
     E --> F[build_and_run_agent]
 

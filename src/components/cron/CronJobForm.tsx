@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Plus, Send } from "lucide-react"
+import { X, Plus, Send, FolderOpen } from "lucide-react"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
 
@@ -24,8 +24,8 @@ import {
 } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
 import type { AgentInfo } from "@/types/chat"
-import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
+import type { ProjectMeta } from "@/types/project"
 
 // Matches the shape returned by `channel_list_sessions` (see
 // `src-tauri/src/commands/channel.rs::channel_list_sessions`).
@@ -48,11 +48,21 @@ interface ChannelConversationDto {
 interface CronJobFormProps {
   job?: CronJob | null
   defaultDate?: Date | null
+  defaultProjectId?: string | null
   onSave: () => void
   onCancel: () => void
 }
 
-export default function CronJobForm({ job, defaultDate, onSave, onCancel }: CronJobFormProps) {
+const AUTO_AGENT_VALUE = "__auto__"
+const NO_PROJECT_VALUE = "__none__"
+
+export default function CronJobForm({
+  job,
+  defaultDate,
+  defaultProjectId,
+  onSave,
+  onCancel,
+}: CronJobFormProps) {
   const { t } = useTranslation()
   const isEditing = !!job
 
@@ -107,20 +117,27 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   )
 
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
-  const [agentId, setAgentId] = useState(job?.payload.agentId ?? DEFAULT_AGENT_ID)
+  const [agentId, setAgentId] = useState(job?.payload.agentId ?? AUTO_AGENT_VALUE)
+  const [projectId, setProjectId] = useState(
+    job ? (job.projectId ?? NO_PROJECT_VALUE) : (defaultProjectId ?? NO_PROJECT_VALUE),
+  )
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
     () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
   )
   const [accounts, setAccounts] = useState<ChannelAccountConfig[]>([])
+  const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [conversationsByAccount, setConversationsByAccount] = useState<
     Record<string, ChannelConversationDto[]>
   >({})
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const selectedAgent = agents.find((a) => a.id === agentId)
+  const selectedAgent = agentId === AUTO_AGENT_VALUE ? null : agents.find((a) => a.id === agentId)
+  const selectedProject =
+    projectId === NO_PROJECT_VALUE ? null : projects.find((p) => p.id === projectId)
+  const isMissingProject = projectId !== NO_PROJECT_VALUE && !selectedProject
 
   useEffect(() => {
     getTransport().call<AgentInfo[]>("list_agents")
@@ -129,6 +146,10 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
     getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
       .then((list) => setAccounts(list.filter((a) => a.enabled)))
+      .catch(() => {})
+
+    getTransport().call<ProjectMeta[]>("list_projects_cmd", { includeArchived: true })
+      .then((list) => setProjects(Array.isArray(list) ? list : []))
       .catch(() => {})
   }, [])
 
@@ -243,8 +264,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           ...job,
           name: name.trim(),
           description: description.trim() || null,
+          projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
           schedule,
-          payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
+          payload: {
+            type: "agentTurn",
+            prompt: message.trim(),
+            agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
+          },
           maxFailures: parseInt(maxFailures) || 5,
           notifyOnComplete,
           deliveryTargets: validTargets,
@@ -256,8 +282,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           job: {
             name: name.trim(),
             description: description.trim() || null,
+            projectId: projectId === NO_PROJECT_VALUE ? null : projectId,
             schedule,
-            payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
+            payload: {
+              type: "agentTurn",
+              prompt: message.trim(),
+              agentId: agentId === AUTO_AGENT_VALUE ? null : agentId,
+            },
             maxFailures: parseInt(maxFailures) || 5,
             notifyOnComplete,
             deliveryTargets: validTargets,
@@ -437,6 +468,38 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
             />
           </div>
 
+          {/* Project */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+              <FolderOpen className="h-3 w-3" />
+              {t("cron.project")}
+            </label>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PROJECT_VALUE}>{t("cron.noProject")}</SelectItem>
+                {isMissingProject && (
+                  <SelectItem value={projectId}>{t("cron.missingProject")}</SelectItem>
+                )}
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    <span className="text-xs">
+                      {p.emoji ? `${p.emoji} ` : ""}
+                      {p.name}
+                      {p.archived ? (
+                        <span className="text-muted-foreground ml-1">
+                          {t("cron.archivedProject")}
+                        </span>
+                      ) : null}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Agent */}
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
@@ -447,6 +510,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                 {selectedAgent ? <AgentSelectDisplay agent={selectedAgent} /> : <SelectValue />}
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={AUTO_AGENT_VALUE}>{t("cron.autoAgent")}</SelectItem>
                 {agents.map((a) => (
                   <SelectItem key={a.id} value={a.id} textValue={a.name}>
                     <AgentSelectDisplay agent={a} />

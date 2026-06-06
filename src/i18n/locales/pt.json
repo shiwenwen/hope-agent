@@ -686,7 +686,12 @@
     "weekSun": "Dom",
     "weekThu": "Qui",
     "weekTue": "Ter",
-    "weekWed": "Qua"
+    "weekWed": "Qua",
+    "archivedProject": "(arquivado)",
+    "autoAgent": "Auto (projeto/padrão)",
+    "missingProject": "Projeto ausente",
+    "noProject": "Sem projeto",
+    "project": "Projeto"
   },
   "dangerousMode": {
     "bannerBoth": "Modo Perigoso ativo (CLI + config) — todas as aprovações de ferramentas são ignoradas",

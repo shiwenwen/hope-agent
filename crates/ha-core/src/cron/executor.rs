@@ -54,43 +54,66 @@ pub(crate) async fn execute_claimed_job(
         job.id
     );
 
-    // Extract prompt and agent_id from payload
-    let (prompt, agent_id) = match &job.payload {
-        CronPayload::AgentTurn { prompt, agent_id } => (
-            prompt.clone(),
+    // Extract prompt and resolve the execution context. Cron sessions are
+    // isolated, but can still inherit Project defaults just like a new Project
+    // chat when the job is bound to a Project.
+    let (prompt, explicit_agent_id) = match &job.payload {
+        CronPayload::AgentTurn { prompt, agent_id } => (prompt.clone(), agent_id.as_deref()),
+    };
+    let context = resolve_execution_context(&job, explicit_agent_id, cron_db);
+    let agent_id = context.agent_id;
+    let project_id = context.project_id;
+
+    if context.cleared_missing_project {
+        app_warn!(
+            "cron",
+            "executor",
+            "Project for job '{}' ({}) no longer exists; cleared project association and running without Project context",
+            job.name,
+            job.id
+        );
+    }
+
+    if let Some(pid) = project_id.as_deref() {
+        app_info!(
+            "cron",
+            "executor",
+            "Job '{}' ({}) running in project {} with agent {}",
+            job.name,
+            job.id,
+            pid,
             agent_id
-                .clone()
-                .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
-        ),
+        );
     };
 
     // Create an isolated session for this cron run
-    let session_id = match session_db.create_session(&agent_id) {
-        Ok(meta) => {
-            let _ = session_db.update_session_title(&meta.id, &job.name);
-            let _ = session_db.mark_session_cron(&meta.id);
-            meta.id
-        }
-        Err(e) => {
-            app_error!(
-                "cron",
-                "executor",
-                "Failed to create session for job '{}': {}",
-                job.name,
-                e
-            );
-            record_failure(
-                cron_db,
-                &job,
-                &started_at,
-                start_time,
-                "no_session",
-                &e.to_string(),
-                "",
-            );
-            return;
-        }
-    };
+    let session_id =
+        match session_db.create_session_with_project(&agent_id, project_id.as_deref(), None) {
+            Ok(meta) => {
+                let _ = session_db.update_session_title(&meta.id, &job.name);
+                let _ = session_db.mark_session_cron(&meta.id);
+                meta.id
+            }
+            Err(e) => {
+                app_error!(
+                    "cron",
+                    "executor",
+                    "Failed to create session for job '{}': {}",
+                    job.name,
+                    e
+                );
+                record_failure(
+                    cron_db,
+                    &job,
+                    &started_at,
+                    start_time,
+                    "no_session",
+                    &e.to_string(),
+                    "",
+                );
+                return;
+            }
+        };
 
     // Persist the cron prompt before execution so `run_chat_engine` can reuse
     // the same DB contract as interactive chat without duplicating user rows.
@@ -212,6 +235,96 @@ pub(crate) async fn execute_claimed_job(
             );
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CronExecutionContext {
+    pub agent_id: String,
+    pub project_id: Option<String>,
+    pub cleared_missing_project: bool,
+}
+
+pub(crate) fn resolve_execution_context(
+    job: &CronJob,
+    explicit_agent_id: Option<&str>,
+    cron_db: &Arc<CronDB>,
+) -> CronExecutionContext {
+    let trimmed_explicit = explicit_agent_id.and_then(|id| {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+
+    let mut cleared_missing_project = false;
+    let project = job
+        .project_id
+        .as_deref()
+        .and_then(|pid| match crate::get_project_db() {
+            Some(db) => match db.get(pid) {
+                Ok(Some(project)) => Some(project),
+                Ok(None) => {
+                    match cron_db.clear_job_project(&job.id) {
+                        Ok(()) => cleared_missing_project = true,
+                        Err(e) => app_warn!(
+                            "cron",
+                            "executor",
+                            "Failed to clear missing project {} from job {}: {}",
+                            pid,
+                            job.id,
+                            e
+                        ),
+                    }
+                    None
+                }
+                Err(e) => {
+                    app_warn!(
+                        "cron",
+                        "executor",
+                        "Failed to load project {} for job {}: {}",
+                        pid,
+                        job.id,
+                        e
+                    );
+                    None
+                }
+            },
+            None => {
+                app_warn!(
+                    "cron",
+                    "executor",
+                    "Project DB not initialized while resolving project {} for job {}",
+                    pid,
+                    job.id
+                );
+                None
+            }
+        });
+
+    let agent_id = resolve_agent_id_for_execution(trimmed_explicit, project.as_ref());
+
+    CronExecutionContext {
+        agent_id,
+        project_id: project.map(|p| p.id),
+        cleared_missing_project,
+    }
+}
+
+pub(crate) fn resolve_agent_id_for_execution(
+    explicit_agent_id: Option<&str>,
+    project: Option<&crate::project::Project>,
+) -> String {
+    crate::agent::resolver::resolve_default_agent_id_full(
+        explicit_agent_id,
+        project,
+        None,
+        None,
+        None,
+        None,
+    )
+    .0
 }
 
 /// Build an AssistantAgent and run a chat message with full failover logic.
@@ -441,6 +554,7 @@ pub(crate) fn emit_cron_event(job_id: &str, job_name: &str, status: &str, notify
 mod tests {
     use super::*;
     use crate::cron::{CronPayload, CronSchedule, NewCronJob};
+    use crate::project::Project;
     use rusqlite::params;
     use std::path::{Path, PathBuf};
     use uuid::Uuid;
@@ -458,6 +572,45 @@ mod tests {
         let _ = std::fs::remove_file(format!("{}-shm", path.display()));
     }
 
+    fn project_with_default_agent(agent_id: Option<&str>) -> Project {
+        Project {
+            id: "project-1".into(),
+            name: "Project One".into(),
+            description: None,
+            instructions: None,
+            emoji: None,
+            logo: None,
+            color: None,
+            default_agent_id: agent_id.map(str::to_string),
+            default_model_id: None,
+            working_dir: None,
+            created_at: 0,
+            updated_at: 0,
+            archived: false,
+        }
+    }
+
+    #[test]
+    fn resolve_agent_id_for_execution_prefers_explicit_agent() {
+        let project = project_with_default_agent(Some("project-agent"));
+        let resolved = resolve_agent_id_for_execution(Some("explicit-agent"), Some(&project));
+        assert_eq!(resolved, "explicit-agent");
+    }
+
+    #[test]
+    fn resolve_agent_id_for_execution_uses_project_default_agent() {
+        let project = project_with_default_agent(Some("project-agent"));
+        let resolved = resolve_agent_id_for_execution(None, Some(&project));
+        assert_eq!(resolved, "project-agent");
+    }
+
+    #[test]
+    fn resolve_agent_id_for_execution_falls_back_without_project_default() {
+        let project = project_with_default_agent(None);
+        let resolved = resolve_agent_id_for_execution(None, Some(&project));
+        assert!(!resolved.trim().is_empty());
+    }
+
     #[test]
     fn record_cancelled_writes_log_clears_running_and_preserves_failures() {
         let path = temp_db_path("cancelled-log");
@@ -466,6 +619,7 @@ mod tests {
             .add_job(&NewCronJob {
                 name: "Hydrate".into(),
                 description: None,
+                project_id: None,
                 schedule: CronSchedule::Every {
                     interval_ms: 300_000,
                     start_at: None,
