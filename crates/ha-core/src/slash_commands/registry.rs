@@ -378,6 +378,19 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             arg_options: Some(vec!["on".into(), "off".into()]),
             description_raw: None,
         },
+        // `/kb [on|off]` — IM-only. Confirm / revoke this group chat for
+        // knowledge-base access (WS8). The account-level opt-in is owner-only
+        // (desktop Settings); in a group this command is the per-chat confirm.
+        SlashCommandDef {
+            name: "kb".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.kb.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[on|off]".into()),
+            arg_options: Some(vec!["on".into(), "off".into()]),
+            description_raw: None,
+        },
     ]
 }
 

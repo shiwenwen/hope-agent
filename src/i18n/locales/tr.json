@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "Kimlik doğrulama tokenı (isteğe bağlı)",
     "whatsappHint": "Çalışan bir WhatsApp bridge servisi gerektirir. HTTP API URL'sini gösterin.",
     "autoTranscribeVoice": "Sesli mesajları otomatik yazıya dök",
-    "autoTranscribeVoiceHint": "Gelen ses / sesli mesajları yapılandırılmış STT alt sistemiyle yazıya döker. Her mesaj STT API kotanızdan tüketir."
+    "autoTranscribeVoiceHint": "Gelen ses / sesli mesajları yapılandırılmış STT alt sistemiyle yazıya döker. Her mesaj STT API kotanızdan tüketir.",
+    "kbAccessOptIn": "Bilgi tabanı erişimi",
+    "kbAccessOptInHint": "Bu kanalın bağlı bilgi alanlarını okumasına ve yazmasına izin verir. Varsayılan olarak kapalıdır. Grup sohbetlerinde ayrıca sohbette /kb on komutunu çalıştırarak onaylayın."
   },
   "chat": {
     "addWorkingDirectory": "Çalışma dizini ekle",
@@ -4434,6 +4436,9 @@
     "title": "Komutlar",
     "usage": {
       "description": "Token kullanımı"
+    },
+    "kb": {
+      "description": "Bu grup sohbetinin bilgi tabanı erişimini onayla veya iptal et"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "Vektör arama kapalı — ayarları aç",
     "kbRootPick": "Seç…",
     "kbRootHint": "Dahili alan için boş bırakın. Harici kasalar 1. Aşamada salt okunurdur.",
-    "kbRootInvalid": "Bu klasör seçilemedi"
+    "kbRootInvalid": "Bu klasör seçilemedi",
+    "allowExternalWrites": "Bu kasada düzenlemeye izin ver",
+    "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz."
   }
 }

@@ -173,6 +173,9 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         reasoning_effort: None,
         skill_name: None,
         origin_source: ctx.origin_chat_source.or(ctx.chat_source),
+        // WS8: carry the parent turn's IM origin identity so an IM-origin
+        // subagent's KB opt-in is judged against the origin account/chat.
+        origin_channel_kb_context: ctx.channel_kb_context.clone(),
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -440,6 +443,8 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             reasoning_effort: None,
             skill_name: None,
             origin_source: ctx.origin_chat_source.or(ctx.chat_source),
+            // WS8: forward the parent turn's IM origin identity (see above).
+            origin_channel_kb_context: ctx.channel_kb_context.clone(),
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {

@@ -82,7 +82,7 @@ pub fn note_save(
         WorkspaceScope::for_knowledge(kb_id).map_err(|e| anyhow!(e.message().to_string()))?;
     if scope.is_read_only() {
         bail!(
-            "knowledge base '{}' root is read-only (external vaults are read-only in Phase 1)",
+            "knowledge base '{}' root is read-only (enable external editing in the space settings to write a bound vault)",
             kb_id
         );
     }

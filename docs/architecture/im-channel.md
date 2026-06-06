@@ -792,8 +792,11 @@ mirror 与入站共享同一份 chunk 管道(`send_text_chunks` → `markdown_to
 | `/projects` | 列所有未归档项目 | inline buttons,callback `slash:project <id>` |
 | `/project <name>` | 模糊匹配后切项目 | 发 `AssignProject` —— UPDATE `sessions.project_id`,**不创建新 session**;GUI 模式发 `EnterProject` 创建新 session 进入 |
 | `/handover <ch:acc:chat[:thread]>` | GUI 把当前 session 推到 IM chat | 不下发菜单;实际入口 GUI Handover dialog,slash 给 power user / 脚本 |
+| `/kb [on\|off]` | 知识空间访问 per-chat 确认(WS8)。无参 / `status` 报生效态;群聊 `on`/`off` 写 `kbAccessChats`;DM 仅报状态(账号级 opt-in 在桌面 Settings) | 群聊确认入口;**账号级 `kbAccessOptIn` 仍为 owner GUI-only**,`/kb` 只翻 per-chat 确认位,且需账号已 opt-in 才生效 |
 
 `/status` 末尾追加 **Attached IM Channel** 段,显示该 session 的 IM attach 行(1:1,0 或 1 行) —— channel / chat 标识 + `attached_at`。
+
+**知识空间访问(WS8)**:IM 默认零 KB 访问(D10)。放开走两层——账号级 `ChannelAccountConfig.settings.kbAccessOptIn`(桌面 Settings → 渠道,owner-only,默认关)开私聊;群聊还需 `kbAccessChats` 含该 chat(群内 `/kb on`)。判定 `crate::channel::im_kb_access_allowed`,账号查不到 / channel_id 不匹配 fail closed。即便开启,仍受 attach / incognito / 外部只读 cap 约束,且 IM-origin 子代理按 origin 账号判(不洗权限)。
 
 ### 按钮回调路由(7 渠道单一真相源)
 

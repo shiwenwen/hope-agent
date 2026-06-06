@@ -4,7 +4,9 @@
 //! `effective_kb_access` gate — exactly like a GUI edit. Every write re-reads the
 //! note first and passes the current disk hash as the stale-write guard, so a
 //! proposal generated against an out-of-date snapshot fails cleanly instead of
-//! clobbering newer content. External (read-only) KBs reject writes in `service`.
+//! clobbering newer content. Proposals are only ever generated for internal KBs
+//! (the scheduler skips every external root), so apply never touches a bound
+//! vault even when it opted into external writes (WS7).
 
 use anyhow::{bail, Result};
 
@@ -13,6 +15,17 @@ use crate::knowledge::{parser, service};
 
 pub async fn apply_proposal(p: &MaintenanceProposal) -> Result<()> {
     let kb = p.kb_id.as_str();
+    // Defense in depth (WS7): maintenance must never write an external (bound)
+    // vault, even one opted into external writes. The scheduler already skips
+    // external roots at generation time, but enforce it here too so the owner-
+    // approve path (which bypasses `effective_kb_access`) can't reach a vault via
+    // a stale proposal. Fail closed.
+    if super::super::resolve_kb_dir(kb)
+        .map(|r| r.is_external)
+        .unwrap_or(true)
+    {
+        bail!("maintenance does not write external knowledge bases (kb '{kb}')");
+    }
     match &p.action {
         // Non-destructive: apply to the note's *current* content (append a link to
         // whatever it now holds). `note_read` is the existence guard — a deleted

@@ -279,6 +279,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         persist_final_error_event,
         source,
         origin_source,
+        channel_kb_context,
         event_sink,
     } = params;
 
@@ -410,6 +411,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         &session_id,
         kb_access_source(source),
         kb_origin,
+        channel_kb_context.clone(),
     ) {
         extra_system_context = Some(match extra_system_context.take() {
             Some(e) => format!("{e}\n\n{extra}"),
@@ -614,6 +616,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let compact_config_ref = &compact_config;
             let agent_id_ref = &agent_id;
             let session_id_ref = &session_id;
+            let channel_kb_context_ref = &channel_kb_context;
             let extra_system_context_ref = &extra_system_context;
             let skill_allowed_tools_ref = &skill_allowed_tools;
             let plan_resolved_ref = &plan_resolved;
@@ -653,6 +656,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let denied_tools_owned = denied_tools.clone();
                     let steer_run_id_owned = steer_run_id.clone();
                     let plan_resolved_owned = plan_resolved_ref.clone();
+                    let channel_kb_context_owned = channel_kb_context_ref.clone();
                     let message_owned = message_ref.clone();
                     // Arc<[Attachment]> clone is a pointer bump regardless
                     // of attachment size. See param destructure for the wrap.
@@ -701,6 +705,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             follow_global_reasoning_effort,
                             source,
                             kb_origin,
+                            channel_kb_context_owned,
                         );
                         restore_agent_context(&db_owned, &session_id_owned, &agent);
 
@@ -1188,6 +1193,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         follow_global_reasoning_effort,
                         source,
                         kb_origin,
+                        channel_kb_context.clone(),
                     );
                     restore_agent_context(&db, &session_id, &compact_agent);
 
@@ -1547,11 +1553,13 @@ fn configure_agent(
     follow_global_reasoning_effort: bool,
     source: stream_seq::ChatSource,
     kb_origin: crate::knowledge::KbAccessSource,
+    channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) {
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);
     agent.set_chat_source(kb_access_source(source));
     agent.set_origin_chat_source(kb_origin);
+    agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);
     if let Some(ctx) = extra_system_context {
         agent.set_extra_system_context(ctx.to_string());
@@ -1738,6 +1746,7 @@ mod stream_lifecycle_tests {
             persist_final_error_event: true,
             source: stream_seq::ChatSource::Desktop,
             origin_source: None,
+            channel_kb_context: None,
             event_sink: Arc::new(NoopEventSink),
         }
     }

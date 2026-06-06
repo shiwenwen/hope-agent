@@ -499,6 +499,8 @@ pub async fn chat(
         persist_final_error_event: true,
         source: ha_core::chat_engine::stream_seq::ChatSource::Http,
         origin_source: None,
+        // HTTP owner turn — KB access via attach, not the IM opt-in gate.
+        channel_kb_context: None,
         event_sink,
     };
 

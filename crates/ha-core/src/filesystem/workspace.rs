@@ -59,12 +59,13 @@ impl WorkspaceScope {
     }
 
     /// Scope to a knowledge base's storage root. External (bound) roots are
-    /// browse-only in Phase 1 (design D11) — `read_only` is set so every
-    /// mutating op rejects them on every transport.
+    /// browse-only unless the KB opted into external writes (WS7, design D11) —
+    /// `read_only` reflects that opt-in so every mutating op rejects a locked
+    /// external root on every transport.
     pub fn for_knowledge(kb_id: &str) -> Result<Self> {
-        let (dir, is_external) = crate::knowledge::resolve_kb_dir(kb_id)
+        let root = crate::knowledge::resolve_kb_dir(kb_id)
             .map_err(|e| FilesystemError::bad_input(e.to_string()))?;
-        Self::from_root_with(&dir.to_string_lossy(), is_external)
+        Self::from_root_with(&root.dir.to_string_lossy(), root.read_only)
     }
 
     /// Read-only worktree-jump browse scope. The `id` is an opaque triple

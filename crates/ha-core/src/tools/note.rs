@@ -21,25 +21,63 @@ use crate::knowledge::{
 // ── Access helpers ──────────────────────────────────────────────
 
 fn access_map(ctx: &ToolExecContext) -> HashMap<String, KbAccess> {
-    let source = ctx.chat_source.unwrap_or(KbAccessSource::Gui);
+    let mut source = ctx.chat_source.unwrap_or(KbAccessSource::Gui);
     // Call-chain origin (D10): a subagent carries its parent turn's origin so an
     // IM-origin chain can't reacquire KB access via the neutral Subagent source.
     // Falls back to `source` when unset (contexts not built by the chat engine).
-    let origin = ctx.origin_chat_source.unwrap_or(source);
+    let mut origin = ctx.origin_chat_source.unwrap_or(source);
+    let mut channel_info = ctx.channel_kb_context.clone();
+
+    // Defense in depth (WS8): a context whose `chat_source` was never threaded
+    // (`None` → would default to `Gui` owner) must NOT bypass the IM opt-in gate
+    // when it is actually running on an IM-bound session. The `/skill` direct-tool
+    // path (and any other entry that builds a `..Default::default()` context)
+    // reaches `note_*` without setting a source; on an IM session that would
+    // silently elevate to owner-plane KB access. Reclassify it as an IM turn
+    // carrying the session's own channel identity so `effective_kb_access` applies
+    // the same WS8 gate as the sanctioned inbound-LLM path. A non-IM session has
+    // no `channel_info`, so desktop/HTTP owner contexts are unaffected.
+    if ctx.chat_source.is_none() {
+        if let Some(ci) = im_kb_context_from_session(ctx.session_id.as_deref()) {
+            source = KbAccessSource::Im;
+            origin = KbAccessSource::Im;
+            channel_info = Some(ci);
+        }
+    }
+
     let actx = KnowledgeAccessContext::resolve(
         ctx.session_id.clone(),
         ctx.project_id.clone(),
         source,
         origin,
+        channel_info,
     );
     effective_kb_access(&actx)
+}
+
+/// Build a [`ChannelKbContext`] from a session's persisted IM binding, or `None`
+/// if the session is not IM-bound. Used by [`access_map`]'s defense-in-depth
+/// reclassification (WS8) so an un-threaded tool context can't launder owner KB
+/// access on an IM session.
+fn im_kb_context_from_session(
+    session_id: Option<&str>,
+) -> Option<crate::knowledge::ChannelKbContext> {
+    let ci = crate::session::lookup_session_meta(session_id)?.channel_info?;
+    Some(crate::knowledge::ChannelKbContext {
+        channel_id: ci.channel_id,
+        account_id: ci.account_id,
+        chat_id: ci.chat_id,
+        // Any non-DM chat needs per-chat confirmation (matches the dispatcher's
+        // live `is_group` derivation).
+        is_group: !ci.chat_type.eq_ignore_ascii_case("dm"),
+    })
 }
 
 fn require_write(ctx: &ToolExecContext, kb_id: &str) -> Result<()> {
     match access_map(ctx).get(kb_id) {
         Some(KbAccess::Write) => Ok(()),
         Some(KbAccess::Read) => bail!(
-            "knowledge base '{}' is read-only for this session (external vaults are read-only in Phase 1)",
+            "knowledge base '{}' is read-only for this session (grant write access, or for an external vault enable editing in the space settings)",
             kb_id
         ),
         None => bail!(

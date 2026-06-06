@@ -78,6 +78,9 @@ export default function EditAccountDialog({
   const [imReplyMode, setImReplyMode] = useState<ImReplyMode>(IM_REPLY_MODE_DEFAULT)
   const [showThinking, setShowThinking] = useState<boolean>(SHOW_THINKING_DEFAULT)
   const [autoTranscribeVoice, setAutoTranscribeVoice] = useState<boolean>(false)
+  // WS8: account-level opt-in to knowledge-base access from this IM channel.
+  // Default off; group chats additionally need per-chat `/kb on` confirmation.
+  const [kbAccessOptIn, setKbAccessOptIn] = useState<boolean>(false)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
@@ -112,6 +115,11 @@ export default function EditAccountDialog({
       setAutoTranscribeVoice(
         Boolean(
           (account.settings as Record<string, unknown> | null | undefined)?.autoTranscribeVoice,
+        ),
+      )
+      setKbAccessOptIn(
+        Boolean(
+          (account.settings as Record<string, unknown> | null | undefined)?.kbAccessOptIn,
         ),
       )
       setValidationResult(null)
@@ -158,6 +166,9 @@ export default function EditAccountDialog({
         ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
         imReplyMode,
         showThinking,
+        // WS8 account opt-in; the per-group confirmed-chat list (`kbAccessChats`)
+        // is preserved by the spread above and only edited via the `/kb` command.
+        kbAccessOptIn,
       }
       // Drop the key entirely so a saved snapshot of "untouched" account
       // doesn't reintroduce the flag through this path.
@@ -168,6 +179,9 @@ export default function EditAccountDialog({
       const originalToken = (account.credentials as Record<string, string>).token ?? ""
       const originalImReplyMode = readImReplyMode(account)
       const originalShowThinking = readShowThinking(account)
+      const originalKbAccessOptIn = Boolean(
+        (account.settings as Record<string, unknown> | null | undefined)?.kbAccessOptIn,
+      )
       const wechatChanged =
         account.channelId === "wechat" && wechatConnection !== null
       const otherFieldsChanged =
@@ -180,6 +194,7 @@ export default function EditAccountDialog({
         wechatChanged ||
         imReplyMode !== originalImReplyMode ||
         showThinking !== originalShowThinking ||
+        kbAccessOptIn !== originalKbAccessOptIn ||
         JSON.stringify({ dmPolicy, userAllowlist, groupPolicy, groups, channels }) !==
           JSON.stringify({
             dmPolicy: account.security.dmPolicy,
@@ -463,6 +478,25 @@ export default function EditAccountDialog({
             <Switch
               checked={autoTranscribeVoice}
               onCheckedChange={setAutoTranscribeVoice}
+            />
+          </div>
+
+          {/* Knowledge-base access opt-in (WS8). Off by default — IM channels
+              get zero KB access unless explicitly enabled here. Group chats
+              additionally require per-chat `/kb on` confirmation. */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>{t("channels.kbAccessOptIn", "Knowledge-base access")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  "channels.kbAccessOptInHint",
+                  "Allow this channel to read/write attached knowledge spaces. Off by default. In group chats, also run /kb on in the chat to confirm it.",
+                )}
+              </p>
+            </div>
+            <Switch
+              checked={kbAccessOptIn}
+              onCheckedChange={setKbAccessOptIn}
             />
           </div>
 

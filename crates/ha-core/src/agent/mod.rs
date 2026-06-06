@@ -126,6 +126,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             chat_source: None,
             origin_chat_source: None,
+            channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
             skill_allowed_tools: Vec::new(),
@@ -178,6 +179,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             chat_source: None,
             origin_chat_source: None,
+            channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
             skill_allowed_tools: Vec::new(),
@@ -355,6 +357,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             chat_source: None,
             origin_chat_source: None,
+            channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
             skill_allowed_tools: Vec::new(),
@@ -921,6 +924,13 @@ impl AssistantAgent {
         self.origin_chat_source = Some(origin);
     }
 
+    /// Set the IM origin identity for the WS8 KB-access opt-in gate. `None` for
+    /// non-IM lineages; an IM-origin subagent carries the origin's identity so
+    /// the opt-in is judged against the account/chat that started the chain.
+    pub fn set_channel_kb_context(&mut self, ctx: Option<crate::knowledge::ChannelKbContext>) {
+        self.channel_kb_context = ctx;
+    }
+
     /// Set the run ID for steer mailbox (only used when running as a sub-agent).
     pub fn set_steer_run_id(&mut self, run_id: String) {
         self.steer_run_id = Some(run_id);
@@ -1408,6 +1418,7 @@ impl AssistantAgent {
             subagent_depth: self.subagent_depth,
             chat_source: self.chat_source,
             origin_chat_source: self.origin_chat_source,
+            channel_kb_context: self.channel_kb_context.clone(),
             agent_tool_filter,
             denied_tools: self.denied_tools.clone(),
             skill_allowed_tools: self.skill_allowed_tools.clone(),

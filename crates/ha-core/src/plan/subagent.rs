@@ -137,6 +137,7 @@ pub async fn spawn_plan_subagent(
         reasoning_effort: None,
         skill_name: None,
         origin_source: None,
+        origin_channel_kb_context: None,
     };
 
     let run_id =

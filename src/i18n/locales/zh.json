@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "认证令牌（可选）",
     "whatsappHint": "需要运行 WhatsApp 桥接服务，填写其 HTTP API 地址",
     "autoTranscribeVoice": "自动转录语音消息",
-    "autoTranscribeVoiceHint": "通过 STT 子系统转录入站语音/音频消息；每条消耗 STT API 配额。"
+    "autoTranscribeVoiceHint": "通过 STT 子系统转录入站语音/音频消息；每条消耗 STT API 配额。",
+    "kbAccessOptIn": "知识空间访问",
+    "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目录",
@@ -4435,6 +4437,9 @@
     "title": "命令",
     "usage": {
       "description": "Token 用量"
+    },
+    "kb": {
+      "description": "确认或撤销当前群聊的知识空间访问权限"
     }
   },
   "subagent": {
@@ -4873,6 +4878,8 @@
     "embeddingOffTip": "向量检索未开启 · 点击进入设置",
     "kbRootPick": "选择…",
     "kbRootHint": "留空则创建内部空间。外部库在第一阶段为只读。",
-    "kbRootInvalid": "无法选择该文件夹"
+    "kbRootInvalid": "无法选择该文件夹",
+    "allowExternalWrites": "允许编辑此外部库",
+    "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。"
   }
 }

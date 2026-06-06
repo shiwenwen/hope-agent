@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "認証トークン（任意）",
     "whatsappHint": "WhatsApp ブリッジサービスの実行が必要です。HTTP API URL を指定してください。",
     "autoTranscribeVoice": "音声メッセージを自動文字起こし",
-    "autoTranscribeVoiceHint": "受信した音声 / オーディオを STT サブシステムで文字起こし。1 件ごとに STT API クォータを消費します。"
+    "autoTranscribeVoiceHint": "受信した音声 / オーディオを STT サブシステムで文字起こし。1 件ごとに STT API クォータを消費します。",
+    "kbAccessOptIn": "ナレッジベースへのアクセス",
+    "kbAccessOptInHint": "このチャネルから、紐付けたナレッジスペースの読み書きを許可します。既定はオフです。グループチャットでは、チャット内で /kb on を実行して個別に確認してください。"
   },
   "chat": {
     "addWorkingDirectory": "作業ディレクトリを追加",
@@ -4434,6 +4436,9 @@
     "title": "コマンド",
     "usage": {
       "description": "トークン使用量"
+    },
+    "kb": {
+      "description": "このグループチャットのナレッジベースアクセスを確認／取り消し"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "ベクトル検索はオフです · 設定を開く",
     "kbRootPick": "選択…",
     "kbRootHint": "空欄なら内部空間を作成します。外部Vaultは第1段階では読み取り専用です。",
-    "kbRootInvalid": "そのフォルダーを選択できませんでした"
+    "kbRootInvalid": "そのフォルダーを選択できませんでした",
+    "allowExternalWrites": "この外部保管庫の編集を許可",
+    "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。"
   }
 }

@@ -675,6 +675,19 @@ pub const SETTINGS_KEY_SHOW_THINKING: &str = "showThinking";
 /// so the user has to opt in per account.
 pub const SETTINGS_KEY_AUTO_TRANSCRIBE_VOICE: &str = "autoTranscribeVoice";
 
+/// Settings JSON key — account-level opt-in to knowledge-base access from this
+/// IM channel (WS8). Default `false`: IM turns get zero KB access (design D10)
+/// unless the owner explicitly enables it per account. For group / non-DM chats
+/// this opt-in is necessary but **not** sufficient — each group chat must also be
+/// confirmed in [`SETTINGS_KEY_KB_ACCESS_CHATS`].
+pub const SETTINGS_KEY_KB_ACCESS_OPT_IN: &str = "kbAccessOptIn";
+
+/// Settings JSON key — array of confirmed group/non-DM chat ids allowed KB
+/// access (WS8). A DM only needs the account-level opt-in; a group additionally
+/// needs its chat id listed here (confirmed via the in-chat `/kb on` command or
+/// the account dialog).
+pub const SETTINGS_KEY_KB_ACCESS_CHATS: &str = "kbAccessChats";
+
 impl ChannelAccountConfig {
     /// Read `settings.imReplyMode`, falling back to `ImReplyMode::default()`
     /// when missing or unparseable.
@@ -745,6 +758,65 @@ impl ChannelAccountConfig {
                 serde_json::Value::Bool(on),
             );
         }
+    }
+
+    /// Read `settings.kbAccessOptIn` (WS8). Default `false` — IM channels have
+    /// zero KB access unless the owner opts the account in.
+    pub fn kb_access_opt_in(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_KB_ACCESS_OPT_IN)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Write `settings.kbAccessOptIn = on`. Creates the settings object if it
+    /// was previously `null` / non-object.
+    pub fn set_kb_access_opt_in(&mut self, on: bool) {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        if let Some(obj) = self.settings.as_object_mut() {
+            obj.insert(
+                SETTINGS_KEY_KB_ACCESS_OPT_IN.to_string(),
+                serde_json::Value::Bool(on),
+            );
+        }
+    }
+
+    /// Whether a specific group/non-DM `chat_id` is confirmed for KB access
+    /// (WS8). DMs ignore this list (the account opt-in alone suffices).
+    pub fn kb_access_chat_confirmed(&self, chat_id: &str) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_KB_ACCESS_CHATS)
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().any(|v| v.as_str() == Some(chat_id)))
+            .unwrap_or(false)
+    }
+
+    /// Add / remove a group `chat_id` from the confirmed list (WS8). Returns the
+    /// resulting confirmed state. Idempotent.
+    pub fn set_kb_access_chat(&mut self, chat_id: &str, on: bool) -> bool {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        let obj = match self.settings.as_object_mut() {
+            Some(o) => o,
+            None => return false,
+        };
+        let arr = obj
+            .entry(SETTINGS_KEY_KB_ACCESS_CHATS.to_string())
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        if !arr.is_array() {
+            *arr = serde_json::Value::Array(Vec::new());
+        }
+        let list = arr.as_array_mut().expect("just ensured array");
+        let present = list.iter().any(|v| v.as_str() == Some(chat_id));
+        if on && !present {
+            list.push(serde_json::Value::String(chat_id.to_string()));
+        } else if !on && present {
+            list.retain(|v| v.as_str() != Some(chat_id));
+        }
+        on
     }
 }
 
@@ -917,5 +989,60 @@ mod tests {
         // Toggle back off.
         acc.set_auto_transcribe_voice(false);
         assert!(!acc.auto_transcribe_voice());
+    }
+
+    #[test]
+    fn kb_access_opt_in_defaults_to_false() {
+        assert!(!mk_account(serde_json::Value::Null).kb_access_opt_in());
+        assert!(!mk_account(serde_json::json!({})).kb_access_opt_in());
+        // Non-bool falls back to false (fail closed).
+        assert!(!mk_account(serde_json::json!({"kbAccessOptIn": "yes"})).kb_access_opt_in());
+        assert!(mk_account(serde_json::json!({"kbAccessOptIn": true})).kb_access_opt_in());
+    }
+
+    #[test]
+    fn set_kb_access_opt_in_round_trip() {
+        let mut acc = mk_account(serde_json::Value::Null);
+        acc.set_kb_access_opt_in(true);
+        assert!(acc.kb_access_opt_in());
+
+        // Sibling keys preserved.
+        let mut acc = mk_account(serde_json::json!({"imReplyMode": "split"}));
+        acc.set_kb_access_opt_in(true);
+        assert_eq!(acc.settings["imReplyMode"], "split");
+        assert!(acc.kb_access_opt_in());
+
+        acc.set_kb_access_opt_in(false);
+        assert!(!acc.kb_access_opt_in());
+    }
+
+    #[test]
+    fn kb_access_chat_confirm_add_remove() {
+        let mut acc = mk_account(serde_json::Value::Null);
+        assert!(!acc.kb_access_chat_confirmed("g1"));
+
+        acc.set_kb_access_chat("g1", true);
+        assert!(acc.kb_access_chat_confirmed("g1"));
+        assert!(!acc.kb_access_chat_confirmed("g2"));
+
+        // Idempotent add — no duplicate entry.
+        acc.set_kb_access_chat("g1", true);
+        assert_eq!(
+            acc.settings[SETTINGS_KEY_KB_ACCESS_CHATS]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // Remove.
+        acc.set_kb_access_chat("g1", false);
+        assert!(!acc.kb_access_chat_confirmed("g1"));
+
+        // Sibling opt-in flag is untouched by chat-list edits.
+        let mut acc = mk_account(serde_json::json!({"kbAccessOptIn": true}));
+        acc.set_kb_access_chat("g9", true);
+        assert!(acc.kb_access_opt_in());
+        assert!(acc.kb_access_chat_confirmed("g9"));
     }
 }

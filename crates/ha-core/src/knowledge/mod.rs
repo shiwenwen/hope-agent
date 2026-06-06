@@ -28,7 +28,7 @@ pub mod service;
 pub mod types;
 pub mod watcher;
 
-pub use access::{effective_kb_access, KbAccessSource, KnowledgeAccessContext};
+pub use access::{effective_kb_access, ChannelKbContext, KbAccessSource, KnowledgeAccessContext};
 pub use chunker::ChunkConfig;
 pub use db::IndexDb;
 pub use embedding::{
@@ -37,7 +37,7 @@ pub use embedding::{
     set_knowledge_embedding_default,
 };
 pub use reembed::{cancel_active_knowledge_reembed_jobs, start_knowledge_reembed_job};
-pub use registry::{resolve_kb_dir, KnowledgeRegistry};
+pub use registry::{resolve_kb_dir, KbRoot, KnowledgeRegistry};
 pub use rename::{rename_dir, rename_note};
 pub use service::{get_chunk_config, set_chunk_config};
 pub use types::*;

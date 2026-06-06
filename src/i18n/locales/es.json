@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "Token de autenticación (opcional)",
     "whatsappHint": "Requiere un servicio puente de WhatsApp en ejecución. Apunta a su URL de API HTTP.",
     "autoTranscribeVoice": "Transcribir mensajes de voz automáticamente",
-    "autoTranscribeVoiceHint": "Transcribe el audio / voz entrante mediante el subsistema STT configurado. Cada mensaje consume cuota de la API STT."
+    "autoTranscribeVoiceHint": "Transcribe el audio / voz entrante mediante el subsistema STT configurado. Cada mensaje consume cuota de la API STT.",
+    "kbAccessOptIn": "Acceso a la base de conocimiento",
+    "kbAccessOptInHint": "Permite que este canal lea y escriba en los espacios de conocimiento adjuntos. Desactivado de forma predeterminada. En los chats de grupo, ejecuta además /kb on en el chat para confirmarlo."
   },
   "chat": {
     "addWorkingDirectory": "Agregar directorio de trabajo",
@@ -4434,6 +4436,9 @@
     "title": "Comandos",
     "usage": {
       "description": "Uso de tokens"
+    },
+    "kb": {
+      "description": "Confirmar o revocar el acceso a la base de conocimiento de este chat de grupo"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "La búsqueda vectorial está desactivada — abrir ajustes",
     "kbRootPick": "Elegir…",
     "kbRootHint": "Déjalo vacío para un espacio interno. Las bóvedas externas son de solo lectura en la Fase 1.",
-    "kbRootInvalid": "No se pudo seleccionar esa carpeta"
+    "kbRootInvalid": "No se pudo seleccionar esa carpeta",
+    "allowExternalWrites": "Permitir editar esta bóveda",
+    "allowExternalWritesHint": "Las bóvedas externas son de solo lectura de forma predeterminada. Actívalo para que el editor y las herramientas de IA puedan escribir en la carpeta vinculada. El mantenimiento en segundo plano nunca escribe en bóvedas externas."
   }
 }

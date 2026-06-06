@@ -40,13 +40,14 @@ impl KnowledgeRegistry {
         // explicitly inside one transaction as a double safeguard.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS knowledge_bases (
-                id          TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                emoji       TEXT,
-                root_dir    TEXT,
-                archived    INTEGER NOT NULL DEFAULT 0,
-                created_at  INTEGER NOT NULL,
-                updated_at  INTEGER NOT NULL
+                id                   TEXT PRIMARY KEY,
+                name                 TEXT NOT NULL,
+                emoji                TEXT,
+                root_dir             TEXT,
+                allow_external_writes INTEGER NOT NULL DEFAULT 0,
+                archived             INTEGER NOT NULL DEFAULT 0,
+                created_at           INTEGER NOT NULL,
+                updated_at           INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_knowledge_bases_archived
                 ON knowledge_bases(archived, updated_at DESC);
@@ -96,6 +97,19 @@ impl KnowledgeRegistry {
                 ON kb_maintenance_proposals(kb_id, fingerprint);",
         )?;
 
+        // Additive column for branch DBs created before WS7 (external-writable
+        // opt-in). Probe-then-ALTER, the house style — fresh DBs already have it
+        // from CREATE TABLE above.
+        let has_allow_external_writes = conn
+            .prepare("SELECT allow_external_writes FROM knowledge_bases LIMIT 1")
+            .is_ok();
+        if !has_allow_external_writes {
+            conn.execute_batch(
+                "ALTER TABLE knowledge_bases
+                 ADD COLUMN allow_external_writes INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
         Ok(())
     }
 
@@ -135,8 +149,9 @@ impl KnowledgeRegistry {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         conn.execute(
-            "INSERT INTO knowledge_bases (id, name, emoji, root_dir, archived, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+            "INSERT INTO knowledge_bases
+                (id, name, emoji, root_dir, allow_external_writes, archived, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
             params![id, name, emoji, root_dir, now, now],
         )?;
 
@@ -145,6 +160,7 @@ impl KnowledgeRegistry {
             name,
             emoji,
             root_dir,
+            allow_external_writes: false,
             archived: false,
             created_at: now,
             updated_at: now,
@@ -159,7 +175,7 @@ impl KnowledgeRegistry {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let row = conn
             .query_row(
-                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at
+                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at, allow_external_writes
                  FROM knowledge_bases WHERE id = ?1",
                 params![id],
                 row_to_kb,
@@ -203,6 +219,11 @@ impl KnowledgeRegistry {
             sets.push(format!("archived = ?{}", idx));
             params_vec.push(Box::new(if archived { 1i64 } else { 0i64 }));
         }
+        if let Some(allow) = patch.allow_external_writes {
+            let idx = params_vec.len() + 1;
+            sets.push(format!("allow_external_writes = ?{}", idx));
+            params_vec.push(Box::new(if allow { 1i64 } else { 0i64 }));
+        }
 
         let idx = params_vec.len() + 1;
         sets.push(format!("updated_at = ?{}", idx));
@@ -222,7 +243,7 @@ impl KnowledgeRegistry {
 
         let kb = conn
             .query_row(
-                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at
+                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at, allow_external_writes
                  FROM knowledge_bases WHERE id = ?1",
                 params![id],
                 row_to_kb,
@@ -286,7 +307,7 @@ impl KnowledgeRegistry {
             "WHERE archived = 0"
         };
         let sql = format!(
-            "SELECT id, name, emoji, root_dir, archived, created_at, updated_at
+            "SELECT id, name, emoji, root_dir, archived, created_at, updated_at, allow_external_writes
              FROM knowledge_bases {} ORDER BY updated_at DESC",
             where_sql
         );
@@ -618,6 +639,7 @@ fn row_to_kb(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeBase> {
         archived: row.get::<_, i64>(4).unwrap_or(0) != 0,
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
+        allow_external_writes: row.get::<_, i64>(7).unwrap_or(0) != 0,
     })
 }
 
@@ -628,24 +650,50 @@ fn normalize_optional(value: Option<&str>) -> Option<&str> {
     }
 }
 
-/// Resolve a KB's notes directory + whether it is an external (read-only) root.
+/// A KB's resolved storage root plus its write posture (WS7).
+///
+/// `is_external` and `read_only` are deliberately distinct: an external root can
+/// be opted into writes (`read_only = false`), but background autonomous
+/// maintenance still keys off `is_external` to skip every bound vault regardless.
+/// Internal roots are always `is_external = false`, `read_only = false`.
+pub struct KbRoot {
+    /// Canonical notes directory.
+    pub dir: PathBuf,
+    /// Bound to an out-of-app directory (vault).
+    pub is_external: bool,
+    /// Mutations rejected: external AND not opted into external writes.
+    pub read_only: bool,
+}
+
+/// Resolve a KB's notes directory + write posture.
 ///
 /// Internal KBs (NULL `root_dir`) materialize the default
 /// `~/.hope-agent/knowledge/{id}/notes/` lazily (mirrors project workspace), so
 /// the path is never written into the DB and `HA_DATA_DIR` stays relocatable.
-/// External KBs return their bound path as-is (canonicalized at create time).
-pub fn resolve_kb_dir(kb_id: &str) -> Result<(PathBuf, bool)> {
+/// External KBs return their bound path as-is (canonicalized at create time);
+/// they are read-only unless `allow_external_writes` is set (WS7).
+pub fn resolve_kb_dir(kb_id: &str) -> Result<KbRoot> {
     let db =
         crate::get_knowledge_db().ok_or_else(|| anyhow::anyhow!("knowledge db not initialized"))?;
     let kb = db
         .get(kb_id)?
         .ok_or_else(|| anyhow::anyhow!("knowledge base not found: {}", kb_id))?;
-    if let Some(root) = kb.root_dir.filter(|s| !s.trim().is_empty()) {
-        Ok((PathBuf::from(root), true))
+    if kb.is_external() {
+        // `is_external()` already checks root_dir is non-empty.
+        let root = kb.root_dir.clone().unwrap_or_default();
+        Ok(KbRoot {
+            dir: PathBuf::from(root),
+            is_external: true,
+            read_only: !kb.allow_external_writes,
+        })
     } else {
         let dir = crate::paths::knowledge_kb_notes_dir(kb_id)?;
         let path = crate::util::ensure_dir_canonical(&dir)?;
-        Ok((PathBuf::from(path), false))
+        Ok(KbRoot {
+            dir: PathBuf::from(path),
+            is_external: false,
+            read_only: false,
+        })
     }
 }
 
@@ -714,5 +762,64 @@ mod tests {
                 root_dir: None,
             })
             .is_err());
+    }
+
+    #[test]
+    fn external_writes_opt_in_roundtrip() {
+        let (_d, reg) = registry();
+        let vault = tempdir().unwrap();
+        let kb = reg
+            .create(CreateKnowledgeBaseInput {
+                name: "Vault".into(),
+                emoji: None,
+                root_dir: Some(vault.path().to_string_lossy().to_string()),
+            })
+            .unwrap();
+        assert!(kb.is_external());
+        // WS7: an external root is read-only until explicitly unlocked.
+        assert!(!kb.allow_external_writes);
+        assert!(kb.is_read_only_root());
+
+        let updated = reg
+            .update(
+                &kb.id,
+                UpdateKnowledgeBaseInput {
+                    allow_external_writes: Some(true),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(updated.allow_external_writes);
+        assert!(!updated.is_read_only_root());
+
+        // Survives a re-fetch (column persisted, not just on the returned struct).
+        let fetched = reg.get(&kb.id).unwrap().unwrap();
+        assert!(fetched.allow_external_writes);
+
+        // Re-locking restores read-only.
+        let relocked = reg
+            .update(
+                &kb.id,
+                UpdateKnowledgeBaseInput {
+                    allow_external_writes: Some(false),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(relocked.is_read_only_root());
+    }
+
+    #[test]
+    fn internal_kb_never_read_only_root() {
+        let (_d, reg) = registry();
+        let kb = reg
+            .create(CreateKnowledgeBaseInput {
+                name: "Internal".into(),
+                emoji: None,
+                root_dir: None,
+            })
+            .unwrap();
+        assert!(!kb.is_external());
+        assert!(!kb.is_read_only_root());
     }
 }

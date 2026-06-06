@@ -156,11 +156,13 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
 
     'kbs: for meta in kbs {
         let kb_id = meta.kb.id.clone();
-        // External (read-only) roots can't be written — skip; their proposals
-        // would only fail at apply time.
+        // Background autonomous maintenance never writes external (bound) vaults,
+        // even when the KB opted into external writes (WS7) — skip every external
+        // root regardless of `allow_external_writes`. Only the GUI / agent tools
+        // write external on demand.
         if matches!(
             crate::knowledge::resolve_kb_dir(&kb_id),
-            Ok((_, true)) // is_external
+            Ok(r) if r.is_external
         ) {
             continue;
         }

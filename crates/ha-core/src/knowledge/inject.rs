@@ -13,7 +13,9 @@ use std::collections::HashMap;
 
 use regex::Regex;
 
-use super::access::{effective_kb_access, KbAccessSource, KnowledgeAccessContext};
+use super::access::{
+    effective_kb_access, ChannelKbContext, KbAccessSource, KnowledgeAccessContext,
+};
 use super::{index, resolver};
 use crate::util::truncate_utf8;
 
@@ -29,6 +31,7 @@ pub fn resolve_inline_injections(
     session_id: &str,
     source: KbAccessSource,
     origin: KbAccessSource,
+    channel_info: Option<ChannelKbContext>,
 ) -> Option<String> {
     let refs = scan_refs(message);
     if refs.is_empty() {
@@ -37,8 +40,13 @@ pub fn resolve_inline_injections(
 
     let project_id =
         crate::session::lookup_session_meta(Some(session_id)).and_then(|m| m.project_id);
-    let actx =
-        KnowledgeAccessContext::resolve(Some(session_id.to_string()), project_id, source, origin);
+    let actx = KnowledgeAccessContext::resolve(
+        Some(session_id.to_string()),
+        project_id,
+        source,
+        origin,
+        channel_info,
+    );
     let access = effective_kb_access(&actx);
     if access.is_empty() {
         return None;

@@ -215,7 +215,13 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
     if let Some(c) = params.credentials {
         account.credentials = c;
     }
-    if let Some(s) = params.settings {
+    if let Some(mut s) = params.settings {
+        // WS8: `kbAccessChats` (per-group KB confirmations) is owned by the in-chat
+        // `/kb` command via `mutate_config`, NOT by this dialog. The account-edit
+        // dialog ships a full settings snapshot captured at open time, so blindly
+        // replacing would clobber confirmations changed in-chat meanwhile. Preserve
+        // the current on-disk value (and drop any stale copy the caller sent).
+        preserve_kb_access_chats(&mut s, &account.settings);
         account.settings = s;
     }
     if let Some(sec) = params.security {
@@ -290,4 +296,59 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// WS8: overwrite `new_settings`' `kbAccessChats` with the on-disk value. The
+/// per-group KB-access confirmation list is owned by the in-chat `/kb` command
+/// (via `mutate_config`), not the account-edit dialog, so a stale dialog snapshot
+/// must never clobber it. No-op when `new_settings` is not a JSON object (the
+/// dialog always sends an object).
+fn preserve_kb_access_chats(new_settings: &mut serde_json::Value, on_disk: &serde_json::Value) {
+    use crate::channel::types::SETTINGS_KEY_KB_ACCESS_CHATS;
+    let existing = on_disk.get(SETTINGS_KEY_KB_ACCESS_CHATS).cloned();
+    if let Some(obj) = new_settings.as_object_mut() {
+        match existing {
+            Some(v) => {
+                obj.insert(SETTINGS_KEY_KB_ACCESS_CHATS.to_string(), v);
+            }
+            None => {
+                obj.remove(SETTINGS_KEY_KB_ACCESS_CHATS);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn preserves_on_disk_kb_access_chats_over_stale_snapshot() {
+        // Dialog snapshot has a stale (e.g. empty) list; on-disk has confirmations
+        // added in-chat meanwhile → the on-disk value wins.
+        let mut dialog = json!({ "imReplyMode": "split", "kbAccessChats": [] });
+        let on_disk = json!({ "kbAccessChats": ["g1", "g2"], "kbAccessOptIn": true });
+        preserve_kb_access_chats(&mut dialog, &on_disk);
+        assert_eq!(dialog["kbAccessChats"], json!(["g1", "g2"]));
+        // Dialog-owned fields are untouched.
+        assert_eq!(dialog["imReplyMode"], "split");
+    }
+
+    #[test]
+    fn drops_chats_when_absent_on_disk() {
+        // On-disk has no confirmations → a stale dialog copy is removed entirely.
+        let mut dialog = json!({ "kbAccessChats": ["stale"], "kbAccessOptIn": false });
+        let on_disk = json!({ "kbAccessOptIn": false });
+        preserve_kb_access_chats(&mut dialog, &on_disk);
+        assert!(dialog.get("kbAccessChats").is_none());
+    }
+
+    #[test]
+    fn noop_on_non_object_settings() {
+        let mut dialog = json!("not-an-object");
+        let on_disk = json!({ "kbAccessChats": ["g1"] });
+        preserve_kb_access_chats(&mut dialog, &on_disk);
+        assert_eq!(dialog, json!("not-an-object"));
+    }
 }

@@ -7,8 +7,11 @@ export interface KnowledgeBase {
   id: string
   name: string
   emoji?: string | null
-  /** External bound root (read-only in Phase 1) when set; null = internal. */
+  /** External bound root when set; null = internal. Read-only unless
+   *  `allowExternalWrites` is enabled (WS7). */
   rootDir?: string | null
+  /** Opt-in to editing an external (bound) root (WS7). Ignored for internal KBs. */
+  allowExternalWrites: boolean
   archived: boolean
   createdAt: number
   updatedAt: number
@@ -161,6 +164,8 @@ export interface UpdateKnowledgeBaseInput {
   name?: string | null
   emoji?: string | null
   archived?: boolean | null
+  /** Unlock / re-lock writes to an external (bound) root (WS7). */
+  allowExternalWrites?: boolean | null
 }
 
 /** Note editor view modes (design D13). */

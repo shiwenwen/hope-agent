@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "Token xác thực (tùy chọn)",
     "whatsappHint": "Yêu cầu dịch vụ bridge WhatsApp đang chạy. Trỏ đến URL HTTP API của nó.",
     "autoTranscribeVoice": "Tự động phiên âm tin nhắn thoại",
-    "autoTranscribeVoiceHint": "Phiên âm giọng nói / âm thanh đến qua hệ thống STT đã cấu hình. Mỗi tin nhắn tiêu thụ hạn ngạch API STT."
+    "autoTranscribeVoiceHint": "Phiên âm giọng nói / âm thanh đến qua hệ thống STT đã cấu hình. Mỗi tin nhắn tiêu thụ hạn ngạch API STT.",
+    "kbAccessOptIn": "Truy cập kho tri thức",
+    "kbAccessOptInHint": "Cho phép kênh này đọc và ghi các không gian tri thức đã đính kèm. Mặc định tắt. Trong nhóm chat, hãy chạy /kb on trong cuộc trò chuyện để xác nhận riêng."
   },
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
@@ -4434,6 +4436,9 @@
     "title": "Lệnh",
     "usage": {
       "description": "Sử dụng token"
+    },
+    "kb": {
+      "description": "Xác nhận hoặc thu hồi quyền truy cập kho tri thức cho nhóm chat này"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "Tìm kiếm vector đang tắt — mở cài đặt",
     "kbRootPick": "Chọn…",
     "kbRootHint": "Để trống để tạo không gian nội bộ. Kho ngoài chỉ đọc ở Giai đoạn 1.",
-    "kbRootInvalid": "Không thể chọn thư mục đó"
+    "kbRootInvalid": "Không thể chọn thư mục đó",
+    "allowExternalWrites": "Cho phép chỉnh sửa kho này",
+    "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài."
   }
 }

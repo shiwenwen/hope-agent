@@ -28,7 +28,7 @@ pub mod worker;
 pub mod ws;
 
 pub use cancel::ChannelCancelRegistry;
-pub use config::ChannelStoreConfig;
+pub use config::{im_kb_access_allowed, ChannelStoreConfig};
 pub use db::ChannelDB;
 pub use registry::ChannelRegistry;
 pub use traits::ChannelPlugin;

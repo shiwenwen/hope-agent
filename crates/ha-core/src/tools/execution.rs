@@ -231,6 +231,11 @@ pub struct ToolExecContext {
     /// origin so an IM-origin chain can't reacquire KB access through the
     /// neutral `Subagent` source. Consumed by `effective_kb_access`.
     pub origin_chat_source: Option<crate::knowledge::KbAccessSource>,
+    /// IM identity of the lineage origin, for the WS8 KB-access opt-in gate.
+    /// `Some` only when the lineage contains an IM hop (top-level IM turn or an
+    /// IM-origin subagent, which carries the origin's identity). `None` for
+    /// GUI/HTTP/cron. Consumed by `effective_kb_access` via `KnowledgeAccessContext`.
+    pub channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
     /// Per-agent async tool backgrounding policy (mirrors AgentConfig.capabilities.async_tool_policy).
     pub async_tool_policy: AsyncToolPolicy,
     /// Internal flag set by the async-job spawner when re-dispatching an

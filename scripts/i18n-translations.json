@@ -678,6 +678,9 @@
       },
       "handover": {
         "description": "セッションを IM へ引き継ぐ"
+      },
+      "kb": {
+        "description": "このグループチャットのナレッジベースアクセスを確認／取り消し"
       }
     },
     "dangerousMode": {
@@ -927,7 +930,9 @@
     "channels": {
       "boundAgentHint": "このチャネルで新規作成されるセッションのデフォルト Agent。切り替えても既存セッションは移行されません — それらは /agent(デスクトップ)または /handover を使用してください。",
       "notifyPrimaryChanges": "プライマリ変更を通知",
-      "notifyPrimaryChangesHint": "このアカウントがセッションのプライマリになった(または外れた)際、IM チャットにシステムメッセージを送ります。"
+      "notifyPrimaryChangesHint": "このアカウントがセッションのプライマリになった(または外れた)際、IM チャットにシステムメッセージを送ります。",
+      "kbAccessOptIn": "ナレッジベースへのアクセス",
+      "kbAccessOptInHint": "このチャネルから、紐付けたナレッジスペースの読み書きを許可します。既定はオフです。グループチャットでは、チャット内で /kb on を実行して個別に確認してください。"
     },
     "fileBrowser": {
       "panelTitle": "ファイル",
@@ -1071,7 +1076,9 @@
       "aiRewriteGenerate": "生成",
       "aiRewriteRegenerate": "再生成",
       "aiRewriteApply": "適用",
-      "aiRewriteFailed": "AI リライトに失敗しました"
+      "aiRewriteFailed": "AI リライトに失敗しました",
+      "allowExternalWrites": "この外部保管庫の編集を許可",
+      "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。"
     },
     "common": {
       "create": "作成",
@@ -1758,6 +1765,9 @@
       },
       "handover": {
         "description": "세션을 IM 채팅으로 인계"
+      },
+      "kb": {
+        "description": "이 그룹 채팅의 지식 베이스 접근을 확인하거나 취소합니다"
       }
     },
     "dangerousMode": {
@@ -2007,7 +2017,9 @@
     "channels": {
       "boundAgentHint": "이 채널의 새 세션 기본 Agent — 변경해도 기존 세션은 이동되지 않습니다. 이미 만든 세션은 /agent(데스크톱) 또는 /handover 를 사용하세요.",
       "notifyPrimaryChanges": "프라이머리 변경 알림",
-      "notifyPrimaryChangesHint": "이 계정이 세션의 프라이머리가 되거나 해제될 때 IM 채팅에 시스템 메시지를 보냅니다."
+      "notifyPrimaryChangesHint": "이 계정이 세션의 프라이머리가 되거나 해제될 때 IM 채팅에 시스템 메시지를 보냅니다.",
+      "kbAccessOptIn": "지식 베이스 접근",
+      "kbAccessOptInHint": "이 채널이 연결된 지식 공간을 읽고 쓰도록 허용합니다. 기본값은 꺼짐입니다. 그룹 채팅에서는 채팅에서 /kb on 을 실행해 별도로 확인하세요."
     },
     "fileBrowser": {
       "panelTitle": "파일",
@@ -2151,7 +2163,9 @@
       "aiRewriteGenerate": "생성",
       "aiRewriteRegenerate": "다시 생성",
       "aiRewriteApply": "적용",
-      "aiRewriteFailed": "AI 다시 쓰기 실패"
+      "aiRewriteFailed": "AI 다시 쓰기 실패",
+      "allowExternalWrites": "이 외부 보관함 편집 허용",
+      "allowExternalWritesHint": "외부 보관함은 기본적으로 읽기 전용입니다. 활성화하면 편집기와 AI 도구가 연결된 폴더에 쓸 수 있습니다. 백그라운드 자동 유지관리는 외부 보관함에 쓰지 않습니다."
     },
     "common": {
       "create": "만들기",
@@ -2838,6 +2852,9 @@
       },
       "handover": {
         "description": "將工作階段交班到 IM"
+      },
+      "kb": {
+        "description": "確認或撤銷目前群組聊天的知識空間存取權限"
       }
     },
     "dangerousMode": {
@@ -3087,7 +3104,9 @@
     "channels": {
       "boundAgentHint": "本頻道新建工作階段的預設 Agent — 切換不會遷移已存在的工作階段,已建工作階段用 /agent(桌面)或 /handover 調整。",
       "notifyPrimaryChanges": "primary 變化提醒",
-      "notifyPrimaryChangesHint": "當此帳號成為(或不再是)某工作階段的 primary 接收端時,在 IM 中發送系統訊息提示。"
+      "notifyPrimaryChangesHint": "當此帳號成為(或不再是)某工作階段的 primary 接收端時,在 IM 中發送系統訊息提示。",
+      "kbAccessOptIn": "知識空間存取",
+      "kbAccessOptInHint": "允許此頻道讀寫已掛載的知識空間。預設關閉。群組聊天還需在聊天中執行 /kb on 單獨確認。"
     },
     "fileBrowser": {
       "panelTitle": "檔案",
@@ -3212,7 +3231,9 @@
       "aiRewriteGenerate": "生成",
       "aiRewriteRegenerate": "重新生成",
       "aiRewriteApply": "套用",
-      "aiRewriteFailed": "AI 改寫失敗"
+      "aiRewriteFailed": "AI 改寫失敗",
+      "allowExternalWrites": "允許編輯此外部庫",
+      "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。"
     },
     "common": {
       "create": "建立",
@@ -3899,6 +3920,9 @@
       },
       "handover": {
         "description": "Oturumu bir IM sohbetine devret"
+      },
+      "kb": {
+        "description": "Bu grup sohbetinin bilgi tabanı erişimini onayla veya iptal et"
       }
     },
     "dangerousMode": {
@@ -4148,7 +4172,9 @@
     "channels": {
       "boundAgentHint": "Bu kanaldaki yeni oturumlar için varsayılan Agent — değiştirmek mevcut oturumları taşımaz. Onlar için /agent (masaüstü) veya /handover kullanın.",
       "notifyPrimaryChanges": "Primary değişikliklerini bildir",
-      "notifyPrimaryChangesHint": "Bu hesap bir oturumun primary alıcısı olduğunda (veya olmaktan çıktığında) IM sohbetine sistem mesajı gönderir."
+      "notifyPrimaryChangesHint": "Bu hesap bir oturumun primary alıcısı olduğunda (veya olmaktan çıktığında) IM sohbetine sistem mesajı gönderir.",
+      "kbAccessOptIn": "Bilgi tabanı erişimi",
+      "kbAccessOptInHint": "Bu kanalın bağlı bilgi alanlarını okumasına ve yazmasına izin verir. Varsayılan olarak kapalıdır. Grup sohbetlerinde ayrıca sohbette /kb on komutunu çalıştırarak onaylayın."
     },
     "fileBrowser": {
       "panelTitle": "Dosyalar",
@@ -4292,7 +4318,9 @@
       "aiRewriteGenerate": "Oluştur",
       "aiRewriteRegenerate": "Yeniden oluştur",
       "aiRewriteApply": "Uygula",
-      "aiRewriteFailed": "AI ile yeniden yazma başarısız"
+      "aiRewriteFailed": "AI ile yeniden yazma başarısız",
+      "allowExternalWrites": "Bu kasada düzenlemeye izin ver",
+      "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz."
     },
     "common": {
       "create": "Oluştur",
@@ -4979,6 +5007,9 @@
       },
       "handover": {
         "description": "Bàn giao phiên sang một cuộc trò chuyện IM"
+      },
+      "kb": {
+        "description": "Xác nhận hoặc thu hồi quyền truy cập kho tri thức cho nhóm chat này"
       }
     },
     "dangerousMode": {
@@ -5228,7 +5259,9 @@
     "channels": {
       "boundAgentHint": "Agent mặc định cho phiên mới trong kênh này — chuyển đổi không di chuyển phiên đã tạo. Dùng /agent (máy tính) hoặc /handover cho những phiên đó.",
       "notifyPrimaryChanges": "Thông báo thay đổi primary",
-      "notifyPrimaryChangesHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này trở thành (hoặc thôi là) primary của một phiên."
+      "notifyPrimaryChangesHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này trở thành (hoặc thôi là) primary của một phiên.",
+      "kbAccessOptIn": "Truy cập kho tri thức",
+      "kbAccessOptInHint": "Cho phép kênh này đọc và ghi các không gian tri thức đã đính kèm. Mặc định tắt. Trong nhóm chat, hãy chạy /kb on trong cuộc trò chuyện để xác nhận riêng."
     },
     "fileBrowser": {
       "panelTitle": "Tệp",
@@ -5372,7 +5405,9 @@
       "aiRewriteGenerate": "Tạo",
       "aiRewriteRegenerate": "Tạo lại",
       "aiRewriteApply": "Áp dụng",
-      "aiRewriteFailed": "Viết lại bằng AI thất bại"
+      "aiRewriteFailed": "Viết lại bằng AI thất bại",
+      "allowExternalWrites": "Cho phép chỉnh sửa kho này",
+      "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài."
     },
     "common": {
       "create": "Tạo",
@@ -6059,6 +6094,9 @@
       },
       "handover": {
         "description": "Transferir a sessão para um chat de IM"
+      },
+      "kb": {
+        "description": "Confirmar ou revogar o acesso à base de conhecimento deste grupo"
       }
     },
     "dangerousMode": {
@@ -6308,7 +6346,9 @@
     "channels": {
       "boundAgentHint": "Agente padrão para novas sessões neste canal — alterá-lo não migra sessões já existentes. Use /agent (desktop) ou /handover para essas.",
       "notifyPrimaryChanges": "Notificar mudanças de primary",
-      "notifyPrimaryChangesHint": "Envia uma mensagem de sistema ao chat de IM quando esta conta se tornar (ou deixar de ser) a primary de uma sessão."
+      "notifyPrimaryChangesHint": "Envia uma mensagem de sistema ao chat de IM quando esta conta se tornar (ou deixar de ser) a primary de uma sessão.",
+      "kbAccessOptIn": "Acesso à base de conhecimento",
+      "kbAccessOptInHint": "Permite que este canal leia e grave nos espaços de conhecimento anexados. Desativado por padrão. Em grupos, execute também /kb on no chat para confirmar."
     },
     "fileBrowser": {
       "panelTitle": "Arquivos",
@@ -6452,7 +6492,9 @@
       "aiRewriteGenerate": "Gerar",
       "aiRewriteRegenerate": "Gerar novamente",
       "aiRewriteApply": "Aplicar",
-      "aiRewriteFailed": "Falha ao reescrever com IA"
+      "aiRewriteFailed": "Falha ao reescrever com IA",
+      "allowExternalWrites": "Permitir edição deste cofre",
+      "allowExternalWritesHint": "Cofres externos são somente leitura por padrão. Ative para permitir que o editor e as ferramentas de IA gravem na pasta vinculada. A manutenção em segundo plano nunca grava em cofres externos."
     },
     "common": {
       "create": "Criar",
@@ -7139,6 +7181,9 @@
       },
       "handover": {
         "description": "Передать сессию в IM-чат"
+      },
+      "kb": {
+        "description": "Подтвердить или отозвать доступ к базе знаний для этого группового чата"
       }
     },
     "dangerousMode": {
@@ -7388,7 +7433,9 @@
     "channels": {
       "boundAgentHint": "Агент по умолчанию для новых сессий в этом канале — переключение не переносит уже созданные сессии. Для них используйте /agent (десктоп) или /handover.",
       "notifyPrimaryChanges": "Уведомлять о смене primary",
-      "notifyPrimaryChangesHint": "Отправлять системное сообщение в IM, когда этот аккаунт становится (или перестаёт быть) primary для сессии."
+      "notifyPrimaryChangesHint": "Отправлять системное сообщение в IM, когда этот аккаунт становится (или перестаёт быть) primary для сессии.",
+      "kbAccessOptIn": "Доступ к базе знаний",
+      "kbAccessOptInHint": "Разрешить этому каналу читать и записывать прикреплённые пространства знаний. По умолчанию выключено. В групповых чатах также выполните /kb on в чате для подтверждения."
     },
     "fileBrowser": {
       "panelTitle": "Файлы",
@@ -7532,7 +7579,9 @@
       "aiRewriteGenerate": "Сгенерировать",
       "aiRewriteRegenerate": "Сгенерировать заново",
       "aiRewriteApply": "Применить",
-      "aiRewriteFailed": "Не удалось переписать с помощью ИИ"
+      "aiRewriteFailed": "Не удалось переписать с помощью ИИ",
+      "allowExternalWrites": "Разрешить редактирование этого хранилища",
+      "allowExternalWritesHint": "Внешние хранилища по умолчанию доступны только для чтения. Включите, чтобы редактор и ИИ-инструменты могли записывать в привязанную папку. Фоновое обслуживание никогда не пишет во внешние хранилища."
     },
     "common": {
       "create": "Создать",
@@ -8219,6 +8268,9 @@
       },
       "handover": {
         "description": "تحويل الجلسة إلى محادثة IM"
+      },
+      "kb": {
+        "description": "تأكيد أو إلغاء وصول قاعدة المعرفة لهذه المحادثة الجماعية"
       }
     },
     "dangerousMode": {
@@ -8468,7 +8520,9 @@
     "channels": {
       "boundAgentHint": "الوكيل الافتراضي للجلسات الجديدة في هذه القناة — تغييره لا يُنقل الجلسات الموجودة. استخدم /agent (سطح المكتب) أو /handover لتلك.",
       "notifyPrimaryChanges": "الإشعار بتغيرات primary",
-      "notifyPrimaryChangesHint": "إرسال رسالة نظام إلى محادثة IM عندما يصبح هذا الحساب (أو يتوقف عن كونه) primary لجلسة."
+      "notifyPrimaryChangesHint": "إرسال رسالة نظام إلى محادثة IM عندما يصبح هذا الحساب (أو يتوقف عن كونه) primary لجلسة.",
+      "kbAccessOptIn": "الوصول إلى قاعدة المعرفة",
+      "kbAccessOptInHint": "السماح لهذه القناة بقراءة مساحات المعرفة المرفقة والكتابة فيها. معطّل افتراضيًا. في المحادثات الجماعية، نفّذ أيضًا /kb on داخل المحادثة للتأكيد."
     },
     "fileBrowser": {
       "panelTitle": "الملفات",
@@ -8612,7 +8666,9 @@
       "aiRewriteGenerate": "إنشاء",
       "aiRewriteRegenerate": "إعادة الإنشاء",
       "aiRewriteApply": "تطبيق",
-      "aiRewriteFailed": "فشلت إعادة الكتابة بالذكاء الاصطناعي"
+      "aiRewriteFailed": "فشلت إعادة الكتابة بالذكاء الاصطناعي",
+      "allowExternalWrites": "السماح بتحرير هذه الخزنة",
+      "allowExternalWritesHint": "الخزائن الخارجية للقراءة فقط افتراضيًا. فعّل الخيار للسماح للمحرر وأدوات الذكاء الاصطناعي بالكتابة في المجلد المرتبط. لا تكتب الصيانة التلقائية في الخلفية إلى الخزائن الخارجية أبدًا."
     },
     "common": {
       "create": "إنشاء",
@@ -9299,6 +9355,9 @@
       },
       "handover": {
         "description": "Transferir la sesión a un chat de IM"
+      },
+      "kb": {
+        "description": "Confirmar o revocar el acceso a la base de conocimiento de este chat de grupo"
       }
     },
     "dangerousMode": {
@@ -9548,7 +9607,9 @@
     "channels": {
       "boundAgentHint": "Agente por defecto para nuevas sesiones en este canal — cambiarlo no migra las sesiones ya existentes. Usa /agent (escritorio) o /handover para esas.",
       "notifyPrimaryChanges": "Notificar cambios de primary",
-      "notifyPrimaryChangesHint": "Envía un mensaje del sistema al chat de IM cuando esta cuenta se convierta (o deje de ser) en la primary de una sesión."
+      "notifyPrimaryChangesHint": "Envía un mensaje del sistema al chat de IM cuando esta cuenta se convierta (o deje de ser) en la primary de una sesión.",
+      "kbAccessOptIn": "Acceso a la base de conocimiento",
+      "kbAccessOptInHint": "Permite que este canal lea y escriba en los espacios de conocimiento adjuntos. Desactivado de forma predeterminada. En los chats de grupo, ejecuta además /kb on en el chat para confirmarlo."
     },
     "fileBrowser": {
       "panelTitle": "Archivos",
@@ -9692,7 +9753,9 @@
       "aiRewriteGenerate": "Generar",
       "aiRewriteRegenerate": "Volver a generar",
       "aiRewriteApply": "Aplicar",
-      "aiRewriteFailed": "Error al reescribir con IA"
+      "aiRewriteFailed": "Error al reescribir con IA",
+      "allowExternalWrites": "Permitir editar esta bóveda",
+      "allowExternalWritesHint": "Las bóvedas externas son de solo lectura de forma predeterminada. Actívalo para que el editor y las herramientas de IA puedan escribir en la carpeta vinculada. El mantenimiento en segundo plano nunca escribe en bóvedas externas."
     },
     "common": {
       "create": "Crear",
@@ -10379,6 +10442,9 @@
       },
       "handover": {
         "description": "Serahkan sesi ke sembang IM"
+      },
+      "kb": {
+        "description": "Sahkan atau batalkan akses pangkalan pengetahuan untuk sembang kumpulan ini"
       }
     },
     "dangerousMode": {
@@ -10628,7 +10694,9 @@
     "channels": {
       "boundAgentHint": "Agent lalai untuk sesi baru dalam saluran ini — menukarnya tidak memindahkan sesi sedia ada. Gunakan /agent (desktop) atau /handover untuk yang itu.",
       "notifyPrimaryChanges": "Beritahu perubahan primary",
-      "notifyPrimaryChangesHint": "Hantar mesej sistem ke sembang IM apabila akaun ini menjadi (atau bukan lagi) primary untuk sesi."
+      "notifyPrimaryChangesHint": "Hantar mesej sistem ke sembang IM apabila akaun ini menjadi (atau bukan lagi) primary untuk sesi.",
+      "kbAccessOptIn": "Akses pangkalan pengetahuan",
+      "kbAccessOptInHint": "Benarkan saluran ini membaca dan menulis ruang pengetahuan yang dilampirkan. Dimatikan secara lalai. Dalam sembang kumpulan, jalankan juga /kb on dalam sembang untuk mengesahkannya."
     },
     "fileBrowser": {
       "panelTitle": "Fail",
@@ -10772,7 +10840,9 @@
       "aiRewriteGenerate": "Jana",
       "aiRewriteRegenerate": "Jana semula",
       "aiRewriteApply": "Guna",
-      "aiRewriteFailed": "Gagal menulis semula dengan AI"
+      "aiRewriteFailed": "Gagal menulis semula dengan AI",
+      "allowExternalWrites": "Benarkan menyunting bilik kebal ini",
+      "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran."
     },
     "common": {
       "create": "Cipta",
@@ -10929,12 +10999,17 @@
       },
       "handover": {
         "description": "把会话交班到 IM"
+      },
+      "kb": {
+        "description": "确认或撤销当前群聊的知识空间访问权限"
       }
     },
     "channels": {
       "boundAgentHint": "本渠道新建会话的默认 Agent — 切换不会迁移已存在的会话,已建会话用 /agent(桌面)或 /handover 调整。",
       "notifyPrimaryChanges": "primary 变化提醒",
-      "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。"
+      "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。",
+      "kbAccessOptIn": "知识空间访问",
+      "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。"
     },
     "knowledge": {
       "title": "知识空间",
@@ -10959,7 +11034,9 @@
       "backlinksHint": "打开一篇笔记以查看其反向链接。",
       "kbNamePlaceholder": "空间名称",
       "kbRootPlaceholder": "外部库路径（可选，只读）",
-      "notePathPlaceholder": "folder/note-name"
+      "notePathPlaceholder": "folder/note-name",
+      "allowExternalWrites": "允许编辑此外部库",
+      "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。"
     },
     "common": {
       "create": "创建",

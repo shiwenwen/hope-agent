@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "認證令牌（可選）",
     "whatsappHint": "需要運行 WhatsApp 橋接服務，填寫其 HTTP API 地址",
     "autoTranscribeVoice": "自動轉錄語音訊息",
-    "autoTranscribeVoiceHint": "透過 STT 子系統轉錄收到的語音 / 音訊；每則訊息會消耗 STT API 額度。"
+    "autoTranscribeVoiceHint": "透過 STT 子系統轉錄收到的語音 / 音訊；每則訊息會消耗 STT API 額度。",
+    "kbAccessOptIn": "知識空間存取",
+    "kbAccessOptInHint": "允許此頻道讀寫已掛載的知識空間。預設關閉。群組聊天還需在聊天中執行 /kb on 單獨確認。"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
@@ -4434,6 +4436,9 @@
     "title": "命令",
     "usage": {
       "description": "Token 用量"
+    },
+    "kb": {
+      "description": "確認或撤銷目前群組聊天的知識空間存取權限"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "向量檢索未開啟 · 點擊進入設定",
     "kbRootPick": "選擇…",
     "kbRootHint": "留空則建立內部空間。外部庫在第一階段為唯讀。",
-    "kbRootInvalid": "無法選擇該資料夾"
+    "kbRootInvalid": "無法選擇該資料夾",
+    "allowExternalWrites": "允許編輯此外部庫",
+    "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。"
   }
 }

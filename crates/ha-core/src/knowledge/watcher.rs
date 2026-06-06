@@ -43,7 +43,7 @@ pub fn start_watcher(kb_id: &str) -> Result<()> {
         }
     }
 
-    let (root, _external) = super::resolve_kb_dir(kb_id)?;
+    let root = super::resolve_kb_dir(kb_id)?.dir;
     let root = root.canonicalize().unwrap_or(root);
 
     let (tx, rx) = std::sync::mpsc::channel::<()>();

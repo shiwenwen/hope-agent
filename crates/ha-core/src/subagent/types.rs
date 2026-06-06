@@ -122,6 +122,12 @@ pub struct SpawnParams {
     /// hooks / fork skill) leave it `None` and rely on subagent session
     /// isolation (fresh child session, no project) for the same guarantee.
     pub origin_source: Option<crate::knowledge::KbAccessSource>,
+    /// IM origin identity (WS8), forwarded to the child's
+    /// `ChatEngineParams.channel_kb_context` so an IM-origin subagent's KB opt-in
+    /// is judged against the account/chat that started the chain — not the
+    /// neutral `Subagent` source. The `subagent` tool sets it from the parent
+    /// `ToolExecContext`; system-initiated spawns leave it `None`.
+    pub origin_channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.

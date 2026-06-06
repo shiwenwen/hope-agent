@@ -95,6 +95,7 @@ impl HookHandler for AgentHandler {
             reasoning_effort: None,
             skill_name: None,
             origin_source: None,
+            origin_channel_kb_context: None,
         };
 
         let run_id = match spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await

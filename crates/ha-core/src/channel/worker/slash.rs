@@ -50,11 +50,26 @@ pub(super) async fn dispatch_slash_for_channel(
     session_id: &str,
     agent_id: &str,
     text: &str,
+    sender_id: &str,
     supports_buttons: bool,
 ) -> Result<ChannelSlashOutcome, anyhow::Error> {
     use crate::slash_commands::{handlers, parser};
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
+
+    // WS8: `/kb on|off` writes a per-group KB-access confirmation — a security
+    // consent step. When the account has admins configured, restrict the write to
+    // them so a random group participant can't self-confirm their chat. (Status —
+    // no-arg / `status` — stays open to anyone who may use the bot.) The
+    // account-level opt-in remains owner-GUI-only regardless; this only guards the
+    // in-chat per-group toggle.
+    if name == "kb" && kb_write_denied_for_sender(&args, &account.security.admin_ids, sender_id) {
+        return Ok(ChannelSlashOutcome::Reply {
+            content: "Only a channel admin can change this chat's knowledge-base access.".into(),
+            new_session_id: None,
+            buttons: vec![],
+        });
+    }
 
     // No-arg shortcut for commands that advertise a fixed `arg_options` set —
     // see fn-level doc for the supports_buttons / args_optional matrix.
@@ -591,6 +606,19 @@ pub(super) async fn dispatch_slash_for_channel(
     }
 }
 
+/// WS8: whether a `/kb` invocation is a *write* the sender is not authorized to
+/// perform. A write (`on`/`off`/…) requires the sender to be an account admin
+/// when `admin_ids` is configured; status (no-arg / `status`) is always allowed.
+/// With no admins configured the per-group toggle stays open (still bounded by
+/// the owner-only account-level opt-in). Pure so it is unit-tested directly.
+fn kb_write_denied_for_sender(arg: &str, admin_ids: &[String], sender_id: &str) -> bool {
+    let is_write = matches!(
+        arg.trim().to_lowercase().as_str(),
+        "on" | "off" | "enable" | "disable" | "yes" | "no"
+    );
+    is_write && !admin_ids.is_empty() && !admin_ids.iter().any(|a| a == sender_id)
+}
+
 // ── Core helpers (migrated from src-tauri/src/commands/) ──────────
 
 /// Pin a provider/model to the IM-bound session. Validates that the provider /
@@ -972,4 +1000,40 @@ fn render_project_picker_text(
         lines.push(format!("… +{} more", projects.len() - 20));
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kb_status_always_allowed() {
+        // No-arg / status is a read — never gated, even with admins configured.
+        let admins = vec!["alice".to_string()];
+        assert!(!kb_write_denied_for_sender("", &admins, "bob"));
+        assert!(!kb_write_denied_for_sender("status", &admins, "bob"));
+    }
+
+    #[test]
+    fn kb_write_open_without_admins() {
+        // No admins configured → per-group toggle stays open (bounded by the
+        // owner-only account opt-in elsewhere).
+        let admins: Vec<String> = vec![];
+        assert!(!kb_write_denied_for_sender("on", &admins, "bob"));
+        assert!(!kb_write_denied_for_sender("off", &admins, "anyone"));
+    }
+
+    #[test]
+    fn kb_write_gated_to_admins() {
+        let admins = vec!["alice".to_string(), "carol".to_string()];
+        // Non-admin write → denied.
+        assert!(kb_write_denied_for_sender("on", &admins, "bob"));
+        assert!(kb_write_denied_for_sender("OFF", &admins, "bob")); // case-insensitive
+        assert!(kb_write_denied_for_sender(" enable ", &admins, "bob")); // trimmed
+                                                                         // Admin write → allowed.
+        assert!(!kb_write_denied_for_sender("on", &admins, "alice"));
+        assert!(!kb_write_denied_for_sender("off", &admins, "carol"));
+        // Unknown arg is not a write → not gated (handler will reject it).
+        assert!(!kb_write_denied_for_sender("garbage", &admins, "bob"));
+    }
 }

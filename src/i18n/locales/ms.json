@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "Token pengesahan (pilihan)",
     "whatsappHint": "Memerlukan perkhidmatan bridge WhatsApp berjalan. Tunjuk ke URL HTTP API-nya.",
     "autoTranscribeVoice": "Transkripsi mesej suara secara automatik",
-    "autoTranscribeVoiceHint": "Mentranskripsi suara / audio masuk melalui subsistem STT yang dikonfigurasi. Setiap mesej menggunakan kuota API STT."
+    "autoTranscribeVoiceHint": "Mentranskripsi suara / audio masuk melalui subsistem STT yang dikonfigurasi. Setiap mesej menggunakan kuota API STT.",
+    "kbAccessOptIn": "Akses pangkalan pengetahuan",
+    "kbAccessOptInHint": "Benarkan saluran ini membaca dan menulis ruang pengetahuan yang dilampirkan. Dimatikan secara lalai. Dalam sembang kumpulan, jalankan juga /kb on dalam sembang untuk mengesahkannya."
   },
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
@@ -4434,6 +4436,9 @@
     "title": "Arahan",
     "usage": {
       "description": "Penggunaan token"
+    },
+    "kb": {
+      "description": "Sahkan atau batalkan akses pangkalan pengetahuan untuk sembang kumpulan ini"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "Carian vektor dimatikan — buka tetapan",
     "kbRootPick": "Pilih…",
     "kbRootHint": "Biarkan kosong untuk ruang dalaman. Bilik kebal luaran hanya-baca pada Fasa 1.",
-    "kbRootInvalid": "Tidak dapat memilih folder itu"
+    "kbRootInvalid": "Tidak dapat memilih folder itu",
+    "allowExternalWrites": "Benarkan menyunting bilik kebal ini",
+    "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran."
   }
 }

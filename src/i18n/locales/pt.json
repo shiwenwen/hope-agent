@@ -250,7 +250,9 @@
     "whatsappBridgeToken": "Token de autenticação (opcional)",
     "whatsappHint": "Requer um serviço bridge do WhatsApp em execução. Aponte para sua URL HTTP API.",
     "autoTranscribeVoice": "Transcrever mensagens de voz automaticamente",
-    "autoTranscribeVoiceHint": "Transcreve voz / áudio recebidos pelo subsistema STT configurado. Cada mensagem consome cota da API STT."
+    "autoTranscribeVoiceHint": "Transcreve voz / áudio recebidos pelo subsistema STT configurado. Cada mensagem consome cota da API STT.",
+    "kbAccessOptIn": "Acesso à base de conhecimento",
+    "kbAccessOptInHint": "Permite que este canal leia e grave nos espaços de conhecimento anexados. Desativado por padrão. Em grupos, execute também /kb on no chat para confirmar."
   },
   "chat": {
     "addWorkingDirectory": "Adicionar diretório de trabalho",
@@ -4434,6 +4436,9 @@
     "title": "Comandos",
     "usage": {
       "description": "Uso de tokens"
+    },
+    "kb": {
+      "description": "Confirmar ou revogar o acesso à base de conhecimento deste grupo"
     }
   },
   "subagent": {
@@ -4831,6 +4836,8 @@
     "embeddingOffTip": "A busca vetorial está desativada — abrir configurações",
     "kbRootPick": "Escolher…",
     "kbRootHint": "Deixe vazio para um espaço interno. Cofres externos são somente leitura na Fase 1.",
-    "kbRootInvalid": "Não foi possível selecionar essa pasta"
+    "kbRootInvalid": "Não foi possível selecionar essa pasta",
+    "allowExternalWrites": "Permitir edição deste cofre",
+    "allowExternalWritesHint": "Cofres externos são somente leitura por padrão. Ative para permitir que o editor e as ferramentas de IA gravem na pasta vinculada. A manutenção em segundo plano nunca grava em cofres externos."
   }
 }

@@ -823,6 +823,8 @@ pub async fn chat(
         persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Desktop,
         origin_source: None,
+        // Desktop owner turn — KB access via attach, not the IM opt-in gate.
+        channel_kb_context: None,
         event_sink: Arc::new(ChannelSink {
             channel: on_event.clone(),
         }),

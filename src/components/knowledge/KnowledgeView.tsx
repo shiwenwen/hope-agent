@@ -45,6 +45,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
@@ -166,6 +167,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const [editKb, setEditKb] = useState<KnowledgeBaseMeta | null>(null)
   const [editKbName, setEditKbName] = useState("")
   const [editKbEmoji, setEditKbEmoji] = useState("")
+  const [editKbAllowExternal, setEditKbAllowExternal] = useState(false)
   const [deleteKb, setDeleteKb] = useState<KnowledgeBaseMeta | null>(null)
 
   // Drag-to-move within the note tree.
@@ -188,7 +190,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const moveTree = useMemo(() => buildNoteTree([], dirs), [dirs])
 
   const activeKb = useMemo(() => kbs.find((k) => k.id === activeKbId) ?? null, [kbs, activeKbId])
-  const readOnly = activeKb?.external ?? false
+  // External vaults are read-only unless the KB opted into external writes (WS7).
+  // Internal KBs (`external === false`) are always writable.
+  const readOnly = (activeKb?.external ?? false) && !(activeKb?.allowExternalWrites ?? false)
   // Split the open note path into a folder prefix (shown muted, non-editable) and
   // the filename (the editable "title") so renaming never touches the folder.
   const openDir = openPath && openPath.includes("/") ? openPath.slice(0, openPath.lastIndexOf("/")) : ""
@@ -812,6 +816,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     setEditKb(kb)
     setEditKbName(kb.name)
     setEditKbEmoji(kb.emoji ?? "")
+    setEditKbAllowExternal(kb.allowExternalWrites)
   }, [])
 
   const saveEditKb = useCallback(async () => {
@@ -824,7 +829,14 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         id: editKb.id,
         // Send the trimmed string (possibly "") — the backend clears emoji to
         // NULL on empty; sending null would be treated as "no change" (#9).
-        patch: { name, emoji: editKbEmoji.trim() },
+        // `allowExternalWrites` only matters for external roots (WS7); the
+        // backend ignores it for internal KBs, but only send it for external
+        // ones to keep the patch minimal.
+        patch: {
+          name,
+          emoji: editKbEmoji.trim(),
+          ...(editKb.external ? { allowExternalWrites: editKbAllowExternal } : {}),
+        },
       })
       setEditKb(null)
       await loadKbs()
@@ -833,7 +845,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     } finally {
       setKbBusy(false)
     }
-  }, [tx, editKb, editKbName, editKbEmoji, kbBusy, loadKbs])
+  }, [tx, editKb, editKbName, editKbEmoji, editKbAllowExternal, kbBusy, loadKbs])
 
   const toggleArchiveKb = useCallback(
     async (kb: KnowledgeBaseMeta) => {
@@ -1382,7 +1394,13 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                     {kb.archived && (
                       <Archive className="h-3 w-3 shrink-0 text-muted-foreground" />
                     )}
-                    {kb.external && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                    {kb.external &&
+                      (kb.allowExternalWrites ? (
+                        // External vault with editing unlocked (WS7).
+                        <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      ))}
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {kb.noteCount}
                     </span>
@@ -2166,6 +2184,26 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                 className="flex-1"
               />
             </div>
+            {editKb?.external && (
+              <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 p-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">
+                    {t("knowledge.allowExternalWrites", "Allow editing this vault")}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      "knowledge.allowExternalWritesHint",
+                      "External vaults are read-only by default. Enable to let editing and AI tools write to the bound folder. Background maintenance never writes external vaults.",
+                    )}
+                  </p>
+                </div>
+                <Switch
+                  checked={editKbAllowExternal}
+                  onCheckedChange={setEditKbAllowExternal}
+                  className="mt-0.5 shrink-0"
+                />
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setEditKb(null)}>
                 {t("common.cancel", "Cancel")}

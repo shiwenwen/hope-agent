@@ -106,7 +106,7 @@ pub fn remove_note(kb_id: &str, rel_path: &str) -> Result<()> {
 /// (Re)index a single note by its KB-relative path, resolving the KB root for
 /// the caller. Used by the per-note "rebuild index" context-menu action.
 pub fn reindex_note_by_path(kb_id: &str, rel_path: &str) -> Result<()> {
-    let (root, _external) = super::resolve_kb_dir(kb_id)?;
+    let root = super::resolve_kb_dir(kb_id)?.dir;
     let root = root.canonicalize().unwrap_or(root);
     reindex_note(kb_id, &root, rel_path)
 }
@@ -118,7 +118,7 @@ pub fn reindex_note_by_path(kb_id: &str, rel_path: &str) -> Result<()> {
 /// embedding is enabled).
 pub fn reindex_dir(kb_id: &str, rel_dir: &str) -> Result<ReindexReport> {
     let db = get_index_db().ok_or_else(|| anyhow::anyhow!("knowledge index not initialized"))?;
-    let (root, _external) = super::resolve_kb_dir(kb_id)?;
+    let root = super::resolve_kb_dir(kb_id)?.dir;
     let root = root.canonicalize().unwrap_or(root);
 
     let prefix = {
@@ -151,7 +151,7 @@ pub fn reindex_dir(kb_id: &str, rel_dir: &str) -> Result<ReindexReport> {
 /// embedding path; run off the request thread.
 pub fn reindex_kb(kb_id: &str, full: bool) -> Result<ReindexReport> {
     let db = get_index_db().ok_or_else(|| anyhow::anyhow!("knowledge index not initialized"))?;
-    let (root, _external) = super::resolve_kb_dir(kb_id)?;
+    let root = super::resolve_kb_dir(kb_id)?.dir;
     let root = root.canonicalize().unwrap_or(root);
 
     let disk = scan_markdown_files(&root);

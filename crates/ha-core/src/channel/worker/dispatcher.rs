@@ -422,6 +422,7 @@ async fn handle_inbound_message(
             &session_id,
             &agent_id,
             user_text,
+            &msg.sender_id,
             supports_buttons,
         )
         .await
@@ -752,6 +753,16 @@ async fn handle_inbound_message(
         persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Channel,
         origin_source: None,
+        // WS8: carry the IM origin identity so `effective_kb_access` can apply the
+        // per-account (+ per-group-chat) KB opt-in. `is_group` = any non-DM chat
+        // (group / forum / broadcast channel), which needs separate per-chat
+        // confirmation on top of the account opt-in.
+        channel_kb_context: Some(crate::knowledge::ChannelKbContext {
+            channel_id: channel_id_str.clone(),
+            account_id: account.id.clone(),
+            chat_id: msg.chat_id.clone(),
+            is_group: !matches!(msg.chat_type, ChatType::Dm),
+        }),
         event_sink,
     };
 

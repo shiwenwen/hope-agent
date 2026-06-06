@@ -126,6 +126,7 @@ pub async fn dispatch(
         // `reasoning` is a silent alias for `reason` (only `reason` is in the
         // registry / slash menu).
         "reason" | "reasoning" => utility::handle_reason(session_id, args).await,
+        "kb" => utility::handle_kb(session_id, args).await,
 
         _ => {
             // Check if it matches a user-invocable skill command

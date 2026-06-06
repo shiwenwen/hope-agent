@@ -28,10 +28,16 @@ pub struct KnowledgeBase {
     pub emoji: Option<String>,
     /// Notes root absolute path. `None` = default internal
     /// `~/.hope-agent/knowledge/{id}/notes/` (lazy ensure). `Some(_)` = bound to
-    /// an external directory (e.g. an Obsidian/Logseq vault) — **read-only in
-    /// Phase 1** (design D11).
+    /// an external directory (e.g. an Obsidian/Logseq vault) — **read-only by
+    /// default** unless `allow_external_writes` is set (WS7, design D11).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_dir: Option<String>,
+    /// Opt-in to writing an external (bound) root from the GUI / agent tools
+    /// (WS7). Default `false` — external vaults are read-only unless the user
+    /// explicitly unlocks editing. Ignored for internal KBs (always writable);
+    /// background autonomous maintenance never writes external regardless.
+    #[serde(default)]
+    pub allow_external_writes: bool,
     #[serde(default)]
     pub archived: bool,
     /// Unix milliseconds.
@@ -40,13 +46,18 @@ pub struct KnowledgeBase {
 }
 
 impl KnowledgeBase {
-    /// Whether this KB is bound to an external (out-of-app) directory. External
-    /// roots are browse-only in Phase 1.
+    /// Whether this KB is bound to an external (out-of-app) directory.
     pub fn is_external(&self) -> bool {
         self.root_dir
             .as_deref()
             .map(|s| !s.trim().is_empty())
             .unwrap_or(false)
+    }
+
+    /// Whether the storage root rejects mutations: an external root that has not
+    /// been opted into writes (WS7). Internal KBs are always writable.
+    pub fn is_read_only_root(&self) -> bool {
+        self.is_external() && !self.allow_external_writes
     }
 
     /// Emoji-prefixed label for pickers / IM bodies without a separate emoji slot.
@@ -123,6 +134,10 @@ pub struct UpdateKnowledgeBaseInput {
     pub emoji: Option<String>,
     #[serde(default)]
     pub archived: Option<bool>,
+    /// Unlock / re-lock writes to an external (bound) root (WS7). `None` = leave
+    /// unchanged. Ignored for internal KBs.
+    #[serde(default)]
+    pub allow_external_writes: Option<bool>,
 }
 
 // ── Access bindings (truth source, sessions.db) ──────────────────
