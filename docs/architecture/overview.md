@@ -147,7 +147,7 @@ graph LR
     ChatEngine --> SystemPrompt["System Prompt<br/>(13 段组装)"]
     ChatEngine --> ProjectCtx["Project / Working Dir"]
     ChatEngine --> Awareness["Behavior Awareness"]
-    ChatEngine --> PlanMode["Plan Mode (六态 FSM)"]
+    ChatEngine --> PlanMode["Plan Mode (5 态 FSM)"]
     PlanMode --> Subagent["Subagent (spawn + inject)"]
     Subagent --> Team["Agent Team"]
 
@@ -207,7 +207,7 @@ graph LR
 | canvas/canvas.db | `~/.hope-agent/canvas/canvas.db` | Canvas 画布数据 |
 | config.json | `~/.hope-agent/config.json` | Provider 配置、模型链、全局设置 |
 | agent.json | `~/.hope-agent/agents/{id}/agent.json` | 每 Agent 独立配置 |
-| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（默认 workspace + 项目记忆） |
+| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（默认 workspace；真实文件。项目记忆在 memory.db，不在此） |
 | credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
 所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。配置读写**强制走** `cached_config()` / `mutate_config()`，禁止重新引入 `Mutex<AppConfig>` 或 load+save 手动克隆模式（详见 [配置系统](config-system.md)）。
@@ -244,7 +244,7 @@ graph LR
 
 | 模块 | 文档 |
 |------|------|
-| Plan 六态状态机 | [Plan Mode](plan-mode.md) |
+| Plan 5 态状态机 | [Plan Mode](plan-mode.md) |
 | Ask User 结构化问答 | [Ask User](ask-user.md) |
 | 技能发现 & 隔离 | [技能系统](skill-system.md) |
 | 子 Agent 系统 | [Subagent](subagent.md) |

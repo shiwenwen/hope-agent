@@ -235,9 +235,10 @@ session.working_dir 非空？      → 用之（会话级）
 会话挂到项目后，`system_prompt::build` 在 Memory 段之前注入 `# Current Project`，再注入 `# Working Directory`（位置：Project 段之后、Memory 段之前）。
 
 - **`# Current Project`**（[`system_prompt/sections.rs`](../../crates/ha-core/src/system_prompt/sections.rs)）：`Description` + `## Project Instructions`（truncate 到上限），并尾随一句「本会话 `save_memory` 默认为 project scope」提示。
-- **`# Working Directory`**（[`prompt-system.md`](prompt-system.md)）：路径声明 + 工作目录里的 AGENTS.md / CLAUDE.md 指令 + **`## Files in Working Directory`** 顶层文件清单（非递归、只列名、名称排序、跳过隐藏与 `.git`/`node_modules`、cap ~100）。让模型不读盘即知有哪些文件，且 cache 友好（同一目录状态产出 byte-identical 文本）。模型靠普通 `read` 工具按需读文件。
+- **`# Working Directory`**（[`prompt-system.md`](prompt-system.md)）：路径声明 + `## Working Directory Instructions` 子节（工作目录里的 AGENTS.md / CLAUDE.md 指令）。位置在 Project 段之后、Memory 段之前。
+- **`# Files in Working Directory`**（**独立顶层段，emit 在最末**——在 Memory / weather 等所有静态段之后，见 [`system_prompt/build.rs`](../../crates/ha-core/src/system_prompt/build.rs)）：顶层文件清单（非递归、只列名、名称排序、跳过隐藏与 `.git`/`node_modules`、cap ~100）。刻意拆成尾段——文件增删只 bust 这一尾块、不波及静态前缀缓存（同一目录状态产出 byte-identical 文本）。模型靠普通 `read` 工具按需读文件。
 
-> 早期的「`# Project Files` 三层注入（目录清单 / 小文件内联 / `project_read_file`）」已整体废弃，由上面的 `## Files in Working Directory` 清单 + `read` 工具取代。
+> 早期的「`# Project Files` 三层注入（目录清单 / 小文件内联 / `project_read_file`）」已整体废弃，由上面的 `# Files in Working Directory` 尾段清单 + `read` 工具取代。
 
 ## 记忆系统接入
 
@@ -322,7 +323,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 
 项目是侧边栏一等节点，每个项目渲染为可折叠的 `ProjectGroup`：
 
-- 展开后嵌套该项目下的会话列表（复用 `SessionItem`）；展开状态按 `localStorage` `ha:project-expanded:<id>` 持久化（[`useTreeExpansion`](../../src/components/chat/project/hooks/useTreeExpansion.ts)）
+- 展开后嵌套该项目下的会话列表（复用 `SessionItem`）；展开状态按单条 `localStorage` 键 `ha:project-expanded`（一条 JSON 存所有项目的展开集，`ProjectSection.tsx` 内联，非 `useTreeExpansion`）持久化
 - Hover「新建对话」+「设置」；右键菜单 新建 / 设置 / 归档
 - 主区 `SessionList` 自动排除 `projectId` 非空会话，避免与树状项目下会话重复
 - 项目名后追加 `working_dir` 摘要

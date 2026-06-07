@@ -50,7 +50,7 @@ memory/            SQLite + FTS5 + vec0 向量 + 多种 Embedding（含 dreaming
 tools/             内置工具集 + 并发/串行执行引擎（具体工具数量以 tools/ 子模块为准）
 channel/           12 个 IM 插件（telegram / wechat / slack / feishu / discord / qqbot /
                    irc / signal / imessage / whatsapp / googlechat / line）+ Worker 分发 + 媒体管道
-plan/              六态状态机 + 双 Agent + 步骤追踪
+plan/              5 态状态机（plan 设计契约 + task 进度真相）+ 步骤追踪
 subagent/          spawn + inject + Mailbox + 深度控制
 skills/            SKILL.md 发现 + 懒加载 + Fork 模式 + draft 审核
 provider/          多模板 + Failover Chain + Proxy + crud helper
