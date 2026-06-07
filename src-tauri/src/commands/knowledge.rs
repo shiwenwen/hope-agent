@@ -455,7 +455,8 @@ pub async fn kb_maintenance_config_set_cmd(
 
 /// Read the passive related-notes config (GUI panel, read bridge ③).
 #[tauri::command]
-pub async fn kb_passive_recall_config_get_cmd() -> Result<knowledge::PassiveRecallConfig, CmdError> {
+pub async fn kb_passive_recall_config_get_cmd() -> Result<knowledge::PassiveRecallConfig, CmdError>
+{
     Ok(service::get_passive_recall_config())
 }
 

@@ -4772,7 +4772,8 @@
       "source": "ソース",
       "live": "ライブ",
       "split": "分割",
-      "preview": "プレビュー"
+      "preview": "プレビュー",
+      "outline": "アウトライン"
     },
     "emptyEditor": "表示または編集するノートを選択してください。",
     "searchResults": "検索結果",

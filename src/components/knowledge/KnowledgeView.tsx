@@ -1596,11 +1596,16 @@ export default function KnowledgeView({
                   readOnly={false}
                   mode={mode}
                   data={wikilinkData}
+                  revealTarget={revealTarget}
                   kbId={activeKbId}
                   onOpenNote={(rel) => {
                     if (activeKbId) guardNavigation(() => void openNote(activeKbId, rel))
                   }}
                   embedCacheKey={embedCacheKey}
+                  onOutlineJump={(line) => {
+                    setMode("source")
+                    setRevealTarget({ line })
+                  }}
                 />
               </div>
             </>
@@ -1656,13 +1661,13 @@ export default function KnowledgeView({
                     {t("knowledge.readOnly", "Read-only (external vault)")}
                   </span>
                 )}
-                {mode !== "preview" && (
+                {mode !== "preview" && mode !== "outline" && (
                   <HeadingOutline
                     content={editorValue}
                     onJump={(line) => setRevealTarget({ line })}
                   />
                 )}
-                {!readOnly && mode !== "preview" && (
+                {!readOnly && mode !== "preview" && mode !== "outline" && (
                   <IconTip label={t("knowledge.aiRewrite", "AI rewrite")}>
                     <Button
                       variant="ghost"
@@ -1767,6 +1772,12 @@ export default function KnowledgeView({
                     if (k) guardNavigation(() => void openNote(k, rel))
                   }}
                   embedCacheKey={embedCacheKey}
+                  onOutlineJump={(line) => {
+                    // Outline has no CM6 view to scroll — switch to source first,
+                    // then reveal the line (new object identity re-fires reveal).
+                    setMode("source")
+                    setRevealTarget({ line })
+                  }}
                 />
               </div>
             </>
@@ -2438,7 +2449,7 @@ function ModeSwitch({
   const { t } = useTranslation()
   return (
     <div className="flex overflow-hidden rounded-md border border-border-soft/60">
-      {(["source", "live", "split", "preview"] as NoteEditorMode[]).map((m) => (
+      {(["source", "live", "split", "preview", "outline"] as NoteEditorMode[]).map((m) => (
         <button
           key={m}
           onClick={() => onChange(m)}

@@ -367,6 +367,38 @@ impl IndexDb {
         Ok(out)
     }
 
+    /// Block-level backlinks (Phase 3 G): `[[Note#^block-id]]` references that
+    /// resolve to `target_note_id` and carry the matching `^block-id` anchor.
+    /// Anchor match is case-insensitive (resolve parity).
+    pub fn block_backlinks(&self, target_note_id: i64, block_id: &str) -> Result<Vec<Backlink>> {
+        let anchor = format!("^{block_id}");
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT l.src_note_id, n.rel_path, n.title, l.raw_text,
+                    l.src_start_line, l.src_start_col, l.src_heading_path
+             FROM note_link l JOIN note n ON n.id = l.src_note_id
+             WHERE l.target_note_id = ?1 AND l.anchor IS NOT NULL
+                   AND l.anchor = ?2 COLLATE NOCASE
+             ORDER BY n.rel_path, l.src_start_line",
+        )?;
+        let rows = stmt.query_map(params![target_note_id, anchor], |r| {
+            Ok(Backlink {
+                src_note_id: r.get(0)?,
+                src_rel_path: r.get(1)?,
+                src_title: r.get(2)?,
+                raw_text: r.get(3)?,
+                src_start_line: r.get::<_, i64>(4)? as u32,
+                src_start_col: r.get::<_, i64>(5)? as u32,
+                src_heading_path: r.get::<_, Option<String>>(6)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     pub fn tags_for_note(&self, note_id: i64) -> Result<Vec<String>> {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare("SELECT tag FROM note_tag WHERE note_id = ?1 ORDER BY tag")?;

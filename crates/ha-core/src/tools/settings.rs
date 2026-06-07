@@ -495,9 +495,7 @@ fn read_category(category: &str) -> Result<Value> {
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
         "knowledge_maintenance" => Ok(serde_json::to_value(&cfg.knowledge_maintenance)?),
-        "knowledge_passive_recall" => {
-            Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?)
-        }
+        "knowledge_passive_recall" => Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?),
         "mcp_global" => Ok(serde_json::to_value(&cfg.mcp_global)?),
         "mcp_servers" => Ok(redact_mcp_servers_value(serde_json::to_value(
             &cfg.mcp_servers,

@@ -4772,7 +4772,8 @@
       "source": "源码",
       "live": "实时",
       "split": "分屏",
-      "preview": "预览"
+      "preview": "预览",
+      "outline": "大纲"
     },
     "emptyEditor": "选择一篇笔记以查看或编辑。",
     "searchResults": "搜索结果",

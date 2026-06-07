@@ -107,6 +107,7 @@ pub const TOOL_NOTE_TAGS: &str = "note_tags";
 pub const TOOL_NOTE_RENAME: &str = "note_rename";
 pub const TOOL_NOTE_MOVE: &str = "note_move";
 pub const TOOL_NOTE_SET_FRONTMATTER: &str = "note_set_frontmatter";
+pub const TOOL_NOTE_ASSIGN_BLOCK: &str = "note_assign_block";
 pub const TOOL_NOTE_BROKEN_LINKS: &str = "note_broken_links";
 pub const TOOL_NOTE_ORPHANS: &str = "note_orphans";
 pub const TOOL_NOTE_GRAPH: &str = "note_graph";

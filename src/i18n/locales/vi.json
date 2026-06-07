@@ -4772,7 +4772,8 @@
       "source": "Nguồn",
       "live": "Trực tiếp",
       "split": "Chia đôi",
-      "preview": "Xem trước"
+      "preview": "Xem trước",
+      "outline": "Dàn ý"
     },
     "emptyEditor": "Chọn một ghi chú để xem hoặc chỉnh sửa.",
     "searchResults": "Kết quả tìm kiếm",

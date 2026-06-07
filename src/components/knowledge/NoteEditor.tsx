@@ -19,6 +19,7 @@ import type { NoteEditorMode } from "@/types/knowledge"
 
 import { fetchNoteRef } from "./noteRefFetch"
 import NoteTransclusionView from "./NoteTransclusionView"
+import OutlineView from "./OutlineView"
 import { cleanEmbedRef, noteExcerpt } from "./transclusionParse"
 
 import { noteLiveDecorations, noteLiveTheme } from "./cm/livePreviewExtensions"
@@ -54,6 +55,9 @@ interface NoteEditorProps {
   onOpenNote?: (relPath: string) => void
   /** Bumped on knowledge:changed to invalidate the embed cache. */
   embedCacheKey?: number
+  /** Outline-mode heading jump: the caller switches to an editable mode and
+   *  reveals the line so the jump is visible (CM6 isn't mounted in outline mode). */
+  onOutlineJump?: (line: number) => void
 }
 
 /** Imperative handle for AI-rewrite (WS9): read the current selection and splice
@@ -97,6 +101,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     notePath,
     onOpenNote,
     embedCacheKey = 0,
+    onOutlineJump,
   },
   ref,
 ) {
@@ -126,6 +131,7 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
 
   const showSource = mode === "source" || mode === "split" || mode === "live"
   const showPreview = mode === "preview" || mode === "split"
+  const showOutline = mode === "outline"
 
   // Seed the transclusion cycle guard with the note itself so `![[self]]` is
   // caught at depth 0. New Set identity per note path.
@@ -309,6 +315,10 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     },
     docLength: () => viewRef.current?.state.doc.length ?? 0,
   }))
+
+  if (showOutline) {
+    return <OutlineView content={value} onJump={onOutlineJump} />
+  }
 
   return (
     <div className="flex h-full min-h-0 w-full">

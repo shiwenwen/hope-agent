@@ -469,7 +469,8 @@ pub(crate) async fn tool_note_link(args: &Value, ctx: &ToolExecContext) -> Resul
     ))
 }
 
-/// `note_backlinks({kb?, note})`
+/// `note_backlinks({kb?, note, block?})` — note-level backlinks, or (with
+/// `block`) only `[[Note#^block]]` references pointing at that block (Phase 3 G).
 pub(crate) async fn tool_note_backlinks(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let reference = str_arg(args, "note")
         .or_else(|| str_arg(args, "path"))
@@ -480,10 +481,20 @@ pub(crate) async fn tool_note_backlinks(args: &Value, ctx: &ToolExecContext) -> 
     let note = db
         .get_note_by_rel_path(&kb_id, &rel)?
         .ok_or_else(|| anyhow!("note not indexed: {}", rel))?;
-    let backlinks = db.backlinks(note.id)?;
+    // A `block` of just `^` / whitespace collapses to an empty id — reject it
+    // rather than silently querying for a meaningless anchor.
+    let block = str_arg(args, "block").map(|b| b.trim_start_matches('^').trim().to_string());
+    if matches!(block.as_deref(), Some("")) {
+        bail!("'block' must be a non-empty block id (e.g. '^my-id' or 'my-id')");
+    }
+    let backlinks = match &block {
+        Some(b) => db.block_backlinks(note.id, b)?,
+        None => db.backlinks(note.id)?,
+    };
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "kbId": kb_id,
         "note": rel,
+        "block": block,
         "count": backlinks.len(),
         "backlinks": backlinks,
     }))?)
@@ -539,6 +550,251 @@ pub(crate) async fn tool_note_set_frontmatter(
     let hash = write_and_index(&scope, kb, &rel, &updated, false)?;
     Ok(format!(
         "Updated frontmatter of note '{rel}' (file_hash: {hash})"
+    ))
+}
+
+/// Build a `[[inner#^id]]` block reference string.
+fn fmt_block_ref(inner: &str, id: &str) -> String {
+    format!("[[{inner}#^{id}]]")
+}
+
+/// A block reference that the resolver maps **unambiguously back to this note**:
+/// the basename when it resolves uniquely to `rel` (Obsidian's preferred short
+/// form), otherwise the path form (`folder/Note`, always exact). Falls back to
+/// the path form if the index is unavailable. Fixes the basename-collision case
+/// where `a/Note.md` + `b/Note.md` would make `[[Note#^id]]` resolve to the wrong
+/// note (resolver tie-break: shortest path then lexicographic).
+fn stable_block_ref(kb_id: &str, rel: &str, id: &str) -> String {
+    let stem = rel.strip_suffix(".md").unwrap_or(rel);
+    let base = stem.rsplit('/').next().unwrap_or(stem);
+    if let Some(db) = index::get_index_db() {
+        if let Ok(notes) = db.note_refs(kb_id) {
+            if let Some(me) = notes.iter().find(|n| n.rel_path == rel) {
+                if knowledge::resolver::resolve(base, &notes) == Some(me.id) {
+                    return fmt_block_ref(base, id);
+                }
+            }
+        }
+    }
+    fmt_block_ref(stem, id)
+}
+
+/// Derive a short, collision-free block id from the block text (deterministic —
+/// no RNG, so a re-run on the same content is stable).
+fn gen_block_id(seed: &str, existing: &std::collections::HashSet<String>) -> String {
+    let h = knowledge::blake3_hex(seed.trim().as_bytes());
+    for len in [6usize, 8, 12, 16] {
+        let cand = &h[..len];
+        if !existing.contains(cand) {
+            return cand.to_string();
+        }
+    }
+    let mut n = 0;
+    loop {
+        let cand = format!("{}-{n}", &h[..6]);
+        if !existing.contains(&cand) {
+            return cand;
+        }
+        n += 1;
+    }
+}
+
+/// Every `^block-id` physically present in the file (raw line scan, so it catches
+/// anchors even when their block span didn't resolve — a stricter collision set
+/// than `parse_document().blocks`).
+fn collect_block_ids(content: &str) -> std::collections::HashSet<String> {
+    content
+        .lines()
+        .filter_map(knowledge::parser::line_block_anchor)
+        .collect()
+}
+
+/// Where a new `^id` should be spliced for `block_text` — or the id the target
+/// block already carries (idempotent). Resolves the **whole leaf block** (not
+/// just the matched line) so a multi-line paragraph, or an existing `^id` sitting
+/// on its own line below the block, is handled correctly; frontmatter / fenced
+/// code matches are rejected (they can't carry a real block anchor).
+struct AnchorPlacement {
+    existing_id: Option<String>,
+    /// Byte offset to insert ` ^id` (the trimmed end of the block's last line).
+    insert_at: usize,
+}
+
+fn resolve_anchor_placement(content: &str, block_text: &str, rel: &str) -> Result<AnchorPlacement> {
+    match content.matches(block_text).count() {
+        0 => bail!("'block_text' not found in note '{}'", rel),
+        1 => {}
+        n => bail!(
+            "'block_text' matched {} times in note '{}' — include surrounding context so it uniquely identifies one block.",
+            n,
+            rel
+        ),
+    }
+    let match_start = content.find(block_text).unwrap();
+    let match_end = match_start + block_text.len();
+
+    // Frontmatter is metadata, not a referenceable block.
+    if match_start < knowledge::parser::parse_document(content).body_start_byte {
+        bail!("'block_text' matches inside the note's frontmatter, not a referenceable block");
+    }
+
+    struct Line {
+        start: usize,
+        end: usize, // trimmed content end (drops trailing whitespace + CR/LF)
+        full_end: usize,
+        in_code: bool,
+    }
+    let mut lines: Vec<Line> = Vec::new();
+    let mut pos = 0usize;
+    let mut fence: Option<(u8, usize)> = None;
+    for raw in content.split_inclusive('\n') {
+        let start = pos;
+        pos += raw.len();
+        let body = raw.trim_end_matches(['\r', '\n']);
+        let trimmed = body.trim_start();
+        let indent = body.len() - trimmed.len();
+        let mut delim = false;
+        if indent <= 3 {
+            if let Some(&c0) = trimmed.as_bytes().first() {
+                if c0 == b'`' || c0 == b'~' {
+                    let flen = trimmed.bytes().take_while(|&c| c == c0).count();
+                    if flen >= 3 {
+                        let rest = &trimmed[flen..];
+                        match fence {
+                            None => {
+                                fence = Some((c0, flen));
+                                delim = true;
+                            }
+                            Some((fc, fl)) => {
+                                if c0 == fc && flen >= fl && rest.trim().is_empty() {
+                                    fence = None;
+                                    delim = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        lines.push(Line {
+            start,
+            end: start + body.trim_end().len(),
+            full_end: pos,
+            in_code: fence.is_some() || delim,
+        });
+    }
+
+    let anchor_byte = match_end.saturating_sub(1).max(match_start);
+    let li = lines
+        .iter()
+        .position(|l| anchor_byte >= l.start && anchor_byte < l.full_end)
+        .unwrap_or(lines.len().saturating_sub(1));
+    if lines[li].in_code {
+        bail!("'block_text' matches inside a code block — code spans can't carry a block id");
+    }
+
+    let line_str = |l: &Line| &content[l.start..l.end];
+    let is_blank = |l: &Line| line_str(l).trim().is_empty();
+    let is_heading = |s: &str| s.trim_start().starts_with('#');
+    let is_list = |s: &str| {
+        let t = s.trim_start();
+        if t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+            return true;
+        }
+        let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
+        digits > 0 && t[digits..].starts_with(['.', ')']) && t[digits + 1..].starts_with(' ')
+    };
+
+    let cur = line_str(&lines[li]).to_string();
+    let mut last = li;
+    let mut found = knowledge::parser::line_block_anchor(&cur);
+    // Only extend through a *paragraph* (list items / headings are single-line
+    // blocks). Stop at a blank line, a new block, an own-line `^id`, or a
+    // continuation line that already carries a trailing anchor.
+    if found.is_none() && !is_list(&cur) && !is_heading(&cur) {
+        while last + 1 < lines.len() {
+            let nxt = &lines[last + 1];
+            let nxt_s = line_str(nxt);
+            if nxt.in_code || is_blank(nxt) || is_heading(nxt_s) || is_list(nxt_s) {
+                break;
+            }
+            if nxt_s.trim_start().starts_with('^') {
+                found = knowledge::parser::line_block_anchor(nxt_s);
+                break;
+            }
+            last += 1;
+            if let Some(id) = knowledge::parser::line_block_anchor(nxt_s) {
+                found = Some(id);
+                break;
+            }
+        }
+    }
+
+    Ok(AnchorPlacement {
+        existing_id: found,
+        insert_at: lines[last].end,
+    })
+}
+
+/// `note_assign_block({kb, path, block_text, block_id?, expected_file_hash?})`
+/// — assign an Obsidian `^block-id` to a target block so it can be referenced
+/// with `[[Note#^id]]` / `![[Note#^id]]` (Phase 3 G). `block_text` must uniquely
+/// identify the block (mirrors `note_patch`'s unique-match rule). Idempotent: if
+/// the matched block already has an id, returns it. Generates a stable id when
+/// `block_id` is omitted. Gated by the same three guards as every KB write:
+/// writable scope (external read-only / WS7 opt-in), stale-write, and unique
+/// match.
+pub(crate) async fn tool_note_assign_block(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let kb = str_arg(args, "kb").ok_or_else(|| anyhow!("Missing 'kb' parameter"))?;
+    require_write(ctx, kb)?;
+    let path = str_arg(args, "path").ok_or_else(|| anyhow!("Missing 'path' parameter"))?;
+    let block_text = str_arg(args, "block_text")
+        .or_else(|| str_arg(args, "text"))
+        .ok_or_else(|| {
+            anyhow!("Missing 'block_text' parameter (a unique snippet of the target block)")
+        })?;
+    let rel = norm_note_path(path);
+    let scope = writable_scope(kb)?;
+    let bytes = guard_stale(&scope, &rel, str_arg(args, "expected_file_hash"))?;
+    let content = String::from_utf8_lossy(&bytes).to_string();
+
+    // Locate the whole leaf block the anchor attaches to (handles multi-line
+    // paragraphs / own-line existing anchors; rejects frontmatter / code).
+    let placement = resolve_anchor_placement(&content, block_text, &rel)?;
+    if let Some(existing) = placement.existing_id {
+        return Ok(format!(
+            "Block already has id '^{existing}' in note '{rel}' — reference it as {}",
+            stable_block_ref(kb, &rel, &existing)
+        ));
+    }
+
+    let existing_ids = collect_block_ids(&content);
+    let id = match str_arg(args, "block_id") {
+        Some(raw) => {
+            let raw = raw.trim_start_matches('^');
+            if raw.is_empty() || !raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                bail!("'block_id' must be non-empty and contain only letters, digits, and dashes");
+            }
+            if existing_ids.contains(raw) {
+                bail!("block id '^{raw}' already exists in note '{rel}' — choose another");
+            }
+            raw.to_string()
+        }
+        None => gen_block_id(block_text, &existing_ids),
+    };
+
+    // Append ` ^id` at the trimmed end of the block's last line (always a single
+    // space before the caret; never crossing into another block).
+    let insert_at = placement.insert_at;
+    let mut updated = String::with_capacity(content.len() + id.len() + 2);
+    updated.push_str(&content[..insert_at]);
+    updated.push_str(&format!(" ^{id}"));
+    updated.push_str(&content[insert_at..]);
+
+    let hash = write_and_index(&scope, kb, &rel, &updated, false)?;
+    Ok(format!(
+        "Assigned block id '^{id}' in note '{rel}' (file_hash: {hash}). Reference it as {}",
+        stable_block_ref(kb, &rel, &id)
     ))
 }
 
@@ -1612,6 +1868,88 @@ mod tests {
         let out = append_under_heading(c, "Related", "- [[b]]");
         assert!(out.contains("## Related"));
         assert!(out.contains("[[b]]"));
+    }
+
+    #[test]
+    fn fmt_block_ref_builds_reference() {
+        assert_eq!(fmt_block_ref("Note", "x1"), "[[Note#^x1]]");
+        assert_eq!(fmt_block_ref("a/Note", "abc"), "[[a/Note#^abc]]");
+    }
+
+    /// Apply a placement the way the tool does, for assertion convenience.
+    fn place(content: &str, block_text: &str) -> Result<(Option<String>, String)> {
+        let p = resolve_anchor_placement(content, block_text, "n.md")?;
+        if let Some(id) = p.existing_id {
+            return Ok((Some(id), content.to_string()));
+        }
+        let mut out = String::new();
+        out.push_str(&content[..p.insert_at]);
+        out.push_str(" ^new");
+        out.push_str(&content[p.insert_at..]);
+        Ok((None, out))
+    }
+
+    #[test]
+    fn placement_single_line_paragraph() {
+        let (_, out) = place("# T\n\nHello world.\n\nNext.\n", "Hello world.").unwrap();
+        assert!(out.contains("Hello world. ^new\n"), "got: {out}");
+    }
+
+    #[test]
+    fn placement_multiline_paragraph_anchors_last_line() {
+        // block_text matches the FIRST line; the id must land on the LAST line of
+        // the paragraph, not mid-block (would truncate the block).
+        let (_, out) = place("A para\nspanning lines.\n\nNext.\n", "A para").unwrap();
+        assert!(out.contains("A para\nspanning lines. ^new"), "got: {out}");
+        assert!(
+            !out.contains("A para ^new"),
+            "anchor must not split the block: {out}"
+        );
+    }
+
+    #[test]
+    fn placement_idempotent_trailing_anchor() {
+        let (id, out) = place("Hello world. ^abc\n", "Hello world.").unwrap();
+        assert_eq!(id.as_deref(), Some("abc"));
+        assert_eq!(out, "Hello world. ^abc\n", "must not write a second anchor");
+    }
+
+    #[test]
+    fn placement_idempotent_own_line_anchor_below_paragraph() {
+        // Existing id sits on its own line below a multi-line block; matching the
+        // first line must still detect it (no double anchor).
+        let (id, _) = place("A para\nspanning.\n^xyz\n", "A para").unwrap();
+        assert_eq!(id.as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn placement_list_item_is_single_block() {
+        let (_, out) = place("- first\n- second item\n- third\n", "second item").unwrap();
+        assert!(out.contains("- second item ^new\n"), "got: {out}");
+        assert!(
+            !out.contains("- third ^new"),
+            "must not anchor a sibling item: {out}"
+        );
+    }
+
+    #[test]
+    fn placement_rejects_frontmatter_and_code() {
+        assert!(place("---\ntitle: Secret\n---\n\nbody\n", "Secret").is_err());
+        assert!(place("text\n\n```\nfn secret() {}\n```\n", "secret").is_err());
+    }
+
+    #[test]
+    fn gen_block_id_is_deterministic_and_collision_free() {
+        let mut existing = std::collections::HashSet::new();
+        let a = gen_block_id("the same line", &existing);
+        let b = gen_block_id("the same line", &existing);
+        assert_eq!(a, b, "same seed → same id (no RNG)");
+        assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+        // With the 6-char prefix taken, a different length is chosen.
+        existing.insert(a.clone());
+        let c = gen_block_id("the same line", &existing);
+        assert_ne!(a, c, "must avoid an existing id");
+        assert!(!existing.contains(&c));
     }
 
     #[test]

@@ -4,15 +4,16 @@ use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_ISSUE_REPORT,
     TOOL_KNOWLEDGE_RECALL, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL, TOOL_MANAGE_CRON,
-    TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_BACKLINKS, TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG,
-    TOOL_NOTE_CREATE, TOOL_NOTE_DELETE, TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK,
-    TOOL_NOTE_MOC, TOOL_NOTE_MOVE, TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ,
-    TOOL_NOTE_RELATED, TOOL_NOTE_RENAME, TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER,
-    TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS, TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF,
-    TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL,
-    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_MEMORY_GET, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
+    TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE, TOOL_NOTE_DELETE,
+    TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC, TOOL_NOTE_MOVE,
+    TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED, TOOL_NOTE_RENAME,
+    TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS,
+    TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
+    TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -1936,12 +1937,13 @@ fn note_tools() -> Vec<ToolDefinition> {
         ),
         read_tool(
             TOOL_NOTE_BACKLINKS,
-            "List the notes that link to a given note, with the exact link occurrence (line/column) for jump-to. `kb` optional.",
+            "List the notes that link to a given note, with the exact link occurrence (line/column) for jump-to. Pass `block` (a `^block-id`) to list only references to that specific block. `kb` optional.",
             json!({
                 "type": "object",
                 "properties": {
                     "kb": { "type": "string" },
-                    "note": { "type": "string", "description": "Target note path or title." }
+                    "note": { "type": "string", "description": "Target note path or title." },
+                    "block": { "type": "string", "description": "Optional `^block-id` (with or without the leading caret) to return only block-level backlinks." }
                 },
                 "required": ["note"],
                 "additionalProperties": false
@@ -2013,6 +2015,22 @@ fn note_tools() -> Vec<ToolDefinition> {
                     "expected_file_hash": { "type": "string" }
                 },
                 "required": ["kb", "path", "props"],
+                "additionalProperties": false
+            }),
+        ),
+        write_tool(
+            TOOL_NOTE_ASSIGN_BLOCK,
+            "Assign an Obsidian `^block-id` to a block so it can be referenced precisely with `[[Note#^id]]` / `![[Note#^id]]`. `block_text` must uniquely identify the target block (include surrounding context if needed, like note_patch's `old`). Provide `block_id` to choose the id, or omit it for a generated one. Idempotent: if the block already has an id, it's returned unchanged. Returns the ready-to-use reference. Optional `expected_file_hash` stale-write guard.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "kb": { "type": "string" },
+                    "path": { "type": "string" },
+                    "block_text": { "type": "string", "description": "A unique snippet of the target block (the block whose end gets the `^id`)." },
+                    "block_id": { "type": "string", "description": "Optional id (letters/digits/dashes); generated if omitted." },
+                    "expected_file_hash": { "type": "string" }
+                },
+                "required": ["kb", "path", "block_text"],
                 "additionalProperties": false
             }),
         ),

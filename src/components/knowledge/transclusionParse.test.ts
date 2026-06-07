@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   cleanEmbedRef,
+  embedAnchor,
   noteExcerpt,
   parseEmbedSegments,
   stripFrontmatter,
@@ -101,6 +102,22 @@ describe("cleanEmbedRef", () => {
   })
   it("leaves a plain ref untouched", () => {
     expect(cleanEmbedRef("folder/note")).toBe("folder/note")
+  })
+})
+
+describe("embedAnchor", () => {
+  it("returns a heading anchor", () => {
+    expect(embedAnchor("Project Plan#Risks")).toBe("Risks")
+  })
+  it("returns a block anchor with its caret", () => {
+    expect(embedAnchor("Note#^p1")).toBe("^p1")
+  })
+  it("drops the alias before reading the anchor", () => {
+    expect(embedAnchor("folder/note#Heading|Alias")).toBe("Heading")
+  })
+  it("is empty for an anchorless ref", () => {
+    expect(embedAnchor("folder/note")).toBe("")
+    expect(embedAnchor("Note|Alias")).toBe("")
   })
 })
 

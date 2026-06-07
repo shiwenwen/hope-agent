@@ -4772,7 +4772,8 @@
       "source": "Source",
       "live": "Live",
       "split": "Split",
-      "preview": "Preview"
+      "preview": "Preview",
+      "outline": "Outline"
     },
     "emptyEditor": "Select a note to view or edit.",
     "searchResults": "Search results",

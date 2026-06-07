@@ -75,6 +75,18 @@ export function cleanEmbedRef(ref: string): string {
   return ref.split("|")[0].split("#")[0].trim()
 }
 
+/**
+ * The `#anchor` of an embed ref (a `#Heading` or `#^block`), alias dropped first;
+ * "" when there is none. Used to scope the transclusion cycle guard so an
+ * anchored self-embed (`![[A#^p1]]` inside `A.md`) — a slice of a *different*
+ * block — isn't mistaken for whole-note recursion.
+ */
+export function embedAnchor(ref: string): string {
+  const beforeAlias = ref.split("|")[0]
+  const hash = beforeAlias.indexOf("#")
+  return hash >= 0 ? beforeAlias.slice(hash + 1).trim() : ""
+}
+
 /** Drop a leading YAML frontmatter block so embeds show body, not metadata.
  *  Matches the backend (`parser.rs`): the delimiter is exactly `---` on its own
  *  line (no leading/trailing spaces; a trailing CR for CRLF files is allowed). */

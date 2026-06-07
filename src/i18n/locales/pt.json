@@ -4772,7 +4772,8 @@
       "source": "Origem",
       "live": "Ao vivo",
       "split": "Dividido",
-      "preview": "Visualização"
+      "preview": "Visualização",
+      "outline": "Estrutura"
     },
     "emptyEditor": "Selecione uma nota para ver ou editar.",
     "searchResults": "Resultados da pesquisa",

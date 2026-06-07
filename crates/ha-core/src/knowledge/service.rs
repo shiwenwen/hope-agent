@@ -286,7 +286,17 @@ pub fn note_read_ref(kb_id: &str, reference: &str) -> Result<Option<NoteReadResu
     // (deleted/moved before the watcher reconciled). Honor the broken-embed
     // contract (`None`) instead of surfacing a hard error to the caller.
     match note_read(kb_id, &rel) {
-        Ok(r) => Ok(Some(r)),
+        Ok(mut r) => {
+            // Phase 3 G: `![[Note#Heading]]` / `![[Note#^block]]` embed only the
+            // referenced section / block. An anchor that can't be located degrades
+            // gracefully to the whole note (the note itself resolved fine).
+            if let Some(anchor) = wikilink_anchor(reference) {
+                if let Some(sliced) = slice_by_anchor(&r.content, &anchor) {
+                    r.content = sliced;
+                }
+            }
+            Ok(Some(r))
+        }
         Err(e) => {
             crate::app_warn!(
                 "knowledge",
@@ -298,6 +308,46 @@ pub fn note_read_ref(kb_id: &str, reference: &str) -> Result<Option<NoteReadResu
             Ok(None)
         }
     }
+}
+
+/// Extract the `#anchor` from a `[[ ]]` reference (alias dropped first), trimmed.
+/// `None` when there is no anchor. A leading `^` marks a block anchor.
+fn wikilink_anchor(reference: &str) -> Option<String> {
+    let before_alias = reference
+        .split_once('|')
+        .map(|(t, _)| t)
+        .unwrap_or(reference);
+    before_alias
+        .split_once('#')
+        .map(|(_, a)| a.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Slice a note's content to a `#Heading` section or `#^block` (Phase 3 G).
+/// Returns `None` when the anchor doesn't resolve (caller keeps whole content).
+fn slice_by_anchor(content: &str, anchor: &str) -> Option<String> {
+    let parsed = super::parser::parse_document(content);
+    if let Some(block_id) = anchor.strip_prefix('^') {
+        return parsed
+            .blocks
+            .iter()
+            .find(|b| b.block_id.eq_ignore_ascii_case(block_id))
+            .map(|b| b.text.clone());
+    }
+    // Heading section: from the matching heading to the next heading of the same
+    // or higher level (or EOF). Match is NFC + case-insensitive (resolve parity).
+    let target = super::parser::nfc(anchor).to_lowercase();
+    let idx = parsed
+        .headings
+        .iter()
+        .position(|h| super::parser::nfc(&h.title).to_lowercase() == target)?;
+    let h = &parsed.headings[idx];
+    let end = parsed.headings[idx + 1..]
+        .iter()
+        .find(|n| n.level <= h.level)
+        .map(|n| n.byte_start)
+        .unwrap_or(content.len());
+    Some(content[h.byte_start..end].trim_end().to_string())
 }
 
 /// Owner: delete a folder and all its contents (recursive), then reconcile index.
@@ -639,5 +689,50 @@ mod strip_md_fence_tests {
     #[test]
     fn leaves_plain_markdown_untouched() {
         assert_eq!(strip_md_fence("# Title\n\nbody"), "# Title\n\nbody");
+    }
+}
+
+#[cfg(test)]
+mod anchor_slice_tests {
+    use super::{slice_by_anchor, wikilink_anchor};
+
+    #[test]
+    fn extracts_anchor_after_alias() {
+        assert_eq!(wikilink_anchor("Note#Heading").as_deref(), Some("Heading"));
+        assert_eq!(wikilink_anchor("Note#^blk").as_deref(), Some("^blk"));
+        // Alias split happens first; `#` inside the alias is ignored.
+        assert_eq!(
+            wikilink_anchor("Note#Heading|Label#x").as_deref(),
+            Some("Heading")
+        );
+        assert_eq!(wikilink_anchor("Note"), None);
+        assert_eq!(wikilink_anchor("Note|alias"), None);
+    }
+
+    #[test]
+    fn slices_heading_section_to_next_same_level() {
+        let md = "# Top\n\nintro\n\n## A\n\nalpha body\n\n### A.1\n\nsub\n\n## B\n\nbeta\n";
+        let sliced = slice_by_anchor(md, "A").unwrap();
+        assert!(sliced.starts_with("## A"));
+        assert!(sliced.contains("alpha body"));
+        assert!(sliced.contains("### A.1")); // deeper heading stays in the section
+        assert!(!sliced.contains("## B")); // stops at the next same-level heading
+    }
+
+    #[test]
+    fn slices_block_by_id() {
+        let md = "# T\n\nFirst paragraph. ^p1\n\nSecond. ^p2\n";
+        assert_eq!(
+            slice_by_anchor(md, "^p1").as_deref(),
+            Some("First paragraph.")
+        );
+        assert_eq!(slice_by_anchor(md, "^p2").as_deref(), Some("Second."));
+    }
+
+    #[test]
+    fn unresolved_anchor_returns_none() {
+        let md = "# T\n\nbody ^known\n";
+        assert_eq!(slice_by_anchor(md, "Missing Heading"), None);
+        assert_eq!(slice_by_anchor(md, "^missing"), None);
     }
 }

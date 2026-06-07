@@ -169,8 +169,10 @@ export interface UpdateKnowledgeBaseInput {
 }
 
 /** Note editor view modes (design D13). `live` = source pane with syntax markers
- *  hidden in place (Obsidian-style live preview); see livePreviewExtensions.ts. */
-export type NoteEditorMode = "source" | "preview" | "split" | "live"
+ *  hidden in place (Obsidian-style live preview); see livePreviewExtensions.ts.
+ *  `outline` = collapsible read-only heading-tree render (Phase 3 G, D8 optional
+ *  layer; never replaces the CM6 base). */
+export type NoteEditorMode = "source" | "preview" | "split" | "live" | "outline"
 
 /**
  * Advanced chunking parameters (D12). Wire shape of `knowledge_chunk_get_cmd` /

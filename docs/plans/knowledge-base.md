@@ -683,8 +683,8 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 
 > 执行批次 I → H → G → J（节奏同 Phase 2，每批暂停审再提交）。
 
-- 块级引用（**读 + 写** Obsidian `^block-id` + Logseq `((uuid))`，assign block-id 受 stale-write / D11 外部只读 / WS7 三门控）。〔Batch G，待〕
-- 原生大纲可选层（缩进 bullet → 可折叠**只读 outline 渲染**视图；D8 红线：不替代 CM6 底座 / 不破坏性转写 .md）。〔Batch G，待〕
+- ✅ 块级引用（**读 + 写** Obsidian `^block-id`，assign block-id 受 stale-write / D11 外部只读 / WS7 三门控）。读：parser 扫块（`ParsedBlock`，非破坏、不落表——transclusion 重解析、块反链查 `note_link.anchor`）；`![[Note#^id]]` 切块、`![[Note#Heading]]` 切标题段（`note_read_ref` 服务端切，前端传全 ref；anchor 未命中降级整篇）；块级反链 `note_backlinks({block})`。写：`note_assign_block`（唯一文本命中 + 幂等 + 确定性生成 id）。**Logseq `((uuid))` / `id::` 大纲优先模型不做**（与文档优先底座冲突，`logseq/` 已在 `IGNORE_DIRS`）。〔Batch G〕
+- ✅ 原生大纲可选层（标题树 → 可折叠**只读 outline 渲染**视图 `OutlineView`，第 5 个视图模式 `outline`；点标题切回 source 精确跳行；D8 红线：不替代 CM6 底座 / 不破坏性转写 .md）。〔Batch G〕
 - ~~Layer 2 进阶：去重合并、孤岛救援、知识缺口检测、自动打标签。~~ ✅ 已在 Batch E 的 8 类自主维护任务中落地。
 - ✅ 读取桥通道 ③：被动「相关笔记标题」提示（awareness 风格 cache block，opt-in 默认关）。`agent/related_notes.rs` 镜像 active_memory（无 LLM）；Anthropic 走 plain block（4-breakpoint 已满）。〔Batch H〕
 - ✅ 可选编排工具「一次拿记忆 + 笔记」`knowledge_recall`（store-aware 两段不归一化合并，**不动 `recall_memory`**，D7）。记忆系统反向借鉴知识库检索仍留作后续。〔Batch H〕

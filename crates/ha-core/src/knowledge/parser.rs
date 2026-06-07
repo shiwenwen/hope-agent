@@ -79,6 +79,25 @@ pub struct Heading {
     pub byte_start: usize,
 }
 
+/// An Obsidian-style `^block-id` anchor and the block it terminates (Phase 3 G).
+///
+/// A block anchor is a `^id` token (`[A-Za-z0-9-]+`) that is the trailing content
+/// of a line, outside code. The *referenced block* is the leaf block the anchor
+/// terminates (a trailing `text ^id`) or — when the anchor sits alone on its own
+/// line — the nearest preceding leaf block. The block `text` has the anchor token
+/// stripped, so `![[Note#^id]]` transclusion shows the block content alone.
+#[derive(Debug, Clone)]
+pub struct ParsedBlock {
+    /// The identifier after `^` (letters / digits / dashes).
+    pub block_id: String,
+    /// Block start position (D14) — first non-blank char of the block.
+    pub start: Pos,
+    /// Block end position (D14) — end of block content, anchor token excluded.
+    pub end: Pos,
+    /// Block source text with the trailing `^id` token removed, trimmed.
+    pub text: String,
+}
+
 /// A wikilink occurrence with parsed components and source position.
 #[derive(Debug, Clone)]
 pub struct ParsedLink {
@@ -102,6 +121,8 @@ pub struct ParsedDoc {
     pub body_start_byte: usize,
     pub headings: Vec<Heading>,
     pub links: Vec<ParsedLink>,
+    /// Obsidian `^block-id` anchors, in document order (first id wins on dup).
+    pub blocks: Vec<ParsedBlock>,
     /// Normalized (NFC + lowercase), de-duplicated tags.
     pub tags: Vec<String>,
 }
@@ -125,6 +146,10 @@ pub fn parse_document(full: &str) -> ParsedDoc {
     let mut code_ranges: Vec<Range<usize>> = Vec::new();
     let mut headings: Vec<Heading> = Vec::new();
     let mut first_h1: Option<String> = None;
+    // Leaf-block source spans (full-file coords) a `^block-id` anchor can attach
+    // to: paragraphs, list items, headings. `into_offset_iter` pairs a `Start`
+    // event with the whole element's range.
+    let mut leaf_spans: Vec<Range<usize>> = Vec::new();
 
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES;
     let mut iter = Parser::new_ext(body, opts).into_offset_iter();
@@ -135,11 +160,15 @@ pub fn parse_document(full: &str) -> ParsedDoc {
     while let Some((ev, range)) = iter.next() {
         match ev {
             Event::Start(Tag::Heading { level, .. }) => {
+                leaf_spans.push((body_start_byte + range.start)..(body_start_byte + range.end));
                 cur_heading = Some((
                     heading_level(level),
                     body_start_byte + range.start,
                     String::new(),
                 ));
+            }
+            Event::Start(Tag::Paragraph) | Event::Start(Tag::Item) => {
+                leaf_spans.push((body_start_byte + range.start)..(body_start_byte + range.end));
             }
             Event::End(TagEnd::Heading(_)) => {
                 if let Some((level, byte_start, title)) = cur_heading.take() {
@@ -180,6 +209,7 @@ pub fn parse_document(full: &str) -> ParsedDoc {
     //    via the frontmatter cut, since links/tags in frontmatter aren't body
     //    references. Coordinates stay full-file.
     let links = scan_wikilinks(full, body_start_byte, &code_ranges, &headings, &posmap);
+    let blocks = scan_blocks(full, body_start_byte, &code_ranges, &leaf_spans, &posmap);
     let mut tags = scan_tags(full, body_start_byte, &code_ranges);
 
     // Merge frontmatter tags.
@@ -203,6 +233,7 @@ pub fn parse_document(full: &str) -> ParsedDoc {
         body_start_byte,
         headings,
         links,
+        blocks,
         tags,
     }
 }
@@ -634,6 +665,155 @@ fn parse_wikilink_inner(
     })
 }
 
+/// Scan Obsidian `^block-id` anchors (skipping code), mapping each to the leaf
+/// block it terminates. First occurrence of a given id wins (later dups ignored,
+/// matching Obsidian). See [`ParsedBlock`] for the attach rule.
+fn scan_blocks(
+    full: &str,
+    body_start_byte: usize,
+    code_ranges: &[Range<usize>],
+    leaf_spans: &[Range<usize>],
+    posmap: &PosMap,
+) -> Vec<ParsedBlock> {
+    let mut out: Vec<ParsedBlock> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Per-leaf-span (keyed by span start) floor: the byte a block may start at,
+    // so two `^id` anchors sharing one folded paragraph don't let the second
+    // block leak the first line + its anchor token.
+    let mut span_floor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut line_start = body_start_byte;
+    for line in full[body_start_byte..].split_inclusive('\n') {
+        let abs_line_start = line_start;
+        line_start += line.len();
+        let next_line_start = line_start;
+        let content = line.trim_end_matches(['\r', '\n']);
+        let Some((caret_off, id)) = trailing_block_anchor(content) else {
+            continue;
+        };
+        let anchor_byte = abs_line_start + caret_off;
+        if in_code(code_ranges, anchor_byte) {
+            continue;
+        }
+        if seen.contains(&id) {
+            continue;
+        }
+        let Some((start_byte, end_byte)) = resolve_block_span(
+            full,
+            anchor_byte,
+            abs_line_start,
+            next_line_start,
+            leaf_spans,
+            &mut span_floor,
+        ) else {
+            continue;
+        };
+        if end_byte <= start_byte {
+            continue;
+        }
+        seen.insert(id.clone());
+        out.push(ParsedBlock {
+            block_id: id,
+            start: posmap.pos(start_byte),
+            end: posmap.pos(end_byte),
+            text: full[start_byte..end_byte].to_string(),
+        });
+    }
+    out
+}
+
+/// The trailing `^block-id` of a single line (anchor stripped of CR/LF already):
+/// returns `(byte offset of '^', id)` when the line ends with `^id` preceded by
+/// whitespace or start-of-line. Public so write tools can detect / dedupe ids.
+pub fn line_block_anchor(line: &str) -> Option<String> {
+    let line = line.trim_end_matches(['\r', '\n']);
+    trailing_block_anchor(line).map(|(_, id)| id)
+}
+
+fn trailing_block_anchor(line: &str) -> Option<(usize, String)> {
+    let t = line.trim_end();
+    let bytes = t.as_bytes();
+    let mut i = t.len();
+    while i > 0 {
+        let c = bytes[i - 1];
+        if c.is_ascii_alphanumeric() || c == b'-' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    let id = &t[i..];
+    if id.is_empty() {
+        return None;
+    }
+    // The char immediately before the id must be the caret.
+    if i == 0 || bytes[i - 1] != b'^' {
+        return None;
+    }
+    let caret = i - 1;
+    // The caret must start a token: preceded by whitespace or start-of-line.
+    if caret > 0 && !matches!(bytes[caret - 1], b' ' | b'\t') {
+        return None;
+    }
+    Some((caret, id.to_string()))
+}
+
+/// Resolve the leaf-block source span (`start..end`, anchor excluded) a `^id`
+/// anchor attaches to: the innermost leaf span containing the caret (trailing
+/// anchor), else the nearest preceding leaf span (own-line anchor). `span_floor`
+/// (keyed by span start) records how far a prior anchor in the same span already
+/// consumed, so a second `^id` in one folded paragraph starts after the first
+/// (rather than leaking the earlier line + its anchor token).
+fn resolve_block_span(
+    full: &str,
+    anchor_byte: usize,
+    line_start: usize,
+    next_line_start: usize,
+    leaf_spans: &[Range<usize>],
+    span_floor: &mut std::collections::HashMap<usize, usize>,
+) -> Option<(usize, usize)> {
+    // Innermost (smallest) leaf span containing the caret.
+    if let Some(s) = leaf_spans
+        .iter()
+        .filter(|s| s.start <= anchor_byte && anchor_byte < s.end)
+        .min_by_key(|s| s.end - s.start)
+    {
+        let floor = span_floor
+            .get(&s.start)
+            .copied()
+            .unwrap_or(s.start)
+            .max(s.start);
+        let trimmed_end = floor + full[floor..anchor_byte].trim_end().len();
+        if trimmed_end > floor {
+            // The next anchor in this span starts at the following line.
+            span_floor.insert(s.start, next_line_start.min(s.end));
+            let lead = leading_ws(&full[floor..trimmed_end]);
+            return Some((floor + lead, trimmed_end));
+        }
+        // Else the anchor is alone in its own block (`^id` on its own line) —
+        // fall through to the preceding block.
+    }
+    let prev = leaf_spans
+        .iter()
+        .filter(|s| s.end <= line_start)
+        .max_by_key(|s| s.end)?;
+    let floor = span_floor
+        .get(&prev.start)
+        .copied()
+        .unwrap_or(prev.start)
+        .max(prev.start);
+    let trimmed_end = floor + full[floor..prev.end].trim_end().len();
+    if trimmed_end <= floor {
+        return None;
+    }
+    span_floor.insert(prev.start, prev.end);
+    let lead = leading_ws(&full[floor..trimmed_end]);
+    Some((floor + lead, trimmed_end))
+}
+
+fn leading_ws(s: &str) -> usize {
+    s.len() - s.trim_start().len()
+}
+
 /// Scan `#tag` occurrences (skipping code + heading markers).
 fn scan_tags(full: &str, body_start_byte: usize, code_ranges: &[Range<usize>]) -> Vec<String> {
     let mut out = Vec::new();
@@ -846,6 +1026,83 @@ mod tests {
         assert!(doc.body_start_byte > 0);
         // The link is on line 5 of the full file.
         assert_eq!(doc.links[0].start.line, 5);
+    }
+
+    #[test]
+    fn block_anchor_trailing_paragraph() {
+        let doc = parse_document("# T\n\nThe quick brown fox. ^fox1\n\nNext para.\n");
+        assert_eq!(doc.blocks.len(), 1);
+        let b = &doc.blocks[0];
+        assert_eq!(b.block_id, "fox1");
+        assert_eq!(b.text, "The quick brown fox.");
+        // Anchor sits on line 3 of the full file.
+        assert_eq!(b.start.line, 3);
+    }
+
+    #[test]
+    fn block_anchor_own_line_attaches_to_preceding() {
+        let doc = parse_document("# T\n\nA paragraph spanning\ntwo lines.\n\n^para9\n\nAfter.\n");
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(doc.blocks[0].block_id, "para9");
+        assert_eq!(doc.blocks[0].text, "A paragraph spanning\ntwo lines.");
+    }
+
+    #[test]
+    fn block_anchor_on_list_item_is_just_that_item() {
+        let doc = parse_document("- first\n- second item ^b2\n- third\n");
+        let ids: Vec<&str> = doc.blocks.iter().map(|b| b.block_id.as_str()).collect();
+        assert_eq!(ids, vec!["b2"]);
+        assert_eq!(doc.blocks[0].text, "- second item");
+    }
+
+    #[test]
+    fn block_anchor_dup_id_first_wins() {
+        let doc = parse_document("One. ^dup\n\nTwo. ^dup\n");
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(doc.blocks[0].text, "One.");
+    }
+
+    #[test]
+    fn block_anchor_in_code_is_skipped() {
+        let doc = parse_document("Real. ^ok\n\n```\nnot a block ^nope\n```\n");
+        let ids: Vec<&str> = doc.blocks.iter().map(|b| b.block_id.as_str()).collect();
+        assert_eq!(ids, vec!["ok"]);
+    }
+
+    #[test]
+    fn caret_without_leading_space_is_not_a_block_anchor() {
+        // `x^2` (no space before caret) and `^{2}` (non-id char) must not match.
+        let doc = parse_document("Pow x^2 here.\n\nMath ^{2} curly.\n");
+        assert!(doc.blocks.is_empty(), "got: {:?}", doc.blocks);
+    }
+
+    #[test]
+    fn block_anchor_no_blank_line_before_own_line_caret() {
+        // No blank line: cmark folds `text` + `^id` into one paragraph; the
+        // trailing-span path still strips the anchor off the prior text.
+        let doc = parse_document("Some prose here.\n^inline1\n");
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(doc.blocks[0].block_id, "inline1");
+        assert_eq!(doc.blocks[0].text, "Some prose here.");
+    }
+
+    #[test]
+    fn block_anchor_two_anchors_in_folded_paragraph_dont_leak() {
+        // No blank line → cmark folds both lines into one paragraph. Each line
+        // carries its own `^id`; the second block must NOT leak the first line
+        // (or the first `^a` token) into its text.
+        let doc = parse_document("line one ^a\nline two ^b\n");
+        let by = |id: &str| doc.blocks.iter().find(|b| b.block_id == id).unwrap();
+        assert_eq!(by("a").text, "line one");
+        assert_eq!(by("b").text, "line two");
+    }
+
+    #[test]
+    fn line_block_anchor_helper() {
+        assert_eq!(line_block_anchor("text ^id-1").as_deref(), Some("id-1"));
+        assert_eq!(line_block_anchor("^own").as_deref(), Some("own"));
+        assert_eq!(line_block_anchor("no anchor here"), None);
+        assert_eq!(line_block_anchor("x^2"), None);
     }
 
     #[test]

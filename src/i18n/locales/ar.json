@@ -4772,7 +4772,8 @@
       "source": "المصدر",
       "live": "مباشر",
       "split": "مقسَّم",
-      "preview": "معاينة"
+      "preview": "معاينة",
+      "outline": "مخطط"
     },
     "emptyEditor": "اختر ملاحظة لعرضها أو تحريرها.",
     "searchResults": "نتائج البحث",

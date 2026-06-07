@@ -14,7 +14,7 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import type { NoteReadResult } from "@/types/knowledge"
 
 import { fetchNoteRef } from "./noteRefFetch"
-import { cleanEmbedRef, parseEmbedSegments, stripFrontmatter } from "./transclusionParse"
+import { embedAnchor, parseEmbedSegments, stripFrontmatter } from "./transclusionParse"
 
 /** Max embed nesting before we stop recursing — the root note is depth 0, so up
  *  to 4 levels of embedded notes are inlined before the limit frame appears. */
@@ -86,20 +86,19 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
   } | null>(null)
 
   const overDepth = depth >= MAX_EMBED_DEPTH
-  // Resolve by the cleaned target (drop `#anchor` / `|alias`), mirroring the
-  // canonical link pipeline so embeds resolve the same notes the graph does.
-  const target = cleanEmbedRef(reference)
 
   useEffect(() => {
     if (overDepth) return
     let alive = true
-    void fetchNoteRef(kbId, target, cacheBustKey).then((note) => {
+    // Pass the full reference (anchor included) so the resolver slices a
+    // `#Heading` section / `#^block` server-side (whole note when no anchor).
+    void fetchNoteRef(kbId, reference, cacheBustKey).then((note) => {
       if (alive) setEntry({ ref: reference, bust: cacheBustKey, note })
     })
     return () => {
       alive = false
     }
-  }, [kbId, reference, target, cacheBustKey, overDepth])
+  }, [kbId, reference, cacheBustKey, overDepth])
 
   if (overDepth) {
     return (
@@ -131,7 +130,13 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
     )
   }
 
-  if (seen.has(note.relPath)) {
+  // Scope the cycle guard by target + anchor: an anchored embed (`A#^p1`) is a
+  // slice of a distinct block, so it must not collide with the whole-note key
+  // (`A`) seeded for the root note. True recursion (the same anchored ref nested
+  // inside its own slice) still re-collides and is caught.
+  const anchor = embedAnchor(reference)
+  const seenKey = anchor ? `${note.relPath}#${anchor}` : note.relPath
+  if (seen.has(seenKey)) {
     return (
       <EmbedFrame reference={reference} title={note.title}>
         <span className="text-xs italic text-muted-foreground">
@@ -142,7 +147,7 @@ function EmbedBlock({ kbId, reference, cacheBustKey, onOpenNote, depth, seen }: 
   }
 
   const nextSeen = new Set(seen)
-  nextSeen.add(note.relPath)
+  nextSeen.add(seenKey)
   const body = stripFrontmatter(note.content)
 
   return (

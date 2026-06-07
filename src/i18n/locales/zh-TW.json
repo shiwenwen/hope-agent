@@ -4772,7 +4772,8 @@
       "source": "原始碼",
       "live": "即時",
       "split": "分割",
-      "preview": "預覽"
+      "preview": "預覽",
+      "outline": "大綱"
     },
     "emptyEditor": "選取筆記以檢視或編輯。",
     "searchResults": "搜尋結果",

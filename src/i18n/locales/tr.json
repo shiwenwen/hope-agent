@@ -4772,7 +4772,8 @@
       "source": "Kaynak",
       "live": "Canlı",
       "split": "Bölünmüş",
-      "preview": "Önizleme"
+      "preview": "Önizleme",
+      "outline": "Anahat"
     },
     "emptyEditor": "Görüntülemek veya düzenlemek için bir not seçin.",
     "searchResults": "Arama sonuçları",

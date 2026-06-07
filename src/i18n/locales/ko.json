@@ -4772,7 +4772,8 @@
       "source": "소스",
       "live": "라이브",
       "split": "분할",
-      "preview": "미리보기"
+      "preview": "미리보기",
+      "outline": "개요"
     },
     "emptyEditor": "보거나 편집할 노트를 선택하세요.",
     "searchResults": "검색 결과",

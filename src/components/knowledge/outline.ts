@@ -51,3 +51,44 @@ export function parseHeadings(md: string): OutlineHeading[] {
   }
   return out
 }
+
+/** One node of the collapsible read-only outline view (Phase 3 G, D8 optional
+ *  layer). `body` is the markdown between this heading and the next heading (the
+ *  section's own prose); `children` are deeper-level headings nested under it. */
+export interface OutlineNode {
+  heading: OutlineHeading
+  body: string
+  children: OutlineNode[]
+}
+
+/**
+ * Build the heading tree for the outline view: a `preamble` (any text before the
+ * first heading) plus a nested tree where each node owns the prose directly under
+ * its heading. Purely derived from `parseHeadings` — never rewrites the `.md`
+ * (D8 red line). A note with no headings yields the whole body as `preamble`.
+ */
+export function buildOutline(content: string): { preamble: string; nodes: OutlineNode[] } {
+  const headings = parseHeadings(content)
+  const lines = content.split(/\r?\n/)
+  const firstLine = headings.length ? headings[0].line : lines.length + 1
+  const preamble = lines
+    .slice(0, firstLine - 1)
+    .join("\n")
+    .trim()
+
+  const flat: OutlineNode[] = headings.map((h, idx) => {
+    const bodyStart = h.line // 0-based index of the line after the heading
+    const bodyEnd = idx + 1 < headings.length ? headings[idx + 1].line - 1 : lines.length
+    return { heading: h, body: lines.slice(bodyStart, bodyEnd).join("\n").trim(), children: [] }
+  })
+
+  const roots: OutlineNode[] = []
+  const stack: OutlineNode[] = []
+  for (const node of flat) {
+    while (stack.length && stack[stack.length - 1].heading.level >= node.heading.level) stack.pop()
+    if (stack.length) stack[stack.length - 1].children.push(node)
+    else roots.push(node)
+    stack.push(node)
+  }
+  return { preamble, nodes: roots }
+}
