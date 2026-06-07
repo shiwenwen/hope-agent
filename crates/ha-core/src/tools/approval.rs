@@ -64,6 +64,7 @@ pub enum ApprovalReasonKind {
     ProtectedPath,
     AgentCustomList,
     SmartJudge,
+    BrowserEvaluate,
     MacControlAction,
     MacControlDangerousAction,
     PlanModeAsk,
@@ -96,6 +97,10 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
             SmartJudge { rationale } => Self {
                 kind: ApprovalReasonKind::SmartJudge,
                 detail: Some(rationale.clone()),
+            },
+            BrowserEvaluate { script_preview } => Self {
+                kind: ApprovalReasonKind::BrowserEvaluate,
+                detail: Some(script_preview.clone()),
             },
             MacControlAction { action } => Self {
                 kind: ApprovalReasonKind::MacControlAction,

@@ -187,10 +187,7 @@ export function FileBrowserTree({
         onDrop={handleRootDrop}
       >
         {rootState?.loading && entries.length === 0 ? (
-          <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {t("common.loading", "Loading…")}
-          </div>
+          <FileTreeLoadingSkeleton label={t("common.loading", "Loading…")} depth={0} />
         ) : null}
 
         {draft?.dir === "" ? <DraftRow ctx={ctx} depth={0} /> : null}
@@ -301,7 +298,10 @@ function TreeNode({
             className={cn(
               ROW,
               selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-              ctx.editable && entry.isDir && ctx.dragOverDir === entry.relPath && "bg-accent/60 ring-1 ring-primary/40",
+              ctx.editable &&
+                entry.isDir &&
+                ctx.dragOverDir === entry.relPath &&
+                "bg-accent/60 ring-1 ring-primary/40",
             )}
             style={{ paddingLeft: depth * INDENT + 6 }}
             onClick={onActivate}
@@ -316,7 +316,7 @@ function TreeNode({
             {entry.isDir ? (
               <ChevronRight
                 className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
                   expanded && "rotate-90",
                 )}
               />
@@ -329,7 +329,11 @@ function TreeNode({
               <FileTypeIcon name={entry.name} className="h-3.5 w-3.5 shrink-0" />
             )}
             {isRenaming ? (
-              <RenameInput initial={entry.name} onCommit={commitRename} onCancel={() => ctx.setRenaming(null)} />
+              <RenameInput
+                initial={entry.name}
+                onCommit={commitRename}
+                onCancel={() => ctx.setRenaming(null)}
+              />
             ) : (
               <span className="truncate">{entry.name}</span>
             )}
@@ -385,14 +389,9 @@ function TreeNode({
       </ContextMenu>
 
       <AnimatedCollapse open={expanded} durationMs={160}>
-        <div>
+        <div className="animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none">
           {childState?.loading && childEntries.length === 0 ? (
-            <div
-              className="flex items-center gap-2 py-1 text-xs text-muted-foreground"
-              style={{ paddingLeft: (depth + 1) * INDENT + 6 }}
-            >
-              <Loader2 className="h-3 w-3 animate-spin" />
-            </div>
+            <FileTreeLoadingSkeleton depth={depth + 1} compact />
           ) : null}
           {ctx.draft?.dir === entry.relPath ? <DraftRow ctx={ctx} depth={depth + 1} /> : null}
           {childEntries.map((child) => (
@@ -400,6 +399,30 @@ function TreeNode({
           ))}
         </div>
       </AnimatedCollapse>
+    </div>
+  )
+}
+
+function FileTreeLoadingSkeleton({
+  depth,
+  compact = false,
+  label,
+}: {
+  depth: number
+  compact?: boolean
+  label?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-md py-1 text-xs text-muted-foreground",
+        compact ? "h-7" : "h-8",
+      )}
+      style={{ paddingLeft: depth * INDENT + 6 }}
+    >
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />
+      <div className="h-2.5 w-24 rounded-full bg-muted/70" />
+      {label ? <span className="sr-only">{label}</span> : null}
     </div>
   )
 }
@@ -426,7 +449,11 @@ function DraftRow({ ctx, depth }: { ctx: TreeContext; depth: number }) {
       <span className="w-3.5 shrink-0" />
       <RenameInput
         initial=""
-        placeholder={draft.isDir ? t("fileBrowser.newFolder", "New Folder") : t("fileBrowser.newFile", "New File")}
+        placeholder={
+          draft.isDir
+            ? t("fileBrowser.newFolder", "New Folder")
+            : t("fileBrowser.newFile", "New File")
+        }
         onCommit={onCommit}
         onCancel={() => ctx.setDraft(null)}
       />

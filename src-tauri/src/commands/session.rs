@@ -112,6 +112,20 @@ pub async fn load_session_artifacts_cmd(
     session::aggregate_session_artifacts(&state.session_db, &session_id).map_err(Into::into)
 }
 
+/// Read-only environment snapshot for the workspace panel. This stays out of
+/// the system prompt; it is only rendered in the UI.
+#[tauri::command]
+pub async fn load_session_environment_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<session::WorkspaceEnvironmentSnapshot, CmdError> {
+    let db = state.session_db.clone();
+    tokio::task::spawn_blocking(move || session::load_session_environment(&db, &session_id))
+        .await
+        .map_err(|e| CmdError::msg(format!("environment task join error: {e}")))?
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn get_session_cmd(
     session_id: String,

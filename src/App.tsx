@@ -75,6 +75,7 @@ export default function App() {
   const [dashboardInitialReportId, setDashboardInitialReportId] = useState<string | null>(null)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
+  const [currentChatProjectId, setCurrentChatProjectId] = useState<string | null>(null)
   // PlansView pushes `@plan:<short_id>:v<n>` tokens here; KnowledgeView pushes
   // `[[note]]` refs (with a KB to auto-attach). ChatScreen appends + clears.
   const [pendingChatInsert, setPendingChatInsert] = useState<ChatInsert | undefined>(undefined)
@@ -540,6 +541,7 @@ export default function App() {
                   }
                 >
                   <CronCalendarView
+                    defaultProjectId={currentChatProjectId}
                     onBack={() => setView("chat")}
                     onNavigateToSession={(sessionId) => {
                       setPendingSessionId(sessionId)
@@ -615,6 +617,7 @@ export default function App() {
                   onUnreadCountChange={setTotalUnreadCount}
                   onOpenDashboardTab={handleOpenDashboard}
                   sessionsRefreshTrigger={sessionsRefreshTrigger}
+                  onCurrentProjectChange={setCurrentChatProjectId}
                   pendingChatInsert={pendingChatInsert}
                   onChatInsertConsumed={() => setPendingChatInsert(undefined)}
                 />

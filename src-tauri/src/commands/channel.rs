@@ -326,7 +326,7 @@ pub async fn channel_handover_session(
         if let Some(plugin) = registry.get_plugin(&parsed_channel) {
             let store = ha_core::config::cached_config();
             if let Some(account) = store.channels.find_account(&account_id).cloned() {
-                ha_core::channel::attach_sync::deliver_attach_catchup(
+                ha_core::channel::attach_sync::deliver_handover_catchup(
                     plugin,
                     &account,
                     &session_id,

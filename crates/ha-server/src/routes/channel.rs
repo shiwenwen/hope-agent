@@ -386,7 +386,7 @@ async fn deliver_handover_catchup(
         Some(a) => a.clone(),
         None => return,
     };
-    ha_core::channel::attach_sync::deliver_attach_catchup(
+    ha_core::channel::attach_sync::deliver_handover_catchup(
         &plugin, &account, session_id, chat_id, thread_id,
     )
     .await;

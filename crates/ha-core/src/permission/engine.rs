@@ -127,7 +127,7 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
                 reason: AskReason::PlanModeAsk,
             };
         }
-        if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
+        if let Decision::Ask { reason } = resolve_soft_approval_layer(ctx) {
             return Decision::Ask { reason };
         }
         return Decision::Allow;
@@ -149,6 +149,9 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
             log_yolo_warn(ctx, &reason);
         }
         if let Some(reason) = check_mac_control_action(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
+        if let Some(reason) = check_browser_evaluate(ctx) {
             log_yolo_warn(ctx, &reason);
         }
         return Decision::Allow;
@@ -199,7 +202,7 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
 
 fn resolve_default_mode(ctx: &ResolveContext<'_>) -> Decision {
     // Shared core checks (also consumed by Smart mode).
-    if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
+    if let Decision::Ask { reason } = resolve_soft_approval_layer(ctx) {
         return Decision::Ask { reason };
     }
 
@@ -234,11 +237,28 @@ fn resolve_edit_layer(ctx: &ResolveContext<'_>) -> Decision {
     Decision::Allow
 }
 
+fn resolve_browser_evaluate_layer(ctx: &ResolveContext<'_>) -> Decision {
+    if let Some(reason) = check_browser_evaluate(ctx) {
+        return Decision::Ask { reason };
+    }
+    Decision::Allow
+}
+
+fn resolve_soft_approval_layer(ctx: &ResolveContext<'_>) -> Decision {
+    if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Decision::Ask { reason } = resolve_browser_evaluate_layer(ctx) {
+        return Decision::Ask { reason };
+    }
+    Decision::Allow
+}
+
 /// Sync Smart-mode resolver. Performs the cheap (no-LLM) checks:
 ///
 /// 1. If the model self-tagged this call with `_confidence: "high"` AND the
 ///    active strategy honors the tag (`SelfConfidence` / `Both`), allow.
-/// 2. Otherwise, fall through to the edit-layer floor (shared with Default,
+/// 2. Otherwise, fall through to the soft approval floor (shared with Default,
 ///    minus `custom_approval_tools` — Smart users opted into LLM judgment,
 ///    not a manual checklist). The async wrapper [`resolve_async`] then
 ///    optionally upgrades that `Ask` to `Allow` / `Deny` via the judge.
@@ -248,7 +268,7 @@ fn resolve_smart_mode(ctx: &ResolveContext<'_>) -> Decision {
             return Decision::Allow;
         }
     }
-    resolve_edit_layer(ctx)
+    resolve_soft_approval_layer(ctx)
 }
 
 fn has_self_confidence_high(args: &Value) -> bool {
@@ -434,6 +454,41 @@ fn check_edit_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     })
 }
 
+fn check_browser_evaluate(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+        return None;
+    }
+    let action = json_string_or_text(ctx.args.get("action"))?;
+    let op = json_string_or_text(ctx.args.get("op"))?;
+    if action != "control" || op != "evaluate" {
+        return None;
+    }
+    let script = ctx
+        .args
+        .get("expression")
+        .or_else(|| ctx.args.get("script"))
+        .and_then(|v| json_string_or_text(Some(v)))?;
+    let trimmed = script.trim();
+    let preview = if trimmed.chars().count() <= 280 {
+        trimmed.to_string()
+    } else {
+        let head: String = trimmed.chars().take(277).collect();
+        format!("{head}...")
+    };
+    Some(AskReason::BrowserEvaluate {
+        script_preview: preview,
+    })
+}
+
+fn json_string_or_text(value: Option<&Value>) -> Option<&str> {
+    value
+        .and_then(|v| {
+            v.as_str()
+                .or_else(|| v.get("text").and_then(|text| text.as_str()))
+        })
+        .filter(|s| !s.is_empty())
+}
+
 fn check_mac_control_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     if ctx.tool_name != crate::tools::TOOL_MAC_CONTROL {
         return None;
@@ -590,6 +645,9 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
         EditTool => "edit-class tool".to_string(),
         AgentCustomList => "agent custom approval".to_string(),
         SmartJudge { rationale } => format!("smart judge: {rationale}"),
+        BrowserEvaluate { script_preview } => {
+            format!("browser control.evaluate JavaScript '{}'", script_preview)
+        }
         MacControlAction { action } => format!("macOS control action '{action}'"),
         MacControlDangerousAction { action } => {
             format!("dangerous macOS control action '{action}'")
@@ -808,6 +866,68 @@ mod tests {
     }
 
     #[test]
+    fn browser_evaluate_default_asks() {
+        let args = json!({
+            "action": "control",
+            "op": "evaluate",
+            "expression": "document.title",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserEvaluate { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_evaluate_text_wrapped_args_default_asks() {
+        let args = json!({
+            "action": "control",
+            "op": { "text": "evaluate" },
+            "expression": { "text": "document.title" },
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserEvaluate { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_non_evaluate_control_default_allows() {
+        let args = json!({
+            "action": "control",
+            "op": "wait_for",
+            "text": "Ready",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn browser_evaluate_yolo_allows() {
+        let args = json!({
+            "action": "control",
+            "op": "evaluate",
+            "expression": "document.title",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Yolo, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
     fn agent_custom_approval_adds_tool() {
         let args = json!({});
         let plan: Vec<String> = vec![];
@@ -989,6 +1109,50 @@ mod tests {
         let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
         c.smart_config = Some(&smart_cfg);
         assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn browser_evaluate_smart_self_confidence_high_allows() {
+        let args = json!({
+            "action": "control",
+            "op": "evaluate",
+            "expression": "document.title",
+            "_confidence": "high",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::SelfConfidence,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("browser", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn browser_evaluate_smart_without_high_confidence_asks() {
+        let args = json!({
+            "action": "control",
+            "op": "evaluate",
+            "expression": "document.title",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::SelfConfidence,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("browser", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserEvaluate { .. }
+            }
+        ));
     }
 
     #[test]

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Office DOCX"
+  short_description: "Create, edit, redline, audit, and render Word files"
+  brand_color: "#2563EB"
+  default_prompt: "Use $office-docx to create or edit a polished Word document with comments, tracked changes, accessibility checks, and render verification."

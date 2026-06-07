@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
@@ -49,7 +50,10 @@ const CATEGORY_ICONS: Record<ToolCategory, React.ComponentType<{ className?: str
   other: Wrench,
 }
 
-const GROUP_ICONS: Record<ExecutionToolGroupLabelKey, React.ComponentType<{ className?: string }>> = {
+const GROUP_ICONS: Record<
+  ExecutionToolGroupLabelKey,
+  React.ComponentType<{ className?: string }>
+> = {
   ...CATEGORY_ICONS,
   skill: Puzzle,
 }
@@ -83,7 +87,9 @@ function getSkillName(tool: ToolCall): string | null {
       const parts = path.replace(/\\/g, "/").split("/")
       return parts.length >= 2 ? parts[parts.length - 2] : "skill"
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null
 }
 
@@ -92,7 +98,13 @@ function getFullTarget(tool: ToolCall): string {
   try {
     const parsed = JSON.parse(tool.arguments)
     return (
-      parsed.path || parsed.url || parsed.query || parsed.pattern || parsed.title || parsed.key || tool.name
+      parsed.path ||
+      parsed.url ||
+      parsed.query ||
+      parsed.pattern ||
+      parsed.title ||
+      parsed.key ||
+      tool.name
     )
   } catch {
     return tool.name
@@ -265,24 +277,17 @@ function GroupItem({
       <AsyncJobCancelCard result={tool.result} className="ml-4" />
       <ToolMediaPreview tool={tool} className="ml-4" />
       {/* Raw tool call */}
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          showRaw ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={showRaw} unmountOnExit={false}>
         <div className="ml-4 mt-0.5 mb-1">
           <pre className="whitespace-pre-wrap text-muted-foreground/70 bg-muted/50 rounded-md p-2 max-h-56 overflow-y-auto text-[11px] leading-relaxed border border-border/30 font-mono select-all">
             {formatRawCall(tool)}
           </pre>
         </div>
-      </div>
+      </AnimatedCollapse>
       {/* Full result */}
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          showResult && (tool.name === "exec" || tool.result) ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0",
-        )}
+      <AnimatedCollapse
+        open={showResult && (tool.name === "exec" || !!tool.result)}
+        unmountOnExit={false}
       >
         <div className="ml-4 mt-0.5 mb-1">
           {tool.name === "exec" ? (
@@ -293,7 +298,7 @@ function GroupItem({
             </pre>
           )}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }
@@ -321,7 +326,8 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
     let hasAny = false
     for (const tool of tools) {
       const isRunning = tool.result === undefined
-      const ms = tool.durationMs ?? (isRunning && tool.startedAtMs ? now - tool.startedAtMs : undefined)
+      const ms =
+        tool.durationMs ?? (isRunning && tool.startedAtMs ? now - tool.startedAtMs : undefined)
       if (ms != null && ms >= 0) {
         total += ms
         hasAny = true
@@ -363,11 +369,12 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
           {labelSegments.map((segment, idx) => {
             const SegmentIcon = GROUP_ICONS[segment.key]
             return (
-              <span key={`${segment.key}-${idx}`} className="inline-flex min-w-0 items-center gap-1">
+              <span
+                key={`${segment.key}-${idx}`}
+                className="inline-flex min-w-0 items-center gap-1"
+              >
                 {idx > 0 && (
-                  <span className="text-muted-foreground/50">
-                    {labelSeparator.trim()}
-                  </span>
+                  <span className="text-muted-foreground/50">{labelSeparator.trim()}</span>
                 )}
                 <span className="relative h-3.5 w-3.5 shrink-0">
                   <SegmentIcon className="h-3.5 w-3.5 text-muted-foreground" />
@@ -398,18 +405,13 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
       </button>
 
       {/* Expanded: show each item with inline result access */}
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          expanded ? "max-h-[3000px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={expanded} unmountOnExit={false}>
         <div className="ml-3 border-l border-border/40 pl-0.5">
           {tools.map((tool) => (
             <GroupItem key={tool.callId} tool={tool} onOpenDiff={onOpenDiff} />
           ))}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }

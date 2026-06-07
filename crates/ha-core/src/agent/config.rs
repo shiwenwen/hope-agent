@@ -346,6 +346,7 @@ pub fn build_system_prompt_with_session(
             .as_ref()
             .map(|m| m.permission_mode)
             .unwrap_or_default();
+        let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
         return crate::system_prompt::build(
             &definition,
             Some(model),
@@ -357,6 +358,7 @@ pub fn build_system_prompt_with_session(
             session_id,
             incognito,
             session_working_dir.as_deref(),
+            channel_info,
             permission_mode,
         );
     }

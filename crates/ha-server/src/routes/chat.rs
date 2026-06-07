@@ -74,6 +74,32 @@ pub struct ChatRequest {
     pub kb_attachments: Vec<ha_core::knowledge::types::KbAttachInput>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueTurnUserMessageRequest {
+    #[serde(default)]
+    pub request_id: Option<String>,
+    pub message: String,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
+    pub session_id: String,
+    pub turn_id: String,
+    #[serde(default)]
+    pub display_text: Option<String>,
+    #[serde(default)]
+    pub is_plan_trigger: Option<bool>,
+    #[serde(default)]
+    pub plan_comment: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelQueuedTurnUserMessageRequest {
+    pub session_id: String,
+    pub turn_id: String,
+    pub request_id: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
@@ -523,6 +549,40 @@ pub async fn chat(
         turn_id,
         blocked_reason: None,
     }))
+}
+
+/// `POST /api/chat/turn-message` — queue a user message to be injected at the
+/// next safe tool-loop boundary of the active turn.
+pub async fn queue_turn_user_message(
+    Json(body): Json<QueueTurnUserMessageRequest>,
+) -> Result<Json<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult>, AppError> {
+    validate_http_chat_attachments(&body.session_id, &body.attachments)?;
+    let result = ha_core::chat_engine::turn_injection::enqueue(
+        ha_core::chat_engine::turn_injection::QueueTurnUserMessageArgs {
+            request_id: body.request_id,
+            session_id: body.session_id,
+            turn_id: body.turn_id,
+            message: body.message,
+            display_text: body.display_text,
+            attachments: body.attachments,
+            is_plan_trigger: body.is_plan_trigger.unwrap_or(false),
+            plan_comment: body.plan_comment,
+        },
+    );
+    Ok(Json(result))
+}
+
+/// `POST /api/chat/turn-message/cancel` — cancel a not-yet-injected queued
+/// message for an active turn.
+pub async fn cancel_queued_turn_user_message(
+    Json(body): Json<CancelQueuedTurnUserMessageRequest>,
+) -> Result<Json<ha_core::chat_engine::turn_injection::CancelQueuedTurnMessageResult>, AppError> {
+    let result = ha_core::chat_engine::turn_injection::cancel(
+        &body.session_id,
+        &body.turn_id,
+        &body.request_id,
+    );
+    Ok(Json(result))
 }
 
 /// `POST /api/chat/stop` — stop ongoing chat(s).

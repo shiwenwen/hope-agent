@@ -19,6 +19,7 @@ import type {
   ProjectFsScope,
   UploadResult,
   SessionArtifacts,
+  WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage";
@@ -117,6 +118,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   project_fs_list:                 { method: "GET",    path: "/api/fs/list" },
   project_fs_read_text:            { method: "GET",    path: "/api/fs/read" },
   project_fs_extract:              { method: "GET",    path: "/api/fs/extract" },
+  project_fs_search:               { method: "GET",    path: "/api/fs/search" },
   project_git_info:                { method: "GET",    path: "/api/fs/git" },
   project_fs_write_text:           { method: "PUT",    path: "/api/fs/file" },
   project_fs_delete:               { method: "DELETE", path: "/api/fs/entry" },
@@ -140,6 +142,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
   load_session_artifacts_cmd:      { method: "GET",    path: "/api/sessions/{sessionId}/artifacts" },
+  load_session_environment_cmd:    { method: "GET",    path: "/api/sessions/{sessionId}/environment" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
   load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },
   load_session_messages_before_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/before" },
@@ -157,6 +160,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Chat --
   chat:                            { method: "POST",   path: "/api/chat" },
+  queue_turn_user_message:         { method: "POST",   path: "/api/chat/turn-message" },
+  cancel_queued_turn_user_message: { method: "POST",   path: "/api/chat/turn-message/cancel" },
   stop_chat:                       { method: "POST",   path: "/api/chat/stop" },
   cancel_runtime_task:             { method: "POST",   path: "/api/runtime-tasks/cancel" },
 
@@ -1161,6 +1166,10 @@ export class HttpTransport implements Transport {
 
   async loadSessionArtifacts(sessionId: string): Promise<SessionArtifacts> {
     return this.call<SessionArtifacts>("load_session_artifacts_cmd", { sessionId });
+  }
+
+  async loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot> {
+    return this.call<WorkspaceEnvironmentSnapshot>("load_session_environment_cmd", { sessionId });
   }
 
   async projectFsUpload(

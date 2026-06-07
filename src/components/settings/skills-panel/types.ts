@@ -2,6 +2,7 @@ export {
   type SkillSummary,
   type SkillInstallSpec,
   type SkillStatus,
+  type SkillStatusEntry,
 } from "../types"
 
 export interface SkillFileInfo {

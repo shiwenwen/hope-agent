@@ -10,7 +10,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::dispatcher::{
-    deliver_final_only, deliver_preview_merged, deliver_split, DeliveryMetrics,
+    deliver_final_only, deliver_media_to_chat, deliver_preview_merged, deliver_split,
+    send_final_reply, DeliveryMetrics,
 };
 use super::streaming::{
     select_stream_preview_transport, spawn_channel_stream_task, StreamPreviewOutcome,
@@ -216,5 +217,45 @@ pub(crate) async fn deliver_rounds(
             )
             .await
         }
+    }
+}
+
+/// Deliver a complete final response through a pipeline that may have
+/// attached after the turn had already started. Unlike [`deliver_rounds`],
+/// this intentionally ignores `drained_rounds` for text reconstruction:
+/// those rounds only contain deltas observed after the late attach point.
+/// The preview handle is still honored, so a half-rendered IM preview is
+/// replaced with the complete final answer when possible.
+pub(crate) async fn deliver_full_response(
+    plugin: &Arc<dyn ChannelPlugin>,
+    target: &DeliveryTarget<'_>,
+    outcome: &PipelineOutcome,
+    response: &str,
+    media: &[crate::attachments::MediaItem],
+) -> DeliveryMetrics {
+    if response.trim().is_empty() {
+        deliver_media_to_chat(
+            plugin,
+            target.account_id,
+            target.chat_id,
+            target.thread_id,
+            media,
+            &outcome.capabilities,
+        )
+        .await;
+    } else {
+        send_final_reply(
+            plugin,
+            target,
+            response,
+            outcome.stream_outcome.preview.as_ref(),
+            media,
+            &outcome.capabilities,
+        )
+        .await;
+    }
+    DeliveryMetrics {
+        text_chars: response.chars().count(),
+        media_count: media.len(),
     }
 }

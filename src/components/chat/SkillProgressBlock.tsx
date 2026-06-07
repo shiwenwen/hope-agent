@@ -6,6 +6,7 @@ import type { ToolCall } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { getToolExecutionState } from "@/components/chat/message/executionStatus"
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 
 interface SkillProgressBlockProps {
   tool: ToolCall
@@ -110,12 +111,7 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
           </span>
         )}
       </button>
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          expanded && displayBody ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={expanded && !!displayBody} unmountOnExit={false}>
         <div className="px-2.5 pb-2 pt-0.5 max-h-[600px] overflow-y-auto">
           {displayBody && (
             <div className="bg-background rounded p-2 text-[11px] leading-relaxed">
@@ -123,7 +119,7 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
             </div>
           )}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }

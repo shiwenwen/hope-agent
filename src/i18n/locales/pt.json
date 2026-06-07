@@ -25,7 +25,7 @@
     "updateErrorDetails": "Detalhes do erro",
     "updateErrorLogHint": "O registro completo foi gravado em ~/.hope-agent/logs.db (category: updater). Use /ha-logs para investigar ou anexe esse arquivo ao relatar o problema.",
     "updateHistory": "Histórico de atualizações",
-    "updateHistoryDesc": "Veja todas as notas de versão incluídas sem sair do app.",
+    "updateHistoryDesc": "Veja as notas incluídas e os GitHub Releases sincronizados sem sair do app.",
     "updateHistoryEmpty": "Nenhuma nota de versão foi encontrada nesta compilação.",
     "updateHistoryLatest": "Mais recente",
     "updateHistoryNoNotes": "Não há notas disponíveis para esta versão.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "O modelo juiz do modo Smart decidiu que esta chamada precisa de confirmação humana.",
         "title": "Juiz do modo Smart"
+      },
+      "browser_evaluate": {
+        "body": "Esta ação do navegador executará JavaScript arbitrário na aba ativa. O modo Smart pode permitir automaticamente via etiqueta de alta confiança ou modelo juiz.",
+        "title": "JavaScript do navegador"
       },
       "mac_control_action": {
         "title": "Ação do Mac Control",
@@ -295,6 +299,8 @@
     "compactNoChange": "Contexto não precisa de compactação",
     "compactNow": "Compactar contexto",
     "compacting": "Compactando...",
+    "contextCompactingMsgs": "resumindo {{count}} msgs",
+    "contextCompactingTitle": "Compactando contexto",
     "contextCompactedMsgs": "{{count}} msgs",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Contexto compactado",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "Aguardando resposta · {{count}}",
     "pendingQueued": "Mensagem em fila, será enviada após a resposta...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Quando ativado, escolher um modo também atualiza o padrão deste agente para novos chats.",
+        "failed": "Falha ao atualizar o modo de permissão padrão deste agente.",
+        "label": "Atualizar padrão do agente"
+      },
       "default": {
         "desc": "Ferramentas de edição e comandos perigosos exigem aprovação; o resto é executado.",
         "label": "Padrão"
@@ -681,7 +692,12 @@
     "weekSun": "Dom",
     "weekThu": "Qui",
     "weekTue": "Ter",
-    "weekWed": "Qua"
+    "weekWed": "Qua",
+    "archivedProject": "(arquivado)",
+    "autoAgent": "Auto (projeto/padrão)",
+    "missingProject": "Projeto ausente",
+    "noProject": "Sem projeto",
+    "project": "Projeto"
   },
   "dangerousMode": {
     "bannerBoth": "Modo Perigoso ativo (CLI + config) — todas as aprovações de ferramentas são ignoradas",
@@ -1063,6 +1079,10 @@
     "gitDetached": "desanexado",
     "backToRoot": "Voltar ao diretório de trabalho",
     "worktrees": "Árvores de trabalho",
+    "searchPlaceholder": "Pesquisar arquivos",
+    "searchResults": "Resultados da pesquisa",
+    "searchTruncated": "Resultados truncados",
+    "searchEmpty": "Nenhum arquivo correspondente",
     "open": "Abrir navegador de arquivos",
     "resizePanel": "Redimensionar painel de arquivos",
     "noWorkingDir": "Defina um diretório de trabalho para navegar pelos arquivos",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "Sempre em segundo plano",
-        "desc": "Toda chamada async-capable é desacoplada imediatamente e retorna um id de job. O modelo precisa fazer polling com `job_status`."
+        "desc": "Toda chamada async-capable é desacoplada imediatamente e retorna um id de job. Os resultados são injetados automaticamente; `job_status` serve apenas para consultas ocasionais de status."
       },
       "neverBackground": {
         "label": "Nunca em segundo plano",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "Timeout (segundos)",
     "imageGenerate": "Geração de imagens",
     "imageGenerateDesc": "Configure Providers de geração de imagens IA (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). Uma vez ativado, o Agent pode gerar e editar imagens via a ferramenta image_generate.",
+    "issueReporting": "Relato de issues",
+    "issueReportingTitle": "Relato de issues",
+    "issueReportingDesc": "Permite que a ferramenta issue_report envie GitHub Issues depois da sua confirmação.",
+    "issueReportingOwner": "Proprietário",
+    "issueReportingRepo": "Repositório",
+    "issueReportingApiBaseUrl": "URL base da API do GitHub",
+    "issueReportingMaxEvidenceChars": "Máximo de caracteres de evidência",
+    "issueReportingLabels": "Etiquetas",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "Recurso",
+      "improvement": "Melhoria"
+    },
+    "issueReportingDuplicateSearch": "Busca de issues duplicadas",
+    "issueReportingDuplicateSearchDesc": "Orienta o fluxo da skill a buscar issues abertas existentes antes de criar o rascunho.",
+    "issueReportingToken": "Token do GitHub",
+    "issueReportingTokenConfigured": "Um token está configurado.",
+    "issueReportingTokenMissing": "Nenhum token configurado. O Hope Agent tentará usar o gh CLI autenticado.",
+    "issueReportingTokenPlaceholderClear": "Deixe em branco e salve para limpar",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "Salvar token",
+    "issueReportingTokenSaved": "Token do GitHub salvo",
+    "issueReportingTokenCleared": "Token do GitHub removido",
+    "issueReportingTokenSaveFailed": "Falha ao salvar token do GitHub",
+    "issueReportingTestSuccessToken": "O token do GitHub consegue acessar o repositório configurado.",
+    "issueReportingTestSuccessGh": "Nenhum token do GitHub configurado; o gh CLI está autenticado e consegue acessar o repositório.",
+    "issueReportingTestFailed": "Teste de conexão com o GitHub falhou",
     "inheritGlobal": "Herdar Configurações Globais",
     "items": "itens",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "Espaço de trabalho",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "Progresso",
     "sectionOutput": "Saída",
     "sectionSources": "Fontes",
@@ -4735,6 +4783,64 @@
     "resizePanel": "Redimensionar painel do espaço de trabalho",
     "sourceFromSearch": "Pesquisa",
     "truncatedNote": "Mostrando os 1000 mais recentes",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "Novo",
       "edit": "Editar",

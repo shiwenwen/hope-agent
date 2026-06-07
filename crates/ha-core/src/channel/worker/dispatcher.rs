@@ -457,7 +457,6 @@ async fn handle_inbound_message(
                 };
                 send_text_chunks(&plugin, &slash_target, &content, None, &buttons).await;
                 emit_channel_update(effective_sid);
-                emit_stream_lifecycle("channel:stream_end", effective_sid);
                 return Ok(());
             }
             Ok(ChannelSlashOutcome::PassThrough(message)) => {
@@ -473,7 +472,6 @@ async fn handle_inbound_message(
                     reply_to_message_id: Some(&msg.message_id),
                 };
                 send_text_chunks(&plugin, &err_target, &error_reply, None, &[]).await;
-                emit_stream_lifecycle("channel:stream_end", &session_id);
                 return Ok(());
             }
         }
@@ -1393,7 +1391,7 @@ pub(super) fn merge_preview_round_texts(rounds: &[crate::chat_engine::RoundOutpu
 ///   markdown-to-native rendered response into chunks and `send_message` each
 ///   one. For `Message`, the first chunk replaces the existing preview via
 ///   `edit_message` (with `send_message` as a fallback).
-pub(super) async fn send_final_reply(
+pub(crate) async fn send_final_reply(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     response: &str,

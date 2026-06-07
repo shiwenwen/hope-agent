@@ -125,8 +125,12 @@ export interface SkillStatusEntry {
   name: string
   source: string
   eligible: boolean
+  hard_blocked?: boolean
+  needs_setup?: boolean
   disabled: boolean
   blocked_by_allowlist: boolean
+  current_os?: string | null
+  supported_os?: string[]
   missing_bins?: string[]
   missing_any_bins?: string[]
   missing_env?: string[]

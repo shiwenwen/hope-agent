@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { useAppVersion } from "@/lib/appMeta"
 import { basename } from "@/lib/path"
 import { IconTip } from "@/components/ui/tooltip"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Copy,
   BarChart3,
@@ -277,92 +278,91 @@ export default function ChatTitleBar({
       </span>
     </IconTip>
   ) : null
-  const rightPanelControls =
-    hasRightPanelControls ? (
-      <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
-        {onToggleFilesPanel && (
-          <IconTip label={t("fileBrowser.open", "Show files")}>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-                filesPanelOpen && "text-foreground",
-              )}
-              aria-label={t("fileBrowser.open", "Show files")}
-              aria-pressed={filesPanelOpen}
-              onClick={onToggleFilesPanel}
-            >
-              <FolderOpen className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {onToggleWorkspacePanel && (
-          <IconTip label={t("workspace.openPanel", "Open workspace")}>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-                workspacePanelOpen && "text-foreground",
-              )}
-              aria-label={t("workspace.openPanel", "Open workspace")}
-              aria-pressed={workspacePanelOpen}
-              onClick={onToggleWorkspacePanel}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {rightPanels.length > 1 && activeRightPanel && (
-          <div
-            className="flex h-7 max-w-[184px] items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/40 p-0.5"
-            role="tablist"
-            aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
+  const rightPanelControls = hasRightPanelControls ? (
+    <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
+      {onToggleFilesPanel && (
+        <IconTip label={t("fileBrowser.open", "Show files")}>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+              filesPanelOpen && "text-foreground",
+            )}
+            aria-label={t("fileBrowser.open", "Show files")}
+            aria-pressed={filesPanelOpen}
+            onClick={onToggleFilesPanel}
           >
-            {rightPanels.map((panel) => {
-              const PanelIcon = panel.icon
-              const active = panel.id === activeRightPanel.id
-              return (
-                <IconTip key={panel.id} label={panel.label}>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    aria-label={panel.label}
-                    className={cn(
-                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-background/80 hover:text-foreground",
-                      active && "bg-background text-foreground shadow-sm ring-1 ring-border/60",
-                    )}
-                    onClick={() => onSelectRightPanel?.(panel.id)}
-                  >
-                    <PanelIcon className="h-3.5 w-3.5" />
-                  </button>
-                </IconTip>
-              )
-            })}
-          </div>
-        )}
-        {onToggleRightPanelCollapsed && (
-          <IconTip label={rightPanelToggleLabel}>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary/70 hover:text-foreground",
-                rightPanelCollapsed ? "text-muted-foreground" : "text-foreground",
-              )}
-              aria-label={rightPanelToggleLabel}
-              aria-expanded={!rightPanelCollapsed}
-              onClick={onToggleRightPanelCollapsed}
-            >
-              {rightPanelCollapsed ? (
-                <PanelRightDashed className="h-4 w-4" />
-              ) : (
-                <PanelRight className="h-4 w-4" />
-              )}
-            </button>
-          </IconTip>
-        )}
-      </div>
-    ) : null
+            <FolderOpen className="h-4 w-4" />
+          </button>
+        </IconTip>
+      )}
+      {onToggleWorkspacePanel && (
+        <IconTip label={t("workspace.openPanel", "Open workspace")}>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+              workspacePanelOpen && "text-foreground",
+            )}
+            aria-label={t("workspace.openPanel", "Open workspace")}
+            aria-pressed={workspacePanelOpen}
+            onClick={onToggleWorkspacePanel}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+          </button>
+        </IconTip>
+      )}
+      {rightPanels.length > 1 && activeRightPanel && (
+        <div
+          className="flex h-7 max-w-[184px] items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/40 p-0.5"
+          role="tablist"
+          aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
+        >
+          {rightPanels.map((panel) => {
+            const PanelIcon = panel.icon
+            const active = panel.id === activeRightPanel.id
+            return (
+              <IconTip key={panel.id} label={panel.label}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={panel.label}
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-background/80 hover:text-foreground",
+                    active && "bg-background text-foreground shadow-sm ring-1 ring-border/60",
+                  )}
+                  onClick={() => onSelectRightPanel?.(panel.id)}
+                >
+                  <PanelIcon className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            )
+          })}
+        </div>
+      )}
+      {onToggleRightPanelCollapsed && (
+        <IconTip label={rightPanelToggleLabel}>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary/70 hover:text-foreground",
+              rightPanelCollapsed ? "text-muted-foreground" : "text-foreground",
+            )}
+            aria-label={rightPanelToggleLabel}
+            aria-expanded={!rightPanelCollapsed}
+            onClick={onToggleRightPanelCollapsed}
+          >
+            {rightPanelCollapsed ? (
+              <PanelRightDashed className="h-4 w-4" />
+            ) : (
+              <PanelRight className="h-4 w-4" />
+            )}
+          </button>
+        </IconTip>
+      )}
+    </div>
+  ) : null
 
   return (
     <div
@@ -559,13 +559,12 @@ export default function ChatTitleBar({
               <BarChart3 className="h-4 w-4" />
             </button>
           </IconTip>
-          <div
-            className={cn(
-              "absolute top-full right-0 mt-1.5 z-50 min-w-[260px] rounded-xl border border-border bg-popover p-3.5 shadow-xl transition-all duration-200 origin-top-right",
-              showStatus
-                ? "opacity-100 scale-100 pointer-events-auto"
-                : "opacity-0 scale-95 pointer-events-none",
-            )}
+          <FloatingMenu
+            open={showStatus}
+            positionClassName="top-full right-0 mt-1.5"
+            originClassName="origin-top-right"
+            className="ha-menu-from-top min-w-[260px] rounded-xl border-border bg-popover p-3.5 shadow-xl"
+            onEscapeKeyDown={() => setShowStatus(false)}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="space-y-2 text-xs">
@@ -848,7 +847,7 @@ export default function ChatTitleBar({
                 </>
               )}
             </div>
-          </div>
+          </FloatingMenu>
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (
@@ -879,9 +878,7 @@ export default function ChatTitleBar({
           open={exportOpen}
           onOpenChange={setExportOpen}
           sessionId={currentSessionId}
-          sessionTitle={
-            sessions.find((s) => s.id === currentSessionId)?.title ?? null
-          }
+          sessionTitle={sessions.find((s) => s.id === currentSessionId)?.title ?? null}
         />
       )}
     </div>

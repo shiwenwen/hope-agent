@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { File, Folder, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import type { MentionEntry, MentionMode } from "./types"
 import type { ReferenceableNote } from "@/types/knowledge"
 
@@ -66,6 +67,8 @@ export default function FileMentionMenu({
   // opens with no working dir and nothing to show.
   if (!showFileSection && !error && !hasNotes && !notesLoading) return null
 
+  // Compute breadcrumb relative to workingDir for list mode; search mode shows
+  // the working dir basename.
   const breadcrumb = computeBreadcrumb(workingDir, dirPath, mode)
   const showNoteSection = hasNotes || (noteCapable && notesLoading)
   const sectionHeaderClass =
@@ -79,11 +82,10 @@ export default function FileMentionMenu({
     )
 
   return (
-    <div
-      className="absolute bottom-full left-0 right-0 mb-2 mx-3 z-50 max-h-[320px] overflow-y-auto overscroll-contain
-                 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl
-                 shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-1.5
-                 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
+    <FloatingMenu
+      open={isOpen}
+      positionClassName="bottom-full left-0 right-0 mb-2 mx-3"
+      className="max-h-[320px] overflow-y-auto overscroll-contain p-1.5"
       role="listbox"
     >
       {/* ── Files section (only when a working dir is set) ── */}
@@ -180,7 +182,7 @@ export default function FileMentionMenu({
           </button>
         )
       })}
-    </div>
+    </FloatingMenu>
   )
 }
 

@@ -156,6 +156,9 @@ impl StreamLifecycle {
         if let Some(ref stream_id) = self.stream_id {
             let released = stream_seq::end_if_stream(&self.session_id, stream_id);
             if !released {
+                if let Some(ref turn_id) = self.turn_id {
+                    super::turn_injection::clear_turn(&self.session_id, turn_id);
+                }
                 self.finished = true;
                 return;
             }
@@ -169,6 +172,9 @@ impl StreamLifecycle {
                     self.terminal_error.as_deref(),
                 );
             }
+        }
+        if let Some(ref turn_id) = self.turn_id {
+            super::turn_injection::clear_turn(&self.session_id, turn_id);
         }
         self.finished = true;
     }
@@ -1152,6 +1158,27 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         model_ref.provider_id,
                         model_ref.model_id
                     );
+
+                    if let Ok(event_str) = serde_json::to_string(&serde_json::json!({
+                        "type": "context_compacted",
+                        "data": {
+                            "tier_applied": 4,
+                            "description": "emergency_compacting",
+                            "attempt": compaction_attempts,
+                            "max_attempts": MAX_COMPACTION_RETRIES,
+                            "provider_id": model_ref.provider_id,
+                            "model_id": model_ref.model_id,
+                        },
+                    })) {
+                        let _ = emit_stream_event(
+                            &db,
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            &event_str,
+                        );
+                    }
 
                     // Build a temporary agent to run the compaction. Same
                     // profile that just hit overflow so the cache prefix is

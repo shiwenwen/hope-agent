@@ -1290,7 +1290,7 @@ pub async fn execute_tool_with_context(
             TOOL_MANAGE_CRON => {
                 cron::tool_manage_cron(args, dispatch_ctx.session_id.as_deref()).await
             }
-            TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx.session_id.as_deref()).await,
+            TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx).await,
             TOOL_MAC_CONTROL => mac_control::tool_mac_control(args).await,
             TOOL_SEND_NOTIFICATION => {
                 notification::tool_send_notification(args, dispatch_ctx).await

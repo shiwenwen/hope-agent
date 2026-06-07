@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
 interface AgentSwitcherProps {
@@ -83,34 +84,38 @@ export default function AgentSwitcher({
           className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")}
         />
       </button>
-      {open && (
-        <div className="absolute left-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[200px] p-1.5 animate-in fade-in-0 zoom-in-95 duration-150">
-          {agents.length === 0 ? (
-            <div className="px-2 py-1.5 text-[12px] text-muted-foreground italic">No agents</div>
-          ) : (
-            agents.map((agent) => {
-              const isCurrent = agent.id === currentAgentId
-              return (
-                <button
-                  key={agent.id}
-                  className={cn(
-                    "flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md transition-colors",
-                    isCurrent
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
-                  )}
-                  onClick={() => {
-                    onSelect(agent.id)
-                    setOpen(false)
-                  }}
-                >
-                  <AgentSelectDisplay agent={agent} />
-                </button>
-              )
-            })
-          )}
-        </div>
-      )}
+      <FloatingMenu
+        open={open}
+        positionClassName="left-0 top-full mt-1"
+        originClassName="origin-top-left"
+        className="ha-menu-from-top min-w-[200px] p-1.5"
+        onEscapeKeyDown={() => setOpen(false)}
+      >
+        {agents.length === 0 ? (
+          <div className="px-2 py-1.5 text-[12px] text-muted-foreground italic">No agents</div>
+        ) : (
+          agents.map((agent) => {
+            const isCurrent = agent.id === currentAgentId
+            return (
+              <button
+                key={agent.id}
+                className={cn(
+                  "flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md transition-colors",
+                  isCurrent
+                    ? "bg-primary/10 text-primary"
+                    : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+                )}
+                onClick={() => {
+                  onSelect(agent.id)
+                  setOpen(false)
+                }}
+              >
+                <AgentSelectDisplay agent={agent} />
+              </button>
+            )
+          })
+        )}
+      </FloatingMenu>
     </div>
   )
 }

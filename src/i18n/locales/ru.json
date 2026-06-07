@@ -25,7 +25,7 @@
     "updateErrorDetails": "Подробности ошибки",
     "updateErrorLogHint": "Полный трейс записан в ~/.hope-agent/logs.db (category: updater). Используйте /ha-logs для разбора или приложите этот файл к отчёту о проблеме.",
     "updateHistory": "История обновлений",
-    "updateHistoryDesc": "Просматривайте все встроенные заметки к выпускам, не выходя из приложения.",
+    "updateHistoryDesc": "Просматривайте встроенные заметки и синхронизированные GitHub Releases, не выходя из приложения.",
     "updateHistoryEmpty": "В этой сборке не найдены заметки к выпускам.",
     "updateHistoryLatest": "Последняя",
     "updateHistoryNoNotes": "Для этого выпуска нет доступных заметок.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "Модель-судья режима Smart решила, что этот вызов требует подтверждения человеком.",
         "title": "Судья режима Smart"
+      },
+      "browser_evaluate": {
+        "body": "Это действие браузера выполнит произвольный JavaScript в активной вкладке. Режим Smart может автоматически разрешить его по метке высокой уверенности или решению модели-судьи.",
+        "title": "JavaScript в браузере"
       },
       "mac_control_action": {
         "title": "Действие Mac Control",
@@ -295,6 +299,8 @@
     "compactNoChange": "Контекст не нуждается в сжатии",
     "compactNow": "Сжать контекст",
     "compacting": "Сжатие...",
+    "contextCompactingMsgs": "суммируется {{count}} сообщ.",
+    "contextCompactingTitle": "Сжатие контекста",
     "contextCompactedMsgs": "{{count}} сообщ.",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Контекст сжат",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "Ожидание ответа · {{count}}",
     "pendingQueued": "Сообщение в очереди, будет отправлено после ответа...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Если включено, выбор режима также обновит режим по умолчанию для новых чатов этого агента.",
+        "failed": "Не удалось обновить режим разрешений по умолчанию для этого агента.",
+        "label": "Обновлять умолчание агента"
+      },
       "default": {
         "desc": "Инструменты редактирования и опасные команды требуют одобрения, остальное выполняется.",
         "label": "По умолчанию"
@@ -681,7 +692,12 @@
     "weekSun": "Вс",
     "weekThu": "Чт",
     "weekTue": "Вт",
-    "weekWed": "Ср"
+    "weekWed": "Ср",
+    "archivedProject": "(в архиве)",
+    "autoAgent": "Авто (проект/по умолчанию)",
+    "missingProject": "Проект отсутствует",
+    "noProject": "Без проекта",
+    "project": "Проект"
   },
   "dangerousMode": {
     "bannerBoth": "Опасный режим активен (CLI + конфиг) — все подтверждения инструментов пропускаются",
@@ -1063,6 +1079,10 @@
     "gitDetached": "отделён",
     "backToRoot": "Назад к рабочему каталогу",
     "worktrees": "Рабочие деревья",
+    "searchPlaceholder": "Поиск файлов",
+    "searchResults": "Результаты поиска",
+    "searchTruncated": "Результаты усечены",
+    "searchEmpty": "Нет совпадающих файлов",
     "open": "Открыть файловый браузер",
     "resizePanel": "Изменить размер панели файлов",
     "noWorkingDir": "Укажите рабочий каталог для просмотра файлов",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "Всегда в фоне",
-        "desc": "Каждый вызов асинхронно-совместимого инструмента сразу переводится в фон и возвращает id задания. Модель должна опрашивать его через `job_status`."
+        "desc": "Каждый вызов асинхронно-совместимого инструмента сразу переводится в фон и возвращает id задания. Результаты автоматически вставляются обратно; `job_status` нужен только для редких снимков статуса."
       },
       "neverBackground": {
         "label": "Никогда в фоне",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "Таймаут (секунд)",
     "imageGenerate": "Генерация изображений",
     "imageGenerateDesc": "Настройка Provider AI-генерации изображений (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). После включения Agent сможет создавать и редактировать изображения через инструмент image_generate.",
+    "issueReporting": "Отчеты об issue",
+    "issueReportingTitle": "Отчеты об issue",
+    "issueReportingDesc": "Позволяет инструменту issue_report отправлять GitHub Issue после вашего подтверждения.",
+    "issueReportingOwner": "Владелец",
+    "issueReportingRepo": "Репозиторий",
+    "issueReportingApiBaseUrl": "Базовый URL GitHub API",
+    "issueReportingMaxEvidenceChars": "Максимум символов в доказательствах",
+    "issueReportingLabels": "Метки",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "Функция",
+      "improvement": "Улучшение"
+    },
+    "issueReportingDuplicateSearch": "Поиск дубликатов issue",
+    "issueReportingDuplicateSearchDesc": "Предлагает skill-процессу искать существующие открытые issue перед созданием черновика.",
+    "issueReportingToken": "GitHub token",
+    "issueReportingTokenConfigured": "Token настроен.",
+    "issueReportingTokenMissing": "Token не настроен. Hope Agent попробует использовать аутентифицированный gh CLI.",
+    "issueReportingTokenPlaceholderClear": "Оставьте пустым и сохраните, чтобы очистить",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "Сохранить token",
+    "issueReportingTokenSaved": "GitHub token сохранен",
+    "issueReportingTokenCleared": "GitHub token очищен",
+    "issueReportingTokenSaveFailed": "Не удалось сохранить GitHub token",
+    "issueReportingTestSuccessToken": "GitHub token может обратиться к настроенному репозиторию.",
+    "issueReportingTestSuccessGh": "GitHub token не настроен; gh CLI аутентифицирован и может обратиться к репозиторию.",
+    "issueReportingTestFailed": "Проверка подключения к GitHub не удалась",
     "inheritGlobal": "Наследовать глобальные настройки",
     "items": "шт",
     "kb": "КБ",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "Рабочая область",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "Прогресс",
     "sectionOutput": "Вывод",
     "sectionSources": "Источники",
@@ -4735,6 +4783,64 @@
     "resizePanel": "Изменить размер панели рабочей области",
     "sourceFromSearch": "Поиск",
     "truncatedNote": "Показаны последние 1000",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "Создать",
       "edit": "Изменить",

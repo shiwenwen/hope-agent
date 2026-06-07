@@ -39,7 +39,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Timeout in seconds. Defaults to 1800 (30 min). Positive values are capped at 7200; set 0 to disable the exec command timeout."
+                        "description": "Timeout in seconds. Defaults to 0 (no exec command timeout). Positive values are capped at 7200; set a positive value when you want this command to be killed after that many seconds."
                     },
                     "env": {
                         "type": "object",
@@ -464,7 +464,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Cron / Scheduled Tasks ──────────────────────────────
         ToolDefinition {
             name: TOOL_MANAGE_CRON.into(),
-            description: "Create, list, get, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.\n\nUse this for reminders, follow-ups, and repeated nudges over time. If the user asks for something like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with `exec`/`date`.\n\nResult delivery: a cron job's final output can be fanned out to one or more IM channel conversations (Telegram / WeChat / Slack / Feishu / Discord / etc.) via `delivery_targets`. Two workflows:\n\n1. When the user is chatting via an IM channel and creates a job without specifying `delivery_targets`, the job's output is delivered back to the same chat by default. Pass `delivery_targets=[]` to explicitly opt out.\n2. To fan out to other channels (or to discover target ids from a desktop chat), first call `action='list_channel_targets'` to enumerate available accounts and conversations, then pass the exact channel_id/account_id/chat_id triples.\n\nFailures are also delivered (as `⚠️ [Cron] {name} failed: {error}`) to the same targets.".into(),
+            description: "Create, list, get, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.\n\nUse this for reminders, follow-ups, and repeated nudges over time. If the user asks for something like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with `exec`/`date`.\n\nProject context: pass `project_id` to bind each run's isolated session to a Project so Project instructions, Project memories, and the Project working directory are injected exactly like a normal Project chat. On create, omitting `project_id` inherits the current session's Project when there is one; pass `project_id=null` or an empty string to explicitly create a non-Project cron job. Use `action='list_projects'` to discover Project ids.\n\nResult delivery: a cron job's final output can be fanned out to one or more IM channel conversations (Telegram / WeChat / Slack / Feishu / Discord / etc.) via `delivery_targets`. Two workflows:\n\n1. When the user is chatting via an IM channel and creates a job without specifying `delivery_targets`, the job's output is delivered back to that same chat by default. Pass `delivery_targets=[]` to explicitly opt out.\n2. To fan out to other channels (or to discover target ids from a desktop chat), first call `action='list_channel_targets'` to enumerate available accounts and conversations, then pass the exact channel_id/account_id/chat_id triples.\n\nFailures are also delivered (as `⚠️ [Cron] {name} failed: {error}`) to the same targets.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: true,
             concurrent_safe: false,
@@ -477,9 +477,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "enum": [
                             "create", "update", "list", "get",
                             "delete", "pause", "resume", "run_now",
-                            "list_channel_targets"
+                            "list_channel_targets", "list_projects"
                         ],
-                        "description": "Action to perform. 'list_channel_targets' enumerates IM channel conversations you can pass into 'delivery_targets'."
+                        "description": "Action to perform. 'list_channel_targets' enumerates IM channel conversations you can pass into 'delivery_targets'. 'list_projects' enumerates Projects you can pass into 'project_id'."
                     },
                     "id": {
                         "type": "string",
@@ -524,7 +524,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "agent_id": {
                         "type": "string",
-                        "description": "Target agent ID (default: current agent)"
+                        "description": "Explicit target agent ID. When omitted and project_id is set, the Project default agent is used before falling back to the global default."
+                    },
+                    "project_id": {
+                        "type": ["string", "null"],
+                        "description": "Project ID for this scheduled task. On create, omit to inherit the current session's Project when present; pass null or an empty string to force no Project. On update, omit to leave unchanged; pass null or an empty string to clear."
                     },
                     "max_failures": {
                         "type": "integer",
@@ -548,6 +552,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             },
                             "required": ["channel_id", "account_id", "chat_id"]
                         }
+                    },
+                    "include_archived": {
+                        "type": "boolean",
+                        "description": "For action='list_projects', include archived Projects."
                     }
                 },
                 "required": ["action"],

@@ -61,6 +61,9 @@ pub enum AskReason {
     AgentCustomList,
     /// Smart mode `judge_model` returned `ask`.
     SmartJudge { rationale: String },
+    /// Browser `control.evaluate` is about to execute arbitrary JavaScript in
+    /// the active tab.
+    BrowserEvaluate { script_preview: String },
     /// Native macOS control action that mutates desktop focus/state.
     MacControlAction { action: String },
     /// Native macOS control action with destructive potential.

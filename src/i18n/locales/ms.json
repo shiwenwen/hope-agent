@@ -25,7 +25,7 @@
     "updateErrorDetails": "Butiran ralat",
     "updateErrorLogHint": "Jejak penuh telah ditulis ke ~/.hope-agent/logs.db (category: updater). Gunakan /ha-logs untuk menyiasat atau lampirkan fail tersebut semasa melaporkan masalah.",
     "updateHistory": "Sejarah kemas kini",
-    "updateHistoryDesc": "Lihat semua nota keluaran yang dibundel tanpa meninggalkan aplikasi.",
+    "updateHistoryDesc": "Lihat nota yang dibundel serta GitHub Releases yang disegerakkan tanpa meninggalkan aplikasi.",
     "updateHistoryEmpty": "Tiada nota keluaran ditemui dalam binaan ini.",
     "updateHistoryLatest": "Terkini",
     "updateHistoryNoNotes": "Tiada nota tersedia untuk keluaran ini.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "Model hakim mod Smart memutuskan panggilan ini memerlukan pengesahan manusia.",
         "title": "Hakim mod Smart"
+      },
+      "browser_evaluate": {
+        "body": "Tindakan pelayar ini akan menjalankan JavaScript sewenang-wenangnya dalam tab aktif. Mod Smart boleh membenarkannya secara automatik melalui tag keyakinan tinggi atau model hakim.",
+        "title": "JavaScript pelayar"
       },
       "mac_control_action": {
         "title": "Tindakan Mac Control",
@@ -295,6 +299,8 @@
     "compactNoChange": "Konteks tidak perlu dimampatkan",
     "compactNow": "Mampatkan konteks",
     "compacting": "Memampatkan...",
+    "contextCompactingMsgs": "meringkaskan {{count}} mesej",
+    "contextCompactingTitle": "Memampatkan konteks",
     "contextCompactedMsgs": "{{count}} mesej",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Konteks dipadatkan",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "Menunggu respons · {{count}}",
     "pendingQueued": "Mesej dalam barisan, akan dihantar selepas balasan...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Apabila dihidupkan, memilih mod juga mengemas kini lalai Agent ini untuk chat baharu.",
+        "failed": "Gagal mengemas kini mod kebenaran lalai Agent ini.",
+        "label": "Kemas kini lalai Agent"
+      },
       "default": {
         "desc": "Alat suntingan dan arahan berbahaya perlu kelulusan; selainnya dijalankan.",
         "label": "Lalai"
@@ -681,7 +692,12 @@
     "weekSun": "Aha",
     "weekThu": "Kha",
     "weekTue": "Sel",
-    "weekWed": "Rab"
+    "weekWed": "Rab",
+    "archivedProject": "(diarkibkan)",
+    "autoAgent": "Auto (projek/lalai)",
+    "missingProject": "Projek tiada",
+    "noProject": "Tiada projek",
+    "project": "Projek"
   },
   "dangerousMode": {
     "bannerBoth": "Mod Berbahaya aktif (CLI + konfig) — semua kelulusan alat dipintas",
@@ -1063,6 +1079,10 @@
     "gitDetached": "terpisah",
     "backToRoot": "Kembali ke direktori kerja",
     "worktrees": "Pokok kerja",
+    "searchPlaceholder": "Cari fail",
+    "searchResults": "Hasil carian",
+    "searchTruncated": "Hasil dipendekkan",
+    "searchEmpty": "Tiada fail sepadan",
     "open": "Buka pelayar fail",
     "resizePanel": "Ubah saiz panel fail",
     "noWorkingDir": "Tetapkan direktori kerja untuk melayari fail",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "Sentiasa di latar belakang",
-        "desc": "Setiap panggilan yang menyokong async dialihkan serta-merta ke latar belakang dan mengembalikan id kerja. Model perlu poll dengan `job_status`."
+        "desc": "Setiap panggilan yang menyokong async dialihkan serta-merta ke latar belakang dan mengembalikan id kerja. Hasil disuntik secara automatik; `job_status` hanya untuk semakan status sekali-sekala."
       },
       "neverBackground": {
         "label": "Tidak pernah di latar belakang",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "Tamat masa (saat)",
     "imageGenerate": "Penjanaan imej",
     "imageGenerateDesc": "Konfigurasikan Provider penjanaan imej AI (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). Setelah didayakan, Agent boleh menjana dan mengedit imej melalui alat image_generate.",
+    "issueReporting": "Pelaporan issue",
+    "issueReportingTitle": "Pelaporan issue",
+    "issueReportingDesc": "Membolehkan alat issue_report menghantar GitHub Issue selepas pengesahan anda.",
+    "issueReportingOwner": "Pemilik",
+    "issueReportingRepo": "Repositori",
+    "issueReportingApiBaseUrl": "URL asas GitHub API",
+    "issueReportingMaxEvidenceChars": "Aksara bukti maksimum",
+    "issueReportingLabels": "Label",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "Ciri",
+      "improvement": "Penambahbaikan"
+    },
+    "issueReportingDuplicateSearch": "Carian issue pendua",
+    "issueReportingDuplicateSearchDesc": "Meminta aliran kerja skill mencari issue terbuka sedia ada sebelum merangka.",
+    "issueReportingToken": "Token GitHub",
+    "issueReportingTokenConfigured": "Token telah dikonfigurasikan.",
+    "issueReportingTokenMissing": "Tiada token dikonfigurasikan. Hope Agent akan cuba menggunakan gh CLI yang telah disahkan.",
+    "issueReportingTokenPlaceholderClear": "Biarkan kosong dan simpan untuk mengosongkan",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "Simpan token",
+    "issueReportingTokenSaved": "Token GitHub disimpan",
+    "issueReportingTokenCleared": "Token GitHub dikosongkan",
+    "issueReportingTokenSaveFailed": "Gagal menyimpan token GitHub",
+    "issueReportingTestSuccessToken": "Token GitHub boleh mengakses repositori yang dikonfigurasikan.",
+    "issueReportingTestSuccessGh": "Token GitHub tidak dikonfigurasikan; gh CLI telah disahkan dan boleh mengakses repositori.",
+    "issueReportingTestFailed": "Ujian sambungan GitHub gagal",
     "inheritGlobal": "Warisi Tetapan Global",
     "items": "item",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "Ruang kerja",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "Kemajuan",
     "sectionOutput": "Output",
     "sectionSources": "Sumber",
@@ -4735,6 +4783,64 @@
     "resizePanel": "Ubah saiz panel ruang kerja",
     "sourceFromSearch": "Carian",
     "truncatedNote": "Memaparkan 1000 terkini",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "Baharu",
       "edit": "Sunting",

@@ -7,30 +7,20 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core"
-import {
-  SortableContext,
-  arrayMove,
-  rectSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable"
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import {
-  Bot,
-  Ghost,
-  GripVertical,
-  MessageSquarePlus,
-  Settings,
-} from "lucide-react"
+import { Bot, Ghost, GripVertical, MessageSquarePlus, Settings } from "lucide-react"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import SidebarSectionHeader from "./SidebarSectionHeader"
 import type { SidebarDisplayMode } from "./types"
@@ -133,9 +123,7 @@ function SortableAgentCard({
                     <div
                       className={cn(
                         "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
-                        isSelected
-                          ? "bg-primary/25 text-primary"
-                          : "bg-primary/15 text-primary",
+                        isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary",
                       )}
                     >
                       {agent.avatar ? (
@@ -229,10 +217,7 @@ export default function AgentSection({
     1,
     Math.min(
       agents.length || 1,
-      Math.floor(
-        (agentGridWidth + AGENT_GRID_GAP_PX) /
-          (agentCardMinWidth + AGENT_GRID_GAP_PX),
-      ),
+      Math.floor((agentGridWidth + AGENT_GRID_GAP_PX) / (agentCardMinWidth + AGENT_GRID_GAP_PX)),
     ),
   )
 
@@ -247,24 +232,20 @@ export default function AgentSection({
   }
 
   return (
-    <div className={cn("border-b border-border/50 px-3 pb-1", displayMode === "compact" ? "pt-2" : "pt-3")}>
+    <div
+      className={cn(
+        "border-b border-border/50 px-3 pb-1",
+        displayMode === "compact" ? "pt-2" : "pt-3",
+      )}
+    >
       <SidebarSectionHeader
         title={t("settings.agents")}
         count={agents.length}
         expanded={agentsExpanded}
         onToggle={() => setAgentsExpanded(!agentsExpanded)}
       />
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          agentsExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
+      <AnimatedCollapse open={agentsExpanded} unmountOnExit={false}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={agents.map((agent) => agent.id)} strategy={rectSortingStrategy}>
             <div
               className="grid gap-1 pb-2"
@@ -288,7 +269,7 @@ export default function AgentSection({
             </div>
           </SortableContext>
         </DndContext>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }

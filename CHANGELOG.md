@@ -21,6 +21,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **知识空间·IM 渠道按需开放访问**：IM 渠道默认仍无知识空间访问；可在「设置 → 渠道」按账号开启「知识空间访问」，私聊即生效，群聊还需在群内执行 `/kb on` 单独确认（`/kb off` 撤销、`/kb` 查看状态）。无痕会话、未授权账号、未确认群聊、以及 IM 发起的子代理一律仍无访问。 (#TBD)
 - **知识空间·被动相关笔记与记忆+笔记合并检索**：新增可选的「被动相关笔记」——开启后每轮对话会把与你消息相关的可访问笔记标题作为提示注入（只给标题、永不当指令，无痕会话与未授权渠道不召回），在「设置 → 知识空间」开关并调节数量/缓存；AI 还新增 `knowledge_recall` 工具，一次同时检索记忆与笔记并分两组返回（互不混排，不影响原有记忆召回）。 (#TBD)
 - **知识空间·实时预览模式与引用到聊天**：笔记编辑器新增「实时」模式——像 Obsidian 一样在源码上就地隐藏 Markdown 语法符号（标题按级别放大、**粗体** / *斜体* / 删除线、行内代码、无序列表符号渲成圆点），光标移到那一行即还原原文可编辑，底层始终是纯 `.md`（不引入 WYSIWYG 引擎，规避格式被往返改写的风险）；编辑器标题栏新增「引用到聊天」按钮，把当前笔记（有选区时带最近上方标题作锚点）作为 `[[引用]]` 一键塞进聊天输入框，并自动以只读权限把该知识空间挂到会话上以确保引用生效（无痕会话不挂）。 (#TBD)
+- **文件浏览器搜索**：项目 / 会话文件浏览器新增按文件名与路径的模糊搜索，支持搜索结果停留、键盘上下选择、回车预览、目录结果展开定位，以及跨 session / project / worktree 的 scope-based 后端搜索，避免 Project 默认工作目录下搜索失败。
+- **定时任务关联 Project**：Cron 任务可绑定 Project，人工表单和 `manage_cron` 工具都能设置；执行时会创建带 Project 上下文的隔离会话，复用 Project 指令、项目记忆、工作目录与工具 cwd 解析。Agent 支持 `Auto`，按显式 Agent → Project 默认 Agent → 全局默认 → `ha-main` 解析；Project 被删除后任务会自动清空关联并按普通 Cron 降级执行。任务列表、详情、日历 API 与模型工具输出同步展示 `projectId` / Project 标签。
+- **内置 Office 三件套 Skills**：新增 `office-docx` / `office-xlsx` / `office-pptx` 三个内置技能，以 skill + bundled scripts 形式提供 Word、Excel、PowerPoint 本地生成、编辑、检查与预览能力。DOCX 支持真实 Word 列表、批注、修订、图片 alt、TOC、脚注/尾注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏与 Google Docs-targeted 清理；XLSX 支持真实 Excel tables、公式、样式、数据验证、条件格式、图表、CSV/TSV 转换、公式审计/缓存与 LibreOffice 重算；PPTX 支持标题/章节/图文/指标/表格/时间线、native chart、文本 patch、追加、复制/重排 slide、布局审计与 contact sheet。
+- **Office Skills 回归验证脚本**：新增 `scripts/office-skill-parity-audit.py` 与 `scripts/office-skill-smoke-test.py`，分别做 Office skill 能力面审计与端到端生成/编辑/检查/渲染 smoke，覆盖 DOCX `sectPr` 插入位置、水印 header 冲突、PPTX 非 slide relationships 保留、XLSX patch / formula cache 等关键回归。
+
+### Changed
+
+- **聊天输入框与菜单交互打磨**：输入框附件入口合并为「添加照片和文件」，模型、思考强度与温度设置收入口到同一浮层；窄宽度下工具栏布局与高度更稳定，语音/发送按钮不再被挤压遮挡；快捷指令、模型、权限、Awareness 等菜单改用统一的柔和弹出/收起动效，并同步优化左右侧边栏与右侧工作台面板的展开收起体验。
+- **会话搜索置顶并显示 Project 归属**：侧边栏会话搜索入口移到顶部固定位置，搜索结果会携带并展示 `projectId` / Project 名称与图标，项目会话命中时可直接看出来源；搜索态不再受隐藏的 Agent 筛选静默影响，避免结果被不可见过滤条件收窄。
+- **Skill requirements 分级注入语义**：`requires.os` 不匹配这类硬不兼容 skill 不再进入模型 catalog / 斜杠菜单；缺少可安装/可配置依赖（`bins` / `anyBins` / `env` / `config`）的 skill 仍可见，但在 `skill({name})` 或 `/skill-name` 激活前返回缺失项与安装/配置诊断，不再直接加载 SKILL.md。Settings 技能面板同步展示 `Incompatible` / `Needs setup` 状态、缺失 binaries / env / config 与当前 OS 信息。
+- **Skill 激活上下文包含包目录元数据**：inline 与 fork 激活返回的 skill 内容前会注入 skill name 与 skill directory，方便内置脚本、references、assets 通过 skill 目录稳定定位，无需模型猜测路径。
+
+### Fixed
+
+- **工作台任务进度联动修复**：右侧 Workspace 已展开时，输入框内嵌任务进度面板首次出现也会保持收起，避免两处任务明细同时展开；同时补齐折叠动画打开阶段的定时器清理，避免组件卸载后继续触发状态更新。
+- **Office OOXML 包结构稳定性**：修复 DOCX helper 在最终 `w:sectPr` 之后追加内容的问题，避免 Word/LibreOffice 打开时修复或忽略新增段落；水印 helper 不再覆盖既有 `word/header1.xml`，会分配新的 header part 和 relationship id；PPTX slide 重排不再重建并丢弃 slide master/theme/view properties 等非 slide relationships，避免源 deck 样式丢失。
+
+## [0.6.1] - 2026-06-06
+
+### Fixed
+
+- **项目会话新建归属修复**：当前会话属于某个 Project 时，`Cmd/Ctrl+N` 与托盘「新建对话」创建的新会话会继续归属同一个 Project，避免首条消息丢失项目记忆、文件与指令上下文。 (#283)
+- **输入框弹出菜单裁剪回归修复**：修复 v0.6.0 聊天响应式布局优化后，输入框外层 dock 重新裁剪模型选择、Think/思考强度、温度、权限模式、Awareness、`/` 斜杠菜单与 `@` 文件菜单的问题；补充回归测试，防止后续布局改动再次把工具栏弹层裁掉。 (#284)
+
+## [0.6.0] - 2026-06-06
+
+### Added
+
+- **工作台环境信息面板**：工作台顶部新增只读「环境」区块，按普通会话、项目会话、无痕、IM、Cron、Subagent、Plan Mode 与远端 Server 等场景展示运行位置、工作目录来源、权限模式、计划状态、模型与来源信息；Git 工作区会展示分支 / worktree、变更统计、ahead/behind、upstream 与最后提交，remote URL 展示前会移除凭据、query 与 fragment。新增 Tauri / HTTP 会话级环境快照接口，仅通过会话工作区读取本地状态，不注入模型上下文，也不会主动 `git fetch`。 (#269)
+- **Gemma 4 12B 本地模型推荐**：本地模型助手新增 `gemma4:12b` 候选，32GB 级统一内存设备会优先推荐更合适的 Gemma 4 12B，而不是落到更小的 E4B 档位。 (#266)
+- **Shift+Tab 快速切换权限模式**：聊天输入框支持 `Shift+Tab` 在 `default` / `smart` / `yolo` 三种会话权限模式间循环切换，适合需要频繁切换审批策略的工作流。 (#271)
+
+### Changed
+
+- **System Prompt 会话状态注入增强**：所有会话现在都会在 system prompt 中看到当前权限审批模式（`default` / `smart` / `yolo`），Smart 模式继续引导 `_confidence: "high"`，YOLO 模式明确本会话审批层已授予全部权限以鼓励更主动执行。绑定 IM chat 的会话新增 `# IM Channel Attachment`，让桌面 / HTTP 发起的回复也知道可能镜像到 IM；IM metadata 以不可信 routing/audience JSON 渲染，避免外部 sender/chat 字段影响 prompt 结构。同步清理未接线的 Awareness 静态 overview prompt builder，保留实际生效的动态 awareness suffix。 (#280)
+- **聊天左右面板窄窗口响应式与动画优化**：窗口缩小时右侧工作面板会先自动折叠，继续缩小时左侧会话栏再自动折叠，窗口变宽后仅恢复由响应式路径自动折叠的面板，不覆盖用户手动折叠选择；右侧面板自动折叠阈值会参考用户当前面板宽度并设置舒适上限，避免超宽面板被硬挤压或轻微缩窗就过激收起；主窗口默认启动尺寸小幅调大，聊天输入框保留最小交互宽度，极窄宽度下工具栏改为上下布局。自动折叠阈值改用 `matchMedia` 监听，避免拖拽窗口时每个 resize 像素都触发 React 重渲染；左右面板动画拆为短布局占位过渡与 `transform`/`opacity` 视觉滑动，降低重排压力。 (#272, #275)
+- **异步工具后台任务语义调整**：后台 job 与 `exec` 命令默认不再设置超时（`maxJobSecs=0`、`exec.timeout=0`），模型仍可通过 `job_timeout_secs` / `exec.timeout` 为单次调用主动设置上限；`job_status` 从主动 poll 等待收敛为非阻塞状态快照，完成结果继续通过 `<task-notification>` 自动回注。 (#279)
+- **浏览器脚本执行审批接入统一权限引擎**：`browser.control.evaluate` 不再绕过 session 权限模式单独走 `ask_user_question`，而是作为 `BrowserEvaluate` soft approval 进入统一工具审批链；Default 继续弹审批，Smart 可按高置信标记或 judge model 自动放行，Yolo / Global YOLO / 自动批准工具场景直接放行，同时保留 SSRF 字面量扫描。 (#273)
+- **权限模式切换器可同步 Agent 默认值**：聊天输入区的权限模式菜单新增「同时更新 Agent 默认」开关。开启后切换 `default` / `smart` / `yolo` 会同时更新当前 Agent 的新会话默认权限模式；关闭时仍只影响当前会话。 (#277)
+- **Issue Reporting 设置面板本地化**：Issue Reporting 工具设置页、连接测试、Token 保存提示与标签配置补齐 i18n 文案，跟随应用语言展示。 (#267)
+
+### Fixed
+
+- **macOS 系统权限页状态修正**：通知权限现在可从权限页触发原生授权请求；当前未启用的系统音频捕获不再作为待确认权限干扰 Mac Control 就绪状态；媒体资料库继续保留为手动确认，避免调用 macOS 不支持的 `MPMediaLibrary` 状态 API。 (#278)
+- **ask_user_question 卡片自动滚动**：修复结构化提问卡片出现在消息列表 footer 时，因为没有新增 message 而不会触发自动追底、导致待回答卡片藏在屏幕下方的问题；现在新问题出现时会自动滚到卡片位置，并跟随展开动画保持可见。 (#273)
+- **上下文压缩进行中状态**：自动 Tier 3 摘要压缩与执行过程中触发的上下文压缩现在会在聊天流中显示「正在压缩上下文」，完成后替换为最终压缩提示；T1/T2 快速本地压缩仍保持静默或仅显示完成提示，避免提示闪烁。 (#274)
+- **GUI → IM 交班与流式稳定性修复**：修复桌面 / HTTP 会话正在回复时交班到 IM 后目标 chat 无交班提示、无法接入后续流式回复的问题；交班会补发当前用户问题引用并在回复完成时用完整最终答案收尾。IM 端 reply-only 斜杠命令不再伪造 `channel:stream_end`，避免打断 GUI 正在进行的流式回复；会话 detach / 接管后旧 IM chat 不再继续收到后续 mirror 帧。 (#276)
+- **更新历史页拉取线上 Release**：更新历史页现在会合并本地打包的 release notes 与 GitHub 已发布 Release，支持语义化版本排序与更多历史版本展示；GitHub 拉取失败时会记录日志并保留本地历史。 (#268)
 
 ## [0.5.1] - 2026-06-03
 

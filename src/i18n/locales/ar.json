@@ -25,7 +25,7 @@
     "updateErrorDetails": "تفاصيل الخطأ",
     "updateErrorLogHint": "تم تسجيل التتبع الكامل في ~/.hope-agent/logs.db (category: updater). استخدم /ha-logs للتحقيق أو أرفق هذا الملف عند الإبلاغ عن المشكلة.",
     "updateHistory": "سجل التحديثات",
-    "updateHistoryDesc": "تصفّح كل ملاحظات الإصدار المضمّنة دون مغادرة التطبيق.",
+    "updateHistoryDesc": "تصفّح الملاحظات المضمّنة وإصدارات GitHub المتزامنة دون مغادرة التطبيق.",
     "updateHistoryEmpty": "لم يتم العثور على ملاحظات إصدار في هذا البناء.",
     "updateHistoryLatest": "الأحدث",
     "updateHistoryNoNotes": "لا توجد ملاحظات متاحة لهذا الإصدار.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "قرر نموذج الحكم في وضع Smart أن هذا الاستدعاء يحتاج تأكيدًا بشريًا.",
         "title": "حكم وضع Smart"
+      },
+      "browser_evaluate": {
+        "body": "سيشغّل إجراء المتصفح هذا JavaScript عشوائيًا في علامة التبويب النشطة. قد يسمح وضع Smart به تلقائيًا عبر وسم ثقة عالية أو نموذج حكم.",
+        "title": "JavaScript في المتصفح"
       },
       "mac_control_action": {
         "title": "إجراء Mac Control",
@@ -295,6 +299,8 @@
     "compactNoChange": "السياق لا يحتاج إلى ضغط",
     "compactNow": "ضغط السياق",
     "compacting": "جاري الضغط...",
+    "contextCompactingMsgs": "تلخيص {{count}} رسالة",
+    "contextCompactingTitle": "جاري ضغط السياق",
     "contextCompactedMsgs": "{{count}} رسالة",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "تم ضغط السياق",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "في انتظار الرد · {{count}}",
     "pendingQueued": "تم وضع الرسالة في الطابور، سترسل بعد الرد...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "عند التفعيل، يؤدي اختيار وضع إلى تحديث الوضع الافتراضي لهذا الوكيل للمحادثات الجديدة أيضًا.",
+        "failed": "تعذر تحديث وضع الأذونات الافتراضي لهذا الوكيل.",
+        "label": "تحديث افتراضي الوكيل أيضًا"
+      },
       "default": {
         "desc": "أدوات التحرير والأوامر عالية الخطورة تتطلب الموافقة، والباقي يُنفّذ.",
         "label": "افتراضي"
@@ -681,7 +692,12 @@
     "weekSun": "أح",
     "weekThu": "خم",
     "weekTue": "ثل",
-    "weekWed": "أر"
+    "weekWed": "أر",
+    "archivedProject": "(مؤرشف)",
+    "autoAgent": "تلقائي (المشروع/الافتراضي)",
+    "missingProject": "المشروع مفقود",
+    "noProject": "بدون مشروع",
+    "project": "المشروع"
   },
   "dangerousMode": {
     "bannerBoth": "الوضع الخطير مفعّل (CLI + التكوين) — تم تجاوز جميع موافقات الأدوات",
@@ -1063,6 +1079,10 @@
     "gitDetached": "منفصل",
     "backToRoot": "العودة إلى دليل العمل",
     "worktrees": "أشجار العمل",
+    "searchPlaceholder": "البحث عن الملفات",
+    "searchResults": "نتائج البحث",
+    "searchTruncated": "تم اقتطاع النتائج",
+    "searchEmpty": "لا توجد ملفات مطابقة",
     "open": "فتح متصفح الملفات",
     "resizePanel": "تغيير حجم لوحة الملفات",
     "noWorkingDir": "حدّد دليل عمل لتصفح الملفات",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "دائمًا في الخلفية",
-        "desc": "كل استدعاء قادر على العمل غير المتزامن يُنقل فورًا للخلفية ويعيد معرّف مهمة. يجب على النموذج الاستعلام بواسطة `job_status`."
+        "desc": "كل استدعاء قادر على العمل غير المتزامن يُنقل فورًا للخلفية ويعيد معرّف مهمة. تُحقن النتائج تلقائيًا؛ ويُستخدم `job_status` فقط للقطات حالة عند الحاجة."
       },
       "neverBackground": {
         "label": "لا تنقل للخلفية أبدًا",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "المهلة (ثوانٍ)",
     "imageGenerate": "توليد الصور",
     "imageGenerateDesc": "تكوين Provider توليد الصور بالذكاء الاصطناعي (OpenAI، Google، Fal، MiniMax، SiliconFlow، ZhipuAI، Tongyi). بمجرد التفعيل، يمكن لـ Agent توليد وتعديل الصور عبر أداة image_generate.",
+    "issueReporting": "الإبلاغ عن Issues",
+    "issueReportingTitle": "الإبلاغ عن Issues",
+    "issueReportingDesc": "يمكّن أداة issue_report من إرسال GitHub Issues بعد تأكيدك.",
+    "issueReportingOwner": "المالك",
+    "issueReportingRepo": "المستودع",
+    "issueReportingApiBaseUrl": "عنوان GitHub API الأساسي",
+    "issueReportingMaxEvidenceChars": "الحد الأقصى لأحرف الأدلة",
+    "issueReportingLabels": "التسميات",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "ميزة",
+      "improvement": "تحسين"
+    },
+    "issueReportingDuplicateSearch": "البحث عن Issues مكررة",
+    "issueReportingDuplicateSearchDesc": "يوجه سير عمل المهارة للبحث في Issues المفتوحة الحالية قبل إنشاء المسودة.",
+    "issueReportingToken": "رمز GitHub",
+    "issueReportingTokenConfigured": "تم تكوين رمز.",
+    "issueReportingTokenMissing": "لم يتم تكوين رمز. سيحاول Hope Agent استخدام gh CLI المصادق عليه.",
+    "issueReportingTokenPlaceholderClear": "اتركه فارغًا ثم احفظ للمسح",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "حفظ الرمز",
+    "issueReportingTokenSaved": "تم حفظ رمز GitHub",
+    "issueReportingTokenCleared": "تم مسح رمز GitHub",
+    "issueReportingTokenSaveFailed": "فشل حفظ رمز GitHub",
+    "issueReportingTestSuccessToken": "يمكن لرمز GitHub الوصول إلى المستودع المكوّن.",
+    "issueReportingTestSuccessGh": "لم يتم تكوين رمز GitHub؛ gh CLI مصادق عليه ويمكنه الوصول إلى المستودع.",
+    "issueReportingTestFailed": "فشل اختبار اتصال GitHub",
     "inheritGlobal": "وراثة الإعدادات العامة",
     "items": "عناصر",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "مساحة العمل",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "التقدم",
     "sectionOutput": "المخرجات",
     "sectionSources": "المصادر",
@@ -4735,6 +4783,64 @@
     "resizePanel": "تغيير حجم لوحة مساحة العمل",
     "sourceFromSearch": "بحث",
     "truncatedNote": "عرض أحدث 1000",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "جديد",
       "edit": "تعديل",

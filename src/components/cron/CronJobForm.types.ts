@@ -29,6 +29,7 @@ export interface CronJob {
   id: string
   name: string
   description?: string | null
+  projectId?: string | null
   schedule: CronSchedule
   payload: CronPayload
   status: "active" | "paused" | "disabled" | "completed" | "missed"
@@ -58,6 +59,7 @@ export interface CronRunLog {
 export interface CalendarEvent {
   jobId: string
   jobName: string
+  projectId?: string | null
   scheduledAt: string
   status: "active" | "paused" | "disabled" | "completed" | "missed"
   runLog?: CronRunLog | null

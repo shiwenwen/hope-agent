@@ -25,7 +25,7 @@
     "updateErrorDetails": "Chi tiết lỗi",
     "updateErrorLogHint": "Toàn bộ trace đã được ghi vào ~/.hope-agent/logs.db (category: updater). Dùng /ha-logs để tra cứu hoặc đính kèm tệp đó khi báo lỗi.",
     "updateHistory": "Lịch sử cập nhật",
-    "updateHistoryDesc": "Xem mọi ghi chú phát hành được đóng gói mà không rời ứng dụng.",
+    "updateHistoryDesc": "Xem ghi chú được đóng gói cùng GitHub Releases đã đồng bộ mà không rời ứng dụng.",
     "updateHistoryEmpty": "Không tìm thấy ghi chú phát hành trong bản dựng này.",
     "updateHistoryLatest": "Mới nhất",
     "updateHistoryNoNotes": "Không có ghi chú nào cho bản phát hành này.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "Mô hình giám khảo của chế độ Smart quyết định lần gọi này cần người dùng xác nhận.",
         "title": "Giám khảo chế độ Smart"
+      },
+      "browser_evaluate": {
+        "body": "Thao tác trình duyệt này sẽ chạy JavaScript tùy ý trong tab đang hoạt động. Chế độ Smart có thể tự động cho phép bằng thẻ độ tin cậy cao hoặc mô hình giám khảo.",
+        "title": "JavaScript trình duyệt"
       },
       "mac_control_action": {
         "title": "Thao tác Mac Control",
@@ -295,6 +299,8 @@
     "compactNoChange": "Ngữ cảnh không cần nén",
     "compactNow": "Nén ngữ cảnh",
     "compacting": "Đang nén...",
+    "contextCompactingMsgs": "đang tóm tắt {{count}} tin",
+    "contextCompactingTitle": "Đang nén context",
     "contextCompactedMsgs": "{{count}} tin",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Đã nén context",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "Đang chờ phản hồi · {{count}}",
     "pendingQueued": "Tin nhắn đã xếp hàng, sẽ gửi sau khi trả lời xong...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Khi bật, chọn một chế độ cũng cập nhật mặc định của Agent này cho cuộc trò chuyện mới.",
+        "failed": "Không thể cập nhật chế độ quyền mặc định của Agent này.",
+        "label": "Cập nhật mặc định Agent"
+      },
       "default": {
         "desc": "Các công cụ chỉnh sửa và lệnh nguy hiểm cần phê duyệt, các công cụ khác chạy ngay.",
         "label": "Mặc định"
@@ -681,7 +692,12 @@
     "weekSun": "CN",
     "weekThu": "T5",
     "weekTue": "T3",
-    "weekWed": "T4"
+    "weekWed": "T4",
+    "archivedProject": "(đã lưu trữ)",
+    "autoAgent": "Tự động (dự án/mặc định)",
+    "missingProject": "Thiếu dự án",
+    "noProject": "Không có dự án",
+    "project": "Dự án"
   },
   "dangerousMode": {
     "bannerBoth": "Chế độ Nguy hiểm đang bật (CLI + config) — mọi phê duyệt công cụ bị bỏ qua",
@@ -1063,6 +1079,10 @@
     "gitDetached": "tách rời",
     "backToRoot": "Quay lại thư mục làm việc",
     "worktrees": "Cây làm việc",
+    "searchPlaceholder": "Tìm tệp",
+    "searchResults": "Kết quả tìm kiếm",
+    "searchTruncated": "Kết quả bị rút gọn",
+    "searchEmpty": "Không có tệp phù hợp",
     "open": "Mở trình duyệt tệp",
     "resizePanel": "Đổi kích thước bảng tệp",
     "noWorkingDir": "Đặt thư mục làm việc để duyệt tệp",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "Luôn chạy nền",
-        "desc": "Mỗi lệnh gọi hỗ trợ async sẽ ngay lập tức tách thành tác vụ nền và trả về job id. Mô hình phải dùng `job_status` để hỏi trạng thái."
+        "desc": "Mỗi lệnh gọi hỗ trợ async sẽ ngay lập tức tách thành tác vụ nền và trả về job id. Kết quả được tự động chèn lại; `job_status` chỉ dùng để xem nhanh trạng thái khi cần."
       },
       "neverBackground": {
         "label": "Không chạy nền",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "Hết thời gian (giây)",
     "imageGenerate": "Tạo hình ảnh",
     "imageGenerateDesc": "Cấu hình Provider tạo hình ảnh AI (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). Khi được bật, Agent có thể tạo và chỉnh sửa hình ảnh qua công cụ image_generate.",
+    "issueReporting": "Báo cáo issue",
+    "issueReportingTitle": "Báo cáo issue",
+    "issueReportingDesc": "Cho phép công cụ issue_report gửi GitHub Issue sau khi bạn xác nhận.",
+    "issueReportingOwner": "Chủ sở hữu",
+    "issueReportingRepo": "Kho mã",
+    "issueReportingApiBaseUrl": "URL gốc GitHub API",
+    "issueReportingMaxEvidenceChars": "Số ký tự bằng chứng tối đa",
+    "issueReportingLabels": "Nhãn",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "Tính năng",
+      "improvement": "Cải tiến"
+    },
+    "issueReportingDuplicateSearch": "Tìm issue trùng lặp",
+    "issueReportingDuplicateSearchDesc": "Nhắc quy trình skill tìm các issue đang mở trước khi soạn bản nháp.",
+    "issueReportingToken": "GitHub token",
+    "issueReportingTokenConfigured": "Đã cấu hình token.",
+    "issueReportingTokenMissing": "Chưa cấu hình token. Hope Agent sẽ thử dùng gh CLI đã xác thực.",
+    "issueReportingTokenPlaceholderClear": "Để trống rồi lưu để xóa",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "Lưu token",
+    "issueReportingTokenSaved": "Đã lưu GitHub token",
+    "issueReportingTokenCleared": "Đã xóa GitHub token",
+    "issueReportingTokenSaveFailed": "Không thể lưu GitHub token",
+    "issueReportingTestSuccessToken": "GitHub token có thể truy cập kho mã đã cấu hình.",
+    "issueReportingTestSuccessGh": "Chưa cấu hình GitHub token; gh CLI đã xác thực và có thể truy cập kho mã.",
+    "issueReportingTestFailed": "Kiểm tra kết nối GitHub thất bại",
     "inheritGlobal": "Kế thừa cài đặt toàn cục",
     "items": "mục",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "Không gian làm việc",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "Tiến độ",
     "sectionOutput": "Đầu ra",
     "sectionSources": "Nguồn",
@@ -4735,6 +4783,64 @@
     "resizePanel": "Đổi kích thước bảng không gian làm việc",
     "sourceFromSearch": "Tìm kiếm",
     "truncatedNote": "Hiển thị 1000 mục gần nhất",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "Mới",
       "edit": "Sửa",

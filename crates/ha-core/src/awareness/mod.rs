@@ -13,7 +13,6 @@
 //! The suffix lives outside the cached system-prompt prefix so prompt-cache
 //! hits on the static prefix are preserved even when the suffix changes.
 
-pub mod build;
 pub mod collect;
 pub mod config;
 pub mod dirty;
@@ -24,7 +23,6 @@ pub mod render;
 pub mod session;
 pub mod types;
 
-pub use build::build_prompt_section;
 pub use config::{
     resolve_for_session, AwarenessConfig, AwarenessMode, ExtractionModelRef, LlmExtractionConfig,
 };

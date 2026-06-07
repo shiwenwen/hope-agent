@@ -12,7 +12,8 @@
 //! `messages.context_json` and the persisted assistant row stay clean of
 //! it so context windows + desktop history are unaffected.
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::channel::db::ChannelConversation;
 use crate::channel::traits::ChannelPlugin;
@@ -27,6 +28,7 @@ use crate::channel::worker::send_text_chunks;
 use crate::chat_engine::quote::{build_user_quote_prefix, LastUserView};
 use crate::chat_engine::sink_registry::{sink_registry, SinkHandle};
 use crate::chat_engine::stream_seq::ChatSource;
+use crate::chat_engine::EventSink;
 
 /// Owned snapshot of the user message that triggered a desktop / HTTP
 /// turn. Captured at `attach_im_live_mirror` entry. Owned (not borrowed)
@@ -41,6 +43,7 @@ pub struct LastUserSnapshot {
 
 pub(crate) struct ImLiveMirrorState {
     sink_handle: SinkHandle,
+    _mirror_guard: MirrorAttachGuard,
     pipeline: StreamPipeline,
     plugin: Arc<dyn ChannelPlugin>,
     attach: ChannelConversation,
@@ -50,6 +53,85 @@ pub(crate) struct ImLiveMirrorState {
     /// notice so the IM thread doesn't show a dangling quote with no
     /// answer underneath it.
     quote_sent: bool,
+}
+
+static ACTIVE_MIRROR_ATTACHES: OnceLock<Mutex<HashSet<(String, i64)>>> = OnceLock::new();
+
+fn mirror_attaches() -> &'static Mutex<HashSet<(String, i64)>> {
+    ACTIVE_MIRROR_ATTACHES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) struct MirrorAttachGuard {
+    session_id: String,
+    attach_id: i64,
+    released: bool,
+}
+
+impl MirrorAttachGuard {
+    fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        if let Ok(mut set) = mirror_attaches().lock() {
+            set.remove(&(self.session_id.clone(), self.attach_id));
+        }
+        self.released = true;
+    }
+}
+
+impl Drop for MirrorAttachGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+pub(crate) fn try_claim_mirror_attach(
+    session_id: &str,
+    attach_id: i64,
+) -> Option<MirrorAttachGuard> {
+    let mut set = mirror_attaches().lock().ok()?;
+    let key = (session_id.to_string(), attach_id);
+    if !set.insert(key.clone()) {
+        return None;
+    }
+    Some(MirrorAttachGuard {
+        session_id: key.0,
+        attach_id: key.1,
+        released: false,
+    })
+}
+
+struct AttachGuardedSink {
+    session_id: String,
+    attach_id: i64,
+    inner: Arc<dyn EventSink>,
+}
+
+impl EventSink for AttachGuardedSink {
+    fn send(&self, event: &str) {
+        if attach_still_matches(&self.session_id, self.attach_id) {
+            self.inner.send(event);
+        }
+    }
+}
+
+pub(crate) fn attach_still_matches(session_id: &str, attach_id: i64) -> bool {
+    crate::globals::get_channel_db()
+        .and_then(|db| db.get_conversation_by_session(session_id).ok().flatten())
+        .map(|conv| conv.id == attach_id)
+        .unwrap_or(false)
+}
+
+pub(crate) fn guarded_mirror_sink(
+    session_id: String,
+    attach_id: i64,
+    inner: Arc<dyn EventSink>,
+) -> Arc<dyn EventSink> {
+    Arc::new(AttachGuardedSink {
+        session_id,
+        attach_id,
+        inner,
+    })
 }
 
 pub(crate) async fn attach_im_live_mirror(
@@ -85,6 +167,11 @@ pub(crate) async fn attach_im_live_mirror(
         }
     };
 
+    let mirror_guard = match try_claim_mirror_attach(session_id, attach.id) {
+        Some(guard) => guard,
+        None => return None,
+    };
+
     let account = store.channels.find_account(&attach.account_id)?.clone();
     let plugin = registry.get_plugin(&account.channel_id)?.clone();
     let chat_type = ChatType::from_lowercase(&attach.chat_type);
@@ -118,10 +205,16 @@ pub(crate) async fn attach_im_live_mirror(
     // `chat:stream_delta` path; suppress the secondary sink's bus emit so
     // the GUI doesn't render every frame twice.
     let pipeline = spawn_stream_pipeline(&plugin, &account, &chat_type, session_id, &target, false);
-    let sink_handle = sink_registry().attach(session_id.to_string(), pipeline.event_sink.clone());
+    let guarded_sink = guarded_mirror_sink(
+        session_id.to_string(),
+        attach.id,
+        pipeline.event_sink.clone(),
+    );
+    let sink_handle = sink_registry().attach(session_id.to_string(), guarded_sink);
 
     Some(ImLiveMirrorState {
         sink_handle,
+        _mirror_guard: mirror_guard,
         pipeline,
         plugin,
         attach,
@@ -132,6 +225,7 @@ pub(crate) async fn attach_im_live_mirror(
 pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: &str) {
     let ImLiveMirrorState {
         sink_handle,
+        _mirror_guard,
         pipeline,
         plugin,
         attach,
@@ -148,6 +242,17 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
         thread_id: attach.thread_id.as_deref(),
         reply_to_message_id: None,
     };
+
+    if !attach_still_matches(&attach.session_id, attach.id) {
+        crate::app_info!(
+            "channel",
+            "mirror",
+            "[{}] Skipped GUI mirror finalization to {} because attach moved",
+            attach.channel_id,
+            attach.chat_id,
+        );
+        return;
+    }
 
     let metrics = deliver_rounds(&plugin, &target, &outcome, response).await;
     crate::app_info!(
@@ -193,6 +298,7 @@ pub(crate) async fn finalize_im_live_mirror(state: ImLiveMirrorState, response: 
 pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, body: Option<String>) {
     let ImLiveMirrorState {
         sink_handle,
+        _mirror_guard,
         pipeline,
         plugin,
         attach,
@@ -204,6 +310,9 @@ pub(crate) async fn abort_im_live_mirror_with_body(state: ImLiveMirrorState, bod
 
     let Some(body) = body else { return };
     if !quote_sent {
+        return;
+    }
+    if !attach_still_matches(&attach.session_id, attach.id) {
         return;
     }
     let target = DeliveryTarget {

@@ -7,7 +7,7 @@ use std::process::Command;
 
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitInfo {
     /// Current branch name, or `None` when detached / unreadable.
@@ -15,7 +15,7 @@ pub struct GitInfo {
     pub worktrees: Vec<WorktreeInfo>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeInfo {
     /// Absolute worktree path.

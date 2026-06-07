@@ -109,6 +109,7 @@ interface ChatScreenProps {
   onUnreadCountChange?: (count: number) => void
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
+  onCurrentProjectChange?: (projectId: string | null) => void
   /** Token to append to the chat input on next render (e.g. `@plan:abcd:v0` or a
    *  `[[note]]` ref). */
   pendingChatInsert?: ChatInsert
@@ -165,6 +166,12 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 }
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
+const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
+const CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH = 320
+const RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH = 360
+const RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH = 640
+const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
+const RESPONSIVE_PANEL_HYSTERESIS = 120
 
 interface MacControlFrameOpenHint {
   mediaId?: string | null
@@ -173,6 +180,37 @@ interface MacControlFrameOpenHint {
 
 function clampChatSidebarWidth(width: number): number {
   return Math.min(CHAT_SIDEBAR_MAX_WIDTH, Math.max(CHAT_SIDEBAR_MIN_WIDTH, width))
+}
+
+function clampResponsiveRightPanelWidth(width: number): number {
+  return Math.round(
+    Math.min(
+      RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH,
+      Math.max(RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH, width),
+    ),
+  )
+}
+
+function useViewportMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia(query).matches,
+  )
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const media = window.matchMedia(query)
+    const handleChange = () => setMatches(media.matches)
+    handleChange()
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange)
+      return () => media.removeEventListener("change", handleChange)
+    }
+    media.addListener(handleChange)
+    return () => media.removeListener(handleChange)
+  }, [query])
+
+  return matches
 }
 
 function isSessionMode(value: unknown): value is SessionMode {
@@ -203,6 +241,7 @@ export default function ChatScreen({
   onUnreadCountChange,
   onOpenDashboardTab,
   sessionsRefreshTrigger,
+  onCurrentProjectChange,
   pendingChatInsert,
   onChatInsertConsumed,
 }: ChatScreenProps) {
@@ -239,6 +278,9 @@ export default function ChatScreen({
     if (typeof window === "undefined") return false
     return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
   })
+  const autoCollapsedSidebarRef = useRef(false)
+  const manualSidebarExpandedOverrideRef = useRef(false)
+  const userSidebarCollapsedPreferenceRef = useRef(sidebarCollapsed)
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -247,8 +289,16 @@ export default function ChatScreen({
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    if (autoCollapsedSidebarRef.current) return
     window.localStorage.setItem("hope.chatSidebarCollapsed", String(sidebarCollapsed))
   }, [sidebarCollapsed])
+
+  const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
+    autoCollapsedSidebarRef.current = false
+    manualSidebarExpandedOverrideRef.current = !collapsed
+    userSidebarCollapsedPreferenceRef.current = collapsed
+    setSidebarCollapsed(collapsed)
+  }, [])
 
   const [defaultDisplayMode, setDefaultDisplayMode] = useState(() => readChatDisplayModePreference())
   useEffect(() => {
@@ -452,6 +502,21 @@ export default function ChatScreen({
     [handleNewChat],
   )
 
+  const handleStartNewChatFromCurrentContext = useCallback(async () => {
+    const projectId = currentSessionMeta?.projectId
+    if (projectId) {
+      setDraftIncognito(false)
+      await handleNewChatInProject(projectId, currentAgentId, false)
+      return
+    }
+    await handleStartNewChat(currentAgentId)
+  }, [
+    currentAgentId,
+    currentSessionMeta?.projectId,
+    handleNewChatInProject,
+    handleStartNewChat,
+  ])
+
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
    * session already has user/assistant messages (defense layer); the UI
@@ -608,12 +673,19 @@ export default function ChatScreen({
   }, [currentSessionId, currentAgentId])
 
   const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
-  const projectWorkingDir = useMemo(
+  const currentProject = useMemo(
     () =>
       currentSessionMeta?.projectId
-        ? (projects.find((p) => p.id === currentSessionMeta.projectId)?.workingDir ?? null)
+        ? (projects.find((p) => p.id === currentSessionMeta.projectId) ?? null)
         : null,
     [projects, currentSessionMeta?.projectId],
+  )
+  useEffect(() => {
+    onCurrentProjectChange?.(currentSessionMeta?.projectId ?? null)
+  }, [currentSessionMeta?.projectId, onCurrentProjectChange])
+  const projectWorkingDir = useMemo(
+    () => currentProject?.workingDir ?? null,
+    [currentProject],
   )
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
@@ -829,8 +901,8 @@ export default function ChatScreen({
     return () => window.removeEventListener("keydown", handler)
   }, [currentSessionId, openSessionSearch, focusGlobalSearch])
 
-  // Cmd/Ctrl+N: start a fresh draft chat with the current agent, matching the
-  // sidebar New Chat button and tray "new-session" behavior.
+  // Cmd/Ctrl+N: start a fresh chat with the current agent. When the active
+  // session belongs to a Project, keep the new session in that Project too.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey
@@ -841,18 +913,18 @@ export default function ChatScreen({
       if (target?.isContentEditable) return
 
       e.preventDefault()
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatFromCurrentContext()
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [handleStartNewChat, currentAgentId])
+  }, [handleStartNewChatFromCurrentContext])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     return getTransport().listen("new-session", () => {
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatFromCurrentContext()
     })
-  }, [handleStartNewChat, currentAgentId])
+  }, [handleStartNewChatFromCurrentContext])
 
   // Listen for tray "focus-session" event — emitted when the user clicks an
   // in-progress regular conversation entry inside the system tray dropdown.
@@ -1508,6 +1580,8 @@ export default function ChatScreen({
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [manualRightPanelExpandedOverride, setManualRightPanelExpandedOverride] = useState(false)
+  const autoCollapsedRightPanelRef = useRef(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
       workspace: showWorkspacePanel,
@@ -1581,6 +1655,15 @@ export default function ChatScreen({
   const handleSelectRightPanel = useCallback((panelId: string) => {
     if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
     setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
+    autoCollapsedRightPanelRef.current = false
+    setManualRightPanelExpandedOverride(true)
+    setRightPanelCollapsed(false)
+  }, [])
+
+  const showRightPanelByUser = useCallback((panel: ExclusiveRightPanel) => {
+    setActiveExclusiveRightPanel(panel)
+    autoCollapsedRightPanelRef.current = false
+    setManualRightPanelExpandedOverride(true)
     setRightPanelCollapsed(false)
   }, [])
 
@@ -1596,6 +1679,7 @@ export default function ChatScreen({
   // Reveal a quoted file in the browser: open the files panel + signal target.
   const handleQuoteJump = useCallback((q: QuotePayload) => {
     setShowFilesPanel(true)
+    showRightPanelByUser("files")
     revealQuoteNonce.current += 1
     setRevealFile({
       path: q.path,
@@ -1604,21 +1688,101 @@ export default function ChatScreen({
       endLine: q.endLine,
       nonce: revealQuoteNonce.current,
     })
-  }, [])
+  }, [showRightPanelByUser])
 
   // 打开并激活 Workspace 面板（状态条点击 / 重新打开）。
   const openWorkspacePanel = useCallback(() => {
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
-    setActiveExclusiveRightPanel("workspace")
-    setRightPanelCollapsed(false)
-  }, [])
+    showRightPanelByUser("workspace")
+  }, [showRightPanelByUser])
 
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
+      autoCollapsedRightPanelRef.current = false
+      setManualRightPanelExpandedOverride(false)
       setRightPanelCollapsed(false)
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
+
+  const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current ? 0 : panelWidth
+  const responsiveRightPanelWidth = clampResponsiveRightPanelWidth(rightPanelWidth)
+  const rightPanelCollapseAt =
+    preferredSidebarWidthForResponsive +
+    CHAT_MAIN_MIN_INTERACTIVE_WIDTH +
+    responsiveRightPanelWidth
+  const rightPanelExpandAt = rightPanelCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  const sidebarCollapseAt =
+    panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
+  const sidebarExpandAt = sidebarCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
+  const shouldAutoCollapseRightPanel = useViewportMediaQuery(
+    `(max-width: ${rightPanelCollapseAt}px)`,
+  )
+  const shouldAutoExpandRightPanel = useViewportMediaQuery(
+    `(min-width: ${rightPanelExpandAt}px)`,
+  )
+  const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
+  const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
+
+  useEffect(() => {
+    if (shouldAutoExpandRightPanel && manualRightPanelExpandedOverride) {
+      setManualRightPanelExpandedOverride(false)
+    }
+
+    if (shouldAutoExpandSidebar) {
+      manualSidebarExpandedOverrideRef.current = false
+    }
+
+    if (hasOpenExclusiveRightPanel) {
+      if (
+        shouldAutoCollapseRightPanel &&
+        !rightPanelCollapsed &&
+        !manualRightPanelExpandedOverride
+      ) {
+        autoCollapsedRightPanelRef.current = true
+        setRightPanelCollapsed(true)
+      } else if (
+        shouldAutoExpandRightPanel &&
+        rightPanelCollapsed &&
+        autoCollapsedRightPanelRef.current
+      ) {
+        autoCollapsedRightPanelRef.current = false
+        setRightPanelCollapsed(false)
+      }
+    } else {
+      autoCollapsedRightPanelRef.current = false
+      if (manualRightPanelExpandedOverride) {
+        setManualRightPanelExpandedOverride(false)
+      }
+    }
+
+    if (
+      shouldAutoCollapseSidebar &&
+      !sidebarCollapsed &&
+      !userSidebarCollapsedPreferenceRef.current &&
+      !manualSidebarExpandedOverrideRef.current
+    ) {
+      autoCollapsedSidebarRef.current = true
+      setSidebarCollapsed(true)
+    } else if (
+      shouldAutoExpandSidebar &&
+      sidebarCollapsed &&
+      autoCollapsedSidebarRef.current &&
+      !userSidebarCollapsedPreferenceRef.current
+    ) {
+      autoCollapsedSidebarRef.current = false
+      setSidebarCollapsed(false)
+    }
+  }, [
+    hasOpenExclusiveRightPanel,
+    manualRightPanelExpandedOverride,
+    rightPanelCollapsed,
+    sidebarCollapsed,
+    shouldAutoCollapseRightPanel,
+    shouldAutoCollapseSidebar,
+    shouldAutoExpandRightPanel,
+    shouldAutoExpandSidebar,
+  ])
 
   // Plan / Diff / Browser / Mac Control / Canvas / Team share the same right
   // rail. Track rising edges so the panel that just opened wins while the
@@ -1714,6 +1878,23 @@ export default function ChatScreen({
     session.loading,
   )
 
+  const handleToggleFilesPanel = useCallback(() => {
+    if (showFilesPanel) {
+      setShowFilesPanel(false)
+      return
+    }
+    setShowFilesPanel(true)
+    showRightPanelByUser("files")
+  }, [showFilesPanel, showRightPanelByUser])
+
+  const rightPanelReservedMainWidth =
+    manualRightPanelExpandedOverride && !rightPanelCollapsed
+      ? CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH
+      : CHAT_MAIN_MIN_INTERACTIVE_WIDTH
+  const chatMainMinWidth = `min(100%, ${rightPanelReservedMainWidth}px)`
+  const workspacePanelVisibleInRightPanel =
+    showWorkspacePanel && renderedExclusiveRightPanel === "workspace" && !rightPanelCollapsed
+
   const emptySessionInputHero =
     session.messages.length === 0 &&
     !session.loading &&
@@ -1734,7 +1915,7 @@ export default function ChatScreen({
         panelWidth={panelWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
-        onSidebarCollapsedChange={setSidebarCollapsed}
+        onSidebarCollapsedChange={handleSidebarCollapsedChange}
         onSwitchSession={session.handleSwitchSession}
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
@@ -1888,13 +2069,11 @@ export default function ChatScreen({
           agents={session.agents}
           onChangeAgent={handleChangeAgent}
           sidebarCollapsed={sidebarCollapsed}
-          onExpandSidebar={() => setSidebarCollapsed(false)}
+          onExpandSidebar={() => handleSidebarCollapsedChange(false)}
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
-          onToggleFilesPanel={
-            effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
-          }
+          onToggleFilesPanel={effectiveWorkingDir ? handleToggleFilesPanel : undefined}
           filesPanelOpen={showFilesPanel}
           onToggleWorkspacePanel={() => {
             if (showWorkspacePanel) {
@@ -1911,13 +2090,21 @@ export default function ChatScreen({
           onSelectRightPanel={handleSelectRightPanel}
           onToggleRightPanelCollapsed={
             hasOpenExclusiveRightPanel
-              ? () => setRightPanelCollapsed((collapsed) => !collapsed)
+              ? () => {
+                  const nextCollapsed = !rightPanelCollapsed
+                  autoCollapsedRightPanelRef.current = false
+                  setManualRightPanelExpandedOverride(!nextCollapsed)
+                  setRightPanelCollapsed(nextCollapsed)
+                }
               : undefined
           }
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">
-          <div className="relative flex-1 flex flex-col min-w-0">
+          <div
+            className="relative flex-1 flex flex-col min-w-0"
+            style={{ minWidth: chatMainMinWidth }}
+          >
             {activeTeamId && !showTeamPanel && (
               <div className="px-3 py-1 border-b border-border">
                 <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />
@@ -2035,6 +2222,7 @@ export default function ChatScreen({
                       }}
                       onJumpToQuote={handleQuoteJump}
                       pendingMessage={stream.pendingMessage}
+                      pendingSends={stream.pendingSends}
                       onCancelPending={() => {
                         stream.setInput(stream.pendingMessage || "")
                         stream.setPendingMessage(null)
@@ -2042,6 +2230,10 @@ export default function ChatScreen({
                       onDiscardPending={() => {
                         stream.setPendingMessage(null)
                       }}
+                      onEditPending={stream.editPendingSend}
+                      onDiscardPendingItem={stream.discardPendingSend}
+                      onForceInsertPending={stream.forceInsertPendingSend}
+                      onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
                       onStop={stream.handleStop}
                       currentSessionId={session.currentSessionId}
                       currentAgentId={session.currentAgentId}
@@ -2069,6 +2261,7 @@ export default function ChatScreen({
                       onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
                       taskProgressSnapshot={taskProgressSnapshot}
                       onOpenWorkspace={openWorkspacePanel}
+                      workspacePanelVisible={workspacePanelVisibleInRightPanel}
                       executionState={
                         session.currentSessionId
                           ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
@@ -2089,6 +2282,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="diff"
             >
@@ -2109,6 +2303,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="plan"
             >
@@ -2140,6 +2335,7 @@ export default function ChatScreen({
             collapsed={rightPanelCollapsed}
             panelWidth={rightPanelWidth}
             onPanelWidthChange={setRightPanelWidth}
+            reservedMainWidth={rightPanelReservedMainWidth}
             onQuote={handleFileQuote}
             revealFile={revealFile}
             onClose={() => setShowFilesPanel(false)}
@@ -2152,6 +2348,7 @@ export default function ChatScreen({
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
             collapsed={rightPanelCollapsed}
+            reservedMainWidth={rightPanelReservedMainWidth}
             visible={
               shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
             }
@@ -2164,6 +2361,7 @@ export default function ChatScreen({
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
+              reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
@@ -2179,6 +2377,7 @@ export default function ChatScreen({
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
+              reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
@@ -2195,6 +2394,7 @@ export default function ChatScreen({
                 panelWidth={rightPanelWidth}
                 onPanelWidthChange={setRightPanelWidth}
                 collapsed={rightPanelCollapsed}
+                reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => setShowTeamPanel(false)}
                 onSwitchSession={session.handleSwitchSession}
               />
@@ -2207,6 +2407,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="workspace"
             >
@@ -2217,6 +2418,13 @@ export default function ChatScreen({
                 onOpenDiff={diffPanel.openDiff}
                 onPreviewFile={filePreview.openPreview}
                 sessionId={session.currentSessionId}
+                sessionMeta={currentSessionMeta}
+                project={currentProject}
+                effectiveWorkingDir={effectiveWorkingDir}
+                workingDirSource={workingDirSource}
+                permissionMode={stream.permissionMode}
+                planState={planMode.planState}
+                activeModel={activeModel}
                 incognito={incognitoEnabled}
                 turnActive={
                   workspaceTaskExecutionState === "running" ||
@@ -2239,6 +2447,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="preview"
             >

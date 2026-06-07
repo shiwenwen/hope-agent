@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::agent::MEDIA_ITEMS_PREFIX;
 use crate::attachments::{self, MediaItem, MediaKind};
@@ -32,11 +32,12 @@ use crate::tools::image_markers;
 /// Image base64 prefix marker — detected by `agent.rs` for multimodal content.
 pub const IMAGE_BASE64_PREFIX: &str = "__IMAGE_BASE64__";
 
-pub(crate) async fn tool_browser(args: &Value, session_id: Option<&str>) -> Result<String> {
+pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("Missing 'action' parameter"))?;
+    let session_id = ctx.session_id.as_deref();
 
     match action {
         "status" => action_status(args).await,
@@ -46,7 +47,7 @@ pub(crate) async fn tool_browser(args: &Value, session_id: Option<&str>) -> Resu
         "snapshot" => action_snapshot(args, session_id).await,
         "act" => action_act(args).await,
         "observe" => action_observe(args).await,
-        "control" => action_control(args, session_id).await,
+        "control" => action_control(args).await,
         other => Err(anyhow!(
             "Unknown browser action: '{}'. Valid: status / profile / tabs / navigate / snapshot / act / observe / control",
             other
@@ -312,7 +313,7 @@ async fn profile_disconnect() -> Result<String> {
 ///
 /// Progress is emitted on the `browser:chromium_download_progress`
 /// EventBus channel; tool-level callers should treat this as
-/// `async_capable=true` so the LLM can poll `job_status`.
+/// `async_capable=true` so completion can arrive through async job injection.
 async fn profile_install_runtime() -> Result<String> {
     use crate::browser::runtime;
 
@@ -692,7 +693,7 @@ async fn action_observe(args: &Value) -> Result<String> {
 
 // ── control ──────────────────────────────────────────────────────────────
 
-async fn action_control(args: &Value, session_id: Option<&str>) -> Result<String> {
+async fn action_control(args: &Value) -> Result<String> {
     let op = get_str(args, "op").ok_or_else(|| {
         anyhow!("control requires 'op' (resize / scroll / wait_for / handle_dialog / evaluate)")
     })?;
@@ -743,7 +744,6 @@ async fn action_control(args: &Value, session_id: Option<&str>) -> Result<String
                 .or_else(|| get_str(args, "script"))
                 .ok_or_else(|| anyhow!("control.evaluate requires 'expression' or 'script'"))?;
             evaluate_with_ssrf_scan(script).await?;
-            confirm_evaluate(script, session_id).await?;
             let result = backend.evaluate(script).await?;
             let display = if result.is_string() {
                 result.as_str().unwrap_or("").to_string()
@@ -758,89 +758,6 @@ async fn action_control(args: &Value, session_id: Option<&str>) -> Result<String
             "Unknown control.op: '{}'. Valid: resize / scroll / wait_for / handle_dialog / evaluate",
             other
         )),
-    }
-}
-
-/// Gate `control.evaluate` behind an explicit user confirmation. Arbitrary
-/// JS execution is the agent's most dangerous outbound surface (the SSRF
-/// regex scan above is best-effort and won't catch dynamic URL
-/// construction or `Function(...)` indirection). Bypassed for global YOLO
-/// users, who have already accepted the trade-off.
-const EVALUATE_AFFIRMATIVE_LABEL: &str = "Run it";
-
-async fn confirm_evaluate(script: &str, session_id: Option<&str>) -> Result<()> {
-    if crate::security::dangerous::is_dangerous_skip_active() {
-        return Ok(());
-    }
-    let Some(sid) = session_id else {
-        // Without a session_id we can't drive `ask_user_question`; deny by
-        // default rather than silently running.
-        return Err(anyhow!(
-            "control.evaluate refused: no active session to confirm against. \
-             Enable global YOLO mode if this call is from a non-interactive context."
-        ));
-    };
-    // Truncate the script for the prompt — long bundles aren't useful in
-    // a confirmation modal, but a non-empty head helps the user judge.
-    let preview = {
-        let s = script.trim();
-        if s.chars().count() <= 280 {
-            s.to_string()
-        } else {
-            let head: String = s.chars().take(277).collect();
-            format!("{head}...")
-        }
-    };
-    let ask_args = json!({
-        "context": super::ask_user_question::i18n_text(
-            "askUserDialog.browserEvaluate.context",
-            json!({}),
-            "Browser control.evaluate is about to run arbitrary JavaScript in the active tab. Approve only if you trust the script.",
-        ),
-        "questions": [{
-            "question_id": "confirm_browser_evaluate",
-            "text": super::ask_user_question::i18n_text(
-                "askUserDialog.browserEvaluate.text",
-                json!({ "preview": preview }),
-                format!("Run this JavaScript in the browser?\n\n{preview}"),
-            ),
-            "header": super::ask_user_question::i18n_text(
-                "askUserDialog.browserEvaluate.header",
-                json!({}),
-                "Browser evaluate",
-            ),
-            "options": [
-                {
-                    "value": "confirm",
-                    "label": super::ask_user_question::i18n_text(
-                        "askUserDialog.browserEvaluate.runIt",
-                        json!({}),
-                        EVALUATE_AFFIRMATIVE_LABEL,
-                    ),
-                    "recommended": false
-                },
-                {
-                    "value": "cancel",
-                    "label": super::ask_user_question::i18n_text(
-                        "askUserDialog.browserEvaluate.cancel",
-                        json!({}),
-                        "Cancel",
-                    ),
-                    "recommended": true
-                },
-            ],
-            "multi_select": false,
-            "default_values": ["cancel"]
-        }]
-    });
-    let raw = crate::tools::ask_user_question::execute(&ask_args, Some(sid)).await;
-    if crate::ask_user::was_affirmative(&raw, &[EVALUATE_AFFIRMATIVE_LABEL]) {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "control.evaluate cancelled by user (or no response). \
-             If this is a trusted automation, enable YOLO mode."
-        ))
     }
 }
 
@@ -913,9 +830,6 @@ mod tests {
         let script = "document.title";
         assert!(evaluate_with_ssrf_scan(script).await.is_ok());
     }
-
-    // Affirmative-label parsing is covered by `crate::ask_user::was_affirmative`'s
-    // own test suite. We don't re-test it here.
 
     #[test]
     fn tab_url_indicates_blank_load_for_empty_and_about_blank() {

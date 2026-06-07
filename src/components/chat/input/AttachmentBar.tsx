@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
-import { ImagePlus, Paperclip, X } from "lucide-react"
+import { Paperclip, X } from "lucide-react"
 import { useLightbox } from "@/components/common/ImageLightbox"
 
 interface AttachmentPreviewProps {
@@ -109,46 +109,7 @@ export function AttachFilesMenuItem({ onAttachFiles, onPicked }: AttachFilesMenu
   )
 }
 
-export function AttachImageButton({ onAttachFiles }: AttachmentButtonsProps) {
-  const { t } = useTranslation()
-  const imageInputRef = useRef<HTMLInputElement>(null)
-
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files
-      if (files) {
-        onAttachFiles(Array.from(files))
-      }
-      e.target.value = ""
-    },
-    [onAttachFiles],
-  )
-
-  return (
-    <>
-      <IconTip label={t("chat.attachImage")}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-          onClick={() => imageInputRef.current?.click()}
-        >
-          <ImagePlus className="h-4 w-4" />
-        </Button>
-      </IconTip>
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={handleFileSelect}
-      />
-    </>
-  )
-}
-
-export function AttachFileButton({ onAttachFiles }: AttachmentButtonsProps) {
+export function AttachFilesButton({ onAttachFiles }: AttachmentButtonsProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -165,10 +126,11 @@ export function AttachFileButton({ onAttachFiles }: AttachmentButtonsProps) {
 
   return (
     <>
-      <IconTip label={t("chat.attachFile")}>
+      <IconTip label={t("chat.attachPhotosAndFiles")}>
         <Button
           variant="ghost"
           size="icon"
+          aria-label={t("chat.attachPhotosAndFiles")}
           className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
           onClick={() => fileInputRef.current?.click()}
         >
@@ -187,10 +149,5 @@ export function AttachFileButton({ onAttachFiles }: AttachmentButtonsProps) {
 }
 
 export default function AttachmentButtons({ onAttachFiles }: AttachmentButtonsProps) {
-  return (
-    <>
-      <AttachImageButton onAttachFiles={onAttachFiles} />
-      <AttachFileButton onAttachFiles={onAttachFiles} />
-    </>
-  )
+  return <AttachFilesButton onAttachFiles={onAttachFiles} />
 }

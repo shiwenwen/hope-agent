@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
-import type { ActiveModel, AvailableModel } from "@/types/chat"
+import type { ActiveModel, AvailableModel, SessionMode } from "@/types/chat"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "./ChatInput"
@@ -22,33 +22,100 @@ vi.mock("react-i18next", () => ({
 vi.mock("./MentionComposerInput", async () => {
   const React = await import("react")
   return {
-    default: React.forwardRef(function MockComposer(props: { onChange?: (v: string) => void }) {
+    default: React.forwardRef(function MockComposer(
+      props: {
+        value?: string
+        onChange?: (v: string) => void
+        onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
+        onPaste?: (e: React.ClipboardEvent<HTMLElement>) => void
+        onSelectionChange?: () => void
+        readOnly?: boolean
+      },
+      ref: React.Ref<{
+        focus: () => void
+        getValue: () => string
+        getSelectionRange: () => { start: number; end: number }
+        setSelectionRange: (start: number, end: number) => void
+      }>,
+    ) {
+      const value = props.value ?? ""
+      // Emulate the real ComposerInputHandle so the `@`-mention hook (which reads
+      // the caret via getSelectionRange) can drive the popper under jsdom. Caret
+      // sits at end-of-value, which is where these wiring tests expect it.
+      React.useImperativeHandle(
+        ref,
+        () => ({
+          focus: () => {},
+          getValue: () => value,
+          getSelectionRange: () => ({ start: value.length, end: value.length }),
+          setSelectionRange: () => {},
+        }),
+        [value],
+      )
       return React.createElement("div", {
         role: "textbox",
         "aria-multiline": "true",
-        contentEditable: true,
+        contentEditable: !props.readOnly,
         suppressContentEditableWarning: true,
         onInput: (e: React.FormEvent<HTMLDivElement>) =>
           props.onChange?.(e.currentTarget.textContent ?? ""),
+        onKeyDown: props.onKeyDown,
+        onSelect: props.onSelectionChange,
+        onPaste: props.onPaste,
       })
     }),
   }
 })
 
-const transportMock = vi.hoisted(() => ({
-  call: vi.fn(() => Promise.resolve([])),
-  searchFiles: vi.fn(() => Promise.resolve({ entries: [], truncated: false })),
-  supportsLocalFileOps: () => false,
-  listen: vi.fn(() => () => {}),
-}))
+type MockTransportCall = (command: string, args?: unknown) => Promise<unknown>
+type MockDirEntry = { name: string; path: string; isDir: boolean }
+type MockDirectoryResult = { path: string; entries: MockDirEntry[]; truncated: boolean }
+type MockFileMatch = {
+  name: string
+  path: string
+  relPath: string
+  isDir: boolean
+  score: number
+}
+type MockSearchResult = { root: string; matches: MockFileMatch[]; truncated: boolean }
+
+const transportMock = vi.hoisted(() => {
+  const defaultCall: MockTransportCall = (command) => {
+    if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+    return Promise.resolve([])
+  }
+  return {
+    defaultCall,
+    call: vi.fn<MockTransportCall>(defaultCall),
+    searchFiles: vi.fn<() => Promise<MockSearchResult>>(() =>
+      Promise.resolve({ root: "", matches: [], truncated: false }),
+    ),
+    supportsLocalFileOps: () => false,
+    listen: vi.fn(() => () => {}),
+    listServerDirectory: vi.fn<() => Promise<MockDirectoryResult>>(() =>
+      Promise.resolve({ path: "/tmp", entries: [], truncated: false }),
+    ),
+  }
+})
 
 vi.mock("@/lib/transport-provider", () => ({
   getTransport: () => transportMock,
 }))
 
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn()
+}
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  transportMock.call.mockImplementation(transportMock.defaultCall)
+  transportMock.searchFiles.mockResolvedValue({ root: "", matches: [], truncated: false })
+  transportMock.listServerDirectory.mockResolvedValue({
+    path: "/tmp",
+    entries: [],
+    truncated: false,
+  })
 })
 
 const model: AvailableModel = {
@@ -182,6 +249,97 @@ describe("ChatInput", () => {
 
     fireEvent.click(sendButton)
     expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  test("keeps the input dock from clipping upward toolbar menus", () => {
+    renderChatInput()
+
+    const inputDock = screen.getByRole("textbox").closest(".rounded-input-dock")
+
+    expect(inputDock).toBeTruthy()
+    expect(inputDock?.className).toContain("overflow-visible")
+    expect(inputDock?.className).not.toContain("overflow-hidden")
+  })
+
+  test.each([
+    ["default", "smart"],
+    ["smart", "yolo"],
+    ["yolo", "default"],
+  ] satisfies Array<[SessionMode, SessionMode]>)(
+    "cycles permission mode from %s to %s with Shift+Tab",
+    (permissionMode, nextMode) => {
+      const onPermissionModeChange = vi.fn()
+      renderChatInput({ permissionMode, onPermissionModeChange })
+
+      fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
+
+      expect(onPermissionModeChange).toHaveBeenCalledTimes(1)
+      expect(onPermissionModeChange).toHaveBeenCalledWith(nextMode)
+    },
+  )
+
+  test("does not cycle permission mode on plain Tab", () => {
+    const onPermissionModeChange = vi.fn()
+    renderChatInput({ onPermissionModeChange })
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab" })
+
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+  })
+
+  test("lets slash command menu consume Shift+Tab before permission cycling", async () => {
+    const onPermissionModeChange = vi.fn()
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "list_slash_commands") {
+        return Promise.resolve([
+          {
+            name: "new",
+            category: "session",
+            descriptionKey: "slashCommands.new.description",
+            hasArgs: false,
+          },
+        ])
+      }
+      return Promise.resolve([])
+    })
+
+    renderChatInput({ input: "/", onPermissionModeChange })
+
+    await waitFor(() => expect(screen.getByText("/new")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
+
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+  })
+
+  test("lets file mention menu consume Shift+Tab before permission cycling", async () => {
+    const onInputChange = vi.fn()
+    const onPermissionModeChange = vi.fn()
+    // In the composer a bare `@` shows the note section; a query (`@notes`) drives
+    // the file-search section. searchFiles backs that path (list mode is for `/`).
+    transportMock.searchFiles.mockResolvedValue({
+      root: "/tmp",
+      matches: [
+        { name: "notes.md", path: "/tmp/notes.md", relPath: "notes.md", isDir: false, score: 1 },
+      ],
+      truncated: false,
+    })
+
+    renderChatInput({
+      input: "@notes",
+      onInputChange,
+      onPermissionModeChange,
+      workingDir: "/tmp",
+    })
+
+    // Nudge the mention popper open (mirrors a caret move after typing `@notes`).
+    fireEvent.select(screen.getByRole("textbox"))
+
+    await waitFor(() => expect(screen.getByText("notes.md")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
+
+    expect(onPermissionModeChange).not.toHaveBeenCalled()
+    expect(onInputChange).toHaveBeenCalledWith("@notes.md ")
   })
 
   test("explicit interrupted execution state wins over loading for task progress", () => {

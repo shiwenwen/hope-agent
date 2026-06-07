@@ -398,11 +398,23 @@ fn build_router_with_cors(
             get(routes::sessions::get_session_artifacts),
         )
         .route(
+            "/sessions/{id}/environment",
+            get(routes::sessions::get_session_environment),
+        )
+        .route(
             "/sessions/{id}/stream-state",
             get(routes::sessions::get_session_stream_state),
         )
         // Chat
         .route("/chat", post(routes::chat::chat))
+        .route(
+            "/chat/turn-message",
+            post(routes::chat::queue_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/cancel",
+            post(routes::chat::cancel_queued_turn_user_message),
+        )
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
             "/sessions/{sessionId}/tasks",
@@ -1678,6 +1690,7 @@ fn build_router_with_cors(
         .route("/fs/list", get(routes::project_fs::fs_list))
         .route("/fs/read", get(routes::project_fs::fs_read))
         .route("/fs/extract", get(routes::project_fs::fs_extract))
+        .route("/fs/search", get(routes::project_fs::fs_search))
         .route("/fs/raw", get(routes::project_fs::fs_raw))
         .route("/fs/git", get(routes::project_fs::fs_git_info))
         // Raise the body cap above axum's 2MB default so saving a file as large

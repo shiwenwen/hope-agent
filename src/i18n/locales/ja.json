@@ -25,7 +25,7 @@
     "updateErrorDetails": "エラー詳細",
     "updateErrorLogHint": "完全なトレースは ~/.hope-agent/logs.db に書き込まれています（category: updater）。/ha-logs で確認するか、問題報告の際に該当ファイルを添付してください。",
     "updateHistory": "更新履歴",
-    "updateHistoryDesc": "アプリ内で、このビルドに含まれるすべてのリリースノートを確認できます。",
+    "updateHistoryDesc": "アプリを離れずに、同梱されたノートと同期された GitHub Releases を確認できます。",
     "updateHistoryEmpty": "このビルドにはリリースノートが見つかりません。",
     "updateHistoryLatest": "最新",
     "updateHistoryNoNotes": "このリリースのノートはありません。",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "Smart モードの判定モデルが、この呼び出しには人の確認が必要だと判断しました。",
         "title": "Smart モード判定"
+      },
+      "browser_evaluate": {
+        "body": "このブラウザ操作はアクティブなタブで任意の JavaScript を実行します。Smart モードでは高信頼タグまたは判定モデルにより自動許可される場合があります。",
+        "title": "ブラウザ JavaScript"
       },
       "mac_control_action": {
         "title": "Mac 制御操作",
@@ -295,6 +299,8 @@
     "compactNoChange": "コンテキストの圧縮は不要です",
     "compactNow": "コンテキストを圧縮",
     "compacting": "圧縮中...",
+    "contextCompactingMsgs": "{{count}} 件を要約中",
+    "contextCompactingTitle": "コンテキストを圧縮中",
     "contextCompactedMsgs": "{{count}} 件",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "コンテキスト圧縮",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "応答待ち · {{count}}",
     "pendingQueued": "メッセージがキューに追加されました。返信完了後に送信されます...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "オンにすると、モード選択時にこの Agent の新規チャット既定値も更新します。",
+        "failed": "この Agent の既定権限モードを更新できませんでした。",
+        "label": "Agent の既定値も更新"
+      },
       "default": {
         "desc": "編集系ツールと高リスクコマンドは承認が必要、それ以外は実行",
         "label": "デフォルト"
@@ -681,7 +692,12 @@
     "weekSun": "日",
     "weekThu": "木",
     "weekTue": "火",
-    "weekWed": "水"
+    "weekWed": "水",
+    "archivedProject": "（アーカイブ済み）",
+    "autoAgent": "自動（プロジェクト/既定）",
+    "missingProject": "存在しないプロジェクト",
+    "noProject": "プロジェクトなし",
+    "project": "プロジェクト"
   },
   "dangerousMode": {
     "bannerBoth": "危険モード有効（CLI + 設定）— すべてのツール承認をバイパス中",
@@ -1063,6 +1079,10 @@
     "gitDetached": "切り離し",
     "backToRoot": "作業ディレクトリに戻る",
     "worktrees": "ワークツリー",
+    "searchPlaceholder": "ファイルを検索",
+    "searchResults": "検索結果",
+    "searchTruncated": "結果は切り詰められました",
+    "searchEmpty": "一致するファイルはありません",
     "open": "ファイルブラウザを開く",
     "resizePanel": "ファイルパネルの幅を調整",
     "noWorkingDir": "作業ディレクトリを設定するとファイルを閲覧できます",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "常にバックグラウンドで実行",
-        "desc": "非同期対応ツールの呼び出しを毎回即座にバックグラウンドへ切り替え、job id を返します。モデルは `job_status` でポーリングする必要があります。"
+        "desc": "非同期対応ツールの呼び出しを毎回即座にバックグラウンドへ切り替え、job id を返します。結果は自動注入され、`job_status` は必要なときの状態スナップショットにのみ使います。"
       },
       "neverBackground": {
         "label": "バックグラウンド化しない",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "タイムアウト（秒）",
     "imageGenerate": "画像生成",
     "imageGenerateDesc": "AI 画像生成プロバイダー (OpenAI、Google、Fal、MiniMax、SiliconFlow、智谱、通义万相) を設定。有効化すると Agent が image_generate ツールで画像生成・編集できます。",
+    "issueReporting": "Issue 報告",
+    "issueReportingTitle": "Issue 報告",
+    "issueReportingDesc": "確認後、issue_report ツールが GitHub Issue を送信できるようにします。",
+    "issueReportingOwner": "オーナー",
+    "issueReportingRepo": "リポジトリ",
+    "issueReportingApiBaseUrl": "GitHub API ベース URL",
+    "issueReportingMaxEvidenceChars": "証拠の最大文字数",
+    "issueReportingLabels": "ラベル",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "機能",
+      "improvement": "改善"
+    },
+    "issueReportingDuplicateSearch": "重複 Issue 検索",
+    "issueReportingDuplicateSearchDesc": "下書き前に既存の未解決 Issue を検索するようスキルワークフローに促します。",
+    "issueReportingToken": "GitHub トークン",
+    "issueReportingTokenConfigured": "トークンが設定されています。",
+    "issueReportingTokenMissing": "トークンは設定されていません。Hope Agent は認証済みの gh CLI を試します。",
+    "issueReportingTokenPlaceholderClear": "空のまま保存するとクリアします",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "トークンを保存",
+    "issueReportingTokenSaved": "GitHub トークンを保存しました",
+    "issueReportingTokenCleared": "GitHub トークンをクリアしました",
+    "issueReportingTokenSaveFailed": "GitHub トークンの保存に失敗しました",
+    "issueReportingTestSuccessToken": "GitHub トークンで設定済みリポジトリにアクセスできます。",
+    "issueReportingTestSuccessGh": "GitHub トークンは未設定ですが、gh CLI は認証済みでリポジトリにアクセスできます。",
+    "issueReportingTestFailed": "GitHub 接続テストに失敗しました",
     "inheritGlobal": "グローバル設定を継承",
     "items": "件",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "ワークスペース",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "進捗",
     "sectionOutput": "出力",
     "sectionSources": "ソース",
@@ -4735,6 +4783,64 @@
     "resizePanel": "ワークスペースパネルの幅を調整",
     "sourceFromSearch": "検索",
     "truncatedNote": "最新の1000件を表示",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "新規",
       "edit": "編集",

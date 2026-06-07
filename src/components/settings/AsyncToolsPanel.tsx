@@ -19,7 +19,7 @@ interface AsyncToolsConfig {
 const DEFAULT_CONFIG: AsyncToolsConfig = {
   enabled: true,
   autoBackgroundSecs: 30,
-  maxJobSecs: 1800,
+  maxJobSecs: 0,
   inlineResultBytes: 4096,
   retentionSecs: 30 * 86400,
   orphanGraceSecs: 24 * 3600,

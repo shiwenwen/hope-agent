@@ -25,7 +25,7 @@
     "updateErrorDetails": "錯誤詳情",
     "updateErrorLogHint": "完整堆疊已寫入 ~/.hope-agent/logs.db（category: updater），可透過 /ha-logs 排查或在回報問題時附上該檔案。",
     "updateHistory": "更新歷史",
-    "updateHistoryDesc": "在應用內查看隨目前版本打包的所有發布說明。",
+    "updateHistoryDesc": "在應用內查看隨目前版本打包並從 GitHub Releases 同步的發布記錄。",
     "updateHistoryEmpty": "目前建置中沒有找到發布說明。",
     "updateHistoryLatest": "最新",
     "updateHistoryNoNotes": "這個版本暫時沒有可顯示的發布說明。",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "智慧審批模式下判官模型判定此次呼叫需要人工確認。",
         "title": "智慧審批判官建議"
+      },
+      "browser_evaluate": {
+        "body": "這次瀏覽器操作會在目前分頁執行任意 JavaScript。Smart 模式可由高信心標記或判官模型自動放行。",
+        "title": "瀏覽器執行腳本"
       },
       "mac_control_action": {
         "title": "Mac 控制操作",
@@ -295,6 +299,8 @@
     "compactNoChange": "當前上下文無需壓縮",
     "compactNow": "壓縮上下文",
     "compacting": "壓縮中...",
+    "contextCompactingMsgs": "摘要 {{count}} 則",
+    "contextCompactingTitle": "正在壓縮上下文",
     "contextCompactedMsgs": "{{count}} 則",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "上下文已壓縮",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "等待回應 · {{count}} 項",
     "pendingQueued": "消息已排隊，等待回複完成後發送...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "開啟後，選擇模式會同時更新此 Agent 的新對話預設權限。",
+        "failed": "更新此 Agent 預設權限模式失敗",
+        "label": "同時更新 Agent 預設"
+      },
       "default": {
         "desc": "編輯類工具與高危命令需要審批，其餘直接放行",
         "label": "預設權限"
@@ -681,7 +692,12 @@
     "weekSun": "日",
     "weekThu": "四",
     "weekTue": "二",
-    "weekWed": "三"
+    "weekWed": "三",
+    "archivedProject": "（已封存）",
+    "autoAgent": "自動（專案/預設）",
+    "missingProject": "專案不存在",
+    "noProject": "無專案",
+    "project": "專案"
   },
   "dangerousMode": {
     "bannerBoth": "危險模式已啟用（CLI + 設定）—— 所有工具呼叫跳過審批",
@@ -1063,6 +1079,10 @@
     "gitDetached": "游離 HEAD",
     "backToRoot": "返回工作目錄",
     "worktrees": "工作樹",
+    "searchPlaceholder": "搜尋檔案",
+    "searchResults": "搜尋結果",
+    "searchTruncated": "結果已截斷",
+    "searchEmpty": "沒有符合的檔案",
     "open": "開啟檔案瀏覽器",
     "resizePanel": "調整檔案面板寬度",
     "noWorkingDir": "設定工作目錄後即可瀏覽檔案",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "總是背景執行",
-        "desc": "每次非同步可背景化呼叫都立即轉背景並回傳 job id，模型需用 `job_status` 主動輪詢。"
+        "desc": "每次非同步可背景化呼叫都立即轉背景並回傳 job id；完成結果會自動注入，`job_status` 僅用於偶爾查看狀態。"
       },
       "neverBackground": {
         "label": "停用背景執行",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "超時（秒）",
     "imageGenerate": "圖片生成",
     "imageGenerateDesc": "配置 AI 圖片生成服務商（OpenAI、Google、Fal、MiniMax、硅基流動、智譜、通義萬相），啟用後 Agent 可通過 image_generate 工具生成和編輯圖片。",
+    "issueReporting": "Issue 回報",
+    "issueReportingTitle": "Issue 回報",
+    "issueReportingDesc": "允許 issue_report 工具在你確認後提交 GitHub Issue。",
+    "issueReportingOwner": "擁有者",
+    "issueReportingRepo": "儲存庫",
+    "issueReportingApiBaseUrl": "GitHub API 基礎 URL",
+    "issueReportingMaxEvidenceChars": "證據最大字元數",
+    "issueReportingLabels": "標籤",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "功能",
+      "improvement": "改進"
+    },
+    "issueReportingDuplicateSearch": "重複 Issue 搜尋",
+    "issueReportingDuplicateSearchDesc": "提示技能流程在起草前先搜尋已開啟的 Issue。",
+    "issueReportingToken": "GitHub Token",
+    "issueReportingTokenConfigured": "已設定 Token。",
+    "issueReportingTokenMissing": "尚未設定 Token。Hope Agent 會嘗試使用已登入的 gh CLI。",
+    "issueReportingTokenPlaceholderClear": "留空並儲存即可清除",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "儲存 Token",
+    "issueReportingTokenSaved": "GitHub Token 已儲存",
+    "issueReportingTokenCleared": "GitHub Token 已清除",
+    "issueReportingTokenSaveFailed": "儲存 GitHub Token 失敗",
+    "issueReportingTestSuccessToken": "GitHub Token 可以存取設定的儲存庫。",
+    "issueReportingTestSuccessGh": "未設定 GitHub Token；gh CLI 已登入且可以存取該儲存庫。",
+    "issueReportingTestFailed": "GitHub 連線測試失敗",
     "inheritGlobal": "繼承全局設置",
     "items": "個",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "工作台",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "進度",
     "sectionOutput": "輸出",
     "sectionSources": "來源",
@@ -4735,6 +4783,64 @@
     "resizePanel": "調整工作台面板寬度",
     "sourceFromSearch": "搜尋",
     "truncatedNote": "僅顯示最近 1000 條",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "新建",
       "edit": "修改",

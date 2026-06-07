@@ -81,6 +81,8 @@ control { op: resize|scroll|wait_for|handle_dialog|evaluate }
 
 `control.evaluate` 的扫描是 **best-effort**：base64 编码 URL、模板字符串动态拼接、`window.location.host` 之类无法防。skill 文档明确告诉 LLM 这条边界。
 
+`control.evaluate` 默认还会通过统一权限引擎产生 `AskReason::BrowserEvaluate` 审批；Default 会弹 tool approval，Smart 可由 `_confidence:"high"` 或 judge model 自动放行，Yolo / Global YOLO / `ToolExecContext.auto_approve_tools` 直接放行。异步工具重入的 `external_pre_approved` 只表示外层统一 gate 已经处理过，内层不重复审批。SSRF 扫描不受这些开关影响。
+
 ## 配置
 
 [`AppConfig.browser`](../../crates/ha-core/src/browser/mod.rs) 全 optional：

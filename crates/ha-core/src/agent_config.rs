@@ -236,8 +236,10 @@ pub struct CapabilitiesConfig {
     #[serde(default)]
     pub sandbox: bool,
 
-    /// Whether to check skill runtime requirements (bins/env/os) before injecting into system prompt.
-    /// When true (default), skills whose requirements are not met are silently excluded.
+    /// Whether to check skill runtime requirements before injecting into the
+    /// system prompt. When true (default), hard blockers such as unsupported OS
+    /// are excluded; recoverable missing dependencies remain visible and are
+    /// diagnosed at activation time.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
 

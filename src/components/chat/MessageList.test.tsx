@@ -343,6 +343,49 @@ describe("MessageList", () => {
     expect(screen.getByText("planMode.planningInProgress")).toBeTruthy()
   })
 
+  test("scrolls pending ask-user footer into view when it appears", () => {
+    const askUserGroup: AskUserQuestionGroup = {
+      requestId: "ask-1",
+      questions: [],
+    } as unknown as AskUserQuestionGroup
+    const messages = [baseMessage({ role: "user", content: "ping", dbId: 1 })]
+    const { rerender } = render(
+      <MessageList
+        messages={messages}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const el = getScroller()
+    const metrics = { scrollHeight: 2000, clientHeight: 600, scrollTop: 800 }
+    patchScrollMetrics(el, metrics)
+    act(() => {
+      fireEvent.scroll(el)
+    })
+
+    metrics.scrollHeight = 2400
+    rerender(
+      <MessageList
+        messages={messages}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        pendingQuestionGroup={askUserGroup}
+      />,
+    )
+
+    expect(screen.getByTestId("ask-user-block")).toBeTruthy()
+    expect(el.scrollTop).toBe(2400)
+  })
+
   test("does not render plan-card while plan state is off or planning", () => {
     const planCard: PlanCardData = { title: "test plan" }
     const { rerender } = render(

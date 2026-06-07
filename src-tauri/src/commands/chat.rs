@@ -127,6 +127,44 @@ pub async fn save_attachment(
 }
 
 #[tauri::command]
+pub async fn queue_turn_user_message(
+    request_id: Option<String>,
+    message: String,
+    attachments: Vec<Attachment>,
+    session_id: String,
+    turn_id: String,
+    display_text: Option<String>,
+    is_plan_trigger: Option<bool>,
+    plan_comment: Option<serde_json::Value>,
+) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
+    Ok(ha_core::chat_engine::turn_injection::enqueue(
+        ha_core::chat_engine::turn_injection::QueueTurnUserMessageArgs {
+            request_id,
+            session_id,
+            turn_id,
+            message,
+            display_text,
+            attachments,
+            is_plan_trigger: is_plan_trigger.unwrap_or(false),
+            plan_comment,
+        },
+    ))
+}
+
+#[tauri::command]
+pub async fn cancel_queued_turn_user_message(
+    session_id: String,
+    turn_id: String,
+    request_id: String,
+) -> Result<ha_core::chat_engine::turn_injection::CancelQueuedTurnMessageResult, CmdError> {
+    Ok(ha_core::chat_engine::turn_injection::cancel(
+        &session_id,
+        &turn_id,
+        &request_id,
+    ))
+}
+
+#[tauri::command]
 pub async fn chat(
     message: String,
     mut attachments: Vec<Attachment>,

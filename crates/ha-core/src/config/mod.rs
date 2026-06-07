@@ -200,9 +200,10 @@ pub struct AsyncToolsConfig {
     #[serde(default = "default_async_auto_background_secs")]
     pub auto_background_secs: u64,
     /// Maximum time (seconds) a backgrounded job may run before being killed.
-    /// Default: 1800 (30 min). 0 = no async-job limit; individual tools may
-    /// still enforce their own timeouts (for example `exec.timeout`).
-    /// Per-call `job_timeout_secs` can only tighten this limit, not extend it.
+    /// Default: 0 (no async-job limit); individual tools may still enforce
+    /// their own timeouts when the model sets one (for example `exec.timeout`).
+    /// Per-call `job_timeout_secs` can set a timeout when this is 0, or tighten
+    /// the configured limit when this is positive.
     #[serde(default = "default_async_max_job_secs")]
     pub max_job_secs: u64,
     /// Number of result bytes to keep as the SQLite preview. Full completed
@@ -236,7 +237,7 @@ fn default_async_auto_background_secs() -> u64 {
     30
 }
 fn default_async_max_job_secs() -> u64 {
-    1800
+    0
 }
 fn default_async_inline_result_bytes() -> usize {
     4096
@@ -499,8 +500,11 @@ pub struct AppConfig {
     /// Disabled skill names
     #[serde(default)]
     pub disabled_skills: Vec<String>,
-    /// Whether to check skill runtime requirements (bins/env/os) before injecting.
-    /// Default true. When false, all skills are injected regardless of environment.
+    /// Whether to check skill runtime requirements before injecting. Default
+    /// true. Hard blockers (currently unsupported OS) hide the skill; missing
+    /// installable/configurable dependencies remain visible and are diagnosed
+    /// at activation time. When false, all skills are injected regardless of
+    /// environment.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
     /// Kill switch for `paths:` conditional skill activation. Default true.

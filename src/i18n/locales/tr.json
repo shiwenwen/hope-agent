@@ -25,7 +25,7 @@
     "updateErrorDetails": "Hata ayrıntıları",
     "updateErrorLogHint": "Tam izleme ~/.hope-agent/logs.db dosyasına yazıldı (category: updater). Araştırmak için /ha-logs kullanın veya sorunu bildirirken bu dosyayı ekleyin.",
     "updateHistory": "Güncelleme geçmişi",
-    "updateHistoryDesc": "Uygulamadan ayrılmadan pakete dahil edilen tüm sürüm notlarına göz atın.",
+    "updateHistoryDesc": "Uygulamadan ayrılmadan paketlenmiş notlara ve senkronize GitHub Releases kayıtlarına göz atın.",
     "updateHistoryEmpty": "Bu derlemede sürüm notu bulunamadı.",
     "updateHistoryLatest": "En yeni",
     "updateHistoryNoNotes": "Bu sürüm için not yok.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "Smart modu yargıç modeli bu çağrının insan onayı gerektirdiğine karar verdi.",
         "title": "Smart modu yargıcı"
+      },
+      "browser_evaluate": {
+        "body": "Bu tarayıcı işlemi etkin sekmede rastgele JavaScript çalıştırır. Smart modu bunu yüksek güven etiketi veya yargıç modeliyle otomatik olarak izinli sayabilir.",
+        "title": "Tarayıcı JavaScript"
       },
       "mac_control_action": {
         "title": "Mac Control işlemi",
@@ -295,6 +299,8 @@
     "compactNoChange": "Bağlamın sıkıştırılmasına gerek yok",
     "compactNow": "Bağlamı sıkıştır",
     "compacting": "Sıkıştırılıyor...",
+    "contextCompactingMsgs": "{{count}} mesaj özetleniyor",
+    "contextCompactingTitle": "Bağlam sıkıştırılıyor",
     "contextCompactedMsgs": "{{count}} mesaj",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "Bağlam sıkıştırıldı",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "Yanıt bekleniyor · {{count}}",
     "pendingQueued": "Mesaj sıraya alındı, yanıt tamamlandıktan sonra gönderilecek...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "Açıkken, bir mod seçmek bu Agent'ın yeni sohbet varsayılanını da günceller.",
+        "failed": "Bu Agent'ın varsayılan izin modu güncellenemedi.",
+        "label": "Agent varsayılanını da güncelle"
+      },
       "default": {
         "desc": "Düzenleme araçları ve riskli komutlar onay gerektirir, diğerleri çalıştırılır.",
         "label": "Varsayılan"
@@ -681,7 +692,12 @@
     "weekSun": "Paz",
     "weekThu": "Per",
     "weekTue": "Sal",
-    "weekWed": "Çar"
+    "weekWed": "Çar",
+    "archivedProject": "(arşivlendi)",
+    "autoAgent": "Otomatik (proje/varsayılan)",
+    "missingProject": "Proje bulunamadı",
+    "noProject": "Proje yok",
+    "project": "Proje"
   },
   "dangerousMode": {
     "bannerBoth": "Tehlikeli Mod aktif (CLI + yapılandırma) — tüm araç onayları atlanıyor",
@@ -1063,6 +1079,10 @@
     "gitDetached": "ayrık",
     "backToRoot": "Çalışma dizinine dön",
     "worktrees": "Çalışma ağaçları",
+    "searchPlaceholder": "Dosyalarda ara",
+    "searchResults": "Arama sonuçları",
+    "searchTruncated": "Sonuçlar kırpıldı",
+    "searchEmpty": "Eşleşen dosya yok",
     "open": "Dosya tarayıcısını aç",
     "resizePanel": "Dosya panelini yeniden boyutlandır",
     "noWorkingDir": "Dosyalara göz atmak için bir çalışma dizini ayarlayın",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "Her zaman arka planda",
-        "desc": "Asenkron destekli her çağrı anında arka plana alınır ve bir iş kimliği döner. Model `job_status` ile yoklamalıdır."
+        "desc": "Asenkron destekli her çağrı anında arka plana alınır ve bir iş kimliği döner. Sonuçlar otomatik olarak enjekte edilir; `job_status` yalnızca ara sıra durum görüntüsü almak içindir."
       },
       "neverBackground": {
         "label": "Asla arka planda",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "Zaman aşımı (saniye)",
     "imageGenerate": "Görüntü oluşturma",
     "imageGenerateDesc": "AI görüntü oluşturma Provider'larını yapılandır (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). Etkinleştirildiğinde Agent, image_generate aracıyla görüntüler oluşturup düzenleyebilir.",
+    "issueReporting": "Issue Bildirme",
+    "issueReportingTitle": "Issue Bildirme",
+    "issueReportingDesc": "Onayınızdan sonra issue_report aracının GitHub issue göndermesini sağlar.",
+    "issueReportingOwner": "Sahip",
+    "issueReportingRepo": "Depo",
+    "issueReportingApiBaseUrl": "GitHub API temel URL",
+    "issueReportingMaxEvidenceChars": "Maksimum kanıt karakteri",
+    "issueReportingLabels": "Etiketler",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "Özellik",
+      "improvement": "İyileştirme"
+    },
+    "issueReportingDuplicateSearch": "Yinelenen issue araması",
+    "issueReportingDuplicateSearchDesc": "Taslak oluşturmadan önce açık issue araması yapması için skill iş akışını yönlendirir.",
+    "issueReportingToken": "GitHub token",
+    "issueReportingTokenConfigured": "Bir token yapılandırıldı.",
+    "issueReportingTokenMissing": "Token yapılandırılmadı. Hope Agent kimliği doğrulanmış gh CLI kullanmayı dener.",
+    "issueReportingTokenPlaceholderClear": "Temizlemek için boş bırakıp kaydedin",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "Token Kaydet",
+    "issueReportingTokenSaved": "GitHub token kaydedildi",
+    "issueReportingTokenCleared": "GitHub token temizlendi",
+    "issueReportingTokenSaveFailed": "GitHub token kaydedilemedi",
+    "issueReportingTestSuccessToken": "GitHub token yapılandırılan depoya erişebiliyor.",
+    "issueReportingTestSuccessGh": "GitHub token yok; gh CLI kimliği doğrulanmış ve depoya erişebiliyor.",
+    "issueReportingTestFailed": "GitHub bağlantı testi başarısız",
     "inheritGlobal": "Global Ayarları Devral",
     "items": "öğe",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "Çalışma alanı",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "İlerleme",
     "sectionOutput": "Çıktı",
     "sectionSources": "Kaynaklar",
@@ -4735,6 +4783,64 @@
     "resizePanel": "Çalışma alanı panelini yeniden boyutlandır",
     "sourceFromSearch": "Arama",
     "truncatedNote": "En son 1000 gösteriliyor",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "Yeni",
       "edit": "Düzenle",

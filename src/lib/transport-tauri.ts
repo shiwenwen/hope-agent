@@ -20,6 +20,7 @@ import type {
   ProjectFsScope,
   UploadResult,
   SessionArtifacts,
+  WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
@@ -167,6 +168,10 @@ export class TauriTransport implements Transport {
 
   async loadSessionArtifacts(sessionId: string): Promise<SessionArtifacts> {
     return invoke<SessionArtifacts>("load_session_artifacts_cmd", { sessionId });
+  }
+
+  async loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot> {
+    return invoke<WorkspaceEnvironmentSnapshot>("load_session_environment_cmd", { sessionId });
   }
 
   async projectFsUpload(

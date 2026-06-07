@@ -23,6 +23,7 @@ export interface ApprovalRequest {
       | "protected_path"
       | "agent_custom_list"
       | "smart_judge"
+      | "browser_evaluate"
       | "mac_control_action"
       | "mac_control_dangerous_action"
       | "plan_mode_ask"

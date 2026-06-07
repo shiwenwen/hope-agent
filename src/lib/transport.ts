@@ -301,6 +301,12 @@ export interface Transport {
    * - HTTP: `GET /api/sessions/{id}/artifacts`.
    */
   loadSessionArtifacts(sessionId: string): Promise<SessionArtifacts>;
+
+  /**
+   * Read-only environment snapshot for the workspace panel. This is UI-only
+   * context; it is not injected into the model prompt.
+   */
+  loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot>;
 }
 
 /**
@@ -459,6 +465,63 @@ export interface SessionArtifacts {
   sources: UrlSourceDto[];
   filesTruncated: boolean;
   sourcesTruncated: boolean;
+}
+
+export type WorkspaceWorkingDirSource = "session" | "project" | "projectDefault" | "none";
+
+export interface WorkspaceWorkingDirSnapshot {
+  path: string | null;
+  source: WorkspaceWorkingDirSource;
+  exists: boolean;
+  name: string | null;
+}
+
+export type WorkspaceGitSyncState =
+  | "upToDate"
+  | "ahead"
+  | "behind"
+  | "diverged"
+  | "noUpstream"
+  | "unknown";
+
+export interface WorkspaceGitStatus {
+  changedFiles: number;
+  stagedFiles: number;
+  unstagedFiles: number;
+  untrackedFiles: number;
+  conflictedFiles: number;
+  linesAdded: number;
+  linesRemoved: number;
+  clean: boolean;
+}
+
+export interface WorkspaceGitSync {
+  upstream: string | null;
+  remote: string | null;
+  ahead: number;
+  behind: number;
+  state: WorkspaceGitSyncState;
+}
+
+export interface WorkspaceGitCommit {
+  hash: string;
+  subject: string;
+}
+
+export interface WorkspaceGitSnapshot {
+  root: string;
+  branch: string | null;
+  detached: boolean;
+  head: string | null;
+  worktrees: WorktreeInfo[];
+  status: WorkspaceGitStatus;
+  sync: WorkspaceGitSync;
+  lastCommit: WorkspaceGitCommit | null;
+}
+
+export interface WorkspaceEnvironmentSnapshot {
+  workingDir: WorkspaceWorkingDirSnapshot;
+  git: WorkspaceGitSnapshot | null;
 }
 
 export interface WriteResult {

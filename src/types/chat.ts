@@ -51,6 +51,24 @@ export interface PendingFileQuote {
   content: string
 }
 
+export type PendingSendMode = "queue" | "force_insert"
+
+export type PendingSendStatus =
+  | "queued"
+  | "waiting_tool_boundary"
+  | "inserted"
+  | "fallback_after_reply"
+
+export interface PendingSendPreview {
+  id: string
+  text: string
+  mode: PendingSendMode
+  status: PendingSendStatus
+  canForceInsert: boolean
+  attachmentCount: number
+  quoteCount: number
+}
+
 export interface MessageAttachment {
   name: string
   mimeType: string
@@ -391,6 +409,7 @@ export interface SessionSearchResult {
   relevanceRank: number
   isCron: boolean
   parentSessionId: string | null
+  projectId: string | null
   channelType: string | null
   channelChatType: string | null
 }

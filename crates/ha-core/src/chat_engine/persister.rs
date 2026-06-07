@@ -189,22 +189,22 @@ impl StreamPersister {
                 Some("context_compacted") => {
                     // Persist Tier ≥ 2 only — Tier 0/1 reactive micro-compact
                     // fires every turn and would flood the event timeline.
-                    // Also skip the `summarizing` start marker (Tier 3 emits
-                    // this *before* the actual compaction; the final event
-                    // arrives a moment later with real `messages_affected`),
-                    // otherwise reload renders two banners per Tier-3
-                    // compaction. Engine-level emergency_compact persists
-                    // directly at its callsite — that path doesn't go
-                    // through this callback.
+                    // Also skip live-only start markers (`summarizing` for
+                    // Tier 3, `emergency_compacting` for Tier 4). The final
+                    // event arrives a moment later with real
+                    // `messages_affected`, otherwise reload renders two
+                    // banners per compaction. Engine-level emergency_compact
+                    // persists the final event directly at its callsite.
                     let data = event.get("data");
                     let tier = data
                         .and_then(|d| d.get("tier_applied"))
                         .and_then(|t| t.as_u64())
                         .unwrap_or(0);
-                    let is_start_marker = data
+                    let description = data
                         .and_then(|d| d.get("description"))
-                        .and_then(|d| d.as_str())
-                        == Some("summarizing");
+                        .and_then(|d| d.as_str());
+                    let is_start_marker =
+                        matches!(description, Some("summarizing" | "emergency_compacting"));
                     if tier >= 2 && !is_start_marker {
                         let _ = me.db.append_message(
                             &me.session_id,

@@ -25,7 +25,7 @@
     "updateErrorDetails": "오류 세부정보",
     "updateErrorLogHint": "전체 추적이 ~/.hope-agent/logs.db에 기록되었습니다(category: updater). /ha-logs로 확인하거나 문제 보고 시 해당 파일을 첨부해 주세요.",
     "updateHistory": "업데이트 기록",
-    "updateHistoryDesc": "앱을 떠나지 않고 포함된 모든 릴리스 노트를 확인합니다.",
+    "updateHistoryDesc": "앱을 떠나지 않고 포함된 노트와 동기화된 GitHub Releases를 확인합니다.",
     "updateHistoryEmpty": "이 빌드에서 릴리스 노트를 찾을 수 없습니다.",
     "updateHistoryLatest": "최신",
     "updateHistoryNoNotes": "이 릴리스에 사용할 수 있는 노트가 없습니다.",
@@ -77,6 +77,10 @@
       "smart_judge": {
         "body": "Smart 모드의 판정 모델이 이 호출에는 사람의 확인이 필요하다고 판단했습니다.",
         "title": "Smart 모드 판정"
+      },
+      "browser_evaluate": {
+        "body": "이 브라우저 작업은 활성 탭에서 임의의 JavaScript를 실행합니다. Smart 모드는 높은 신뢰도 태그나 판정 모델로 자동 허용할 수 있습니다.",
+        "title": "브라우저 JavaScript"
       },
       "mac_control_action": {
         "title": "Mac 제어 작업",
@@ -295,6 +299,8 @@
     "compactNoChange": "컨텍스트 압축 불필요",
     "compactNow": "컨텍스트 압축",
     "compacting": "압축 중...",
+    "contextCompactingMsgs": "메시지 {{count}}개 요약 중",
+    "contextCompactingTitle": "컨텍스트 압축 중",
     "contextCompactedMsgs": "메시지 {{count}}개",
     "contextCompactedTier": "tier {{tier}}",
     "contextCompactedTitle": "컨텍스트 압축됨",
@@ -405,6 +411,11 @@
     "pendingInteractionInline": "응답 대기 중 · {{count}}",
     "pendingQueued": "메시지가 대기열에 추가되었습니다. 응답 완료 후 전송됩니다...",
     "permissionMode": {
+      "applyToAgentDefault": {
+        "desc": "켜면 모드를 선택할 때 이 Agent의 새 대화 기본값도 업데이트합니다.",
+        "failed": "이 Agent의 기본 권한 모드를 업데이트하지 못했습니다.",
+        "label": "Agent 기본값도 업데이트"
+      },
       "default": {
         "desc": "편집 도구와 고위험 명령은 승인 필요, 나머지는 바로 실행",
         "label": "기본"
@@ -681,7 +692,12 @@
     "weekSun": "일",
     "weekThu": "목",
     "weekTue": "화",
-    "weekWed": "수"
+    "weekWed": "수",
+    "archivedProject": "(보관됨)",
+    "autoAgent": "자동(프로젝트/기본값)",
+    "missingProject": "프로젝트 없음",
+    "noProject": "프로젝트 없음",
+    "project": "프로젝트"
   },
   "dangerousMode": {
     "bannerBoth": "위험 모드 활성 (CLI + 설정) — 모든 도구 승인을 건너뜀",
@@ -1063,6 +1079,10 @@
     "gitDetached": "분리됨",
     "backToRoot": "작업 디렉터리로 돌아가기",
     "worktrees": "워크트리",
+    "searchPlaceholder": "파일 검색",
+    "searchResults": "검색 결과",
+    "searchTruncated": "결과가 잘렸습니다",
+    "searchEmpty": "일치하는 파일이 없습니다",
     "open": "파일 브라우저 열기",
     "resizePanel": "파일 패널 너비 조정",
     "noWorkingDir": "작업 디렉터리를 설정하면 파일을 탐색할 수 있습니다",
@@ -2280,7 +2300,7 @@
       },
       "alwaysBackground": {
         "label": "항상 백그라운드 실행",
-        "desc": "모든 비동기 가능 호출이 즉시 백그라운드로 전환되어 job id를 반환합니다. 모델은 `job_status`로 폴링해야 합니다."
+        "desc": "모든 비동기 가능 호출이 즉시 백그라운드로 전환되어 job id를 반환합니다. 결과는 자동으로 주입되며 `job_status`는 가끔 상태를 확인할 때만 사용합니다."
       },
       "neverBackground": {
         "label": "백그라운드 사용 안 함",
@@ -2866,6 +2886,33 @@
     "imageGenTimeout": "시간 초과 (초)",
     "imageGenerate": "이미지 생성",
     "imageGenerateDesc": "AI 이미지 생성 Provider (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi) 구성. 활성화 후 Agent 가 image_generate 도구로 이미지를 생성하고 편집할 수 있습니다.",
+    "issueReporting": "Issue 보고",
+    "issueReportingTitle": "Issue 보고",
+    "issueReportingDesc": "확인 후 issue_report 도구가 GitHub Issue를 제출할 수 있게 합니다.",
+    "issueReportingOwner": "소유자",
+    "issueReportingRepo": "리포지토리",
+    "issueReportingApiBaseUrl": "GitHub API 기본 URL",
+    "issueReportingMaxEvidenceChars": "최대 근거 문자 수",
+    "issueReportingLabels": "레이블",
+    "issueReportingKind": {
+      "bug": "Bug",
+      "feature": "기능",
+      "improvement": "개선"
+    },
+    "issueReportingDuplicateSearch": "중복 Issue 검색",
+    "issueReportingDuplicateSearchDesc": "초안을 작성하기 전에 기존 열린 Issue를 검색하도록 스킬 워크플로에 요청합니다.",
+    "issueReportingToken": "GitHub 토큰",
+    "issueReportingTokenConfigured": "토큰이 설정되어 있습니다.",
+    "issueReportingTokenMissing": "토큰이 설정되어 있지 않습니다. Hope Agent가 인증된 gh CLI를 시도합니다.",
+    "issueReportingTokenPlaceholderClear": "비워 두고 저장하면 삭제됩니다",
+    "issueReportingTokenPlaceholderNew": "Fine-grained PAT",
+    "issueReportingSaveToken": "토큰 저장",
+    "issueReportingTokenSaved": "GitHub 토큰을 저장했습니다",
+    "issueReportingTokenCleared": "GitHub 토큰을 삭제했습니다",
+    "issueReportingTokenSaveFailed": "GitHub 토큰 저장 실패",
+    "issueReportingTestSuccessToken": "GitHub 토큰으로 설정된 리포지토리에 접근할 수 있습니다.",
+    "issueReportingTestSuccessGh": "GitHub 토큰은 없지만 gh CLI가 인증되어 리포지토리에 접근할 수 있습니다.",
+    "issueReportingTestFailed": "GitHub 연결 테스트 실패",
     "inheritGlobal": "글로벌 설정 상속",
     "items": "개",
     "kb": "KB",
@@ -4725,6 +4772,7 @@
   },
   "workspace": {
     "panelTitle": "워크스페이스",
+    "sectionEnvironment": "Environment",
     "sectionProgress": "진행",
     "sectionOutput": "출력",
     "sectionSources": "출처",
@@ -4735,6 +4783,64 @@
     "resizePanel": "워크스페이스 패널 크기 조정",
     "sourceFromSearch": "검색",
     "truncatedNote": "최근 1000개 표시 중",
+    "environment": {
+      "archived": "Archived",
+      "branch": "Branch",
+      "changedFiles": "{{count}} files",
+      "changes": "Changes",
+      "clean": "No local changes",
+      "commit": "Commit",
+      "conflictCount": "{{count}} conflicts",
+      "dangerousMode": "Dangerous mode",
+      "git": "Git",
+      "incognitoDetail": "History artifacts skipped",
+      "model": "Model",
+      "noWorkingDir": "Not set",
+      "nonGit": "Not a Git working directory",
+      "permission": "Approval",
+      "plan": "Plan",
+      "planOff": "Off",
+      "planReview": "Waiting for review",
+      "privacy": "Privacy",
+      "project": "Project",
+      "runtime": "Runtime",
+      "runtimeLocal": "Local desktop",
+      "runtimeRemote": "Remote server",
+      "source": "Source",
+      "sourceChat": "Chat",
+      "sourceCron": "Cron",
+      "sourceSubagent": "Subagent",
+      "statusLabel": "Status",
+      "sync": "Sync",
+      "syncAhead": "ahead {{count}}",
+      "syncBehind": "behind {{count}}",
+      "syncDiverged": "ahead {{ahead}} / behind {{behind}}",
+      "syncNoUpstream": "no upstream",
+      "syncUnknown": "sync unknown",
+      "syncUpToDate": "up to date",
+      "unavailable": "Could not read environment status",
+      "workingDir": "Dir",
+      "workingDirSource": {
+        "none": "Not set",
+        "project": "Project dir",
+        "projectDefault": "Project default",
+        "session": "Session dir"
+      },
+      "worktree": "Worktree",
+      "worktreeCount": "{{count}} total",
+      "status": {
+        "ahead": "Unpushed",
+        "behind": "Needs sync",
+        "clean": "Clean",
+        "conflicts": "Conflicts",
+        "dirty": "Changed",
+        "diverged": "Diverged",
+        "missingWorkingDir": "Dir missing",
+        "noWorkingDir": "No dir",
+        "nonGit": "Non-Git",
+        "unknown": "Unknown"
+      }
+    },
     "action": {
       "create": "생성",
       "edit": "편집",

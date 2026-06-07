@@ -46,19 +46,23 @@ pub fn record_running_job(
 
 /// Build the synthetic tool result string returned to the LLM when a tool
 /// call is detached into the background. The model receives a job id it can
-/// later poll via `job_status` (or wait for auto-injection).
+/// later snapshot via `job_status`; completion primarily arrives through
+/// auto-injection.
 pub fn synthetic_started_result(job_id: &str, tool_name: &str, origin: JobOrigin) -> String {
     let hint = match origin {
         JobOrigin::Explicit | JobOrigin::PolicyForced => {
-            "The tool is running in the background. Continue with other work; the result will \
-             be auto-injected as a `<task-notification>` user message when ready. Use \
-             `job_status` only for a quick non-blocking snapshot. \
+            "The tool is running in the background. Continue with other work if possible; \
+             otherwise stop the turn and wait for the auto-injected `<task-notification>`. \
+             Do not immediately call `job_status` just to wait. Use `job_status` only for a \
+             quick non-blocking snapshot after meaningful elapsed time or when the user asks. \
              Detailed output is saved to the notification's `output-file` when available."
         }
         JobOrigin::AutoBackgrounded => {
             "The tool exceeded the synchronous time budget and was auto-backgrounded. The \
-             result will be auto-injected as a `<task-notification>` when ready. Use \
-             `job_status` only for a quick non-blocking snapshot. \
+             result will be auto-injected as a `<task-notification>` when ready. Continue \
+             independent work if possible; otherwise stop the turn. Do not repeatedly poll \
+             with `job_status`; use it only for a quick non-blocking snapshot after meaningful \
+             elapsed time or when the user asks. \
              Detailed output is saved to the notification's `output-file` when available."
         }
     };
