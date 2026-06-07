@@ -5,6 +5,7 @@ import {
   EditorView,
   ViewPlugin,
   WidgetType,
+  drawSelection,
   keymap,
   placeholder as cmPlaceholder,
   type DecorationSet,
@@ -302,13 +303,28 @@ const baseTheme = EditorView.theme({
     lineHeight: "1.5",
   },
   ".cm-content": {
-    caretColor: "currentColor",
+    // Native caret hidden — drawSelection() paints `.cm-cursor` instead so the
+    // caret shows even on an empty doc under WebKit.
+    caretColor: "transparent",
     fontFamily: "inherit",
     minHeight: "42px",
     outline: "none",
     padding: "12px 16px 4px",
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
+  },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeftColor: "currentColor",
+    borderLeftWidth: "1.5px",
+  },
+  // drawSelection() paints its own selection layer; give it a visible tint
+  // (CM6's gray default clashes with the app theme). Match CM6's focused
+  // selector specificity so the focused state isn't left at the default.
+  ".cm-selectionBackground": {
+    background: "color-mix(in srgb, var(--primary, #3b82f6) 22%, transparent)",
+  },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+    background: "color-mix(in srgb, var(--primary, #3b82f6) 28%, transparent)",
   },
   ".cm-line": {
     padding: "0",
@@ -405,6 +421,9 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
             history(),
             keymap.of(historyKeymap),
             EditorView.lineWrapping,
+            // WebKit (Tauri) doesn't paint the native caret in an empty
+            // contenteditable; CM6 draws its own reliable, blinking cursor.
+            drawSelection(),
             baseTheme,
             sizeComp.current.of(sizeTheme(hero)),
             placeholderComp.current.of(composerPlaceholder(placeholder)),
