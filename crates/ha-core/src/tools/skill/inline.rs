@@ -19,5 +19,8 @@ pub(super) async fn execute(entry: &SkillEntry, args: &str) -> Result<String> {
 
     let substituted = content.replace("$ARGUMENTS", &args_owned);
 
-    Ok(substituted)
+    Ok(crate::skills::build_skill_context_payload(
+        entry,
+        &substituted,
+    ))
 }

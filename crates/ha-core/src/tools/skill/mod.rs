@@ -16,7 +16,7 @@ use super::ToolExecContext;
 mod fork;
 mod inline;
 
-use crate::skills::SkillEntry;
+use crate::skills::{self as skill_runtime, SkillEntry};
 
 /// Stable entry point for callers that need the same "read SKILL.md +
 /// `$ARGUMENTS` substitution" string the `skill` tool returns in inline mode.
@@ -40,6 +40,10 @@ pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<St
         .trim();
 
     let cfg = crate::config::cached_config();
+    let env_check = skill_runtime::skill_env_check_enabled_for_agent(
+        ctx.agent_id.as_deref(),
+        cfg.skill_env_check,
+    );
     let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
 
     let entry = skills
@@ -61,6 +65,18 @@ pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<St
             "Skill '{}' is marked disable-model-invocation and can only be run via slash command",
             entry.name
         ));
+    }
+
+    if env_check {
+        let detail = skill_runtime::check_requirements_detail(
+            &entry.requires,
+            cfg.skill_env.get(&entry.name),
+        );
+        if !detail.eligible {
+            return Ok(skill_runtime::format_requirements_diagnostic(
+                entry, &detail,
+            ));
+        }
     }
 
     if entry.context_mode.as_deref() == Some("fork") {

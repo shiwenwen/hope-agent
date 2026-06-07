@@ -1,0 +1,5 @@
+interface:
+  display_name: "Office XLSX"
+  short_description: "Build, patch, audit, and render Excel workbooks"
+  brand_color: "#059669"
+  default_prompt: "Use $office-xlsx to build or update an Excel workbook with formulas, tables, validation, charts, formula audit, and render verification."

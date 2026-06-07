@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-26
+> 更新时间：2026-06-07
 
 ## 目录
 
@@ -45,7 +45,7 @@
 **当前语义勘误（2026-04-26）：**
 
 - `always: true` 是 Hope Agent 的扩展字段，语义是**跳过 requirements / 依赖检查**，不是“不可关闭”、不是“始终注入 prompt”、也不是 Skill 标准元字段。全局 Settings、首次引导页和 Agent 级 deny 都允许关闭这类 skill。
-- Requirements 目前只影响 **prompt 注入 / 健康状态**。如果用户或模型已经知道 skill 名称，`/skill-name` 或 `skill({ name })` 路径不会在执行前再次强制校验 requirements；这属于当前实现边界。
+- Requirements 分两级：**硬不兼容**（当前实现为 OS 不匹配）不进入模型 catalog；**可修复缺依赖/配置**（bins / anyBins / env / config）继续进入 catalog，但 `skill({ name })` 与 `/skill-name` 激活前会返回“缺什么 + 怎么安装/配置”的诊断，不加载 SKILL.md。
 - `paths:` skill 在 `conditionalSkillsEnabled=false` 时不会被激活，因此仍保持隐藏；该开关是紧急停用条件激活机制，不是“让 paths skill 常驻显示”。
 
 **激活路径对照表：**
@@ -390,23 +390,23 @@ my-project/
 
 ```mermaid
 flowchart TD
-    START(["check_requirements(req, configured_env)"]) --> ALWAYS{"always == true?"}
+    START(["check_requirements_detail(req, configured_env)"]) --> ALWAYS{"always == true?"}
     ALWAYS -->|是| PASS(["通过 ✓"])
     ALWAYS -->|否| OS{"OS 匹配?<br/>darwin/linux/windows"}
 
-    OS -->|不匹配| FAIL(["失败 ✗"])
+    OS -->|不匹配| HARD(["hard_blocked=true<br/>不注入 catalog"])
     OS -->|匹配或空| BINS{"bins 全部存在?<br/>AND 逻辑"}
 
-    BINS -->|任一缺失| FAIL
+    BINS -->|任一缺失| SOFT(["needs_setup=true<br/>继续注入，激活前诊断"])
     BINS -->|全部存在| ANYBINS{"anyBins 至少一个?<br/>OR 逻辑"}
 
-    ANYBINS -->|全部缺失| FAIL
+    ANYBINS -->|全部缺失| SOFT
     ANYBINS -->|至少一个或为空| CONFIG{"config 路径<br/>全部 truthy?"}
 
-    CONFIG -->|任一 falsy| FAIL
+    CONFIG -->|任一 falsy| SOFT
     CONFIG -->|全部 truthy 或空| ENV{"env 全部已设置?"}
 
-    ENV -->|任一未满足| FAIL
+    ENV -->|任一未满足| SOFT
     ENV -->|全部满足| PASS
 
     subgraph ENV_CHECK["env 检查优先级"]
@@ -428,6 +428,10 @@ flowchart TD
 ```rust
 check_requirements_detail(req, configured_env) -> RequirementsDetail {
     eligible: bool,
+    hard_blocked: bool,
+    needs_setup: bool,
+    current_os: Option<String>,
+    supported_os: Vec<String>,
     missing_bins: Vec<String>,
     missing_any_bins: Vec<String>,
     missing_env: Vec<String>,
@@ -435,7 +439,7 @@ check_requirements_detail(req, configured_env) -> RequirementsDetail {
 }
 ```
 
-用于前端健康检查显示，明确告知用户缺少什么。
+`eligible=true` 表示当前可直接运行；`hard_blocked=false` 表示可注入 catalog / slash 菜单；`needs_setup=true` 表示应继续展示，但激活前必须返回诊断。用于 prompt 过滤、菜单过滤、激活前拦截和前端健康检查显示。
 
 ### `always: true` 的准确边界
 
@@ -473,7 +477,7 @@ if req.always {
 - 标记 `internal: true + always_load: true`：跳过审批、deferred_tools 场景也恒定可见
 - 系统提示词明确引导"用 `skill` 工具，不要 `read` SKILL.md"；`read` 仍可用于作者查看 / diff 原文
 
-**查找边界**：`skill` 工具内部用 `get_invocable_skills(extra_dirs, disabled_skills)` 查找，这会过滤全局禁用、`user-invocable: false` 和 `status != active`，但不会再次执行 requirements 检查。Requirements 主要在 prompt 注入与健康检查阶段生效。
+**查找边界**：`skill` 工具内部用 `get_invocable_skills(extra_dirs, disabled_skills)` 查找，这会过滤全局禁用、`user-invocable: false` 和 `status != active`。命中后会按 Agent/global 的 `skill_env_check` 执行 requirements 激活前检查：硬不兼容返回 hard-block 诊断，可修复缺依赖返回 setup 诊断；只有 `eligible=true` 才加载 SKILL.md 或 fork 子 Agent。
 
 ### 工具 schema
 
@@ -588,10 +592,17 @@ pub async fn extract_fork_result(
 
 **Fallback**：读 SKILL.md 失败时（权限 / 路径错 / IO 故障）降级回老的路径指针 prompt，不阻断聊天。
 
+**Skill package metadata**：`skill` 工具 inline 路径和 `context: fork`
+路径都会在 SKILL.md 前加一段 runtime 元数据，至少包含 skill name 和
+skill directory。Skill body 可以要求模型把该目录当作 `SKILL_DIR`，并从
+`$SKILL_DIR/scripts`、`$SKILL_DIR/references`、`$SKILL_DIR/assets` 解析
+bundled resources；这样复杂 skill 可以把稳定逻辑放进包内脚本，而不是
+要求模型临时重写。
+
 #### 已知 Gap
 
 1. **`allowed-tools` 未全路径过滤**：`skill` 工具 fork 路径和子 Agent 会把 allowed-tools 通过 `ToolExecContext.skill_allowed_tools` 贯通到执行层收紧工具白名单；斜杠内联路径目前只把 SKILL.md 作为 user message 注入，LLM 后续仍握有 Agent 的全部工具。`command-dispatch: tool` 直接执行绑定工具时也未套用 skill 的 allowed-tools
-2. **`requires` 只管注入，不管执行**：prompt 注入和健康检查会 `check_requirements`，但 `skill({name})` 与 `/skillname` 执行路径不会再次校验 env / bins / os / config。通常模型看不到未满足 requirements 的 skill，但用户手输或模型猜中名称时仍可能激活
+2. **Agent/global `skill_env_check` 仍有历史双入口**：系统 prompt 的现代路径使用 Agent 级 `capabilities.skill_env_check`；旧 prompt 路径和部分管理接口仍使用全局 `skillEnvCheck`。`skill` 工具和 `/skillname` 激活入口会按 Agent id 优先读取 Agent 级开关，失败时回退全局开关
 3. **Learning Tracker 未埋点**：缺 `record_learning_event(SkillUsed)` 调用，Dashboard Top Skills 会低报斜杠触发的激活
 4. **SKILL.md 大小无上限**：极端大 skill（≥50KB）内联后会占用相当 token；目前未加保护
 
@@ -1617,6 +1628,45 @@ sequenceDiagram
 | `email-draft` | 办公方法论 | 全局可见 | 邮件起草、润色、翻译和回复，输出 subject / greeting / body / sign-off |
 | `status-report` | 办公方法论 | 全局可见 | 周报 / 月报 / 项目进展，覆盖 shipped / in-flight / blocked / metrics |
 | `mermaid-diagram` | 办公方法论 | 全局可见 | Mermaid flowchart / sequence / ER / state / gantt 等图表，聊天端可原生渲染 |
+| `office-docx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 Word `.docx` 与 Google Docs-targeted 文档；覆盖真实列表、批注、修订、图片 alt、TOC、脚注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏、PDF/PNG 预览 |
+| `office-xlsx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 Excel `.xlsx` 与 Google Sheets-targeted 工作簿；覆盖公式、样式、真实表格、数据验证、条件格式、图表、CSV/TSV 转换、公式审计与缓存、LibreOffice 重算、PDF/PNG 预览 |
+| `office-pptx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 PowerPoint `.pptx` 与 Google Slides-targeted deck；覆盖标题/章节/图文/指标/表格/时间线/图片、native chart、文本 patch、追加、复制/重排 slide、布局审计、contact sheet、PDF/PNG 预览 |
+
+### 内置 Office 技能维护契约
+
+Office 三件套是 **skill + bundled scripts**，不是内置 tool。它们默认只要求
+`python3`，因为生成、编辑、检查 OOXML 主要走 Python stdlib；LibreOffice
+和 `pdftoppm` / `magick` 是视觉预览与重算的可选运行时，缺失时由
+`check_env.py` 和激活后的工作流诊断，不应把整项 skill 从 catalog 中硬隐藏。
+
+修改 `skills/office-docx` / `skills/office-xlsx` / `skills/office-pptx` 或对应
+SKILL.md 后，至少跑以下定向检查：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/office-skill-parity-audit.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/office-skill-smoke-test.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
+  scripts/office-skill-parity-audit.py \
+  scripts/office-skill-smoke-test.py \
+  skills/office-docx/scripts/*.py \
+  skills/office-xlsx/scripts/*.py \
+  skills/office-pptx/scripts/*.py
+```
+
+`office-skill-parity-audit.py` 是能力清单审计：确认三件套表面能力仍覆盖
+primary-runtime Office skills。`office-skill-smoke-test.py` 是端到端 smoke：
+实际生成 / 编辑 / 检查 / 渲染 DOCX、XLSX、PPTX，并覆盖以下回归点：
+
+- DOCX helpers 向 `word/document.xml` 追加 body 内容时，必须插在最终
+  `w:sectPr` 之前；`w:sectPr` 后不得追加段落、内容控件或超链接。
+- DOCX 水印 / 页眉相关 helper 必须分配不冲突的 `headerN.xml` 和
+  relationship id，不能覆盖用户原有 `word/header1.xml` 或既有页眉关系。
+- PPTX drop / reorder slide 时，只能删除被丢弃 slide 的 relationships；
+  必须保留 slide master、theme、view properties 等非 slide relationships，
+  否则源 deck 样式会丢失或触发 PowerPoint 修复。
+- XLSX patch / formula cache 应只改目标 worksheet/cell，保留 workbook 的
+  其它 package parts；公式变更后继续用 `inspect_xlsx.py` 与
+  `formula_audit.py` 验证。
 
 ### settings 技能工具
 

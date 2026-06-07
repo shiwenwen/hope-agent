@@ -380,6 +380,28 @@ pub fn get_invocable_skills(extra_dirs: &[String], disabled: &[String]) -> Vec<S
         .collect()
 }
 
+/// Filter a skill list down to entries that may be surfaced in catalogs or
+/// menus. Recoverable setup gaps stay visible; hard blockers such as
+/// unsupported OS are hidden.
+pub fn filter_catalog_eligible_skills(
+    skills: Vec<SkillEntry>,
+    env_check: bool,
+    skill_env: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+) -> Vec<SkillEntry> {
+    if !env_check {
+        return skills;
+    }
+    skills
+        .into_iter()
+        .filter(|s| {
+            super::requirements::check_requirements_for_injection(
+                &s.requires,
+                skill_env.get(&s.name),
+            )
+        })
+        .collect()
+}
+
 /// Scan a skill directory for all files/subdirectories.
 fn scan_skill_files(base_dir: &str) -> Vec<FileInfo> {
     let mut files = Vec::new();
