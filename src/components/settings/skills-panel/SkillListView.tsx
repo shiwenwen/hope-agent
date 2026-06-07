@@ -12,7 +12,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react"
-import type { SkillSummary } from "../types"
+import type { SkillStatusEntry, SkillSummary } from "../types"
 
 interface SkillListViewProps {
   skills: SkillSummary[]
@@ -20,6 +20,7 @@ interface SkillListViewProps {
   loading: boolean
   skillEnvCheck: boolean
   envStatus: Record<string, Record<string, boolean>>
+  skillStatusByName: Record<string, SkillStatusEntry | undefined>
   onToggleSkill: (name: string, enabled: boolean) => void
   onSelectSkill: (name: string) => void
   onOpenDir: (path: string) => void
@@ -35,6 +36,7 @@ export default function SkillListView({
   loading,
   skillEnvCheck,
   envStatus,
+  skillStatusByName,
   onToggleSkill,
   onSelectSkill,
   onOpenDir,
@@ -51,12 +53,47 @@ export default function SkillListView({
     return Object.values(status).some((v) => !v)
   }
 
+  function statusLabel(status?: SkillStatusEntry): string {
+    if (!status) return t("settings.skillStatusEligible")
+    const lines: string[] = []
+    if (status.hard_blocked) {
+      lines.push(t("settings.skillHardBlocked"))
+      if (status.current_os || status.supported_os?.length) {
+        lines.push(
+          `${t("settings.skillCurrentOs")}: ${status.current_os || "?"}; ${t("settings.skillSupportedOs")}: ${
+            status.supported_os?.join(", ") || "?"
+          }`,
+        )
+      }
+    } else if (status.needs_setup) {
+      lines.push(t("settings.skillNeedsSetup"))
+    } else if (status.eligible) {
+      lines.push(t("settings.skillStatusEligible"))
+    }
+    if (status.missing_bins?.length) {
+      lines.push(`${t("settings.skillMissingBins")}: ${status.missing_bins.join(", ")}`)
+    }
+    if (status.missing_any_bins?.length) {
+      lines.push(`${t("settings.skillMissingAnyBins")}: ${status.missing_any_bins.join(" | ")}`)
+    }
+    if (status.missing_env?.length) {
+      lines.push(`${t("settings.skillMissingEnv")}: ${status.missing_env.join(", ")}`)
+    }
+    if (status.missing_config?.length) {
+      lines.push(`${t("settings.skillMissingConfig")}: ${status.missing_config.join(", ")}`)
+    }
+    return lines.join("\n")
+  }
+
   const bundledSkills = skills.filter((s) => s.source === "bundled")
   const userSkills = skills.filter((s) => s.source !== "bundled")
 
   function renderSkillRow(skill: SkillSummary) {
     const showWarning = hasEnvWarning(skill.name)
     const hasEnvConfig = skill.requires_env.length > 0
+    const status = skillStatusByName[skill.name]
+    const hardBlocked = !!status?.hard_blocked
+    const needsSetup = !!status?.needs_setup && !hardBlocked
     const display = skill.display
 
     return (
@@ -102,11 +139,15 @@ export default function SkillListView({
                 </span>
               </IconTip>
             )}
-            {/* Warning icon for unconfigured env vars */}
-            {showWarning && (
-              <IconTip label={t("settings.skillEnvNotConfigured")}>
+            {(hardBlocked || needsSetup || showWarning) && (
+              <IconTip label={statusLabel(status)}>
                 <span className="shrink-0">
-                  <AlertTriangle className="h-3.5 w-3.5 text-orange-400" />
+                  <AlertTriangle
+                    className={cn(
+                      "h-3.5 w-3.5",
+                      hardBlocked ? "text-destructive" : "text-orange-400",
+                    )}
+                  />
                 </span>
               </IconTip>
             )}
@@ -122,6 +163,16 @@ export default function SkillListView({
             {skill.has_install && (
               <span className="text-[9px] px-1 py-0 rounded bg-blue-500/10 text-blue-600 font-medium">
                 {t("settings.skillInstall")}
+              </span>
+            )}
+            {hardBlocked && (
+              <span className="text-[9px] px-1 py-0 rounded bg-destructive/10 text-destructive font-medium">
+                {t("settings.skillHardBlocked")}
+              </span>
+            )}
+            {needsSetup && (
+              <span className="text-[9px] px-1 py-0 rounded bg-orange-500/10 text-orange-600 font-medium">
+                {t("settings.skillNeedsSetup")}
               </span>
             )}
             {skill.disable_model_invocation && (

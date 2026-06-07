@@ -9,8 +9,8 @@ import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Check, ExternalLink, File, Folder, Trash2 } from "lucide-react"
-import type { SkillDetail, SkillInstallSpec } from "./types"
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, File, Folder, Trash2 } from "lucide-react"
+import type { SkillDetail, SkillInstallSpec, SkillStatusEntry } from "./types"
 
 const CONTENT_SPLIT_MIN_WIDTH = 1100
 
@@ -83,6 +83,7 @@ function InstallSpecRow({
 interface SkillDetailViewProps {
   skill: SkillDetail
   envStatus: Record<string, Record<string, boolean>>
+  status?: SkillStatusEntry
   envValues: Record<string, string>
   envDirty: Record<string, boolean>
   envSaving: Record<string, boolean>
@@ -97,6 +98,7 @@ interface SkillDetailViewProps {
 export default function SkillDetailView({
   skill,
   envStatus,
+  status,
   envValues,
   envDirty,
   envSaving,
@@ -109,6 +111,19 @@ export default function SkillDetailView({
 }: SkillDetailViewProps) {
   const { t } = useTranslation()
   const requiresEnv = skill.requires?.env ?? []
+  const missingBins = status?.missing_bins ?? []
+  const missingAnyBins = status?.missing_any_bins ?? []
+  const missingEnv = status?.missing_env ?? []
+  const missingConfig = status?.missing_config ?? []
+  const hardBlocked = !!status?.hard_blocked
+  const needsSetup = !!status?.needs_setup && !hardBlocked
+  const showRequirementsStatus =
+    hardBlocked ||
+    needsSetup ||
+    missingBins.length > 0 ||
+    missingAnyBins.length > 0 ||
+    missingEnv.length > 0 ||
+    missingConfig.length > 0
   const [contentView, setContentView] = useState<"preview" | "raw">("preview")
   const contentLayoutRef = useRef<HTMLDivElement>(null)
   const [isSplitView, setIsSplitView] = useState(false)
@@ -199,6 +214,52 @@ export default function SkillDetailView({
             </IconTip>
           </div>
         </div>
+
+        {showRequirementsStatus && (
+          <div
+            className={cn(
+              "mb-4 rounded-lg border px-3 py-2 text-xs",
+              hardBlocked
+                ? "border-destructive/30 bg-destructive/5 text-destructive"
+                : "border-orange-500/30 bg-orange-500/5 text-orange-700 dark:text-orange-300",
+            )}
+          >
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {hardBlocked ? t("settings.skillHardBlocked") : t("settings.skillNeedsSetup")}
+              </span>
+            </div>
+            <div className="mt-1.5 space-y-1 text-muted-foreground">
+              {hardBlocked && (
+                <div>
+                  {t("settings.skillCurrentOs")}: {status?.current_os || "?"};{" "}
+                  {t("settings.skillSupportedOs")}: {status?.supported_os?.join(", ") || "?"}
+                </div>
+              )}
+              {missingBins.length > 0 && (
+                <div>
+                  {t("settings.skillMissingBins")}: {missingBins.join(", ")}
+                </div>
+              )}
+              {missingAnyBins.length > 0 && (
+                <div>
+                  {t("settings.skillMissingAnyBins")}: {missingAnyBins.join(" | ")}
+                </div>
+              )}
+              {missingEnv.length > 0 && (
+                <div>
+                  {t("settings.skillMissingEnv")}: {missingEnv.join(", ")}
+                </div>
+              )}
+              {missingConfig.length > 0 && (
+                <div>
+                  {t("settings.skillMissingConfig")}: {missingConfig.join(", ")}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Environment Variables Configuration */}
         {requiresEnv.length > 0 && (

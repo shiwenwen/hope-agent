@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::requirements::check_requirements;
+use super::requirements::check_requirements_for_injection;
 use super::types::*;
 
 // ── Prompt Generation ────────────────────────────────────────────
@@ -13,7 +13,9 @@ use super::types::*;
 /// 3. Truncated: binary-search largest prefix that fits compact budget
 ///
 /// Skills with `disable_model_invocation == true` are excluded from the prompt.
-/// Disabled skills and skills failing env_check are also excluded.
+/// Disabled skills and skills with hard env_check blockers are also excluded.
+/// Recoverable missing dependencies remain visible; activation returns setup
+/// diagnostics instead of loading the skill.
 /// `allow_bundled` restricts which bundled skills are included (empty = all allowed).
 ///
 /// Activation uses the internal `skill` tool rather than `read`-ing SKILL.md,
@@ -43,7 +45,9 @@ pub fn build_skills_prompt(
             let key = s.skill_key.as_deref().unwrap_or(&s.name);
             allow_bundled.iter().any(|a| a == key || a == &s.name)
         })
-        .filter(|s| !env_check || check_requirements(&s.requires, skill_env.get(&s.name)))
+        .filter(|s| {
+            !env_check || check_requirements_for_injection(&s.requires, skill_env.get(&s.name))
+        })
         // `paths:` skills are hidden until activated for this session.
         // Skills without `paths:` are always visible (unchanged behavior).
         .filter(|s| match &s.paths {

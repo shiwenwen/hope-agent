@@ -43,3 +43,16 @@ pub struct SkillsConfig {
     #[serde(default)]
     pub allow_remote_install: bool,
 }
+
+/// Wrap SKILL.md content with runtime package metadata so bundled resources can
+/// be used without guessing where the skill lives on disk.
+pub fn build_skill_context_payload(skill: &types::SkillEntry, content: &str) -> String {
+    format!(
+        "[SYSTEM: Skill package metadata]\n\
+         - Skill name: `{}`\n\
+         - Skill directory: `{}`\n\
+         - Resolve bundled scripts, references, and assets relative to that directory.\n\
+         [/SYSTEM]\n\n{}",
+        skill.name, skill.base_dir, content
+    )
+}

@@ -500,8 +500,11 @@ pub struct AppConfig {
     /// Disabled skill names
     #[serde(default)]
     pub disabled_skills: Vec<String>,
-    /// Whether to check skill runtime requirements (bins/env/os) before injecting.
-    /// Default true. When false, all skills are injected regardless of environment.
+    /// Whether to check skill runtime requirements before injecting. Default
+    /// true. Hard blockers (currently unsupported OS) hide the skill; missing
+    /// installable/configurable dependencies remain visible and are diagnosed
+    /// at activation time. When false, all skills are injected regardless of
+    /// environment.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
     /// Kill switch for `paths:` conditional skill activation. Default true.

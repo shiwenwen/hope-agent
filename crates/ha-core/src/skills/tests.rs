@@ -10,7 +10,8 @@ mod tests {
     };
     use crate::skills::prompt::build_skills_prompt;
     use crate::skills::requirements::{
-        check_requirements, check_requirements_detail, is_masked_value, mask_value,
+        check_requirements, check_requirements_detail, check_requirements_for_injection,
+        is_masked_value, mask_value,
     };
     use crate::skills::slash::{check_all_skills_status, normalize_skill_command_name};
     use crate::skills::types::*;
@@ -899,6 +900,53 @@ Body."#;
     }
 
     #[test]
+    fn test_build_skills_prompt_soft_missing_dependency_stays_visible() {
+        let mut skill = make_skill("needs-cli", "A skill with installable dependencies");
+        skill.requires.bins = vec!["nonexistent_binary_soft_dep_xyz".to_string()];
+        let skills = vec![skill];
+        let prompt = build_skills_prompt(
+            &skills,
+            &[],
+            true,
+            &HashMap::new(),
+            &SkillPromptBudget::default(),
+            &[],
+            &std::collections::HashSet::new(),
+        );
+        assert!(prompt.contains("needs-cli"));
+    }
+
+    #[test]
+    fn test_build_skills_prompt_hard_os_block_is_hidden() {
+        let mut skill = make_skill("wrong-os-skill", "A skill for another OS");
+        skill.requires.os = vec!["nonexistent-os-xyz".to_string()];
+        let skills = vec![skill];
+        let prompt = build_skills_prompt(
+            &skills,
+            &[],
+            true,
+            &HashMap::new(),
+            &SkillPromptBudget::default(),
+            &[],
+            &std::collections::HashSet::new(),
+        );
+        assert!(!prompt.contains("wrong-os-skill"));
+    }
+
+    #[test]
+    fn test_filter_catalog_eligible_skills_only_hides_hard_blocks() {
+        let mut soft = make_skill("soft-missing", "Missing an installable dependency");
+        soft.requires.bins = vec!["nonexistent_binary_soft_dep_xyz".to_string()];
+        let mut hard = make_skill("hard-os", "Wrong OS");
+        hard.requires.os = vec!["nonexistent-os-xyz".to_string()];
+
+        let filtered =
+            crate::skills::filter_catalog_eligible_skills(vec![soft, hard], true, &HashMap::new());
+        let names: Vec<_> = filtered.into_iter().map(|s| s.name).collect();
+        assert_eq!(names, vec!["soft-missing"]);
+    }
+
+    #[test]
     fn test_check_requirements_empty() {
         // Empty requirements always pass
         assert!(check_requirements(&SkillRequires::default(), None));
@@ -936,6 +984,7 @@ Body."#;
             ..Default::default()
         };
         assert!(!check_requirements(&req, None));
+        assert!(check_requirements_for_injection(&req, None));
     }
 
     #[test]
@@ -945,6 +994,7 @@ Body."#;
             ..Default::default()
         };
         assert!(!check_requirements(&req, None));
+        assert!(!check_requirements_for_injection(&req, None));
     }
 
     #[test]
@@ -1035,12 +1085,53 @@ Body."#;
         };
         let detail = check_requirements_detail(&req, None);
         assert!(!detail.eligible);
+        assert!(detail.needs_setup);
+        assert!(!detail.hard_blocked);
+        assert!(detail.injection_eligible());
         assert_eq!(detail.missing_bins, vec!["nonexistent_bin_xyz"]);
         assert_eq!(
             detail.missing_any_bins,
             vec!["nonexistent_a", "nonexistent_b"]
         );
         assert_eq!(detail.missing_env, vec!["NONEXISTENT_ENV_XYZ"]);
+    }
+
+    #[test]
+    fn test_check_requirements_detail_hard_os_block() {
+        let req = SkillRequires {
+            os: vec!["nonexistent-os-xyz".to_string()],
+            bins: vec!["nonexistent_bin_xyz".to_string()],
+            ..Default::default()
+        };
+        let detail = check_requirements_detail(&req, None);
+        assert!(!detail.eligible);
+        assert!(detail.hard_blocked);
+        assert!(detail.needs_setup);
+        assert!(!detail.injection_eligible());
+        assert_eq!(detail.supported_os, vec!["nonexistent-os-xyz".to_string()]);
+        assert_eq!(detail.missing_bins, vec!["nonexistent_bin_xyz"]);
+    }
+
+    #[test]
+    fn test_format_requirements_diagnostic_includes_missing_items_and_install_hints() {
+        let mut skill = make_skill("needs-python", "Needs Python");
+        skill.requires.bins = vec!["missing-python3-for-test".to_string()];
+        skill.install = vec![SkillInstallSpec {
+            kind: "brew".to_string(),
+            formula: Some("python".to_string()),
+            package: None,
+            go_module: None,
+            bins: vec!["python3".to_string()],
+            label: Some("Install Python 3 via Homebrew".to_string()),
+            os: vec!["darwin".to_string()],
+        }];
+        let detail = check_requirements_detail(&skill.requires, None);
+        let message = crate::skills::format_requirements_diagnostic(&skill, &detail);
+        assert!(message.contains("missing-python3-for-test"));
+        if cfg!(target_os = "macos") {
+            assert!(message.contains("brew install python"));
+        }
+        assert!(message.contains("After fixing the missing setup"));
     }
 
     #[test]

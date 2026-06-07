@@ -12,7 +12,7 @@ import {
 import { SKILLS_EVENTS } from "@/types/skills"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
-import type { SkillSummary } from "../types"
+import type { SkillStatusEntry, SkillSummary } from "../types"
 import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
 import SkillEvolutionView from "./SkillEvolutionView"
@@ -36,6 +36,7 @@ export default function SkillsPanel() {
   const [autoReviewPromotion, setAutoReviewPromotion] = useState(false)
   // Per-skill env status: skill_name -> { env_var -> is_configured }
   const [envStatus, setEnvStatus] = useState<Record<string, Record<string, boolean>>>({})
+  const [skillStatuses, setSkillStatuses] = useState<SkillStatusEntry[]>([])
   // Env var values for the currently selected skill detail (masked from backend)
   const [envValues, setEnvValues] = useState<Record<string, string>>({})
   // Tracks which env vars the user has edited (dirty state)
@@ -45,16 +46,18 @@ export default function SkillsPanel() {
 
   const reload = useCallback(async () => {
     try {
-      const [list, dirs, envCheck, status] = await Promise.all([
+      const [list, dirs, envCheck, envStatusSnapshot, statusSnapshot] = await Promise.all([
         getTransport().call<SkillSummary[]>("get_skills"),
         getTransport().call<string[]>("get_extra_skills_dirs"),
         getTransport().call<boolean>("get_skill_env_check"),
         getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status"),
+        getTransport().call<SkillStatusEntry[]>("get_skills_status"),
       ])
       setSkills(list)
       setExtraDirs(dirs)
       setSkillEnvCheck(envCheck)
-      setEnvStatus(status)
+      setEnvStatus(envStatusSnapshot)
+      setSkillStatuses(statusSnapshot)
     } catch (e) {
       logger.error("settings", "SkillsPanel::load", "Failed to load skills", e)
     } finally {
@@ -109,6 +112,11 @@ export default function SkillsPanel() {
     () => skills.filter((s) => !draftNames.has(s.name)),
     [skills, draftNames],
   )
+  const skillStatusByName = useMemo(() => {
+    const next: Record<string, SkillStatusEntry | undefined> = {}
+    for (const status of skillStatuses) next[status.name] = status
+    return next
+  }, [skillStatuses])
 
   async function handleActivateDraft(name: string) {
     setDraftPending((prev) => ({ ...prev, [name]: "activate" }))
@@ -183,6 +191,17 @@ export default function SkillsPanel() {
       await getTransport().call("toggle_skill", { name, enabled })
       // Update local state immediately
       setSkills((prev) => prev.map((s) => (s.name === name ? { ...s, enabled } : s)))
+      setSkillStatuses((prev) =>
+        prev.map((s) =>
+          s.name === name
+            ? {
+                ...s,
+                disabled: !enabled,
+                eligible: enabled && !s.blocked_by_allowlist && !s.hard_blocked && !s.needs_setup,
+              }
+            : s,
+        ),
+      )
       if (selectedSkill?.name === name) {
         setSelectedSkill((prev) => (prev ? { ...prev, enabled } : prev))
       }
@@ -219,8 +238,12 @@ export default function SkillsPanel() {
       setEnvValues(maskedEnv)
       setEnvDirty((prev) => ({ ...prev, [key]: false }))
       // Refresh env status
-      const status = await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
-      setEnvStatus(status)
+      const [nextEnvStatus, nextSkillStatuses] = await Promise.all([
+        getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status"),
+        getTransport().call<SkillStatusEntry[]>("get_skills_status"),
+      ])
+      setEnvStatus(nextEnvStatus)
+      setSkillStatuses(nextSkillStatuses)
     } catch (e) {
       logger.error("settings", "SkillsPanel::saveEnv", "Failed to save env var", e)
     } finally {
@@ -239,8 +262,12 @@ export default function SkillsPanel() {
       })
       setEnvDirty((prev) => ({ ...prev, [key]: false }))
       // Refresh env status
-      const status = await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
-      setEnvStatus(status)
+      const [nextEnvStatus, nextSkillStatuses] = await Promise.all([
+        getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status"),
+        getTransport().call<SkillStatusEntry[]>("get_skills_status"),
+      ])
+      setEnvStatus(nextEnvStatus)
+      setSkillStatuses(nextSkillStatuses)
     } catch (e) {
       logger.error("settings", "SkillsPanel::removeEnv", "Failed to remove env var", e)
     }
@@ -305,6 +332,7 @@ export default function SkillsPanel() {
       <SkillDetailView
         skill={selectedSkill}
         envStatus={envStatus}
+        status={skillStatusByName[selectedSkill.name]}
         envValues={envValues}
         envDirty={envDirty}
         envSaving={envSaving}
@@ -346,6 +374,7 @@ export default function SkillsPanel() {
             loading={loading}
             skillEnvCheck={skillEnvCheck}
             envStatus={envStatus}
+            skillStatusByName={skillStatusByName}
             onToggleSkill={handleToggleSkill}
             onSelectSkill={handleSelectSkill}
             onOpenDir={handleOpenDir}
