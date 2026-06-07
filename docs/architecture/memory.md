@@ -502,6 +502,16 @@ impl Drop for DreamGuard {
 
 Active Memory **只读**——不写记忆、不主动提取。写入路径见下方"反省式记忆"。
 
+### Active Memory v2（候选扩展到结构化 claim，Phase 5）
+
+> 设计见 [`dreaming-next-generation.md`](../plans/dreaming-next-generation.md) §7.5。
+
+`ActiveMemoryConfig.include_claims`（per-agent，默认关）开启后，每轮召回的候选除历史记忆外并取结构化 claim：`shortlist_claim_candidates` 按同一 Project → Agent → Global scope 顺序调 `search_claims`（已 effective-active + scope 过滤），与 memory 候选合并进 `build_recall_prompt`（claim 带 `claim:<type>` 标签）。LLM 仍选 1 句注入 `## Active Memory`（复用 v1 单条机制，不改解析 / cache）。
+
+- **过期 claim 不回灌**：候选经 `search_claims` 的 effective-active 过滤，已过期 / superseded 的 claim 不会经此回到 prompt（§7.5 红线）。
+- **incognito 归零**：`refresh_active_memory_suffix` 开头 short-circuit，压过一切 claim 候选源。
+- 这是 Context Pack「Relevant Claims（动态）」的实际承载——query-dependent 召回走动态 suffix（非静态 prefix），不打爆 prompt cache。
+
 ## 内存向量重建（后台任务）
 
 > 源：[`memory/reembed_job.rs`](../../crates/ha-core/src/memory/reembed_job.rs)（commit `af377a7b` / `6d89bfb7` / `2a055ef1` / `de0797ad`）
@@ -590,6 +600,19 @@ flowchart TD
     Replace --> Done
 
 ```
+
+### Context Pack（下一代 Dreaming Phase 5）
+
+> 设计见 [`dreaming-next-generation.md`](../plans/dreaming-next-generation.md) §4.8 / §7.5。
+
+在上述 v1 注入流程之上叠加结构化 claim 注入，与 legacy memory 段共存于同一 `# Memory` 段、同一 `effective_memory_budget` 预算池：
+
+- **Pinned Claims（静态）**：`build_context_pack`（`memory/dreaming/context_pack.rs`）取高 salience（`>= PINNED_MIN_SALIENCE`，默认 0.7）的 active claim 渲染为 `## Pinned Memory` 段，由 `build_memory_section` 在 Core Memory 之后、legacy SQLite 段之前注入静态 prefix。query-independent，复用首个 cache breakpoint（不新开动态 block——Anthropic 4 breakpoint 已满）；每行经 `sanitize_for_prompt`。
+- **单一来源 dedup**：`covered_by_active_claim_memory_ids`（`hidden_claim_linked_memory_ids` 的正向镜像、与之互斥）把被 active managed claim 覆盖的 legacy memory 从 SQLite 段排除，避免同一事实双份注入。**去重阈值与 Pinned 注入阈值对齐（同读 `PINNED_MIN_SALIENCE`）**——低于阈值的 claim 影子继续走 legacy 兜底，绝不丢事实；`user_pinned` link / `memories.pinned=1` 豁免。
+- **预算优先级**：Core > Pinned >（Profile + legacy），共享 `total_chars`，不另开预算绕过 4 级体系。
+- **Relevant Claims（动态）**：query-dependent，不进静态 prefix（否则每 turn 作废 prompt cache），由 Active Memory v2 承担（见「Active Memory 主动召回」）。
+
+claim 检索复用混合检索引擎（FTS5 + vec0 + RRF）但**独立存储**（`memory_claims_fts` / `memory_claims_vec`），claim 向量复用记忆嵌入模型、随其切换自动重嵌。
 
 ### 输出格式
 

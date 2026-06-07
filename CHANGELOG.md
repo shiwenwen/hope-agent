@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **结构化记忆（Claims）智能检索**：结构化 claim 现在支持 FTS5 全文 + 向量混合检索（RRF 融合），算法与历史记忆同源但独立存储；claim 向量复用记忆嵌入模型，随嵌入模型切换自动重嵌。为 Context Pack 与主动召回的 claim 检索打底。 (#287)
+- **结构化记忆（Claims）进入系统提示（Context Pack，beta）**：高重要度的 active claim 现在作为「Pinned Memory」段稳定注入系统提示（每行经 prompt 注入防护过滤）；被这些 claim 覆盖的旧版影子记忆从旧记忆段去重排除（单一来源，避免同一事实双份占用预算），且去重门槛与注入门槛对齐——够不到注入门槛的 claim 影子继续走旧记忆段兜底，绝不丢事实。Profile / Claims 新段纳入统一记忆预算池按优先级裁剪。 (#287)
+- **主动召回（Active Memory）候选扩展到结构化 Claim（beta）**：开启 Agent「主动记忆 → 纳入结构化 Claim」后，每轮提问前的主动召回候选除历史记忆外，同时检索结构化 claim；过期 / 已替代的 claim 不会经此回灌提示。默认关闭。 (#287)
 - **记忆画像（Memory Profile）合成 + 只读视图（beta）**：开启「记忆 → 梦境 → 画像合成」（默认关）后，离线从结构化 claim 按作用域（全局 / Agent / 项目）合成一份可读的记忆画像快照——空闲 / 定时走低成本规则式聚合、手动触发走 LLM 重写；有快照时在系统提示中替换旧版 profile 段，无快照则回退旧版渲染（保持关闭时的原有行为，绝不让 `## User Profile` 段空白）。「记忆 → 画像」新增只读视图查看各作用域画像并可手动刷新。新增 `dreaming_run_profile` / `dreaming_list_profile_snapshots` 接口（Tauri + HTTP）。 (#286)
 - **记忆梦境（Dreaming）深度整理（Deep resolver）**：Dashboard → 记忆梦境新增「深度整理」按钮,对结构化 claim 做时效过期、重复合并与冲突检测——已过有效期的 claim 自动失效、语义重复的合并保留一条(LLM 判定)、真正矛盾的标「待审核」交用户确认(绝不自动覆盖或删除)。新增 `dreaming_run_resolver` 接口（Tauri + HTTP）。 (#285)
 - **结构化记忆（Claims）历史回填（beta）**：「记忆 → Claims」视图新增「回填」入口，把已有的旧版记忆批量登记为结构化 claim——先 dry-run 预览（记忆总数 / 已登记 / 待回填 / 自动启用 / 待审核）再确认执行；仅置顶的个人信息与偏好（user/feedback）自动启用、其余进入待审核队列，且不改变当前的记忆注入行为。新增 `memory_backfill_plan` / `memory_backfill_apply` 接口（Tauri + HTTP）。 (#284)

@@ -152,6 +152,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - **优先级**：Project > Agent > Global，唯一入口 `effective_memory_budget(agent, global)`
 - **`recall_memory` / `memory_get` 工具返回完整原文**，预算只约束 system prompt 注入
 - Active Memory / Awareness / User Profile 都作为**独立 cache block** 注入，不作废静态前缀缓存
+- **下一代 Dreaming Context Pack 注入（Phase 5）**：高 salience 的 active claim 作为 `## Pinned Memory` 段并入 system_prompt **静态 prefix**（query-independent，复用首个 cache breakpoint——不新开动态 cache block，Anthropic 4 breakpoint 已满）；query-dependent 的动态 claim 召回交给 Active Memory v2，故本期**不引入 provider `dynamic_context_blocks`**。单一来源 dedup `covered_by_active_claim_memory_ids`（`hidden` 的正向镜像、与之互斥）把被 active managed claim 覆盖的 legacy memory 从 `# Memory` 段排除——**去重阈值必须对齐 Pinned 注入阈值 `PINNED_MIN_SALIENCE`（`context_pack.rs` 单一来源常量）：dedup 永不比注入更激进，否则中等 salience（`[0.5,0.7)`）claim 的影子记忆既被 dedup 出 legacy、又够不到 Pinned = 无 prompt 出口**；`user_pinned` link / `memories.pinned=1` 豁免；claim 内容（LLM 派生）进 prefix 前必过 `sanitize_for_prompt`。Profile / Pinned 段纳入 `effective_memory_budget` 同一预算池（Core > Pinned > Profile+legacy）。Active Memory v2（`ActiveMemoryConfig.include_claims`，per-agent / 走 agent.json 不进 `ha-settings`，默认关）把当前 turn 召回候选扩到 effective-active claim（过期 / superseded claim 不经此回灌）。incognito 全链归零
 - **会话级无痕（`sessions.incognito`）**：单一真相源；不注入 Memory / Active Memory / Awareness、跳过自动提取；**关闭即焚**——不进侧边栏列表 / 全局 FTS / Dashboard 统计；**与 Project / IM Channel 互斥**（前端灰化 + 后端入口防御）
 
 ### 工具 & 审批
