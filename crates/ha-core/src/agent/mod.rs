@@ -607,16 +607,27 @@ impl AssistantAgent {
         let sid_for_search = sid.clone();
         let query = trimmed.to_string();
         let limit = cfg.candidate_limit.max(1);
+        let include_claims = cfg.include_claims;
 
-        let candidates = tokio::task::spawn_blocking(move || {
+        // Active Memory v2 (§7.5): when claim recall is on, also shortlist
+        // structured claims (effective-active, scope-filtered) and merge them
+        // into the candidate set. Both shortlists run inside the one
+        // spawn_blocking so SQLite / vector work stays off the runtime thread.
+        let (candidates, claim_candidates) = tokio::task::spawn_blocking(move || {
             let scopes =
                 active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
-            active_memory::shortlist_candidates(&query, &scopes, limit)
+            let mems = active_memory::shortlist_candidates(&query, &scopes, limit);
+            let claims = if include_claims {
+                active_memory::shortlist_claim_candidates(&query, &scopes, limit)
+            } else {
+                Vec::new()
+            };
+            (mems, claims)
         })
         .await
         .unwrap_or_default();
 
-        if candidates.is_empty() {
+        if candidates.is_empty() && claim_candidates.is_empty() {
             // Cache the empty decision so we don't re-search for the same
             // text until the TTL expires.
             self.active_memory_state.put_cached(hash, None);
@@ -628,7 +639,13 @@ impl AssistantAgent {
         }
 
         // 4. Bounded side_query — complete or timeout gracefully.
-        let prompt = active_memory::build_recall_prompt(trimmed, &candidates, cfg.max_chars);
+        let prompt = active_memory::build_recall_prompt(
+            trimmed,
+            &candidates,
+            &claim_candidates,
+            cfg.max_chars,
+        );
+        let total_candidates = candidates.len() + claim_candidates.len();
         let started = std::time::Instant::now();
         let result = tokio::time::timeout(
             Duration::from_millis(cfg.timeout_ms),
@@ -655,7 +672,7 @@ impl AssistantAgent {
                     "active_memory",
                     "side_query failed: {} ({} candidates, {}ms)",
                     e,
-                    candidates.len(),
+                    total_candidates,
                     started.elapsed().as_millis()
                 );
                 None
@@ -666,7 +683,7 @@ impl AssistantAgent {
                     "active_memory",
                     "side_query timed out after {}ms ({} candidates)",
                     cfg.timeout_ms,
-                    candidates.len()
+                    total_candidates
                 );
                 None
             }
@@ -685,7 +702,7 @@ impl AssistantAgent {
                 "active_memory",
                 "recalled (len={}) from {} candidates in {}ms",
                 recalled.as_deref().map(|s| s.len()).unwrap_or(0),
-                candidates.len(),
+                total_candidates,
                 started.elapsed().as_millis()
             );
         }

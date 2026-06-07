@@ -2209,6 +2209,8 @@
     "acpTimeout": "Tiempo de espera (s)",
     "activeMemoryCacheTtl": "TTL de caché (segundos)",
     "activeMemoryCandidateLimit": "Límite de candidatos",
+    "activeMemoryIncludeClaims": "Incluir afirmaciones estructuradas",
+    "activeMemoryIncludeClaimsDesc": "Preselecciona también las afirmaciones estructuradas de Dreaming (no solo los recuerdos heredados) como candidatas de recuperación. Desactivado por defecto.",
     "activeMemoryDesc": "Al inicio de cada turno del usuario, ejecuta una side query acotada para destilar la memoria más relevante en una frase e inyectarla junto al prompt del sistema. Los tiempos de espera y fallos caen silenciosamente al recall pasivo — nunca bloquean el chat.",
     "activeMemoryMaxChars": "Máx. caracteres del recall",
     "activeMemoryTimeout": "Tiempo de espera (ms)",

@@ -2209,6 +2209,8 @@
     "acpTimeout": "Hết thời gian (giây)",
     "activeMemoryCacheTtl": "TTL cache (giây)",
     "activeMemoryCandidateLimit": "Giới hạn ứng viên",
+    "activeMemoryIncludeClaims": "Bao gồm các khẳng định có cấu trúc",
+    "activeMemoryIncludeClaimsDesc": "Cũng đưa các khẳng định có cấu trúc của Dreaming (không chỉ ký ức cũ) vào danh sách ứng viên gợi nhớ. Mặc định tắt.",
     "activeMemoryDesc": "Đầu mỗi lượt người dùng, chạy một side query có giới hạn để cô đọng ký ức liên quan nhất thành một câu và đưa vào cùng system prompt. Hết thời gian và lỗi sẽ lặng lẽ quay lại recall bị động — không bao giờ chặn cuộc trò chuyện.",
     "activeMemoryMaxChars": "Số ký tự tối đa khi recall",
     "activeMemoryTimeout": "Hết hạn (ms)",

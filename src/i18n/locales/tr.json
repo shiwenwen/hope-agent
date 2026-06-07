@@ -2209,6 +2209,8 @@
     "acpTimeout": "Zaman aşımı (sn)",
     "activeMemoryCacheTtl": "Önbellek TTL (saniye)",
     "activeMemoryCandidateLimit": "Aday sınırı",
+    "activeMemoryIncludeClaims": "Yapılandırılmış iddiaları dahil et",
+    "activeMemoryIncludeClaimsDesc": "Anımsama adayları olarak yalnızca eski anıları değil, Dreaming'in yapılandırılmış iddialarını da kısa listeye alır. Varsayılan olarak kapalı.",
     "activeMemoryDesc": "Her kullanıcı turunun başında, en alakalı belleği tek bir cümleye dönüştürmek ve sistem istemiyle birlikte enjekte etmek için sınırlı bir side query çalıştırır. Zaman aşımı ve hatalar sessizce pasif hatırlatmaya döner — sohbeti asla engellemez.",
     "activeMemoryMaxChars": "Hatırlatma maks. karakter",
     "activeMemoryTimeout": "Zaman aşımı (ms)",

@@ -2209,6 +2209,8 @@
     "acpTimeout": "超時（秒）",
     "activeMemoryCacheTtl": "快取 TTL（秒）",
     "activeMemoryCandidateLimit": "候選數量上限",
+    "activeMemoryIncludeClaims": "納入結構化 Claim",
+    "activeMemoryIncludeClaimsDesc": "召回候選除歷史記憶外，同時檢索 Dreaming 整理出的結構化 claim（預設關閉）",
     "activeMemoryDesc": "每輪提問前主動搜尋相關記憶，用 side query 壓成一句話注入。超時或失敗會自動回退到被動召回，不會阻塞對話。",
     "activeMemoryMaxChars": "召回句長上限",
     "activeMemoryTimeout": "逾時 (ms)",

@@ -432,6 +432,13 @@ pub struct ActiveMemoryConfig {
     /// asking the LLM to pick the most relevant one. Default 10.
     #[serde(default = "default_active_memory_candidate_limit")]
     pub candidate_limit: usize,
+
+    /// Active Memory v2 (next-gen Dreaming §7.5): also shortlist structured
+    /// claims (not just legacy memories) as recall candidates. Default false —
+    /// an opt-in layer on top of `enabled`, so existing v1 recall is unchanged
+    /// until the user turns on claim recall.
+    #[serde(default)]
+    pub include_claims: bool,
 }
 
 fn default_active_memory_timeout_ms() -> u64 {
@@ -465,6 +472,7 @@ impl Default for ActiveMemoryConfig {
             cache_ttl_secs: default_active_memory_cache_ttl_secs(),
             budget_tokens: default_active_memory_budget_tokens(),
             candidate_limit: default_active_memory_candidate_limit(),
+            include_claims: false,
         }
     }
 }

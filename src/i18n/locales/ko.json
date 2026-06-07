@@ -2209,6 +2209,8 @@
     "acpTimeout": "시간 초과 (초)",
     "activeMemoryCacheTtl": "캐시 TTL (초)",
     "activeMemoryCandidateLimit": "후보 한도",
+    "activeMemoryIncludeClaims": "구조화된 클레임 포함",
+    "activeMemoryIncludeClaimsDesc": "회상 후보로 레거시 메모리뿐 아니라 Dreaming이 정리한 구조화된 클레임도 검색합니다. 기본값은 꺼짐.",
     "activeMemoryDesc": "사용자 턴이 시작될 때마다 제한된 side query를 실행하여 가장 관련된 메모리를 한 문장으로 추출해 시스템 프롬프트에 주입합니다. 타임아웃과 실패는 조용히 수동 리콜로 폴백되며 대화를 막지 않습니다.",
     "activeMemoryMaxChars": "리콜 최대 문자 수",
     "activeMemoryTimeout": "시간 초과 (ms)",

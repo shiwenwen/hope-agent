@@ -2209,6 +2209,8 @@
     "acpTimeout": "Tamat masa (saat)",
     "activeMemoryCacheTtl": "TTL Cache (saat)",
     "activeMemoryCandidateLimit": "Had calon",
+    "activeMemoryIncludeClaims": "Sertakan dakwaan berstruktur",
+    "activeMemoryIncludeClaimsDesc": "Turut pendekkan senarai dakwaan berstruktur Dreaming (bukan hanya memori lama) sebagai calon imbasan. Dimatikan secara lalai.",
     "activeMemoryDesc": "Pada permulaan setiap giliran pengguna, jalankan side query bertimbang untuk merumuskan memori paling relevan dalam satu ayat dan suntikkannya bersama prompt sistem. Timeout dan kegagalan akan senyap jatuh ke recall pasif — tidak pernah menghalang sembang.",
     "activeMemoryMaxChars": "Had aksara recall",
     "activeMemoryTimeout": "Timeout (ms)",

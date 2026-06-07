@@ -2209,6 +2209,8 @@
     "acpTimeout": "タイムアウト (秒)",
     "activeMemoryCacheTtl": "キャッシュ TTL（秒）",
     "activeMemoryCandidateLimit": "候補数の上限",
+    "activeMemoryIncludeClaims": "構造化クレームを含める",
+    "activeMemoryIncludeClaimsDesc": "想起候補としてレガシー記憶だけでなく、Dreaming が整理した構造化クレームも検索します。既定はオフ。",
     "activeMemoryDesc": "ユーザー発話ごとに制限付き side query を実行し、最も関連の高い記憶を一文に要約してシステムプロンプトへ注入します。タイムアウトや失敗時は受動的想起へ静かにフォールバックし、会話は止まりません。",
     "activeMemoryMaxChars": "想起出力の上限文字数",
     "activeMemoryTimeout": "タイムアウト (ms)",
