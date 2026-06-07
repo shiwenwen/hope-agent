@@ -47,8 +47,6 @@ impl CronDB {
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
                 ON cron_jobs(status, next_run_at);
-            CREATE INDEX IF NOT EXISTS idx_cron_jobs_project
-                ON cron_jobs(project_id);
 
             CREATE TABLE IF NOT EXISTS cron_run_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1092,6 +1090,47 @@ mod tests {
         let cleared = db.get_job(&job.id).expect("load").expect("job exists");
         assert_eq!(cleared.project_id, None);
 
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn open_migrates_legacy_schema_before_creating_project_index() {
+        let path = temp_db_path("legacy-project-id");
+        {
+            let conn = rusqlite::Connection::open(&path).expect("open raw db");
+            conn.execute_batch(
+                "CREATE TABLE cron_jobs (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    schedule_json TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    next_run_at TEXT,
+                    last_run_at TEXT,
+                    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                    max_failures INTEGER NOT NULL DEFAULT 5,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );",
+            )
+            .expect("create legacy cron_jobs");
+        }
+
+        let db = CronDB::open(&path).expect("open legacy db");
+        let conn = db.conn.lock().expect("lock");
+        conn.prepare("SELECT project_id FROM cron_jobs LIMIT 0")
+            .expect("project_id column migrated");
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_cron_jobs_project'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query project index");
+        assert_eq!(index_count, 1);
+
+        drop(conn);
         cleanup_db_files(&path);
     }
 
