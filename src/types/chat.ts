@@ -409,6 +409,7 @@ export interface SessionSearchResult {
   relevanceRank: number
   isCron: boolean
   parentSessionId: string | null
+  projectId: string | null
   channelType: string | null
   channelChatType: string | null
 }
