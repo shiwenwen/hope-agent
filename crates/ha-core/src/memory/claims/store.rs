@@ -27,6 +27,31 @@ fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+/// Shared `WHERE` fragment for claim relevance search: active + not-expired +
+/// scope (design §4.8). Conditions use the `c.` alias so both the FTS JOIN and
+/// the vec0 `rowid IN (...)` subquery can splice them in verbatim. The returned
+/// args bind in order — `now` first, then the optional scope id.
+fn claim_search_filters(scope: Option<&MemoryScope>, now: &str) -> (String, Vec<SqlValue>) {
+    let mut conditions = vec![
+        "c.status = 'active'".to_string(),
+        "(c.valid_until IS NULL OR c.valid_until = '' OR c.valid_until >= ?)".to_string(),
+    ];
+    let mut args = vec![SqlValue::Text(now.to_string())];
+    match scope {
+        Some(MemoryScope::Global) => conditions.push("c.scope_type = 'global'".to_string()),
+        Some(MemoryScope::Agent { id }) => {
+            conditions.push("c.scope_type = 'agent' AND c.scope_id = ?".to_string());
+            args.push(SqlValue::Text(id.clone()));
+        }
+        Some(MemoryScope::Project { id }) => {
+            conditions.push("c.scope_type = 'project' AND c.scope_id = ?".to_string());
+            args.push(SqlValue::Text(id.clone()));
+        }
+        None => {}
+    }
+    (conditions.join(" AND "), args)
+}
+
 /// Outcome of writing one claim candidate. `created` is false when the
 /// candidate canonicalized onto an existing claim (evidence merged).
 #[derive(Debug, Clone)]
@@ -303,46 +328,115 @@ impl ClaimStore {
             return Ok(Vec::new());
         };
         let now = now_rfc3339();
-        let mut conditions: Vec<String> = vec![
-            "memory_claims_fts MATCH ?".to_string(),
-            "c.status = 'active'".to_string(),
-            "(c.valid_until IS NULL OR c.valid_until = '' OR c.valid_until >= ?)".to_string(),
-        ];
-        let mut args: Vec<SqlValue> = vec![SqlValue::Text(fts_query), SqlValue::Text(now.clone())];
-        match scope {
-            Some(MemoryScope::Global) => conditions.push("c.scope_type = 'global'".to_string()),
-            Some(MemoryScope::Agent { id }) => {
-                conditions.push("c.scope_type = 'agent' AND c.scope_id = ?".to_string());
-                args.push(SqlValue::Text(id.clone()));
-            }
-            Some(MemoryScope::Project { id }) => {
-                conditions.push("c.scope_type = 'project' AND c.scope_id = ?".to_string());
-                args.push(SqlValue::Text(id.clone()));
-            }
-            None => {}
-        }
-        let where_clause = conditions.join(" AND ");
         let limit = limit.clamp(1, MAX_LIST_LIMIT);
+        // Over-fetch each arm so RRF has room to re-rank before the final cut.
+        let cand_limit = (limit * 3) as i64;
+        let (filter_sql, filter_args) = claim_search_filters(scope, &now);
+
+        let conn = self.backend.read_conn()?;
+
+        // ── Arm 1: FTS5 keyword candidates (rowids in rank order) ──
+        let mut fts_rowids: Vec<i64> = Vec::new();
+        {
+            let sql = format!(
+                "SELECT fts.rowid FROM memory_claims_fts fts
+                 JOIN memory_claims c ON c.rowid = fts.rowid
+                 WHERE memory_claims_fts MATCH ? AND {filter_sql}
+                 ORDER BY fts.rank LIMIT ?"
+            );
+            let mut args: Vec<SqlValue> = vec![SqlValue::Text(fts_query)];
+            args.extend(filter_args.iter().cloned());
+            args.push(SqlValue::Integer(cand_limit));
+            if let Ok(mut stmt) = conn.prepare(&sql) {
+                if let Ok(rows) = stmt.query_map(params_from_iter(args), |r| r.get::<_, i64>(0)) {
+                    fts_rowids.extend(rows.filter_map(|r| r.ok()));
+                }
+            }
+        }
+
+        // ── Arm 2: vector candidates (rowids in distance order), only when an
+        // embedder is configured. Mirrors the `memories` hybrid path: vec0 KNN
+        // with a `rowid IN (...)` filter for signature + scope/freshness. ──
+        let mut vec_rowids: Vec<i64> = Vec::new();
+        if let Some(signature) = crate::memory::helpers::active_embedding_signature() {
+            if let Some(emb) = self.backend.generate_embedding(query) {
+                let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                let sql = format!(
+                    "SELECT rowid FROM memory_claims_vec
+                     WHERE embedding MATCH ?
+                       AND rowid IN (
+                           SELECT c.rowid FROM memory_claims c
+                           WHERE c.embedding_signature = ? AND {filter_sql}
+                       )
+                     ORDER BY distance LIMIT ?"
+                );
+                let mut args: Vec<SqlValue> =
+                    vec![SqlValue::Blob(emb_bytes), SqlValue::Text(signature)];
+                args.extend(filter_args.iter().cloned());
+                args.push(SqlValue::Integer(cand_limit));
+                if let Ok(mut stmt) = conn.prepare(&sql) {
+                    if let Ok(rows) = stmt.query_map(params_from_iter(args), |r| r.get::<_, i64>(0))
+                    {
+                        vec_rowids.extend(rows.filter_map(|r| r.ok()));
+                    }
+                }
+            }
+        }
+
+        if fts_rowids.is_empty() && vec_rowids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // ── Weighted RRF fusion (same weights as `memories` hybrid search) ──
+        let hybrid = crate::memory::helpers::load_hybrid_search_config();
+        let k = hybrid.rrf_k;
+        let mut scores: std::collections::HashMap<i64, f64> = std::collections::HashMap::new();
+        for (rank, rowid) in fts_rowids.iter().enumerate() {
+            *scores.entry(*rowid).or_insert(0.0) +=
+                hybrid.text_weight as f64 / (k + rank as f64 + 1.0);
+        }
+        for (rank, rowid) in vec_rowids.iter().enumerate() {
+            *scores.entry(*rowid).or_insert(0.0) +=
+                hybrid.vector_weight as f64 / (k + rank as f64 + 1.0);
+        }
+        let mut ranked: Vec<(i64, f64)> = scores.into_iter().collect();
+        // Score desc, then rowid asc for a deterministic tie-break.
+        ranked.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
+        ranked.truncate(limit);
+        let top: Vec<i64> = ranked.iter().map(|(rowid, _)| *rowid).collect();
+
+        // ── Fetch the winning rows, restore fused order ──
+        let placeholders = top.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!(
             "SELECT c.id, c.scope_type, c.scope_id, c.claim_type, c.subject, c.predicate, c.object,
                     c.content, c.tags_json, c.confidence, c.confidence_source, c.salience,
                     c.freshness_policy_json, c.status, c.valid_from, c.valid_until,
-                    c.supersedes_claim_id, c.source_run_id, c.created_at, c.updated_at
-             FROM memory_claims_fts fts
-             JOIN memory_claims c ON c.rowid = fts.rowid
-             WHERE {where_clause}
-             ORDER BY fts.rank
-             LIMIT ?"
+                    c.supersedes_claim_id, c.source_run_id, c.created_at, c.updated_at, c.rowid
+             FROM memory_claims c WHERE c.rowid IN ({placeholders})"
         );
-        args.push(SqlValue::Integer(limit as i64));
-        let conn = self.backend.read_conn()?;
+        let args: Vec<SqlValue> = top.iter().map(|id| SqlValue::Integer(*id)).collect();
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_from_iter(args), row_to_claim)?;
-        Ok(rows
-            .filter_map(|r| r.ok())
-            .map(|mut c| {
-                c.status = write::effective_status(&c.status, c.valid_until.as_deref(), &now);
-                c
+        let mut by_rowid: std::collections::HashMap<i64, ClaimRecord> =
+            std::collections::HashMap::new();
+        let rows = stmt.query_map(params_from_iter(args), |row| {
+            let claim = row_to_claim(row)?;
+            let rowid: i64 = row.get(20)?;
+            Ok((rowid, claim))
+        })?;
+        for r in rows.flatten() {
+            by_rowid.insert(r.0, r.1);
+        }
+        Ok(top
+            .iter()
+            .filter_map(|rowid| {
+                by_rowid.remove(rowid).map(|mut c| {
+                    c.status = write::effective_status(&c.status, c.valid_until.as_deref(), &now);
+                    c
+                })
             })
             .collect())
     }
@@ -519,6 +613,15 @@ impl ClaimStore {
                 &now,
             )
         })?;
+
+        // Release the write lock before embedding: `embed_and_index_claim` calls
+        // `generate_embedding`, which re-acquires `write_conn` for the embedding
+        // cache (the writer Mutex is not re-entrant). The claim is already
+        // durably committed above; the vector is a best-effort follow-up that
+        // the reembed job backfills if the embedder is offline right now.
+        drop(conn);
+        self.backend
+            .embed_and_index_claim(&claim_id, &candidate.content);
 
         Ok(ClaimWriteOutcome {
             claim_id,

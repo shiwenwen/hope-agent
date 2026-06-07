@@ -854,6 +854,11 @@ impl MemoryBackend for SqliteMemoryBackend {
             on_progress(processed, total);
         }
 
+        // Claims share the memory embedding model (PR #8). Re-embed them after
+        // memories so a model switch refreshes claim vectors too. Best-effort:
+        // a failure here must not fail the (already-completed) memory reembed.
+        let _ = self.reembed_claims(cancel);
+
         Ok(reembedded)
     }
 
@@ -864,6 +869,11 @@ impl MemoryBackend for SqliteMemoryBackend {
             [],
         )?;
         let _ = conn.execute("DELETE FROM memories_vec", []);
+        // Claims share the memory embedding model (PR #8): clear their vectors
+        // too so a model switch doesn't leave stale-signature claim rows behind
+        // (`reembed_claims` repopulates them right after).
+        let _ = conn.execute("UPDATE memory_claims SET embedding_signature = NULL", []);
+        let _ = conn.execute("DELETE FROM memory_claims_vec", []);
         Ok(updated)
     }
 

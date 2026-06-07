@@ -328,7 +328,8 @@ impl SqliteMemoryBackend {
                 supersedes_claim_id TEXT,
                 source_run_id TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                embedding_signature TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_memory_claims_scope
                 ON memory_claims(scope_type, scope_id);
@@ -456,6 +457,17 @@ impl SqliteMemoryBackend {
                 "INSERT INTO memory_claims_fts(memory_claims_fts) VALUES('rebuild');",
             );
         }
+
+        // Claim embedding signature column (PR #8 claim vector retrieval).
+        // Additive: dev DBs that created `memory_claims` before this column
+        // existed (PR #2-7) get it backfilled here; the error on re-run (column
+        // already present) is expected and ignored. The vec0 table
+        // (`memory_claims_vec`) is created lazily on first embed, mirroring
+        // `memories_vec`.
+        let _ = conn.execute(
+            "ALTER TABLE memory_claims ADD COLUMN embedding_signature TEXT",
+            [],
+        );
 
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
@@ -878,6 +890,127 @@ impl SqliteMemoryBackend {
             }
         }
     }
+
+    /// Ensure the claim vec0 virtual table exists with the correct dimensions
+    /// (PR #8 claim vector retrieval). Mirrors [`Self::ensure_vec_table`] but
+    /// for `memory_claims_vec`, keyed on `memory_claims`' implicit INTEGER
+    /// rowid (the table PK is a TEXT uuid). Recreated on dimension change.
+    pub(crate) fn ensure_claims_vec_table(&self, conn: &Connection, dims: u32) -> Result<()> {
+        let existing_sql: Option<String> = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_claims_vec'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let expected_dim = format!("float[{}]", dims);
+        if let Some(sql) = existing_sql {
+            if !sql.contains(&expected_dim) {
+                app_warn!(
+                    "memory",
+                    "embedding",
+                    "Recreating memory_claims_vec for embedding dimension change to {}",
+                    dims
+                );
+                conn.execute_batch("DROP TABLE IF EXISTS memory_claims_vec;")?;
+            }
+        }
+        let sql = format!(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_claims_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding float[{}])",
+            dims
+        );
+        conn.execute_batch(&sql)?;
+        Ok(())
+    }
+
+    /// Generate + persist one claim's embedding into `memory_claims_vec` and
+    /// stamp `memory_claims.embedding_signature` (PR #8). Best-effort: a missing
+    /// embedder, dim=0, or a vanished claim row is a silent no-op (FTS-only
+    /// recall still works; the reembed job backfills later).
+    ///
+    /// MUST be called WITHOUT holding the write lock: `generate_embedding`
+    /// itself acquires `write_conn` to persist the embedding cache, so calling
+    /// this while the caller already holds `write_conn` would deadlock (the
+    /// writer `Mutex` is not re-entrant). Callers that wrote the claim under a
+    /// tx must `drop` their guard first.
+    pub(crate) fn embed_and_index_claim(&self, claim_id: &str, content: &str) {
+        let dims = self
+            .embedding_dims
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if dims == 0 {
+            return;
+        }
+        let Some(emb) = self.generate_embedding(content) else {
+            return;
+        };
+        let Some(signature) = crate::memory::helpers::active_embedding_signature() else {
+            return;
+        };
+        let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let Ok(conn) = self.write_conn() else {
+            return;
+        };
+        if self.ensure_claims_vec_table(&conn, dims).is_err() {
+            return;
+        }
+        let rowid: Option<i64> = conn
+            .query_row(
+                "SELECT rowid FROM memory_claims WHERE id = ?1",
+                params![claim_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .unwrap_or(None);
+        let Some(rowid) = rowid else {
+            return;
+        };
+        let _ = conn.execute(
+            "UPDATE memory_claims SET embedding_signature = ?1 WHERE id = ?2",
+            params![signature, claim_id],
+        );
+        let _ = conn.execute(
+            "DELETE FROM memory_claims_vec WHERE rowid = ?1",
+            params![rowid],
+        );
+        let _ = conn.execute(
+            "INSERT INTO memory_claims_vec(rowid, embedding) VALUES (?1, ?2)",
+            params![rowid, emb_bytes],
+        );
+    }
+
+    /// Re-embed every active claim (PR #8). Claims share the memory embedding
+    /// model, so the `MemoryReembed` job calls this after re-embedding memories
+    /// on a model switch. Best-effort + cancel-aware; claim volume is small so
+    /// a per-claim acquire/release of the write lock is acceptable.
+    pub(crate) fn reembed_claims(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<usize> {
+        if self
+            .embedding_dims
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            return Ok(0);
+        }
+        let claims: Vec<(String, String)> = {
+            let conn = self.read_conn()?;
+            let mut stmt =
+                conn.prepare("SELECT id, content FROM memory_claims WHERE status = 'active'")?;
+            let rows =
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        let mut count = 0usize;
+        for (id, content) in claims {
+            if cancel.is_cancelled() {
+                break;
+            }
+            self.embed_and_index_claim(&id, &content);
+            count += 1;
+        }
+        Ok(count)
+    }
 }
 
 // ── Helper: scope -> SQL conditions ──────────────────────────────
@@ -982,5 +1115,48 @@ mod tests {
         backend.ensure_vec_table(&conn, 768).expect("recreate 768");
         assert!(vec_table_sql(&conn).contains("float[768]"));
         assert!(!vec_table_sql(&conn).contains("float[384]"));
+    }
+
+    fn claims_vec_table_sql(conn: &Connection) -> String {
+        conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_claims_vec'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("memory_claims_vec sql")
+    }
+
+    #[test]
+    fn ensure_claims_vec_table_recreates_when_dimensions_change() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("memory.db");
+        let backend = SqliteMemoryBackend::open(&db_path).expect("open backend");
+        let conn = backend.write_conn().expect("write conn");
+
+        backend
+            .ensure_claims_vec_table(&conn, 384)
+            .expect("create 384");
+        assert!(claims_vec_table_sql(&conn).contains("float[384]"));
+
+        backend
+            .ensure_claims_vec_table(&conn, 768)
+            .expect("recreate 768");
+        assert!(claims_vec_table_sql(&conn).contains("float[768]"));
+        assert!(!claims_vec_table_sql(&conn).contains("float[384]"));
+    }
+
+    #[test]
+    fn claims_table_exposes_embedding_signature_column() {
+        // DDL + the defensive ALTER must leave `embedding_signature` queryable
+        // (the claim vector retrieval signature filter depends on it).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("memory.db");
+        let backend = SqliteMemoryBackend::open(&db_path).expect("open backend");
+        let conn = backend.write_conn().expect("write conn");
+        assert!(
+            conn.prepare("SELECT embedding_signature FROM memory_claims LIMIT 0")
+                .is_ok(),
+            "memory_claims must expose embedding_signature"
+        );
     }
 }
