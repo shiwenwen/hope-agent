@@ -1,4 +1,4 @@
-//! Knowledge Base subsystem ("Knowledge Space", design `docs/plans/knowledge-base.md`).
+//! Knowledge Base subsystem ("Knowledge Space", see `docs/architecture/knowledge-base.md`).
 //!
 //! Zero Tauri dependency (red line). Two storage classes (D9):
 //! - **Registry** ([`KnowledgeRegistry`]) — `knowledge_bases` + access bindings in

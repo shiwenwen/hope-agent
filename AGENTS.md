@@ -156,7 +156,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 ### Knowledge Base（知识空间）
 
-详见 [`knowledge-base.md`](docs/architecture/knowledge-base.md)（实现）/ [`docs/plans/knowledge-base.md`](docs/plans/knowledge-base.md)（设计契约 D1–D14）。对外名「知识空间」，代码中性（模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge`）。
+详见 [`knowledge-base.md`](docs/architecture/knowledge-base.md)（实现 + 设计契约 D1–D14 决策账本）。对外名「知识空间」，代码中性（模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge`）。
 
 - **两类存储分明（D9）**：KB 注册表 + 访问绑定（`KnowledgeRegistry`）落 `sessions.db`（真相源，包 `Arc<SessionDB>`）；`note/chunk/link/tag` + FTS5 + vec0 落 `~/.hope-agent/knowledge/index.db`（`IndexDb`，纯可重建缓存，删了从 `.md` 全量重建）。笔记 = 真实 `.md` 文件，唯一真相源
 - **访问默认 deny + 显式 attach（D10 + WS8）**：唯一入口 `effective_kb_access(KnowledgeAccessContext)`——incognito short-circuit 归零 → **全链含 IM 归零，除非 IM 来源已 opt-in（WS8，见下）** → `max(session_attach, project_attach)` → 滤 archived → 外部 root `read_only` 的 cap `read`（opt-in 外部可写则不 cap，WS7）。**source 来自 `ChatSource` 经 `configure_agent` 映射成 `KbAccessSource` 透传进 `ToolExecContext.chat_source`**（`ChatSource` 不在 tool ctx 上，必须这样透传）；**`origin_source` 同样真接线**：`ChatEngineParams.origin_source`（顶层 `None`→origin=source）→ `configure_agent(kb_origin)` → `agent.origin_chat_source` → `ToolExecContext.origin_chat_source`；`subagent` 工具 spawn 时把父轮 `ctx.origin_chat_source.or(chat_source)` 透传给子 `ChatEngineParams.origin_source`，故 IM-origin 子代理被血缘 cap 归零（即便子会话隔离也是第二道防线）。incognito 由 `is_session_incognito` 取

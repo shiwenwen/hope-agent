@@ -227,7 +227,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 
 ### Knowledge Base（知识空间）
 
-**Owner / 管理平面**——API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。详见 [knowledge-base.md](./knowledge-base.md) 与 [`docs/plans/knowledge-base.md`](../plans/knowledge-base.md) 设计契约。
+**Owner / 管理平面**——API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D14）。
 
 | Tauri 命令 | HTTP 路由 | 对齐 |
 |---|---|---|

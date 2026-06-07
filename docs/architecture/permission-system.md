@@ -363,7 +363,7 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 
 | 类别 | 工具 |
 |------|------|
-| 文件读取/搜索 | `read` `ls` `grep` `find` `project_read_file` |
+| 文件读取/搜索 | `read` `ls` `grep` `find` |
 | 任务管理 | `task_create` `task_update` `task_list` |
 | 记忆 | `save_memory` `recall_memory` `memory_get` `update_memory` `delete_memory` `update_core_memory` |
 | 文档/通知 | `canvas` `send_notification` |

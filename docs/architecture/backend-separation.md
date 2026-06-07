@@ -57,7 +57,7 @@ provider/          多模板 + Failover Chain + Proxy + crud helper
                    （所有 provider/active_model 写入必须走 provider/crud.rs，详见下文）
 context_compact/   5 层渐进式压缩 + API-Round 分组
 session/           会话 + 消息持久化 + FTS5 搜索
-project/           Project 容器 + project_files + 绑定 IM channel
+project/           Project 容器（工作目录即真实文件，无独立 project_files；无反向 channel 认领）
 mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
 cron/              定时任务 + Agent 执行
 acp/               stdio JSON-RPC 服务器

@@ -34,10 +34,9 @@
 | [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `mac_control/`, `tools/mac_control.rs`, `src-tauri/src/macos_control.rs` |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、后压缩文件恢复                     | `context_compact/`                             |
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
-| [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/文件/指令、Bound Channel + 5 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
+| [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/工作目录/指令、7 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
 | [记忆系统](architecture/memory.md)                 | SQLite + FTS5 + vec0 混合检索、多模型 Embedding 配置、自动提取、Active Memory、Dreaming、Recall Summary、向量重建 | `memory/`                                      |
-| [知识空间（Knowledge Base）](architecture/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 缓存（chunk FTS+向量混合检索）、Wikilink/反链/标签、`note_*` 工具 + `effective_kb_access`、外部 vault 只读绑定 + notify watcher、CM6 编辑器 | `knowledge/`, `tools/note.rs`, `components/knowledge/` |
-| [知识库系统](architecture/knowledge-base.md)         | **设计草案 v4 定稿**：独立 PKM 知识库（真实 `.md` 真相源 + `sessions.db` registry + `index.db` chunk 级可重建缓存）、Wikilink 双链/反链、AI 三层读写/检索/自主维护、KB 访问作用域（默认 deny + attach）、KB 预览鉴权、Obsidian/Logseq 兼容矩阵、决策账本（D1–D12）+ 路线图 | `knowledge/`（规划中）                            |
+| [知识空间（Knowledge Base）](architecture/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 可重建缓存（chunk FTS+向量 RRF/MMR 检索）、Wikilink/反链/标签/块引用、图谱视图 + transclusion、`note_*` 工具 + `effective_kb_access` 双鉴权平面、外部 vault 绑定（默认只读 / opt-in 可写）+ notify watcher、CM6 五模式编辑器、Layer 2 自主维护 | `knowledge/`, `tools/note.rs`, `components/knowledge/` |
 
 
 ## Agent 能力
