@@ -23,8 +23,8 @@ pub use backfill::{
 };
 pub use store::{
     expire_claim, get_claim, init_claim_store, link_claim_memory, list_active_claims_for_resolve,
-    list_claims, mark_claim_needs_review, merge_claims, parse_claim_scope, search_claims,
-    write_claim_candidate, ClaimListFilter, ClaimWriteOutcome,
+    list_claims, list_pinned_claims, mark_claim_needs_review, merge_claims, parse_claim_scope,
+    search_claims, write_claim_candidate, ClaimListFilter, ClaimWriteOutcome,
 };
 pub use types::{
     ClaimCandidate, ClaimDetail, ClaimLink, ClaimRecord, ClaimScopeHint, ClaimTemporal,

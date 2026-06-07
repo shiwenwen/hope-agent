@@ -23,6 +23,7 @@
 //! phases (pattern recognition, long-window consolidation) are deferred.
 
 mod config;
+mod context_pack;
 mod cron_loop;
 mod evidence;
 mod narrative;
@@ -40,6 +41,7 @@ pub use config::{
     CronTriggerConfig, DreamingConfig, IdleTriggerConfig, ProfileSynthesisConfig,
     PromotionThresholds,
 };
+pub use context_pack::{build_context_pack, ContextPackOptions, MemoryContextPack, SourceRef};
 pub use cron_loop::spawn_dreaming_cron_loop;
 pub use evidence::evidence_quote;
 pub use pipeline::{last_report_snapshot, run_cycle};

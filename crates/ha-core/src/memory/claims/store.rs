@@ -140,6 +140,20 @@ pub fn search_claims(
     store.search_claims(query, scope.as_ref(), limit)
 }
 
+/// "Pinned" claims for the Context Pack: high-salience active claims that inject
+/// regardless of the current query (design §4.5 — high confidence + high
+/// salience → prompt candidate). Scope-filtered, effective-active only, ranked
+/// salience DESC then confidence DESC. `min_salience` is the pin threshold;
+/// `limit` clamped to `[1, 500]`.
+pub fn list_pinned_claims(
+    scope: Option<MemoryScope>,
+    min_salience: f32,
+    limit: usize,
+) -> Result<Vec<ClaimRecord>> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.list_pinned_claims(scope.as_ref(), min_salience, limit)
+}
+
 /// Fetch a single claim plus its evidence and legacy-memory links. Returns
 /// `None` if the id is unknown.
 pub fn get_claim(id: &str) -> Result<Option<ClaimDetail>> {
@@ -302,6 +316,59 @@ impl ClaimStore {
         args.push(SqlValue::Integer(limit as i64));
         args.push(SqlValue::Integer(offset as i64));
 
+        let conn = self.backend.read_conn()?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(args), row_to_claim)?;
+        Ok(rows
+            .filter_map(|r| r.ok())
+            .map(|mut c| {
+                c.status = write::effective_status(&c.status, c.valid_until.as_deref(), &now);
+                c
+            })
+            .collect())
+    }
+
+    fn list_pinned_claims(
+        &self,
+        scope: Option<&MemoryScope>,
+        min_salience: f32,
+        limit: usize,
+    ) -> Result<Vec<ClaimRecord>> {
+        let now = now_rfc3339();
+        let mut conditions: Vec<String> = vec![
+            "status = 'active'".to_string(),
+            "(valid_until IS NULL OR valid_until = '' OR valid_until >= ?)".to_string(),
+            "salience >= ?".to_string(),
+        ];
+        let mut args: Vec<SqlValue> = vec![
+            SqlValue::Text(now.clone()),
+            SqlValue::Real(min_salience as f64),
+        ];
+        match scope {
+            Some(MemoryScope::Global) => conditions.push("scope_type = 'global'".to_string()),
+            Some(MemoryScope::Agent { id }) => {
+                conditions.push("scope_type = 'agent' AND scope_id = ?".to_string());
+                args.push(SqlValue::Text(id.clone()));
+            }
+            Some(MemoryScope::Project { id }) => {
+                conditions.push("scope_type = 'project' AND scope_id = ?".to_string());
+                args.push(SqlValue::Text(id.clone()));
+            }
+            None => {}
+        }
+        let where_clause = conditions.join(" AND ");
+        let limit = limit.clamp(1, MAX_LIST_LIMIT);
+        let sql = format!(
+            "SELECT id, scope_type, scope_id, claim_type, subject, predicate, object,
+                    content, tags_json, confidence, confidence_source, salience,
+                    freshness_policy_json, status, valid_from, valid_until,
+                    supersedes_claim_id, source_run_id, created_at, updated_at
+             FROM memory_claims
+             WHERE {where_clause}
+             ORDER BY salience DESC, confidence DESC, updated_at DESC
+             LIMIT ?"
+        );
+        args.push(SqlValue::Integer(limit as i64));
         let conn = self.backend.read_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), row_to_claim)?;

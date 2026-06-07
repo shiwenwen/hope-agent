@@ -359,6 +359,40 @@ pub fn build_system_prompt_with_session(
             None
         };
 
+        // Context Pack — static Pinned Claims segment (next-gen Dreaming Phase 5,
+        // design §4.8). Built once here (query-independent, cache-stable) and
+        // folded into the system prompt prefix by `build_memory_section`. Same
+        // gate as the profile snapshot: memory on + not incognito. Empty on the
+        // dual-track default (no claims yet) → None → no injection. Dynamic
+        // per-turn claim recall is served separately by Active Memory v2.
+        let context_pack = if definition.config.memory.enabled && !incognito {
+            let mut scopes = vec![
+                crate::memory::MemoryScope::Global,
+                crate::memory::MemoryScope::Agent {
+                    id: agent_id.to_string(),
+                },
+            ];
+            if let Some(p) = project.as_ref() {
+                scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
+            }
+            let pack = crate::memory::dreaming::build_context_pack(
+                &scopes,
+                &crate::memory::dreaming::ContextPackOptions::default(),
+            );
+            if !pack.source_digest.is_empty() {
+                crate::app_debug!(
+                    "memory",
+                    "context_pack",
+                    "context pack: {} pinned claim(s) for agent {}",
+                    pack.source_digest.len(),
+                    agent_id
+                );
+            }
+            (!pack.is_empty()).then_some(pack)
+        } else {
+            None
+        };
+
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
@@ -380,6 +414,7 @@ pub fn build_system_prompt_with_session(
             &memory_entries,
             &memory_budget,
             profile_snapshot.as_deref(),
+            context_pack.as_ref(),
             agent_home.as_deref(),
             project.as_ref(),
             session_id,

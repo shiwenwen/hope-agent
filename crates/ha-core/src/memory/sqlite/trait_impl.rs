@@ -502,9 +502,20 @@ impl MemoryBackend for SqliteMemoryBackend {
         // claims exist (the dual-track default).
         let read_guard = self.read_conn()?;
         let hidden = hidden_claim_linked_memory_ids(&read_guard)?;
+        // Single-source dedup (design §4.8): a legacy memory covered by an
+        // effective-active managed claim injects via the Pinned / Relevant
+        // Claims segments, so drop it from this legacy section to avoid
+        // double-injecting the same fact (and double-spending the budget).
+        // `user_pinned` links and directly-pinned memories are exempt — an
+        // explicit keep signal outranks the dedup (mirrors the `hidden` query).
+        // Shares the read_guard with `hidden` to avoid a second reader acquire.
+        let covered = covered_by_active_claim_memory_ids(&read_guard)?;
         drop(read_guard);
         if !hidden.is_empty() {
             all_memories.retain(|m| !hidden.contains(&m.id));
+        }
+        if !covered.is_empty() {
+            all_memories.retain(|m| !covered.contains(&m.id));
         }
 
         Ok(all_memories)
@@ -1054,6 +1065,46 @@ fn hidden_claim_linked_memory_ids(
     Ok(ids)
 }
 
+/// Single-source dedup set for Context Pack (design §4.8): `memory_id`s that ARE
+/// covered by an effective-active managed claim — they inject via the Pinned /
+/// Relevant Claims segments, so they must be dropped from the legacy `# Memory`
+/// section. The positive mirror of [`hidden_claim_linked_memory_ids`] (which
+/// drops memories whose claims are all DEAD); here we drop those still owned by a
+/// LIVE claim. The two sets are disjoint (presence vs absence of a live managed
+/// link). Same exemptions: only `managed` links count, and a `user_pinned` link
+/// or a directly-pinned memory (`memories.pinned = 1`) keeps the memory in the
+/// legacy section (explicit keep outranks dedup). Empty/cheap when no claims
+/// exist (the dual-track default).
+fn covered_by_active_claim_memory_ids(
+    conn: &rusqlite::Connection,
+) -> Result<std::collections::HashSet<i64>> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT l.memory_id
+         FROM memory_claim_links l
+         WHERE l.sync_mode = 'managed'
+           AND EXISTS (
+                 SELECT 1 FROM memory_claim_links la
+                 JOIN memory_claims ca ON ca.id = la.claim_id
+                 WHERE la.memory_id = l.memory_id
+                   AND la.sync_mode = 'managed'
+                   AND ca.status = 'active'
+                   AND (ca.valid_until IS NULL OR ca.valid_until = ''
+                        OR ca.valid_until >= ?1))
+           AND NOT EXISTS (
+                 SELECT 1 FROM memory_claim_links lp
+                 WHERE lp.memory_id = l.memory_id AND lp.sync_mode = 'user_pinned')
+           AND NOT EXISTS (
+                 SELECT 1 FROM memories mm
+                 WHERE mm.id = l.memory_id AND mm.pinned = 1)",
+    )?;
+    let ids = stmt
+        .query_map(params![now], |row| row.get::<_, i64>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod claim_injection_tests {
     use super::*;
@@ -1145,6 +1196,65 @@ mod claim_injection_tests {
         assert!(
             !hidden.contains(&6),
             "a user-pinned memory is never auto-hidden"
+        );
+    }
+
+    #[test]
+    fn covered_by_active_claim_excludes_live_managed_links() {
+        // Single-source dedup (design §4.8): a legacy memory covered by an
+        // effective-active managed claim is dropped from the legacy section (it
+        // injects via the Pinned/Relevant Claims segments). The positive mirror
+        // of the `hidden` (dead-claim) set, with the same exemptions.
+        let backend = temp_backend();
+        let conn = backend.write_conn().unwrap();
+        // 1: active managed claim → covered.
+        seed(&conn, 1, "c1", "active", None, "managed");
+        // 2: superseded managed claim → NOT covered (that's the `hidden` set).
+        seed(&conn, 2, "c2", "superseded", None, "managed");
+        // 3: active but valid_until past → effective expired → NOT covered.
+        seed(
+            &conn,
+            3,
+            "c3",
+            "active",
+            Some("2020-01-01T00:00:00.000Z"),
+            "managed",
+        );
+        // 4: active claim but a user_pinned link → exempt (explicit keep
+        //    outranks dedup), NOT covered.
+        seed(&conn, 4, "c4", "active", None, "user_pinned");
+        // 5: active managed claim but the MEMORY is user-pinned → exempt.
+        seed(&conn, 5, "c5", "active", None, "managed");
+        conn.execute("UPDATE memories SET pinned = 1 WHERE id = 5", [])
+            .unwrap();
+        drop(conn);
+
+        let read = backend.read_conn().unwrap();
+        let covered = covered_by_active_claim_memory_ids(&read).unwrap();
+        assert!(covered.contains(&1), "live managed claim covers its memory");
+        assert!(
+            !covered.contains(&2),
+            "superseded claim does not cover (that's the hidden set)"
+        );
+        assert!(
+            !covered.contains(&3),
+            "expired-by-valid_until claim does not cover"
+        );
+        assert!(
+            !covered.contains(&4),
+            "user_pinned link is exempt from dedup"
+        );
+        assert!(
+            !covered.contains(&5),
+            "a user-pinned memory is never deduped away"
+        );
+
+        // covered (live) and hidden (dead) are disjoint: a memory is in at most
+        // one set, so dedup + hide never fight over the same row.
+        let hidden = hidden_claim_linked_memory_ids(&read).unwrap();
+        assert!(
+            covered.is_disjoint(&hidden),
+            "covered and hidden sets must be disjoint"
         );
     }
 

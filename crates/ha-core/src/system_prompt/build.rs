@@ -44,6 +44,7 @@ pub fn build(
     memory_entries: &[MemoryEntry],
     memory_budget: &MemoryBudgetConfig,
     profile_snapshot: Option<&str>,
+    context_pack: Option<&crate::memory::dreaming::MemoryContextPack>,
     agent_home: Option<&str>,
     project: Option<&Project>,
     session_id: Option<&str>,
@@ -261,6 +262,7 @@ pub fn build(
             memory_entries,
             memory_budget,
             profile_snapshot,
+            context_pack,
         );
         if !section.is_empty() {
             sections.push(section);
@@ -382,7 +384,14 @@ pub(super) fn build_memory_section(
     memory_entries: &[MemoryEntry],
     budget: &MemoryBudgetConfig,
     profile_snapshot: Option<&str>,
+    context_pack: Option<&crate::memory::dreaming::MemoryContextPack>,
 ) -> String {
+    // Per-section cap for the Pinned Claims segment. Constant for now (not a
+    // user-config field): it `.min(remaining)` downstream, so claims still share
+    // the one `effective_memory_budget` pool — this only bounds how much a single
+    // segment can take before the rest of the budget flows to legacy memory.
+    const PINNED_CLAIMS_CHARS: usize = 2500;
+
     if budget.total_chars == 0 {
         return String::new();
     }
@@ -404,6 +413,25 @@ pub(super) fn build_memory_section(
         "## Core Memory (Global)\n\n",
         budget.core_memory_file_chars,
     );
+
+    // Context Pack — Pinned Claims (design §4.8): high-salience active claims
+    // fold into this static prefix and share the same `remaining` budget pool as
+    // Core Memory. Priority Core > Pinned > (Profile + legacy SQLite): claim
+    // facts outrank legacy memory (the single-source goal). Each line is
+    // sanitized at render time (context_pack.rs) and rides the existing prefix
+    // cache block — Anthropic's 4 cache_control breakpoints are full, so no new
+    // dynamic block. (Strict §4.8 orders Profile ahead of Pinned; Profile stays
+    // inside the SQLite block to avoid splitting its snapshot/legacy-fallback
+    // dual path — claim facts still outrank legacy memory either way.)
+    if let Some(pack) = context_pack {
+        push_core_memory_layer(
+            &mut out,
+            &mut remaining,
+            Some(pack.pinned_claims_md.as_str()),
+            "## Pinned Memory\n\n",
+            PINNED_CLAIMS_CHARS,
+        );
+    }
 
     // A profile snapshot renders the `## User Profile` section even when there
     // are no legacy SQLite memory entries, so it must not be gated out by an
@@ -620,7 +648,7 @@ mod memory_section_tests {
             sqlite_entry_max_chars: 500,
             sqlite_sections: SqliteSectionBudgets::default(),
         };
-        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget, None);
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget, None, None);
         // Guidelines always present.
         assert!(out.contains("## Memory Guidelines"));
         // Total stays under budget (±5% slack for heading overhead rounding).
@@ -639,7 +667,7 @@ mod memory_section_tests {
         let agent_md = "A".repeat(8_000);
         let global_md = "G".repeat(8_000);
         let budget = MemoryBudgetConfig::default();
-        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget, None);
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget, None, None);
 
         let agent_a_count = out.matches('A').count();
         let global_g_count = out.matches('G').count();
@@ -671,7 +699,14 @@ mod memory_section_tests {
             .map(|i| mk_entry(i, MemoryType::User, &format!("user fact #{}", i)))
             .collect();
         let budget = MemoryBudgetConfig::default();
-        let out = build_memory_section(Some(&agent_md), Some(&global_md), &entries, &budget, None);
+        let out = build_memory_section(
+            Some(&agent_md),
+            Some(&global_md),
+            &entries,
+            &budget,
+            None,
+            None,
+        );
 
         assert!(out.contains("## Core Memory (Agent)"));
         assert!(out.contains("## Core Memory (Global)"));
@@ -688,7 +723,7 @@ mod memory_section_tests {
             total_chars: 0,
             ..MemoryBudgetConfig::default()
         };
-        let out = build_memory_section(Some("agent"), Some("global"), &[], &budget, None);
+        let out = build_memory_section(Some("agent"), Some("global"), &[], &budget, None, None);
         assert_eq!(out, "");
     }
 
@@ -702,7 +737,7 @@ mod memory_section_tests {
             sqlite_entry_max_chars: 500,
             sqlite_sections: SqliteSectionBudgets::default(),
         };
-        let out = build_memory_section(Some(&agent_md), None, &[], &budget, None);
+        let out = build_memory_section(Some(&agent_md), None, &[], &budget, None, None);
         assert!(
             out.contains("## Memory Guidelines"),
             "Guidelines must survive under budget pressure"
@@ -719,6 +754,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -751,6 +787,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -761,6 +798,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -815,6 +853,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -836,6 +875,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -865,6 +905,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -876,6 +917,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -906,6 +948,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -928,6 +971,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -959,6 +1003,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -981,6 +1026,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &entries,
             &budget,
+            None,
             None,
             None,
             None,
