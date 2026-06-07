@@ -59,7 +59,7 @@
 
 <table>
 <tr><td width="220"><b>🖥️ 桌面原生 GUI</b></td><td>macOS / Linux / Windows 三端原生应用，下载即用。12 种界面语言（简/繁中、英、日、韩、西、葡、俄、阿、土、越、马），深色主题与精心调校的字体排版。</td></tr>
-<tr><td><b>🧙 傻瓜式 Provider 配置</b></td><td>39 个内置 Provider 模板，覆盖 206 个预设模型。Anthropic / OpenAI / Gemini / Codex / OpenRouter / DeepSeek / Kimi / Qwen / 豆包 / GLM / MiniMax / xAI / Mistral / Cerebras / DeepInfra / 腾讯混元 / Ollama 一站式覆盖；同一 Provider 支持多 API Key 自动轮换，遇到限流或额度用尽无缝切换下一把钥匙。</td></tr>
+<tr><td><b>🧙 傻瓜式 Provider 配置</b></td><td>44 个内置 Provider 模板，覆盖 335 个预设模型。Anthropic / OpenAI / Gemini / Codex / GitHub Copilot / OpenRouter / DeepSeek / Kimi / Qwen / 豆包 / GLM / MiniMax / xAI / Mistral / Cerebras / DeepInfra / Novita / 腾讯混元 / Ollama 一站式覆盖；同一 Provider 支持多 API Key 自动轮换，遇到限流或额度用尽无缝切换下一把钥匙。</td></tr>
 <tr><td><b>🦙 本地小模型一键安装</b></td><td><b>不用账号、不用 API Key、不用终端</b>——设置 → 模型页面按硬件挑一个能跑得动的 Qwen3.6 / Gemma 4 尺寸，一键完成 <a href="https://ollama.com">Ollama</a> 安装、模型下载、Provider 注册与切换。同一流程也覆盖本地 Embedding 模型。</td></tr>
 <tr><td><b>💬 12 个 IM 渠道一站接入</b></td><td>Telegram、Discord、Slack、飞书、Google Chat、LINE、QQ Bot、Signal、iMessage、IRC、WeChat、WhatsApp。图片 / 语音 / 文件入站自动转多模态上下文；工具审批直接在聊天窗按按钮决定；每个群聊 / 账号可绑定独立 Agent 和权限策略。</td></tr>
 <tr><td><b>🤝 对话随手交接，跨端不掉线</b></td><td>同一份会话能在桌面、浏览器、IM 之间**随手交接**——出门前在电脑上聊到一半，地铁里掏出手机用 Telegram 接着说，回家打开桌面应用它已经把外面 IM 期间的聊天捋好了。同一份记忆 / 工具状态 / Plan / 工作目录跟着走，另一端不用重新介绍上下文。<code>/handover</code> 把当前桌面会话推到指定 IM 聊天，<code>/session &lt;id&gt;</code> 在 IM 端反向接管；桌面正在跑的对话还会**流式镜像到 IM**，模型边写边在 Telegram / 飞书 / Slack 里打字。</td></tr>
@@ -273,8 +273,8 @@ pnpm tauri build       # 打生产包
 <tr>
   <td width="140"><b>📦 模型 Provider</b></td>
   <td>
-    <b>39 个模板 · 206 个预设模型</b><br/>
-    <b>国际</b> · Anthropic · OpenAI · Codex · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Perplexity · xAI Grok · Mistral · Cohere<br/>
+    <b>44 个模板 · 335 个预设模型</b><br/>
+    <b>国际</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>国内</b> · DeepSeek · Moonshot (Kimi) · 通义千问 (Qwen) · 豆包 (火山引擎) · 智谱 GLM · MiniMax · 小米 MiMo<br/>
     <b>本地</b> · Ollama · 任意 OpenAI 兼容端点
   </td>

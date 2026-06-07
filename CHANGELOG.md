@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **文件浏览器搜索**：项目 / 会话文件浏览器新增按文件名与路径的模糊搜索，支持搜索结果停留、键盘上下选择、回车预览、目录结果展开定位，以及跨 session / project / worktree 的 scope-based 后端搜索，避免 Project 默认工作目录下搜索失败。
+- **内置 Provider 模板扩充刷新**：Provider 模板由 39 个增至 44 个（新增 GitHub Copilot、Novita、GMI、OpenCode、KiloCode），预设模型扩充至 335 个；补齐 Claude Opus 4.8、GPT-5.x、Gemini 3.1、Kimi K2.6、GLM-5.1 等最新模型，并同步各家上下文窗口、最大输出与定价。
 - **定时任务关联 Project**：Cron 任务可绑定 Project，人工表单和 `manage_cron` 工具都能设置；执行时会创建带 Project 上下文的隔离会话，复用 Project 指令、项目记忆、工作目录与工具 cwd 解析。Agent 支持 `Auto`，按显式 Agent → Project 默认 Agent → 全局默认 → `ha-main` 解析；Project 被删除后任务会自动清空关联并按普通 Cron 降级执行。任务列表、详情、日历 API 与模型工具输出同步展示 `projectId` / Project 标签。
 - **内置 Office 三件套 Skills**：新增 `office-docx` / `office-xlsx` / `office-pptx` 三个内置技能，以 skill + bundled scripts 形式提供 Word、Excel、PowerPoint 本地生成、编辑、检查与预览能力。DOCX 支持真实 Word 列表、批注、修订、图片 alt、TOC、脚注/尾注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏与 Google Docs-targeted 清理；XLSX 支持真实 Excel tables、公式、样式、数据验证、条件格式、图表、CSV/TSV 转换、公式审计/缓存与 LibreOffice 重算；PPTX 支持标题/章节/图文/指标/表格/时间线、native chart、文本 patch、追加、复制/重排 slide、布局审计与 contact sheet。
 - **Office Skills 回归验证脚本**：新增 `scripts/office-skill-parity-audit.py` 与 `scripts/office-skill-smoke-test.py`，分别做 Office skill 能力面审计与端到端生成/编辑/检查/渲染 smoke，覆盖 DOCX `sectPr` 插入位置、水印 header 冲突、PPTX 非 slide relationships 保留、XLSX patch / formula cache 等关键回归。
