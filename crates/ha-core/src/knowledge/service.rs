@@ -265,6 +265,16 @@ pub fn graph(kb_id: &str) -> Result<super::types::KnowledgeGraph> {
     Ok(super::graph::cap_nodes(g, OWNER_GRAPH_NODE_CAP))
 }
 
+/// Owner: read the user-pinned graph layout (Batch J).
+pub fn graph_layout(kb_id: &str) -> Result<Vec<super::types::GraphNodePosition>> {
+    registry()?.get_graph_layout(kb_id)
+}
+
+/// Owner: replace the pinned graph layout (Batch J). Empty = reset.
+pub fn save_graph_layout(kb_id: &str, positions: &[super::types::GraphNodePosition]) -> Result<()> {
+    registry()?.save_graph_layout(kb_id, positions)
+}
+
 /// Owner: read a note by its `[[ ]]` reference (title or `folder/note` path
 /// form), resolved deterministically (design #8) over the KB — the single source
 /// of truth for transclusion (`![[ ]]`) preview. Returns `None` when the ref

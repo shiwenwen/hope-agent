@@ -143,6 +143,14 @@ export interface KnowledgeGraph {
   truncated: boolean
 }
 
+/** A user-pinned graph node position (Batch J), keyed by `relPath` (stable across
+ *  index rebuilds). Wire shape of `kb_graph_layout_{get,save}_cmd`. */
+export interface GraphNodePosition {
+  relPath: string
+  x: number
+  y: number
+}
+
 export interface NoteSearchHit {
   kbId: string
   noteId: number

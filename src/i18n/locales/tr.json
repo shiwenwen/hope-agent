@@ -4878,7 +4878,9 @@
       "orphanLegend": "Yetim",
       "truncated": "Büyük grafik — en bağlantılı notlar gösteriliyor.",
       "empty": "Henüz grafiklenecek not yok.",
-      "loading": "Grafik oluşturuluyor…"
+      "loading": "Grafik oluşturuluyor…",
+      "reset": "Düzeni sıfırla",
+      "resetLayout": "Düzeni sıfırla (tümünü çöz)"
     },
     "embed": {
       "broken": "\"{{ref}}\" ile eşleşen not yok",

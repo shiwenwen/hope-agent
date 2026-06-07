@@ -4878,7 +4878,9 @@
       "orphanLegend": "Órfã",
       "truncated": "Grafo grande — a mostrar as notas mais conectadas.",
       "empty": "Ainda não há notas para o grafo.",
-      "loading": "A gerar o grafo…"
+      "loading": "A gerar o grafo…",
+      "reset": "Redefinir layout",
+      "resetLayout": "Redefinir layout (desafixar tudo)"
     },
     "embed": {
       "broken": "Nenhuma nota corresponde a \"{{ref}}\"",

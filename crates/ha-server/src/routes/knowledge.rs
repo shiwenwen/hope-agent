@@ -21,9 +21,9 @@ use ha_core::filesystem::{
     self, ExtractedContent, FileTextContent, FilesystemError, WorkspaceScope,
 };
 use ha_core::knowledge::{
-    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, KbAccess, KbAttachment,
-    KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult, NoteSearchHit,
-    ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
+    KbAttachment, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult,
+    NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
 };
 
 use super::file_serve::{
@@ -576,6 +576,28 @@ pub async fn kb_orphans(Path(kb_id): Path<String>) -> Result<Json<Vec<Note>>, Ap
 /// `GET /api/knowledge/{kb_id}/graph`
 pub async fn kb_graph(Path(kb_id): Path<String>) -> Result<Json<KnowledgeGraph>, AppError> {
     Ok(Json(service::graph(&kb_id)?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbGraphLayoutBody {
+    pub positions: Vec<GraphNodePosition>,
+}
+
+/// `GET /api/knowledge/{kb_id}/graph/layout` — user-pinned node positions (Batch J).
+pub async fn kb_graph_layout_get(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<GraphNodePosition>>, AppError> {
+    Ok(Json(service::graph_layout(&kb_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/graph/layout` — replace the layout (empty resets).
+pub async fn kb_graph_layout_save(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbGraphLayoutBody>,
+) -> Result<Json<bool>, AppError> {
+    service::save_graph_layout(&kb_id, &body.positions)?;
+    Ok(Json(true))
 }
 
 /// `POST /api/knowledge/ai/rewrite` — AI rewrite of a text selection (WS9). Returns

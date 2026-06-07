@@ -4878,7 +4878,9 @@
       "orphanLegend": "Mồ côi",
       "truncated": "Đồ thị lớn — chỉ hiển thị các ghi chú liên kết nhiều nhất.",
       "empty": "Chưa có ghi chú để vẽ đồ thị.",
-      "loading": "Đang dựng đồ thị…"
+      "loading": "Đang dựng đồ thị…",
+      "reset": "Đặt lại bố cục",
+      "resetLayout": "Đặt lại bố cục (bỏ ghim tất cả)"
     },
     "embed": {
       "broken": "Không có ghi chú nào khớp \"{{ref}}\"",

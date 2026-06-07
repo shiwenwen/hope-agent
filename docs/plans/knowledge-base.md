@@ -689,7 +689,7 @@ push 前必须满足（来自 [AGENTS.md](../../AGENTS.md)）：
 - ✅ 读取桥通道 ③：被动「相关笔记标题」提示（awareness 风格 cache block，opt-in 默认关）。`agent/related_notes.rs` 镜像 active_memory（无 LLM）；Anthropic 走 plain block（4-breakpoint 已满）。〔Batch H〕
 - ✅ 可选编排工具「一次拿记忆 + 笔记」`knowledge_recall`（store-aware 两段不归一化合并，**不动 `recall_memory`**，D7）。记忆系统反向借鉴知识库检索仍留作后续。〔Batch H〕
 - ✅ **视觉编辑模式评估（D13）resolved**：**不引入 Milkdown/Tiptap WYSIWYG 引擎**。结论理由——Markdown⇄ProseMirror 往返序列化会规范化空白/换行/frontmatter/wikilink，破坏「.md 唯一真相 + D14 码点 offset + `note_patch` old/new 文本命中 + stale-write raw BLAKE3 guard」四契约，且把 power-user 的自由 markdown 改脏（效果更差）。改以 **CM6 live-preview 模式**交付（NoteEditorMode `live`：syntaxTree 驱动隐藏 标题/粗体/斜体/删除线/行内码/列表 语法符号，光标所在行还原 raw；图片/数学复用既有 inline widget），与 Obsidian 自身（同为 CM6）的 live preview 同构、零序列化风险。Milkdown/Tiptap 永不替代 CM6 底座。〔Batch I〕
-- Canvas 知识白板（**增强图谱视图**：节点拖拽固定 + 布局持久化落 `sessions.db`；不新建 `.canvas` 互通白板）。〔Batch J，待〕
+- ✅ Canvas 知识白板（**增强图谱视图**：拖节点钉住 `fx/fy` + 布局按 `rel_path` 落 `sessions.db.kb_graph_layout`，开图取回、「重置布局」清空；位置在 `activePath` 重建间按 id 搬运防整图重排；`zoomToFit` 每图一次。owner 平面 `kb_graph_layout_{get,save}_cmd`。不新建 `.canvas` 互通白板）。〔Batch J〕
 
 ---
 

@@ -357,6 +357,11 @@ fn build_router_with_cors(
         )
         .route("/knowledge/{kb_id}/graph", get(routes::knowledge::kb_graph))
         .route(
+            "/knowledge/{kb_id}/graph/layout",
+            get(routes::knowledge::kb_graph_layout_get)
+                .post(routes::knowledge::kb_graph_layout_save),
+        )
+        .route(
             "/knowledge/{kb_id}/note/resolve",
             get(routes::knowledge::kb_note_read_ref),
         )

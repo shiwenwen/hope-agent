@@ -4878,7 +4878,9 @@
       "orphanLegend": "Orphan",
       "truncated": "Large graph — showing the most connected notes.",
       "empty": "No notes to graph yet.",
-      "loading": "Building graph…"
+      "loading": "Building graph…",
+      "reset": "Reset layout",
+      "resetLayout": "Reset layout (unpin all)"
     },
     "embed": {
       "broken": "No note matches \"{{ref}}\"",

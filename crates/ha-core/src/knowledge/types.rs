@@ -364,6 +364,17 @@ pub struct GraphEdge {
     pub target: i64,
 }
 
+/// A user-pinned graph node position (Batch J). Keyed by **`rel_path`** (stable
+/// across index rebuilds — `index.db` ids churn, so they must not be the key),
+/// persisted in `sessions.db` (truth source, D9), not the rebuildable index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNodePosition {
+    pub rel_path: String,
+    pub x: f64,
+    pub y: f64,
+}
+
 /// A note link graph (whole KB or an ego neighbourhood). `truncated` is set when
 /// a node cap dropped part of the graph (agent tool guard against huge output).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

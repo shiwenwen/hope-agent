@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::types::{
-    CreateKnowledgeBaseInput, KbAccess, KnowledgeBase, KnowledgeBaseMeta, UpdateKnowledgeBaseInput,
+    CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KnowledgeBase, KnowledgeBaseMeta,
+    UpdateKnowledgeBaseInput,
 };
 use crate::session::SessionDB;
 
@@ -94,7 +95,18 @@ impl KnowledgeRegistry {
             -- an applied one is already done). Pruning old decided rows eventually
             -- frees a fingerprint if the situation recurs much later.
             CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_maint_fingerprint
-                ON kb_maintenance_proposals(kb_id, fingerprint);",
+                ON kb_maintenance_proposals(kb_id, fingerprint);
+
+            -- User-pinned graph-view node positions (Batch J). Keyed by rel_path
+            -- (stable across index rebuilds), persisted here (truth source D9) so
+            -- the canvas layout survives an index.db wipe; cascades on KB delete.
+            CREATE TABLE IF NOT EXISTS kb_graph_layout (
+                kb_id    TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                rel_path TEXT NOT NULL,
+                x        REAL NOT NULL,
+                y        REAL NOT NULL,
+                PRIMARY KEY (kb_id, rel_path)
+            );",
         )?;
 
         // Additive column for branch DBs created before WS7 (external-writable
@@ -593,6 +605,57 @@ impl KnowledgeRegistry {
         )?;
         Ok(n)
     }
+
+    // ── Graph layout (Batch J) ─────────────────────────────────
+
+    /// Read all pinned node positions for a KB.
+    pub fn get_graph_layout(&self, kb_id: &str) -> Result<Vec<GraphNodePosition>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT rel_path, x, y FROM kb_graph_layout WHERE kb_id = ?1 ORDER BY rel_path",
+        )?;
+        let rows = stmt.query_map(params![kb_id], |r| {
+            Ok(GraphNodePosition {
+                rel_path: r.get(0)?,
+                x: r.get(1)?,
+                y: r.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Replace the full pinned-position set for a KB in one transaction (the set
+    /// of nodes the user has dragged to fix). An empty slice clears the layout
+    /// (the "reset layout" action). Idempotent.
+    pub fn save_graph_layout(&self, kb_id: &str, positions: &[GraphNodePosition]) -> Result<()> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM kb_graph_layout WHERE kb_id = ?1",
+            params![kb_id],
+        )?;
+        for p in positions {
+            tx.execute(
+                "INSERT OR REPLACE INTO kb_graph_layout(kb_id, rel_path, x, y)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![kb_id, p.rel_path, p.x, p.y],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 // ── Row helpers ─────────────────────────────────────────────────
@@ -821,5 +884,61 @@ mod tests {
             .unwrap();
         assert!(!kb.is_external());
         assert!(!kb.is_read_only_root());
+    }
+
+    #[test]
+    fn graph_layout_save_get_reset_and_cascade() {
+        let (_d, reg) = registry();
+        let kb = reg
+            .create(CreateKnowledgeBaseInput {
+                name: "Graph".into(),
+                emoji: None,
+                root_dir: None,
+            })
+            .unwrap();
+        assert!(reg.get_graph_layout(&kb.id).unwrap().is_empty());
+
+        let pins = vec![
+            GraphNodePosition {
+                rel_path: "a.md".into(),
+                x: 1.5,
+                y: -2.0,
+            },
+            GraphNodePosition {
+                rel_path: "b/c.md".into(),
+                x: 10.0,
+                y: 20.0,
+            },
+        ];
+        reg.save_graph_layout(&kb.id, &pins).unwrap();
+        let got = reg.get_graph_layout(&kb.id).unwrap();
+        assert_eq!(got.len(), 2);
+        // Ordered by rel_path; f64 round-trips exactly.
+        assert_eq!(got[0].rel_path, "a.md");
+        assert_eq!((got[0].x, got[0].y), (1.5, -2.0));
+
+        // Save-all replaces (drops a.md, keeps b/c.md, moves it).
+        reg.save_graph_layout(
+            &kb.id,
+            &[GraphNodePosition {
+                rel_path: "b/c.md".into(),
+                x: 99.0,
+                y: 99.0,
+            }],
+        )
+        .unwrap();
+        let got = reg.get_graph_layout(&kb.id).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].rel_path, "b/c.md");
+        assert_eq!(got[0].x, 99.0);
+
+        // Empty = reset.
+        reg.save_graph_layout(&kb.id, &[]).unwrap();
+        assert!(reg.get_graph_layout(&kb.id).unwrap().is_empty());
+
+        // Rows cascade away with the KB.
+        reg.save_graph_layout(&kb.id, &pins).unwrap();
+        reg.delete(&kb.id).unwrap();
+        assert!(reg.get_graph_layout(&kb.id).unwrap().is_empty());
     }
 }

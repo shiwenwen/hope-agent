@@ -582,6 +582,8 @@ pub fn run() {
             commands::knowledge::kb_broken_links_cmd,
             commands::knowledge::kb_orphans_cmd,
             commands::knowledge::kb_graph_cmd,
+            commands::knowledge::kb_graph_layout_get_cmd,
+            commands::knowledge::kb_graph_layout_save_cmd,
             commands::knowledge::kb_ai_rewrite_cmd,
             commands::knowledge::kb_maintenance_run_cmd,
             commands::knowledge::kb_maintenance_status_cmd,

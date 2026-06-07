@@ -4878,7 +4878,9 @@
       "orphanLegend": "孤立",
       "truncated": "圖譜較大 —— 僅顯示連結最密集的筆記。",
       "empty": "暫無可繪製的筆記。",
-      "loading": "正在產生圖譜…"
+      "loading": "正在產生圖譜…",
+      "reset": "重置佈局",
+      "resetLayout": "重置佈局（解除所有固定）"
     },
     "embed": {
       "broken": "沒有符合的筆記「{{ref}}」",

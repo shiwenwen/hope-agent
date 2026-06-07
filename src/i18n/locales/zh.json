@@ -4878,7 +4878,9 @@
       "orphanLegend": "孤立",
       "truncated": "图谱较大 —— 仅显示连接最密集的笔记。",
       "empty": "暂无可绘制的笔记。",
-      "loading": "正在生成图谱…"
+      "loading": "正在生成图谱…",
+      "reset": "重置布局",
+      "resetLayout": "重置布局（解除所有固定）"
     },
     "embed": {
       "broken": "没有匹配的笔记“{{ref}}”",

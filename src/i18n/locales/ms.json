@@ -4878,7 +4878,9 @@
       "orphanLegend": "Yatim",
       "truncated": "Graf besar — memaparkan nota yang paling banyak berpaut.",
       "empty": "Belum ada nota untuk graf.",
-      "loading": "Menjana graf…"
+      "loading": "Menjana graf…",
+      "reset": "Set semula susun atur",
+      "resetLayout": "Set semula susun atur (nyahsemat semua)"
     },
     "embed": {
       "broken": "Tiada nota sepadan dengan \"{{ref}}\"",

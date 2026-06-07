@@ -4878,7 +4878,9 @@
       "orphanLegend": "Huérfana",
       "truncated": "Grafo grande: se muestran las notas más conectadas.",
       "empty": "Aún no hay notas para graficar.",
-      "loading": "Generando grafo…"
+      "loading": "Generando grafo…",
+      "reset": "Restablecer disposición",
+      "resetLayout": "Restablecer disposición (soltar todo)"
     },
     "embed": {
       "broken": "Ninguna nota coincide con \"{{ref}}\"",

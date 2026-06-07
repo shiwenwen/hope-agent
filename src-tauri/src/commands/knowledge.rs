@@ -8,9 +8,9 @@
 use crate::commands::CmdError;
 use ha_core::filesystem::{self, ExtractedContent, FileTextContent, WorkspaceScope};
 use ha_core::knowledge::{
-    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, KbAccess, KbAttachment,
-    KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult, NoteSearchHit,
-    ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
+    KbAttachment, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult,
+    NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
 };
 
 fn registry() -> Result<&'static std::sync::Arc<knowledge::KnowledgeRegistry>, CmdError> {
@@ -368,6 +368,21 @@ pub async fn kb_orphans_cmd(kb_id: String) -> Result<Vec<Note>, CmdError> {
 #[tauri::command]
 pub async fn kb_graph_cmd(kb_id: String) -> Result<KnowledgeGraph, CmdError> {
     service::graph(&kb_id).map_err(Into::into)
+}
+
+/// Read the user-pinned graph layout (Batch J).
+#[tauri::command]
+pub async fn kb_graph_layout_get_cmd(kb_id: String) -> Result<Vec<GraphNodePosition>, CmdError> {
+    service::graph_layout(&kb_id).map_err(Into::into)
+}
+
+/// Replace the user-pinned graph layout (Batch J). Empty `positions` resets it.
+#[tauri::command]
+pub async fn kb_graph_layout_save_cmd(
+    kb_id: String,
+    positions: Vec<GraphNodePosition>,
+) -> Result<(), CmdError> {
+    service::save_graph_layout(&kb_id, &positions).map_err(Into::into)
 }
 
 /// AI-assisted note rewrite (WS9): returns rewritten Markdown for the GUI to diff;

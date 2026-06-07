@@ -265,6 +265,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `kb_broken_links_cmd` | `GET /api/knowledge/{kbId}/broken-links` | ✅ (维护面板：悬空 `[[ ]]` 清单) |
 | `kb_orphans_cmd` | `GET /api/knowledge/{kbId}/orphans` | ✅ (维护面板：无链接孤岛笔记) |
 | `kb_graph_cmd` | `GET /api/knowledge/{kbId}/graph` | ✅ (WS1 图谱视图：nodes+edges，含 degree，节点上限 2000 截断标 `truncated`) |
+| `kb_graph_layout_get_cmd` | `GET /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 用户拖拽固定的节点坐标，按 `relPath` 键，落 sessions.db) |
+| `kb_graph_layout_save_cmd` | `POST /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 整体替换布局，body `{positions:[{relPath,x,y}]}`，空数组=重置) |
 | `kb_ai_rewrite_cmd` | `POST /api/knowledge/ai/rewrite` | ✅ (WS9 AI 改写：body `{text, instruction}` → side_query 返回改写后 Markdown；不落盘，GUI 走 diff 确认后经 `note_save`) |
 | `kb_maintenance_run_cmd` | `POST /api/knowledge/maintenance/run` | ✅ (WS6 手动跑一轮维护：扫全部内部 KB 生成 draft 提案；返回 `MaintenanceReport`) |
 | `kb_maintenance_status_cmd` | `GET /api/knowledge/maintenance/status` | ✅ (running 标志 + 上轮 report) |
