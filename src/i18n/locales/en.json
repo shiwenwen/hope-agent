@@ -4315,6 +4315,24 @@
         "expired": "Expired",
         "archived": "Archived",
         "needs_review": "Needs review"
+      },
+      "backfill": {
+        "button": "Backfill",
+        "title": "Backfill legacy memories",
+        "desc": "Register existing memories as structured claims. Only pinned profile & preference memories (user/feedback) are auto-activated; the rest enter the review queue. Memories are linked loosely, so current memory injection is unchanged.",
+        "summaryTotal": "Total memories",
+        "summaryLinked": "Already linked",
+        "summaryCandidates": "To backfill",
+        "summaryActive": "Auto-active",
+        "summaryReview": "Needs review",
+        "previewTruncated": "Showing {{shown}} of {{total}}",
+        "apply": "Backfill {{count}}",
+        "applying": "Backfilling…",
+        "applied": "Backfilled {{created}} claims: {{active}} active, {{review}} pending review",
+        "planFailed": "Failed to compute the backfill plan",
+        "applyFailed": "Backfill failed",
+        "empty": "All memories are already in the claim layer.",
+        "appliedPartial": "Backfilled {{created}}, {{failed}} failed — you can retry the rest"
       }
     }
   },

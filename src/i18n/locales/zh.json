@@ -4315,6 +4315,24 @@
         "expired": "已过期",
         "archived": "已归档",
         "needs_review": "待审核"
+      },
+      "backfill": {
+        "button": "回填",
+        "title": "回填历史记忆",
+        "desc": "将现有记忆登记为结构化 claim。仅置顶的个人信息与偏好(user/feedback)自动启用,其余进入待审核队列;以独立关联方式登记,不改变当前的记忆注入。",
+        "summaryTotal": "记忆总数",
+        "summaryLinked": "已登记",
+        "summaryCandidates": "待回填",
+        "summaryActive": "自动启用",
+        "summaryReview": "待审核",
+        "previewTruncated": "显示 {{shown}} / {{total}} 条",
+        "apply": "回填 {{count}} 条",
+        "applying": "正在回填…",
+        "applied": "已回填 {{created}} 条 claim:{{active}} 条启用,{{review}} 条待审核",
+        "planFailed": "生成回填预览失败",
+        "applyFailed": "回填失败",
+        "empty": "所有记忆均已纳入 claim 层。",
+        "appliedPartial": "已回填 {{created}} 条,{{failed}} 条失败,可重试剩余项"
       }
     }
   },

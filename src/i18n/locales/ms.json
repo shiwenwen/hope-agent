@@ -4315,6 +4315,24 @@
         "expired": "Tamat tempoh",
         "archived": "Diarkibkan",
         "needs_review": "Perlu semakan"
+      },
+      "backfill": {
+        "button": "Isi semula",
+        "title": "Isi semula memori sedia ada",
+        "desc": "Daftarkan memori sedia ada sebagai claim berstruktur. Hanya memori profil dan keutamaan yang disemat (user/feedback) diaktifkan secara automatik; selebihnya masuk ke baris gilir semakan. Dipaut secara longgar, jadi suntikan memori semasa tidak berubah.",
+        "summaryTotal": "Jumlah memori",
+        "summaryLinked": "Sudah dipaut",
+        "summaryCandidates": "Untuk diisi",
+        "summaryActive": "Auto-aktif",
+        "summaryReview": "Perlu semakan",
+        "previewTruncated": "Memaparkan {{shown}} daripada {{total}}",
+        "apply": "Isi semula {{count}}",
+        "applying": "Mengisi semula…",
+        "applied": "{{created}} claim diisi semula: {{active}} aktif, {{review}} menunggu semakan",
+        "planFailed": "Gagal mengira pelan pengisian",
+        "applyFailed": "Pengisian semula gagal",
+        "empty": "Semua memori sudah berada dalam lapisan claim.",
+        "appliedPartial": "{{created}} diisi, {{failed}} gagal — anda boleh cuba semula yang selebihnya"
       }
     }
   },

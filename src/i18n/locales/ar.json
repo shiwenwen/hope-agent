@@ -4315,6 +4315,24 @@
         "expired": "منتهٍ",
         "archived": "مؤرشف",
         "needs_review": "يحتاج مراجعة"
+      },
+      "backfill": {
+        "button": "ملء تلقائي",
+        "title": "ملء الذكريات الحالية",
+        "desc": "تسجيل الذكريات الحالية كـ claims منظَّمة. يتم تفعيل ذكريات الملف الشخصي والتفضيلات المثبَّتة فقط (user/feedback) تلقائيًا، ويذهب الباقي إلى قائمة المراجعة. يتم الربط بشكل مرن، لذا لا يتغيّر حقن الذاكرة الحالي.",
+        "summaryTotal": "إجمالي الذكريات",
+        "summaryLinked": "مرتبطة بالفعل",
+        "summaryCandidates": "للملء",
+        "summaryActive": "مُفعَّلة تلقائيًا",
+        "summaryReview": "بحاجة لمراجعة",
+        "previewTruncated": "عرض {{shown}} من {{total}}",
+        "apply": "ملء {{count}}",
+        "applying": "جارٍ الملء…",
+        "applied": "تم ملء {{created}} claim: {{active}} مُفعَّلة، {{review}} بانتظار المراجعة",
+        "planFailed": "فشل في حساب خطة الملء",
+        "applyFailed": "فشل الملء",
+        "empty": "جميع الذكريات موجودة بالفعل في طبقة claim.",
+        "appliedPartial": "تم ملء {{created}}، وفشل {{failed}} — يمكنك إعادة محاولة الباقي"
       }
     }
   },

@@ -4315,6 +4315,24 @@
         "expired": "Caducado",
         "archived": "Archivado",
         "needs_review": "Requiere revisión"
+      },
+      "backfill": {
+        "button": "Rellenar",
+        "title": "Rellenar memorias existentes",
+        "desc": "Registra las memorias existentes como claims estructurados. Solo las memorias de perfil y preferencias ancladas (user/feedback) se activan automáticamente; el resto pasa a la cola de revisión. Se vinculan de forma flexible, por lo que la inyección actual de memoria no cambia.",
+        "summaryTotal": "Memorias totales",
+        "summaryLinked": "Ya vinculadas",
+        "summaryCandidates": "Por rellenar",
+        "summaryActive": "Auto-activadas",
+        "summaryReview": "Por revisar",
+        "previewTruncated": "Mostrando {{shown}} de {{total}}",
+        "apply": "Rellenar {{count}}",
+        "applying": "Rellenando…",
+        "applied": "{{created}} claims rellenados: {{active}} activos, {{review}} por revisar",
+        "planFailed": "No se pudo calcular el plan de relleno",
+        "applyFailed": "Error al rellenar",
+        "empty": "Todas las memorias ya están en la capa de claims.",
+        "appliedPartial": "Rellenados {{created}}, {{failed}} con error: puedes reintentar el resto"
       }
     }
   },

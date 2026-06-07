@@ -68,6 +68,28 @@ pub async fn claim_get(id: String) -> Result<Option<memory::claims::ClaimDetail>
     memory::claims::get_claim(&id).map_err(Into::into)
 }
 
+/// Dry-run: scan legacy memories and return a backfill plan (exact summary +
+/// capped candidate preview), writing nothing. Maps to
+/// `GET /api/memory/backfill/plan`. Full-table scan runs on a blocking thread.
+#[tauri::command]
+pub async fn memory_backfill_plan() -> Result<memory::claims::BackfillPlan, CmdError> {
+    tokio::task::spawn_blocking(memory::claims::plan_backfill)
+        .await
+        .map_err(|e| CmdError::msg(format!("backfill plan task failed: {e}")))?
+        .map_err(Into::into)
+}
+
+/// Apply the backfill deterministically (re-scan, NOT trusting any client-sent
+/// candidate list): write a claim + memory evidence + detached link for each
+/// not-yet-linked memory. Maps to `POST /api/memory/backfill/apply`.
+#[tauri::command]
+pub async fn memory_backfill_apply() -> Result<memory::claims::BackfillApplyResult, CmdError> {
+    tokio::task::spawn_blocking(memory::claims::apply_backfill)
+        .await
+        .map_err(|e| CmdError::msg(format!("backfill apply task failed: {e}")))?
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn memory_list(
     scope: Option<memory::MemoryScope>,

@@ -4315,6 +4315,24 @@
         "expired": "Süresi doldu",
         "archived": "Arşivlendi",
         "needs_review": "İnceleme gerekli"
+      },
+      "backfill": {
+        "button": "Geri doldur",
+        "title": "Mevcut anıları geri doldur",
+        "desc": "Mevcut anıları yapılandırılmış claim olarak kaydeder. Yalnızca sabitlenmiş profil ve tercih anıları (user/feedback) otomatik etkinleştirilir; gerisi inceleme kuyruğuna girer. Gevşek bağlandığından mevcut bellek enjeksiyonu değişmez.",
+        "summaryTotal": "Toplam anı",
+        "summaryLinked": "Zaten bağlı",
+        "summaryCandidates": "Doldurulacak",
+        "summaryActive": "Otomatik etkin",
+        "summaryReview": "İnceleme gerekli",
+        "previewTruncated": "{{total}} içinden {{shown}} gösteriliyor",
+        "apply": "{{count}} öğeyi doldur",
+        "applying": "Dolduruluyor…",
+        "applied": "{{created}} claim geri dolduruldu: {{active}} etkin, {{review}} inceleme bekliyor",
+        "planFailed": "Geri doldurma planı hesaplanamadı",
+        "applyFailed": "Geri doldurma başarısız",
+        "empty": "Tüm anılar zaten claim katmanında.",
+        "appliedPartial": "{{created}} dolduruldu, {{failed}} başarısız — kalanları yeniden deneyebilirsiniz"
       }
     }
   },

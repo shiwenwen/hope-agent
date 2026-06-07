@@ -390,6 +390,14 @@ fn build_router_with_cors(
         .route("/memory/{id}", put(routes::memory::update_memory))
         .route("/memory/{id}", delete(routes::memory::delete_memory))
         .route("/memory/search", post(routes::memory::search_memories))
+        .route(
+            "/memory/backfill/plan",
+            get(routes::memory::memory_backfill_plan),
+        )
+        .route(
+            "/memory/backfill/apply",
+            post(routes::memory::memory_backfill_apply),
+        )
         .route("/memory/count", get(routes::memory::memory_count))
         .route("/memory/stats", get(routes::memory::memory_stats))
         .route(

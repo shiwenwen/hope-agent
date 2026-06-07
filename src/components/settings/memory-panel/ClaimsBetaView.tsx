@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import {
@@ -9,7 +10,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Loader2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { DatabaseZap, Loader2 } from "lucide-react"
 
 // Mirrors ha-core `ClaimRecord` (camelCase).
 interface ClaimRecord {
@@ -54,6 +64,38 @@ interface ClaimDetail {
   links: ClaimLink[]
 }
 
+// Mirrors ha-core backfill types (camelCase).
+interface BackfillSummary {
+  totalMemories: number
+  alreadyLinked: number
+  candidates: number
+  autoActive: number
+  needsReview: number
+}
+interface BackfillCandidatePreview {
+  memoryId: number
+  scopeType: string
+  scopeId?: string | null
+  claimType: string
+  content: string
+  confidence: number
+  salience: number
+  pinned: boolean
+  proposedStatus: string
+}
+interface BackfillPlan {
+  summary: BackfillSummary
+  candidates: BackfillCandidatePreview[]
+  previewTruncated: boolean
+}
+interface BackfillApplyResult {
+  created: number
+  autoActive: number
+  needsReview: number
+  skipped: number
+  failed: number
+}
+
 const STATUS_DOT: Record<string, string> = {
   active: "bg-emerald-500",
   superseded: "bg-amber-500",
@@ -65,7 +107,9 @@ const STATUS_DOT: Record<string, string> = {
 /**
  * Read-only "Claims (beta)" view over the next-gen structured memory. Lists
  * claims via `claim_list` and shows a selected claim's evidence + legacy-memory
- * links via `claim_get`. No editing — the review/correction UI lands later.
+ * links via `claim_get`. The "Backfill" action turns existing legacy memories
+ * into claims (dry-run preview → confirm); it never changes current prompt
+ * injection (links are detached) — see ha-core `claims::backfill`.
  */
 export default function ClaimsBetaView() {
   const { t } = useTranslation()
@@ -74,6 +118,12 @@ export default function ClaimsBetaView() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<ClaimDetail | null>(null)
+
+  // Backfill (dry-run preview + apply).
+  const [backfillOpen, setBackfillOpen] = useState(false)
+  const [plan, setPlan] = useState<BackfillPlan | null>(null)
+  const [planLoading, setPlanLoading] = useState(false)
+  const [applying, setApplying] = useState(false)
 
   const loadClaims = useCallback(async () => {
     setLoading(true)
@@ -104,6 +154,58 @@ export default function ClaimsBetaView() {
     }
   }, [])
 
+  const openBackfill = useCallback(async () => {
+    setBackfillOpen(true)
+    setPlan(null)
+    setPlanLoading(true)
+    try {
+      const p = await getTransport().call<BackfillPlan>("memory_backfill_plan")
+      setPlan(p ?? null)
+    } catch (e) {
+      logger.error("settings", "ClaimsBetaView::backfillPlan", "Failed to plan backfill", e)
+      toast.error(t("settings.claims.backfill.planFailed"))
+      setBackfillOpen(false)
+    } finally {
+      setPlanLoading(false)
+    }
+  }, [t])
+
+  const runApply = useCallback(async () => {
+    setApplying(true)
+    try {
+      const r = await getTransport().call<BackfillApplyResult>("memory_backfill_apply")
+      // Always refresh the claims list — created claims should show even on a
+      // partial run.
+      await loadClaims()
+      const failed = r?.failed ?? 0
+      if (failed > 0) {
+        // Best-effort apply: surface the failures instead of a success toast,
+        // keep the dialog open and refresh the plan so the user can retry.
+        toast.warning(
+          t("settings.claims.backfill.appliedPartial", {
+            created: r?.created ?? 0,
+            failed,
+          })
+        )
+        await openBackfill()
+      } else {
+        toast.success(
+          t("settings.claims.backfill.applied", {
+            created: r?.created ?? 0,
+            active: r?.autoActive ?? 0,
+            review: r?.needsReview ?? 0,
+          })
+        )
+        setBackfillOpen(false)
+      }
+    } catch (e) {
+      logger.error("settings", "ClaimsBetaView::backfillApply", "Failed to apply backfill", e)
+      toast.error(t("settings.claims.backfill.applyFailed"))
+    } finally {
+      setApplying(false)
+    }
+  }, [t, loadClaims, openBackfill])
+
   useEffect(() => {
     void loadClaims()
   }, [loadClaims])
@@ -113,8 +215,10 @@ export default function ClaimsBetaView() {
     else setDetail(null)
   }, [selectedId, loadDetail])
 
-  const scopeLabel = (c: ClaimRecord) =>
+  const scopeLabel = (c: { scopeType: string; scopeId?: string | null }) =>
     c.scopeType === "global" ? "global" : `${c.scopeType}:${c.scopeId ?? "?"}`
+
+  const noCandidates = !plan || plan.summary.candidates === 0
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-3">
@@ -128,19 +232,32 @@ export default function ClaimsBetaView() {
           </div>
           <div className="text-xs text-muted-foreground">{t("settings.claims.desc")}</div>
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("settings.claims.statusAll")}</SelectItem>
-            <SelectItem value="active">{t("settings.claims.status.active")}</SelectItem>
-            <SelectItem value="superseded">{t("settings.claims.status.superseded")}</SelectItem>
-            <SelectItem value="expired">{t("settings.claims.status.expired")}</SelectItem>
-            <SelectItem value="archived">{t("settings.claims.status.archived")}</SelectItem>
-            <SelectItem value="needs_review">{t("settings.claims.status.needs_review")}</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={openBackfill}
+          >
+            <DatabaseZap className="h-3.5 w-3.5" />
+            {t("settings.claims.backfill.button")}
+          </Button>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-8 w-[140px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("settings.claims.statusAll")}</SelectItem>
+              <SelectItem value="active">{t("settings.claims.status.active")}</SelectItem>
+              <SelectItem value="superseded">{t("settings.claims.status.superseded")}</SelectItem>
+              <SelectItem value="expired">{t("settings.claims.status.expired")}</SelectItem>
+              <SelectItem value="archived">{t("settings.claims.status.archived")}</SelectItem>
+              <SelectItem value="needs_review">
+                {t("settings.claims.status.needs_review")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-[1fr_1fr] gap-4">
@@ -255,6 +372,105 @@ export default function ClaimsBetaView() {
           )}
         </div>
       </div>
+
+      {/* Backfill dry-run preview + apply */}
+      <Dialog
+        open={backfillOpen}
+        onOpenChange={(o) => {
+          if (!applying) setBackfillOpen(o)
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("settings.claims.backfill.title")}</DialogTitle>
+            <DialogDescription>{t("settings.claims.backfill.desc")}</DialogDescription>
+          </DialogHeader>
+
+          {planLoading ? (
+            <div className="py-10 text-center text-xs text-muted-foreground inline-flex items-center justify-center gap-1.5 w-full">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.loading")}
+            </div>
+          ) : plan ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-5 gap-2 text-center">
+                {(
+                  [
+                    ["summaryTotal", plan.summary.totalMemories],
+                    ["summaryLinked", plan.summary.alreadyLinked],
+                    ["summaryCandidates", plan.summary.candidates],
+                    ["summaryActive", plan.summary.autoActive],
+                    ["summaryReview", plan.summary.needsReview],
+                  ] as const
+                ).map(([key, value]) => (
+                  <div key={key} className="rounded-lg border border-border/60 px-2 py-2">
+                    <div className="text-sm font-semibold tabular-nums">{value}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {t(`settings.claims.backfill.${key}`)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border border-border/60 rounded-lg max-h-[300px] overflow-y-auto">
+                {plan.candidates.length === 0 ? (
+                  <div className="px-3 py-8 text-xs text-muted-foreground text-center">
+                    {t("settings.claims.backfill.empty")}
+                  </div>
+                ) : (
+                  plan.candidates.map((c) => (
+                    <div
+                      key={c.memoryId}
+                      className="px-3 py-2 text-xs border-b border-border/30 last:border-0"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[c.proposedStatus] ?? "bg-muted-foreground/50"}`}
+                        />
+                        <span className="truncate">{c.content}</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                        {c.claimType} · {scopeLabel(c)} ·{" "}
+                        {t(`settings.claims.status.${c.proposedStatus}`)}
+                        {c.pinned ? " · pinned" : ""}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {plan.previewTruncated && (
+                <div className="text-[10px] text-muted-foreground text-center">
+                  {t("settings.claims.backfill.previewTruncated", {
+                    shown: plan.candidates.length,
+                    total: plan.summary.candidates,
+                  })}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setBackfillOpen(false)}
+              disabled={applying}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button size="sm" onClick={runApply} disabled={applying || noCandidates}>
+              {applying ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {t("settings.claims.backfill.applying")}
+                </span>
+              ) : (
+                t("settings.claims.backfill.apply", { count: plan?.summary.candidates ?? 0 })
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

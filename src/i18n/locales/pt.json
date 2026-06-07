@@ -4315,6 +4315,24 @@
         "expired": "Expirado",
         "archived": "Arquivado",
         "needs_review": "Requer revisão"
+      },
+      "backfill": {
+        "button": "Preencher",
+        "title": "Preencher memórias existentes",
+        "desc": "Registra as memórias existentes como claims estruturados. Apenas memórias de perfil e preferências fixadas (user/feedback) são ativadas automaticamente; o restante vai para a fila de revisão. São vinculadas de forma flexível, então a injeção atual de memória não muda.",
+        "summaryTotal": "Total de memórias",
+        "summaryLinked": "Já vinculadas",
+        "summaryCandidates": "A preencher",
+        "summaryActive": "Auto-ativadas",
+        "summaryReview": "A revisar",
+        "previewTruncated": "Mostrando {{shown}} de {{total}}",
+        "apply": "Preencher {{count}}",
+        "applying": "Preenchendo…",
+        "applied": "{{created}} claims preenchidos: {{active}} ativos, {{review}} para revisão",
+        "planFailed": "Falha ao calcular o plano de preenchimento",
+        "applyFailed": "Falha no preenchimento",
+        "empty": "Todas as memórias já estão na camada de claims.",
+        "appliedPartial": "{{created}} preenchidos, {{failed}} com falha — você pode tentar o restante novamente"
       }
     }
   },

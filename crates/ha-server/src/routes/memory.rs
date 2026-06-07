@@ -176,6 +176,27 @@ pub async fn get_claim(
     Ok(Json(ha_core::memory::claims::get_claim(&id)?))
 }
 
+/// `GET /api/memory/backfill/plan` -- dry-run existing-memory backfill plan
+/// (owner plane). Writes nothing; the full-table scan runs on a blocking thread.
+pub async fn memory_backfill_plan() -> Result<Json<ha_core::memory::claims::BackfillPlan>, AppError>
+{
+    let plan = tokio::task::spawn_blocking(ha_core::memory::claims::plan_backfill)
+        .await
+        .map_err(|e| AppError::internal(format!("backfill plan task failed: {e}")))??;
+    Ok(Json(plan))
+}
+
+/// `POST /api/memory/backfill/apply` -- apply the existing-memory backfill
+/// (owner plane): deterministic re-scan → claim + memory evidence + detached
+/// link per not-yet-linked memory.
+pub async fn memory_backfill_apply(
+) -> Result<Json<ha_core::memory::claims::BackfillApplyResult>, AppError> {
+    let result = tokio::task::spawn_blocking(ha_core::memory::claims::apply_backfill)
+        .await
+        .map_err(|e| AppError::internal(format!("backfill apply task failed: {e}")))??;
+    Ok(Json(result))
+}
+
 /// `POST /api/memory/search` -- semantic search over memories.
 pub async fn search_memories(
     Json(body): Json<SearchMemoryBody>,

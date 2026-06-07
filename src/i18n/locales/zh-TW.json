@@ -4315,6 +4315,24 @@
         "expired": "已過期",
         "archived": "已封存",
         "needs_review": "待審核"
+      },
+      "backfill": {
+        "button": "回填",
+        "title": "回填歷史記憶",
+        "desc": "將現有記憶登記為結構化 claim。僅置頂的個人資訊與偏好(user/feedback)自動啟用,其餘進入待審核佇列;以獨立關聯方式登記,不改變目前的記憶注入。",
+        "summaryTotal": "記憶總數",
+        "summaryLinked": "已登記",
+        "summaryCandidates": "待回填",
+        "summaryActive": "自動啟用",
+        "summaryReview": "待審核",
+        "previewTruncated": "顯示 {{shown}} / {{total}} 條",
+        "apply": "回填 {{count}} 條",
+        "applying": "正在回填…",
+        "applied": "已回填 {{created}} 條 claim:{{active}} 條啟用,{{review}} 條待審核",
+        "planFailed": "產生回填預覽失敗",
+        "applyFailed": "回填失敗",
+        "empty": "所有記憶均已納入 claim 層。",
+        "appliedPartial": "已回填 {{created}} 條,{{failed}} 條失敗,可重試剩餘項"
       }
     }
   },

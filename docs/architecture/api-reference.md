@@ -365,6 +365,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dreaming_evidence_quote` | `GET /api/dreaming/evidence/quote` | ✅ owner 平面；incognito 来源归零（后端门控） |
 | `claim_list` | `GET /api/claims` | ✅ 结构化 claim 只读（`scopeType`+`scopeId`/status/claimType 过滤；无效 scopeType → 400，不 fail-open；status 按 **effective** 计算并返回——`active` 且已过 `valid_until` 视为 `expired`，`status=active`/`expired` 过滤同步对齐） |
 | `claim_get` | `GET /api/claims/{id}` | ✅ claim + evidence + links（`status` 同为 effective 值） |
+| `memory_backfill_plan` | `GET /api/memory/backfill/plan` | ✅ owner 平面；dry-run 把 legacy memory 确定性映射为 claim 预览（精确计数 + 截断预览，不写） |
+| `memory_backfill_apply` | `POST /api/memory/backfill/apply` | ✅ owner 平面；确定性重扫，事务内 check（memory 存在 + 未 link，竞态/重入幂等→skipped）后写入 claim + `source_type=memory` evidence + **detached** link（不改变现有注入），仅 pinned 的 user/feedback 自动 active、其余 needs_review；返回 created/skipped/failed |
 | `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
 | `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
 | `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |

@@ -14,6 +14,7 @@ use rusqlite::{params, params_from_iter, types::Value as SqlValue, OptionalExten
 
 use crate::memory::{MemoryScope, SqliteMemoryBackend};
 
+use super::backfill::BackfillCandidate;
 use super::types::{ClaimCandidate, ClaimDetail, ClaimLink, ClaimRecord, EvidenceRecord};
 use super::write;
 
@@ -131,6 +132,25 @@ pub fn write_claim_candidate(
 pub fn link_claim_memory(claim_id: &str, memory_id: i64, sync_mode: &str) -> Result<()> {
     let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
     store.link_claim_memory(claim_id, memory_id, sync_mode)
+}
+
+/// All `memory_id`s that already have at least one claim link — backfill skips
+/// these so a re-run is idempotent and never double-links a memory the live
+/// dual-write already claimed.
+pub fn all_linked_memory_ids() -> Result<std::collections::HashSet<i64>> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.all_linked_memory_ids()
+}
+
+/// Write one backfill claim (Phase 2.5): a deterministic claim derived from a
+/// legacy `memories` row, with `memory`-sourced evidence and a `detached` link
+/// (the claim never owns / hides the pre-existing memory). `proposed_status` is
+/// `active` (low-risk) or `needs_review`. Returns `Some(claim_id)` when created,
+/// or `None` when skipped (the memory vanished after the scan, or already has a
+/// claim link — idempotent under concurrent apply / live dual-write races).
+pub fn write_backfill_claim(candidate: &BackfillCandidate) -> Result<Option<String>> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.write_backfill_claim(candidate)
 }
 
 impl ClaimStore {
@@ -483,6 +503,112 @@ impl ClaimStore {
         )?;
         Ok(())
     }
+
+    fn all_linked_memory_ids(&self) -> Result<std::collections::HashSet<i64>> {
+        let conn = self.backend.read_conn()?;
+        let mut stmt = conn.prepare("SELECT DISTINCT memory_id FROM memory_claim_links")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
+    /// Write a deterministic backfill claim + its `memory` evidence + a
+    /// `detached` link, all in one transaction. The `detached` link is the
+    /// invariant that keeps backfill from changing current prompt injection:
+    /// the hidden-set query only hides memories whose `managed` claims are all
+    /// dead, so a backfilled claim's status never affects the source memory.
+    ///
+    /// Idempotent: the "memory still exists AND has no link yet" guard runs
+    /// INSIDE the write transaction (on the single writer connection, so
+    /// check-then-insert is atomic against concurrent apply / live dual-write).
+    /// Returns `None` (skipped) instead of creating a duplicate or an
+    /// FK-violating row when the memory was linked or deleted after the scan.
+    fn write_backfill_claim(&self, c: &BackfillCandidate) -> Result<Option<String>> {
+        let now = now_rfc3339();
+        let conn = self.backend.write_conn()?;
+
+        with_tx(&conn, || {
+            // Memory deleted between scan and write → skip (don't create a
+            // claim whose detached link would FK-fail / orphan).
+            let memory_exists = conn
+                .query_row(
+                    "SELECT 1 FROM memories WHERE id = ?1",
+                    params![c.memory_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !memory_exists {
+                return Ok(None);
+            }
+            // Already represented in the claim world (idempotent re-run, or a
+            // concurrent apply / live dual-write linked it first) → skip.
+            let already_linked = conn
+                .query_row(
+                    "SELECT 1 FROM memory_claim_links WHERE memory_id = ?1 LIMIT 1",
+                    params![c.memory_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if already_linked {
+                return Ok(None);
+            }
+
+            let claim_id = uuid::Uuid::new_v4().to_string();
+            let confidence = write::confidence_baseline(&c.evidence_class);
+            let tags_json = serde_json::to_string(&c.tags).unwrap_or_else(|_| "[]".to_string());
+            let salience = c.salience.clamp(0.0, 1.0);
+            let source_id = format!("memory:{}", c.memory_id);
+
+            conn.execute(
+                "INSERT INTO memory_claims
+                    (id, scope_type, scope_id, claim_type, subject, predicate, object,
+                     content, tags_json, confidence, confidence_source, salience,
+                     freshness_policy_json, status, valid_from, valid_until,
+                     supersedes_claim_id, source_run_id, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'derived', ?11,
+                         '{}', ?12, NULL, NULL, NULL, NULL, ?13, ?13)",
+                params![
+                    claim_id,
+                    c.scope_type,
+                    c.scope_id,
+                    c.claim_type,
+                    c.subject,
+                    c.predicate,
+                    c.object,
+                    c.content,
+                    tags_json,
+                    confidence as f64,
+                    salience as f64,
+                    c.proposed_status,
+                    now,
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO memory_evidence
+                    (id, claim_id, source_type, evidence_class, source_id,
+                     redaction_status, created_at)
+                 VALUES (?1, ?2, 'memory', ?3, ?4, 'anchor_only', ?5)",
+                params![
+                    uuid::Uuid::new_v4().to_string(),
+                    claim_id,
+                    c.evidence_class,
+                    source_id,
+                    now,
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO memory_claim_links
+                    (claim_id, memory_id, sync_mode, created_at, updated_at)
+                 VALUES (?1, ?2, 'detached', ?3, ?3)",
+                params![claim_id, c.memory_id, now],
+            )?;
+            Ok(Some(claim_id))
+        })
+    }
 }
 
 /// Map a scope to its (scope_type, scope_id) columns.
@@ -824,6 +950,122 @@ mod tests {
         // get_claim mirrors the effective status too.
         let detail = s.get_claim("exp").unwrap().unwrap();
         assert_eq!(detail.claim.status, "expired");
+    }
+
+    fn backfill_candidate(
+        memory_id: i64,
+        claim_type: &str,
+        status: &str,
+    ) -> crate::memory::claims::BackfillCandidate {
+        crate::memory::claims::BackfillCandidate {
+            memory_id,
+            scope_type: "global".into(),
+            scope_id: None,
+            claim_type: claim_type.into(),
+            subject: "user".into(),
+            predicate: "prefers".into(),
+            object: "terse replies".into(),
+            content: "Prefers terse replies".into(),
+            tags: vec!["t".into()],
+            evidence_class: "explicit_user_statement".into(),
+            confidence: 0.85,
+            salience: 0.9,
+            pinned: true,
+            proposed_status: status.into(),
+        }
+    }
+
+    #[test]
+    fn write_backfill_claim_creates_claim_memory_evidence_and_detached_link() {
+        let s = temp_store();
+        {
+            let conn = s.backend.write_conn().unwrap();
+            conn.execute(
+                "INSERT INTO memories (id, memory_type, scope_type, content, source, created_at, updated_at)
+                 VALUES (77, 'feedback', 'global', 'Prefers terse replies', 'user', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+                [],
+            ).unwrap();
+        }
+
+        let claim_id = s
+            .write_backfill_claim(&backfill_candidate(77, "preference", "active"))
+            .unwrap()
+            .expect("created");
+
+        let detail = s.get_claim(&claim_id).unwrap().unwrap();
+        assert_eq!(detail.claim.status, "active");
+        assert_eq!(detail.claim.claim_type, "preference");
+        // Confidence is derived from evidence_class, not the candidate field.
+        assert!((detail.claim.confidence - 0.85).abs() < 1e-6);
+        assert_eq!(detail.claim.confidence_source, "derived");
+        // Evidence is memory-sourced, anchored to memory:<id>.
+        assert_eq!(detail.evidence.len(), 1);
+        assert_eq!(detail.evidence[0].source_type, "memory");
+        assert_eq!(detail.evidence[0].source_id, "memory:77");
+        // Link is detached → backfill never hides the source memory.
+        assert_eq!(detail.links.len(), 1);
+        assert_eq!(detail.links[0].memory_id, 77);
+        assert_eq!(detail.links[0].sync_mode, "detached");
+        // The backfilled memory now counts as linked (idempotent skip on re-run).
+        assert!(s.all_linked_memory_ids().unwrap().contains(&77));
+
+        // Re-running on the SAME memory must skip (no duplicate claim) — the
+        // in-tx "already linked" guard, the concurrency-safety fix.
+        assert!(
+            s.write_backfill_claim(&backfill_candidate(77, "preference", "active"))
+                .unwrap()
+                .is_none(),
+            "second backfill of a linked memory must skip"
+        );
+        let all = s.list_claims(&ClaimListFilter::default()).unwrap();
+        assert_eq!(
+            all.iter().filter(|c| c.subject == "user").count(),
+            1,
+            "no duplicate claim for an already-linked memory"
+        );
+    }
+
+    #[test]
+    fn write_backfill_claim_skips_missing_memory() {
+        // The memory was deleted after the scan → skip, not an FK error / orphan.
+        let s = temp_store();
+        let out = s
+            .write_backfill_claim(&backfill_candidate(999, "preference", "active"))
+            .unwrap();
+        assert!(out.is_none(), "missing memory must be skipped");
+        assert!(s
+            .list_claims(&ClaimListFilter::default())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn write_backfill_claim_needs_review_lands_in_review_queue() {
+        let s = temp_store();
+        {
+            // The link FK to memories(id) is enforced, so the source memory must
+            // exist — real backfill always scans it out of `memories` first.
+            let conn = s.backend.write_conn().unwrap();
+            conn.execute(
+                "INSERT INTO memories (id, memory_type, scope_type, content, source, created_at, updated_at)
+                 VALUES (88, 'user', 'global', 'Lives in Berlin', 'user', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+                [],
+            ).unwrap();
+        }
+        let id = s
+            .write_backfill_claim(&backfill_candidate(88, "user_profile", "needs_review"))
+            .unwrap()
+            .expect("created");
+        let detail = s.get_claim(&id).unwrap().unwrap();
+        assert_eq!(detail.claim.status, "needs_review");
+        // Findable via the review-queue filter.
+        let queue = s
+            .list_claims(&ClaimListFilter {
+                status: Some("needs_review".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(queue.iter().any(|c| c.id == id));
     }
 
     fn candidate(object: &str, evidence_class: Option<&str>) -> ClaimCandidate {

@@ -4315,6 +4315,24 @@
         "expired": "期限切れ",
         "archived": "アーカイブ済み",
         "needs_review": "要確認"
+      },
+      "backfill": {
+        "button": "バックフィル",
+        "title": "既存メモリのバックフィル",
+        "desc": "既存のメモリを構造化 claim として登録します。ピン留めされたプロフィールと設定(user/feedback)のみ自動的に有効化され、その他はレビュー待ちになります。緩やかにリンクするため、現在のメモリ注入は変わりません。",
+        "summaryTotal": "メモリ総数",
+        "summaryLinked": "登録済み",
+        "summaryCandidates": "対象",
+        "summaryActive": "自動有効化",
+        "summaryReview": "要レビュー",
+        "previewTruncated": "{{total}} 件中 {{shown}} 件を表示",
+        "apply": "{{count}} 件をバックフィル",
+        "applying": "バックフィル中…",
+        "applied": "{{created}} 件の claim をバックフィルしました:{{active}} 件有効、{{review}} 件レビュー待ち",
+        "planFailed": "バックフィルプランの生成に失敗しました",
+        "applyFailed": "バックフィルに失敗しました",
+        "empty": "すべてのメモリはすでに claim 層に含まれています。",
+        "appliedPartial": "{{created}} 件をバックフィルしました。{{failed}} 件は失敗 — 残りを再試行できます"
       }
     }
   },

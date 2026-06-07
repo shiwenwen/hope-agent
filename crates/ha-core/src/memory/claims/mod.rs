@@ -7,14 +7,20 @@
 //! `memory.db` (tables created in
 //! [`crate::memory::sqlite::SqliteMemoryBackend::open`]).
 //!
-//! This module currently exposes the **read** surface only — the schema +
-//! `claim_list` / `claim_get`. Claim extraction, legacy dual-write,
-//! canonicalize / merge, and the prompt-injection path land in later PRs.
+//! Surface: schema + read API (`claim_list` / `claim_get`), claim extraction
+//! dual-write + rule-only canonicalize ([`write`]), the prompt-injection
+//! hidden-set, and existing-memory backfill ([`backfill`]). Deep consolidation
+//! (merge / supersede / expire) and Memory Profile land in later PRs.
 
+mod backfill;
 mod store;
 mod types;
 mod write;
 
+pub use backfill::{
+    apply_backfill, plan_backfill, BackfillApplyResult, BackfillCandidate, BackfillPlan,
+    BackfillSummary,
+};
 pub use store::{
     get_claim, init_claim_store, link_claim_memory, list_claims, parse_claim_scope,
     write_claim_candidate, ClaimListFilter, ClaimWriteOutcome,

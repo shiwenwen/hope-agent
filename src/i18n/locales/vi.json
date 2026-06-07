@@ -4315,6 +4315,24 @@
         "expired": "Đã hết hạn",
         "archived": "Đã lưu trữ",
         "needs_review": "Cần xem xét"
+      },
+      "backfill": {
+        "button": "Lấp đầy",
+        "title": "Lấp đầy từ bộ nhớ hiện có",
+        "desc": "Đăng ký các bộ nhớ hiện có thành claim có cấu trúc. Chỉ các bộ nhớ hồ sơ và tùy chọn được ghim (user/feedback) mới tự động kích hoạt; phần còn lại vào hàng đợi xem xét. Liên kết lỏng lẻo nên việc chèn bộ nhớ hiện tại không thay đổi.",
+        "summaryTotal": "Tổng số bộ nhớ",
+        "summaryLinked": "Đã liên kết",
+        "summaryCandidates": "Cần lấp đầy",
+        "summaryActive": "Tự động kích hoạt",
+        "summaryReview": "Cần xem xét",
+        "previewTruncated": "Hiển thị {{shown}} trong {{total}}",
+        "apply": "Lấp đầy {{count}}",
+        "applying": "Đang lấp đầy…",
+        "applied": "Đã lấp đầy {{created}} claim: {{active}} kích hoạt, {{review}} chờ xem xét",
+        "planFailed": "Không thể tính toán kế hoạch lấp đầy",
+        "applyFailed": "Lấp đầy thất bại",
+        "empty": "Tất cả bộ nhớ đã nằm trong lớp claim.",
+        "appliedPartial": "Đã lấp đầy {{created}}, {{failed}} thất bại — bạn có thể thử lại phần còn lại"
       }
     }
   },
