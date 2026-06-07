@@ -24,8 +24,8 @@ use super::helpers::parse_file_upload;
 use crate::error::AppError;
 use crate::AppContext;
 use ha_core::filesystem::{
-    self, ExtractedContent, FileTextContent, FilesystemError, GitInfo, RenameResult, UploadResult,
-    WorkspaceListing, WorkspaceScope, WriteResult,
+    self, ExtractedContent, FileSearchResponse, FileTextContent, FilesystemError, GitInfo,
+    RenameResult, UploadResult, WorkspaceListing, WorkspaceScope, WriteResult,
 };
 
 fn map_err(e: FilesystemError) -> AppError {
@@ -131,6 +131,33 @@ pub async fn fs_extract(
     let res = run(move || {
         let s = WorkspaceScope::resolve(&scope, &scope_id)?;
         filesystem::project_fs_extract(&s, &path)
+    })
+    .await?;
+    Ok(Json(res))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchQuery {
+    pub scope: String,
+    pub scope_id: String,
+    pub q: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// `GET /api/fs/search?scope=&scopeId=&q=&limit=` — fuzzy search files and
+/// directories under a project/session/worktree scope.
+pub async fn fs_search(Query(q): Query<SearchQuery>) -> Result<Json<FileSearchResponse>, AppError> {
+    let SearchQuery {
+        scope,
+        scope_id,
+        q,
+        limit,
+    } = q;
+    let res = run(move || {
+        let s = WorkspaceScope::resolve(&scope, &scope_id)?;
+        filesystem::search_files(&s.root().to_string_lossy(), &q, limit)
     })
     .await?;
     Ok(Json(res))

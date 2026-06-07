@@ -13,6 +13,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
   ExtractedContent,
+  FileSearchResponse,
   FileTextContent,
   ProjectFsScope,
   WorkspaceEntry,
@@ -33,6 +34,7 @@ export interface ProjectFsApi {
   refreshDir: (dir: string) => Promise<void>
   readFile: (path: string) => Promise<FileTextContent>
   extractDoc: (path: string) => Promise<ExtractedContent>
+  searchFiles: (q: string, limit?: number) => Promise<FileSearchResponse>
   rawUrl: (path: string, download?: boolean) => Promise<string | null>
   createFile: (dir: string, name: string) => Promise<boolean>
   createFolder: (dir: string, name: string) => Promise<boolean>
@@ -142,6 +144,19 @@ export function useProjectFs(
     async (path: string): Promise<ExtractedContent> => {
       if (!scopeId) throw new Error("no workspace")
       return getTransport().call<ExtractedContent>("project_fs_extract", { scope, scopeId, path })
+    },
+    [scope, scopeId],
+  )
+
+  const searchFiles = useCallback(
+    async (q: string, limit?: number): Promise<FileSearchResponse> => {
+      if (!scopeId) throw new Error("no workspace")
+      return getTransport().call<FileSearchResponse>("project_fs_search", {
+        scope,
+        scopeId,
+        q,
+        limit,
+      })
     },
     [scope, scopeId],
   )
@@ -268,6 +283,7 @@ export function useProjectFs(
       refreshDir,
       readFile,
       extractDoc,
+      searchFiles,
       rawUrl,
       createFile,
       createFolder,
@@ -284,6 +300,7 @@ export function useProjectFs(
       refreshDir,
       readFile,
       extractDoc,
+      searchFiles,
       rawUrl,
       createFile,
       createFolder,

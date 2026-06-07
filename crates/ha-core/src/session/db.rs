@@ -2889,7 +2889,7 @@ impl SessionDB {
             "SELECT m.id, m.session_id, m.role,
                     snippet(messages_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
                     m.timestamp,
-                    s.title, s.agent_id, s.is_cron, s.parent_session_id,
+                    s.title, s.agent_id, s.is_cron, s.parent_session_id, s.project_id,
                     cc.channel_id, cc.chat_type,
                     fts.rank
              FROM messages_fts fts
@@ -2918,9 +2918,10 @@ impl SessionDB {
                 agent_id: row.get(6)?,
                 is_cron: row.get::<_, i64>(7).unwrap_or(0) != 0,
                 parent_session_id: row.get(8)?,
-                channel_type: row.get(9)?,
-                channel_chat_type: row.get(10)?,
-                relevance_rank: row.get::<_, f64>(11).unwrap_or(0.0),
+                project_id: row.get(9)?,
+                channel_type: row.get(10)?,
+                channel_chat_type: row.get(11)?,
+                relevance_rank: row.get::<_, f64>(12).unwrap_or(0.0),
             })
         })?;
 
@@ -3629,6 +3630,8 @@ pub struct SessionSearchResult {
     pub relevance_rank: f64,
     pub is_cron: bool,
     pub parent_session_id: Option<String>,
+    /// Project id when this hit belongs to a project-bound chat session.
+    pub project_id: Option<String>,
     /// Source channel plugin id (e.g. "telegram", "wechat"), when this session
     /// originates from an IM channel.
     pub channel_type: Option<String>,

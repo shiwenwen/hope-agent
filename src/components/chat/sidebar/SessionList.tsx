@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useMemo } from "react"
 import { parseHighlightTerms } from "@/lib/inlineHighlight"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -10,12 +10,10 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import { Input } from "@/components/ui/input"
 import {
   MessageSquare,
   Loader2,
   Search,
-  X,
 } from "lucide-react"
 import type {
   SessionMeta,
@@ -69,7 +67,6 @@ interface SessionListProps {
   formatRelativeTime: (dateStr: string) => string
   // Search
   searchQuery: string
-  onSearchQueryChange: (q: string) => void
   searchResults: SessionSearchResult[] | null
   /** True when the result set hit the backend limit and may have been
    *  truncated. Surfaced as a hint above the result list. */
@@ -80,9 +77,6 @@ interface SessionListProps {
   projects?: ProjectMeta[]
   onMoveToProject?: (sessionId: string, projectId: string | null) => void
   onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
-  /** Monotonic counter — focuses + selects the search input on each tick.
-   *  Driven by `Cmd+Shift+F` in `ChatScreen`. */
-  searchFocusSignal?: number
   displayMode: SidebarDisplayMode
 }
 
@@ -108,7 +102,6 @@ export default function SessionList({
   getAgentInfo,
   formatRelativeTime,
   searchQuery,
-  onSearchQueryChange,
   searchResults,
   searchTruncated = false,
   searching,
@@ -116,52 +109,11 @@ export default function SessionList({
   projects = [],
   onMoveToProject,
   onToggleSessionPinned,
-  searchFocusSignal,
   displayMode,
 }: SessionListProps) {
   const { t } = useTranslation()
-  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const isSearching = searchQuery.trim().length > 0
-  const focusSearchInput = useCallback(() => {
-    searchInputRef.current?.focus({ preventScroll: true })
-  }, [])
-
-  const handleSearchSurfaceMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement | null
-    if (target?.closest("button")) return
-    if (target !== searchInputRef.current) {
-      e.preventDefault()
-    }
-    focusSearchInput()
-  }
-
-  // External focus trigger (Cmd+Shift+F → ChatScreen → ChatSidebar →
-  // here). Re-runs on every signal tick so a second press from anywhere in
-  // the app re-focuses + selects whatever is in the input. Skip the initial
-  // mount tick (signal undefined or 0) so the sidebar doesn't auto-focus on
-  // every chat open.
-  useEffect(() => {
-    if (searchFocusSignal === undefined || searchFocusSignal === 0) return
-    const input = searchInputRef.current
-    if (!input) return
-    input.focus({ preventScroll: true })
-    input.select()
-  }, [searchFocusSignal])
-
-  const handleSearchKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key !== "Escape") return
-      e.preventDefault()
-      // Esc: clear non-empty query first, blur on the second press.
-      if (searchQuery.length > 0) {
-        onSearchQueryChange("")
-      } else {
-        searchInputRef.current?.blur()
-      }
-    },
-    [searchQuery, onSearchQueryChange],
-  )
 
   // Client-side second-level filter by session type for search results.
   const visibleResults = useMemo(() => {
@@ -174,32 +126,10 @@ export default function SessionList({
     () => parseHighlightTerms(searchQuery),
     [searchQuery],
   )
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
   return (
     <>
-      {/* Search input */}
-      <div className="relative px-3 pt-2 pb-1.5" onMouseDown={handleSearchSurfaceMouseDown}>
-        <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
-        <Input
-          ref={searchInputRef}
-          aria-label={t("chat.searchPlaceholder") || ""}
-          value={searchQuery}
-          onChange={(e) => onSearchQueryChange(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-          placeholder={t("chat.searchPlaceholder")}
-          className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:ring-0 focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
-        />
-        {searchQuery && (
-          <button
-            onClick={() => onSearchQueryChange("")}
-            className="absolute right-5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            aria-label={t("common.clear") || "Clear"}
-          >
-            <X className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-
       {/* Session type filter tabs */}
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 overflow-x-auto scrollbar-none">
         {(["all", "session", "cron", "subagent"] as const).map((filter) => {
@@ -311,24 +241,30 @@ export default function SessionList({
                   {t("chat.searchTruncatedHint", { count: visibleResults.length })}
                 </div>
               )}
-              {visibleResults.map((result) => (
-                <SearchResultItem
-                  key={`${result.sessionId}-${result.messageId}`}
-                  result={result}
-                  isActive={result.sessionId === currentSessionId}
-                  agent={getAgentInfo(result.agentId)}
-                  agents={agents}
-                  sessionMeta={sessions.find((s) => s.id === result.sessionId)}
-                  onSwitch={() =>
-                    onSwitchSession(result.sessionId, {
-                      targetMessageId: result.messageId,
-                      highlightTerms,
-                    })
-                  }
-                  formatRelativeTime={formatRelativeTime}
-                  displayMode={displayMode}
-                />
-              ))}
+              {visibleResults.map((result) => {
+                const sessionMeta = sessions.find((s) => s.id === result.sessionId)
+                const projectId = result.projectId ?? sessionMeta?.projectId ?? null
+                return (
+                  <SearchResultItem
+                    key={`${result.sessionId}-${result.messageId}`}
+                    result={result}
+                    isActive={result.sessionId === currentSessionId}
+                    agent={getAgentInfo(result.agentId)}
+                    agents={agents}
+                    sessionMeta={sessionMeta}
+                    project={projectId ? projectsById.get(projectId) : undefined}
+                    projectId={projectId}
+                    onSwitch={() =>
+                      onSwitchSession(result.sessionId, {
+                        targetMessageId: result.messageId,
+                        highlightTerms,
+                      })
+                    }
+                    formatRelativeTime={formatRelativeTime}
+                    displayMode={displayMode}
+                  />
+                )
+              })}
             </>
           )}
         </div>

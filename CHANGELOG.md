@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **文件浏览器搜索**：项目 / 会话文件浏览器新增按文件名与路径的模糊搜索，支持搜索结果停留、键盘上下选择、回车预览、目录结果展开定位，以及跨 session / project / worktree 的 scope-based 后端搜索，避免 Project 默认工作目录下搜索失败。
 - **定时任务关联 Project**：Cron 任务可绑定 Project，人工表单和 `manage_cron` 工具都能设置；执行时会创建带 Project 上下文的隔离会话，复用 Project 指令、项目记忆、工作目录与工具 cwd 解析。Agent 支持 `Auto`，按显式 Agent → Project 默认 Agent → 全局默认 → `ha-main` 解析；Project 被删除后任务会自动清空关联并按普通 Cron 降级执行。任务列表、详情、日历 API 与模型工具输出同步展示 `projectId` / Project 标签。
 - **内置 Office 三件套 Skills**：新增 `office-docx` / `office-xlsx` / `office-pptx` 三个内置技能，以 skill + bundled scripts 形式提供 Word、Excel、PowerPoint 本地生成、编辑、检查与预览能力。DOCX 支持真实 Word 列表、批注、修订、图片 alt、TOC、脚注/尾注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏与 Google Docs-targeted 清理；XLSX 支持真实 Excel tables、公式、样式、数据验证、条件格式、图表、CSV/TSV 转换、公式审计/缓存与 LibreOffice 重算；PPTX 支持标题/章节/图文/指标/表格/时间线、native chart、文本 patch、追加、复制/重排 slide、布局审计与 contact sheet。
 - **Office Skills 回归验证脚本**：新增 `scripts/office-skill-parity-audit.py` 与 `scripts/office-skill-smoke-test.py`，分别做 Office skill 能力面审计与端到端生成/编辑/检查/渲染 smoke，覆盖 DOCX `sectPr` 插入位置、水印 header 冲突、PPTX 非 slide relationships 保留、XLSX patch / formula cache 等关键回归。
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **聊天输入框与菜单交互打磨**：输入框附件入口合并为「添加照片和文件」，模型、思考强度与温度设置收入口到同一浮层；窄宽度下工具栏布局与高度更稳定，语音/发送按钮不再被挤压遮挡；快捷指令、模型、权限、Awareness 等菜单改用统一的柔和弹出/收起动效，并同步优化左右侧边栏与右侧工作台面板的展开收起体验。
+- **会话搜索置顶并显示 Project 归属**：侧边栏会话搜索入口移到顶部固定位置，搜索结果会携带并展示 `projectId` / Project 名称与图标，项目会话命中时可直接看出来源；搜索态不再受隐藏的 Agent 筛选静默影响，避免结果被不可见过滤条件收窄。
 - **Skill requirements 分级注入语义**：`requires.os` 不匹配这类硬不兼容 skill 不再进入模型 catalog / 斜杠菜单；缺少可安装/可配置依赖（`bins` / `anyBins` / `env` / `config`）的 skill 仍可见，但在 `skill({name})` 或 `/skill-name` 激活前返回缺失项与安装/配置诊断，不再直接加载 SKILL.md。Settings 技能面板同步展示 `Incompatible` / `Needs setup` 状态、缺失 binaries / env / config 与当前 OS 信息。
 - **Skill 激活上下文包含包目录元数据**：inline 与 fork 激活返回的 skill 内容前会注入 skill name 与 skill directory，方便内置脚本、references、assets 通过 skill 目录稳定定位，无需模型猜测路径。
 

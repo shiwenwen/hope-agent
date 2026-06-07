@@ -10,7 +10,9 @@ import type {
   SessionMeta,
   SessionSearchResult,
 } from "@/types/chat"
+import type { ProjectMeta } from "@/types/project"
 import type { SidebarDisplayMode } from "./types"
+import ProjectIcon from "../project/ProjectIcon"
 
 interface SearchResultItemProps {
   result: SessionSearchResult
@@ -18,6 +20,8 @@ interface SearchResultItemProps {
   agent: AgentSummaryForSidebar | undefined
   agents: AgentSummaryForSidebar[]
   sessionMeta: SessionMeta | undefined
+  project: ProjectMeta | undefined
+  projectId: string | null
   onSwitch: () => void
   formatRelativeTime: (dateStr: string) => string
   displayMode: SidebarDisplayMode
@@ -29,6 +33,8 @@ export default function SearchResultItem({
   agent,
   agents,
   sessionMeta,
+  project,
+  projectId,
   onSwitch,
   formatRelativeTime,
   displayMode,
@@ -79,6 +85,7 @@ export default function SearchResultItem({
   const agentLabel = agent?.name ?? result.agentId
   // Locate agent avatar even if not in sidebar agents (e.g. subagent)
   const resolvedAgent = agent ?? agents.find((a) => a.id === result.agentId)
+  const projectLabel = project?.name ?? projectId
 
   return (
     <div
@@ -121,9 +128,16 @@ export default function SearchResultItem({
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-medium text-foreground truncate flex items-center gap-1">
           {typeChip}
+          {project && (
+            <IconTip label={project.name}>
+              <span className="shrink-0">
+                <ProjectIcon project={project} size="xs" withColorChip />
+              </span>
+            </IconTip>
+          )}
           <span className="truncate">{title}</span>
         </div>
-        <div className="text-[10px] text-muted-foreground/70 mt-0.5 flex items-center gap-1 truncate">
+        <div className="text-[10px] text-muted-foreground/70 mt-0.5 flex min-w-0 items-center gap-1 truncate">
           {displayMode === "detailed" && (
             <>
               <span className="truncate">{agentLabel}</span>
@@ -131,6 +145,14 @@ export default function SearchResultItem({
             </>
           )}
           <span className="shrink-0">{formatRelativeTime(result.timestamp)}</span>
+          {projectLabel && (
+            <>
+              <span>·</span>
+              <span className="inline-flex min-w-0 items-center gap-1 truncate text-muted-foreground/80">
+                <span className="truncate">{projectLabel}</span>
+              </span>
+            </>
+          )}
         </div>
         <div className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug break-words">
           {/* Re-center on the first hit so the highlighted token isn't
