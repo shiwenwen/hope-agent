@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Sintesis profil",
+      "profileEnabled": "Sintesiskan profil ingatan",
+      "profileEnabledDesc": "Bina profil yang mudah dibaca daripada claim aktif, berlapis mengikut skop. Apabila dihidupkan, ia menggantikan bahagian profil lama dalam system prompt; jika dimatikan, paparan lama dikekalkan. Larian terbiar/cron menggunakan laluan berasaskan peraturan yang murah; larian manual menjalankan tulis semula LLM.",
+      "profileMaxLines": "Baris maksimum setiap skop",
+      "profileMaxLinesDesc": "Had bilangan poin profil yang disimpan bagi setiap skop."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "Pengurusan ingatan",
       "settings": "Tetapan ingatan",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Profil"
     },
     "memoryTags": "Tag",
     "memoryTagsPlaceholder": "Tag dipisahkan oleh koma (pilihan)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Masa maksimum untuk menunggu respons pengguna kepada soalan Plan Mode. Batalkan soalan secara automatik pada tamat masa. Tetapkan 0 untuk tiada had.",
     "planSubagent": "Mod Sub-Agent Plan",
     "planSubagentDesc": "Apabila didayakan, Plan Mode menggunakan sub-agent khusus untuk penciptaan pelan (konteks utama lebih bersih). Apabila dilumpuhkan, perancangan berjalan sebaris dalam agent utama (kesinambungan konteks).",
-    "profile": "Profil",
+    "profile": {
+      "title": "Profil Ingatan",
+      "desc": "Apa yang ia tahu tentang anda dan projek anda, disintesis daripada claim aktif dan berlapis mengikut skop.",
+      "refresh": "Muat semula profil",
+      "refreshing": "Mensintesis…",
+      "refreshDone": "Profil dimuat semula ({{count}} snapshot)",
+      "refreshSkipped": "Sintesis dilangkau",
+      "refreshFailed": "Gagal mensintesis profil",
+      "empty": "Belum ada snapshot profil",
+      "emptyHint": "Dayakan sintesis profil di bawah tab Dreaming, kemudian muat semula.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} tahun",
     "profileAiExpBeginner": "Pemula — baru bermula",
     "profileAiExpExpert": "Pakar — pengguna AI yang mendalam",

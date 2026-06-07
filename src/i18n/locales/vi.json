@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Tổng hợp hồ sơ",
+      "profileEnabled": "Tổng hợp hồ sơ bộ nhớ",
+      "profileEnabledDesc": "Xây dựng hồ sơ dễ đọc từ các claim đang hoạt động, phân lớp theo phạm vi. Khi bật, nó thay thế phần hồ sơ cũ trong system prompt; khi tắt sẽ giữ cách hiển thị cũ. Trigger nhàn rỗi/cron dùng lượt xử lý theo luật ít tốn kém; chạy thủ công sẽ dùng LLM để viết lại.",
+      "profileMaxLines": "Số dòng tối đa mỗi phạm vi",
+      "profileMaxLinesDesc": "Giới hạn số gạch đầu dòng hồ sơ được giữ cho mỗi phạm vi."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "Quản lý bộ nhớ",
       "settings": "Cài đặt bộ nhớ",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Hồ sơ"
     },
     "memoryTags": "Thẻ",
     "memoryTagsPlaceholder": "Nhãn phân cách bằng dấu phẩy (tùy chọn)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Thời gian tối đa chờ phản hồi của người dùng cho câu hỏi Plan Mode. Tự động hủy câu hỏi khi hết thời gian. Đặt 0 cho không giới hạn.",
     "planSubagent": "Chế độ Sub-Agent của Plan",
     "planSubagentDesc": "Khi bật, Plan Mode sử dụng sub-agent chuyên dụng để tạo kế hoạch (ngữ cảnh chính sạch hơn). Khi tắt, lập kế hoạch chạy nội tuyến trong agent chính (tính liên tục ngữ cảnh).",
-    "profile": "Hồ sơ",
+    "profile": {
+      "title": "Hồ sơ bộ nhớ",
+      "desc": "Những gì nó biết về bạn và các dự án của bạn, được tổng hợp từ các claim đang hoạt động và phân lớp theo phạm vi.",
+      "refresh": "Làm mới hồ sơ",
+      "refreshing": "Đang tổng hợp…",
+      "refreshDone": "Đã làm mới hồ sơ ({{count}} ảnh chụp)",
+      "refreshSkipped": "Đã bỏ qua tổng hợp",
+      "refreshFailed": "Không thể tổng hợp hồ sơ",
+      "empty": "Chưa có ảnh chụp hồ sơ",
+      "emptyHint": "Bật tổng hợp hồ sơ trong tab Dreaming, rồi làm mới.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} tuổi",
     "profileAiExpBeginner": "Mới bắt đầu — vừa tiếp xúc AI",
     "profileAiExpExpert": "Chuyên gia — sử dụng AI chuyên sâu",

@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Síntesis del perfil",
+      "profileEnabled": "Sintetizar un perfil de memoria",
+      "profileEnabledDesc": "Genera un perfil legible a partir de los claims activos, estratificado por ámbito. Cuando está activado, reemplaza la sección de perfil heredada en el prompt del sistema; al desactivarlo se mantiene el renderizado heredado. Las ejecuciones inactivas/programadas usan una pasada económica basada en reglas; la manual ejecuta una reescritura con LLM.",
+      "profileMaxLines": "Máximo de líneas por ámbito",
+      "profileMaxLinesDesc": "Límite de cuántas viñetas del perfil se conservan por ámbito."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "Gestión de memoria",
       "settings": "Configuración de memoria",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Perfil"
     },
     "memoryTags": "Etiquetas",
     "memoryTagsPlaceholder": "Etiquetas separadas por comas (opcional)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Tiempo máximo de espera para la respuesta del usuario a las preguntas de Plan Mode. Cancela automáticamente al expirar. 0 = sin límite.",
     "planSubagent": "Modo sub-Agent del Plan",
     "planSubagentDesc": "Cuando se activa, Plan Mode usa un sub-Agent dedicado para crear el plan (contexto principal más limpio). Si se desactiva, la planificación se ejecuta inline en el Agent principal (continuidad de contexto).",
-    "profile": "Perfil",
+    "profile": {
+      "title": "Perfil de memoria",
+      "desc": "Lo que sabe sobre ti y tus proyectos, sintetizado a partir de los claims activos y estratificado por ámbito.",
+      "refresh": "Actualizar perfil",
+      "refreshing": "Sintetizando…",
+      "refreshDone": "Perfil actualizado ({{count}} capturas)",
+      "refreshSkipped": "Síntesis omitida",
+      "refreshFailed": "No se pudo sintetizar el perfil",
+      "empty": "Aún no hay ninguna captura del perfil",
+      "emptyHint": "Activa la síntesis del perfil en la pestaña Dreaming y luego actualiza.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} años",
     "profileAiExpBeginner": "Principiante — recién empezando",
     "profileAiExpExpert": "Experto — uso avanzado de herramientas IA",

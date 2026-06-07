@@ -380,6 +380,41 @@ impl SqliteMemoryBackend {
                 ON memory_claim_links(memory_id);",
         )?;
 
+        // ── Memory Profile snapshots (next-gen Dreaming Phase 4, design §3.5) ──
+        //
+        // Displayable + injectable profile summaries synthesised from active
+        // claims, layered by scope (global / agent / project). One row per
+        // (scope, version); `version` is allocated as `MAX(version)+1` inside a
+        // write transaction so the latest snapshot per scope is the highest
+        // version. Global rows store `scope_id = ''` (not NULL) so the UNIQUE
+        // constraint actually guards against duplicate versions for the global
+        // scope too (SQLite treats NULLs as distinct under UNIQUE).
+        //
+        // No FK to `dreaming_runs(id)`: a snapshot is a durable product whose
+        // lifetime is independent of the audit run that produced it (runs are
+        // retention-GC'd; snapshots are not). `source_run_id` is a plain
+        // reference for provenance. (FKs on this connection are inert anyway —
+        // `PRAGMA foreign_keys` is off, see top of `open`.)
+        //
+        // NOTE: `scope_id` (when `scope_type='agent'`) is agent-id-bearing and
+        // is registered with `agent::migration` for the `default → ha-main`
+        // rename (§11). Defensive: snapshots are only written once the user
+        // opts into profile synthesis, long after the legacy id is gone.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_profile_snapshots (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL,
+                body_md TEXT NOT NULL,
+                source_run_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(scope_type, scope_id, version)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_profile_snapshots_scope
+                ON memory_profile_snapshots(scope_type, scope_id, version DESC);",
+        )?;
+
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
         for _ in 0..READ_POOL_SIZE {

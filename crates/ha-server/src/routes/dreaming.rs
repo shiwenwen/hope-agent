@@ -47,6 +47,21 @@ pub async fn run_resolver() -> Result<Json<dreaming::ResolverReport>, AppError> 
     ))
 }
 
+/// `POST /api/dreaming/profile/run` — run one Memory Profile synthesis cycle
+/// (manual = LLM rewrite) over active claims (trigger=manual).
+pub async fn run_profile() -> Result<Json<dreaming::ProfileReport>, AppError> {
+    Ok(Json(
+        dreaming::run_profile_synthesis_cycle(dreaming::DreamTrigger::Manual).await,
+    ))
+}
+
+/// `GET /api/dreaming/profile` — latest Memory Profile snapshot per scope
+/// (read-only profile view). Owner-plane.
+pub async fn list_profile_snapshots() -> Result<Json<Vec<dreaming::ProfileSnapshotRecord>>, AppError>
+{
+    Ok(Json(dreaming::list_profile_snapshots()?))
+}
+
 /// `GET /api/dreaming/diaries?limit=N` — list available Dream Diary
 /// files, newest first, optionally capped at `limit`.
 pub async fn list_diaries(

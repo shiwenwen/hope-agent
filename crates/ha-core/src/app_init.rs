@@ -881,7 +881,8 @@ pub async fn start_background_tasks() {
                 ticker.tick().await;
                 let cfg = crate::config::cached_config().dreaming.clone();
                 if crate::memory::dreaming::check_idle_trigger(&cfg) {
-                    tokio::spawn(async {
+                    let profile_enabled = cfg.profile_synthesis.enabled;
+                    tokio::spawn(async move {
                         let report = crate::memory::dreaming::manual_run(
                             crate::memory::dreaming::DreamTrigger::Idle,
                         )
@@ -894,6 +895,24 @@ pub async fn start_background_tasks() {
                             report.promoted.len(),
                             report.note,
                         );
+                        // After promotion releases the single-cycle guard, run a
+                        // cheap rule-based Memory Profile synthesis (Phase 4) so
+                        // the profile stays fresh without a separate trigger.
+                        // Gated by `profile_synthesis.enabled` (off by default).
+                        if profile_enabled {
+                            let p = crate::memory::dreaming::run_profile_synthesis_cycle(
+                                crate::memory::dreaming::DreamTrigger::Idle,
+                            )
+                            .await;
+                            app_info!(
+                                "memory",
+                                "dreaming::idle_trigger",
+                                "idle profile synthesis: scanned={}, snapshots={}, note={:?}",
+                                p.scanned,
+                                p.snapshots_written,
+                                p.note,
+                            );
+                        }
                     });
                 }
             }

@@ -73,14 +73,17 @@ pub struct PromotionRecord {
     pub evidence: Vec<EvidenceRef>,
 }
 
-/// Phase of a dreaming run. Phase 0 only runs `Light`; `Deep` is reserved
-/// for the long-window consolidation landing in a later phase. Persisted as
-/// the lowercase string into `dreaming_runs.phase` / lock keys.
+/// Phase of a dreaming run. `Light` = Promotion (rule + one side_query);
+/// `Deep` = the resolver (expire / merge / conflict); `Profile` = Memory
+/// Profile synthesis (Phase 4, rule-based on idle/cron, LLM rewrite on
+/// manual). Persisted as the lowercase string into `dreaming_runs.phase` /
+/// lock keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DreamPhase {
     Light,
     Deep,
+    Profile,
 }
 
 impl DreamPhase {
@@ -88,6 +91,7 @@ impl DreamPhase {
         match self {
             DreamPhase::Light => "light",
             DreamPhase::Deep => "deep",
+            DreamPhase::Profile => "profile",
         }
     }
 }
@@ -157,7 +161,7 @@ pub struct DreamingRunRecord {
     pub id: String,
     /// "idle" | "cron" | "manual".
     pub trigger: String,
-    /// "light" | "deep".
+    /// "light" | "deep" | "profile".
     pub phase: String,
     /// "running" | "completed" | "failed" | "skipped".
     pub status: String,
@@ -234,4 +238,26 @@ pub struct EvidenceQuote {
     /// Machine-readable reason when `available = false`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+/// A persisted Memory Profile snapshot row from `memory_profile_snapshots`
+/// (next-gen Dreaming Phase 4). Returned by the owner-plane read API for the
+/// Settings / Dashboard read-only profile view. Read-only — users drill from
+/// a profile line down to the claim, but editing lands with the correction
+/// loop in a later PR.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileSnapshotRecord {
+    /// "global" | "agent" | "project".
+    pub scope_type: String,
+    /// Agent / project id; `None` for global (stored as `''` in the DB).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_id: Option<String>,
+    /// Monotonic version (latest = highest), allocated `MAX(version)+1`.
+    pub version: i64,
+    /// Rendered profile markdown body (bullets / short prose).
+    pub body_md: String,
+    /// The `dreaming_runs.id` that produced this snapshot (provenance).
+    pub source_run_id: String,
+    pub created_at: String,
 }

@@ -332,6 +332,33 @@ pub fn build_system_prompt_with_session(
             &app_cfg.memory_budget,
         );
 
+        // Memory Profile snapshot (next-gen Dreaming Phase 4): when profile
+        // synthesis is enabled and a snapshot exists, it renders the
+        // `## User Profile` section in place of the legacy profile-tagged
+        // memories; otherwise the legacy rendering is the fallback (so disabling
+        // synthesis — the default — never blanks the section). Global +
+        // current-agent snapshots are concatenated here; the project profile is
+        // shown in the read-only view but injected via the Context Pack later.
+        let profile_snapshot: Option<String> = if definition.config.memory.enabled
+            && !incognito
+            && app_cfg.dreaming.profile_synthesis.enabled
+        {
+            let mut parts: Vec<String> = Vec::new();
+            for (scope_type, scope_id) in [("global", ""), ("agent", agent_id)] {
+                if let Some(body) =
+                    crate::memory::dreaming::latest_profile_body(scope_type, scope_id)
+                {
+                    let body = body.trim();
+                    if !body.is_empty() {
+                        parts.push(body.to_string());
+                    }
+                }
+            }
+            (!parts.is_empty()).then(|| parts.join("\n"))
+        } else {
+            None
+        };
+
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
@@ -352,6 +379,7 @@ pub fn build_system_prompt_with_session(
             Some(provider),
             &memory_entries,
             &memory_budget,
+            profile_snapshot.as_deref(),
             agent_home.as_deref(),
             project.as_ref(),
             session_id,

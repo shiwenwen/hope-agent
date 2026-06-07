@@ -43,6 +43,7 @@ pub fn build(
     provider: Option<&str>,
     memory_entries: &[MemoryEntry],
     memory_budget: &MemoryBudgetConfig,
+    profile_snapshot: Option<&str>,
     agent_home: Option<&str>,
     project: Option<&Project>,
     session_id: Option<&str>,
@@ -259,6 +260,7 @@ pub fn build(
             definition.global_memory_md.as_deref(),
             memory_entries,
             memory_budget,
+            profile_snapshot,
         );
         if !section.is_empty() {
             sections.push(section);
@@ -379,6 +381,7 @@ pub(super) fn build_memory_section(
     global_memory_md: Option<&str>,
     memory_entries: &[MemoryEntry],
     budget: &MemoryBudgetConfig,
+    profile_snapshot: Option<&str>,
 ) -> String {
     if budget.total_chars == 0 {
         return String::new();
@@ -402,7 +405,13 @@ pub(super) fn build_memory_section(
         budget.core_memory_file_chars,
     );
 
-    if !memory_entries.is_empty() && remaining > 0 {
+    // A profile snapshot renders the `## User Profile` section even when there
+    // are no legacy SQLite memory entries, so it must not be gated out by an
+    // empty entry list.
+    let has_profile_snapshot = profile_snapshot
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty());
+    if (!memory_entries.is_empty() || has_profile_snapshot) && remaining > 0 {
         let sqlite_cap = remaining.min(budget.sqlite_sections.total());
         let scaled = budget.sqlite_sections.scaled_to(sqlite_cap);
         let sqlite_block = crate::memory::sqlite::format_prompt_summary_v2(
@@ -410,6 +419,7 @@ pub(super) fn build_memory_section(
             &scaled,
             sqlite_cap,
             budget.sqlite_entry_max_chars,
+            profile_snapshot,
         );
         if !sqlite_block.is_empty() {
             out.push_str(&sqlite_block);
@@ -610,7 +620,7 @@ mod memory_section_tests {
             sqlite_entry_max_chars: 500,
             sqlite_sections: SqliteSectionBudgets::default(),
         };
-        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget);
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget, None);
         // Guidelines always present.
         assert!(out.contains("## Memory Guidelines"));
         // Total stays under budget (±5% slack for heading overhead rounding).
@@ -629,7 +639,7 @@ mod memory_section_tests {
         let agent_md = "A".repeat(8_000);
         let global_md = "G".repeat(8_000);
         let budget = MemoryBudgetConfig::default();
-        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget);
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget, None);
 
         let agent_a_count = out.matches('A').count();
         let global_g_count = out.matches('G').count();
@@ -661,7 +671,7 @@ mod memory_section_tests {
             .map(|i| mk_entry(i, MemoryType::User, &format!("user fact #{}", i)))
             .collect();
         let budget = MemoryBudgetConfig::default();
-        let out = build_memory_section(Some(&agent_md), Some(&global_md), &entries, &budget);
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &entries, &budget, None);
 
         assert!(out.contains("## Core Memory (Agent)"));
         assert!(out.contains("## Core Memory (Global)"));
@@ -678,7 +688,7 @@ mod memory_section_tests {
             total_chars: 0,
             ..MemoryBudgetConfig::default()
         };
-        let out = build_memory_section(Some("agent"), Some("global"), &[], &budget);
+        let out = build_memory_section(Some("agent"), Some("global"), &[], &budget, None);
         assert_eq!(out, "");
     }
 
@@ -692,7 +702,7 @@ mod memory_section_tests {
             sqlite_entry_max_chars: 500,
             sqlite_sections: SqliteSectionBudgets::default(),
         };
-        let out = build_memory_section(Some(&agent_md), None, &[], &budget);
+        let out = build_memory_section(Some(&agent_md), None, &[], &budget, None);
         assert!(
             out.contains("## Memory Guidelines"),
             "Guidelines must survive under budget pressure"
@@ -709,6 +719,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -739,6 +750,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -749,6 +761,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -801,6 +814,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -822,6 +836,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -849,6 +864,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -860,6 +876,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -888,6 +905,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -910,6 +928,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &[],
             &budget,
+            None,
             None,
             None,
             None,
@@ -939,6 +958,7 @@ mod memory_section_tests {
             None,
             None,
             None,
+            None,
             false,
             None,
             SessionMode::Default,
@@ -961,6 +981,7 @@ mod memory_section_tests {
             Some("OpenAI"),
             &entries,
             &budget,
+            None,
             None,
             None,
             None,

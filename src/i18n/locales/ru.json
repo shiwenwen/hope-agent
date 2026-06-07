@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Синтез профиля",
+      "profileEnabled": "Синтезировать профиль памяти",
+      "profileEnabledDesc": "Построить читаемый профиль из активных claim с разбивкой по областям. Когда включено, заменяет устаревший раздел профиля в системном промпте; когда выключено, сохраняется прежний рендеринг. Простой/cron используют дешёвый проход по правилам; ручной запуск выполняет перезапись через LLM.",
+      "profileMaxLines": "Макс. строк на область",
+      "profileMaxLinesDesc": "Ограничение на количество пунктов профиля, сохраняемых для каждой области."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "Управление памятью",
       "settings": "Настройки памяти",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Профиль"
     },
     "memoryTags": "Теги",
     "memoryTagsPlaceholder": "Теги через запятую (опционально)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Максимальное время ожидания ответа пользователя на вопросы Plan Mode. По истечении вопрос автоматически отменяется. 0 = без ограничений.",
     "planSubagent": "Sub-Agent режим Plan",
     "planSubagentDesc": "При включении Plan Mode использует выделенный sub-agent для создания плана (основной контекст чище). При отключении планирование выполняется встроенно в основном Agent (непрерывность контекста).",
-    "profile": "Профиль",
+    "profile": {
+      "title": "Профиль памяти",
+      "desc": "Что известно о вас и ваших проектах — синтезировано из активных claim с разбивкой по областям.",
+      "refresh": "Обновить профиль",
+      "refreshing": "Синтез…",
+      "refreshDone": "Профиль обновлён (снимков: {{count}})",
+      "refreshSkipped": "Синтез пропущен",
+      "refreshFailed": "Не удалось синтезировать профиль",
+      "empty": "Снимка профиля пока нет",
+      "emptyHint": "Включите синтез профиля на вкладке Dreaming, затем обновите.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} лет",
     "profileAiExpBeginner": "Начинающий — только начинаю",
     "profileAiExpExpert": "Эксперт — глубокий пользователь ИИ",

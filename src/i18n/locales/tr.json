@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Profil sentezi",
+      "profileEnabled": "Bellek profili sentezle",
+      "profileEnabledDesc": "Etkin claim'lerden, kapsama göre katmanlanmış okunabilir bir profil oluşturur. Açıkken sistem komutundaki eski profil bölümünün yerini alır; kapalıyken eski görünüm korunur. Boşta/cron tetiklemeleri ucuz, kural tabanlı bir geçiş kullanır; manuel tetikleme LLM ile yeniden yazma çalıştırır.",
+      "profileMaxLines": "Kapsam başına maksimum satır",
+      "profileMaxLinesDesc": "Kapsam başına tutulacak profil maddesi sayısının üst sınırı."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "Hafıza yönetimi",
       "settings": "Hafıza ayarları",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Profil"
     },
     "memoryTags": "Etiketler",
     "memoryTagsPlaceholder": "Virgülle ayrılmış etiketler (isteğe bağlı)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Plan Mode sorularına kullanıcı yanıtı için maksimum bekleme süresi. Zaman aşımında otomatik iptal eder. Sınır olmaması için 0.",
     "planSubagent": "Plan Sub-Agent modu",
     "planSubagentDesc": "Etkinleştirildiğinde, Plan Mode plan oluşturma için özel bir sub-agent kullanır (ana bağlam daha temiz). Devre dışı bırakıldığında, planlama ana agent içinde satır içi çalışır (bağlam sürekliliği).",
-    "profile": "Profil",
+    "profile": {
+      "title": "Bellek Profili",
+      "desc": "Sizin ve projeleriniz hakkında bildikleri; etkin claim'lerden sentezlenir ve kapsama göre katmanlanır.",
+      "refresh": "Profili yenile",
+      "refreshing": "Sentezleniyor…",
+      "refreshDone": "Profil yenilendi ({{count}} anlık görüntü)",
+      "refreshSkipped": "Sentez atlandı",
+      "refreshFailed": "Profil sentezlenemedi",
+      "empty": "Henüz profil anlık görüntüsü yok",
+      "emptyHint": "Dreaming sekmesinde profil sentezini etkinleştirin, ardından yenileyin.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} yaşında",
     "profileAiExpBeginner": "Başlangıç — yeni başlıyor",
     "profileAiExpExpert": "Uzman — AI araçlarının yoğun kullanıcısı",

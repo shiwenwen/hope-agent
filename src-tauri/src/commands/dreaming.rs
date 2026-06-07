@@ -19,6 +19,21 @@ pub async fn dreaming_run_resolver() -> Result<dreaming::ResolverReport, CmdErro
     Ok(dreaming::run_resolver_cycle(dreaming::DreamTrigger::Manual).await)
 }
 
+/// Run one Memory Profile synthesis cycle (manual = LLM rewrite) and return
+/// its summary. Maps to `POST /api/dreaming/profile/run`.
+#[tauri::command]
+pub async fn dreaming_run_profile() -> Result<dreaming::ProfileReport, CmdError> {
+    Ok(dreaming::run_profile_synthesis_cycle(dreaming::DreamTrigger::Manual).await)
+}
+
+/// Latest Memory Profile snapshot per scope (read-only profile view). Maps to
+/// `GET /api/dreaming/profile`.
+#[tauri::command]
+pub async fn dreaming_list_profile_snapshots(
+) -> Result<Vec<dreaming::ProfileSnapshotRecord>, CmdError> {
+    dreaming::list_profile_snapshots().map_err(Into::into)
+}
+
 /// List Dream Diary markdown files (newest first). `limit` caps the
 /// returned set so the Dashboard stays responsive after months of daily
 /// cycles; omitting it returns the full set.

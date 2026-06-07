@@ -2786,7 +2786,12 @@
       "scopeDays": "遡及日数",
       "scopeDaysDesc": "何日前までの記憶をスキャンするか。",
       "title": "ドリーミング",
-      "windowTitle": "スキャン範囲"
+      "windowTitle": "スキャン範囲",
+      "profileTitle": "プロフィール合成",
+      "profileEnabled": "メモリプロフィールを合成",
+      "profileEnabledDesc": "有効な claim から読みやすいプロフィールを構築し、スコープごとに階層化します。オンにするとシステムプロンプト内の従来のプロフィール部分を置き換え、オフのままなら従来の表示を維持します。アイドル / スケジュール実行では低コストなルールベースのパスを使い、手動実行では LLM による書き換えを行います。",
+      "profileMaxLines": "スコープごとの最大行数",
+      "profileMaxLinesDesc": "スコープごとに保持するプロフィールの箇条書き数の上限。"
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "ドリーミング",
       "manage": "記憶管理",
       "settings": "記憶設定",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "プロフィール"
     },
     "memoryTags": "タグ",
     "memoryTagsPlaceholder": "カンマ区切りのタグ（任意）",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "プランモードでユーザー応答を待つ最大時間。タイムアウトで質問を自動キャンセル。0 で無制限。",
     "planSubagent": "プランサブ Agent モード",
     "planSubagentDesc": "有効時、プラン作成は専用サブ Agent で実行（メインコンテキストがクリーン）。無効時、メイン Agent 内でインラインで実行（コンテキスト連続性）。",
-    "profile": "プロフィール",
+    "profile": {
+      "title": "メモリプロフィール",
+      "desc": "有効な claim から合成し、スコープごとに階層化した、あなたとプロジェクトについて把握している内容。",
+      "refresh": "プロフィールを更新",
+      "refreshing": "合成中…",
+      "refreshDone": "プロフィールを更新しました（スナップショット {{count}} 件）",
+      "refreshSkipped": "合成をスキップしました",
+      "refreshFailed": "プロフィールの合成に失敗しました",
+      "empty": "プロフィールのスナップショットはまだありません",
+      "emptyHint": "ドリーミングタブでプロフィール合成を有効にしてから更新してください。",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} 歳",
     "profileAiExpBeginner": "初級 — AIを始めたばかり",
     "profileAiExpExpert": "上級 — AIツールの深い利用者",

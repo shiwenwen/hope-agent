@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **记忆画像（Memory Profile）合成 + 只读视图（beta）**：开启「记忆 → 梦境 → 画像合成」（默认关）后，离线从结构化 claim 按作用域（全局 / Agent / 项目）合成一份可读的记忆画像快照——空闲 / 定时走低成本规则式聚合、手动触发走 LLM 重写；有快照时在系统提示中替换旧版 profile 段，无快照则回退旧版渲染（保持关闭时的原有行为，绝不让 `## User Profile` 段空白）。「记忆 → 画像」新增只读视图查看各作用域画像并可手动刷新。新增 `dreaming_run_profile` / `dreaming_list_profile_snapshots` 接口（Tauri + HTTP）。 (#286)
 - **记忆梦境（Dreaming）深度整理（Deep resolver）**：Dashboard → 记忆梦境新增「深度整理」按钮,对结构化 claim 做时效过期、重复合并与冲突检测——已过有效期的 claim 自动失效、语义重复的合并保留一条(LLM 判定)、真正矛盾的标「待审核」交用户确认(绝不自动覆盖或删除)。新增 `dreaming_run_resolver` 接口（Tauri + HTTP）。 (#285)
 - **结构化记忆（Claims）历史回填（beta）**：「记忆 → Claims」视图新增「回填」入口，把已有的旧版记忆批量登记为结构化 claim——先 dry-run 预览（记忆总数 / 已登记 / 待回填 / 自动启用 / 待审核）再确认执行；仅置顶的个人信息与偏好（user/feedback）自动启用、其余进入待审核队列，且不改变当前的记忆注入行为。新增 `memory_backfill_plan` / `memory_backfill_apply` 接口（Tauri + HTTP）。 (#284)
 - **结构化记忆（Claims）双写 + Claims 视图（beta）**：开启「记忆设置 → 提取 claim（beta）」后，自动记忆提取会在旧版记忆之外，额外提取带证据的结构化 claim 并双写关联——claim 带作用域、类型、置信度（由证据强度推导）、salience、时效；同 prompt 抽取轮完成，旧记忆作为兼容影子并由 claim 状态联动可见性（已替代 / 过期的 claim 不再经其影子记忆回灌 prompt，用户手动 pin 的除外）。Dashboard「记忆 → Claims」只读视图可查看 claim、证据与关联记忆。 (#283)

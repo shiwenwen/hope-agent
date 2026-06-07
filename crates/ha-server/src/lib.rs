@@ -899,6 +899,11 @@ fn build_router_with_cors(
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))
+        .route("/dreaming/profile/run", post(routes::dreaming::run_profile))
+        .route(
+            "/dreaming/profile",
+            get(routes::dreaming::list_profile_snapshots),
+        )
         .route("/dreaming/diaries", get(routes::dreaming::list_diaries))
         .route(
             "/dreaming/diaries/{filename}",

@@ -358,6 +358,16 @@ fn update_memory_db_if_present() -> Result<()> {
             params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],
         )?;
     }
+    // `memory_profile_snapshots.scope_id` is the same agent-id-bearing column
+    // for `scope_type='agent'` rows (§11). Defensive, like `memory_claims`:
+    // snapshots only appear once the user opts into profile synthesis.
+    if table_exists(&conn, "memory_profile_snapshots") {
+        n += conn.execute(
+            "UPDATE memory_profile_snapshots SET scope_id = ?1 \
+             WHERE scope_type = 'agent' AND scope_id = ?2",
+            params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],
+        )?;
+    }
     log_rewrite("memory.db", n);
     Ok(())
 }

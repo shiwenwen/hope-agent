@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "توليف الملف الشخصي",
+      "profileEnabled": "توليف ملف شخصي للذاكرة",
+      "profileEnabledDesc": "بناء ملف شخصي قابل للقراءة من الادعاءات (claims) النشطة، مُرتَّب حسب النطاق. عند التفعيل يحل محل قسم الملف الشخصي القديم في موجّه النظام؛ وعند الإيقاف يبقى العرض القديم. يستخدم الوضع الخامل/المجدول معالجة رخيصة قائمة على القواعد، بينما يُجري التشغيل اليدوي إعادة صياغة عبر النموذج اللغوي.",
+      "profileMaxLines": "أقصى عدد للأسطر لكل نطاق",
+      "profileMaxLinesDesc": "حدّ لعدد نقاط الملف الشخصي المحفوظة لكل نطاق."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "إدارة الذاكرة",
       "settings": "إعدادات الذاكرة",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "الملف الشخصي"
     },
     "memoryTags": "الوسوم",
     "memoryTagsPlaceholder": "وسوم مفصولة بفواصل (اختياري)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "الحد الأقصى لوقت انتظار رد المستخدم على أسئلة Plan Mode. يُلغى السؤال تلقائياً عند انتهاء المهلة. اضبط على 0 لعدم وجود حد.",
     "planSubagent": "وضع Sub-Agent للخطة",
     "planSubagentDesc": "عند التفعيل، يستخدم Plan Mode sub-agent مخصص لإنشاء الخطة (السياق الرئيسي أنظف). عند الإيقاف، يعمل التخطيط مدمجاً في Agent الرئيسي (استمرارية السياق).",
-    "profile": "الملف الشخصي",
+    "profile": {
+      "title": "الملف الشخصي للذاكرة",
+      "desc": "ما يعرفه عنك وعن مشاريعك، مُولَّفًا من الادعاءات (claims) النشطة ومُرتَّبًا حسب النطاق.",
+      "refresh": "تحديث الملف الشخصي",
+      "refreshing": "جارٍ التوليف…",
+      "refreshDone": "تم تحديث الملف الشخصي ({{count}} لقطات)",
+      "refreshSkipped": "تم تخطّي التوليف",
+      "refreshFailed": "فشل توليف الملف الشخصي",
+      "empty": "لا توجد لقطة للملف الشخصي بعد",
+      "emptyHint": "فعّل توليف الملف الشخصي في تبويب Dreaming، ثم حدّث.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} سنة",
     "profileAiExpBeginner": "مبتدئ — بدأ للتو",
     "profileAiExpExpert": "خبير — مستخدم متعمق لأدوات الذكاء الاصطناعي",

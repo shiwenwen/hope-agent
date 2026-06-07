@@ -2786,7 +2786,12 @@
       "scopeDays": "回溯天數",
       "scopeDaysDesc": "掃描最近多少天的記憶。",
       "title": "夢境（Dreaming）",
-      "windowTitle": "掃描視窗"
+      "windowTitle": "掃描視窗",
+      "profileTitle": "Profile 合成",
+      "profileEnabled": "合成記憶 Profile",
+      "profileEnabledDesc": "從活躍 claim 合成一份可讀的 Profile，依範圍分層。開啟後會取代系統提示詞中舊版的 Profile 區段；關閉則沿用舊版渲染。閒置／排程使用低成本的規則式處理，手動則以 LLM 改寫。",
+      "profileMaxLines": "每範圍最大行數",
+      "profileMaxLinesDesc": "限制每個範圍最多保留多少條 Profile 要點。"
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "夢境（Dreaming）",
       "manage": "記憶管理",
       "settings": "記憶設定",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Profile"
     },
     "memoryTags": "標簽",
     "memoryTagsPlaceholder": "逗號分隔的標簽（可選）",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Plan Mode 向用戶提問後等待回答的最長時間，超時後自動取消該提問。設為 0 表示不限時",
     "planSubagent": "計劃子 Agent 模式",
     "planSubagentDesc": "開啟後 Plan Mode 的計劃制定由獨立子 Agent 執行，主 Agent 上下文更干淨；關閉時在主 Agent 中內聯制定計劃，保持上下文連續",
-    "profile": "個人信息",
+    "profile": {
+      "title": "記憶 Profile",
+      "desc": "它對你與你的專案的了解，從活躍 claim 合成並依範圍分層。",
+      "refresh": "重新整理 Profile",
+      "refreshing": "正在合成…",
+      "refreshDone": "Profile 已重新整理（{{count}} 份快照）",
+      "refreshSkipped": "已略過合成",
+      "refreshFailed": "Profile 合成失敗",
+      "empty": "尚無 Profile 快照",
+      "emptyHint": "在夢境（Dreaming）分頁啟用 Profile 合成，然後重新整理。",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} 歲",
     "profileAiExpBeginner": "入門 — 剛開始接觸 AI",
     "profileAiExpExpert": "熟練 — 深度使用各類 AI 工具",

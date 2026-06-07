@@ -9,6 +9,7 @@ import MemorySettingsView from "./MemorySettingsView"
 import CoreMemoryEditor from "./CoreMemoryEditor"
 import DreamingPanel from "./DreamingPanel"
 import ClaimsBetaView from "./ClaimsBetaView"
+import ProfileSnapshotView from "./ProfileSnapshotView"
 
 /**
  * MemoryPanel - Memory management UI.
@@ -22,7 +23,7 @@ import ClaimsBetaView from "./ClaimsBetaView"
 export default function MemoryPanel({ agentId, compact }: { agentId?: string; compact?: boolean }) {
   const { t } = useTranslation()
   const isAgentMode = !!agentId
-  const [tab, setTab] = useState<"settings" | "manage" | "dreaming" | "claims">("settings")
+  const [tab, setTab] = useState<"settings" | "manage" | "dreaming" | "profile" | "claims">("settings")
 
   const data = useMemoryData({ agentId, isAgentMode })
 
@@ -46,7 +47,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
     <Tabs
       value={activeTab}
       onValueChange={(value) =>
-        setTab(value as "settings" | "manage" | "dreaming" | "claims")
+        setTab(value as "settings" | "manage" | "dreaming" | "profile" | "claims")
       }
       className="flex-1 flex flex-col min-h-0"
     >
@@ -56,6 +57,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           <TabsTrigger value="manage">{t("settings.memoryTabs.manage")}</TabsTrigger>
           {!isAgentMode && (
             <TabsTrigger value="dreaming">{t("settings.memoryTabs.dreaming")}</TabsTrigger>
+          )}
+          {!isAgentMode && (
+            <TabsTrigger value="profile">{t("settings.memoryTabs.profile")}</TabsTrigger>
           )}
           {!isAgentMode && data.effectiveExtractClaims && (
             <TabsTrigger value="claims">{t("settings.memoryTabs.claims")}</TabsTrigger>
@@ -84,6 +88,12 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
       {!isAgentMode && (
         <TabsContent value="dreaming" className="flex-1 min-h-0 outline-none">
           <DreamingPanel />
+        </TabsContent>
+      )}
+
+      {!isAgentMode && (
+        <TabsContent value="profile" className="flex-1 min-h-0 outline-none">
+          <ProfileSnapshotView />
         </TabsContent>
       )}
 

@@ -23,7 +23,7 @@ use crate::memory::SqliteMemoryBackend;
 
 use super::types::{
     DreamReport, DreamRunStatus, DreamingDecisionRecord, DreamingRunDetail, DreamingRunRecord,
-    PromotionRecord,
+    ProfileSnapshotRecord, PromotionRecord,
 };
 
 /// Floor for the cross-process lease lifetime. A healthy Light cycle with the
@@ -113,6 +113,24 @@ pub fn list_runs(limit: Option<usize>, offset: Option<usize>) -> Result<Vec<Drea
 pub fn get_run(run_id: &str) -> Result<Option<DreamingRunDetail>> {
     let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
     store.get_run(run_id)
+}
+
+/// Latest Memory Profile snapshot per scope (read-only profile view). Owner
+/// plane — no scope filter, returns every scope's most recent snapshot.
+pub fn list_profile_snapshots() -> Result<Vec<ProfileSnapshotRecord>> {
+    let store = store().ok_or_else(|| anyhow!("dreaming store not initialised"))?;
+    store.latest_profile_snapshots()
+}
+
+/// Latest profile body for one scope, for system-prompt injection. Returns
+/// `None` when the store is unavailable or no snapshot exists, so the caller
+/// transparently falls back to the legacy profile-tagged rendering. Global
+/// passes `scope_id = ""`.
+pub fn latest_profile_body(scope_type: &str, scope_id: &str) -> Option<String> {
+    store()?
+        .latest_profile_body(scope_type, scope_id)
+        .ok()
+        .flatten()
 }
 
 // ── Startup recovery + retention ────────────────────────────────
@@ -415,6 +433,155 @@ impl DreamingStore {
                 duration_ms as i64,
                 note,
                 id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    // ── Profile snapshots (Phase 4) ──────────────────────────────
+
+    /// Insert a new profile snapshot for `(scope_type, scope_id)`, allocating
+    /// `version = MAX(version)+1` for that scope inside a write transaction so
+    /// the latest snapshot is always the highest version. Global rows pass
+    /// `scope_id = ""`. Returns the assigned version.
+    pub(crate) fn insert_profile_snapshot(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+        body_md: &str,
+        source_run_id: &str,
+    ) -> Result<i64> {
+        let conn = self.backend.write_conn()?;
+        let now = now_rfc3339();
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let next: i64 = match conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM memory_profile_snapshots
+             WHERE scope_type = ?1 AND scope_id = ?2",
+            params![scope_type, scope_id],
+            |r| r.get(0),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e.into());
+            }
+        };
+        if let Err(e) = conn.execute(
+            "INSERT INTO memory_profile_snapshots
+                (id, scope_type, scope_id, version, body_md, source_run_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                scope_type,
+                scope_id,
+                next,
+                body_md,
+                source_run_id,
+                now,
+            ],
+        ) {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e.into());
+        }
+        conn.execute_batch("COMMIT")?;
+        Ok(next)
+    }
+
+    /// Latest snapshot body for one scope (highest version), for system-prompt
+    /// injection. Global passes `scope_id = ""`.
+    pub(crate) fn latest_profile_body(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.backend.read_conn()?;
+        let body = conn
+            .query_row(
+                "SELECT body_md FROM memory_profile_snapshots
+                 WHERE scope_type = ?1 AND scope_id = ?2
+                 ORDER BY version DESC LIMIT 1",
+                params![scope_type, scope_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(body)
+    }
+
+    /// Latest snapshot per scope, for the read-only profile view (one row per
+    /// `(scope_type, scope_id)` at its highest version). Scopes whose latest
+    /// snapshot is an empty tombstone (active claims all gone — see
+    /// `profile::run_profile_synthesis_cycle`) are excluded, so the view shows
+    /// only scopes that currently have a profile.
+    pub(crate) fn latest_profile_snapshots(&self) -> Result<Vec<ProfileSnapshotRecord>> {
+        let conn = self.backend.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT s.scope_type, s.scope_id, s.version, s.body_md, s.source_run_id, s.created_at
+             FROM memory_profile_snapshots s
+             JOIN (
+                SELECT scope_type, scope_id, MAX(version) AS v
+                FROM memory_profile_snapshots
+                GROUP BY scope_type, scope_id
+             ) m ON s.scope_type = m.scope_type
+                 AND s.scope_id = m.scope_id
+                 AND s.version = m.v
+             WHERE s.body_md != ''
+             ORDER BY s.scope_type ASC, s.scope_id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let scope_id_raw: String = row.get(1)?;
+            Ok(ProfileSnapshotRecord {
+                scope_type: row.get(0)?,
+                scope_id: if scope_id_raw.is_empty() {
+                    None
+                } else {
+                    Some(scope_id_raw)
+                },
+                version: row.get(2)?,
+                body_md: row.get(3)?,
+                source_run_id: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Write one `dreaming_decisions` row (`promote` / `profile`) recording a
+    /// snapshot generation, for the audit trail. `target_id` is the scope key
+    /// (`global` / `agent:<id>` / `project:<id>`); the version lands in
+    /// `after_json`.
+    pub(crate) fn insert_profile_decision(
+        &self,
+        run_id: &str,
+        scope_type: &str,
+        scope_id: &str,
+        version: i64,
+        rationale: &str,
+    ) -> Result<()> {
+        let conn = self.backend.write_conn()?;
+        let now = now_rfc3339();
+        let target = if scope_id.is_empty() {
+            scope_type.to_string()
+        } else {
+            format!("{scope_type}:{scope_id}")
+        };
+        let after = serde_json::json!({
+            "scopeType": scope_type,
+            "scopeId": if scope_id.is_empty() { None } else { Some(scope_id) },
+            "version": version,
+        })
+        .to_string();
+        conn.execute(
+            "INSERT INTO dreaming_decisions
+                (id, run_id, decision_type, target_type, target_id, score,
+                 rationale, before_json, after_json, created_at)
+             VALUES (?1, ?2, 'promote', 'profile', ?3, NULL, ?4, NULL, ?5, ?6)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                run_id,
+                target,
+                rationale,
+                after,
+                now,
             ],
         )?;
         Ok(())
@@ -927,5 +1094,75 @@ mod tests {
         assert_eq!(s.recover_stale_runs().unwrap(), 1);
         let r = s.get_run("run-x").unwrap().unwrap();
         assert_eq!(r.run.status, "failed");
+    }
+
+    #[test]
+    fn profile_snapshot_version_increments_per_scope() {
+        let s = temp_store();
+        let v1 = s
+            .insert_profile_snapshot("global", "", "- a\n", "run-1")
+            .unwrap();
+        let v2 = s
+            .insert_profile_snapshot("global", "", "- b\n", "run-2")
+            .unwrap();
+        assert_eq!((v1, v2), (1, 2));
+        // Latest body for the scope is the highest version.
+        assert_eq!(
+            s.latest_profile_body("global", "").unwrap().as_deref(),
+            Some("- b\n")
+        );
+        // A different scope keeps its own version sequence.
+        let a1 = s
+            .insert_profile_snapshot("agent", "ha-main", "- x\n", "run-3")
+            .unwrap();
+        assert_eq!(a1, 1);
+    }
+
+    #[test]
+    fn latest_profile_snapshots_one_row_per_scope_at_max_version() {
+        let s = temp_store();
+        s.insert_profile_snapshot("global", "", "- old\n", "r1")
+            .unwrap();
+        s.insert_profile_snapshot("global", "", "- new\n", "r2")
+            .unwrap();
+        s.insert_profile_snapshot("agent", "ha-main", "- agent\n", "r3")
+            .unwrap();
+
+        let snaps = s.latest_profile_snapshots().unwrap();
+        assert_eq!(snaps.len(), 2);
+        let g = snaps.iter().find(|r| r.scope_type == "global").unwrap();
+        assert_eq!(g.version, 2);
+        assert_eq!(g.scope_id, None, "global '' maps back to None");
+        assert_eq!(g.body_md, "- new\n");
+        let a = snaps.iter().find(|r| r.scope_type == "agent").unwrap();
+        assert_eq!(a.version, 1);
+        assert_eq!(a.scope_id.as_deref(), Some("ha-main"));
+    }
+
+    #[test]
+    fn profile_body_none_when_no_snapshot() {
+        let s = temp_store();
+        assert!(s.latest_profile_body("global", "").unwrap().is_none());
+        assert!(s.latest_profile_snapshots().unwrap().is_empty());
+    }
+
+    #[test]
+    fn empty_tombstone_hides_scope_from_view_but_injection_sees_it() {
+        let s = temp_store();
+        s.insert_profile_snapshot("global", "", "- fact\n", "r1")
+            .unwrap();
+        // The view shows the populated scope.
+        assert_eq!(s.latest_profile_snapshots().unwrap().len(), 1);
+        // A later tombstone (active claims gone) supersedes it.
+        let v = s.insert_profile_snapshot("global", "", "", "r2").unwrap();
+        assert_eq!(v, 2);
+        // The read-only view excludes the now-cleared scope...
+        assert!(s.latest_profile_snapshots().unwrap().is_empty());
+        // ...but the injection read returns the latest (empty) body, so the
+        // caller falls back to legacy instead of injecting the stale profile.
+        assert_eq!(
+            s.latest_profile_body("global", "").unwrap().as_deref(),
+            Some("")
+        );
     }
 }

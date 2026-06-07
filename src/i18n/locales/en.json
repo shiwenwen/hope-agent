@@ -2786,7 +2786,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Profile synthesis",
+      "profileEnabled": "Synthesise a memory profile",
+      "profileEnabledDesc": "Build a readable profile from active claims, layered by scope. When on, it replaces the legacy profile section in the system prompt; off keeps the legacy rendering. Idle/cron use a cheap rule-based pass; manual runs an LLM rewrite.",
+      "profileMaxLines": "Max lines per scope",
+      "profileMaxLinesDesc": "Cap on how many profile bullets are kept per scope."
     },
     "embedding": {
       "reembedJob": {
@@ -3348,7 +3353,8 @@
       "dreaming": "Dreaming",
       "manage": "Memory Management",
       "settings": "Memory Settings",
-      "claims": "Claims"
+      "claims": "Claims",
+      "profile": "Profile"
     },
     "memoryTags": "Tags",
     "memoryTagsPlaceholder": "Comma-separated tags (optional)",
@@ -3615,7 +3621,18 @@
     "planQuestionTimeoutDesc": "Maximum time to wait for user response to Plan Mode questions. Auto-cancels the question on timeout. Set to 0 for no limit.",
     "planSubagent": "Plan Sub-Agent Mode",
     "planSubagentDesc": "When enabled, Plan Mode uses a dedicated sub-agent for plan creation (cleaner main context). When disabled, planning runs inline in the main agent (context continuity).",
-    "profile": "Profile",
+    "profile": {
+      "title": "Memory Profile",
+      "desc": "What it knows about you and your projects, synthesised from active claims and layered by scope.",
+      "refresh": "Refresh profile",
+      "refreshing": "Synthesising…",
+      "refreshDone": "Profile refreshed ({{count}} snapshots)",
+      "refreshSkipped": "Synthesis skipped",
+      "refreshFailed": "Failed to synthesise profile",
+      "empty": "No profile snapshot yet",
+      "emptyHint": "Enable profile synthesis under the Dreaming tab, then refresh.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} years old",
     "profileAiExpBeginner": "Beginner — just getting started",
     "profileAiExpExpert": "Expert — deep user of AI tools",
