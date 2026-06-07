@@ -1066,8 +1066,9 @@ fn hidden_claim_linked_memory_ids(
 }
 
 /// Single-source dedup set for Context Pack (design §4.8): `memory_id`s that ARE
-/// covered by an effective-active managed claim — they inject via the Pinned /
-/// Relevant Claims segments, so they must be dropped from the legacy `# Memory`
+/// covered by an effective-active managed claim that clears the Pinned salience
+/// bar (`PINNED_MIN_SALIENCE`) — they inject via the Pinned segment, so they must
+/// be dropped from the legacy `# Memory`
 /// section. The positive mirror of [`hidden_claim_linked_memory_ids`] (which
 /// drops memories whose claims are all DEAD); here we drop those still owned by a
 /// LIVE claim. The two sets are disjoint (presence vs absence of a live managed
@@ -1079,6 +1080,13 @@ fn covered_by_active_claim_memory_ids(
     conn: &rusqlite::Connection,
 ) -> Result<std::collections::HashSet<i64>> {
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    // Threshold-aligned with the Pinned segment (PINNED_MIN_SALIENCE): only a
+    // claim that actually clears the pin bar — and therefore injects via Pinned —
+    // may drop its shadow memory from the legacy section. A lower-salience managed
+    // claim does NOT inject (Pinned needs >= the threshold), so its shadow stays
+    // in the legacy section as the fallback and the fact keeps a static prompt
+    // outlet (dedup must never be more aggressive than injection).
+    let min_salience = crate::memory::dreaming::PINNED_MIN_SALIENCE as f64;
     let mut stmt = conn.prepare(
         "SELECT DISTINCT l.memory_id
          FROM memory_claim_links l
@@ -1089,6 +1097,7 @@ fn covered_by_active_claim_memory_ids(
                  WHERE la.memory_id = l.memory_id
                    AND la.sync_mode = 'managed'
                    AND ca.status = 'active'
+                   AND ca.salience >= ?2
                    AND (ca.valid_until IS NULL OR ca.valid_until = ''
                         OR ca.valid_until >= ?1))
            AND NOT EXISTS (
@@ -1099,7 +1108,7 @@ fn covered_by_active_claim_memory_ids(
                  WHERE mm.id = l.memory_id AND mm.pinned = 1)",
     )?;
     let ids = stmt
-        .query_map(params![now], |row| row.get::<_, i64>(0))?
+        .query_map(params![now, min_salience], |row| row.get::<_, i64>(0))?
         .filter_map(|r| r.ok())
         .collect();
     Ok(ids)
@@ -1207,8 +1216,14 @@ mod claim_injection_tests {
         // of the `hidden` (dead-claim) set, with the same exemptions.
         let backend = temp_backend();
         let conn = backend.write_conn().unwrap();
-        // 1: active managed claim → covered.
+        // 1: active managed claim, salience >= the Pinned bar → covered (it
+        //    injects via Pinned, so its shadow drops from legacy).
         seed(&conn, 1, "c1", "active", None, "managed");
+        conn.execute(
+            "UPDATE memory_claims SET salience = 0.9 WHERE id = 'c1'",
+            [],
+        )
+        .unwrap();
         // 2: superseded managed claim → NOT covered (that's the `hidden` set).
         seed(&conn, 2, "c2", "superseded", None, "managed");
         // 3: active but valid_until past → effective expired → NOT covered.
@@ -1227,6 +1242,10 @@ mod claim_injection_tests {
         seed(&conn, 5, "c5", "active", None, "managed");
         conn.execute("UPDATE memories SET pinned = 1 WHERE id = 5", [])
             .unwrap();
+        // 6: active managed claim BELOW the Pinned salience bar (default 0.5 <
+        //    0.7) → NOT covered: it never injects via Pinned, so its shadow must
+        //    stay in legacy as the fallback (dedup aligned to injection).
+        seed(&conn, 6, "c6", "active", None, "managed");
         drop(conn);
 
         let read = backend.read_conn().unwrap();
@@ -1247,6 +1266,10 @@ mod claim_injection_tests {
         assert!(
             !covered.contains(&5),
             "a user-pinned memory is never deduped away"
+        );
+        assert!(
+            !covered.contains(&6),
+            "a sub-pin-threshold claim does not cover (no Pinned outlet → legacy fallback)"
         );
 
         // covered (live) and hidden (dead) are disjoint: a memory is in at most

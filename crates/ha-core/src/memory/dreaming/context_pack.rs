@@ -41,6 +41,17 @@ use crate::memory::claims::{self, ClaimRecord};
 use crate::memory::sqlite::sanitize_for_prompt;
 use crate::memory::MemoryScope;
 
+/// Salience threshold for a claim to count as "pinned" and inject via the
+/// Context Pack (design §4.5). Single source of truth: both
+/// [`ContextPackOptions::default`] AND the legacy `# Memory` single-source dedup
+/// (`covered_by_active_claim_memory_ids`) read this, so a claim's shadow memory
+/// is dropped from the legacy section ONLY when the claim actually clears the pin
+/// bar and injects via Pinned — otherwise the shadow stays as the legacy
+/// fallback so no fact loses its only static prompt outlet (the dedup threshold
+/// must never be more aggressive than the Pinned injection threshold). Baseline
+/// salience is 0.5, so 0.7 keeps clearly-above-average facts.
+pub const PINNED_MIN_SALIENCE: f32 = 0.7;
+
 /// Provenance for one entry that made it into the Context Pack. Lets the owner
 /// plane / future correction loop trace an injected prompt line back to its
 /// claim.
@@ -91,7 +102,7 @@ pub struct ContextPackOptions {
 impl Default for ContextPackOptions {
     fn default() -> Self {
         Self {
-            min_salience: 0.7,
+            min_salience: PINNED_MIN_SALIENCE,
             pinned_limit: 12,
             entry_max_chars: 300,
         }

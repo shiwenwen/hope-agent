@@ -41,7 +41,9 @@ pub use config::{
     CronTriggerConfig, DreamingConfig, IdleTriggerConfig, ProfileSynthesisConfig,
     PromotionThresholds,
 };
-pub use context_pack::{build_context_pack, ContextPackOptions, MemoryContextPack, SourceRef};
+pub use context_pack::{
+    build_context_pack, ContextPackOptions, MemoryContextPack, SourceRef, PINNED_MIN_SALIENCE,
+};
 pub use cron_loop::spawn_dreaming_cron_loop;
 pub use evidence::evidence_quote;
 pub use pipeline::{last_report_snapshot, run_cycle};
