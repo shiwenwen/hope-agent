@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **会话搜索置顶并显示 Project 归属**：侧边栏会话搜索入口移到顶部固定位置，搜索结果会携带并展示 `projectId` / Project 名称与图标，项目会话命中时可直接看出来源；搜索态不再受隐藏的 Agent 筛选静默影响，避免结果被不可见过滤条件收窄。
 - **Skill requirements 分级注入语义**：`requires.os` 不匹配这类硬不兼容 skill 不再进入模型 catalog / 斜杠菜单；缺少可安装/可配置依赖（`bins` / `anyBins` / `env` / `config`）的 skill 仍可见，但在 `skill({name})` 或 `/skill-name` 激活前返回缺失项与安装/配置诊断，不再直接加载 SKILL.md。Settings 技能面板同步展示 `Incompatible` / `Needs setup` 状态、缺失 binaries / env / config 与当前 OS 信息。
 - **Skill 激活上下文包含包目录元数据**：inline 与 fork 激活返回的 skill 内容前会注入 skill name 与 skill directory，方便内置脚本、references、assets 通过 skill 目录稳定定位，无需模型猜测路径。
 

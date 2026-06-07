@@ -11,8 +11,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Bot, MessageSquarePlus, PanelLeft } from "lucide-react"
+import { Bot, MessageSquarePlus, PanelLeft, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -140,12 +141,25 @@ export default function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const searchTruncated = (searchResults?.length ?? 0) >= SEARCH_LIMIT
+  const isHistorySearching = searchQuery.trim().length > 0
 
   useEffect(() => {
     if (searchFocusSignal === undefined || searchFocusSignal === 0) return
     onSidebarCollapsedChange(false)
   }, [searchFocusSignal, onSidebarCollapsedChange])
+
+  useEffect(() => {
+    if (searchFocusSignal === undefined || searchFocusSignal === 0 || sidebarCollapsed) return
+    const frame = window.requestAnimationFrame(() => {
+      const input = searchInputRef.current
+      if (!input) return
+      input.focus({ preventScroll: true })
+      input.select()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [searchFocusSignal, sidebarCollapsed])
 
   useEffect(() => {
     let cancelled = false
@@ -181,7 +195,6 @@ export default function ChatSidebar({
       try {
         const results = await getTransport().call<SessionSearchResult[]>("search_sessions_cmd", {
           query: q,
-          agentId: selectedAgentId ?? undefined,
           limit: SEARCH_LIMIT,
         })
         setSearchResults(sortSessionSearchResults(results ?? []))
@@ -193,7 +206,7 @@ export default function ChatSidebar({
       }
     }, 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, selectedAgentId])
+  }, [searchQuery])
 
   const filteredSessions = (() => {
     const list =
@@ -322,6 +335,69 @@ export default function ChatSidebar({
     setDeleteConfirmSessionId(null)
   }
 
+  const focusSearchInput = useCallback(() => {
+    searchInputRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const handleSearchSurfaceMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest("button")) return
+      if (target !== searchInputRef.current) {
+        e.preventDefault()
+      }
+      focusSearchInput()
+    },
+    [focusSearchInput],
+  )
+
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "Escape") return
+      e.preventDefault()
+      if (searchQuery.length > 0) {
+        setSearchQuery("")
+      } else {
+        searchInputRef.current?.blur()
+      }
+    },
+    [searchQuery],
+  )
+
+  const sessionListNode = (
+    <SessionList
+      sessions={sessions}
+      filteredSessions={filteredSessions}
+      sessionFilter={sessionFilter}
+      setSessionFilter={setSessionFilter}
+      selectedAgentId={selectedAgentId}
+      currentSessionId={currentSessionId}
+      loadingSessionIds={loadingSessionIds}
+      loadingMoreSessions={loadingMoreSessions}
+      onSwitchSession={onSwitchSession}
+      onDeleteClick={handleDeleteClick}
+      onMarkAllRead={onMarkAllRead}
+      renamingSessionId={renamingSessionId}
+      renameValue={renameValue}
+      renameInputRef={renameInputRef}
+      onStartRename={startRename}
+      onRenameValueChange={setRenameValue}
+      onCommitRename={commitRename}
+      onCancelRename={cancelRename}
+      getAgentInfo={getAgentInfo}
+      formatRelativeTime={formatRelativeTime}
+      searchQuery={searchQuery}
+      searchResults={searchResults}
+      searchTruncated={searchTruncated}
+      searching={searching}
+      agents={agents}
+      projects={projects}
+      onMoveToProject={onMoveSessionToProject}
+      onToggleSessionPinned={onToggleSessionPinned}
+      displayMode={sidebarDisplayMode}
+    />
+  )
+
   return (
     <>
       <div
@@ -414,9 +490,34 @@ export default function ChatSidebar({
               </div>
             </div>
 
+            <div className="shrink-0 border-b border-border/40 px-3 pb-2 pt-1">
+              <div className="relative" onMouseDown={handleSearchSurfaceMouseDown}>
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
+                <Input
+                  ref={searchInputRef}
+                  aria-label={t("chat.searchPlaceholder") || ""}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder={t("chat.searchPlaceholder")}
+                  className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:ring-0 focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={t("common.clear") || "Clear"}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div
               className="flex-1 overflow-y-auto overflow-x-hidden [overscroll-behavior-y:none]"
               onScroll={(e) => {
+                if (isHistorySearching) return
                 if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
                 const el = e.currentTarget
                 // Trigger when scrolled within 100px of the bottom
@@ -425,88 +526,62 @@ export default function ChatSidebar({
                 }
               }}
             >
-              {/* Projects section — shown above agents so users reach their
-                  active workspace first. Falls back silently when no handler
-                  is wired (backwards-compat). */}
-              {(projects.length > 0 || onAddProject) && (
-                <ProjectSection
-                  projects={projects}
-                  sessions={sessions}
-                  agents={agents}
-                  currentSessionId={currentSessionId}
-                  loadingSessionIds={loadingSessionIds}
-                  expanded={projectsExpanded}
-                  setExpanded={setProjectsExpanded}
-                  onAddProject={() => onAddProject?.()}
-                  onOpenProjectSettings={(p) => onOpenProjectSettings?.(p)}
-                  onNewChatInProject={(pid, opts) => onNewChatInProject?.(pid, opts)}
-                  onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
-                  onSwitchSession={onSwitchSession}
-                  onDeleteSession={handleDeleteClick}
-                  onMarkAllRead={onMarkAllRead}
-                  renamingSessionId={renamingSessionId}
-                  renameValue={renameValue}
-                  renameInputRef={renameInputRef}
-                  onStartRename={startRename}
-                  onRenameValueChange={setRenameValue}
-                  onCommitRename={commitRename}
-                  onCancelRename={cancelRename}
-                  onMoveSessionToProject={onMoveSessionToProject}
-                  onToggleSessionPinned={onToggleSessionPinned}
-                  getAgentInfo={getAgentInfo}
-                  formatRelativeTime={formatRelativeTime}
-                  displayMode={sidebarDisplayMode}
-                />
+              {isHistorySearching ? (
+                sessionListNode
+              ) : (
+                <>
+                  {/* Projects section — shown above agents so users reach their
+                      active workspace first. Falls back silently when no handler
+                      is wired (backwards-compat). */}
+                  {(projects.length > 0 || onAddProject) && (
+                    <ProjectSection
+                      projects={projects}
+                      sessions={sessions}
+                      agents={agents}
+                      currentSessionId={currentSessionId}
+                      loadingSessionIds={loadingSessionIds}
+                      expanded={projectsExpanded}
+                      setExpanded={setProjectsExpanded}
+                      onAddProject={() => onAddProject?.()}
+                      onOpenProjectSettings={(p) => onOpenProjectSettings?.(p)}
+                      onNewChatInProject={(pid, opts) => onNewChatInProject?.(pid, opts)}
+                      onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
+                      onSwitchSession={onSwitchSession}
+                      onDeleteSession={handleDeleteClick}
+                      onMarkAllRead={onMarkAllRead}
+                      renamingSessionId={renamingSessionId}
+                      renameValue={renameValue}
+                      renameInputRef={renameInputRef}
+                      onStartRename={startRename}
+                      onRenameValueChange={setRenameValue}
+                      onCommitRename={commitRename}
+                      onCancelRename={cancelRename}
+                      onMoveSessionToProject={onMoveSessionToProject}
+                      onToggleSessionPinned={onToggleSessionPinned}
+                      getAgentInfo={getAgentInfo}
+                      formatRelativeTime={formatRelativeTime}
+                      displayMode={sidebarDisplayMode}
+                    />
+                  )}
+
+                  {/* Collapsible Agents section */}
+                  <AgentSection
+                    agents={agents}
+                    agentsExpanded={agentsExpanded}
+                    setAgentsExpanded={setAgentsExpanded}
+                    selectedAgentId={selectedAgentId}
+                    toggleAgentFilter={toggleAgentFilter}
+                    onNewChat={onNewChat}
+                    onEditAgent={onEditAgent}
+                    onReorderAgents={onReorderAgents}
+                    panelWidth={panelWidth}
+                    displayMode={sidebarDisplayMode}
+                  />
+
+                  {/* Session filter tabs + session list */}
+                  {sessionListNode}
+                </>
               )}
-
-              {/* Collapsible Agents section */}
-              <AgentSection
-                agents={agents}
-                agentsExpanded={agentsExpanded}
-                setAgentsExpanded={setAgentsExpanded}
-                selectedAgentId={selectedAgentId}
-                toggleAgentFilter={toggleAgentFilter}
-                onNewChat={onNewChat}
-                onEditAgent={onEditAgent}
-                onReorderAgents={onReorderAgents}
-                panelWidth={panelWidth}
-                displayMode={sidebarDisplayMode}
-              />
-
-              {/* Session filter tabs + session list */}
-              <SessionList
-                sessions={sessions}
-                filteredSessions={filteredSessions}
-                sessionFilter={sessionFilter}
-                setSessionFilter={setSessionFilter}
-                selectedAgentId={selectedAgentId}
-                currentSessionId={currentSessionId}
-                loadingSessionIds={loadingSessionIds}
-                loadingMoreSessions={loadingMoreSessions}
-                onSwitchSession={onSwitchSession}
-                onDeleteClick={handleDeleteClick}
-                onMarkAllRead={onMarkAllRead}
-                renamingSessionId={renamingSessionId}
-                renameValue={renameValue}
-                renameInputRef={renameInputRef}
-                onStartRename={startRename}
-                onRenameValueChange={setRenameValue}
-                onCommitRename={commitRename}
-                onCancelRename={cancelRename}
-                getAgentInfo={getAgentInfo}
-                formatRelativeTime={formatRelativeTime}
-                searchQuery={searchQuery}
-                onSearchQueryChange={setSearchQuery}
-                searchResults={searchResults}
-                searchTruncated={searchTruncated}
-                searching={searching}
-                agents={agents}
-                projects={projects}
-                onMoveToProject={onMoveSessionToProject}
-                onToggleSessionPinned={onToggleSessionPinned}
-                searchFocusSignal={sidebarCollapsed ? 0 : searchFocusSignal}
-                displayMode={sidebarDisplayMode}
-              />
             </div>
           </div>
         </div>
