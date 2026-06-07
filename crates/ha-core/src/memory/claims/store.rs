@@ -104,6 +104,17 @@ pub fn list_claims(filter: ClaimListFilter) -> Result<Vec<ClaimRecord>> {
     store.list_claims(&filter)
 }
 
+/// FTS5 relevance search over active claims for the Context Pack "Relevant
+/// Claims" section. Scope-filtered, effective-active only, ranked by FTS.
+pub fn search_claims(
+    query: &str,
+    scope: Option<MemoryScope>,
+    limit: usize,
+) -> Result<Vec<ClaimRecord>> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.search_claims(query, scope.as_ref(), limit)
+}
+
 /// Fetch a single claim plus its evidence and legacy-memory links. Returns
 /// `None` if the id is unknown.
 pub fn get_claim(id: &str) -> Result<Option<ClaimDetail>> {
@@ -266,6 +277,64 @@ impl ClaimStore {
         args.push(SqlValue::Integer(limit as i64));
         args.push(SqlValue::Integer(offset as i64));
 
+        let conn = self.backend.read_conn()?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(args), row_to_claim)?;
+        Ok(rows
+            .filter_map(|r| r.ok())
+            .map(|mut c| {
+                c.status = write::effective_status(&c.status, c.valid_until.as_deref(), &now);
+                c
+            })
+            .collect())
+    }
+
+    /// FTS5 relevance search over active claims (Context Pack "Relevant
+    /// Claims"). Matches content/subject/object, keeps only effective-active
+    /// claims (status='active' AND not past valid_until) in the given scope,
+    /// ordered by FTS rank. Empty query / no FTS tokens → empty result.
+    fn search_claims(
+        &self,
+        query: &str,
+        scope: Option<&MemoryScope>,
+        limit: usize,
+    ) -> Result<Vec<ClaimRecord>> {
+        let Some(fts_query) = crate::memory::helpers::expand_query(query) else {
+            return Ok(Vec::new());
+        };
+        let now = now_rfc3339();
+        let mut conditions: Vec<String> = vec![
+            "memory_claims_fts MATCH ?".to_string(),
+            "c.status = 'active'".to_string(),
+            "(c.valid_until IS NULL OR c.valid_until = '' OR c.valid_until >= ?)".to_string(),
+        ];
+        let mut args: Vec<SqlValue> = vec![SqlValue::Text(fts_query), SqlValue::Text(now.clone())];
+        match scope {
+            Some(MemoryScope::Global) => conditions.push("c.scope_type = 'global'".to_string()),
+            Some(MemoryScope::Agent { id }) => {
+                conditions.push("c.scope_type = 'agent' AND c.scope_id = ?".to_string());
+                args.push(SqlValue::Text(id.clone()));
+            }
+            Some(MemoryScope::Project { id }) => {
+                conditions.push("c.scope_type = 'project' AND c.scope_id = ?".to_string());
+                args.push(SqlValue::Text(id.clone()));
+            }
+            None => {}
+        }
+        let where_clause = conditions.join(" AND ");
+        let limit = limit.clamp(1, MAX_LIST_LIMIT);
+        let sql = format!(
+            "SELECT c.id, c.scope_type, c.scope_id, c.claim_type, c.subject, c.predicate, c.object,
+                    c.content, c.tags_json, c.confidence, c.confidence_source, c.salience,
+                    c.freshness_policy_json, c.status, c.valid_from, c.valid_until,
+                    c.supersedes_claim_id, c.source_run_id, c.created_at, c.updated_at
+             FROM memory_claims_fts fts
+             JOIN memory_claims c ON c.rowid = fts.rowid
+             WHERE {where_clause}
+             ORDER BY fts.rank
+             LIMIT ?"
+        );
+        args.push(SqlValue::Integer(limit as i64));
         let conn = self.backend.read_conn()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(args), row_to_claim)?;
@@ -1190,6 +1259,95 @@ mod tests {
             })
             .unwrap();
         assert!(queue.iter().any(|c| c.id == id));
+    }
+
+    #[test]
+    fn search_claims_matches_active_by_fts_and_scope() {
+        let s = temp_store();
+        let insert = |id: &str,
+                      scope_type: &str,
+                      scope_id: &str,
+                      content: &str,
+                      status: &str,
+                      valid_until: Option<&str>| {
+            let conn = s.backend.write_conn().unwrap();
+            conn.execute(
+                "INSERT INTO memory_claims (id, scope_type, scope_id, claim_type, subject, predicate, object, content, status, valid_until, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'preference', 'user', 'likes', ?4, ?4, ?5, ?6, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+                params![id, scope_type, scope_id, content, status, valid_until],
+            ).unwrap();
+        };
+        insert(
+            "c1",
+            "global",
+            "",
+            "rust programming language",
+            "active",
+            None,
+        );
+        insert("c2", "global", "", "typescript frontend", "active", None);
+        insert(
+            "c3",
+            "agent",
+            "ha-main",
+            "rust agent scoped",
+            "active",
+            None,
+        );
+        insert("c4", "global", "", "archived rust", "archived", None);
+        insert(
+            "c5",
+            "global",
+            "",
+            "expired rust",
+            "active",
+            Some("2020-01-01T00:00:00.000Z"),
+        );
+
+        // FTS "rust" across all scopes: active c1/c3 in; archived c4 + effective-expired c5 out.
+        let ids: Vec<String> = s
+            .search_claims("rust", None, 10)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert!(
+            ids.contains(&"c1".to_string()),
+            "active global rust: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"c3".to_string()),
+            "active agent rust: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"c4".to_string()),
+            "archived excluded: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"c5".to_string()),
+            "expired excluded: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"c2".to_string()),
+            "non-matching excluded: {ids:?}"
+        );
+
+        // Scope filter: global only excludes the agent-scoped match.
+        let gids: Vec<String> = s
+            .search_claims("rust", Some(&MemoryScope::Global), 10)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert!(gids.contains(&"c1".to_string()));
+        assert!(
+            !gids.contains(&"c3".to_string()),
+            "agent scope excluded: {gids:?}"
+        );
+
+        // No token / no match → empty.
+        assert!(s.search_claims("zzzznomatch", None, 10).unwrap().is_empty());
+        assert!(s.search_claims("   ", None, 10).unwrap().is_empty());
     }
 
     fn seed_claim(s: &ClaimStore, id: &str, status: &str) {

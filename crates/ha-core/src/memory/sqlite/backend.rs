@@ -415,6 +415,48 @@ impl SqliteMemoryBackend {
                 ON memory_profile_snapshots(scope_type, scope_id, version DESC);",
         )?;
 
+        // ── Claim relevance search: FTS5 over memory_claims (PR #8 Context
+        // Pack — "Relevant Claims" this turn). External-content FTS keyed on
+        // memory_claims' implicit INTEGER rowid (the table PK is a TEXT uuid,
+        // which can't be an FTS/vec rowid). Triggers keep it in sync; on first
+        // creation we rebuild from rows written before this index existed.
+        let claims_fts_existed = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='memory_claims_fts'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_claims_fts USING fts5(
+                content, subject, object,
+                content='memory_claims',
+                content_rowid='rowid',
+                tokenize='unicode61'
+            );
+            CREATE TRIGGER IF NOT EXISTS memory_claims_ai AFTER INSERT ON memory_claims BEGIN
+                INSERT INTO memory_claims_fts(rowid, content, subject, object)
+                VALUES (new.rowid, new.content, new.subject, new.object);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_claims_ad AFTER DELETE ON memory_claims BEGIN
+                INSERT INTO memory_claims_fts(memory_claims_fts, rowid, content, subject, object)
+                VALUES ('delete', old.rowid, old.content, old.subject, old.object);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_claims_au AFTER UPDATE ON memory_claims BEGIN
+                INSERT INTO memory_claims_fts(memory_claims_fts, rowid, content, subject, object)
+                VALUES ('delete', old.rowid, old.content, old.subject, old.object);
+                INSERT INTO memory_claims_fts(rowid, content, subject, object)
+                VALUES (new.rowid, new.content, new.subject, new.object);
+            END;",
+        )?;
+        if !claims_fts_existed {
+            // Backfill claims written before this index existed (PR #3-7).
+            let _ = conn.execute_batch(
+                "INSERT INTO memory_claims_fts(memory_claims_fts) VALUES('rebuild');",
+            );
+        }
+
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
         for _ in 0..READ_POOL_SIZE {
