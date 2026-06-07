@@ -540,6 +540,7 @@ pub fn run() {
             commands::project_fs::project_fs_list,
             commands::project_fs::project_fs_read_text,
             commands::project_fs::project_fs_extract,
+            commands::project_fs::project_fs_search,
             commands::project_fs::project_fs_resolve,
             commands::project_fs::preview_read_text,
             commands::project_fs::preview_extract,
