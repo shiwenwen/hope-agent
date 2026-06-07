@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-07
+
 ### Added
 
 - **文件浏览器搜索**：项目 / 会话文件浏览器新增按文件名与路径的模糊搜索，支持搜索结果停留、键盘上下选择、回车预览、目录结果展开定位，以及跨 session / project / worktree 的 scope-based 后端搜索，避免 Project 默认工作目录下搜索失败。
