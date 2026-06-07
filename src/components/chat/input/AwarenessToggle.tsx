@@ -29,7 +29,7 @@ interface Props {
 
 /**
  * Compact popover button for per-session behavior awareness override.
- * Placed in the chat input bar alongside TemperatureSlider.
+ * Placed in the chat input bar alongside the runtime settings controls.
  *
  * When the global feature is disabled, the button is hidden entirely.
  * When visible, it shows an eye icon that opens a small popover with

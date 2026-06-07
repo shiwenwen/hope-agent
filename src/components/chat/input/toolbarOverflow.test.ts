@@ -23,7 +23,7 @@ test("keeps overflow visibility classes static for Tailwind scanning", () => {
   // JS-side breakpoint is measured against the input container width, so
   // right-side panels can trigger the compact toolbar without resizing window.
   expect(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX).toBe(900)
-  expect(CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX).toBe(420)
+  expect(CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX).toBe(520)
 })
 
 test("returns overflow actions for the compact input toolbar", () => {

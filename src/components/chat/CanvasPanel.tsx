@@ -46,6 +46,7 @@ function toCanvasInfo(
 interface CanvasPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  reservedMainWidth?: number
   currentSessionId?: string | null
   onOpenChange?: (open: boolean) => void
   visible?: boolean
@@ -57,6 +58,7 @@ export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
 export default function CanvasPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  reservedMainWidth,
   currentSessionId = null,
   onOpenChange,
   visible = true,
@@ -405,6 +407,7 @@ export default function CanvasPanel({
         width={panelWidth}
         onWidthChange={onPanelWidthChange}
         resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
+        reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
         contentKey="canvas-detached"
       >
@@ -446,6 +449,7 @@ export default function CanvasPanel({
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
       maximized={maximized}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey="canvas"
     >

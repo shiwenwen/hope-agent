@@ -157,6 +157,7 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
+const CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH = 320
 const RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH = 360
 const RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH = 640
 const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
@@ -268,6 +269,7 @@ export default function ChatScreen({
     return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
   })
   const autoCollapsedSidebarRef = useRef(false)
+  const manualSidebarExpandedOverrideRef = useRef(false)
   const userSidebarCollapsedPreferenceRef = useRef(sidebarCollapsed)
 
   useEffect(() => {
@@ -283,6 +285,7 @@ export default function ChatScreen({
 
   const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
     autoCollapsedSidebarRef.current = false
+    manualSidebarExpandedOverrideRef.current = !collapsed
     userSidebarCollapsedPreferenceRef.current = collapsed
     setSidebarCollapsed(collapsed)
   }, [])
@@ -1516,6 +1519,7 @@ export default function ChatScreen({
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [manualRightPanelExpandedOverride, setManualRightPanelExpandedOverride] = useState(false)
   const autoCollapsedRightPanelRef = useRef(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
@@ -1591,6 +1595,14 @@ export default function ChatScreen({
     if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
     setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
     autoCollapsedRightPanelRef.current = false
+    setManualRightPanelExpandedOverride(true)
+    setRightPanelCollapsed(false)
+  }, [])
+
+  const showRightPanelByUser = useCallback((panel: ExclusiveRightPanel) => {
+    setActiveExclusiveRightPanel(panel)
+    autoCollapsedRightPanelRef.current = false
+    setManualRightPanelExpandedOverride(true)
     setRightPanelCollapsed(false)
   }, [])
 
@@ -1606,6 +1618,7 @@ export default function ChatScreen({
   // Reveal a quoted file in the browser: open the files panel + signal target.
   const handleQuoteJump = useCallback((q: QuotePayload) => {
     setShowFilesPanel(true)
+    showRightPanelByUser("files")
     revealQuoteNonce.current += 1
     setRevealFile({
       path: q.path,
@@ -1614,20 +1627,19 @@ export default function ChatScreen({
       endLine: q.endLine,
       nonce: revealQuoteNonce.current,
     })
-  }, [])
+  }, [showRightPanelByUser])
 
   // 打开并激活 Workspace 面板（状态条点击 / 重新打开）。
   const openWorkspacePanel = useCallback(() => {
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
-    setActiveExclusiveRightPanel("workspace")
-    autoCollapsedRightPanelRef.current = false
-    setRightPanelCollapsed(false)
-  }, [])
+    showRightPanelByUser("workspace")
+  }, [showRightPanelByUser])
 
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
       autoCollapsedRightPanelRef.current = false
+      setManualRightPanelExpandedOverride(false)
       setRightPanelCollapsed(false)
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
@@ -1652,8 +1664,20 @@ export default function ChatScreen({
   const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
 
   useEffect(() => {
+    if (shouldAutoExpandRightPanel && manualRightPanelExpandedOverride) {
+      setManualRightPanelExpandedOverride(false)
+    }
+
+    if (shouldAutoExpandSidebar) {
+      manualSidebarExpandedOverrideRef.current = false
+    }
+
     if (hasOpenExclusiveRightPanel) {
-      if (shouldAutoCollapseRightPanel && !rightPanelCollapsed) {
+      if (
+        shouldAutoCollapseRightPanel &&
+        !rightPanelCollapsed &&
+        !manualRightPanelExpandedOverride
+      ) {
         autoCollapsedRightPanelRef.current = true
         setRightPanelCollapsed(true)
       } else if (
@@ -1666,12 +1690,16 @@ export default function ChatScreen({
       }
     } else {
       autoCollapsedRightPanelRef.current = false
+      if (manualRightPanelExpandedOverride) {
+        setManualRightPanelExpandedOverride(false)
+      }
     }
 
     if (
       shouldAutoCollapseSidebar &&
       !sidebarCollapsed &&
-      !userSidebarCollapsedPreferenceRef.current
+      !userSidebarCollapsedPreferenceRef.current &&
+      !manualSidebarExpandedOverrideRef.current
     ) {
       autoCollapsedSidebarRef.current = true
       setSidebarCollapsed(true)
@@ -1686,6 +1714,7 @@ export default function ChatScreen({
     }
   }, [
     hasOpenExclusiveRightPanel,
+    manualRightPanelExpandedOverride,
     rightPanelCollapsed,
     sidebarCollapsed,
     shouldAutoCollapseRightPanel,
@@ -1787,6 +1816,21 @@ export default function ChatScreen({
       : undefined,
     session.loading,
   )
+
+  const handleToggleFilesPanel = useCallback(() => {
+    if (showFilesPanel) {
+      setShowFilesPanel(false)
+      return
+    }
+    setShowFilesPanel(true)
+    showRightPanelByUser("files")
+  }, [showFilesPanel, showRightPanelByUser])
+
+  const rightPanelReservedMainWidth =
+    manualRightPanelExpandedOverride && !rightPanelCollapsed
+      ? CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH
+      : CHAT_MAIN_MIN_INTERACTIVE_WIDTH
+  const chatMainMinWidth = `min(100%, ${rightPanelReservedMainWidth}px)`
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
@@ -1966,9 +2010,7 @@ export default function ChatScreen({
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
-          onToggleFilesPanel={
-            effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
-          }
+          onToggleFilesPanel={effectiveWorkingDir ? handleToggleFilesPanel : undefined}
           filesPanelOpen={showFilesPanel}
           onToggleWorkspacePanel={() => {
             if (showWorkspacePanel) {
@@ -1986,8 +2028,10 @@ export default function ChatScreen({
           onToggleRightPanelCollapsed={
             hasOpenExclusiveRightPanel
               ? () => {
+                  const nextCollapsed = !rightPanelCollapsed
                   autoCollapsedRightPanelRef.current = false
-                  setRightPanelCollapsed((collapsed) => !collapsed)
+                  setManualRightPanelExpandedOverride(!nextCollapsed)
+                  setRightPanelCollapsed(nextCollapsed)
                 }
               : undefined
           }
@@ -1996,7 +2040,7 @@ export default function ChatScreen({
         <div className="flex-1 flex min-h-0 overflow-hidden">
           <div
             className="relative flex-1 flex flex-col min-w-0"
-            style={{ minWidth: `min(100%, ${CHAT_MAIN_MIN_INTERACTIVE_WIDTH}px)` }}
+            style={{ minWidth: chatMainMinWidth }}
           >
             {activeTeamId && !showTeamPanel && (
               <div className="px-3 py-1 border-b border-border">
@@ -2168,6 +2212,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="diff"
             >
@@ -2188,6 +2233,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="plan"
             >
@@ -2219,6 +2265,7 @@ export default function ChatScreen({
             collapsed={rightPanelCollapsed}
             panelWidth={rightPanelWidth}
             onPanelWidthChange={setRightPanelWidth}
+            reservedMainWidth={rightPanelReservedMainWidth}
             onQuote={handleFileQuote}
             revealFile={revealFile}
             onClose={() => setShowFilesPanel(false)}
@@ -2231,6 +2278,7 @@ export default function ChatScreen({
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
             collapsed={rightPanelCollapsed}
+            reservedMainWidth={rightPanelReservedMainWidth}
             visible={
               shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
             }
@@ -2243,6 +2291,7 @@ export default function ChatScreen({
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
+              reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
@@ -2258,6 +2307,7 @@ export default function ChatScreen({
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
+              reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
@@ -2274,6 +2324,7 @@ export default function ChatScreen({
                 panelWidth={rightPanelWidth}
                 onPanelWidthChange={setRightPanelWidth}
                 collapsed={rightPanelCollapsed}
+                reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => setShowTeamPanel(false)}
                 onSwitchSession={session.handleSwitchSession}
               />
@@ -2286,6 +2337,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="workspace"
             >
@@ -2325,6 +2377,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="preview"
             >

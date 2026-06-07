@@ -25,6 +25,7 @@ interface BrowserPanelProps {
    *  for the sibling Plan / Diff / Canvas panels. */
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  reservedMainWidth?: number
   collapsed?: boolean
   onClose: () => void
 }
@@ -41,6 +42,7 @@ const POLL_INTERVAL_MS = 1000
 export default function BrowserPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  reservedMainWidth,
   collapsed = false,
   onClose,
 }: BrowserPanelProps) {
@@ -124,6 +126,7 @@ export default function BrowserPanel({
       width={panelWidth}
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize browser panel")}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey="browser"
     >

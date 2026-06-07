@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { Brain, ChevronRight } from "lucide-react"
+import { Check, ChevronDown, ChevronRight } from "lucide-react"
+import { Slider } from "@/components/ui/slider"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForModel, modelSupportsThinking } from "@/types/chat"
 
@@ -12,6 +13,8 @@ interface ModelPickerProps {
   onModelChange: (key: string) => void
   onEffortChange: (effort: string) => void
   currentModelInfo?: AvailableModel
+  sessionTemperature?: number | null
+  onSessionTemperatureChange?: (temp: number | null) => void
 }
 
 export default function ModelPicker({
@@ -21,158 +24,229 @@ export default function ModelPicker({
   onModelChange,
   onEffortChange,
   currentModelInfo,
+  sessionTemperature,
+  onSessionTemperatureChange,
 }: ModelPickerProps) {
   const { t } = useTranslation()
-
-  const [showModelMenu, setShowModelMenu] = useState(false)
-  const [menuProvider, setMenuProvider] = useState<string | null>(null)
-  const modelMenuRef = useRef<HTMLDivElement>(null)
-  const [showThinkMenu, setShowThinkMenu] = useState(false)
-  const thinkMenuRef = useRef<HTMLDivElement>(null)
+  const [showMenu, setShowMenu] = useState(false)
+  const [openPanel, setOpenPanel] = useState<"model" | "temperature" | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setShowModelMenu(false)
-        setMenuProvider(null)
-      }
-      if (thinkMenuRef.current && !thinkMenuRef.current.contains(e.target as Node)) {
-        setShowThinkMenu(false)
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false)
+        setOpenPanel(null)
       }
     }
-    if (showModelMenu || showThinkMenu) {
+    if (showMenu) {
       document.addEventListener("mousedown", handleClickOutside)
       return () => document.removeEventListener("mousedown", handleClickOutside)
     }
-  }, [showModelMenu, showThinkMenu])
+  }, [showMenu])
+
+  const supportsThinking = modelSupportsThinking(currentModelInfo)
+  const effortOptions = getEffortOptionsForModel(currentModelInfo, t)
+  const effortLabel = effortOptions.find((o) => o.value === reasoningEffort)?.label ?? reasoningEffort
+  const modelLabel = currentModelInfo?.modelName ?? t("chat.selectModel")
+  const temperatureLabel =
+    sessionTemperature != null ? sessionTemperature.toFixed(2) : t("settings.temperatureDefault")
+
+  const modelGroups = Array.from(
+    availableModels.reduce((groups, model) => {
+      const existing = groups.get(model.providerId)
+      if (existing) {
+        existing.models.push(model)
+      } else {
+        groups.set(model.providerId, {
+          providerName: model.providerName,
+          models: [model],
+        })
+      }
+      return groups
+    }, new Map<string, { providerName: string; models: AvailableModel[] }>()),
+  )
 
   return (
-    <>
-
-      {availableModels.length > 0 && (
-        <div className="relative" ref={modelMenuRef}>
-          <button
-            onClick={() => {
-              setShowModelMenu(!showModelMenu)
-              setMenuProvider(null)
-            }}
-            className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 max-w-[200px]"
+    <div className="relative min-w-0" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => {
+          setShowMenu(!showMenu)
+          setOpenPanel(null)
+        }}
+        className="flex min-w-0 max-w-[220px] items-center gap-1 bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
+      >
+        <span className="min-w-0 truncate">{modelLabel}</span>
+        {supportsThinking && (
+          <span
+            className={cn(
+              "shrink-0 whitespace-nowrap",
+              reasoningEffort !== "none" && "text-foreground/80",
+            )}
           >
-            <span className="truncate">
-              {currentModelInfo
-                ? `${currentModelInfo.providerName} / ${currentModelInfo.modelName}`
-                : t("chat.selectModel")}
-            </span>
-          </button>
+            {effortLabel}
+          </span>
+        )}
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      </button>
 
-
-          {showModelMenu && (
-            <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[160px] max-w-[220px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
-              <div className="flex flex-col gap-0.5">
-                {Array.from(
-                  new Map(availableModels.map((m) => [m.providerId, m.providerName])),
-                ).map(([pid, pname]) => {
-                  const models = availableModels.filter((m) => m.providerId === pid)
-                  const hasMultiple = models.length > 1
-                  return (
-                    <div key={pid} className="relative">
-                      <button
-                        className={cn(
-                          "w-full text-left px-2.5 py-1.5 text-[13px] rounded-md transition-all duration-150 flex items-center justify-between gap-3",
-                          menuProvider === pid
-                            ? "bg-secondary text-foreground shadow-sm"
-                            : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
-                        )}
-                        onMouseEnter={() => setMenuProvider(hasMultiple ? pid : null)}
-                        onClick={() => {
-                          if (!hasMultiple) {
-                            onModelChange(`${models[0].providerId}::${models[0].modelId}`)
-                            setShowModelMenu(false)
-                            setMenuProvider(null)
-                          }
-                        }}
-                      >
-                        <span className="truncate">{pname}</span>
-                        {hasMultiple && (
-                          <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
-                        )}
-                      </button>
-
-                      {/* Submenu */}
-                      {hasMultiple && menuProvider === pid && (
-                        <div className="absolute left-full bottom-[-6px] ml-1.5 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[160px] max-w-[260px] p-1.5">
-                          <div className="flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto overscroll-contain">
-                            {models.map((m) => (
-                              <button
-                                key={m.modelId}
-                                className={cn(
-                                  "w-full text-left px-2.5 py-1.5 text-[13px] rounded-md transition-all duration-150 truncate",
-                                  activeModel?.providerId === m.providerId &&
-                                    activeModel?.modelId === m.modelId
-                                    ? "bg-secondary text-foreground font-medium shadow-sm"
-                                    : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
-                                )}
-                                onClick={() => {
-                                  onModelChange(`${m.providerId}::${m.modelId}`)
-                                  setShowModelMenu(false)
-                                  setMenuProvider(null)
-                                }}
-                              >
-                                {m.modelName}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+      {showMenu && (
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-[260px] overflow-visible rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
+          <div className="max-h-[min(420px,calc(100vh-96px))] overflow-y-auto overscroll-contain pr-0.5">
+            <div className="px-2.5 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground">
+              {t("settings.localModels.filters.thinking")}
             </div>
-          )}
-        </div>
-      )}
+            <div className="flex flex-col gap-0.5">
+              {effortOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
+                    reasoningEffort === opt.value
+                      ? "bg-secondary text-foreground font-medium shadow-sm"
+                      : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+                  )}
+                  onMouseEnter={() => setOpenPanel(null)}
+                  onClick={() => {
+                    onEffortChange(opt.value)
+                    setShowMenu(false)
+                    setOpenPanel(null)
+                  }}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {reasoningEffort === opt.value && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+              ))}
+            </div>
 
+            <div className="-mx-1 my-1.5 h-px bg-border-soft" />
 
-      {modelSupportsThinking(currentModelInfo) && (
-        <div className="relative" ref={thinkMenuRef}>
-          <button
-            onClick={() => setShowThinkMenu(!showThinkMenu)}
-            className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap"
-          >
-            <Brain className="h-4 w-4 shrink-0" />
-            <span>
-              {getEffortOptionsForModel(currentModelInfo, t).find(
-                (o) => o.value === reasoningEffort,
-              )?.label ?? reasoningEffort}
-            </span>
-          </button>
+            {availableModels.length > 0 && (
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
+                  openPanel === "model"
+                    ? "bg-secondary text-foreground shadow-sm"
+                    : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+                )}
+                onMouseEnter={() => setOpenPanel("model")}
+                onClick={() => setOpenPanel(openPanel === "model" ? null : "model")}
+              >
+                <span className="truncate">{modelLabel}</span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+              </button>
+            )}
 
-          {showThinkMenu && (
-            <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[120px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
-              <div className="flex flex-col gap-0.5">
-                {getEffortOptionsForModel(currentModelInfo, t).map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={cn(
-                      "w-full text-left px-2.5 py-1.5 text-[13px] rounded-md transition-all duration-150",
-                      reasoningEffort === opt.value
-                        ? "bg-secondary text-foreground font-medium shadow-sm"
-                        : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
+                openPanel === "temperature"
+                  ? "bg-secondary text-foreground shadow-sm"
+                  : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+              )}
+              onMouseEnter={() => setOpenPanel("temperature")}
+              onClick={() => setOpenPanel(openPanel === "temperature" ? null : "temperature")}
+            >
+              <span className="truncate">{t("settings.temperature")}</span>
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                {temperatureLabel}
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+            </button>
+          </div>
+
+          {openPanel === "model" && (
+            <div className="absolute bottom-0 left-full z-50 ml-1.5 w-[280px] rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 shadow-floating backdrop-blur-xl">
+              <div className="max-h-[min(360px,calc(100vh-112px))] overflow-y-auto overscroll-contain">
+                {modelGroups.map(([providerId, group]) => (
+                  <div key={providerId} className="py-0.5">
+                    {modelGroups.length > 1 && (
+                      <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                        {group.providerName}
+                      </div>
                     )}
-                    onClick={() => {
-                      onEffortChange(opt.value)
-                      setShowThinkMenu(false)
-                    }}
-                  >
-                    {opt.label}
-                  </button>
+                    <div className="flex flex-col gap-0.5">
+                      {group.models.map((model) => {
+                        const selected =
+                          activeModel?.providerId === model.providerId &&
+                          activeModel?.modelId === model.modelId
+                        return (
+                          <button
+                            key={`${model.providerId}::${model.modelId}`}
+                            type="button"
+                            className={cn(
+                              "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
+                              selected
+                                ? "bg-secondary text-foreground font-medium shadow-sm"
+                                : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+                            )}
+                            onClick={() => {
+                              onModelChange(`${model.providerId}::${model.modelId}`)
+                              setShowMenu(false)
+                              setOpenPanel(null)
+                            }}
+                          >
+                            <span className="truncate">{model.modelName}</span>
+                            {selected && (
+                              <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
           )}
+
+          {openPanel === "temperature" && (
+            <div className="absolute bottom-0 left-full z-50 ml-1.5 w-[220px] rounded-floating border border-border-soft bg-surface-floating/95 p-3 shadow-floating backdrop-blur-xl">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {t("settings.temperature")}
+                </span>
+                <span className="text-xs font-mono text-foreground tabular-nums">
+                  {temperatureLabel}
+                </span>
+              </div>
+              <Slider
+                min={0}
+                max={200}
+                step={1}
+                value={[sessionTemperature != null ? Math.round(sessionTemperature * 100) : 100]}
+                onValueChange={([v]) => {
+                  onSessionTemperatureChange?.(v / 100)
+                }}
+                disabled={!onSessionTemperatureChange}
+              />
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <span className="text-[10px] text-muted-foreground/60">
+                  {t("settings.temperaturePrecise")}
+                </span>
+                <button
+                  type="button"
+                  className="text-[10px] text-primary transition-colors hover:text-primary/80 disabled:pointer-events-none disabled:opacity-50"
+                  disabled={!onSessionTemperatureChange}
+                  onClick={() => {
+                    onSessionTemperatureChange?.(null)
+                    setShowMenu(false)
+                    setOpenPanel(null)
+                  }}
+                >
+                  {t("settings.temperatureReset")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </>
+    </div>
   )
 }

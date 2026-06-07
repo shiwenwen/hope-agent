@@ -46,6 +46,7 @@ interface FileBrowserPanelProps {
   collapsed?: boolean
   panelWidth: number
   onPanelWidthChange: (w: number) => void
+  reservedMainWidth?: number
   onQuote?: (payload: QuotePayload) => void
   /** A click on a quote chip in the composer: reveal + select this file and
    *  highlight the quoted line range. */
@@ -68,6 +69,7 @@ export function FileBrowserPanel({
   collapsed = false,
   panelWidth,
   onPanelWidthChange,
+  reservedMainWidth,
   onQuote,
   revealFile,
   onClose,
@@ -248,6 +250,7 @@ export function FileBrowserPanel({
       resizeLabel={t("fileBrowser.resizePanel", "Resize files panel")}
       maxWidth={1000}
       maximized={maximized}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey={detached ? "files-detached" : "files"}
     >

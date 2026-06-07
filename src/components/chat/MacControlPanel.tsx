@@ -46,6 +46,7 @@ interface MacControlFrameResponse {
 interface MacControlPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  reservedMainWidth?: number
   collapsed?: boolean
   onClose: () => void
 }
@@ -56,6 +57,7 @@ const POLL_INTERVAL_MS = 1000
 export default function MacControlPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  reservedMainWidth,
   collapsed = false,
   onClose,
 }: MacControlPanelProps) {
@@ -133,6 +135,7 @@ export default function MacControlPanel({
       width={panelWidth}
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize panel")}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey="mac-control"
     >

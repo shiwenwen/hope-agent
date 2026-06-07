@@ -15,6 +15,7 @@ interface TeamPanelProps {
   teamId: string
   panelWidth?: number
   onPanelWidthChange?: (w: number) => void
+  reservedMainWidth?: number
   collapsed?: boolean
   onClose: () => void
   onSwitchSession?: (sessionId: string) => void
@@ -28,6 +29,7 @@ export function TeamPanel({
   teamId,
   panelWidth,
   onPanelWidthChange,
+  reservedMainWidth,
   collapsed = false,
   onClose,
   onSwitchSession,
@@ -60,6 +62,7 @@ export function TeamPanel({
         resizeLabel={t("team.resizePanel", "Resize team panel")}
         minWidth={MIN_WIDTH}
         maxWidth={MAX_WIDTH}
+        reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
         contentKey="team-loading"
       >
@@ -77,6 +80,7 @@ export function TeamPanel({
       resizeLabel={t("team.resizePanel", "Resize team panel")}
       minWidth={MIN_WIDTH}
       maxWidth={MAX_WIDTH}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey="team"
     >

@@ -98,7 +98,7 @@ export function RightPanelShell({
     <div
       ref={shellRef}
       className={cn(
-        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
+        "relative flex h-full min-h-0 shrink-0 overflow-hidden transition-[width,min-width,max-width,padding] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
         collapsed
           ? "min-w-0 max-w-0 p-0 pointer-events-none"
           : "p-3 pl-2",
@@ -129,7 +129,7 @@ export function RightPanelShell({
       >
         <div
           key={contentKey ?? "right-panel-content"}
-          className="flex h-full min-h-0 w-full flex-col animate-in fade-in-0 slide-in-from-right-1 duration-150 motion-reduce:animate-none"
+          className="flex h-full min-h-0 w-full flex-col animate-in fade-in-0 slide-in-from-right-1 duration-200 motion-reduce:animate-none"
         >
           {children}
         </div>

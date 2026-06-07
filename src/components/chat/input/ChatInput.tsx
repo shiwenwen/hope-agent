@@ -51,7 +51,6 @@ import ModelPicker from "./ModelPicker"
 import PermissionModeSwitcher, {
   type PermissionModeChangeOptions,
 } from "./PermissionModeSwitcher"
-import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
 import { VoiceRecordButton } from "./VoiceRecordButton"
@@ -184,9 +183,11 @@ export default function ChatInput({
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputShellRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
   const [toolbarCompact, setToolbarCompact] = useState(false)
   const [toolbarStacked, setToolbarStacked] = useState(false)
+  const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
 
   const handlePermissionModeChange = useCallback(
@@ -232,6 +233,7 @@ export default function ChatInput({
   }
   const slash = useSlashCommands(input, onInputChange, slashActions)
   const voice = useVoiceInput()
+  const normalToolbarOpen = voice.state !== "recording" && voice.state !== "transcribing"
   // Read the latest `input` when transcription resolves — the user can keep
   // typing during the STT round-trip, and capturing `input` in the closure
   // would overwrite anything typed in the meantime.
@@ -435,6 +437,43 @@ export default function ChatInput({
   useEffect(() => {
     if (showOverflowMenu && !toolbarCompact) setShowOverflowMenu(false)
   }, [showOverflowMenu, toolbarCompact])
+
+  useEffect(() => {
+    if (!normalToolbarOpen || typeof window === "undefined") {
+      setToolbarMinHeight(null)
+      return
+    }
+
+    const el = toolbarRef.current
+    if (!el) return
+
+    let raf: number | null = null
+    const update = () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(() => {
+        raf = null
+        const next = Math.ceil(el.scrollHeight || el.getBoundingClientRect().height)
+        setToolbarMinHeight((prev) => (prev === next ? prev : next))
+      })
+    }
+
+    update()
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update)
+      return () => {
+        if (raf !== null) window.cancelAnimationFrame(raf)
+        window.removeEventListener("resize", update)
+      }
+    }
+
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [normalToolbarOpen, toolbarCompact, toolbarStacked])
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
@@ -920,14 +959,24 @@ export default function ChatInput({
             onStop={() => void handleVoiceStop()}
           />
         </AnimatedCollapse>
+        <div
+          style={
+            normalToolbarOpen && toolbarMinHeight !== null
+              ? { minHeight: toolbarMinHeight }
+              : undefined
+          }
+        >
         <AnimatedCollapse
-          open={voice.state !== "recording" && voice.state !== "transcribing"}
+          open={normalToolbarOpen}
           overflow="visible-when-open"
         >
         <div
+          ref={toolbarRef}
           className={cn(
-            "flex gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
-            toolbarStacked ? "flex-col items-stretch" : "items-end justify-between",
+            "grid gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
+            toolbarStacked
+              ? "grid-cols-1 items-stretch"
+              : "grid-cols-[minmax(0,1fr)_auto] items-end",
           )}
         >
           <div className="flex min-w-0 flex-wrap items-center gap-1">
@@ -965,7 +1014,7 @@ export default function ChatInput({
               </DropdownMenu.Root>
             </div>
 
-            {/* Model Selector + Think Mode */}
+            {/* Model / Think / Temperature */}
             <ModelPicker
               availableModels={availableModels}
               activeModel={activeModel}
@@ -973,10 +1022,6 @@ export default function ChatInput({
               onModelChange={onModelChange}
               onEffortChange={onEffortChange}
               currentModelInfo={currentModelInfo}
-            />
-
-            {/* Temperature Control */}
-            <TemperatureSlider
               sessionTemperature={sessionTemperature}
               onSessionTemperatureChange={onSessionTemperatureChange}
             />
@@ -1023,8 +1068,8 @@ export default function ChatInput({
               orphans the send button onto a half-empty row. */}
           <div
             className={cn(
-              "flex items-center gap-1 shrink-0",
-              toolbarStacked && "ml-auto",
+              "flex items-center justify-end gap-1 shrink-0",
+              toolbarStacked && "w-full",
             )}
           >
             <VoiceRecordButton
@@ -1075,6 +1120,7 @@ export default function ChatInput({
           </div>
         </div>
         </AnimatedCollapse>
+        </div>
       </div>
     </div>
   )
