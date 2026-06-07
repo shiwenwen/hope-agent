@@ -355,6 +355,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `get_agent_memory_md` | `GET /api/agents/{id}/memory-md` | ✅ |
 | `save_agent_memory_md` | `PUT /api/agents/{id}/memory-md` | ✅ |
 | `dreaming_run_now` | `POST /api/dreaming/run` | ✅ |
+| `dreaming_run_resolver` | `POST /api/dreaming/resolver` | ✅ owner 平面；Deep resolver（phase=deep）：valid_until 过期确定性 expire + 同主谓多对象组 LLM 判定 duplicates→merge / conflict→needs_review / independent→no_op，绝不自动 supersede 或硬删 |
 | `dreaming_list_diaries` | `GET /api/dreaming/diaries` | ✅ |
 | `dreaming_read_diary` | `GET /api/dreaming/diaries/{filename}` | ✅ |
 | `dreaming_is_running` | `GET /api/dreaming/status` | ✅ |

@@ -760,7 +760,11 @@
         "evidence": "出典",
         "evidenceIncognito": "シークレットセッションのため表示できません",
         "evidenceUnavailable": "出典を表示できません"
-      }
+      },
+      "runResolver": "ディープ整理",
+      "resolving": "整理中…",
+      "resolverDone": "整理完了:期限切れ {{expired}}、統合 {{merged}}、要レビュー {{review}}",
+      "resolverFailed": "ディープ整理に失敗しました"
     },
     "error": {
       "byCategory": "カテゴリ別分布",

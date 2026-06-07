@@ -760,7 +760,11 @@
         "evidence": "Nguồn",
         "evidenceIncognito": "Nguồn ẩn danh — không thể xem",
         "evidenceUnavailable": "Nguồn không khả dụng"
-      }
+      },
+      "runResolver": "Xử lý sâu",
+      "resolving": "Đang xử lý…",
+      "resolverDone": "Hoàn tất: {{expired}} hết hạn, {{merged}} hợp nhất, {{review}} cần xem xét",
+      "resolverFailed": "Xử lý sâu thất bại"
     },
     "error": {
       "byCategory": "Phân bố theo danh mục",

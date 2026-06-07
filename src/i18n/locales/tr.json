@@ -760,7 +760,11 @@
         "evidence": "Kaynak",
         "evidenceIncognito": "Gizli oturum kaynağı — görüntülenemez",
         "evidenceUnavailable": "Kaynak kullanılamıyor"
-      }
+      },
+      "runResolver": "Derin düzenleme",
+      "resolving": "Düzenleniyor…",
+      "resolverDone": "Tamamlandı: {{expired}} süresi doldu, {{merged}} birleştirildi, {{review}} incelenecek",
+      "resolverFailed": "Derin düzenleme başarısız"
     },
     "error": {
       "byCategory": "Kategoriye göre",

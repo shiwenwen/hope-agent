@@ -39,6 +39,14 @@ pub async fn run_now() -> Result<Json<dreaming::DreamReport>, AppError> {
     ))
 }
 
+/// `POST /api/dreaming/resolver` — run one Deep resolver cycle (expire / merge
+/// / conflict) over active claims (trigger=manual).
+pub async fn run_resolver() -> Result<Json<dreaming::ResolverReport>, AppError> {
+    Ok(Json(
+        dreaming::run_resolver_cycle(dreaming::DreamTrigger::Manual).await,
+    ))
+}
+
 /// `GET /api/dreaming/diaries?limit=N` — list available Dream Diary
 /// files, newest first, optionally capped at `limit`.
 pub async fn list_diaries(

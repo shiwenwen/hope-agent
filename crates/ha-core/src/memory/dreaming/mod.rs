@@ -28,6 +28,7 @@ mod evidence;
 mod narrative;
 mod pipeline;
 mod promotion;
+mod resolver;
 mod scanner;
 mod scoring;
 mod store;
@@ -38,6 +39,7 @@ pub use config::{CronTriggerConfig, DreamingConfig, IdleTriggerConfig, Promotion
 pub use cron_loop::spawn_dreaming_cron_loop;
 pub use evidence::evidence_quote;
 pub use pipeline::{last_report_snapshot, run_cycle};
+pub use resolver::{run_resolver_cycle, ResolverReport};
 pub use store::{get_run, init_store, list_runs, recover_on_startup, spawn_retention_loop};
 pub use triggers::{
     check_idle_trigger, dreaming_running, last_activity_epoch_secs, manual_run, touch_activity,

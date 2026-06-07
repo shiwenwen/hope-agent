@@ -15,7 +15,9 @@ use rusqlite::{params, params_from_iter, types::Value as SqlValue, OptionalExten
 use crate::memory::{MemoryScope, SqliteMemoryBackend};
 
 use super::backfill::BackfillCandidate;
-use super::types::{ClaimCandidate, ClaimDetail, ClaimLink, ClaimRecord, EvidenceRecord};
+use super::types::{
+    ClaimCandidate, ClaimDetail, ClaimLink, ClaimRecord, EvidenceRecord, ResolveClaim,
+};
 use super::write;
 
 /// Fixed-width UTC RFC3339 (`...SSSZ`) — same format the dreaming store uses,
@@ -151,6 +153,37 @@ pub fn all_linked_memory_ids() -> Result<std::collections::HashSet<i64>> {
 pub fn write_backfill_claim(candidate: &BackfillCandidate) -> Result<Option<String>> {
     let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
     store.write_backfill_claim(candidate)
+}
+
+// ── Deep resolver primitives (expire / merge / conflict) ─────────
+
+/// Load every `active` claim for the Deep resolver to group + reason over.
+pub fn list_active_claims_for_resolve() -> Result<Vec<ResolveClaim>> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.list_active_claims_for_resolve()
+}
+
+/// Flip an `active` claim to `expired` (its `valid_until` has passed). No-op if
+/// it isn't currently `active` (another path already moved it). Returns whether
+/// a row changed.
+pub fn expire_claim(claim_id: &str) -> Result<bool> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.set_claim_status(claim_id, "expired", None)
+}
+
+/// Flip an `active` claim to `needs_review` (conflict the resolver won't
+/// auto-resolve). Returns whether a row changed.
+pub fn mark_claim_needs_review(claim_id: &str) -> Result<bool> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.set_claim_status(claim_id, "needs_review", None)
+}
+
+/// Merge `drop_id` into `keep_id`: re-point the dropped claim's evidence onto
+/// the kept claim, then archive the dropped one (status `archived`). Atomic.
+/// Returns whether the drop was archived (false if it wasn't active anymore).
+pub fn merge_claims(keep_id: &str, drop_id: &str) -> Result<bool> {
+    let store = store().ok_or_else(|| anyhow!("claim store not initialised"))?;
+    store.merge_claims(keep_id, drop_id)
 }
 
 impl ClaimStore {
@@ -607,6 +640,97 @@ impl ClaimStore {
                 params![claim_id, c.memory_id, now],
             )?;
             Ok(Some(claim_id))
+        })
+    }
+
+    fn list_active_claims_for_resolve(&self) -> Result<Vec<ResolveClaim>> {
+        let conn = self.backend.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, scope_type, scope_id, claim_type, subject, predicate, object,
+                    content, confidence, confidence_source, salience, valid_until,
+                    created_at, updated_at
+             FROM memory_claims
+             WHERE status = 'active'
+             ORDER BY scope_type, scope_id, claim_type, subject, predicate, created_at",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ResolveClaim {
+                id: row.get(0)?,
+                scope_type: row.get(1)?,
+                scope_id: row.get(2)?,
+                claim_type: row.get(3)?,
+                subject: row.get(4)?,
+                predicate: row.get(5)?,
+                object: row.get(6)?,
+                content: row.get(7)?,
+                confidence: row.get::<_, f64>(8)? as f32,
+                confidence_source: row.get(9)?,
+                salience: row.get::<_, f64>(10)? as f32,
+                valid_until: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Set a claim's status, guarded on it still being `active` (so two resolver
+    /// passes / a user edit can't double-apply). Returns whether a row changed.
+    fn set_claim_status(
+        &self,
+        claim_id: &str,
+        status: &str,
+        supersedes: Option<&str>,
+    ) -> Result<bool> {
+        let now = now_rfc3339();
+        let conn = self.backend.write_conn()?;
+        let changed = conn.execute(
+            "UPDATE memory_claims
+             SET status = ?2, supersedes_claim_id = COALESCE(?3, supersedes_claim_id),
+                 updated_at = ?4
+             WHERE id = ?1 AND status = 'active'",
+            params![claim_id, status, supersedes, now],
+        )?;
+        Ok(changed > 0)
+    }
+
+    fn merge_claims(&self, keep_id: &str, drop_id: &str) -> Result<bool> {
+        if keep_id == drop_id {
+            return Ok(false);
+        }
+        let now = now_rfc3339();
+        let conn = self.backend.write_conn()?;
+        with_tx(&conn, || {
+            // The survivor must still be active — we're folding evidence onto it.
+            let keep_active = conn
+                .query_row(
+                    "SELECT 1 FROM memory_claims WHERE id = ?1 AND status = 'active'",
+                    params![keep_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if !keep_active {
+                return Ok(false);
+            }
+            // Archive the dropped claim FIRST, guarded on it still being active.
+            // If it raced to a terminal state between the resolve scan and now,
+            // bail BEFORE touching evidence so a stale decision can't silently
+            // re-point provenance onto the survivor without an audit row.
+            let archived = conn.execute(
+                "UPDATE memory_claims SET status = 'archived', updated_at = ?2
+                 WHERE id = ?1 AND status = 'active'",
+                params![drop_id, now],
+            )?;
+            if archived == 0 {
+                return Ok(false);
+            }
+            // Drop archived → safe to fold its evidence onto the survivor.
+            conn.execute(
+                "UPDATE memory_evidence SET claim_id = ?1 WHERE claim_id = ?2",
+                params![keep_id, drop_id],
+            )?;
+            Ok(true)
         })
     }
 }
@@ -1066,6 +1190,83 @@ mod tests {
             })
             .unwrap();
         assert!(queue.iter().any(|c| c.id == id));
+    }
+
+    fn seed_claim(s: &ClaimStore, id: &str, status: &str) {
+        let conn = s.backend.write_conn().unwrap();
+        conn.execute(
+            "INSERT INTO memory_claims (id, scope_type, claim_type, subject, predicate, object, content, status, created_at, updated_at)
+             VALUES (?1, 'global', 'preference', 'user', 'uses', ?1, 'c', ?2, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+            params![id, status],
+        ).unwrap();
+    }
+    fn seed_evidence(s: &ClaimStore, ev_id: &str, claim_id: &str) {
+        let conn = s.backend.write_conn().unwrap();
+        conn.execute(
+            "INSERT INTO memory_evidence (id, claim_id, source_type, source_id, created_at)
+             VALUES (?1, ?2, 'session_message', 'sess:1', '2026-01-01T00:00:00.000Z')",
+            params![ev_id, claim_id],
+        )
+        .unwrap();
+    }
+    fn evidence_owner(s: &ClaimStore, ev_id: &str) -> String {
+        let conn = s.backend.read_conn().unwrap();
+        conn.query_row(
+            "SELECT claim_id FROM memory_evidence WHERE id = ?1",
+            params![ev_id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+    fn claim_status(s: &ClaimStore, id: &str) -> String {
+        let conn = s.backend.read_conn().unwrap();
+        conn.query_row(
+            "SELECT status FROM memory_claims WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn merge_claims_archives_drop_then_moves_evidence() {
+        let s = temp_store();
+        seed_claim(&s, "keep", "active");
+        seed_claim(&s, "drop", "active");
+        seed_evidence(&s, "ev1", "drop");
+
+        assert!(s.merge_claims("keep", "drop").unwrap());
+        assert_eq!(claim_status(&s, "drop"), "archived");
+        assert_eq!(claim_status(&s, "keep"), "active");
+        // Evidence folded onto the survivor.
+        assert_eq!(evidence_owner(&s, "ev1"), "keep");
+    }
+
+    #[test]
+    fn merge_claims_skips_when_drop_not_active_without_moving_evidence() {
+        // drop raced to a terminal state before the merge applied → must NOT
+        // re-point evidence (Codex finding: stale drop silently moved evidence).
+        let s = temp_store();
+        seed_claim(&s, "keep", "active");
+        seed_claim(&s, "drop", "archived");
+        seed_evidence(&s, "ev1", "drop");
+
+        assert!(!s.merge_claims("keep", "drop").unwrap());
+        // Evidence stays on the drop — untouched.
+        assert_eq!(evidence_owner(&s, "ev1"), "drop");
+    }
+
+    #[test]
+    fn merge_claims_skips_when_keep_not_active() {
+        let s = temp_store();
+        seed_claim(&s, "keep", "archived");
+        seed_claim(&s, "drop", "active");
+        seed_evidence(&s, "ev1", "drop");
+
+        assert!(!s.merge_claims("keep", "drop").unwrap());
+        // Drop not archived, evidence not moved.
+        assert_eq!(claim_status(&s, "drop"), "active");
+        assert_eq!(evidence_owner(&s, "ev1"), "drop");
     }
 
     fn candidate(object: &str, evidence_class: Option<&str>) -> ClaimCandidate {

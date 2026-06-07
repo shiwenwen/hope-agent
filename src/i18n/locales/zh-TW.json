@@ -760,7 +760,11 @@
         "evidence": "來源",
         "evidenceIncognito": "無痕工作階段來源，無法檢視",
         "evidenceUnavailable": "來源不可用"
-      }
+      },
+      "runResolver": "深度整理",
+      "resolving": "整理中…",
+      "resolverDone": "深度整理完成:{{expired}} 過期,{{merged}} 合併,{{review}} 待審核",
+      "resolverFailed": "深度整理失敗"
     },
     "error": {
       "byCategory": "分類分布",

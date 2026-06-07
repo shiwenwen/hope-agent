@@ -392,7 +392,8 @@ fn skipped(trigger: DreamTrigger, started: Instant, note: &str) -> DreamReport {
 /// Build an `AssistantAgent` for the narrative side_query.
 /// Honours `DreamingConfig.narrative_model` when set (format:
 /// `providerId:modelId`), falls back to the same heuristic as /recap.
-async fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> {
+/// `pub(super)` so the Deep resolver reuses the same model resolution.
+pub(super) async fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> {
     let app_cfg = crate::config::cached_config();
 
     // Explicit dedicated model.

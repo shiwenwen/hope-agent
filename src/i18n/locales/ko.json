@@ -760,7 +760,11 @@
         "evidence": "출처",
         "evidenceIncognito": "시크릿 세션 출처 — 볼 수 없음",
         "evidenceUnavailable": "출처를 사용할 수 없음"
-      }
+      },
+      "runResolver": "심층 정리",
+      "resolving": "정리 중…",
+      "resolverDone": "정리 완료: 만료 {{expired}}, 병합 {{merged}}, 검토 대기 {{review}}",
+      "resolverFailed": "심층 정리 실패"
     },
     "error": {
       "byCategory": "카테고리별 분포",

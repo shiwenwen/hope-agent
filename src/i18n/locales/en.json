@@ -760,7 +760,11 @@
         "evidence": "Evidence",
         "evidenceIncognito": "Incognito source — not viewable",
         "evidenceUnavailable": "Source unavailable"
-      }
+      },
+      "runResolver": "Deep resolve",
+      "resolving": "Resolving…",
+      "resolverDone": "Resolved: {{expired}} expired, {{merged}} merged, {{review}} to review",
+      "resolverFailed": "Deep resolve failed"
     },
     "error": {
       "byCategory": "Distribution by Category",

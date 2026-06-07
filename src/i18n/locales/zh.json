@@ -760,7 +760,11 @@
         "evidence": "来源",
         "evidenceIncognito": "无痕会话来源，不可查看",
         "evidenceUnavailable": "来源不可用"
-      }
+      },
+      "runResolver": "深度整理",
+      "resolving": "整理中…",
+      "resolverDone": "深度整理完成:{{expired}} 过期,{{merged}} 合并,{{review}} 待审核",
+      "resolverFailed": "深度整理失败"
     },
     "error": {
       "byCategory": "分类分布",

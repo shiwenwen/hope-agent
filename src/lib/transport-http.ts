@@ -179,6 +179,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_agent_memory_md:             { method: "GET",    path: "/api/agents/{id}/memory-md" },
   save_agent_memory_md:            { method: "PUT",    path: "/api/agents/{id}/memory-md" },
   dreaming_run_now:                { method: "POST",   path: "/api/dreaming/run" },
+  dreaming_run_resolver:           { method: "POST",   path: "/api/dreaming/resolver" },
   dreaming_list_diaries:           { method: "GET",    path: "/api/dreaming/diaries" },
   dreaming_read_diary:             { method: "GET",    path: "/api/dreaming/diaries/{filename}" },
   dreaming_is_running:             { method: "GET",    path: "/api/dreaming/status" },

@@ -760,7 +760,11 @@
         "evidence": "Origen",
         "evidenceIncognito": "Origen en incógnito: no visible",
         "evidenceUnavailable": "Origen no disponible"
-      }
+      },
+      "runResolver": "Resolución profunda",
+      "resolving": "Resolviendo…",
+      "resolverDone": "Resuelto: {{expired}} caducados, {{merged}} fusionados, {{review}} por revisar",
+      "resolverFailed": "Error en la resolución profunda"
     },
     "error": {
       "byCategory": "Distribución por categoría",

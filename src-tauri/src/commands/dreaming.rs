@@ -12,6 +12,13 @@ pub async fn dreaming_run_now() -> Result<dreaming::DreamReport, CmdError> {
     Ok(dreaming::manual_run(dreaming::DreamTrigger::Manual).await)
 }
 
+/// Run one Deep resolver cycle (expire / merge / conflict) over active claims
+/// and return its summary. Maps to `POST /api/dreaming/resolver`.
+#[tauri::command]
+pub async fn dreaming_run_resolver() -> Result<dreaming::ResolverReport, CmdError> {
+    Ok(dreaming::run_resolver_cycle(dreaming::DreamTrigger::Manual).await)
+}
+
 /// List Dream Diary markdown files (newest first). `limit` caps the
 /// returned set so the Dashboard stays responsive after months of daily
 /// cycles; omitting it returns the full set.

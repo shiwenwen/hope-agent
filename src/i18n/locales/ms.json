@@ -760,7 +760,11 @@
         "evidence": "Sumber",
         "evidenceIncognito": "Sumber inkognito — tidak boleh dilihat",
         "evidenceUnavailable": "Sumber tidak tersedia"
-      }
+      },
+      "runResolver": "Penyelesaian mendalam",
+      "resolving": "Menyelesaikan…",
+      "resolverDone": "Selesai: {{expired}} luput, {{merged}} digabung, {{review}} untuk semakan",
+      "resolverFailed": "Penyelesaian mendalam gagal"
     },
     "error": {
       "byCategory": "Mengikut kategori",

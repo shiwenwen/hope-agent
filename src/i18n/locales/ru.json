@@ -760,7 +760,11 @@
         "evidence": "Источник",
         "evidenceIncognito": "Источник в режиме инкогнито — недоступен",
         "evidenceUnavailable": "Источник недоступен"
-      }
+      },
+      "runResolver": "Глубокая обработка",
+      "resolving": "Обработка…",
+      "resolverDone": "Готово: {{expired}} истекло, {{merged}} объединено, {{review}} на проверку",
+      "resolverFailed": "Ошибка глубокой обработки"
     },
     "error": {
       "byCategory": "По категориям",

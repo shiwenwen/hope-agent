@@ -760,7 +760,11 @@
         "evidence": "المصدر",
         "evidenceIncognito": "مصدر من جلسة خفية — غير قابل للعرض",
         "evidenceUnavailable": "المصدر غير متاح"
-      }
+      },
+      "runResolver": "المعالجة العميقة",
+      "resolving": "جارٍ المعالجة…",
+      "resolverDone": "تمت المعالجة: {{expired}} منتهية، {{merged}} مدمجة، {{review}} للمراجعة",
+      "resolverFailed": "فشلت المعالجة العميقة"
     },
     "error": {
       "byCategory": "حسب الفئة",

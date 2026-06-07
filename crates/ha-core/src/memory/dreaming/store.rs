@@ -354,6 +354,72 @@ impl DreamingStore {
         Ok(count)
     }
 
+    /// Write one `dreaming_decisions` row for a Deep resolver mutation on a
+    /// claim (`expire` / `merge` / `needs_review`). `merge_into` (the survivor)
+    /// is stored in `after_json` for the audit trail.
+    pub(crate) fn insert_claim_decision(
+        &self,
+        run_id: &str,
+        decision_type: &str,
+        claim_id: &str,
+        rationale: &str,
+        merge_into: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.backend.write_conn()?;
+        let now = now_rfc3339();
+        let after = merge_into.map(|k| serde_json::json!({ "mergeInto": k }).to_string());
+        conn.execute(
+            "INSERT INTO dreaming_decisions
+                (id, run_id, decision_type, target_type, target_id, score,
+                 rationale, before_json, after_json, created_at)
+             VALUES (?1, ?2, ?3, 'claim', ?4, NULL, ?5, NULL, ?6, ?7)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                run_id,
+                decision_type,
+                claim_id,
+                rationale,
+                after,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Finalise a Deep resolver run with explicit counts (the resolver has no
+    /// promotions, so `finish_run`'s `promoted == decision_count` assumption
+    /// doesn't hold).
+    pub(crate) fn finish_resolver_run(
+        &self,
+        id: &str,
+        status: DreamRunStatus,
+        scanned: usize,
+        decisions: usize,
+        duration_ms: u64,
+        note: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.backend.write_conn()?;
+        let now = now_rfc3339();
+        conn.execute(
+            "UPDATE dreaming_runs SET
+                status = ?1, finished_at = ?2, heartbeat_at = ?2,
+                scanned_count = ?3, nominated_count = 0,
+                decision_count = ?4, promoted_count = 0,
+                duration_ms = ?5, note = ?6
+             WHERE id = ?7",
+            params![
+                status.as_str(),
+                now,
+                scanned as i64,
+                decisions as i64,
+                duration_ms as i64,
+                note,
+                id,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn list_runs(&self, limit: usize, offset: usize) -> Result<Vec<DreamingRunRecord>> {
         let conn = self.backend.read_conn()?;
         let mut stmt = conn.prepare(

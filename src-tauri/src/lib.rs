@@ -266,6 +266,7 @@ pub fn run() {
             commands::memory::get_agent_memory_md,
             commands::memory::save_agent_memory_md,
             commands::dreaming::dreaming_run_now,
+            commands::dreaming::dreaming_run_resolver,
             commands::dreaming::dreaming_list_diaries,
             commands::dreaming::dreaming_read_diary,
             commands::dreaming::dreaming_is_running,

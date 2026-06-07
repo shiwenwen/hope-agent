@@ -898,6 +898,7 @@ fn build_router_with_cors(
         .route("/cron/calendar", get(routes::cron::get_calendar_events))
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
+        .route("/dreaming/resolver", post(routes::dreaming::run_resolver))
         .route("/dreaming/diaries", get(routes::dreaming::list_diaries))
         .route(
             "/dreaming/diaries/{filename}",

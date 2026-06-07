@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { FileText, Loader2, Moon, Play, RefreshCw } from "lucide-react"
+import { FileText, Loader2, Moon, Play, RefreshCw, Sparkles } from "lucide-react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -218,6 +219,7 @@ export default function DreamingTab() {
   const [content, setContent] = useState<string>("")
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const [runs, setRuns] = useState<DreamingRun[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [runDetail, setRunDetail] = useState<DreamingRunDetail | null>(null)
@@ -314,6 +316,40 @@ export default function DreamingTab() {
     }
   }
 
+  // Deep resolver: expire / merge / conflict over active claims. Conflicts are
+  // marked needs_review (never auto-superseded) — see ha-core dreaming/resolver.
+  const handleRunResolver = async () => {
+    if (resolving || running) return
+    setResolving(true)
+    setSkipNotice(null)
+    try {
+      const r = await getTransport().call<{
+        runId?: string
+        expired: number
+        merged: number
+        needsReview: number
+        note?: string
+      }>("dreaming_run_resolver")
+      if (r && !r.runId && r.note) {
+        setSkipNotice(r.note)
+      } else {
+        toast.success(
+          t("dashboard.dreaming.resolverDone", {
+            expired: r?.expired ?? 0,
+            merged: r?.merged ?? 0,
+            review: r?.needsReview ?? 0,
+          })
+        )
+      }
+      await loadRuns()
+    } catch (e) {
+      logger.error("dashboard", "DreamingTab::resolver", "Resolver failed", e)
+      toast.error(t("dashboard.dreaming.resolverFailed"))
+    } finally {
+      setResolving(false)
+    }
+  }
+
   useEffect(() => {
     loadDiaries()
     loadRuns()
@@ -406,6 +442,26 @@ export default function DreamingTab() {
                 <>
                   <Play className="h-3.5 w-3.5 mr-1" />
                   {t("dashboard.dreaming.runNow")}
+                </>
+              )}
+            </Button>
+          )}
+          {manualEnabled && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRunResolver}
+              disabled={resolving || running}
+            >
+              {resolving ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  {t("dashboard.dreaming.resolving")}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  {t("dashboard.dreaming.runResolver")}
                 </>
               )}
             </Button>

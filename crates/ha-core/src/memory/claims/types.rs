@@ -131,6 +131,27 @@ pub struct ClaimCandidate {
     pub tags: Vec<String>,
 }
 
+/// A live `active` claim loaded for the Deep resolver (expire / merge /
+/// conflict). Carries the columns the resolver groups + reasons over; not
+/// serialized over the wire (resolver is an internal pipeline).
+#[derive(Debug, Clone)]
+pub struct ResolveClaim {
+    pub id: String,
+    pub scope_type: String,
+    pub scope_id: Option<String>,
+    pub claim_type: String,
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub content: String,
+    pub confidence: f32,
+    pub confidence_source: String,
+    pub salience: f32,
+    pub valid_until: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Scope hint from the model: `{type: "global"|"agent"|"project", id?}`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
