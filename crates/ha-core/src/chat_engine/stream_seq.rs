@@ -211,6 +211,21 @@ pub fn next_seq(session_id: &str) -> u64 {
     }
 }
 
+/// Atomically bump and return the next `seq` plus the active stream id in a
+/// single registry lock — used by the per-token `inject_seq` hot path so it
+/// takes one lock instead of two (`next_seq` + `stream_id`). Returns
+/// `(0, None)` when the session isn't registered (same as the two separately).
+pub fn next_seq_and_stream(session_id: &str) -> (u64, Option<String>) {
+    let map = registry().lock().expect("stream_seq registry poisoned");
+    match map.get(session_id) {
+        Some(entry) => (
+            entry.counter.fetch_add(1, Ordering::SeqCst) + 1,
+            Some(entry.stream_id.clone()),
+        ),
+        None => (0, None),
+    }
+}
+
 /// Current value of the counter (highest issued seq).
 pub fn last_seq(session_id: &str) -> u64 {
     let map = registry().lock().expect("stream_seq registry poisoned");
