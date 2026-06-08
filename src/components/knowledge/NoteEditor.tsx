@@ -1,6 +1,7 @@
 import { closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown"
+import { languages as codeLanguages } from "@codemirror/language-data"
 import { indentOnInput, syntaxHighlighting } from "@codemirror/language"
 import { lintKeymap } from "@codemirror/lint"
 import { searchKeymap } from "@codemirror/search"
@@ -170,8 +171,10 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
         closeBrackets(),
         syntaxHighlighting(noteHighlightStyle, { fallback: true }),
         // GFM base — enables strikethrough / task lists / tables / autolinks in
-        // the parse tree (live-preview decorations render the first three).
-        markdown({ base: markdownLanguage }),
+        // the parse tree (live-preview decorations render these). `codeLanguages`
+        // lazy-loads a per-language parser for fenced code blocks (```lang) so
+        // `syntaxHighlighting` colors them by language in every mode.
+        markdown({ base: markdownLanguage, codeLanguages }),
         wikilinkTheme,
         wikilinkDecorations(getData),
         wikilinkCompletion(getData),

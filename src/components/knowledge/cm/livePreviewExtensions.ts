@@ -83,6 +83,114 @@ class HrWidget extends WidgetType {
   }
 }
 
+export type CellAlign = "left" | "center" | "right" | null
+
+export interface ParsedTable {
+  aligns: CellAlign[]
+  header: string[]
+  rows: string[][]
+}
+
+/** Split one GFM table row into trimmed cells, honoring `\|` escapes and the
+ *  optional leading / trailing pipe. */
+function splitTableRow(line: string): string[] {
+  let s = line.trim()
+  if (s.startsWith("|")) s = s.slice(1)
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1)
+  const cells: string[] = []
+  let cur = ""
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (ch === "\\" && i + 1 < s.length) {
+      cur += s[i + 1]
+      i++
+      continue
+    }
+    if (ch === "|") {
+      cells.push(cur.trim())
+      cur = ""
+      continue
+    }
+    cur += ch
+  }
+  cells.push(cur.trim())
+  return cells
+}
+
+/** Parse a GFM table block (header + delimiter + rows) into a render model.
+ *  Returns null when the delimiter row is missing/malformed (defensive — the
+ *  caller only feeds it spans the markdown parser already tagged as `Table`). */
+export function parseGfmTable(src: string): ParsedTable | null {
+  const lines = src.split("\n").filter((l) => l.trim().length > 0)
+  if (lines.length < 2) return null
+  const header = splitTableRow(lines[0])
+  const delim = splitTableRow(lines[1])
+  if (delim.length === 0 || !delim.every((c) => /^:?-+:?$/.test(c))) return null
+  const aligns: CellAlign[] = delim.map((c) => {
+    const l = c.startsWith(":")
+    const r = c.endsWith(":")
+    return l && r ? "center" : r ? "right" : l ? "left" : null
+  })
+  const rows = lines.slice(2).map(splitTableRow)
+  return { aligns, header, rows }
+}
+
+/** A rendered GFM table replacing its source lines. Cells are plain text
+ *  (`textContent`, so no inline-markdown / HTML injection); editing a cell is
+ *  done by clicking into the table, which reveals the raw Markdown. */
+class TableWidget extends WidgetType {
+  private readonly src: string
+
+  constructor(src: string) {
+    super()
+    this.src = src
+  }
+  eq(other: TableWidget) {
+    return other.src === this.src
+  }
+  toDOM() {
+    const wrap = document.createElement("div")
+    wrap.className = "cm-live-table-wrap"
+    const parsed = parseGfmTable(this.src)
+    if (!parsed) {
+      wrap.textContent = this.src
+      return wrap
+    }
+    const table = document.createElement("table")
+    table.className = "cm-live-table"
+    const cols = parsed.header.length
+
+    const thead = document.createElement("thead")
+    const htr = document.createElement("tr")
+    for (let i = 0; i < cols; i++) {
+      const th = document.createElement("th")
+      th.textContent = parsed.header[i] ?? ""
+      if (parsed.aligns[i]) th.style.textAlign = parsed.aligns[i] as string
+      htr.appendChild(th)
+    }
+    thead.appendChild(htr)
+    table.appendChild(thead)
+
+    const tbody = document.createElement("tbody")
+    for (const row of parsed.rows) {
+      const tr = document.createElement("tr")
+      for (let i = 0; i < cols; i++) {
+        const td = document.createElement("td")
+        td.textContent = row[i] ?? ""
+        if (parsed.aligns[i]) td.style.textAlign = parsed.aligns[i] as string
+        tr.appendChild(td)
+      }
+      tbody.appendChild(tr)
+    }
+    table.appendChild(tbody)
+    wrap.appendChild(table)
+    return wrap
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+
 const HEADER_LEVEL_RE = /^ATXHeading([1-6])$/
 const BULLET_RE = /^[-*+]$/
 
@@ -113,9 +221,47 @@ function buildLive(state: EditorState): DecorationSet {
   syntaxTree(state).iterate({
     enter: (node) => {
       const { name, from, to } = node
-      // Don't descend into code / images: their content is literal, and images
-      // are rendered by the widget field. Returning false skips the subtree.
-      if (name === "FencedCode" || name === "CodeBlock" || name === "Image") {
+      // Images are rendered by the widget field — skip the subtree.
+      if (name === "Image") return false
+      // Fenced / indented code: don't hide markers (content is literal), but
+      // tint the whole block so it reads as a unit. `syntaxHighlighting` colors
+      // the body by language. Keep the tint even while editing (all lines).
+      if (name === "FencedCode" || name === "CodeBlock") {
+        const first = state.doc.lineAt(from).number
+        const last = state.doc.lineAt(to).number
+        for (let ln = first; ln <= last; ln++) {
+          const lineFrom = state.doc.line(ln).from
+          const cls =
+            ln === first
+              ? "cm-live-code-line cm-live-code-top"
+              : ln === last
+                ? "cm-live-code-line cm-live-code-bottom"
+                : "cm-live-code-line"
+          decos.push(Decoration.line({ class: cls }).range(lineFrom))
+        }
+        return false
+      }
+      // GFM table: replace the source lines with a rendered table, unless the
+      // cursor is inside it (then reveal the raw Markdown for editing).
+      if (name === "Table") {
+        if (isProtected(from, to)) return false
+        const first = state.doc.lineAt(from).number
+        const last = state.doc.lineAt(to).number
+        let active = false
+        for (let ln = first; ln <= last; ln++) {
+          if (activeLines.has(ln)) {
+            active = true
+            break
+          }
+        }
+        if (!active) {
+          decos.push(
+            Decoration.replace({
+              block: true,
+              widget: new TableWidget(state.doc.sliceString(from, to)),
+            }).range(from, to),
+          )
+        }
         return false
       }
       if (isProtected(from, to) || onActiveLine(from)) return
@@ -298,6 +444,28 @@ export const noteLiveTheme = EditorView.baseTheme({
     width: "100%",
     verticalAlign: "middle",
     borderTop: "1px solid var(--color-border)",
+  },
+  ".cm-live-code-line": {
+    backgroundColor: "color-mix(in srgb, var(--color-muted-foreground) 12%, transparent)",
+  },
+  ".cm-live-code-top": {
+    borderTopLeftRadius: "6px",
+    borderTopRightRadius: "6px",
+  },
+  ".cm-live-code-bottom": {
+    borderBottomLeftRadius: "6px",
+    borderBottomRightRadius: "6px",
+  },
+  ".cm-live-table-wrap": { margin: "0.3em 0", overflowX: "auto" },
+  ".cm-live-table": { borderCollapse: "collapse", lineHeight: "1.4" },
+  ".cm-live-table th, .cm-live-table td": {
+    border: "1px solid var(--color-border)",
+    padding: "0.25em 0.6em",
+    textAlign: "left",
+  },
+  ".cm-live-table th": {
+    fontWeight: "700",
+    backgroundColor: "color-mix(in srgb, var(--color-muted-foreground) 12%, transparent)",
   },
   ".cm-live-h1": { fontSize: "1.6em", fontWeight: "700", lineHeight: "1.3" },
   ".cm-live-h2": { fontSize: "1.4em", fontWeight: "700", lineHeight: "1.3" },
