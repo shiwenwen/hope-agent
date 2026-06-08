@@ -179,6 +179,52 @@ jobs:
           }
           Write-Host "vc_redist.x64.exe Authenticode signature OK ($subject)"
 
+      # Sign the macOS build with a fixed self-signed certificate so granted
+      # TCC permissions (Screen Recording, Accessibility, ...) survive
+      # auto-updates instead of resetting on every ad-hoc cdhash change. A
+      # self-signed cert is NOT trusted by default, so codesign refuses it with
+      # "no identity found" — we must build our own keychain and add the cert as
+      # a trusted code-signing root (admin domain ⇒ sudo, available on the
+      # runner). Tauri then signs via APPLE_SIGNING_IDENTITY against this
+      # keychain. No-op when APPLE_CERTIFICATE is unset (build stays ad-hoc).
+      # See docs/macos-self-signing.md.
+      - name: Set up macOS code signing (self-signed)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "APPLE_CERTIFICATE not set — macOS build stays ad-hoc signed."
+            exit 0
+          fi
+          cert="$RUNNER_TEMP/ha-cert.p12"
+          pem="$RUNNER_TEMP/ha-cert.pem"
+          kc="$RUNNER_TEMP/ha-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$cert"
+          # Certificate-only PEM (no private key) for the trust step.
+          openssl pkcs12 -in "$cert" -clcerts -nokeys \
+            -passin "pass:${APPLE_CERTIFICATE_PASSWORD}" -out "$pem"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$kc"
+          security import "$cert" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$kc" >/dev/null
+          # Trust the self-signed cert as a code-signing root so codesign treats
+          # the identity as valid.
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+            -k /Library/Keychains/System.keychain "$pem"
+          # Put our keychain on the search list so codesign / Tauri find it.
+          security list-keychains -d user -s "$kc" \
+            $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$cert" "$pem"
+          security find-identity -v -p codesigning "$kc"
+
       - name: Build & draft release
         if: github.event.inputs.dry_run != 'true'
         uses: tauri-apps/tauri-action@v0.5.14
@@ -186,6 +232,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Sign macOS with the self-signed identity prepared by the "Set up
+          # macOS code signing" step (it builds the keychain + trusts the cert;
+          # Tauri's own APPLE_CERTIFICATE import does NOT trust a self-signed
+          # cert, so codesign would fail "no identity found"). Empty when the
+          # secret is unset → Tauri falls back to ad-hoc (no behavior change).
+          # No APPLE_ID/APPLE_TEAM_ID ⇒ sign-only, no notarization. See
+          # docs/macos-self-signing.md.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Hope Agent ${{ env.RELEASE_TAG }}"
@@ -207,6 +261,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Same self-signed identity as the real build (prepared by the "Set up
+          # macOS code signing" step) so signing problems surface in dry-run.
+          # Empty ⇒ ad-hoc (unchanged). See docs/macos-self-signing.md.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           pnpm tauri build ${{ matrix.args }}

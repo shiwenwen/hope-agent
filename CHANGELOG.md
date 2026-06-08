@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS 系统权限不再随更新失效**：发布包改用固定自签名证书签名，授予的录屏 / 辅助功能等系统权限不再因每次自动更新被 macOS 重置而显示「未授权」。
+
 ## [0.7.0] - 2026-06-07
 
 ### Added
