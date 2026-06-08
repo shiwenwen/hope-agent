@@ -204,7 +204,10 @@ mod tests {
 
     #[test]
     fn inject_seq_passes_through_non_object() {
-        assert_eq!(inject_seq("s", "not json at all", None).0, "not json at all");
+        assert_eq!(
+            inject_seq("s", "not json at all", None).0,
+            "not json at all"
+        );
         assert_eq!(inject_seq("s", "[1,2,3]", None).0, "[1,2,3]");
     }
 }

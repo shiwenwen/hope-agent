@@ -53,9 +53,18 @@ async function ensureLocale(code: string): Promise<void> {
   loadedLocales.add(code)
 }
 
+// 单调请求令牌：startup 的系统语言加载与 initLanguageFromConfig 的已存偏好可能
+// 并发，两条链各自 await 动态 import 后再 changeLanguage（落地顺序由 chunk fetch
+// 时延决定）。令牌保证「最后一次发起的语言请求」胜出，避免慢网下 UI 停在系统语言
+// 而非用户保存的偏好。
+let _langReq = 0
+
 /** 异步切语言：先确保 bundle 就位再 changeLanguage，避免闪 key。 */
 async function loadAndSetLanguage(code: string): Promise<void> {
+  const req = ++_langReq
   await ensureLocale(code)
+  // 被更晚发起的语言请求取代 → 放弃,不要覆盖更新的偏好。
+  if (req !== _langReq) return
   await i18n.changeLanguage(code)
 }
 

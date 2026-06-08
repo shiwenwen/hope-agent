@@ -329,13 +329,20 @@ impl SessionDB {
         const SCHEMA_FLAG_FTS_REBUILT: i64 = 0x1;
         let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         if schema_flags & SCHEMA_FLAG_FTS_REBUILT == 0 {
-            let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
-            // PRAGMA values can't be parameterized — must be an integer literal
-            // in the SQL text. The value is a private const, not user input.
-            conn.execute_batch(&format!(
-                "PRAGMA user_version = {};",
-                schema_flags | SCHEMA_FLAG_FTS_REBUILT
-            ))?;
+            // Stamp the sentinel ONLY when the rebuild actually succeeded — if a
+            // first post-upgrade open hits the very corruption this is meant to
+            // heal and the rebuild errors, we must retry on the next open rather
+            // than permanently skip it. PRAGMA values can't be parameterized
+            // (integer literal in SQL text); the value is a private const.
+            if conn
+                .execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');")
+                .is_ok()
+            {
+                conn.execute_batch(&format!(
+                    "PRAGMA user_version = {};",
+                    schema_flags | SCHEMA_FLAG_FTS_REBUILT
+                ))?;
+            }
         }
 
         // Migration: add plan_mode column to sessions if missing
@@ -3399,13 +3406,18 @@ mod tests {
             .read_conn()
             .expect("read conn")
             .execute("CREATE TABLE __readpool_probe (x)", []);
-        assert!(probe.is_err(), "read_conn must reject writes (read-only pool)");
+        assert!(
+            probe.is_err(),
+            "read_conn must reject writes (read-only pool)"
+        );
 
         // A committed write on the writer is visible to a subsequent read-pool
         // read (WAL gives readers the latest committed snapshot).
         let tool = crate::session::NewMessage::tool("call-rp", "noop", "{}", "", None, false);
         db.append_message(&session.id, &tool).expect("append");
-        let msgs = db.load_session_messages(&session.id).expect("read via pool");
+        let msgs = db
+            .load_session_messages(&session.id)
+            .expect("read via pool");
         assert_eq!(msgs.len(), 1, "read pool must see the committed append");
     }
 
