@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import NeedsReviewQueue from "./NeedsReviewQueue"
 
 interface DiaryEntry {
   filename: string
@@ -364,9 +365,16 @@ export default function DreamingTab() {
       loadRuns()
       refreshStatus()
     })
+    // User corrections create `user_correction` runs (audit log) but emit
+    // `memory:claim_changed`, not a cycle event — refresh history so the
+    // action shows up alongside pipeline runs.
+    const unlistenClaim = getTransport().listen("memory:claim_changed", () => {
+      loadRuns()
+    })
     return () => {
       unlistenComplete()
       unlistenStarted()
+      unlistenClaim()
     }
   }, [loadDiaries, loadRuns, refreshStatus])
 
@@ -493,6 +501,10 @@ export default function DreamingTab() {
           {latest.note && <div className="text-muted-foreground italic">{latest.note}</div>}
         </div>
       )}
+
+      {/* Lucid Review queue — claims flagged needs_review, with the full
+          correction toolbar (approve / edit / reject / move-scope / forget). */}
+      <NeedsReviewQueue />
 
       <div className="grid grid-cols-[240px_1fr] gap-4">
         {/* Run history list */}

@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { DatabaseZap, Loader2 } from "lucide-react"
+import ClaimReviewActions from "@/components/dashboard/dreaming/ClaimReviewActions"
 
 // Mirrors ha-core `ClaimRecord` (camelCase).
 interface ClaimRecord {
@@ -326,6 +327,10 @@ export default function ClaimsBetaView() {
                   ))}
                 </div>
               )}
+
+              <div className="pt-1.5 border-t border-border/40">
+                <ClaimReviewActions claim={detail.claim} onChanged={loadClaims} />
+              </div>
 
               <div className="font-medium pt-1">
                 {t("settings.claims.evidence")} ({detail.evidence.length})
