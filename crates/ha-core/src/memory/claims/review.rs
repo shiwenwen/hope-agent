@@ -281,6 +281,7 @@ pub fn update_claim(req: ClaimUpdate) -> Result<ClaimActionOutcome> {
     // Factual corrections get a highest-priority evidence row; pin / unpin /
     // flag are not corrections of the fact, so they skip it.
     let decision_type = resolved.decision_type;
+    let note_text = crate::util::non_empty_trim_or(req.note.as_deref(), default_quote(decision_type));
     if matches!(
         decision_type,
         "approve" | "edit" | "reject" | "expire" | "move_scope"
@@ -290,18 +291,12 @@ pub fn update_claim(req: ClaimUpdate) -> Result<ClaimActionOutcome> {
         } else {
             "manual_correction"
         };
-        let quote = req
-            .note
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| default_quote(decision_type));
         if let Err(e) = add_correction_evidence(
             &claim_id,
             &resolved.scope_type,
             resolved.scope_id.as_deref(),
             ev_class,
-            quote,
+            note_text,
         ) {
             app_warn!(
                 "memory",
@@ -313,12 +308,6 @@ pub fn update_claim(req: ClaimUpdate) -> Result<ClaimActionOutcome> {
         }
     }
 
-    let rationale = req
-        .note
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| default_quote(decision_type));
     let before_json = json!({
         "status": before.status,
         "content": before.content,
@@ -333,7 +322,7 @@ pub fn update_claim(req: ClaimUpdate) -> Result<ClaimActionOutcome> {
         "salience": resolved.fields.salience,
         "note": req.note,
     });
-    let run_id = record_action(decision_type, &claim_id, rationale, before_json, after_json);
+    let run_id = record_action(decision_type, &claim_id, note_text, before_json, after_json);
 
     emit_claim_changed(&claim_id, decision_type);
     if decision_type == "flag" {
@@ -368,10 +357,7 @@ pub fn forget_claim(
     } else {
         "forget"
     };
-    let quote = note
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| default_quote(decision_type));
+    let quote = crate::util::non_empty_trim_or(note, default_quote(decision_type));
 
     // Archive keeps evidence, so write the correction note BEFORE archiving;
     // permanent discards the graph, so adding evidence would be pointless.
