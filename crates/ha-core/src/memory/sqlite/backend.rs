@@ -193,7 +193,7 @@ impl SqliteMemoryBackend {
         // UTC strings to match the rest of this database; lexical comparison
         // (`lease_expires_at < now`) is therefore valid for lease expiry.
         //
-        // Schema mirrors docs/plans/dreaming-next-generation.md §3 with three
+        // Schema mirrors docs/architecture/dreaming.md §数据模型 with three
         // parity columns added on `dreaming_runs` (nominated_count,
         // duration_ms, diary_path) so a durable run losslessly carries what
         // the in-memory `DreamReport` shows in the Dashboard.
