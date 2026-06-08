@@ -505,24 +505,27 @@ pub async fn force_refresh_weather() -> Result<Option<WeatherData>> {
     Ok(Some(resp.current))
 }
 
-/// Start the background weather refresh task.
-/// Should be called once during app setup.
+/// Start the background weather refresh task on the ambient tokio runtime.
+/// Must be called from within a tokio context — it is invoked from
+/// `app_init::start_background_tasks`, which always runs on the shared runtime.
+///
+/// Previously self-hosted a dedicated OS thread + `tokio::runtime::Runtime`;
+/// that was redundant once the only caller runs on the shared runtime. The old
+/// 5s startup `sleep` is dropped too — this is a spawned task off the critical
+/// path, so there is nothing to yield to.
 pub fn start_background_refresh() {
-    std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create weather runtime");
-        rt.block_on(async {
-            // Initial fetch on startup (with a small delay to not block startup)
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            refresh_weather_cache().await;
+    tokio::spawn(async {
+        // Initial fetch on startup.
+        refresh_weather_cache().await;
 
-            // Periodic refresh loop
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(CACHE_REFRESH_SECS));
-            loop {
-                interval.tick().await;
-                refresh_weather_cache().await;
-            }
-        });
+        // Periodic refresh loop.
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(CACHE_REFRESH_SECS));
+        interval.tick().await; // consume the immediate first tick (already fetched above)
+        loop {
+            interval.tick().await;
+            refresh_weather_cache().await;
+        }
     });
 }
 

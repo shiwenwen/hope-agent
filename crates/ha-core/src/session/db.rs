@@ -297,8 +297,28 @@ impl SessionDB {
              END;"
         )?;
 
-        // Rebuild FTS index to fix any existing corruption
-        let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
+        // One-time FTS rebuild gate. The original unconditional rebuild fixed a
+        // historical "database disk image is malformed" corruption, but it
+        // re-scanned every `messages.content` row on *every* open — hundreds of
+        // ms to seconds for heavy users, on the synchronous pre-window path.
+        //
+        // `PRAGMA user_version` is unused elsewhere here (all other migrations
+        // are probe-based `SELECT col ... is_ok()`), so we claim it as a bitflag
+        // sentinel: bit 0 = "FTS rebuild already run". Future schema versioning
+        // can use the remaining bits. The corruption-recovery rebuild in
+        // `delete_session` (the only other rebuild caller) is unaffected — it
+        // fires on a caught error, not on open.
+        const SCHEMA_FLAG_FTS_REBUILT: i64 = 0x1;
+        let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if schema_flags & SCHEMA_FLAG_FTS_REBUILT == 0 {
+            let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
+            // PRAGMA values can't be parameterized — must be an integer literal
+            // in the SQL text. The value is a private const, not user input.
+            conn.execute_batch(&format!(
+                "PRAGMA user_version = {};",
+                schema_flags | SCHEMA_FLAG_FTS_REBUILT
+            ))?;
+        }
 
         // Migration: add plan_mode column to sessions if missing
         let has_plan_mode = conn

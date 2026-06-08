@@ -172,75 +172,15 @@ pub fn init_runtime(role: &'static str) {
     ));
     let _ = MEMORY_BACKEND.set(memory_backend);
 
-    // Auto-initialize memory embedding model if enabled in config
-    if let Some(backend) = MEMORY_BACKEND.get() {
-        match crate::config::load_config() {
-            Ok(store) if store.memory_embedding.enabled => {
-                match memory::resolve_memory_embedding_config(
-                    &store.memory_embedding,
-                    &store.embedding_models,
-                )
-                .and_then(|resolved| {
-                    resolved
-                        .map(|(_, config, _)| memory::create_embedding_provider(&config))
-                        .transpose()
-                }) {
-                    Ok(Some(emb_provider)) => {
-                        backend.set_embedder(emb_provider);
-                        logger.log(
-                            "info",
-                            "memory",
-                            "embedding",
-                            "Memory embedding provider auto-initialized on startup",
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        logger.log(
-                            "warn",
-                            "memory",
-                            "embedding",
-                            &format!("Failed to auto-initialize memory embedding provider: {}", e),
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                }
-            }
-            Ok(store) if store.embedding.enabled => {
-                match memory::create_embedding_provider(&store.embedding) {
-                    Ok(emb_provider) => {
-                        backend.set_embedder(emb_provider);
-                        logger.log(
-                            "info",
-                            "memory",
-                            "embedding",
-                            "Embedding provider auto-initialized on startup",
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                    Err(e) => {
-                        logger.log(
-                            "warn",
-                            "memory",
-                            "embedding",
-                            &format!("Failed to auto-initialize embedding provider: {}", e),
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                }
-            }
-            _ => {} // Embedding not enabled or config load failed — skip silently
-        }
-    }
+    // Memory embedding provider initialization is DEFERRED to
+    // `start_background_tasks` / `start_minimal_background_tasks` (see
+    // `spawn_embedding_init`). Constructing the local ONNX embedder
+    // (`fastembed::TextEmbedding::try_new`) takes 300ms–2s and may download
+    // model weights on first run — far too heavy for this synchronous,
+    // pre-window init path. The backend tolerates a missing embedder (recall
+    // degrades to FTS-only until it lands) and the config hot-reload path
+    // (`tools::settings::trigger_backend_hot_reload`) sets the embedder
+    // independently, so deferring is safe.
 
     // Initialize the CronDB (scheduler started in start_background_tasks)
     let cron_db_path = fatal(paths::cron_db_path(), "Cannot resolve cron database path");
@@ -703,6 +643,75 @@ fn menu_resync_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
 /// actions on the same subsystems (`/api/cron/jobs/{id}/run` via atomic
 /// SQL claim, `/api/dreaming/run`, channel `start_account` button) are
 /// tier-agnostic and continue to work in Secondary processes.
+/// Construct the memory embedding provider off the critical path and install
+/// it via `set_embedder`. Heavy (ONNX init + possible first-run model
+/// download), so it runs on a blocking thread. No-op when embedding is
+/// disabled in config or the backend isn't initialized. Idempotent w.r.t. the
+/// config hot-reload path (`trigger_backend_hot_reload`) — both call
+/// `set_embedder`, last write wins; `load_config()` reads the latest config at
+/// task-run time, so the race window is sub-second and self-heals on any later
+/// config save.
+fn spawn_embedding_init() {
+    tokio::task::spawn_blocking(|| {
+        let Some(backend) = MEMORY_BACKEND.get() else {
+            return;
+        };
+        let Ok(store) = crate::config::load_config() else {
+            return;
+        };
+
+        // New selector (memory_embedding) takes priority; legacy single
+        // `embedding` config is the fallback — mirrors the old init_runtime
+        // branch order exactly.
+        let provider = if store.memory_embedding.enabled {
+            match memory::resolve_memory_embedding_config(
+                &store.memory_embedding,
+                &store.embedding_models,
+            )
+            .and_then(|resolved| {
+                resolved
+                    .map(|(_, config, _)| memory::create_embedding_provider(&config))
+                    .transpose()
+            }) {
+                Ok(p) => p,
+                Err(e) => {
+                    app_warn!(
+                        "memory",
+                        "embedding",
+                        "Failed to auto-initialize memory embedding provider (deferred): {}",
+                        e
+                    );
+                    None
+                }
+            }
+        } else if store.embedding.enabled {
+            match memory::create_embedding_provider(&store.embedding) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    app_warn!(
+                        "memory",
+                        "embedding",
+                        "Failed to auto-initialize embedding provider (deferred): {}",
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(p) = provider {
+            backend.set_embedder(p);
+            app_info!(
+                "memory",
+                "embedding",
+                "Memory embedding provider initialized (deferred, off critical path)"
+            );
+        }
+    });
+}
+
 pub async fn start_background_tasks() {
     let primary = crate::runtime_lock::is_primary();
 
@@ -711,6 +720,19 @@ pub async fn start_background_tasks() {
 
     // Tier-agnostic: per-process in-memory hooks registry + hot-reload.
     spawn_hooks_config_listener();
+
+    // Memory embedding provider: deferred off init_runtime's synchronous
+    // pre-window path (ONNX init + possible model download is 300ms–2s).
+    // Per-process in-memory state, tier-agnostic.
+    spawn_embedding_init();
+
+    // Background weather cache refresh — desktop UI only. Moved here from
+    // src-tauri setup.rs so it shares the ambient runtime instead of spawning
+    // its own OS thread + tokio Runtime. Gated on desktop to skip the loop
+    // entirely in server / ACP (refresh also self-checks weather_enabled).
+    if is_desktop() {
+        crate::weather::start_background_refresh();
+    }
 
     if primary {
         // Cron scheduler self-hosts a dedicated OS thread with its own tokio
@@ -977,6 +999,10 @@ pub async fn start_minimal_background_tasks() {
     // registry stays empty and every dispatch is a no-op, contradicting the
     // "hooks run in desktop / server / ACP alike" contract.
     spawn_hooks_config_listener();
+
+    // Memory embedding provider deferred (per-process, tier-agnostic). See
+    // start_background_tasks for rationale.
+    spawn_embedding_init();
 
     if primary {
         // One-shot ask_user table cleanup. Primary-only because Secondary
