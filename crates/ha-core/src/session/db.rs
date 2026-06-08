@@ -1,7 +1,8 @@
 use anyhow::Result;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
 use super::types::{ChannelSessionInfo, MessageRole, NewMessage, SessionMessage, SessionMeta};
@@ -25,8 +26,22 @@ pub struct LastAssistantTokens {
 
 // ── Database Manager ─────────────────────────────────────────────
 
+/// Number of read-only connections in the pool (mirrors the memory backend).
+const READ_POOL_SIZE: usize = 4;
+
 pub struct SessionDB {
+    /// Exclusive write connection — also the *only* connection used by every
+    /// write path, read-write transaction, and external module that touches
+    /// `.conn` directly (channel/db.rs, session/tasks.rs, session_title.rs,
+    /// agent/migration.rs). Migrations run here at open().
     pub(crate) conn: Mutex<Connection>,
+    /// Pool of READ_ONLY connections for the hottest pure-read methods
+    /// (message loads, FTS search, sidebar list). With WAL these run
+    /// concurrently with the writer instead of serializing on one mutex, so a
+    /// streaming write no longer blocks the UI's sidebar/message reads.
+    readers: Vec<Mutex<Connection>>,
+    /// Round-robin cursor into `readers`.
+    reader_idx: AtomicUsize,
 }
 
 /// Log at `app_info!` when `align_window_to_user_boundary` extends a page by
@@ -618,9 +633,46 @@ impl SessionDB {
         // presets via Settings → Teams panel; see AGENTS.md Team 系统 section).
         let _ = conn.execute("DELETE FROM team_templates WHERE builtin = 1", []);
 
+        // Read-only connection pool. WAL lets these run concurrently with the
+        // writer; opened AFTER all migrations above so they observe the final
+        // schema. busy_timeout is connection-level, so each reader sets its own.
+        let mut readers = Vec::with_capacity(READ_POOL_SIZE);
+        for _ in 0..READ_POOL_SIZE {
+            let r = Connection::open_with_flags(
+                db_path,
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                    | OpenFlags::SQLITE_OPEN_URI,
+            )?;
+            r.busy_timeout(std::time::Duration::from_secs(5))?;
+            readers.push(Mutex::new(r));
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
+            readers,
+            reader_idx: AtomicUsize::new(0),
         })
+    }
+
+    /// Get a read-only connection from the pool (round-robin `try_lock` first,
+    /// then block on the round-robin target). NEVER returns the writer — read
+    /// methods must not observe uncommitted writer state mid-transaction; WAL
+    /// gives readers a consistent committed snapshot anyway.
+    pub(crate) fn read_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        let idx = self
+            .reader_idx
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.readers.len();
+        for i in 0..self.readers.len() {
+            let t = (idx + i) % self.readers.len();
+            if let Ok(g) = self.readers[t].try_lock() {
+                return Ok(g);
+            }
+        }
+        self.readers[idx]
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Session read pool lock poisoned: {e}"))
     }
 
     /// Insert a learning event row. Best-effort — errors are logged but
@@ -1098,10 +1150,9 @@ impl SessionDB {
         active_session_id: Option<&str>,
         order_by: &str,
     ) -> Result<(Vec<SessionMeta>, u32)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Sidebar list is a hot read during streaming — use the read pool so a
+        // concurrent message-append write doesn't block it.
+        let conn = self.read_conn()?;
 
         // Unread only counts final `assistant` rows — tool / text_block /
         // thinking_block / event rows are artifacts of the same turn and would
@@ -1181,10 +1232,7 @@ impl SessionDB {
 
     /// Load all messages for a session.
     pub fn load_session_messages(&self, session_id: &str) -> Result<Vec<SessionMessage>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -1221,10 +1269,7 @@ impl SessionDB {
         session_id: &str,
         limit: u32,
     ) -> Result<(Vec<SessionMessage>, u32, bool)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let total: u32 = conn.query_row(
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
@@ -1277,10 +1322,7 @@ impl SessionDB {
         before_id: i64,
         limit: u32,
     ) -> Result<(Vec<SessionMessage>, bool)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -1421,10 +1463,7 @@ impl SessionDB {
         after_id: i64,
         limit: u32,
     ) -> Result<(Vec<SessionMessage>, bool)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -2842,10 +2881,8 @@ impl SessionDB {
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // FTS search is a hot read (Cmd+F + /sessions) — route to the read pool.
+        let conn = self.read_conn()?;
 
         let fts_query = sanitize_fts_query(query);
         if fts_query.is_empty() {
@@ -3347,6 +3384,29 @@ mod tests {
         drop(stmt);
         drop(conn);
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn read_pool_is_readonly_and_sees_committed_writes() {
+        let db_path = temp_db_path("session-read-pool");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        // read_conn must hand out READ_ONLY connections — a write fails.
+        let probe = db
+            .read_conn()
+            .expect("read conn")
+            .execute("CREATE TABLE __readpool_probe (x)", []);
+        assert!(probe.is_err(), "read_conn must reject writes (read-only pool)");
+
+        // A committed write on the writer is visible to a subsequent read-pool
+        // read (WAL gives readers the latest committed snapshot).
+        let tool = crate::session::NewMessage::tool("call-rp", "noop", "{}", "", None, false);
+        db.append_message(&session.id, &tool).expect("append");
+        let msgs = db.load_session_messages(&session.id).expect("read via pool");
+        assert_eq!(msgs.len(), 1, "read pool must see the committed append");
     }
 
     #[test]
