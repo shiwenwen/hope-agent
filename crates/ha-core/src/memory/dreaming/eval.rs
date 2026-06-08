@@ -106,16 +106,24 @@ pub struct SeedLink {
     pub sync_mode: String,
 }
 
-/// List the active claims in a scope and assert membership + content rules.
+fn default_active() -> String {
+    "active".to_string()
+}
+
+/// List the claims of a given effective status in a scope and assert membership
+/// + content rules. `status` defaults to `active`; set it to `needs_review`
+/// (etc.) to assert the review-queue side of a transition.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListActiveCheck {
     pub scope: ScopeSpec,
+    #[serde(default = "default_active")]
+    pub status: String,
     #[serde(default)]
     pub expect_present: Vec<String>,
     #[serde(default)]
     pub expect_absent: Vec<String>,
-    /// Substrings that must NOT appear in any active claim of this scope
-    /// (scope-leakage guard).
+    /// Substrings that must NOT appear in any claim of this (scope, status)
+    /// (scope-leakage / hold-out guard).
     #[serde(default)]
     pub forbidden_content: Vec<String>,
 }
@@ -331,7 +339,7 @@ pub fn evaluate(backend: &dyn MemoryBackend, fx: &DreamingFixture) -> Result<Fix
         let scope = c.scope.to_scope()?;
         let list = claims::list_claims(ClaimListFilter {
             scope: Some(scope),
-            status: Some("active".to_string()),
+            status: Some(c.status.clone()),
             claim_type: None,
             limit: Some(500),
             offset: None,
@@ -340,34 +348,37 @@ pub fn evaluate(backend: &dyn MemoryBackend, fx: &DreamingFixture) -> Result<Fix
         for k in &c.expect_present {
             let ok = present_keys.contains(&k.as_str());
             outcomes.push(CheckOutcome {
-                name: format!("list_active present {k}"),
+                name: format!("list[{}] present {k}", c.status),
                 passed: ok,
                 detail: if ok {
                     String::new()
                 } else {
-                    format!("expected {k} active in scope, got {present_keys:?}")
+                    format!("expected {k} in {} scope, got {present_keys:?}", c.status)
                 },
             });
         }
         for k in &c.expect_absent {
             let absent = !present_keys.contains(&k.as_str());
             outcomes.push(CheckOutcome {
-                name: format!("list_active absent {k}"),
+                name: format!("list[{}] absent {k}", c.status),
                 passed: absent,
                 detail: if absent {
                     String::new()
                 } else {
-                    format!("{k} leaked into scope active list")
+                    format!("{k} leaked into {} scope list", c.status)
                 },
             });
         }
         for needle in &c.forbidden_content {
             let leaked = list.iter().any(|r| r.content.contains(needle));
             outcomes.push(CheckOutcome {
-                name: format!("forbidden_content {needle:?}"),
+                name: format!("list[{}] forbidden_content {needle:?}", c.status),
                 passed: !leaked,
                 detail: if leaked {
-                    format!("forbidden content {needle:?} leaked into scope")
+                    format!(
+                        "forbidden content {needle:?} leaked into {} scope",
+                        c.status
+                    )
                 } else {
                     String::new()
                 },
