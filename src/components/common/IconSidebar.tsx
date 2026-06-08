@@ -88,7 +88,8 @@ export default function IconSidebar({
   const { theme, cycleTheme } = useTheme()
   const [showLangMenu, setShowLangMenu] = useState(false)
   const { pendingUpdate } = useDesktopUpdateStore()
-  const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
+  const { draftCount: skillDraftCount } = useDraftSkillsStore()
+  const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
 
   return (
     <div className="w-[76px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
@@ -228,8 +229,10 @@ export default function IconSidebar({
                 <Puzzle className="h-4 w-4" />
               </Button>
             </IconTip>
-            {skillDraftUnseen > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 z-10 w-2 h-2 rounded-full bg-amber-500 border-2 border-background pointer-events-none animate-in zoom-in-0 duration-200" />
+            {skillDraftCount > 0 && (
+              <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
+                {skillDraftBadgeLabel}
+              </span>
             )}
           </div>
         </div>
