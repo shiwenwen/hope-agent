@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **技能设置页文本与待审核徽标修复**：技能描述过长时会在列表内正确截断，不再挤出右侧；自我进化待审核草稿数量会以数字 badge 显示在左侧技能入口与设置侧栏「技能」项上，且显示当前待审核总数而非仅未读新增数。
+- **新增/编辑模型自动清理输入空格**：保存或测试 Provider 时自动去除 base URL、模型 ID、API Key、名称等字段前后的空格与换行，避免复制粘贴带入的空白导致连接失败。 (#296)
+- **模型连通性测试校验实际回复**：测试模型时不再「只要返回 200 就算通过」，而要求确有回复内容；对因测试输出上限被截断的 reasoning 模型（如 GPT-5 系列）仍正确判为连接正常，不再误报失败。 (#296)
+- **IM 一次回复只引用一次原消息**：修复 Telegram、飞书等流式渠道在 split 模式下，一次回复被拆成多条消息时每条都引用原消息的问题——现在整轮回复只有第一条带引用（私聊、群聊一致）。 (#296)
+
+## [0.7.0] - 2026-06-07
+
 ### Added
 
 - **知识空间（Knowledge Space）**：一级导航新增「知识空间」——本地优先的双链笔记库。笔记是真实 `.md` 文件，支持 `[[wikilink]]` / 别名 / heading 锚点 / `#标签` 与反向链接；可绑定现成的 Obsidian / Logseq vault（Phase 1 只读，外部改动经文件监听实时同步进索引）。编辑器为 CodeMirror 6（源码 / 预览 / 分屏三模式，`[[` / `#` 自动补全、wikilink 高亮、悬空链接提示）。AI 可读写知识库（`note_*` 工具：创建 / 读取 / 更新 / 局部编辑 / 追加 / 删除 / 搜索 / 建链 / 反链 / 标签），检索走全文 + 向量混合召回，向量检索可在「设置 → 知识空间」（知识空间视图右上齿轮也能跳过去）独立配置 embedding 模型——与记忆共享同一份模型库（API Key 配一次两处都能选），但开关 / 选型 / 重建进度完全独立，记忆没启用也不影响知识空间向量检索；聊天里打 `[[笔记名]]` 会按需把该笔记内容注入对话。访问默认关闭、需显式授权给会话或项目，无痕会话与（当前）IM 渠道一律无访问。 (#TBD)
@@ -22,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **知识空间·被动相关笔记与记忆+笔记合并检索**：新增可选的「被动相关笔记」——开启后每轮对话会把与你消息相关的可访问笔记标题作为提示注入（只给标题、永不当指令，无痕会话与未授权渠道不召回），在「设置 → 知识空间」开关并调节数量/缓存；AI 还新增 `knowledge_recall` 工具，一次同时检索记忆与笔记并分两组返回（互不混排，不影响原有记忆召回）。 (#TBD)
 - **知识空间·实时预览模式与引用到聊天**：笔记编辑器新增「实时」模式——像 Obsidian 一样在源码上就地隐藏 Markdown 语法符号（标题按级别放大、**粗体** / *斜体* / 删除线、行内代码、无序列表符号渲成圆点），光标移到那一行即还原原文可编辑，底层始终是纯 `.md`（不引入 WYSIWYG 引擎，规避格式被往返改写的风险）；编辑器标题栏新增「引用到聊天」按钮，把当前笔记（有选区时带最近上方标题作锚点）作为 `[[引用]]` 一键塞进聊天输入框，并自动以只读权限把该知识空间挂到会话上以确保引用生效（无痕会话不挂）。 (#TBD)
 - **文件浏览器搜索**：项目 / 会话文件浏览器新增按文件名与路径的模糊搜索，支持搜索结果停留、键盘上下选择、回车预览、目录结果展开定位，以及跨 session / project / worktree 的 scope-based 后端搜索，避免 Project 默认工作目录下搜索失败。
+- **内置 Provider 模板扩充刷新**：Provider 模板由 39 个增至 44 个（新增 GitHub Copilot、Novita、GMI、OpenCode、KiloCode），预设模型扩充至 335 个；补齐 Claude Opus 4.8、GPT-5.x、Gemini 3.1、Kimi K2.6、GLM-5.1 等最新模型，并同步各家上下文窗口、最大输出与定价。
 - **定时任务关联 Project**：Cron 任务可绑定 Project，人工表单和 `manage_cron` 工具都能设置；执行时会创建带 Project 上下文的隔离会话，复用 Project 指令、项目记忆、工作目录与工具 cwd 解析。Agent 支持 `Auto`，按显式 Agent → Project 默认 Agent → 全局默认 → `ha-main` 解析；Project 被删除后任务会自动清空关联并按普通 Cron 降级执行。任务列表、详情、日历 API 与模型工具输出同步展示 `projectId` / Project 标签。
 - **内置 Office 三件套 Skills**：新增 `office-docx` / `office-xlsx` / `office-pptx` 三个内置技能，以 skill + bundled scripts 形式提供 Word、Excel、PowerPoint 本地生成、编辑、检查与预览能力。DOCX 支持真实 Word 列表、批注、修订、图片 alt、TOC、脚注/尾注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏与 Google Docs-targeted 清理；XLSX 支持真实 Excel tables、公式、样式、数据验证、条件格式、图表、CSV/TSV 转换、公式审计/缓存与 LibreOffice 重算；PPTX 支持标题/章节/图文/指标/表格/时间线、native chart、文本 patch、追加、复制/重排 slide、布局审计与 contact sheet。
 - **Office Skills 回归验证脚本**：新增 `scripts/office-skill-parity-audit.py` 与 `scripts/office-skill-smoke-test.py`，分别做 Office skill 能力面审计与端到端生成/编辑/检查/渲染 smoke，覆盖 DOCX `sectPr` 插入位置、水印 header 冲突、PPTX 非 slide relationships 保留、XLSX patch / formula cache 等关键回归。

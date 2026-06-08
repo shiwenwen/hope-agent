@@ -116,10 +116,10 @@ export default function SkillListView({
         {/* Name + description (clickable -> detail) */}
         <Button
           variant="ghost"
-          className="h-auto flex-1 min-w-0 flex-col items-start justify-start px-0 py-0 text-left font-normal hover:bg-transparent"
+          className="h-auto min-w-0 flex-1 flex-col items-start justify-start overflow-hidden px-0 py-0 text-left font-normal hover:bg-transparent"
           onClick={() => onSelectSkill(skill.name)}
         >
-          <div className="flex items-center gap-1.5 w-full">
+          <div className="flex w-full min-w-0 items-center gap-1.5">
             {display?.emoji && (
               <span className="shrink-0 text-base leading-none" aria-hidden>
                 {display.emoji}
@@ -152,9 +152,11 @@ export default function SkillListView({
               </IconTip>
             )}
           </div>
-          <div className="text-xs text-muted-foreground truncate">{skill.description}</div>
+          <div className="w-full min-w-0 truncate text-xs text-muted-foreground">
+            {skill.description}
+          </div>
           {/* Status badges */}
-          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          <div className="mt-0.5 flex w-full min-w-0 flex-wrap items-center gap-1 overflow-hidden">
             {skill.always && (
               <span className="text-[9px] px-1 py-0 rounded bg-green-500/10 text-green-600 font-medium">
                 {t("settings.skillSkipsRequirements")}

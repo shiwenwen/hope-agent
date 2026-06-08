@@ -231,7 +231,8 @@ fn default_codex_model_ids() -> &'static [&'static str] {
     ]
 }
 
-fn new_provider_from_add_request(config: ProviderConfig) -> ProviderConfig {
+fn new_provider_from_add_request(mut config: ProviderConfig) -> ProviderConfig {
+    config.sanitize();
     let mut provider = ProviderConfig::new(
         config.name,
         config.api_type,
@@ -242,6 +243,12 @@ fn new_provider_from_add_request(config: ProviderConfig) -> ProviderConfig {
     provider.auth_profiles = config.auth_profiles;
     provider.thinking_style = config.thinking_style;
     provider.allow_private_network = config.allow_private_network;
+    // Carry over the request's own values rather than letting them silently
+    // fall back to `ProviderConfig::new` defaults — otherwise a custom
+    // User-Agent (already trimmed by sanitize) or `enabled: false` from the add
+    // request would be dropped, diverging from the update path.
+    provider.user_agent = config.user_agent;
+    provider.enabled = config.enabled;
     provider
 }
 
@@ -287,8 +294,9 @@ pub(crate) fn add_and_activate_provider_in_config(
 
 pub(crate) fn update_provider_in_config(
     store: &mut AppConfig,
-    config: ProviderConfig,
+    mut config: ProviderConfig,
 ) -> ProviderWriteResult<()> {
+    config.sanitize();
     let Some(existing) = store.providers.iter_mut().find(|p| p.id == config.id) else {
         return Err(ProviderWriteError::NotFound(config.id));
     };

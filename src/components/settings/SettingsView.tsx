@@ -251,7 +251,8 @@ export default function SettingsView({
 }) {
   const { t } = useTranslation()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
-  const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
+  const { draftCount: skillDraftCount } = useDraftSkillsStore()
+  const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
   const [activeSection, setActiveSection] = useState<SettingsSection>(() => {
     const initial = initialSection ?? "modelConfig"
     // Release builds don't ship the developer panel; fall back if anything
@@ -328,8 +329,10 @@ export default function SettingsView({
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                 </span>
               )}
-              {section.id === "skills" && skillDraftUnseen > 0 && (
-                <span className="relative flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+              {section.id === "skills" && skillDraftCount > 0 && (
+                <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-[10px] font-semibold leading-none text-amber-600 tabular-nums dark:text-amber-400">
+                  {skillDraftBadgeLabel}
+                </span>
               )}
             </Button>
           ))}
