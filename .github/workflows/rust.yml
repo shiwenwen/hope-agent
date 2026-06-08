@@ -50,10 +50,10 @@ jobs:
           # rustup installer and make `cargo test` fail before compilation.
           cache-bin: false
 
-      # Vendored OpenSSL needs NASM to build on Windows MSVC. Chocolatey
-      # is pre-installed on windows-latest runners; this avoids the
-      # Node-20 deprecation on ilammy/setup-nasm (upstream has not
-      # migrated — see ilammy/setup-nasm#45).
+      # `ring` (pulled in by jsonwebtoken / rustls) assembles its Windows
+      # MSVC crypto with NASM. Chocolatey is pre-installed on windows-latest
+      # runners; this avoids the Node-20 deprecation on ilammy/setup-nasm
+      # (upstream has not migrated — see ilammy/setup-nasm#45).
       #
       # community.chocolatey.org occasionally returns HTTP 499 on the V2
       # feed, so retry with backoff and fall back to the official NASM

@@ -510,12 +510,14 @@ WeChat 的特殊性是密文必须经 AES-128-ECB + PKCS#7 解密。旧实现 `r
 
 ```
 Stage 1  stream_to_disk(url → <ts>-<msg>.enc)        // 16 KiB read / 64 KiB write buffer
-Stage 2  spawn_blocking → OpenSSL Crypter::update    // 16 KiB 增量解密
-         .enc → <ts>-<msg>.<ext>                     //   crypter.pad(true) 处理 PKCS#7
+Stage 2  spawn_blocking → aes::Aes128 逐块解密        // 16 KiB read buffer，按 16B 块 decrypt
+         .enc → <ts>-<msg>.<ext>                     //   末块在 carry 里留到 EOF 再去 PKCS#7
 Stage 3  abort_partial_download(.enc)                // 强制删中间文件
 ```
 
-ECB 块独立可流式，PKCS#7 unpad 由 `Crypter::finalize` 在尾块处理。**RSS 与文件大小完全解耦**，1 MB / 100 MB / 1 GB 增量都是几十 KB 级别。中间文件失败会自动 cleanup（两段任一失败都先删 `.enc` 再删 `.<ext>`）。
+ECB 块独立可流式；尾块在 EOF 前一直留在 `carry` 里，PKCS#7 unpad 只对真正的最后一块做。解密用纯 Rust `aes` crate（加密侧 `media::aes128_ecb_encrypt_pkcs7` 同源，MD5 走 `md-5`），与旧 OpenSSL `Crypter` + `pad(true)` 字节一致——换库的动机是去掉 `openssl` 依赖（详见下方「加密库」）。**RSS 与文件大小完全解耦**，1 MB / 100 MB / 1 GB 增量都是几十 KB 级别。中间文件失败会自动 cleanup（两段任一失败都先删 `.enc` 再删 `.<ext>`）。
+
+> **加密库**：WeChat 媒体的 AES-128-ECB/PKCS#7 + MD5 用纯 Rust 的 `aes` + `md-5`，不再依赖 `openssl`。`openssl` 仅在 Linux 作为 target 依赖保留（`features = ["vendored"]`），用途是让 `native-tls` 的 `openssl-sys` 静态打包 OpenSSL，使 Docker / 裸 Linux 发布包运行时无需系统 libssl。Windows（SChannel）/ macOS（Security.framework）不再编译 `openssl-sys`，所以原先在 windows-2025 runner 上失败的 vendored-from-source OpenSSL 构建不再运行。
 
 #### SSRF 策略
 

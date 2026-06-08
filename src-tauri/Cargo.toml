@@ -79,7 +79,6 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 tokio-native-tls = "0.3"
-openssl = "0.10"
 axum = "0.8"
 hmac = "0.12"
 jsonwebtoken = "9"

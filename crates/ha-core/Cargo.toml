@@ -75,8 +75,13 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 tokio-native-tls = "0.3"
-openssl = { version = "0.10", features = ["vendored"] }
 hmac = "0.12"
+# WeChat iLink media CDN crypto — AES-128-ECB + MD5, pure Rust. Replaces the
+# former `openssl` dependency so openssl-sys is no longer compiled on Windows /
+# macOS (see the Linux-only `openssl` target dep below, kept solely to vendor
+# native-tls's OpenSSL on Linux).
+aes = "0.8"
+md-5 = "0.10"
 jsonwebtoken = "9"
 axum = "0.8"
 prost = "0.14"
@@ -101,6 +106,16 @@ objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSErro
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+
+# Not a code dependency — the WeChat media crypto moved to the pure-Rust `aes`
+# + `md-5` crates above. On Linux, `native-tls` (reqwest / tokio-tungstenite)
+# links openssl-sys; the `vendored` feature here statically bundles OpenSSL so
+# the headless server bin (Docker image + bare Linux release) needs no system
+# libssl at runtime. Windows uses SChannel and macOS uses Security.framework,
+# so neither compiles openssl-sys — keeping this Linux-only means the fragile
+# vendored-from-source OpenSSL build never runs on the Windows runner.
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 tempfile = "3"

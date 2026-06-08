@@ -3010,6 +3010,7 @@ dependencies = [
 name = "ha-core"
 version = "0.7.0"
 dependencies = [
+ "aes",
  "anyhow",
  "arboard",
  "arc-swap",
@@ -3037,6 +3038,7 @@ dependencies = [
  "libc",
  "log",
  "lru",
+ "md-5",
  "minisign-verify",
  "native-tls",
  "objc2",
@@ -3255,7 +3257,6 @@ dependencies = [
  "objc2-vision",
  "once_cell",
  "open",
- "openssl",
  "pdf-extract",
  "pdfium-render",
  "portable-pty",

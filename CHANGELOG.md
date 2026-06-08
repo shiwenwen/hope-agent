@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **macOS 系统权限不再随更新失效**：发布包改用固定自签名证书签名，授予的录屏 / 辅助功能等系统权限不再因每次自动更新被 macOS 重置而显示「未授权」。
+- **Windows 桌面版构建恢复**：修复 Windows 发布包因从源码编译 OpenSSL 失败而无法打包的问题——微信媒体加解密改用纯 Rust 实现并移除了 `openssl` 依赖，Windows 不再编译 OpenSSL；Linux / Docker 自托管仍静态打包 OpenSSL，运行不受影响。
 
 ## [0.7.0] - 2026-06-07
 

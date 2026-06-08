@@ -92,9 +92,9 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      # Windows MSVC + vendored OpenSSL needs NASM. Use Chocolatey
-      # instead of ilammy/setup-nasm (upstream still on Node 20, see
-      # ilammy/setup-nasm#45).
+      # `ring` (via jsonwebtoken / rustls) assembles its Windows MSVC crypto
+      # with NASM. Use Chocolatey instead of ilammy/setup-nasm (upstream still
+      # on Node 20, see ilammy/setup-nasm#45).
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
