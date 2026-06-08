@@ -3,18 +3,9 @@ import { initReactI18next } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 
-import zh from "./locales/zh.json"
-import zhTW from "./locales/zh-TW.json"
+// 仅 en 同步内联作为首屏兜底（fallbackLng）；其余 11 种语言按需懒加载，避免把
+// 12 份翻译（~2.8MB）全量打进主 bundle。其余语言见下方 localeLoaders。
 import en from "./locales/en.json"
-import ja from "./locales/ja.json"
-import ko from "./locales/ko.json"
-import tr from "./locales/tr.json"
-import vi from "./locales/vi.json"
-import pt from "./locales/pt.json"
-import ru from "./locales/ru.json"
-import ar from "./locales/ar.json"
-import es from "./locales/es.json"
-import ms from "./locales/ms.json"
 
 export const SUPPORTED_LANGUAGES = [
   { code: "zh", label: "简体中文", shortLabel: "ZH" },
@@ -32,6 +23,41 @@ export const SUPPORTED_LANGUAGES = [
 ] as const
 
 const supportedCodes = SUPPORTED_LANGUAGES.map((l) => l.code)
+
+// 各语言翻译正文的懒加载器。必须用显式映射（而非模板字符串拼接），Vite/Rolldown
+// 才能把每种语言静态分析成独立 chunk，按当前语言 fetch。
+const localeLoaders: Record<string, () => Promise<{ default: Record<string, unknown> }>> = {
+  zh: () => import("./locales/zh.json"),
+  "zh-TW": () => import("./locales/zh-TW.json"),
+  ja: () => import("./locales/ja.json"),
+  ko: () => import("./locales/ko.json"),
+  tr: () => import("./locales/tr.json"),
+  vi: () => import("./locales/vi.json"),
+  pt: () => import("./locales/pt.json"),
+  ru: () => import("./locales/ru.json"),
+  ar: () => import("./locales/ar.json"),
+  es: () => import("./locales/es.json"),
+  ms: () => import("./locales/ms.json"),
+}
+
+// en 首屏已同步内联，标记为已加载。
+const loadedLocales = new Set<string>(["en"])
+
+/** 确保某语言翻译已挂载到 i18next（幂等）。未知 code 静默忽略，由 fallback 兜底。 */
+async function ensureLocale(code: string): Promise<void> {
+  if (loadedLocales.has(code)) return
+  const loader = localeLoaders[code]
+  if (!loader) return
+  const mod = await loader()
+  i18n.addResourceBundle(code, "translation", mod.default, true, true)
+  loadedLocales.add(code)
+}
+
+/** 异步切语言：先确保 bundle 就位再 changeLanguage，避免闪 key。 */
+async function loadAndSetLanguage(code: string): Promise<void> {
+  await ensureLocale(code)
+  await i18n.changeLanguage(code)
+}
 
 /** Resolve a raw locale string to one of our supported language codes. */
 function resolveLanguage(raw: string): string {
@@ -51,30 +77,23 @@ function detectSystemLanguage(): string {
   return resolveLanguage(detected)
 }
 
-// Initialize i18next with system language as default (will be overridden by backend config)
+// 首屏只内联 en（fallbackLng），以 en 起步保证第一帧不空白；随后异步拉取系统语言
+// 的翻译 bundle，到位后 changeLanguage 触发 react-i18next 重渲染。
+const _initialLang = detectSystemLanguage()
 i18n
   .use(initReactI18next)
   .init({
-    resources: {
-      zh: { translation: zh },
-      "zh-TW": { translation: zhTW },
-      en: { translation: en },
-      ja: { translation: ja },
-      ko: { translation: ko },
-      tr: { translation: tr },
-      vi: { translation: vi },
-      pt: { translation: pt },
-      ru: { translation: ru },
-      ar: { translation: ar },
-      es: { translation: es },
-      ms: { translation: ms },
-    },
-    lng: detectSystemLanguage(),
+    resources: { en: { translation: en } },
+    lng: "en",
     fallbackLng: "en",
     interpolation: {
       escapeValue: false,
     },
   })
+
+if (_initialLang !== "en") {
+  void loadAndSetLanguage(_initialLang)
+}
 
 // Internal state: tracks whether user selected "auto" (follow system)
 let _followingSystem = true
@@ -88,11 +107,10 @@ export async function initLanguageFromConfig() {
     const saved = await getTransport().call<string>("get_language")
     if (saved && saved !== "auto") {
       _followingSystem = false
-      const lang = resolveLanguage(saved)
-      i18n.changeLanguage(lang)
+      await loadAndSetLanguage(resolveLanguage(saved))
     } else {
       _followingSystem = true
-      i18n.changeLanguage(detectSystemLanguage())
+      await loadAndSetLanguage(detectSystemLanguage())
     }
   } catch {
     // Backend not ready yet, keep system default
@@ -113,8 +131,7 @@ export function isFollowingSystem(): boolean {
  */
 export function setFollowSystemLanguage() {
   _followingSystem = true
-  const lang = detectSystemLanguage()
-  i18n.changeLanguage(lang)
+  void loadAndSetLanguage(detectSystemLanguage())
   getTransport().call("set_language", { language: "auto" }).catch(() => {})
 }
 
@@ -124,7 +141,7 @@ export function setFollowSystemLanguage() {
  */
 export function setLanguage(code: string) {
   _followingSystem = false
-  i18n.changeLanguage(code)
+  void loadAndSetLanguage(code)
   getTransport().call("set_language", { language: code }).catch(() => {})
 }
 
