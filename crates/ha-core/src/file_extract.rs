@@ -604,8 +604,13 @@ fn extract_xml_text(xml: &str, target_tag: &[u8]) -> String {
                 }
             }
             Ok(Event::Text(ref e)) if inside_target => {
-                if let Ok(text) = e.unescape() {
-                    output.push_str(&text);
+                // quick-xml 0.39 拆分了 BytesText::unescape：decode() 处理字符编码，
+                // escape::unescape() 处理 XML 实体，二者组合等价于旧的 unescape()。
+                if let Ok(decoded) = e.decode() {
+                    match quick_xml::escape::unescape(&decoded) {
+                        Ok(text) => output.push_str(&text),
+                        Err(_) => output.push_str(&decoded),
+                    }
                 }
             }
             Ok(Event::End(ref e)) => {

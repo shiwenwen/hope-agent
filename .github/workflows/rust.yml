@@ -78,7 +78,12 @@ jobs:
             libpipewire-0.3-dev \
             libegl-dev \
             libx11-dev \
-            libxrandr-dev
+            libxrandr-dev \
+            mold
+          # mold 链接器加速（仅本 Linux job 后续 step 生效，不进 committed config、
+          # 不影响 Windows / macOS leg 与本地贡献者）。setup-rust-toolchain 把
+          # RUSTFLAGS 设为 ""，故在其之后用 GITHUB_ENV 追加。
+          echo 'RUSTFLAGS=-C link-arg=-fuse-ld=mold' >> "$GITHUB_ENV"
 
       # Matches the local invariant the workspace maintains: all clippy
       # warnings are handled (either fixed at the source or allowed in
@@ -126,7 +131,10 @@ jobs:
             libegl-dev \
             libx11-dev \
             libxrandr-dev \
-            jq
+            jq \
+            mold
+          # mold 链接器加速（仅本 Linux job 后续 step 生效）。见 clippy job 同款注释。
+          echo 'RUSTFLAGS=-C link-arg=-fuse-ld=mold' >> "$GITHUB_ENV"
 
       # macOS-14 images currently ship jq, but don't rely on that staying true —
       # install it explicitly so the verify step below can't fail the whole
