@@ -27,6 +27,7 @@ impl AsyncJobsDB {
             .with_context(|| format!("Failed to open async_jobs DB at {}", db_path.display()))?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS async_tool_jobs (
                 job_id TEXT PRIMARY KEY,

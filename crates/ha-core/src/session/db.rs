@@ -69,6 +69,9 @@ impl SessionDB {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        // Wait up to 5s on a busy lock instead of returning SQLITE_BUSY
+        // immediately — removes spurious write failures under WAL contention.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         // Create tables
         conn.execute_batch(

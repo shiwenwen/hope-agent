@@ -58,6 +58,7 @@ impl SqliteMemoryBackend {
 
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         // Create tables
         conn.execute_batch(
@@ -198,6 +199,7 @@ impl SqliteMemoryBackend {
             // Register sqlite-vec for read connections too
             read_conn.execute_batch("PRAGMA journal_mode=WAL;")?;
             read_conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+            read_conn.busy_timeout(std::time::Duration::from_secs(5))?;
             readers.push(Mutex::new(read_conn));
         }
 
@@ -342,18 +344,27 @@ impl SqliteMemoryBackend {
                 params![hash_str, provider_key, model_key, signature_key, emb_bytes, dims],
             );
 
-            // Prune cache if over limit
+            // Prune is amortized: only ~1/PRUNE_SAMPLE writes run the COUNT+delete.
+            // embedding_cache is an LRU cache (rebuildable, not a source of truth),
+            // so transiently overshooting max_entries by a sample window is harmless
+            // and avoids an O(n) COUNT(*) on every cache write (hot extraction path).
             if cache_cfg.max_entries > 0 {
-                let count: i64 = conn
-                    .query_row("SELECT COUNT(*) FROM embedding_cache", [], |row| row.get(0))
-                    .unwrap_or(0);
-                if count as usize > cache_cfg.max_entries {
-                    let to_delete = (count as usize - cache_cfg.max_entries
-                        + cache_cfg.max_entries / 10) as i64;
-                    let _ = conn.execute(
-                        "DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT ?1)",
-                        params![to_delete],
-                    );
+                const PRUNE_SAMPLE: u64 = 64;
+                static PRUNE_COUNTER: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let tick = PRUNE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if tick % PRUNE_SAMPLE == 0 {
+                    let count: i64 = conn
+                        .query_row("SELECT COUNT(*) FROM embedding_cache", [], |row| row.get(0))
+                        .unwrap_or(0);
+                    if count as usize > cache_cfg.max_entries {
+                        let to_delete = (count as usize - cache_cfg.max_entries
+                            + cache_cfg.max_entries / 10) as i64;
+                        let _ = conn.execute(
+                            "DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT ?1)",
+                            params![to_delete],
+                        );
+                    }
                 }
             }
         }

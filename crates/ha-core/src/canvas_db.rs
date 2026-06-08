@@ -70,6 +70,7 @@ impl CanvasDB {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS canvas_projects (

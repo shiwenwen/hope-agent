@@ -27,6 +27,7 @@ impl CronDB {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS cron_jobs (
