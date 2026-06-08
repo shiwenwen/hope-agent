@@ -25,6 +25,7 @@
 mod config;
 mod context_pack;
 mod cron_loop;
+pub mod eval;
 mod evidence;
 mod narrative;
 mod pipeline;

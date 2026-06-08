@@ -1,0 +1,43 @@
+{
+  "name": "legacy_sync",
+  "description": "Legacy-sync red-line (§9.3 / §11): a legacy memory managed by a dead (effective-expired) claim drops out of the prompt-injection candidate set, while an unlinked memory stays injectable.",
+  "claims": [
+    {
+      "key": "dead",
+      "scope": { "type": "agent", "id": "ev_legacy" },
+      "claim_type": "standing_rule",
+      "subject": "user",
+      "predicate": "on_call",
+      "object": "rotation-old",
+      "content": "The user is on the rotation-old on-call schedule.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "past",
+      "salience": 0.6
+    }
+  ],
+  "memories": [
+    {
+      "key": "shadow",
+      "scope": { "type": "agent", "id": "ev_legacy" },
+      "content": "The user is on the rotation-old on-call schedule."
+    },
+    {
+      "key": "free",
+      "scope": { "type": "agent", "id": "ev_legacy" },
+      "content": "The user keeps standups short."
+    }
+  ],
+  "links": [
+    { "claim": "dead", "memory": "shadow", "sync_mode": "managed" }
+  ],
+  "checks": {
+    "injectable": [
+      {
+        "agent_id": "ev_legacy",
+        "shared": false,
+        "expect_absent": ["shadow"],
+        "expect_present": ["free"]
+      }
+    ]
+  }
+}

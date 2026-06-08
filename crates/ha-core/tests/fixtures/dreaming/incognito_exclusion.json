@@ -1,0 +1,17 @@
+{
+  "name": "incognito_exclusion",
+  "description": "Incognito red-line (§8.1): evidence expansion is fail-closed — a source that cannot be proven to come from a present, non-incognito session is refused (available=false), so nothing leaks through the frontend.",
+  "checks": {
+    "evidence_quote": [
+      {
+        "session_id": "ev-incognito-unprovable",
+        "message_id": 1,
+        "expect_available": false
+      },
+      {
+        "session_id": "ev-incognito-no-anchor",
+        "expect_available": false
+      }
+    ]
+  }
+}

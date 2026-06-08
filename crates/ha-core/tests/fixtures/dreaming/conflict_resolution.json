@@ -1,0 +1,42 @@
+{
+  "name": "conflict_resolution",
+  "description": "Conflict handling (§5.3 / §10 Deep): a conflicting claim flagged needs_review is held out of the active/injection set (never silently overwritten) and stays visible in the review queue.",
+  "claims": [
+    {
+      "key": "keep",
+      "scope": { "type": "agent", "id": "ev_conflict" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "prefers_tabs",
+      "object": "spaces",
+      "content": "The user prefers spaces over tabs.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    },
+    {
+      "key": "disputed",
+      "scope": { "type": "agent", "id": "ev_conflict" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "prefers_indent",
+      "object": "tabs-disputed",
+      "content": "The user prefers tabs-disputed for indentation.",
+      "evidence_class": "assistant_inferred",
+      "salience": 0.5,
+      "set_status": "needs_review"
+    }
+  ],
+  "checks": {
+    "status": [
+      { "claim": "disputed", "expect": "needs_review" }
+    ],
+    "list_active": [
+      {
+        "scope": { "type": "agent", "id": "ev_conflict" },
+        "expect_present": ["keep"],
+        "expect_absent": ["disputed"],
+        "forbidden_content": ["tabs-disputed"]
+      }
+    ]
+  }
+}

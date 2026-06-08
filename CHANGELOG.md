@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **记忆梦境（Dreaming）确定性评测基座**：新增离线 golden-fixture 评测，以无 LLM 的确定性测试守护结构化记忆的安全红线——作用域隔离、过期抑制、证据可追溯、冲突进待审、旧记忆联动隐藏、证据展开 fail-closed，纳入默认 CI 防回归。 (#289)
 - **记忆梦境（Dreaming）用户纠错闭环（Lucid Review）**：Dashboard → 记忆梦境新增「待审核」队列，列出整理流程标记 needs_review 的结构化 claim，可逐条批准 / 编辑 / 驳回 / 标记过时 / 移动作用域 / 钉住 / 忘记；「记忆 → Claims」详情也接入同款纠错工具栏。每个操作都写入审计决策日志（以 user_correction 运行出现在运行历史），并即时影响下一轮提示——批准 / 编辑会把 claim 标为用户确认并提权、编辑内容自动重嵌；忘记可选归档（保留证据、停止注入关联旧记忆）或永久删除（连同证据与仅其独管的旧记忆）。新增 `claim_update` / `claim_forget` 接口（Tauri + HTTP）。 (#288)
 - **结构化记忆（Claims）智能检索**：结构化 claim 现在支持 FTS5 全文 + 向量混合检索（RRF 融合），算法与历史记忆同源但独立存储；claim 向量复用记忆嵌入模型，随嵌入模型切换自动重嵌。为 Context Pack 与主动召回的 claim 检索打底。 (#287)
 - **结构化记忆（Claims）进入系统提示（Context Pack，beta）**：高重要度的 active claim 现在作为「Pinned Memory」段稳定注入系统提示（每行经 prompt 注入防护过滤）；被这些 claim 覆盖的旧版影子记忆从旧记忆段去重排除（单一来源，避免同一事实双份占用预算），且去重门槛与注入门槛对齐——够不到注入门槛的 claim 影子继续走旧记忆段兜底，绝不丢事实。Profile / Claims 新段纳入统一记忆预算池按优先级裁剪。 (#287)
