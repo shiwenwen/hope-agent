@@ -1105,6 +1105,13 @@ impl ClaimStore {
         };
         if let Some(v) = &upd.content {
             push(&mut sets, &mut args, "content", SqlValue::Text(v.clone()));
+            // The stored vector now reflects the OLD content. Clear the
+            // signature so the row drops out of the signature-gated vec0 search
+            // (degrades to FTS-only) instead of returning a stale, semantically
+            // wrong match. The caller's `reembed_claim` restores it on success;
+            // if embedding is offline the NULL persists until the next reembed
+            // job picks it up — strictly better than a stale hit.
+            sets.push("embedding_signature = NULL".to_string());
         }
         if let Some(v) = &upd.subject {
             push(&mut sets, &mut args, "subject", SqlValue::Text(v.clone()));
@@ -2029,6 +2036,63 @@ mod tests {
         assert!(!s
             .apply_claim_fields("c1", &ClaimFieldUpdate::default())
             .unwrap());
+    }
+
+    fn claim_signature(s: &ClaimStore, id: &str) -> Option<String> {
+        let conn = s.backend.read_conn().unwrap();
+        conn.query_row(
+            "SELECT embedding_signature FROM memory_claims WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn editing_content_clears_embedding_signature() {
+        let s = temp_store();
+        seed_claim(&s, "c1", "active");
+        // Stamp a signature as if the claim had been embedded.
+        s.backend
+            .write_conn()
+            .unwrap()
+            .execute(
+                "UPDATE memory_claims SET embedding_signature = 'sig-v1' WHERE id = 'c1'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(claim_signature(&s, "c1").as_deref(), Some("sig-v1"));
+
+        // Content edit must clear the signature (the stale vector drops out of
+        // the signature-gated vec0 search until re-embedded).
+        let upd = ClaimFieldUpdate {
+            content: Some("new content".into()),
+            ..Default::default()
+        };
+        assert!(s.apply_claim_fields("c1", &upd).unwrap());
+        assert_eq!(claim_signature(&s, "c1"), None);
+    }
+
+    #[test]
+    fn status_only_update_keeps_embedding_signature() {
+        let s = temp_store();
+        seed_claim(&s, "c1", "needs_review");
+        s.backend
+            .write_conn()
+            .unwrap()
+            .execute(
+                "UPDATE memory_claims SET embedding_signature = 'sig-v1' WHERE id = 'c1'",
+                [],
+            )
+            .unwrap();
+        // A non-content edit must NOT clear the signature (the vector is still
+        // valid for the unchanged text).
+        let upd = ClaimFieldUpdate {
+            status: Some("active".into()),
+            ..Default::default()
+        };
+        assert!(s.apply_claim_fields("c1", &upd).unwrap());
+        assert_eq!(claim_signature(&s, "c1").as_deref(), Some("sig-v1"));
     }
 
     #[test]

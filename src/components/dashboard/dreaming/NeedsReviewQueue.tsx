@@ -37,6 +37,9 @@ export default function NeedsReviewQueue() {
         limit: 100,
       })
       setClaims(list ?? [])
+      // Drop a stale expansion: a claim acted on usually leaves needs_review,
+      // so its id is no longer in the list.
+      setExpandedId((prev) => (prev && (list ?? []).some((c) => c.id === prev) ? prev : null))
     } catch (e) {
       logger.error("dashboard", "NeedsReviewQueue::list", "Failed to list review claims", e)
       setClaims([])

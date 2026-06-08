@@ -208,23 +208,28 @@ export default function ClaimReviewActions({ claim, onChanged }: ClaimReviewActi
           {t("dashboard.dreaming.review.markOutdated")}
         </Button>
       )}
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-7 gap-1 text-xs"
-        disabled={busy}
-        onClick={() =>
-          run(
-            () => patch({ pinned: !isPinned }),
-            isPinned
-              ? t("dashboard.dreaming.review.unpinDone")
-              : t("dashboard.dreaming.review.pinDone"),
-          )
-        }
-      >
-        {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-        {isPinned ? t("dashboard.dreaming.review.unpin") : t("dashboard.dreaming.review.pin")}
-      </Button>
+      {/* Pin only matters for active claims — `list_pinned_claims` (and the
+          Context Pack static segment) is active-only, so pinning a
+          needs_review / archived claim would silently no-op. */}
+      {isActive && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1 text-xs"
+          disabled={busy}
+          onClick={() =>
+            run(
+              () => patch({ pinned: !isPinned }),
+              isPinned
+                ? t("dashboard.dreaming.review.unpinDone")
+                : t("dashboard.dreaming.review.pinDone"),
+            )
+          }
+        >
+          {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+          {isPinned ? t("dashboard.dreaming.review.unpin") : t("dashboard.dreaming.review.pin")}
+        </Button>
+      )}
       <Button
         size="sm"
         variant="outline"

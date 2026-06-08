@@ -126,12 +126,11 @@ export default function ClaimsBetaView() {
   const [planLoading, setPlanLoading] = useState(false)
   const [applying, setApplying] = useState(false)
 
-  const loadClaims = useCallback(async () => {
+  // Fetch the list in place, WITHOUT touching the selection — used both by the
+  // filter-change reload (which resets selection separately) and by the
+  // post-mutation refresh (which keeps the detail pane open).
+  const fetchClaims = useCallback(async () => {
     setLoading(true)
-    // Reset the selection so the detail pane can't show a claim the new
-    // filter excludes (stale-detail guard).
-    setSelectedId(null)
-    setDetail(null)
     try {
       const args: Record<string, unknown> = { limit: 200 }
       if (statusFilter !== "all") args.status = statusFilter
@@ -145,6 +144,14 @@ export default function ClaimsBetaView() {
     }
   }, [statusFilter])
 
+  const loadClaims = useCallback(async () => {
+    // Reset the selection so the detail pane can't show a claim the new
+    // filter excludes (stale-detail guard).
+    setSelectedId(null)
+    setDetail(null)
+    await fetchClaims()
+  }, [fetchClaims])
+
   const loadDetail = useCallback(async (id: string) => {
     try {
       const d = await getTransport().call<ClaimDetail | null>("claim_get", { id })
@@ -154,6 +161,13 @@ export default function ClaimsBetaView() {
       setDetail(null)
     }
   }, [])
+
+  // After a correction, refresh the list AND the open detail in place so the
+  // user keeps their context (the detail pane doesn't blink shut every edit).
+  const onClaimChanged = useCallback(async () => {
+    await fetchClaims()
+    if (selectedId) await loadDetail(selectedId)
+  }, [fetchClaims, selectedId, loadDetail])
 
   const openBackfill = useCallback(async () => {
     setBackfillOpen(true)
@@ -329,7 +343,7 @@ export default function ClaimsBetaView() {
               )}
 
               <div className="pt-1.5 border-t border-border/40">
-                <ClaimReviewActions claim={detail.claim} onChanged={loadClaims} />
+                <ClaimReviewActions claim={detail.claim} onChanged={onClaimChanged} />
               </div>
 
               <div className="font-medium pt-1">
