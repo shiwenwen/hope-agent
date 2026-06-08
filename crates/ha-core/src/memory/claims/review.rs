@@ -242,6 +242,24 @@ fn default_quote(decision_type: &str) -> &'static str {
     }
 }
 
+/// Full field snapshot for the audit trail so `before_json` / `after_json`
+/// carry one identical key set — an auditor can reconstruct the entire
+/// mutation (triple, tags, confidence), not just the primary decision field.
+fn claim_snapshot_json(s: &ClaimEditState) -> serde_json::Value {
+    json!({
+        "status": s.status,
+        "content": s.content,
+        "subject": s.subject,
+        "predicate": s.predicate,
+        "object": s.object,
+        "tags": s.tags,
+        "scope": { "type": s.scope_type, "id": s.scope_id },
+        "salience": s.salience,
+        "confidence": s.confidence,
+        "confidenceSource": s.confidence_source,
+    })
+}
+
 /// Apply a partial owner-plane update to one claim (design §5.2). Returns a
 /// `noop` outcome when the request changes nothing.
 pub fn update_claim(req: ClaimUpdate) -> Result<ClaimActionOutcome> {
@@ -308,20 +326,18 @@ pub fn update_claim(req: ClaimUpdate) -> Result<ClaimActionOutcome> {
         }
     }
 
-    let before_json = json!({
-        "status": before.status,
-        "content": before.content,
-        "scope": { "type": before.scope_type, "id": before.scope_id },
-        "salience": before.salience,
-        "confidenceSource": before.confidence_source,
-    });
-    let after_json = json!({
-        "status": resolved.fields.status,
-        "content": resolved.fields.content,
-        "scope": resolved.fields.scope.as_ref().map(|(t, i)| json!({ "type": t, "id": i })),
-        "salience": resolved.fields.salience,
-        "note": req.note,
-    });
+    let before_json = claim_snapshot_json(&before);
+    // Re-read the row so `after_json` reflects what actually persisted — every
+    // changed dimension (triple, tags, confidence), not just the primary
+    // decision field. Keyed identically to `before_json` for a faithful diff.
+    let after_json = match claim_edit_state(&claim_id) {
+        Ok(Some(after)) => {
+            let mut j = claim_snapshot_json(&after);
+            j["note"] = json!(req.note);
+            j
+        }
+        _ => json!({ "note": req.note }),
+    };
     let run_id = record_action(decision_type, &claim_id, note_text, before_json, after_json);
 
     emit_claim_changed(&claim_id, decision_type);
@@ -389,12 +405,22 @@ pub fn forget_claim(
         });
     }
 
-    let before_json = json!({
-        "status": before.status,
-        "content": before.content,
-        "scope": { "type": before.scope_type, "id": before.scope_id },
-    });
-    let after_json = json!({ "permanent": permanent, "note": note });
+    let before_json = claim_snapshot_json(&before);
+    // `after_json` records the OUTCOME, not just the intent: archive leaves the
+    // row (snapshot its archived state); permanent delete removes it entirely.
+    let after_json = if permanent {
+        json!({ "permanent": true, "deleted": true, "note": note })
+    } else {
+        match claim_edit_state(&claim_id) {
+            Ok(Some(after)) => {
+                let mut j = claim_snapshot_json(&after);
+                j["permanent"] = json!(false);
+                j["note"] = json!(note);
+                j
+            }
+            _ => json!({ "permanent": false, "note": note }),
+        }
+    };
     let run_id = record_action(decision_type, &claim_id, quote, before_json, after_json);
 
     emit_claim_changed(&claim_id, decision_type);
