@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS 摄像头 / 通讯录 / 日历 / 提醒 / 照片在签名版本可正常使用**：发布包启用 Hardened Runtime 后补全了对应的资源访问授权，这些权限在用户授权后不再被系统拦截。
+- **Homebrew 安装的 macOS 版自更新路径修正**：应用安装到「应用程序」目录的 Homebrew cask 不再被误判为手动拖拽安装，升级正确走 `brew upgrade`，避免与 Homebrew 的安装记录脱节。
+
 ## [0.8.0] - 2026-06-09
 
 ### Changed
