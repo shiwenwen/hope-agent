@@ -571,6 +571,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `get_notification_config` | `GET /api/config/notification` | ✅ |
 | `save_notification_config` | `PUT /api/config/notification` | ✅ |
+| `get_auto_update_config` | `GET /api/config/auto-update` | ✅ |
+| `set_auto_update_config` | `PUT /api/config/auto-update` | ✅ |
 | `get_startup_notification_config` | `GET /api/config/startup-notification` | ✅ |
 | `save_startup_notification_config` | `PUT /api/config/startup-notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |

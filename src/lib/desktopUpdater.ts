@@ -1,4 +1,5 @@
 import { isTauriMode } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 
 export type DesktopUpdateEvent =
   | { event: "Started"; data: { contentLength: number } }
@@ -10,8 +11,49 @@ export interface DesktopUpdate {
   version: string
   body?: string
   date?: string
+  /** Download the update without installing (silent pre-download). */
+  download?(onEvent?: (event: DesktopUpdateEvent) => void): Promise<void>
+  /** Install a previously-downloaded update. */
+  install?(): Promise<void>
   downloadAndInstall(onEvent?: (event: DesktopUpdateEvent) => void): Promise<void>
   close?(): Promise<void>
+}
+
+// ─── Auto-update config (shared single source of truth) ─────
+// Mirrors `AppConfig.auto_update` (crates/ha-core/src/updater/config.rs). Read
+// via the `get_auto_update_config` command; cached after first fetch.
+
+export interface AutoUpdateConfig {
+  checkEnabled: boolean
+  checkIntervalHours: number
+  autoDownload: boolean
+  notify: boolean
+}
+
+const DEFAULT_AUTO_UPDATE_CONFIG: AutoUpdateConfig = {
+  checkEnabled: true,
+  checkIntervalHours: 12,
+  autoDownload: true,
+  notify: true,
+}
+
+let _autoUpdateConfig: AutoUpdateConfig | null = null
+
+/** Fetch (and cache) the auto-update config. Falls back to defaults on error. */
+export async function getAutoUpdateConfig(force = false): Promise<AutoUpdateConfig> {
+  if (_autoUpdateConfig && !force) return _autoUpdateConfig
+  try {
+    const cfg = await getTransport().call<AutoUpdateConfig>("get_auto_update_config")
+    _autoUpdateConfig = { ...DEFAULT_AUTO_UPDATE_CONFIG, ...cfg }
+  } catch {
+    _autoUpdateConfig = { ...DEFAULT_AUTO_UPDATE_CONFIG }
+  }
+  return _autoUpdateConfig
+}
+
+/** Invalidate the cached config (call after a settings save). */
+export function invalidateAutoUpdateConfig(): void {
+  _autoUpdateConfig = null
 }
 
 /**
@@ -54,8 +96,12 @@ export async function relaunchDesktopApp(): Promise<void> {
 
 type Listener = () => void
 
+/** Download lifecycle for the pending update, surfaced to the toast UI. */
+export type DownloadStatus = "idle" | "downloading" | "downloaded"
+
 let _pendingUpdate: DesktopUpdate | null = null
 let _checked = false
+let _downloadStatus: DownloadStatus = "idle"
 const _listeners = new Set<Listener>()
 
 function _notify() {
@@ -78,13 +124,76 @@ export function hasChecked(): boolean {
   return _checked
 }
 
+/** Current silent-download status of the pending update. */
+export function getDownloadStatus(): DownloadStatus {
+  return _downloadStatus
+}
+
 /** Set the pending update (called by AboutPanel after manual check too). */
 export async function setPendingUpdate(update: DesktopUpdate | null): Promise<void> {
   if (_pendingUpdate && _pendingUpdate !== update) {
     await disposeDesktopUpdate(_pendingUpdate)
   }
   _pendingUpdate = update
+  _downloadStatus = "idle"
   _notify()
+}
+
+/**
+ * Silently download the pending update without installing, so a later install
+ * is instant. Single-flight: concurrent calls share one download. Marks the
+ * store `downloaded` on success. Best-effort — a failed silent download just
+ * leaves status `idle` so the user can retry from the toast.
+ */
+let _silentDownloadPromise: Promise<void> | null = null
+export function silentDownload(update: DesktopUpdate): Promise<void> {
+  if (_downloadStatus === "downloaded") return Promise.resolve()
+  if (_silentDownloadPromise) return _silentDownloadPromise
+  if (!update.download) return Promise.resolve() // plugin too old; install will download
+
+  _downloadStatus = "downloading"
+  _notify()
+  _silentDownloadPromise = update
+    .download()
+    .then(() => {
+      _downloadStatus = "downloaded"
+      _notify()
+    })
+    .catch((err) => {
+      console.error("[updater] silent download failed", err)
+      _downloadStatus = "idle"
+      _notify()
+    })
+    .finally(() => {
+      _silentDownloadPromise = null
+    })
+  return _silentDownloadPromise
+}
+
+/**
+ * Download (if not already pre-downloaded) then install the update. Does NOT
+ * relaunch — the caller decides when, so an in-flight chat turn isn't cut off.
+ * Waits on any in-flight silent download to avoid a double `download()`.
+ * `onEvent` receives byte-progress only while actually downloading.
+ */
+export async function installUpdate(
+  update: DesktopUpdate,
+  onEvent?: (event: DesktopUpdateEvent) => void,
+): Promise<void> {
+  if (_silentDownloadPromise) await _silentDownloadPromise
+  if (_downloadStatus !== "downloaded" && update.download) {
+    _downloadStatus = "downloading"
+    _notify()
+    await update.download(onEvent)
+    _downloadStatus = "downloaded"
+    _notify()
+  }
+  if (update.install) {
+    await update.install()
+  } else {
+    // Plugin predates split download/install — fall back to the combined call.
+    await update.downloadAndInstall(onEvent)
+  }
 }
 
 // ─── Manual-check request bus ───────────────────────────────
@@ -144,37 +253,68 @@ export function autoCheckForUpdate(force = false): Promise<DesktopUpdate | null>
   if (!isDesktopUpdaterAvailable()) return Promise.resolve(null)
   if (_autoCheckPromise && !force) return _autoCheckPromise
 
-  _autoCheckPromise = checkForDesktopUpdate()
-    .then(async (update) => {
+  _autoCheckPromise = (async () => {
+    try {
+      const cfg = await getAutoUpdateConfig()
+      if (!cfg.checkEnabled) {
+        _checked = true
+        _notify()
+        return null
+      }
+      const update = await checkForDesktopUpdate()
       _checked = true
       if (update) {
-        await setPendingUpdate(update)
+        // `notify` gates surfacing the update to the user (the toast renders
+        // off the store's pending update). With notify off we still pre-
+        // download if enabled, but stay silent — matching the headless loop.
+        if (cfg.notify) await setPendingUpdate(update)
+        // Silent pre-download so the eventual install is instant. Fire-and-
+        // forget — the toast reflects status via the store.
+        if (cfg.autoDownload) void silentDownload(update)
       }
       _notify()
       return update
-    })
-    .catch(() => {
+    } catch {
       _checked = true
       _notify()
       return null
-    })
+    }
+  })()
 
   return _autoCheckPromise
 }
 
-/** 
- * Starts a background interval to check for updates every 12 hours. 
- * Returns a cleanup function.
+/**
+ * Starts a background interval to check for updates. The cadence follows
+ * `auto_update.checkIntervalHours` (clamped to a sane floor) and the loop is a
+ * no-op while `checkEnabled` is false — re-evaluated on each tick so config
+ * edits take effect without a restart. Returns a cleanup function.
  */
 export function startPeriodicUpdateCheck(): () => void {
   if (!isDesktopUpdaterAvailable()) return () => {}
-  
-  // 12 hours in milliseconds
-  const CHECK_INTERVAL = 12 * 60 * 60 * 1000
-  
-  const timerId = setInterval(() => {
-    autoCheckForUpdate(true).catch(() => {})
-  }, CHECK_INTERVAL)
-  
-  return () => clearInterval(timerId)
+
+  let cancelled = false
+  let timerId: ReturnType<typeof setTimeout> | undefined
+
+  const scheduleNext = async () => {
+    if (cancelled) return
+    const cfg = await getAutoUpdateConfig(true)
+    // Floor at 1h to match the backend clamp; default 12h.
+    const hours = Math.max(1, cfg.checkIntervalHours || 12)
+    timerId = setTimeout(async () => {
+      if (cancelled) return
+      const fresh = await getAutoUpdateConfig(true)
+      if (fresh.checkEnabled) {
+        await autoCheckForUpdate(true).catch(() => {})
+      }
+      void scheduleNext()
+    }, hours * 60 * 60 * 1000)
+  }
+
+  void scheduleNext()
+
+  return () => {
+    cancelled = true
+    if (timerId) clearTimeout(timerId)
+  }
 }

@@ -356,6 +356,27 @@ pub async fn save_notification_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Auto-update Config ──────────────────────────────────────────
+
+/// `GET /api/config/auto-update` -- get auto-update config.
+pub async fn get_auto_update_config() -> Result<Json<ha_core::updater::AutoUpdateConfig>, AppError>
+{
+    let store = ha_core::config::cached_config();
+    Ok(Json(store.auto_update.clone()))
+}
+
+/// `PUT /api/config/auto-update` -- save auto-update config (interval clamped).
+pub async fn set_auto_update_config(
+    Json(body): Json<ConfigBody<ha_core::updater::AutoUpdateConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("auto_update", "http"), |store| {
+        store.auto_update = body.config;
+        store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Startup Notification Config ─────────────────────────────────
 
 /// `GET /api/config/startup-notification` -- get IM startup-notification config.

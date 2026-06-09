@@ -744,6 +744,11 @@ pub async fn start_background_tasks() {
             let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
 
+        // Headless auto-update: periodic check + optional silent pre-download.
+        // Primary-only (avoids N processes racing to download/stage the same
+        // build) and a no-op on desktop (the JS plugin-updater owns that path).
+        crate::updater::auto_check::spawn_auto_update_loop();
+
         // One-time migration: legacy flat-layout plan files
         // (`<plans>/plan-{short_id}-...md`) → per-session subdirs
         // (`<plans>/<agent>/<session>/plan-...md`). Idempotent — already-

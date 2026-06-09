@@ -1498,7 +1498,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "default_agent",
                             "channels", "mcp_global", "mcp_servers",
                             "hooks",
-                            "local_llm_auto_maintenance"
+                            "local_llm_auto_maintenance",
+                            "auto_update"
                         ]
                     }
                 },
@@ -1518,7 +1519,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global — require explicit user confirmation first. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch.",
+                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global, auto_update — require explicit user confirmation first. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch.",
                         "enum": [
                             "user", "theme", "language", "ui_effects", "sidebar_ui", "proxy",
                             "web_search", "web_fetch", "compact", "session_title", "notification", "startup_notification",
@@ -1538,7 +1539,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "recall_summary", "tool_call_narration", "teams",
                             "default_agent",
                             "mcp_global",
-                            "local_llm_auto_maintenance"
+                            "local_llm_auto_maintenance",
+                            "auto_update"
                         ]
                     },
                     "values": {

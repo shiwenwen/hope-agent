@@ -412,6 +412,8 @@ pub fn run() {
             commands::config::save_session_title_config,
             commands::config::get_notification_config,
             commands::config::save_notification_config,
+            commands::config::get_auto_update_config,
+            commands::config::set_auto_update_config,
             commands::config::get_startup_notification_config,
             commands::config::save_startup_notification_config,
             commands::config::get_server_config,
