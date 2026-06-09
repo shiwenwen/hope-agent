@@ -298,14 +298,14 @@ export default function AboutPanel({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-auto gap-1.5 rounded-full border-violet-300 bg-violet-100 px-3.5 py-1.5 text-sm font-medium text-violet-700 transition-colors duration-200 hover:bg-violet-200 hover:text-violet-800 active:scale-[0.97] dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/25"
+                      className="h-auto gap-1.5 rounded-full border-border/50 bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700 transition-all duration-200 hover:bg-violet-200 active:scale-[0.97] dark:bg-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/25"
                       onClick={handleCheckForUpdates}
                       disabled={checkingUpdate || installingUpdate}
                     >
                       {checkingUpdate ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <RefreshCw className="h-4 w-4" />
+                        <RefreshCw className="h-3.5 w-3.5" />
                       )}
                       {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
                     </Button>
