@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-09
+
 ### Changed
 
 - **桌面端瘦身与启动提速**：前端主 bundle 体积下降约 60%，翻译按需懒加载、设置页改懒加载；Rust 发布包启用瘦身编译，FTS 重建 / 向量模型初始化 / 天气刷新改为后台延迟执行，冷启动更快；会话数据库引入只读连接池，生成回复时的历史搜索不再被写入阻塞。
