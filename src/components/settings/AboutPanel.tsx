@@ -232,6 +232,17 @@ export default function AboutPanel({
     }
   })
 
+  // Auto-check for updates once whenever the About page is opened, so the
+  // version status is always fresh without the user clicking. Guarded to one
+  // run per mount; a no-op off the desktop shell (and dev builds short-circuit
+  // the real check). Manual re-checks still go through the button.
+  const autoCheckedRef = useRef(false)
+  useEffect(() => {
+    if (!desktopUpdaterAvailable || autoCheckedRef.current) return
+    autoCheckedRef.current = true
+    checkRef.current()
+  }, [desktopUpdaterAvailable])
+
   // `relaunchAfter` true ⇒ "更新并重启", false ⇒ "仅更新". The download / install
   // / staged-restart lifecycle (and failure handling) lives in the shared hook;
   // here we just set the "installing vX" status and delegate.
@@ -285,16 +296,15 @@ export default function AboutPanel({
                   </span>
                   {desktopUpdaterAvailable && (
                     <Button
-                      variant="outline"
                       size="sm"
-                      className="h-auto gap-1.5 rounded-full border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:bg-primary/8 hover:text-foreground active:scale-[0.97]"
+                      className="h-auto gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-sm font-semibold text-primary shadow-sm transition-all duration-200 hover:bg-primary hover:text-primary-foreground active:scale-[0.97]"
                       onClick={handleCheckForUpdates}
                       disabled={checkingUpdate || installingUpdate}
                     >
                       {checkingUpdate ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
+                        <RefreshCw className="h-4 w-4" />
                       )}
                       {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
                     </Button>
