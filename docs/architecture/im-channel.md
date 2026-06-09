@@ -406,7 +406,10 @@ chunk_message()
     ▼
 send_message() × N chunks
     │ 每个 chunk 作为独立消息发送
-    │ 第一个 chunk 带 reply_to（引用原消息）
+    │ reply_to（引用原消息）只挂在一次回复的第一条消息上：
+    │   chunk 维度只 chunk 0 带；多轮 split 维度，流式渠道由
+    │   stream task 在 round 0 收尾后清空 reply_to、deliver_split
+    │   末轮按 finalized_rounds gate，保证整轮回复只引用一次
     │ 所有 chunk 带 thread_id（保持话题上下文）
     ▼
 IM 平台 API

@@ -278,6 +278,41 @@ impl ProviderConfig {
         }
     }
 
+    /// Trim leading/trailing whitespace from every user-entered text field.
+    ///
+    /// Copy-pasted base URLs, model IDs, and API keys routinely carry a stray
+    /// leading space or trailing newline that silently breaks API calls. This
+    /// runs on every provider add/update write and before connectivity tests so
+    /// the stored config and the tested config are both clean.
+    pub fn sanitize(&mut self) {
+        self.name = self.name.trim().to_string();
+        self.base_url = self.base_url.trim().to_string();
+        self.api_key = self.api_key.trim().to_string();
+        // A blank User-Agent would send an empty header (some gateways 403 on
+        // it); fall back to the default rather than persist "".
+        let user_agent = self.user_agent.trim();
+        self.user_agent = if user_agent.is_empty() {
+            default_user_agent()
+        } else {
+            user_agent.to_string()
+        };
+        for model in &mut self.models {
+            model.id = model.id.trim().to_string();
+            model.name = model.name.trim().to_string();
+        }
+        for profile in &mut self.auth_profiles {
+            profile.label = profile.label.trim().to_string();
+            profile.api_key = profile.api_key.trim().to_string();
+            // An override that trims down to empty means "no override".
+            profile.base_url = profile
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+        }
+    }
+
     /// Return the effective list of auth profiles for this provider.
     ///
     /// - If `auth_profiles` is non-empty, returns enabled profiles from that list.
@@ -382,6 +417,63 @@ mod tests {
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0].api_key, "sk-ant-test-key-12345678");
         assert!(profiles[0].base_url.is_none());
+    }
+
+    #[test]
+    fn sanitize_trims_user_entered_fields() {
+        let mut cfg = ProviderConfig::new(
+            "  My Provider  ".to_string(),
+            ApiType::OpenaiChat,
+            "  https://api.example.com/v1 \n".to_string(),
+            "\tsk-key-123  ".to_string(),
+        );
+        cfg.user_agent = "  custom-agent  ".to_string();
+        cfg.models = vec![ModelConfig {
+            id: "  gpt-5.4\n".to_string(),
+            name: "  GPT 5.4 ".to_string(),
+            input_types: Vec::new(),
+            context_window: 200_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        }];
+        cfg.auth_profiles = vec![
+            AuthProfile::new(" Org A ".to_string(), " key-a ".to_string(), None),
+            AuthProfile::new(
+                "Org B".to_string(),
+                "key-b".to_string(),
+                Some("   ".to_string()),
+            ),
+        ];
+
+        cfg.sanitize();
+
+        assert_eq!(cfg.name, "My Provider");
+        assert_eq!(cfg.base_url, "https://api.example.com/v1");
+        assert_eq!(cfg.api_key, "sk-key-123");
+        assert_eq!(cfg.user_agent, "custom-agent");
+        assert_eq!(cfg.models[0].id, "gpt-5.4");
+        assert_eq!(cfg.models[0].name, "GPT 5.4");
+        assert_eq!(cfg.auth_profiles[0].label, "Org A");
+        assert_eq!(cfg.auth_profiles[0].api_key, "key-a");
+        // A base-url override that trims to empty becomes "no override".
+        assert!(cfg.auth_profiles[1].base_url.is_none());
+    }
+
+    #[test]
+    fn sanitize_blank_user_agent_falls_back_to_default() {
+        let mut cfg = ProviderConfig::new(
+            "p".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.example.com".to_string(),
+            "k".to_string(),
+        );
+        cfg.user_agent = "   \n".to_string();
+        cfg.sanitize();
+        assert_eq!(cfg.user_agent, super::default_user_agent());
+        assert!(!cfg.user_agent.is_empty());
     }
 
     #[test]

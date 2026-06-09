@@ -481,12 +481,74 @@ fn extract_responses_reply(response_body: &Value) -> String {
         .unwrap_or_default()
 }
 
+fn extract_anthropic_reply(response_body: &Value) -> String {
+    response_body
+        .get("content")
+        .and_then(|content| content.as_array())
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default()
+}
+
 fn preview_reply(reply: String) -> String {
     if reply.len() > 100 {
         format!("{}...", truncate_utf8(&reply, 100))
     } else {
         reply
     }
+}
+
+/// Build the `test_model` result for an HTTP 200, distinguishing a *genuinely*
+/// empty reply from one merely cut off by the probe's tiny token budget.
+///
+/// - empty **and not** truncated → failure: a 2xx alone doesn't prove the model
+///   is wired up; gateways and misconfigured deployments happily return empty
+///   `content`, so the test only passes when there is text to show.
+/// - empty **but** truncated (`stop_reason=max_tokens` / `finish_reason=length`
+///   / Responses `status=incomplete`) → success: reasoning models routinely
+///   spend the whole 32-token probe budget before emitting visible text, which
+///   is a budget artifact, not a wiring problem — failing them here is a false
+///   negative.
+///
+/// `request_info` is echoed back in both the success and the failure payload so
+/// the Settings "完整日志 → 请求" panel renders for every outcome.
+fn ok_or_empty_reply(
+    reply: String,
+    truncated: bool,
+    model_id: &str,
+    status: u16,
+    latency: u64,
+    request_info: &Value,
+    response_body: &Value,
+) -> Result<String, String> {
+    let is_empty = reply.trim().is_empty();
+    if is_empty && !truncated {
+        return Err(serde_json::to_string(&json!({
+            "success": false,
+            "message": "模型返回成功但无回复内容",
+            "model": model_id, "status": status, "latencyMs": latency,
+            "request": request_info, "response": response_body,
+        }))
+        .unwrap_or_default());
+    }
+    let message = if is_empty {
+        "模型连接正常（回复在测试 token 上限处截断）"
+    } else {
+        "模型响应正常"
+    };
+    Ok(serde_json::to_string(&json!({
+        "success": true,
+        "message": message,
+        "model": model_id, "status": status, "latencyMs": latency,
+        "reply": preview_reply(reply),
+        "request": request_info, "response": response_body,
+    }))
+    .unwrap_or_default())
 }
 
 fn should_skip_models_preflight(base_url: &str) -> bool {
@@ -499,7 +561,10 @@ fn should_skip_models_preflight(base_url: &str) -> bool {
 /// Shared by both the Tauri `test_provider` command and the HTTP
 /// `POST /api/providers/test` route. On failure returns `Err(json_string)` so
 /// callers can surface the payload verbatim.
-pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
+pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String> {
+    // Trim stray whitespace from copy-pasted base URL / keys before probing, so
+    // the test exercises exactly what `sanitize()` will persist on save.
+    config.sanitize();
     let client = apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -873,7 +938,11 @@ pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
 /// `POST /api/providers/test-model` route. On failure returns
 /// `Err(json_string)` with the same shape, so callers can surface details
 /// verbatim without re-stringifying.
-pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<String, String> {
+pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<String, String> {
+    // Trim stray whitespace from copy-pasted base URL / keys / model id before
+    // probing, so the test exercises exactly what `sanitize()` persists on save.
+    config.sanitize();
+    let model_id = model_id.trim().to_string();
     let client = apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
@@ -934,23 +1003,18 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
             let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
-                let preview = preview_reply(
-                    response_body
-                        .get("content")
-                        .and_then(|content| content.as_array())
-                        .and_then(|content| content.first())
-                        .and_then(|block| block.get("text"))
-                        .and_then(|text| text.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
-                );
-                Ok(serde_json::to_string(&json!({
-                    "success": true, "message": "模型响应正常",
-                    "model": model_id, "status": status, "latencyMs": latency,
-                    "reply": preview,
-                    "request": request_info, "response": response_body,
-                }))
-                .unwrap_or_default())
+                let reply = extract_anthropic_reply(&response_body);
+                let truncated =
+                    response_body.get("stop_reason").and_then(|v| v.as_str()) == Some("max_tokens");
+                ok_or_empty_reply(
+                    reply,
+                    truncated,
+                    &model_id,
+                    status,
+                    latency,
+                    &request_info,
+                    &response_body,
+                )
             } else {
                 Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
@@ -996,14 +1060,23 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
             let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
-                let preview = preview_reply(extract_chat_reply(&response_body));
-                Ok(serde_json::to_string(&json!({
-                    "success": true, "message": "模型响应正常",
-                    "model": model_id, "status": status, "latencyMs": latency,
-                    "reply": preview,
-                    "request": request_info, "response": response_body,
-                }))
-                .unwrap_or_default())
+                let reply = extract_chat_reply(&response_body);
+                let truncated = response_body
+                    .get("choices")
+                    .and_then(|choices| choices.as_array())
+                    .and_then(|choices| choices.first())
+                    .and_then(|choice| choice.get("finish_reason"))
+                    .and_then(|reason| reason.as_str())
+                    == Some("length");
+                ok_or_empty_reply(
+                    reply,
+                    truncated,
+                    &model_id,
+                    status,
+                    latency,
+                    &request_info,
+                    &response_body,
+                )
             } else {
                 Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
@@ -1049,14 +1122,20 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
             let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
-                let preview = preview_reply(extract_responses_reply(&response_body));
-                Ok(serde_json::to_string(&json!({
-                    "success": true, "message": "模型响应正常",
-                    "model": model_id, "status": status, "latencyMs": latency,
-                    "reply": preview,
-                    "request": request_info, "response": response_body,
-                }))
-                .unwrap_or_default())
+                let reply = extract_responses_reply(&response_body);
+                // Responses sets status="incomplete" when the output was cut off
+                // (incomplete_details.reason="max_output_tokens").
+                let truncated =
+                    response_body.get("status").and_then(|v| v.as_str()) == Some("incomplete");
+                ok_or_empty_reply(
+                    reply,
+                    truncated,
+                    &model_id,
+                    status,
+                    latency,
+                    &request_info,
+                    &response_body,
+                )
             } else {
                 Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
@@ -1108,9 +1187,52 @@ pub async fn test_proxy(config: ProxyConfig) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_responses_probe_body, extract_responses_reply, should_skip_models_preflight,
+        build_responses_probe_body, extract_anthropic_reply, extract_responses_reply,
+        ok_or_empty_reply, should_skip_models_preflight,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn extract_anthropic_reply_joins_text_blocks_and_ignores_thinking() {
+        let response = json!({
+            "content": [
+                { "type": "thinking", "thinking": "let me think" },
+                { "type": "text", "text": "Hello" },
+                { "type": "text", "text": " there" }
+            ]
+        });
+        assert_eq!(extract_anthropic_reply(&response), "Hello there");
+    }
+
+    #[test]
+    fn ok_or_empty_reply_fails_only_when_empty_and_not_truncated() {
+        let request = json!({ "url": "https://api.example.com", "method": "POST" });
+        let response = json!({ "raw": "body" });
+
+        // Genuinely empty (not truncated) → failure, and request is echoed back.
+        let err = ok_or_empty_reply(String::new(), false, "m", 200, 5, &request, &response)
+            .expect_err("empty non-truncated reply must fail");
+        let v: Value = serde_json::from_str(&err).unwrap();
+        assert_eq!(v["success"], json!(false));
+        assert!(
+            v.get("request").is_some(),
+            "failure payload must include request"
+        );
+
+        // Empty but truncated by the probe token budget → success (not a wiring bug).
+        let ok = ok_or_empty_reply(String::new(), true, "m", 200, 5, &request, &response)
+            .expect("empty truncated reply must pass");
+        let v: Value = serde_json::from_str(&ok).unwrap();
+        assert_eq!(v["success"], json!(true));
+        assert!(v.get("request").is_some());
+
+        // Non-empty → success with the reply echoed.
+        let ok = ok_or_empty_reply("hi".to_string(), false, "m", 200, 5, &request, &response)
+            .expect("non-empty reply must pass");
+        let v: Value = serde_json::from_str(&ok).unwrap();
+        assert_eq!(v["success"], json!(true));
+        assert_eq!(v["reply"], json!("hi"));
+    }
 
     #[test]
     fn responses_probe_body_uses_responses_fields() {

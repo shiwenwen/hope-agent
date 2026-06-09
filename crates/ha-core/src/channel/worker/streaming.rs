@@ -140,7 +140,10 @@ pub(super) fn spawn_channel_stream_task(
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
     chat_id: String,
-    reply_to_message_id: Option<String>,
+    // Mutable: the reply quote belongs to the first message of the turn only.
+    // After round 0 ships, this is cleared so later rounds reply un-quoted (see
+    // the round-boundary finalize below).
+    mut reply_to_message_id: Option<String>,
     thread_id: Option<String>,
     preview_transport: Option<StreamPreviewTransport>,
     max_msg_len: usize,
@@ -262,6 +265,14 @@ pub(super) fn spawn_channel_stream_task(
                                     // preview, deliver this round's media,
                                     // then start a fresh preview for the new
                                     // round's first chunk.
+                                    //
+                                    // A round only *ships* a (quoted) message
+                                    // when it had text — an empty round 0
+                                    // (model calls a tool with no preamble)
+                                    // sends nothing, so it must NOT spend the
+                                    // quote, or the turn's first real message
+                                    // (round 1+) would lose it.
+                                    let round_shipped_text = !accumulated.is_empty();
                                     finalize_split_round(
                                         &plugin, &account_id, &chat_id,
                                         reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
@@ -272,6 +283,15 @@ pub(super) fn spawn_channel_stream_task(
                                     flush_schedule.mark_flushed(Instant::now());
                                     accumulated.clear();
                                     finalized_rounds += 1;
+                                    // Quote belongs to the turn's first shipped
+                                    // message; once a round with text sends it,
+                                    // later rounds reply un-quoted so a single
+                                    // response doesn't stack a reply marker on
+                                    // every round (Telegram / Feishu otherwise
+                                    // quote each round's preview).
+                                    if round_shipped_text {
+                                        reply_to_message_id = None;
+                                    }
                                 }
                                 let new_preview_round = in_tool_phase && !split_streaming;
                                 in_tool_phase = false;
