@@ -296,8 +296,9 @@ export default function AboutPanel({
                   </span>
                   {desktopUpdaterAvailable && (
                     <Button
+                      variant="outline"
                       size="sm"
-                      className="h-auto gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-sm font-semibold text-primary shadow-sm transition-all duration-200 hover:bg-primary hover:text-primary-foreground active:scale-[0.97]"
+                      className="h-auto gap-1.5 rounded-full border-violet-300 bg-violet-100 px-3.5 py-1.5 text-sm font-medium text-violet-700 transition-colors duration-200 hover:bg-violet-200 hover:text-violet-800 active:scale-[0.97] dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/25"
                       onClick={handleCheckForUpdates}
                       disabled={checkingUpdate || installingUpdate}
                     >
