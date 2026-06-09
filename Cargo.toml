@@ -146,3 +146,28 @@ rmcp = { version = "1.5", default-features = false, features = [
 # already consumes, so a headless `hope-agent server` can self-update without
 # pulling the Tauri runtime.
 minisign-verify = "0.2"
+
+# ---------------------------------------------------------------------------
+# Build profiles
+# ---------------------------------------------------------------------------
+[profile.release]
+# thin LTO + symbol strip：去掉符号表 + 跨 crate 内联，二进制显著瘦身、运行更
+# 快。bare-binary 自更新用 minisign 校验整文件 hash，strip 不影响校验；崩溃排查
+# 靠 app_*! SQLite 日志，不依赖二进制符号。
+lto = "thin"
+strip = "symbols"
+# panic = "abort" 禁用：hooks handler（hooks/mod.rs catch_unwind 隔离）与
+# subagent spawn（spawn.rs FutureExt::catch_unwind）依赖 unwind 隔离 panic，
+# abort 会让单个 hook / 子 agent 的 panic 直接杀掉整个进程。保持默认 unwind。
+# codegen-units=1 不在此设：只在 release-tag CI 经 CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+# env 覆盖，避免 Docker / 日常 release 构建被串行化拖慢（见 release.yml）。
+
+[profile.dev]
+# 自身 crate 仍可调试，但 debuginfo 从 full(2) 降到 line-tables-only(1)：
+# 大幅缩小 target/debug、加快链接，调试仍能定位到行。
+debug = 1
+
+[profile.dev.package."*"]
+# 只优化第三方依赖（编一次后增量复用），不拖慢自身 crate 的 dev 迭代。对
+# fastembed / image / pdfium / 正则等计算密集依赖的 dev 运行收益明显。
+opt-level = 2

@@ -1,5 +1,5 @@
 use crate::globals::APP_HANDLE;
-use crate::{docker, get_logger, session, tools, tray, weather};
+use crate::{docker, get_logger, session, tools, tray};
 use ha_core::{app_error, app_warn};
 use session::SessionDB;
 use std::sync::Arc;
@@ -381,8 +381,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // Auto-start Docker SearXNG if previously configured
     auto_start_searxng_docker();
 
-    // Start background weather cache refresh
-    weather::start_background_refresh();
+    // Background weather refresh moved into ha-core `start_background_tasks`
+    // (shares the ambient runtime; desktop-gated there).
 
     // Register global shortcuts from config (chord-aware: only first parts for chords)
     {

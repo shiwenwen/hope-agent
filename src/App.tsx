@@ -26,7 +26,6 @@ import ErrorBoundary from "@/components/common/ErrorBoundary"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { AuthRequiredDialog } from "@/components/AuthRequiredDialog"
 import ProviderSetup from "@/components/settings/ProviderSetup"
-import SettingsView from "@/components/settings/SettingsView"
 import type { SettingsSection } from "@/components/settings/types"
 import { parseOpenSettingsSection } from "@/components/settings/openSettingsEvent"
 import OnboardingWizard from "@/components/onboarding"
@@ -41,10 +40,11 @@ import {
   type LocalModelJobSnapshot,
 } from "@/types/local-model-jobs"
 
-// Lazy-loaded views (heavy dependencies: recharts, cron UI)
+// Lazy-loaded views (heavy dependencies: recharts, cron UI, settings 面板群)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 const PlansView = lazy(() => import("@/components/plans/PlansView"))
+const SettingsView = lazy(() => import("@/components/settings/SettingsView"))
 
 export default function App() {
   const { t, i18n } = useTranslation()
@@ -462,6 +462,14 @@ export default function App() {
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
               />
+              {/* SettingsView 现在懒加载；7 个互斥分支共用一个 Suspense 边界。 */}
+              <Suspense
+                fallback={
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                  </div>
+                }
+              >
               {view === "settings" && (
                 <SettingsView
                   key={settingsInitialSectionRequestKey}
@@ -524,6 +532,7 @@ export default function App() {
                   initialSection="channels"
                 />
               )}
+              </Suspense>
               {view === "calendar" && (
                 <Suspense
                   fallback={
