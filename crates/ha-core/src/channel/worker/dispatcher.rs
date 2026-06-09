@@ -1248,7 +1248,29 @@ pub(super) async fn deliver_split(
     let last_idx = remaining.len() - 1;
     for (i, round) in remaining.iter().enumerate() {
         if i == last_idx {
-            send_final_reply(plugin, target, &round.text, preview, &round.medias, caps).await;
+            // The quote marks the turn's first message. When the stream task
+            // already shipped round 0 inline (`finalized_rounds > 0`), the
+            // trailing round must not stack a second quote — only quote here
+            // when nothing was finalized inline (this is the first message).
+            let final_target = DeliveryTarget {
+                account_id: target.account_id,
+                chat_id: target.chat_id,
+                thread_id: target.thread_id,
+                reply_to_message_id: if finalized_rounds == 0 {
+                    target.reply_to_message_id
+                } else {
+                    None
+                },
+            };
+            send_final_reply(
+                plugin,
+                &final_target,
+                &round.text,
+                preview,
+                &round.medias,
+                caps,
+            )
+            .await;
             metrics.text_chars += round.text.chars().count();
             metrics.media_count += round.medias.len();
         } else {
@@ -1653,6 +1675,7 @@ mod tests {
     struct CountingPlugin {
         max_bytes: usize,
         sends: Mutex<Vec<String>>,
+        reply_tos: Mutex<Vec<Option<String>>>,
         send_count: AtomicUsize,
         fail_media: bool,
     }
@@ -1662,6 +1685,7 @@ mod tests {
             Self {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
                 fail_media: false,
             }
@@ -1671,9 +1695,16 @@ mod tests {
             Self {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
                 fail_media: true,
             }
+        }
+
+        /// reply_to_message_id of the last `send_message` call (outer `None` =
+        /// nothing was sent).
+        fn last_reply_to(&self) -> Option<Option<String>> {
+            self.reply_tos.lock().unwrap().last().cloned()
         }
     }
 
@@ -1721,6 +1752,10 @@ mod tests {
             if let Some(text) = payload.text.as_ref() {
                 self.sends.lock().unwrap().push(text.clone());
             }
+            self.reply_tos
+                .lock()
+                .unwrap()
+                .push(payload.reply_to_message_id.clone());
             Ok(DeliveryResult::ok(format!("msg-{}", n)))
         }
 
@@ -1798,6 +1833,40 @@ mod tests {
         let prefinal_chunks: String = sends.iter().take(sends.len() - 1).cloned().collect();
         assert_eq!(prefinal_chunks, pre_final_text);
         assert_eq!(sends.last().unwrap(), "final.");
+    }
+
+    #[tokio::test]
+    async fn deliver_split_quotes_final_round_only_when_nothing_finalized_inline() {
+        let rounds = vec![
+            RoundOutput {
+                text: "round 0".to_string(),
+                medias: Vec::new(),
+            },
+            RoundOutput {
+                text: "final.".to_string(),
+                medias: Vec::new(),
+            },
+        ];
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            thread_id: None,
+            reply_to_message_id: Some("m1"),
+        };
+
+        // Nothing finalized inline (finalized_rounds = 0): the final round is
+        // the turn's first outbound message, so it carries the quote.
+        let p0 = Arc::new(CountingPlugin::new(4096));
+        let dyn0: Arc<dyn ChannelPlugin> = p0.clone();
+        let _ = deliver_split(&dyn0, &target, &rounds, "fb", None, 0, &dyn0.capabilities()).await;
+        assert_eq!(p0.last_reply_to(), Some(Some("m1".to_string())));
+
+        // Stream task already shipped (and quoted) round 0 inline
+        // (finalized_rounds = 1): the trailing round must not stack a 2nd quote.
+        let p1 = Arc::new(CountingPlugin::new(4096));
+        let dyn1: Arc<dyn ChannelPlugin> = p1.clone();
+        let _ = deliver_split(&dyn1, &target, &rounds, "fb", None, 1, &dyn1.capabilities()).await;
+        assert_eq!(p1.last_reply_to(), Some(None));
     }
 
     #[tokio::test]
