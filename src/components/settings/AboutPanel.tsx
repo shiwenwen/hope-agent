@@ -403,10 +403,6 @@ export default function AboutPanel({
                 {t("about.github")}
                 <ExternalLink className="ml-1.5 h-4 w-4" />
               </Button>
-              <Button variant="secondary" onClick={() => openExternal(HOPE_AGENT_URLS.releases)}>
-                {t("about.releases")}
-                <ExternalLink className="ml-1.5 h-4 w-4" />
-              </Button>
               {onOpenUpdateHistory && (
                 <Button variant="outline" onClick={onOpenUpdateHistory}>
                   <History className="mr-1.5 h-4 w-4" />

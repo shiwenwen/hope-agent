@@ -25,6 +25,7 @@
     "updateErrorDetails": "오류 세부정보",
     "updateErrorLogHint": "전체 추적이 ~/.hope-agent/logs.db에 기록되었습니다(category: updater). /ha-logs로 확인하거나 문제 보고 시 해당 파일을 첨부해 주세요.",
     "updateHistory": "업데이트 기록",
+    "updateHistoryViewOnGitHub": "GitHub에서 보기",
     "updateHistoryDesc": "앱을 떠나지 않고 포함된 노트와 동기화된 GitHub Releases를 확인합니다.",
     "updateHistoryEmpty": "이 빌드에서 릴리스 노트를 찾을 수 없습니다.",
     "updateHistoryLatest": "최신",

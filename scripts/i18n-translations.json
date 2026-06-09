@@ -814,7 +814,8 @@
       "autoUpdateCheck": "自動的に更新を確認",
       "autoUpdateInterval": "確認間隔（時間）",
       "autoUpdateDownload": "バックグラウンドで更新をダウンロード",
-      "autoUpdateNotify": "更新があれば通知する"
+      "autoUpdateNotify": "更新があれば通知する",
+      "updateHistoryViewOnGitHub": "GitHub で見る"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -1766,7 +1767,8 @@
       "autoUpdateCheck": "자동으로 업데이트 확인",
       "autoUpdateInterval": "확인 주기(시간)",
       "autoUpdateDownload": "백그라운드에서 업데이트 다운로드",
-      "autoUpdateNotify": "업데이트가 있으면 알림"
+      "autoUpdateNotify": "업데이트가 있으면 알림",
+      "updateHistoryViewOnGitHub": "GitHub에서 보기"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -2718,7 +2720,8 @@
       "autoUpdateCheck": "自動檢查更新",
       "autoUpdateInterval": "檢查間隔（小時）",
       "autoUpdateDownload": "在背景下載更新",
-      "autoUpdateNotify": "有可用更新時通知我"
+      "autoUpdateNotify": "有可用更新時通知我",
+      "updateHistoryViewOnGitHub": "在 GitHub 檢視"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -3651,7 +3654,8 @@
       "autoUpdateCheck": "Güncellemeleri otomatik denetle",
       "autoUpdateInterval": "Denetim aralığı (saat)",
       "autoUpdateDownload": "Güncellemeleri arka planda indir",
-      "autoUpdateNotify": "Güncelleme olduğunda bana bildir"
+      "autoUpdateNotify": "Güncelleme olduğunda bana bildir",
+      "updateHistoryViewOnGitHub": "GitHub'da görüntüle"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -4603,7 +4607,8 @@
       "autoUpdateCheck": "Tự động kiểm tra cập nhật",
       "autoUpdateInterval": "Khoảng thời gian kiểm tra (giờ)",
       "autoUpdateDownload": "Tải cập nhật trong nền",
-      "autoUpdateNotify": "Thông báo khi có bản cập nhật"
+      "autoUpdateNotify": "Thông báo khi có bản cập nhật",
+      "updateHistoryViewOnGitHub": "Xem trên GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -5555,7 +5560,8 @@
       "autoUpdateCheck": "Verificar atualizações automaticamente",
       "autoUpdateInterval": "Intervalo de verificação (horas)",
       "autoUpdateDownload": "Baixar atualizações em segundo plano",
-      "autoUpdateNotify": "Notificar-me sobre atualizações disponíveis"
+      "autoUpdateNotify": "Notificar-me sobre atualizações disponíveis",
+      "updateHistoryViewOnGitHub": "Ver no GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -6507,7 +6513,8 @@
       "autoUpdateCheck": "Автоматически проверять обновления",
       "autoUpdateInterval": "Интервал проверки (часы)",
       "autoUpdateDownload": "Загружать обновления в фоне",
-      "autoUpdateNotify": "Уведомлять о доступных обновлениях"
+      "autoUpdateNotify": "Уведомлять о доступных обновлениях",
+      "updateHistoryViewOnGitHub": "Открыть на GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -7459,7 +7466,8 @@
       "autoUpdateCheck": "التحقق من التحديثات تلقائيًا",
       "autoUpdateInterval": "فترة التحقق (بالساعات)",
       "autoUpdateDownload": "تنزيل التحديثات في الخلفية",
-      "autoUpdateNotify": "إعلامي بالتحديثات المتاحة"
+      "autoUpdateNotify": "إعلامي بالتحديثات المتاحة",
+      "updateHistoryViewOnGitHub": "العرض على GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -8411,7 +8419,8 @@
       "autoUpdateCheck": "Buscar actualizaciones automáticamente",
       "autoUpdateInterval": "Intervalo de comprobación (horas)",
       "autoUpdateDownload": "Descargar actualizaciones en segundo plano",
-      "autoUpdateNotify": "Avisarme de las actualizaciones disponibles"
+      "autoUpdateNotify": "Avisarme de las actualizaciones disponibles",
+      "updateHistoryViewOnGitHub": "Ver en GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -9363,7 +9372,8 @@
       "autoUpdateCheck": "Semak kemas kini secara automatik",
       "autoUpdateInterval": "Selang semakan (jam)",
       "autoUpdateDownload": "Muat turun kemas kini di latar belakang",
-      "autoUpdateNotify": "Beritahu saya tentang kemas kini yang tersedia"
+      "autoUpdateNotify": "Beritahu saya tentang kemas kini yang tersedia",
+      "updateHistoryViewOnGitHub": "Lihat di GitHub"
     },
     "onboarding": {
       "importOpenClaw": {

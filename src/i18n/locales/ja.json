@@ -25,6 +25,7 @@
     "updateErrorDetails": "エラー詳細",
     "updateErrorLogHint": "完全なトレースは ~/.hope-agent/logs.db に書き込まれています（category: updater）。/ha-logs で確認するか、問題報告の際に該当ファイルを添付してください。",
     "updateHistory": "更新履歴",
+    "updateHistoryViewOnGitHub": "GitHub で見る",
     "updateHistoryDesc": "アプリを離れずに、同梱されたノートと同期された GitHub Releases を確認できます。",
     "updateHistoryEmpty": "このビルドにはリリースノートが見つかりません。",
     "updateHistoryLatest": "最新",

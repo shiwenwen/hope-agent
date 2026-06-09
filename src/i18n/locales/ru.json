@@ -25,6 +25,7 @@
     "updateErrorDetails": "Подробности ошибки",
     "updateErrorLogHint": "Полный трейс записан в ~/.hope-agent/logs.db (category: updater). Используйте /ha-logs для разбора или приложите этот файл к отчёту о проблеме.",
     "updateHistory": "История обновлений",
+    "updateHistoryViewOnGitHub": "Открыть на GitHub",
     "updateHistoryDesc": "Просматривайте встроенные заметки и синхронизированные GitHub Releases, не выходя из приложения.",
     "updateHistoryEmpty": "В этой сборке не найдены заметки к выпускам.",
     "updateHistoryLatest": "Последняя",

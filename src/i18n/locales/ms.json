@@ -25,6 +25,7 @@
     "updateErrorDetails": "Butiran ralat",
     "updateErrorLogHint": "Jejak penuh telah ditulis ke ~/.hope-agent/logs.db (category: updater). Gunakan /ha-logs untuk menyiasat atau lampirkan fail tersebut semasa melaporkan masalah.",
     "updateHistory": "Sejarah kemas kini",
+    "updateHistoryViewOnGitHub": "Lihat di GitHub",
     "updateHistoryDesc": "Lihat nota yang dibundel serta GitHub Releases yang disegerakkan tanpa meninggalkan aplikasi.",
     "updateHistoryEmpty": "Tiada nota keluaran ditemui dalam binaan ini.",
     "updateHistoryLatest": "Terkini",
