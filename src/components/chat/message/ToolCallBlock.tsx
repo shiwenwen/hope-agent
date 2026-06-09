@@ -48,6 +48,12 @@ import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
+import { KnowledgeResultCard } from "@/components/chat/message/KnowledgeResultCard"
+
+/** Tools whose results render via {@link KnowledgeResultCard} (grouped by KB). */
+function isKnowledgeResultTool(name: string): boolean {
+  return name === "note_search" || name === "knowledge_recall" || name === "note_similar"
+}
 import { getExecutionToolLabel, getToolExecutionState } from "./executionStatus"
 
 /** Map tool name → Lucide icon component */
@@ -556,6 +562,8 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
         <div className="ml-5 mt-0.5 mb-1">
           {tool.name === "exec" ? (
             <ExecToolResultCard tool={tool} isRunning={isRunning} />
+          ) : isKnowledgeResultTool(tool.name) && tool.result ? (
+            <KnowledgeResultCard toolName={tool.name} result={tool.result} />
           ) : (
             <pre className="whitespace-pre-wrap text-muted-foreground/80 bg-secondary/40 rounded-md p-2.5 max-h-64 overflow-y-auto text-[11px] leading-relaxed border border-border/50">
               {tool.result}

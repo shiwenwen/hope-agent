@@ -56,6 +56,8 @@ pub fn resolve_inline_injections(
 
     // Cache note_refs per accessible KB.
     let mut note_refs: HashMap<String, Vec<resolver::NoteRef>> = HashMap::new();
+    // Cache friendly KB display labels (registry = truth source for names, D9).
+    let mut kb_labels: HashMap<String, String> = HashMap::new();
     let mut blocks: Vec<String> = Vec::new();
     let mut emitted = 0usize;
 
@@ -83,9 +85,19 @@ pub fn resolve_inline_injections(
                 if let Some(content) = read_note_content(kb_id, &rel) {
                     let capped = truncate_utf8(&content, MAX_BYTES_PER_NOTE);
                     let truncated = capped.len() < content.len();
+                    let kb_label = kb_labels
+                        .entry(kb_id.clone())
+                        .or_insert_with(|| {
+                            crate::get_knowledge_db()
+                                .and_then(|reg| reg.get(kb_id).ok().flatten())
+                                .map(|kb| kb.display_label())
+                                .unwrap_or_else(|| kb_id.clone())
+                        })
+                        .clone();
                     blocks.push(format!(
-                        "<untrusted_external_data source=\"knowledge:{source}\" title=\"{title}\">\n{body}{ellipsis}\n</untrusted_external_data>",
+                        "<untrusted_external_data source=\"knowledge:{source}\" kb=\"{kb}\" title=\"{title}\">\n{body}{ellipsis}\n</untrusted_external_data>",
                         source = escape_xml_attr(&format!("{kb_id}/{rel}")),
+                        kb = escape_xml_attr(&kb_label),
                         title = escape_xml_attr(&full.title),
                         body = escape_xml_text(capped),
                         ellipsis = if truncated { "\n…[truncated]" } else { "" },

@@ -4363,7 +4363,57 @@
         "mocUpkeep": "MOC 維護",
         "memoryToNote": "記憶轉筆記"
       }
-    }
+    },
+    "toolNoteCreateName": "新增筆記",
+    "toolNoteCreateDesc": "在知識空間新增一篇 markdown 筆記。",
+    "toolNoteReadName": "讀取筆記",
+    "toolNoteReadDesc": "讀取筆記內文及其出鏈、反向連結和標籤。",
+    "toolNoteUpdateName": "覆寫筆記",
+    "toolNoteUpdateDesc": "整篇取代筆記內容（附防衝突寫入保護）。",
+    "toolNotePatchName": "局部修改筆記",
+    "toolNotePatchDesc": "取代筆記中唯一符合的片段。",
+    "toolNoteAppendName": "附加到筆記",
+    "toolNoteAppendDesc": "向筆記附加內容，可指定標題段落。",
+    "toolNoteDeleteName": "刪除筆記",
+    "toolNoteDeleteDesc": "刪除筆記；指向它的連結會失效。",
+    "toolNoteSearchName": "搜尋筆記",
+    "toolNoteSearchDesc": "對可存取的筆記做全文 + vector 混合檢索。",
+    "toolNoteLinkName": "建立筆記連結",
+    "toolNoteLinkDesc": "在兩篇筆記之間插入 wikilink 連結。",
+    "toolNoteBacklinksName": "反向連結",
+    "toolNoteBacklinksDesc": "列出指向某篇筆記的所有反向連結及位置。",
+    "toolNoteByTagName": "依標籤查筆記",
+    "toolNoteByTagDesc": "列出帶有指定標籤的筆記。",
+    "toolNoteTagsName": "標籤清單",
+    "toolNoteTagsDesc": "統計知識空間內的所有標籤及數量。",
+    "toolNoteRenameName": "重新命名筆記",
+    "toolNoteRenameDesc": "重新命名或移動筆記，自動改寫指向它的連結。",
+    "toolNoteMoveName": "移動筆記",
+    "toolNoteMoveDesc": "將筆記移動到其他目錄，自動改寫指向它的連結。",
+    "toolNoteSetFrontmatterName": "設定中繼資料",
+    "toolNoteSetFrontmatterDesc": "合併寫入筆記的 YAML frontmatter 屬性。",
+    "toolNoteAssignBlockName": "標記區塊 ID",
+    "toolNoteAssignBlockDesc": "為某個區塊指派 ^block-id 以便精確引用。",
+    "toolNoteBrokenLinksName": "失效連結",
+    "toolNoteBrokenLinksDesc": "列出知識空間內的失效（懸空）連結。",
+    "toolNoteOrphansName": "孤島筆記",
+    "toolNoteOrphansDesc": "列出沒有任何出入連結的孤島筆記。",
+    "toolNoteGraphName": "筆記圖譜",
+    "toolNoteGraphDesc": "回傳筆記連結圖譜（節點與邊）。",
+    "toolNoteSimilarName": "相似筆記",
+    "toolNoteSimilarDesc": "用 vector 檢索查找語意相似的筆記。",
+    "toolNoteRelatedName": "相關筆記",
+    "toolNoteRelatedDesc": "融合連結、vector 和共用標籤的相關筆記。",
+    "toolNoteSuggestLinksName": "推薦連結",
+    "toolNoteSuggestLinksDesc": "推薦內文中提到但尚未連結的筆記。",
+    "toolNoteDistillName": "提煉筆記",
+    "toolNoteDistillDesc": "將長文或文字拆成多篇原子永久筆記。",
+    "toolNoteMocName": "主題地圖",
+    "toolNoteMocDesc": "為主題產生或重新整理一篇 MOC 主題地圖樞紐筆記。",
+    "toolSessionToNoteName": "對話存為筆記",
+    "toolSessionToNoteDesc": "將目前對話提煉成一篇結構化筆記。",
+    "toolKnowledgeRecallName": "知識召回",
+    "toolKnowledgeRecallDesc": "同時檢索記憶與筆記兩個庫（分兩段回傳）。"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -4637,7 +4687,32 @@
     "update_settings": "更新設置",
     "web_fetch": "網頁抓取",
     "web_search": "網頁搜索",
-    "write": "寫入文件"
+    "write": "寫入文件",
+    "note_create": "新增筆記",
+    "note_read": "讀取筆記",
+    "note_update": "覆寫筆記",
+    "note_patch": "局部修改筆記",
+    "note_append": "附加到筆記",
+    "note_delete": "刪除筆記",
+    "note_search": "搜尋筆記",
+    "note_link": "建立筆記連結",
+    "note_backlinks": "反向連結",
+    "note_by_tag": "依標籤查筆記",
+    "note_tags": "標籤清單",
+    "note_rename": "重新命名筆記",
+    "note_move": "移動筆記",
+    "note_set_frontmatter": "設定中繼資料",
+    "note_assign_block": "標記區塊 ID",
+    "note_broken_links": "失效連結",
+    "note_orphans": "孤島筆記",
+    "note_graph": "筆記圖譜",
+    "note_similar": "相似筆記",
+    "note_related": "相關筆記",
+    "note_suggest_links": "推薦連結",
+    "note_distill": "提煉筆記",
+    "note_moc": "主題地圖",
+    "session_to_note": "對話存為筆記",
+    "knowledge_recall": "知識召回"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "修改",
       "delete": "刪除",
       "read": "讀取"
-    }
+    },
+    "sectionKnowledge": "知識空間",
+    "emptyKnowledge": "未掛載知識空間",
+    "kbViaProject": "專案",
+    "kbWrote": "寫入",
+    "kbRead": "讀取",
+    "kbSearchCount": "檢索 {{n}} 次"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} 篇筆記",
       "read": "讀",
       "write": "讀寫",
-      "hint": "附加的空間可讓助理搜尋並引用其中的筆記；你也可以用 [[note]] 在訊息中直接引用。"
+      "hint": "附加的空間可讓助理搜尋並引用其中的筆記；你也可以用 [[note]] 在訊息中直接引用。",
+      "external": "外部庫",
+      "accessOff": "關閉",
+      "accessRead": "唯讀",
+      "accessWrite": "讀寫",
+      "accessOffTip": "未掛載，助理無法存取此知識空間",
+      "accessReadTip": "助理可搜尋及閱讀筆記",
+      "accessWriteTip": "助理可讀取並修改筆記"
     },
     "mention": {
       "heading": "知識筆記",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "留空則建立內部空間。外部庫在第一階段為唯讀。",
     "kbRootInvalid": "無法選擇該資料夾",
     "allowExternalWrites": "允許編輯此外部庫",
-    "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。"
+    "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。",
+    "result": {
+      "memory": "記憶"
+    }
   }
 }

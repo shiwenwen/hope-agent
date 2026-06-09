@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  BookText,
   Bot,
   CalendarClock,
   ChevronRight,
@@ -8,6 +9,7 @@ import {
   CircleAlert,
   Cpu,
   EyeOff,
+  FileText,
   Files,
   FolderGit2,
   FolderOpen,
@@ -18,6 +20,7 @@ import {
   Globe,
   HardDrive,
   LayoutDashboard,
+  Lock,
   MessageCircle,
   Radio,
   Search,
@@ -50,6 +53,7 @@ import type { SessionUrlSource } from "./useSessionUrlSources"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
+import { useSessionKnowledge } from "./useSessionKnowledge"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
 import {
   formatGitRef,
@@ -605,6 +609,115 @@ function EnvironmentSection({
 }
 
 /**
+ * 知识空间段:① 本会话挂载的知识空间(owner 平面 list_session_kbs_cmd,带读/写徽章
+ * + 项目来源 + 外部锁);② 本会话的笔记活动(live-tail:写入 / 读取的笔记 + 检索次数)。
+ * 无痕会话不拉挂载列表(D10 关闭即焚),活动走 live-tail 自然为空。
+ */
+function KnowledgeSection({
+  sessionId,
+  projectId,
+  incognito,
+  messages,
+}: {
+  sessionId?: string | null
+  projectId?: string | null
+  incognito?: boolean
+  messages: Message[]
+}) {
+  const { t } = useTranslation()
+  const { attachments, activity } = useSessionKnowledge(sessionId, projectId, {
+    incognito,
+    messages,
+  })
+  const hasContent =
+    attachments.length > 0 || activity.entries.length > 0 || activity.searchCount > 0
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.sectionKnowledge", "知识空间")}
+      count={attachments.length}
+      icon={BookText}
+    >
+      {hasContent ? (
+        <div className="space-y-2">
+          {attachments.length > 0 && (
+            <div className="space-y-1">
+              {attachments.map((kb) => {
+                const external = !!kb.rootDir
+                return (
+                  <div
+                    key={kb.id}
+                    className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5"
+                  >
+                    <span className="shrink-0 text-sm leading-none">{kb.emoji || "📚"}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+                      {kb.name}
+                    </span>
+                    {external && (
+                      <IconTip label={t("knowledge.picker.external", "外部库")}>
+                        <Lock className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                      </IconTip>
+                    )}
+                    {kb.via === "project" && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                        {t("workspace.kbViaProject", "项目")}
+                      </span>
+                    )}
+                    <span className="shrink-0 rounded bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {kb.access === "write"
+                        ? t("knowledge.picker.accessWrite", "读写")
+                        : t("knowledge.picker.accessRead", "只读")}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {activity.entries.length > 0 && (
+            <div className="space-y-0.5">
+              {activity.entries.map((e) => (
+                <IconTip key={e.key} label={e.ref}>
+                  <div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary/40">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground/85">
+                      {basename(e.ref)}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[10px]",
+                        e.kind === "write"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-muted-foreground/70",
+                      )}
+                    >
+                      {e.kind === "write"
+                        ? t("workspace.kbWrote", "写入")
+                        : t("workspace.kbRead", "读取")}
+                    </span>
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          )}
+
+          {activity.searchCount > 0 && (
+            <div className="px-2 pt-0.5 text-[10px] text-muted-foreground/60">
+              {t("workspace.kbSearchCount", {
+                n: activity.searchCount,
+                defaultValue: "检索 {{n}} 次",
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <EmptyHint>{t("workspace.emptyKnowledge", "未挂载知识空间")}</EmptyHint>
+      )}
+    </WorkspaceSection>
+  )
+}
+
+/**
  * 右侧「工作台」面板:把本会话的任务进度、碰到的文件、引用来源聚合到一处。
  * 文件 / 来源走 useWorkspaceArtifacts —— 后端读时聚合全会话历史 + 当前轮 live tail
  * 内存合并;输出 / 来源两段各自定高内部滚动,滚到底自动增量渲染(无按钮)。
@@ -719,6 +832,14 @@ export default function WorkspacePanel({
             <EmptyHint>{t("workspace.emptySources", "还没有引用来源")}</EmptyHint>
           )}
         </WorkspaceSection>
+
+        {/* 知识空间 — 挂载的库(读/写)+ 本会话笔记活动。 */}
+        <KnowledgeSection
+          sessionId={sessionId}
+          projectId={project?.id ?? sessionMeta?.projectId ?? null}
+          incognito={incognito}
+          messages={messages}
+        />
       </div>
     </div>
   )

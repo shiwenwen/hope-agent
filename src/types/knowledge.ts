@@ -28,6 +28,14 @@ export interface KbAttachment extends KnowledgeBase {
   via: string
 }
 
+/** Mirror ha-core `KnowledgeBase::display_label()`: emoji + space + name, or
+ *  name only when there's no emoji. For inline single-string labels (no separate
+ *  emoji chip). */
+export function kbLabel(emoji: string | null | undefined, name: string): string {
+  const e = emoji?.trim()
+  return e ? `${e} ${name}` : name
+}
+
 /** A KB attach staged in the composer before a session exists; replayed as a
  *  real attach once the first message creates the session. */
 export interface KbDraftAttachment {
@@ -153,6 +161,10 @@ export interface GraphNodePosition {
 
 export interface NoteSearchHit {
   kbId: string
+  /** Human-readable source KB name (registry truth source; falls back to kbId). */
+  kbName?: string
+  /** Source KB emoji, if any. */
+  kbEmoji?: string | null
   noteId: number
   relPath: string
   title: string

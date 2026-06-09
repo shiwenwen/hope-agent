@@ -4371,7 +4371,57 @@
         "mocUpkeep": "MOC 维护",
         "memoryToNote": "记忆转笔记"
       }
-    }
+    },
+    "toolNoteCreateName": "新建笔记",
+    "toolNoteCreateDesc": "在知识空间新建一篇 markdown 笔记。",
+    "toolNoteReadName": "读取笔记",
+    "toolNoteReadDesc": "读取笔记正文及其出链、反链和标签。",
+    "toolNoteUpdateName": "覆写笔记",
+    "toolNoteUpdateDesc": "整篇替换笔记内容(带防冲突写入保护)。",
+    "toolNotePatchName": "局部修改笔记",
+    "toolNotePatchDesc": "替换笔记中唯一匹配的片段。",
+    "toolNoteAppendName": "追加到笔记",
+    "toolNoteAppendDesc": "向笔记追加内容,可指定标题段落。",
+    "toolNoteDeleteName": "删除笔记",
+    "toolNoteDeleteDesc": "删除笔记;指向它的链接会失效。",
+    "toolNoteSearchName": "搜索笔记",
+    "toolNoteSearchDesc": "对可访问笔记做全文 + 向量混合检索。",
+    "toolNoteLinkName": "建立笔记链接",
+    "toolNoteLinkDesc": "在两篇笔记之间插入 wikilink 链接。",
+    "toolNoteBacklinksName": "反向链接",
+    "toolNoteBacklinksDesc": "列出指向某篇笔记的所有反链及位置。",
+    "toolNoteByTagName": "按标签查笔记",
+    "toolNoteByTagDesc": "列出带有指定标签的笔记。",
+    "toolNoteTagsName": "标签清单",
+    "toolNoteTagsDesc": "统计知识空间内的所有标签及数量。",
+    "toolNoteRenameName": "重命名笔记",
+    "toolNoteRenameDesc": "重命名或移动笔记,自动改写指向它的链接。",
+    "toolNoteMoveName": "移动笔记",
+    "toolNoteMoveDesc": "把笔记移动到其他目录,自动改写指向它的链接。",
+    "toolNoteSetFrontmatterName": "设置元数据",
+    "toolNoteSetFrontmatterDesc": "合并写入笔记的 YAML frontmatter 属性。",
+    "toolNoteAssignBlockName": "标记块 ID",
+    "toolNoteAssignBlockDesc": "给某个块分配 ^block-id 以便精确引用。",
+    "toolNoteBrokenLinksName": "失效链接",
+    "toolNoteBrokenLinksDesc": "列出知识空间内的失效(悬空)链接。",
+    "toolNoteOrphansName": "孤岛笔记",
+    "toolNoteOrphansDesc": "列出没有任何出入链的孤岛笔记。",
+    "toolNoteGraphName": "笔记图谱",
+    "toolNoteGraphDesc": "返回笔记链接图谱(节点与边)。",
+    "toolNoteSimilarName": "相似笔记",
+    "toolNoteSimilarDesc": "用向量检索查找语义相似的笔记。",
+    "toolNoteRelatedName": "相关笔记",
+    "toolNoteRelatedDesc": "融合链接、向量和共享标签的相关笔记。",
+    "toolNoteSuggestLinksName": "推荐链接",
+    "toolNoteSuggestLinksDesc": "推荐正文里提到但尚未链接的笔记。",
+    "toolNoteDistillName": "提炼笔记",
+    "toolNoteDistillDesc": "把长文或文本拆成多篇原子永久笔记。",
+    "toolNoteMocName": "主题地图",
+    "toolNoteMocDesc": "为主题生成或刷新一篇 MOC 主题地图枢纽笔记。",
+    "toolSessionToNoteName": "对话存为笔记",
+    "toolSessionToNoteDesc": "把当前对话提炼成一篇结构化笔记。",
+    "toolKnowledgeRecallName": "知识召回",
+    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库(分两段返回)。"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -4645,7 +4695,32 @@
     "update_settings": "更新设置",
     "web_fetch": "网页抓取",
     "web_search": "网页搜索",
-    "write": "写入文件"
+    "write": "写入文件",
+    "note_create": "新建笔记",
+    "note_read": "读取笔记",
+    "note_update": "覆写笔记",
+    "note_patch": "局部修改笔记",
+    "note_append": "追加到笔记",
+    "note_delete": "删除笔记",
+    "note_search": "搜索笔记",
+    "note_link": "建立笔记链接",
+    "note_backlinks": "反向链接",
+    "note_by_tag": "按标签查笔记",
+    "note_tags": "标签清单",
+    "note_rename": "重命名笔记",
+    "note_move": "移动笔记",
+    "note_set_frontmatter": "设置元数据",
+    "note_assign_block": "标记块 ID",
+    "note_broken_links": "失效链接",
+    "note_orphans": "孤岛笔记",
+    "note_graph": "笔记图谱",
+    "note_similar": "相似笔记",
+    "note_related": "相关笔记",
+    "note_suggest_links": "推荐链接",
+    "note_distill": "提炼笔记",
+    "note_moc": "主题地图",
+    "session_to_note": "对话存为笔记",
+    "knowledge_recall": "知识召回"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -4854,7 +4929,13 @@
       "edit": "修改",
       "delete": "删除",
       "read": "读取"
-    }
+    },
+    "sectionKnowledge": "知识空间",
+    "emptyKnowledge": "未挂载知识空间",
+    "kbViaProject": "项目",
+    "kbWrote": "写入",
+    "kbRead": "读取",
+    "kbSearchCount": "检索 {{n}} 次"
   },
   "knowledge": {
     "picker": {
@@ -4867,7 +4948,14 @@
       "noteCount": "{{count}} 篇笔记",
       "read": "读",
       "write": "读写",
-      "hint": "挂载后助手即可检索并引用其中的笔记；也可在消息里用 [[笔记名]] 直接引用。"
+      "hint": "挂载后助手即可检索并引用其中的笔记；也可在消息里用 [[笔记名]] 直接引用。",
+      "external": "外部库",
+      "accessOff": "关闭",
+      "accessRead": "只读",
+      "accessWrite": "读写",
+      "accessOffTip": "不挂载,助手无法访问此知识空间",
+      "accessReadTip": "助手可搜索和阅读笔记",
+      "accessWriteTip": "助手可读取并修改笔记"
     },
     "mention": {
       "heading": "知识空间笔记",
@@ -5016,6 +5104,9 @@
     "kbRootHint": "留空则创建内部空间。外部库在第一阶段为只读。",
     "kbRootInvalid": "无法选择该文件夹",
     "allowExternalWrites": "允许编辑此外部库",
-    "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。"
+    "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。",
+    "result": {
+      "memory": "记忆"
+    }
   }
 }

@@ -4,15 +4,11 @@ import { useClickOutside } from "@/hooks/useClickOutside"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { Library, Loader2, Lock } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
+import { KbAccessControl } from "@/components/knowledge/KbAccessControl"
+import { useSessionAttachments } from "@/components/chat/workspace/useSessionAttachments"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type {
-  KnowledgeBaseMeta,
-  KbAttachment,
-  KbAccess,
-  KbDraftAttachment,
-} from "@/types/knowledge"
+import type { KnowledgeBaseMeta, KbAccess, KbDraftAttachment } from "@/types/knowledge"
 
 interface Props {
   sessionId: string | null
@@ -52,7 +48,11 @@ export default function KnowledgePicker({
   const draftMode = !sessionId && !!onDraftAttachChange
   const [open, setOpen] = useState(false)
   const [kbs, setKbs] = useState<KnowledgeBaseMeta[]>([])
-  const [attachments, setAttachments] = useState<KbAttachment[]>([])
+  // Live attachments + invalidation handled by the shared hook (also used by the
+  // Workspace knowledge section). `reload` is called after attach/detach and on
+  // popover open. Draft mode never has a sessionId, so the hook stays empty and
+  // the draft branches below own that path.
+  const { attachments, reload: reloadAttachments } = useSessionAttachments(sessionId, projectId)
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -61,30 +61,6 @@ export default function KnowledgePicker({
     ref,
     useCallback(() => setOpen(false), []),
   )
-
-  const loadAttachments = useCallback(() => {
-    if (!sessionId) {
-      setAttachments([])
-      return
-    }
-    getTransport()
-      .call<KbAttachment[]>("list_session_kbs_cmd", {
-        sessionId,
-        projectId: projectId ?? undefined,
-      })
-      .then(setAttachments)
-      .catch(() => setAttachments([]))
-  }, [sessionId, projectId])
-
-  // Keep the badge count fresh as the session / project changes, and react to
-  // KB mutations made elsewhere (knowledge view, agent tools, vault watcher).
-  useEffect(() => {
-    loadAttachments()
-  }, [loadAttachments])
-
-  useEffect(() => {
-    return getTransport().listen("knowledge:changed", () => loadAttachments())
-  }, [loadAttachments])
 
   useEffect(() => {
     if (disabled && open) setOpen(false)
@@ -99,8 +75,8 @@ export default function KnowledgePicker({
       .then(setKbs)
       .catch(() => setKbs([]))
       .finally(() => setLoading(false))
-    loadAttachments()
-  }, [open, loadAttachments])
+    reloadAttachments()
+  }, [open, reloadAttachments])
 
   // Prune staged drafts whose KB no longer exists / was archived elsewhere, so
   // the badge count and the replayed attach list stay consistent with the rows
@@ -139,7 +115,7 @@ export default function KnowledgePicker({
       } else {
         await getTransport().call("attach_session_kb_cmd", { sessionId, kbId: kb.id, access })
       }
-      loadAttachments()
+      reloadAttachments()
     } catch (e) {
       logger.error("chat", "KnowledgePicker::setAttach", "attach/detach failed", e)
     } finally {
@@ -211,33 +187,15 @@ export default function KnowledgePicker({
                       </span>
                     </div>
 
-                    {/* Access toggle — only for session-scoped, internal, attached spaces.
-                        External vaults are capped to read (D11); project-scoped attaches
-                        are managed at the project level. */}
-                    {att && !viaProject && !kb.external && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          setAttach(kb, att.access === "read" ? "write" : "read")
-                        }
-                        className="shrink-0 whitespace-nowrap rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-                      >
-                        {att.access === "write"
-                          ? t("knowledge.picker.write")
-                          : t("knowledge.picker.read")}
-                      </button>
-                    )}
-                    {att && (viaProject || kb.external) && (
-                      <span className="shrink-0 rounded-md bg-secondary/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {t("knowledge.picker.read")}
-                      </span>
-                    )}
-
-                    <Switch
-                      checked={!!att}
-                      disabled={busy || viaProject}
-                      onCheckedChange={(v) => setAttach(kb, v ? "read" : null)}
+                    {/* Always-visible 关闭/只读/读写 segmented control. External
+                        vaults hide the write segment (read-capped, D11); project
+                        attaches are managed at the project level (rendered read-only). */}
+                    <KbAccessControl
+                      value={!att ? "off" : att.access}
+                      allowWrite={!kb.external && !viaProject}
+                      disabled={viaProject}
+                      busy={busy}
+                      onChange={(next) => setAttach(kb, next === "off" ? null : next)}
                     />
                   </div>
                 )

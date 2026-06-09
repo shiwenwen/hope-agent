@@ -297,6 +297,20 @@ pub struct AssistantAgent {
     /// `refresh_related_notes_suffix`. `None` = nothing to inject (disabled,
     /// incognito, no accessible KB, or no hits).
     pub(crate) related_notes_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Per-turn memo of the resolved effective KB access map. `resolve_kb_access`
+    /// is hit up to ~5× per turn (passive recall + the no-KB tool-schema gate +
+    /// the `# Knowledge Bases` system-prompt section, the last built twice and
+    /// again on plan-mode resync); its inputs (session / source / origin /
+    /// channel / incognito / project / attach rows) only change at a turn
+    /// boundary, so the resolution (a couple of SQLite round-trips) is memoized
+    /// for the turn. Cleared in `reset_chat_flags` (turn start) and
+    /// `set_session_id` (cached-agent rebind). `Arc` so consumers share one
+    /// allocation; `KbAccess` is `Copy`. **Schema/prompt/recall only — never
+    /// gate tool EXECUTION off this** (the execution boundary `note.rs::access_map`
+    /// stays live so a mid-turn revoke still blocks real reads/writes).
+    pub(crate) kb_access_cache: std::sync::Mutex<
+        Option<std::sync::Arc<std::collections::HashMap<String, crate::knowledge::KbAccess>>>,
+    >,
     /// Optional `ProviderConfig` reference, injected via
     /// [`AssistantAgent::with_failover_context`]. When present **and**
     /// `session_id` is set, side_query / DedicatedModelProvider routes

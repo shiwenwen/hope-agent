@@ -84,6 +84,16 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // Final exec-layer filter (skill / denied / plan-allowed) — defense in depth.
     candidates.retain(|t| ctx.is_tool_visible(&t.name));
 
+    // KB-scoped tools (note_* / session_to_note) are useless without an attached
+    // KB — hide them on a no-KB session, mirroring the eager-schema gate in
+    // `Agent::build_tool_schemas` so they can't be resurrected here. The access
+    // check is skipped unless such a tool actually survived the filters above.
+    if candidates.iter().any(|t| super::is_kb_scoped_tool(&t.name))
+        && !super::note::session_has_kb_access(ctx)
+    {
+        candidates.retain(|t| !super::is_kb_scoped_tool(&t.name));
+    }
+
     // Select mode: "select:name1,name2" for exact matching
     if let Some(names_str) = query.strip_prefix("select:") {
         let names: Vec<&str> = names_str.split(',').map(|s| s.trim()).collect();

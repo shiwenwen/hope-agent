@@ -4363,7 +4363,57 @@
         "mocUpkeep": "صيانة MOC",
         "memoryToNote": "ذاكرة → ملاحظة"
       }
-    }
+    },
+    "toolNoteCreateName": "إنشاء ملاحظة",
+    "toolNoteCreateDesc": "إنشاء ملاحظة markdown جديدة في مساحة معرفية.",
+    "toolNoteReadName": "قراءة ملاحظة",
+    "toolNoteReadDesc": "قراءة ملاحظة مع روابطها وروابطها الخلفية ووسومها.",
+    "toolNoteUpdateName": "تحديث ملاحظة",
+    "toolNoteUpdateDesc": "استبدال محتوى الملاحظة بالكامل (مع حماية ضد الكتابة المتعارضة).",
+    "toolNotePatchName": "تعديل جزئي للملاحظة",
+    "toolNotePatchDesc": "استبدال مقطع مطابق فريد داخل ملاحظة.",
+    "toolNoteAppendName": "إلحاق بالملاحظة",
+    "toolNoteAppendDesc": "إلحاق محتوى بملاحظة، مع إمكانية وضعه تحت عنوان.",
+    "toolNoteDeleteName": "حذف ملاحظة",
+    "toolNoteDeleteDesc": "حذف ملاحظة؛ تصبح الروابط المؤدية إليها معطوبة.",
+    "toolNoteSearchName": "بحث في الملاحظات",
+    "toolNoteSearchDesc": "بحث هجين بالنص الكامل + vector عبر الملاحظات المتاحة.",
+    "toolNoteLinkName": "ربط الملاحظات",
+    "toolNoteLinkDesc": "إدراج رابط wikilink من ملاحظة إلى أخرى.",
+    "toolNoteBacklinksName": "الروابط الخلفية",
+    "toolNoteBacklinksDesc": "سرد الملاحظات التي تربط بملاحظة، مع المواضع الدقيقة.",
+    "toolNoteByTagName": "ملاحظات حسب الوسم",
+    "toolNoteByTagDesc": "سرد الملاحظات الحاملة لوسم معيّن.",
+    "toolNoteTagsName": "قائمة الوسوم",
+    "toolNoteTagsDesc": "تعداد الوسوم وأعدادها عبر المساحات المعرفية.",
+    "toolNoteRenameName": "إعادة تسمية ملاحظة",
+    "toolNoteRenameDesc": "إعادة تسمية ملاحظة أو نقلها؛ تُعاد كتابة الروابط الواردة.",
+    "toolNoteMoveName": "نقل ملاحظة",
+    "toolNoteMoveDesc": "نقل ملاحظة إلى مجلد آخر؛ تُعاد كتابة الروابط الواردة.",
+    "toolNoteSetFrontmatterName": "ضبط البيانات الوصفية",
+    "toolNoteSetFrontmatterDesc": "دمج خصائص YAML frontmatter في ملاحظة.",
+    "toolNoteAssignBlockName": "تعيين معرّف كتلة",
+    "toolNoteAssignBlockDesc": "منح كتلة معرّف ^block-id للإشارات الدقيقة.",
+    "toolNoteBrokenLinksName": "الروابط المعطوبة",
+    "toolNoteBrokenLinksDesc": "سرد الروابط المعطوبة (المعلّقة) في مساحة معرفية.",
+    "toolNoteOrphansName": "ملاحظات معزولة",
+    "toolNoteOrphansDesc": "سرد الملاحظات التي لا روابط واردة أو صادرة لها.",
+    "toolNoteGraphName": "مخطط الملاحظات",
+    "toolNoteGraphDesc": "إرجاع مخطط روابط الملاحظات (العقد والحواف).",
+    "toolNoteSimilarName": "ملاحظات مشابهة",
+    "toolNoteSimilarDesc": "العثور على ملاحظات مشابهة دلاليًا لملاحظة (vector).",
+    "toolNoteRelatedName": "ملاحظات ذات صلة",
+    "toolNoteRelatedDesc": "ملاحظات ذات صلة تدمج الروابط وvector والوسوم المشتركة.",
+    "toolNoteSuggestLinksName": "اقتراح روابط",
+    "toolNoteSuggestLinksDesc": "اقتراح ملاحظات مذكورة في النص لكنها غير مرتبطة بعد.",
+    "toolNoteDistillName": "تقطير الملاحظات",
+    "toolNoteDistillDesc": "تقسيم ملاحظة أو نص طويل إلى ملاحظات دائمة ذرّية.",
+    "toolNoteMocName": "خريطة المحتوى",
+    "toolNoteMocDesc": "إنشاء أو تحديث ملاحظة محورية MOC لموضوع ما.",
+    "toolSessionToNoteName": "الجلسة إلى ملاحظة",
+    "toolSessionToNoteDesc": "تقطير المحادثة إلى ملاحظة منظّمة.",
+    "toolKnowledgeRecallName": "استرجاع المعرفة",
+    "toolKnowledgeRecallDesc": "بحث في الذاكرة والملاحظات معًا (قسمان مرتّبان)."
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",
@@ -4637,7 +4687,32 @@
     "update_settings": "تحديث الإعدادات",
     "web_fetch": "جلب ويب",
     "web_search": "بحث ويب",
-    "write": "كتابة الملف"
+    "write": "كتابة الملف",
+    "note_create": "إنشاء ملاحظة",
+    "note_read": "قراءة ملاحظة",
+    "note_update": "تحديث ملاحظة",
+    "note_patch": "تعديل جزئي للملاحظة",
+    "note_append": "إلحاق بالملاحظة",
+    "note_delete": "حذف ملاحظة",
+    "note_search": "بحث في الملاحظات",
+    "note_link": "ربط الملاحظات",
+    "note_backlinks": "الروابط الخلفية",
+    "note_by_tag": "ملاحظات حسب الوسم",
+    "note_tags": "قائمة الوسوم",
+    "note_rename": "إعادة تسمية ملاحظة",
+    "note_move": "نقل ملاحظة",
+    "note_set_frontmatter": "ضبط البيانات الوصفية",
+    "note_assign_block": "تعيين معرّف كتلة",
+    "note_broken_links": "الروابط المعطوبة",
+    "note_orphans": "ملاحظات معزولة",
+    "note_graph": "مخطط الملاحظات",
+    "note_similar": "ملاحظات مشابهة",
+    "note_related": "ملاحظات ذات صلة",
+    "note_suggest_links": "اقتراح روابط",
+    "note_distill": "تقطير الملاحظات",
+    "note_moc": "خريطة المحتوى",
+    "session_to_note": "الجلسة إلى ملاحظة",
+    "knowledge_recall": "استرجاع المعرفة"
   },
   "tz": {
     "amsterdam": "أمستردام (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "تعديل",
       "delete": "حذف",
       "read": "قراءة"
-    }
+    },
+    "sectionKnowledge": "المعرفة",
+    "emptyKnowledge": "لا توجد مساحة معرفية مُرفَقة",
+    "kbViaProject": "مشروع",
+    "kbWrote": "كُتِب",
+    "kbRead": "قُرِئ",
+    "kbSearchCount": "{{n}} عمليات بحث"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} ملاحظة",
       "read": "قراءة",
       "write": "قراءة وكتابة",
-      "hint": "تتيح المساحات المرفقة للمساعد البحث في الملاحظات والاستشهاد بها؛ ويمكنك أيضًا الإشارة إليها داخل النص باستخدام [[note]]."
+      "hint": "تتيح المساحات المرفقة للمساعد البحث في الملاحظات والاستشهاد بها؛ ويمكنك أيضًا الإشارة إليها داخل النص باستخدام [[note]].",
+      "external": "مكتبة خارجية",
+      "accessOff": "إيقاف",
+      "accessRead": "قراءة",
+      "accessWrite": "قراءة وكتابة",
+      "accessOffTip": "غير مُرفَقة — لا يمكن للمساعد الوصول إلى هذه المساحة",
+      "accessReadTip": "يمكن للمساعد البحث في الملاحظات وقراءتها",
+      "accessWriteTip": "يمكن للمساعد قراءة الملاحظات وتعديلها"
     },
     "mention": {
       "heading": "ملاحظات المعرفة",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "اتركه فارغًا لإنشاء مساحة داخلية. الخزائن الخارجية للقراءة فقط في المرحلة 1.",
     "kbRootInvalid": "تعذّر اختيار ذلك المجلد",
     "allowExternalWrites": "السماح بتحرير هذه الخزنة",
-    "allowExternalWritesHint": "الخزائن الخارجية للقراءة فقط افتراضيًا. فعّل الخيار للسماح للمحرر وأدوات الذكاء الاصطناعي بالكتابة في المجلد المرتبط. لا تكتب الصيانة التلقائية في الخلفية إلى الخزائن الخارجية أبدًا."
+    "allowExternalWritesHint": "الخزائن الخارجية للقراءة فقط افتراضيًا. فعّل الخيار للسماح للمحرر وأدوات الذكاء الاصطناعي بالكتابة في المجلد المرتبط. لا تكتب الصيانة التلقائية في الخلفية إلى الخزائن الخارجية أبدًا.",
+    "result": {
+      "memory": "الذاكرة"
+    }
   }
 }

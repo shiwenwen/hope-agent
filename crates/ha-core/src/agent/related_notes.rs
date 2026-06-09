@@ -66,6 +66,16 @@ pub fn render_suffix(
     if hits.is_empty() {
         return None;
     }
+    // Attribute each note to its source KB only when the hits span more than one
+    // knowledge space — a single-KB session already names that KB in the
+    // `# Knowledge Bases` system-prompt section, so per-line source would just
+    // burn the (bounded) payload budget.
+    let multi_kb = hits
+        .iter()
+        .map(|h| h.kb_id.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        > 1;
     let mut lines = String::new();
     for h in hits {
         let title = if h.title.trim().is_empty() {
@@ -75,6 +85,15 @@ pub fn render_suffix(
         };
         lines.push_str("- ");
         lines.push_str(&escape(title));
+        if multi_kb {
+            let kb = if h.kb_name.trim().is_empty() {
+                h.kb_id.as_str()
+            } else {
+                h.kb_name.as_str()
+            };
+            lines.push_str(" · ");
+            lines.push_str(&escape(kb));
+        }
         if show_snippet {
             let snip = h.snippet.trim();
             if !snip.is_empty() {
@@ -100,8 +119,14 @@ mod tests {
     use super::*;
 
     fn hit(title: &str, snippet: &str) -> NoteSearchHit {
+        hit_in("kb", "", title, snippet)
+    }
+
+    fn hit_in(kb_id: &str, kb_name: &str, title: &str, snippet: &str) -> NoteSearchHit {
         NoteSearchHit {
-            kb_id: "kb".into(),
+            kb_id: kb_id.into(),
+            kb_name: kb_name.into(),
+            kb_emoji: None,
             note_id: 1,
             rel_path: "a/b.md".into(),
             title: title.into(),
@@ -144,6 +169,37 @@ mod tests {
         // The injected closer is neutralized; the only real closing tag is ours.
         assert_eq!(out.matches("</untrusted_external_data>").count(), 1);
         assert!(out.contains("&lt;/untrusted_external_data>"));
+    }
+
+    #[test]
+    fn single_kb_omits_source_attribution() {
+        // One KB → no per-line source (the system prompt already names it).
+        let out = render_suffix(
+            &[
+                hit_in("kb1", "Work", "A", ""),
+                hit_in("kb1", "Work", "B", ""),
+            ],
+            false,
+            800,
+        )
+        .unwrap();
+        assert!(!out.contains(" · "));
+    }
+
+    #[test]
+    fn multi_kb_shows_source_per_line() {
+        // Hits spanning >1 KB get a ` · {kb_name}` source tag (kb_id fallback).
+        let out = render_suffix(
+            &[
+                hit_in("kb1", "Work Notes", "A", ""),
+                hit_in("kb2", "", "B", ""),
+            ],
+            false,
+            800,
+        )
+        .unwrap();
+        assert!(out.contains("- A · Work Notes"));
+        assert!(out.contains("- B · kb2")); // empty name → kb_id fallback
     }
 
     #[test]

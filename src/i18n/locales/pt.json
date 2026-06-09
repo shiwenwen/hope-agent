@@ -4363,7 +4363,57 @@
         "mocUpkeep": "Manutenção de MOC",
         "memoryToNote": "Memória → nota"
       }
-    }
+    },
+    "toolNoteCreateName": "Criar Nota",
+    "toolNoteCreateDesc": "Cria uma nova nota em markdown em um espaço de conhecimento.",
+    "toolNoteReadName": "Ler Nota",
+    "toolNoteReadDesc": "Lê uma nota com seus links, backlinks e tags.",
+    "toolNoteUpdateName": "Sobrescrever Nota",
+    "toolNoteUpdateDesc": "Substitui todo o conteúdo de uma nota (com proteção contra escrita conflitante).",
+    "toolNotePatchName": "Editar Trecho",
+    "toolNotePatchDesc": "Substitui um trecho de correspondência única dentro de uma nota.",
+    "toolNoteAppendName": "Anexar à Nota",
+    "toolNoteAppendDesc": "Anexa conteúdo a uma nota, opcionalmente sob um título.",
+    "toolNoteDeleteName": "Excluir Nota",
+    "toolNoteDeleteDesc": "Exclui uma nota; os links que apontam para ela ficam quebrados.",
+    "toolNoteSearchName": "Buscar Notas",
+    "toolNoteSearchDesc": "Busca híbrida de texto completo + vector nas notas acessíveis.",
+    "toolNoteLinkName": "Vincular Notas",
+    "toolNoteLinkDesc": "Insere um wikilink de uma nota para outra.",
+    "toolNoteBacklinksName": "Backlinks",
+    "toolNoteBacklinksDesc": "Lista as notas que apontam para uma nota, com localizações exatas.",
+    "toolNoteByTagName": "Notas por Tag",
+    "toolNoteByTagDesc": "Lista as notas que possuem uma tag específica.",
+    "toolNoteTagsName": "Listar Tags",
+    "toolNoteTagsDesc": "Enumera tags e contagens entre os espaços de conhecimento.",
+    "toolNoteRenameName": "Renomear Nota",
+    "toolNoteRenameDesc": "Renomeia ou move uma nota; os links de entrada são reescritos.",
+    "toolNoteMoveName": "Mover Nota",
+    "toolNoteMoveDesc": "Move uma nota para outra pasta; os links de entrada são reescritos.",
+    "toolNoteSetFrontmatterName": "Definir Metadados",
+    "toolNoteSetFrontmatterDesc": "Mescla propriedades de frontmatter YAML em uma nota.",
+    "toolNoteAssignBlockName": "Atribuir ID de Bloco",
+    "toolNoteAssignBlockDesc": "Atribui um ^block-id a um bloco para referências precisas.",
+    "toolNoteBrokenLinksName": "Links Quebrados",
+    "toolNoteBrokenLinksDesc": "Lista os links quebrados (pendentes) em um espaço de conhecimento.",
+    "toolNoteOrphansName": "Notas Órfãs",
+    "toolNoteOrphansDesc": "Lista as notas sem links de entrada ou de saída.",
+    "toolNoteGraphName": "Grafo de Notas",
+    "toolNoteGraphDesc": "Retorna o grafo de links das notas (nós e arestas).",
+    "toolNoteSimilarName": "Notas Similares",
+    "toolNoteSimilarDesc": "Encontra notas semanticamente similares a uma nota (vector).",
+    "toolNoteRelatedName": "Notas Relacionadas",
+    "toolNoteRelatedDesc": "Notas relacionadas combinando links, vectors e tags compartilhadas.",
+    "toolNoteSuggestLinksName": "Sugerir Links",
+    "toolNoteSuggestLinksDesc": "Sugere notas mencionadas no corpo, mas ainda não vinculadas.",
+    "toolNoteDistillName": "Destilar Notas",
+    "toolNoteDistillDesc": "Divide uma nota ou texto longo em notas permanentes atômicas.",
+    "toolNoteMocName": "Mapa de Conteúdo",
+    "toolNoteMocDesc": "Gera ou atualiza uma nota central MOC de um tópico.",
+    "toolSessionToNoteName": "Conversa para Nota",
+    "toolSessionToNoteDesc": "Destila a conversa em uma nota estruturada.",
+    "toolKnowledgeRecallName": "Recuperar Conhecimento",
+    "toolKnowledgeRecallDesc": "Busca memória e notas em conjunto (duas seções classificadas)."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -4637,7 +4687,32 @@
     "update_settings": "Atualizar configuração",
     "web_fetch": "Buscar web",
     "web_search": "Pesquisa web",
-    "write": "Gravar arquivo"
+    "write": "Gravar arquivo",
+    "note_create": "Criar Nota",
+    "note_read": "Ler Nota",
+    "note_update": "Sobrescrever Nota",
+    "note_patch": "Editar Trecho",
+    "note_append": "Anexar à Nota",
+    "note_delete": "Excluir Nota",
+    "note_search": "Buscar Notas",
+    "note_link": "Vincular Notas",
+    "note_backlinks": "Backlinks",
+    "note_by_tag": "Notas por Tag",
+    "note_tags": "Listar Tags",
+    "note_rename": "Renomear Nota",
+    "note_move": "Mover Nota",
+    "note_set_frontmatter": "Definir Metadados",
+    "note_assign_block": "Atribuir ID de Bloco",
+    "note_broken_links": "Links Quebrados",
+    "note_orphans": "Notas Órfãs",
+    "note_graph": "Grafo de Notas",
+    "note_similar": "Notas Similares",
+    "note_related": "Notas Relacionadas",
+    "note_suggest_links": "Sugerir Links",
+    "note_distill": "Destilar Notas",
+    "note_moc": "Mapa de Conteúdo",
+    "session_to_note": "Conversa para Nota",
+    "knowledge_recall": "Recuperar Conhecimento"
   },
   "tz": {
     "amsterdam": "Amsterdã (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "Editar",
       "delete": "Excluir",
       "read": "Ler"
-    }
+    },
+    "sectionKnowledge": "Conhecimento",
+    "emptyKnowledge": "Nenhum espaço de conhecimento anexado",
+    "kbViaProject": "Projeto",
+    "kbWrote": "Escreveu",
+    "kbRead": "Leu",
+    "kbSearchCount": "{{n}} buscas"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} notas",
       "read": "Leitura",
       "write": "Leitura e escrita",
-      "hint": "Espaços anexados permitem que o assistente pesquise e cite suas notas; você também pode referenciá-las em linha com [[note]]."
+      "hint": "Espaços anexados permitem que o assistente pesquise e cite suas notas; você também pode referenciá-las em linha com [[note]].",
+      "external": "Vault externo",
+      "accessOff": "Desligado",
+      "accessRead": "Leitura",
+      "accessWrite": "Leitura+Escrita",
+      "accessOffTip": "Não anexado — o assistente não pode acessar este espaço",
+      "accessReadTip": "O assistente pode buscar e ler notas",
+      "accessWriteTip": "O assistente pode ler e editar notas"
     },
     "mention": {
       "heading": "Notas de conhecimento",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "Deixe vazio para um espaço interno. Cofres externos são somente leitura na Fase 1.",
     "kbRootInvalid": "Não foi possível selecionar essa pasta",
     "allowExternalWrites": "Permitir edição deste cofre",
-    "allowExternalWritesHint": "Cofres externos são somente leitura por padrão. Ative para permitir que o editor e as ferramentas de IA gravem na pasta vinculada. A manutenção em segundo plano nunca grava em cofres externos."
+    "allowExternalWritesHint": "Cofres externos são somente leitura por padrão. Ative para permitir que o editor e as ferramentas de IA gravem na pasta vinculada. A manutenção em segundo plano nunca grava em cofres externos.",
+    "result": {
+      "memory": "Memória"
+    }
   }
 }

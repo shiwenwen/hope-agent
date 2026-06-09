@@ -31,7 +31,13 @@ vi.mock("react-i18next", () => ({
 }))
 
 vi.mock("@/lib/transport-provider", () => ({
-  getTransport: () => ({ supportsLocalFileOps: () => true }),
+  getTransport: () => ({
+    supportsLocalFileOps: () => true,
+    // KnowledgeSection (useSessionKnowledge) fetches attachments + subscribes to
+    // knowledge:changed — stub both so the panel mounts in tests.
+    call: () => Promise.resolve([]),
+    listen: () => () => {},
+  }),
 }))
 
 vi.mock("@/hooks/useDangerousModeStatus", () => ({

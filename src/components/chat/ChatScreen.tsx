@@ -70,6 +70,7 @@ import WorkspacePanel from "./workspace/WorkspacePanel"
 import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionState"
 import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
+import { messagesHaveKnowledgeActivity } from "./workspace/useSessionKnowledge"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
@@ -1842,7 +1843,8 @@ export default function ChatScreen({
   const hasWorkspaceContent =
     (taskProgressSnapshot?.total ?? 0) > 0 ||
     messagesHaveFileActivity(session.messages) ||
-    messagesHaveUrlActivity(session.messages)
+    messagesHaveUrlActivity(session.messages) ||
+    messagesHaveKnowledgeActivity(session.messages)
   // 依赖里带 currentSessionId：切到「已有内容」的旧会话时 hasWorkspaceContent 不发生
   // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
   // dismissedRef)，否则旧会话切回来面板不会自动展开。

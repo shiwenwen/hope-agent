@@ -160,6 +160,18 @@ pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
+/// True for built-in tools that are useless without an attached knowledge base:
+/// all `note_*` tools plus `session_to_note` (they all resolve a `kb` through
+/// `effective_kb_access` and hard-fail when no KB is reachable). Used to drop
+/// them from the eager tool schema when the session has zero accessible KBs —
+/// pure UX / token saving on top of the execution-layer access gate.
+///
+/// Deliberately EXCLUDES `knowledge_recall`: it is `Standard`/deferred and
+/// cross-store (still searches Memory without any KB), so it must stay available.
+pub fn is_kb_scoped_tool(name: &str) -> bool {
+    name.starts_with("note_") || name == TOOL_SESSION_TO_NOTE
+}
+
 /// Combined context-level visibility check shared by schema generation,
 /// tool_search, and execution-layer defense-in-depth. Agent-level on/off
 /// switches are handled by `dispatch::resolve_tool_fate`; this helper applies
@@ -216,7 +228,24 @@ pub fn expand_tilde(path: &str) -> String {
 mod tests {
     use crate::agent_config::FilterConfig;
 
-    use super::tool_visible_with_filters;
+    use super::{is_kb_scoped_tool, tool_visible_with_filters};
+
+    #[test]
+    fn kb_scoped_tool_predicate() {
+        // All note_* tools are KB-scoped (gated off on a no-KB session).
+        assert!(is_kb_scoped_tool(super::TOOL_NOTE_CREATE));
+        assert!(is_kb_scoped_tool(super::TOOL_NOTE_SEARCH));
+        assert!(is_kb_scoped_tool(super::TOOL_NOTE_MOC));
+        assert!(is_kb_scoped_tool("note_anything_new"));
+        // session_to_note also requires a KB to write into.
+        assert!(is_kb_scoped_tool(super::TOOL_SESSION_TO_NOTE));
+        // knowledge_recall is cross-store (Memory + notes) and must stay available
+        // without a KB — it must NOT be caught by the gate.
+        assert!(!is_kb_scoped_tool(super::TOOL_KNOWLEDGE_RECALL));
+        // Unrelated tools are never gated.
+        assert!(!is_kb_scoped_tool(super::TOOL_RECALL_MEMORY));
+        assert!(!is_kb_scoped_tool("read"));
+    }
 
     #[test]
     fn combined_visibility_applies_context_restrictions() {

@@ -171,6 +171,16 @@ pub fn init_runtime(role: &'static str) {
     // Store logger globally for access from non-State contexts
     let _ = APP_LOGGER.set(logger.clone());
 
+    // First-run seed: give a fresh install one usable knowledge space out of the
+    // box (idempotent via a sentinel — never recreated if the user deletes it).
+    // Placed after the logger so its app_info!/app_warn! land; registry + index
+    // (set above) are the only other prerequisites. Primary-only — the sentinel
+    // check isn't atomic across instances, so a Secondary booting a fresh shared
+    // data dir could otherwise race the Primary and seed a duplicate space.
+    if crate::runtime_lock::is_primary() {
+        crate::knowledge::service::ensure_default_knowledge_base();
+    }
+
     recover_startup_session_state(&session_db, tier);
 
     // Initialize the hooks subsystem. Lightweight + synchronous here (the

@@ -59,7 +59,7 @@ fn access_map(ctx: &ToolExecContext) -> HashMap<String, KbAccess> {
 /// if the session is not IM-bound. Used by [`access_map`]'s defense-in-depth
 /// reclassification (WS8) so an un-threaded tool context can't launder owner KB
 /// access on an IM session.
-fn im_kb_context_from_session(
+pub(crate) fn im_kb_context_from_session(
     session_id: Option<&str>,
 ) -> Option<crate::knowledge::ChannelKbContext> {
     let ci = crate::session::lookup_session_meta(session_id)?.channel_info?;
@@ -99,6 +99,15 @@ fn accessible_kbs(ctx: &ToolExecContext) -> Vec<String> {
     let mut v: Vec<String> = access_map(ctx).into_keys().collect();
     v.sort();
     v
+}
+
+/// Whether this tool context can reach ANY knowledge base (its agent-plane
+/// `effective_kb_access` set is non-empty). Used by `tool_search` to hide the
+/// KB-scoped tools on a no-KB session, mirroring the eager-schema gate in
+/// `Agent::build_tool_schemas` (so a tool hidden from the eager schema can't be
+/// resurrected via `tool_search`). Same access set the tools themselves enforce.
+pub(crate) fn session_has_kb_access(ctx: &ToolExecContext) -> bool {
+    !access_map(ctx).is_empty()
 }
 
 fn str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {

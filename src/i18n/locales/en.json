@@ -4371,7 +4371,57 @@
         "mocUpkeep": "MOC upkeep",
         "memoryToNote": "Memory → note"
       }
-    }
+    },
+    "toolNoteCreateName": "Create Note",
+    "toolNoteCreateDesc": "Create a new markdown note in a knowledge base.",
+    "toolNoteReadName": "Read Note",
+    "toolNoteReadDesc": "Read a note with its links, backlinks and tags.",
+    "toolNoteUpdateName": "Update Note",
+    "toolNoteUpdateDesc": "Replace a note's full content (stale-write guarded).",
+    "toolNotePatchName": "Patch Note",
+    "toolNotePatchDesc": "Replace a uniquely-matching snippet inside a note.",
+    "toolNoteAppendName": "Append to Note",
+    "toolNoteAppendDesc": "Append content to a note, optionally under a heading.",
+    "toolNoteDeleteName": "Delete Note",
+    "toolNoteDeleteDesc": "Delete a note; links pointing to it become broken.",
+    "toolNoteSearchName": "Search Notes",
+    "toolNoteSearchDesc": "Hybrid full-text + vector search across accessible notes.",
+    "toolNoteLinkName": "Link Notes",
+    "toolNoteLinkDesc": "Insert a wikilink from one note to another.",
+    "toolNoteBacklinksName": "Backlinks",
+    "toolNoteBacklinksDesc": "List notes that link to a note, with exact locations.",
+    "toolNoteByTagName": "Notes by Tag",
+    "toolNoteByTagDesc": "List notes carrying a given tag.",
+    "toolNoteTagsName": "List Tags",
+    "toolNoteTagsDesc": "Enumerate tags and counts across knowledge bases.",
+    "toolNoteRenameName": "Rename Note",
+    "toolNoteRenameDesc": "Rename or move a note; inbound links are rewritten.",
+    "toolNoteMoveName": "Move Note",
+    "toolNoteMoveDesc": "Move a note to another folder; inbound links are rewritten.",
+    "toolNoteSetFrontmatterName": "Set Frontmatter",
+    "toolNoteSetFrontmatterDesc": "Merge YAML frontmatter properties into a note.",
+    "toolNoteAssignBlockName": "Assign Block ID",
+    "toolNoteAssignBlockDesc": "Give a block a ^block-id for precise references.",
+    "toolNoteBrokenLinksName": "Broken Links",
+    "toolNoteBrokenLinksDesc": "List broken (dangling) links in a knowledge base.",
+    "toolNoteOrphansName": "Orphan Notes",
+    "toolNoteOrphansDesc": "List notes with no inbound or outbound links.",
+    "toolNoteGraphName": "Note Graph",
+    "toolNoteGraphDesc": "Return the note link graph (nodes and edges).",
+    "toolNoteSimilarName": "Similar Notes",
+    "toolNoteSimilarDesc": "Find notes semantically similar to a note (vector).",
+    "toolNoteRelatedName": "Related Notes",
+    "toolNoteRelatedDesc": "Related notes fusing links, vectors and shared tags.",
+    "toolNoteSuggestLinksName": "Suggest Links",
+    "toolNoteSuggestLinksDesc": "Suggest notes mentioned in the body but not yet linked.",
+    "toolNoteDistillName": "Distill Notes",
+    "toolNoteDistillDesc": "Split a long note or text into atomic permanent notes.",
+    "toolNoteMocName": "Map of Content",
+    "toolNoteMocDesc": "Generate or refresh a topic Map-of-Content hub note.",
+    "toolSessionToNoteName": "Session to Note",
+    "toolSessionToNoteDesc": "Distill the conversation into a structured note.",
+    "toolKnowledgeRecallName": "Knowledge Recall",
+    "toolKnowledgeRecallDesc": "Search memory and notes together (two ranked sections)."
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -4645,7 +4695,32 @@
     "update_settings": "Update Settings",
     "web_fetch": "Web Fetch",
     "web_search": "Web Search",
-    "write": "Write File"
+    "write": "Write File",
+    "note_create": "Create Note",
+    "note_read": "Read Note",
+    "note_update": "Update Note",
+    "note_patch": "Patch Note",
+    "note_append": "Append to Note",
+    "note_delete": "Delete Note",
+    "note_search": "Search Notes",
+    "note_link": "Link Notes",
+    "note_backlinks": "Backlinks",
+    "note_by_tag": "Notes by Tag",
+    "note_tags": "List Tags",
+    "note_rename": "Rename Note",
+    "note_move": "Move Note",
+    "note_set_frontmatter": "Set Frontmatter",
+    "note_assign_block": "Assign Block ID",
+    "note_broken_links": "Broken Links",
+    "note_orphans": "Orphan Notes",
+    "note_graph": "Note Graph",
+    "note_similar": "Similar Notes",
+    "note_related": "Related Notes",
+    "note_suggest_links": "Suggest Links",
+    "note_distill": "Distill Notes",
+    "note_moc": "Map of Content",
+    "session_to_note": "Session to Note",
+    "knowledge_recall": "Knowledge Recall"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -4854,7 +4929,13 @@
       "edit": "Edit",
       "delete": "Delete",
       "read": "Read"
-    }
+    },
+    "sectionKnowledge": "Knowledge",
+    "emptyKnowledge": "No knowledge space attached",
+    "kbViaProject": "Project",
+    "kbWrote": "Wrote",
+    "kbRead": "Read",
+    "kbSearchCount": "{{n}} searches"
   },
   "knowledge": {
     "picker": {
@@ -4867,7 +4948,14 @@
       "noteCount": "{{count}} notes",
       "read": "Read",
       "write": "Read+write",
-      "hint": "Attached spaces let the assistant search and cite their notes; you can also reference them inline with [[note]]."
+      "hint": "Attached spaces let the assistant search and cite their notes; you can also reference them inline with [[note]].",
+      "external": "External vault",
+      "accessOff": "Off",
+      "accessRead": "Read",
+      "accessWrite": "Read+Write",
+      "accessOffTip": "Not attached — the assistant can't access this space",
+      "accessReadTip": "The assistant can search and read notes",
+      "accessWriteTip": "The assistant can read and edit notes"
     },
     "mention": {
       "heading": "Knowledge notes",
@@ -5016,6 +5104,9 @@
     "kbRootHint": "Leave empty for an internal space. External vaults are read-only in Phase 1.",
     "kbRootInvalid": "Could not select that folder",
     "allowExternalWrites": "Allow editing this vault",
-    "allowExternalWritesHint": "External vaults are read-only by default. Enable to let the editor and AI tools write to the bound folder. Background maintenance never writes to external vaults."
+    "allowExternalWritesHint": "External vaults are read-only by default. Enable to let the editor and AI tools write to the bound folder. Background maintenance never writes to external vaults.",
+    "result": {
+      "memory": "Memory"
+    }
   }
 }

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Library, Loader2, Lock } from "lucide-react"
 
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import { KbAccessControl } from "@/components/knowledge/KbAccessControl"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { KbAccess, KbAttachment, KnowledgeBaseMeta } from "@/types/knowledge"
@@ -103,30 +103,13 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
                   </span>
                 </div>
 
-                {/* External vaults are capped to read (D11); internal attached
-                    spaces toggle read↔write. */}
-                {att && !kb.external && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void setAttach(kb, att.access === "read" ? "write" : "read")}
-                    className="shrink-0 whitespace-nowrap rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
-                  >
-                    {att.access === "write"
-                      ? t("knowledge.picker.write")
-                      : t("knowledge.picker.read")}
-                  </button>
-                )}
-                {att && kb.external && (
-                  <span className="shrink-0 rounded-md bg-secondary/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {t("knowledge.picker.read")}
-                  </span>
-                )}
-
-                <Switch
-                  checked={!!att}
-                  disabled={busy}
-                  onCheckedChange={(v) => void setAttach(kb, v ? "read" : null)}
+                {/* Always-visible 关闭/只读/读写 control. External vaults hide the
+                    write segment (read-capped, D11). */}
+                <KbAccessControl
+                  value={!att ? "off" : att.access}
+                  allowWrite={!kb.external}
+                  busy={busy}
+                  onChange={(next) => void setAttach(kb, next === "off" ? null : next)}
                 />
               </div>
             )

@@ -4363,7 +4363,57 @@
         "mocUpkeep": "Обслуживание MOC",
         "memoryToNote": "Память → заметка"
       }
-    }
+    },
+    "toolNoteCreateName": "Создать заметку",
+    "toolNoteCreateDesc": "Создать новую markdown-заметку в базе знаний.",
+    "toolNoteReadName": "Прочитать заметку",
+    "toolNoteReadDesc": "Прочитать заметку с её ссылками, обратными ссылками и тегами.",
+    "toolNoteUpdateName": "Обновить заметку",
+    "toolNoteUpdateDesc": "Полностью заменить содержимое заметки (с защитой от конфликтной записи).",
+    "toolNotePatchName": "Изменить фрагмент",
+    "toolNotePatchDesc": "Заменить единственный совпадающий фрагмент внутри заметки.",
+    "toolNoteAppendName": "Дополнить заметку",
+    "toolNoteAppendDesc": "Добавить содержимое в заметку, при желании под заголовком.",
+    "toolNoteDeleteName": "Удалить заметку",
+    "toolNoteDeleteDesc": "Удалить заметку; ссылки на неё станут битыми.",
+    "toolNoteSearchName": "Искать заметки",
+    "toolNoteSearchDesc": "Гибридный полнотекстовый + vector-поиск по доступным заметкам.",
+    "toolNoteLinkName": "Связать заметки",
+    "toolNoteLinkDesc": "Вставить wikilink из одной заметки в другую.",
+    "toolNoteBacklinksName": "Обратные ссылки",
+    "toolNoteBacklinksDesc": "Список заметок, ссылающихся на данную, с точными местами.",
+    "toolNoteByTagName": "Заметки по тегу",
+    "toolNoteByTagDesc": "Список заметок с заданным тегом.",
+    "toolNoteTagsName": "Список тегов",
+    "toolNoteTagsDesc": "Перечислить теги и их количество по базам знаний.",
+    "toolNoteRenameName": "Переименовать заметку",
+    "toolNoteRenameDesc": "Переименовать или переместить заметку; входящие ссылки обновляются.",
+    "toolNoteMoveName": "Переместить заметку",
+    "toolNoteMoveDesc": "Переместить заметку в другую папку; входящие ссылки обновляются.",
+    "toolNoteSetFrontmatterName": "Задать метаданные",
+    "toolNoteSetFrontmatterDesc": "Объединить свойства YAML frontmatter в заметку.",
+    "toolNoteAssignBlockName": "Присвоить ID блока",
+    "toolNoteAssignBlockDesc": "Присвоить блоку ^block-id для точных ссылок.",
+    "toolNoteBrokenLinksName": "Битые ссылки",
+    "toolNoteBrokenLinksDesc": "Список битых (висячих) ссылок в базе знаний.",
+    "toolNoteOrphansName": "Заметки-сироты",
+    "toolNoteOrphansDesc": "Список заметок без входящих и исходящих ссылок.",
+    "toolNoteGraphName": "Граф заметок",
+    "toolNoteGraphDesc": "Вернуть граф ссылок заметок (узлы и рёбра).",
+    "toolNoteSimilarName": "Похожие заметки",
+    "toolNoteSimilarDesc": "Найти семантически похожие заметки (vector).",
+    "toolNoteRelatedName": "Связанные заметки",
+    "toolNoteRelatedDesc": "Связанные заметки на основе ссылок, vector и общих тегов.",
+    "toolNoteSuggestLinksName": "Предложить ссылки",
+    "toolNoteSuggestLinksDesc": "Предложить заметки, упомянутые в тексте, но ещё не связанные.",
+    "toolNoteDistillName": "Извлечь суть",
+    "toolNoteDistillDesc": "Разбить длинную заметку или текст на атомарные постоянные заметки.",
+    "toolNoteMocName": "Карта содержания",
+    "toolNoteMocDesc": "Создать или обновить узловую заметку MOC по теме.",
+    "toolSessionToNoteName": "Диалог в заметку",
+    "toolSessionToNoteDesc": "Извлечь из разговора структурированную заметку.",
+    "toolKnowledgeRecallName": "Вызов знаний",
+    "toolKnowledgeRecallDesc": "Искать по памяти и заметкам сразу (два ранжированных раздела)."
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",
@@ -4637,7 +4687,32 @@
     "update_settings": "Обновить настройки",
     "web_fetch": "Получить веб-страницу",
     "web_search": "Веб-поиск",
-    "write": "Записать файл"
+    "write": "Записать файл",
+    "note_create": "Создать заметку",
+    "note_read": "Прочитать заметку",
+    "note_update": "Обновить заметку",
+    "note_patch": "Изменить фрагмент",
+    "note_append": "Дополнить заметку",
+    "note_delete": "Удалить заметку",
+    "note_search": "Искать заметки",
+    "note_link": "Связать заметки",
+    "note_backlinks": "Обратные ссылки",
+    "note_by_tag": "Заметки по тегу",
+    "note_tags": "Список тегов",
+    "note_rename": "Переименовать заметку",
+    "note_move": "Переместить заметку",
+    "note_set_frontmatter": "Задать метаданные",
+    "note_assign_block": "Присвоить ID блока",
+    "note_broken_links": "Битые ссылки",
+    "note_orphans": "Заметки-сироты",
+    "note_graph": "Граф заметок",
+    "note_similar": "Похожие заметки",
+    "note_related": "Связанные заметки",
+    "note_suggest_links": "Предложить ссылки",
+    "note_distill": "Извлечь суть",
+    "note_moc": "Карта содержания",
+    "session_to_note": "Диалог в заметку",
+    "knowledge_recall": "Вызов знаний"
   },
   "tz": {
     "amsterdam": "Амстердам (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "Изменить",
       "delete": "Удалить",
       "read": "Чтение"
-    }
+    },
+    "sectionKnowledge": "Знания",
+    "emptyKnowledge": "Пространство знаний не подключено",
+    "kbViaProject": "Проект",
+    "kbWrote": "Запись",
+    "kbRead": "Чтение",
+    "kbSearchCount": "Поисков: {{n}}"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} заметок",
       "read": "Чтение",
       "write": "Чтение и запись",
-      "hint": "Прикрепленные пространства позволяют ассистенту искать и цитировать заметки; также можно ссылаться на них прямо через [[note]]."
+      "hint": "Прикрепленные пространства позволяют ассистенту искать и цитировать заметки; также можно ссылаться на них прямо через [[note]].",
+      "external": "Внешнее хранилище",
+      "accessOff": "Выкл.",
+      "accessRead": "Чтение",
+      "accessWrite": "Чтение и запись",
+      "accessOffTip": "Не подключено — ассистент не имеет доступа к этому пространству",
+      "accessReadTip": "Ассистент может искать и читать заметки",
+      "accessWriteTip": "Ассистент может читать и редактировать заметки"
     },
     "mention": {
       "heading": "Заметки знаний",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "Оставьте пустым для внутреннего пространства. Внешние хранилища доступны только для чтения на этапе 1.",
     "kbRootInvalid": "Не удалось выбрать эту папку",
     "allowExternalWrites": "Разрешить редактирование этого хранилища",
-    "allowExternalWritesHint": "Внешние хранилища по умолчанию доступны только для чтения. Включите, чтобы редактор и ИИ-инструменты могли записывать в привязанную папку. Фоновое обслуживание никогда не пишет во внешние хранилища."
+    "allowExternalWritesHint": "Внешние хранилища по умолчанию доступны только для чтения. Включите, чтобы редактор и ИИ-инструменты могли записывать в привязанную папку. Фоновое обслуживание никогда не пишет во внешние хранилища.",
+    "result": {
+      "memory": "Память"
+    }
   }
 }

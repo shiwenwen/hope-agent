@@ -153,6 +153,25 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 
 **读取桥③ —— 被动相关笔记**（[`agent/related_notes.rs`](../../crates/ha-core/src/agent/related_notes.rs)，D7，opt-in 默认关）：`AppConfig.knowledge_passive_recall`。每个用户轮在 `tokio::join!` 里与 awareness / active_memory 并发跑 `refresh_related_notes_suffix`：incognito short-circuit → 读 clamp 后 config → `hash(user_text)` TtlCache（默认 120s）→ `spawn_blocking` 内从 agent 线接的 `chat_source / origin_chat_source / channel_kb_context` 重建 `KnowledgeAccessContext` → `effective_kb_access` 拿可访问 KB → `search::search_notes` 取 top-N → 渲染「## Related Notes」**只给标题**（`show_snippet` 可开一行摘要）套 `<untrusted_external_data>` 信封。**无 LLM 调用**（比 active_memory 廉价）。结果写 `agent.related_notes_suffix` slot，四 Provider adapter 注入：**Anthropic 走 plain system block（无 `cache_control`——4 个 breakpoint 已被 prefix / awareness / active_memory / last-tool 占满，加第 5 个会 400）**；OpenAI* / Codex 加独立 system message。红线：注入即 untrusted / incognito 零被动召回 / IM 未 opt-in 零访问（access 链同 `note_*`）/ 只给标题（正文走通道①②）。
 
+## 会话感知注入与来源（Phase 3 UX）
+
+**会话侧 KB 访问单一入口**：`Agent::resolve_kb_access()`（[`agent/mod.rs`](../../crates/ha-core/src/agent/mod.rs)）是 agent 侧「本会话能碰哪些 KB」的唯一同步入口——复刻 `chat_source / origin_chat_source / channel_kb_context` + WS8 fail-closed（未线接 source 但 IM-bound 会话重分类为 IM）+ project_id 查询 + `effective_kb_access`，返回 `HashMap<kb_id, KbAccess>`（与 `note.rs::access_map` 同集；incognito / IM-opt-in / archived / external-cap 全应用）。`refresh_related_notes_suffix`（桥③）、no-KB 工具门控、`# Knowledge Bases` 系统提示段三处共用它，**不得各自重写解析链**。结果**按回合 memoize**（`AssistantAgent.kb_access_cache`，在 `reset_chat_flags` 回合起点 + `set_session_id` 重绑时失效），故一回合内 ~5 次调用塌成单次 SQLite 解析。**只服务 schema/prompt/召回——绝不据此 gate 工具执行**（执行边界 `note.rs::access_map` 始终 live，回合中途撤权仍即时拦截真实读写）。
+
+**无 KB 不注入笔记工具**：`tools::is_kb_scoped_tool`（`note_*` + `session_to_note`，**不含 `knowledge_recall`**——跨 store，无 KB 仍可查 memory）在 `build_tool_schemas`（主组装点）+ `tool_search`（防经发现复活）后置过滤——`resolve_kb_access()` 为空则从 eager schema 剔除。**纯 UX / 省 token，非安全边界**：执行层仍由 `note.rs::access_map` → `effective_kb_access` 兜底，故门控必须与执行同一 `resolve` 路径（否则要么出幽灵工具恒报错、要么有权时被错隐）。`note_*` 是 `Core{Interaction}`，**tier 不变**（保留权限引擎 / plan-mode 语义）。
+
+**系统提示「# Knowledge Bases」段**：`build_full_system_prompt` 末尾按 `build_attached_knowledge_section()` 追加**静态段**（像 MCP snippet，仅 attach/detach 变动 → cache-safe），逐库列 `display_label`（emoji+名）+ 读/写（取自 `resolve_kb_access` 的 `KbAccess`，非裸 `allow_external_writes`）+ 外部标记，库名转义防注入（折叠换行 / 中和反引号）。`resolve_kb_access()` 为空（含 incognito / IM 未 opt-in）则整段省略——**绝不广告 `note_*` 会拒的库**。
+
+**检索结果来源（多库可辨）**：`NoteSearchHit` 增 `kb_name` / `kb_emoji`，`search::enrich_kb_names`（[`search.rs`](../../crates/ha-core/src/knowledge/search.rs)）经 registry（D9 真相源，index.db 只存 `kb_id`，缺失回退 `kb_id`）在 `search_notes` / `similar_notes` 收尾**按 distinct kb_id 一次性填充**（防 N+1）。三处暴露来源：桥① 信封加 `kb="名"`（owner 名转义，`source` 仍留机读 `kb_id/rel`）；桥③ 相关笔记**仅多库时**每行补 ` · 库名`（单库省——已在系统提示段命名）；前端 `KnowledgeResultCard`（[`message/KnowledgeResultCard.tsx`](../../src/components/chat/message/KnowledgeResultCard.tsx)）把 `note_search` / `note_similar` / `knowledge_recall` 结果**按知识空间分组**渲染（emoji+名表头 = 来源），recall 的 memory / notes 仍**两段独立不混排**（D7）。`note_related` / `note_by_tag` 是单库作用域、来源隐含，不改。
+
+**工作台「知识空间」段**：`WorkspacePanel` 新增段（[`workspace/useSessionKnowledge.ts`](../../src/components/chat/workspace/useSessionKnowledge.ts)）——① 本会话挂载库（owner 平面 `list_session_kbs_cmd`，`knowledge:changed` 刷新，**incognito 派生为空不调命令**）；② 笔记活动 live-tail（`note_*` 工具无 `tool_metadata`，故扫 messages 的 `tool.name` 聚合写/读笔记 + 检索计数，仅覆盖已载窗口，与 files/urls 的 live tail 同理）。
+
+## 首次运行默认空间
+
+`service::ensure_default_knowledge_base()`（[`service.rs`](../../crates/ha-core/src/knowledge/service.rs)，`app_init` 在 logger 就绪后调用，所有运行模式共用）让新装实例开箱即有一个可用空间:
+- **幂等**靠 `<root>/.default-kb-seeded` sentinel——**只种一次**,用户之后删掉不会被重建;已有 ≥1 个 KB 的老用户只补 sentinel、不加冗余空间。
+- 创建一个**内部 KB**（`root_dir=None`,名称 / 欢迎笔记按 `AppConfig.language` 本地化,`auto` 时回退嗅探 `LANG`/`LC_ALL`/`LANGUAGE`,`normalize_seed_locale` 纯函数 + 单测),并 best-effort 写一篇 `Welcome.md`（失败仅 warn,空间仍可用）。
+- **只创建、不自动挂载**——遵守 D10 默认 deny,用户在 composer / 项目设置里显式 attach 才对 agent 可见。全程 best-effort,任何失败 log 后返回,不阻断启动。
+
 ## 块级引用与大纲（深度网络）
 
 **块级引用（仅 Obsidian `^block-id`）**：`parser` 扫块产 `ParsedBlock`，**不落表**——transclusion 切片 `service::note_read_ref` → 私有 `service::slice_by_anchor` 重解析、块反链 `db::block_backlinks` 查 `note_link.anchor`。`![[Note#^id]]` 切块、`![[Note#Heading]]` 切标题段（前端 transclusion 传**全 ref**，anchor 未命中降级整篇）；`[[ ]]` 提及注入按 Obsidian 语义仍**整篇**（切片只对 `![[ ]]`）。写入走 `note_assign_block`（见工具面）。**Logseq `((uuid))` / `id::` 不做**——大纲优先模型与文档优先底座冲突（D8），`logseq/` 已在忽略列表。

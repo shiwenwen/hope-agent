@@ -105,6 +105,32 @@ export const TOOL_I18N_KEY: Record<string, string> = {
   // Memory (additional)
   memory_get: "MemoryGet",
   update_core_memory: "UpdateCoreMemory",
+  // Knowledge base (note_* / knowledge_recall / session_to_note)
+  note_create: "NoteCreate",
+  note_read: "NoteRead",
+  note_update: "NoteUpdate",
+  note_patch: "NotePatch",
+  note_append: "NoteAppend",
+  note_delete: "NoteDelete",
+  note_search: "NoteSearch",
+  note_link: "NoteLink",
+  note_backlinks: "NoteBacklinks",
+  note_by_tag: "NoteByTag",
+  note_tags: "NoteTags",
+  note_rename: "NoteRename",
+  note_move: "NoteMove",
+  note_set_frontmatter: "NoteSetFrontmatter",
+  note_assign_block: "NoteAssignBlock",
+  note_broken_links: "NoteBrokenLinks",
+  note_orphans: "NoteOrphans",
+  note_graph: "NoteGraph",
+  note_similar: "NoteSimilar",
+  note_related: "NoteRelated",
+  note_suggest_links: "NoteSuggestLinks",
+  note_distill: "NoteDistill",
+  note_moc: "NoteMoc",
+  session_to_note: "SessionToNote",
+  knowledge_recall: "KnowledgeRecall",
 }
 
 type ToolDisplayFallback = {

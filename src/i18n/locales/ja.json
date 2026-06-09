@@ -4363,7 +4363,57 @@
         "mocUpkeep": "MOC 整備",
         "memoryToNote": "メモリ→ノート"
       }
-    }
+    },
+    "toolNoteCreateName": "ノート作成",
+    "toolNoteCreateDesc": "知識スペースに新しい markdown ノートを作成します。",
+    "toolNoteReadName": "ノート読込",
+    "toolNoteReadDesc": "ノート本文とリンク・バックリンク・タグを読み込みます。",
+    "toolNoteUpdateName": "ノート上書き",
+    "toolNoteUpdateDesc": "ノート全文を置き換えます（競合書き込み保護付き）。",
+    "toolNotePatchName": "ノート部分修正",
+    "toolNotePatchDesc": "ノート内で一意に一致する箇所を置き換えます。",
+    "toolNoteAppendName": "ノートに追記",
+    "toolNoteAppendDesc": "ノートに内容を追記します。見出しの指定も可能です。",
+    "toolNoteDeleteName": "ノート削除",
+    "toolNoteDeleteDesc": "ノートを削除します。そこを指すリンクは無効になります。",
+    "toolNoteSearchName": "ノート検索",
+    "toolNoteSearchDesc": "アクセス可能なノートを全文 + vector のハイブリッド検索します。",
+    "toolNoteLinkName": "ノート連携",
+    "toolNoteLinkDesc": "あるノートから別のノートへ wikilink を挿入します。",
+    "toolNoteBacklinksName": "バックリンク",
+    "toolNoteBacklinksDesc": "あるノートを指すノートを正確な位置とともに一覧表示します。",
+    "toolNoteByTagName": "タグで検索",
+    "toolNoteByTagDesc": "指定したタグが付いたノートを一覧表示します。",
+    "toolNoteTagsName": "タグ一覧",
+    "toolNoteTagsDesc": "知識スペース全体のタグと件数を集計します。",
+    "toolNoteRenameName": "ノート名変更",
+    "toolNoteRenameDesc": "ノートの名前変更や移動を行い、そこを指すリンクを自動修正します。",
+    "toolNoteMoveName": "ノート移動",
+    "toolNoteMoveDesc": "ノートを別フォルダへ移動し、そこを指すリンクを自動修正します。",
+    "toolNoteSetFrontmatterName": "メタデータ設定",
+    "toolNoteSetFrontmatterDesc": "YAML frontmatter のプロパティをノートにマージします。",
+    "toolNoteAssignBlockName": "ブロック ID 付与",
+    "toolNoteAssignBlockDesc": "精密な参照のためブロックに ^block-id を付与します。",
+    "toolNoteBrokenLinksName": "無効リンク",
+    "toolNoteBrokenLinksDesc": "知識スペース内の無効（リンク切れ）なリンクを一覧表示します。",
+    "toolNoteOrphansName": "孤立ノート",
+    "toolNoteOrphansDesc": "入出力リンクが一切ない孤立ノートを一覧表示します。",
+    "toolNoteGraphName": "ノートグラフ",
+    "toolNoteGraphDesc": "ノートのリンクグラフ（ノードとエッジ）を返します。",
+    "toolNoteSimilarName": "類似ノート",
+    "toolNoteSimilarDesc": "vector であるノートに意味的に類似するノートを探します。",
+    "toolNoteRelatedName": "関連ノート",
+    "toolNoteRelatedDesc": "リンク・vector・共有タグを融合した関連ノートを返します。",
+    "toolNoteSuggestLinksName": "リンク提案",
+    "toolNoteSuggestLinksDesc": "本文で言及されながら未リンクのノートを提案します。",
+    "toolNoteDistillName": "ノート抽出",
+    "toolNoteDistillDesc": "長文やテキストを複数の原子的な永続ノートに分割します。",
+    "toolNoteMocName": "コンテンツマップ",
+    "toolNoteMocDesc": "トピックの MOC ハブノートを生成または更新します。",
+    "toolSessionToNoteName": "会話をノート化",
+    "toolSessionToNoteDesc": "現在の会話を構造化されたノートに抽出します。",
+    "toolKnowledgeRecallName": "ナレッジ呼出",
+    "toolKnowledgeRecallDesc": "メモリとノートを同時に検索します（2 段のランク付け結果）。"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -4637,7 +4687,32 @@
     "update_settings": "設定を更新",
     "web_fetch": "ウェブ取得",
     "web_search": "ウェブ検索",
-    "write": "ファイル書き込み"
+    "write": "ファイル書き込み",
+    "note_create": "ノート作成",
+    "note_read": "ノート読込",
+    "note_update": "ノート上書き",
+    "note_patch": "ノート部分修正",
+    "note_append": "ノートに追記",
+    "note_delete": "ノート削除",
+    "note_search": "ノート検索",
+    "note_link": "ノート連携",
+    "note_backlinks": "バックリンク",
+    "note_by_tag": "タグで検索",
+    "note_tags": "タグ一覧",
+    "note_rename": "ノート名変更",
+    "note_move": "ノート移動",
+    "note_set_frontmatter": "メタデータ設定",
+    "note_assign_block": "ブロック ID 付与",
+    "note_broken_links": "無効リンク",
+    "note_orphans": "孤立ノート",
+    "note_graph": "ノートグラフ",
+    "note_similar": "類似ノート",
+    "note_related": "関連ノート",
+    "note_suggest_links": "リンク提案",
+    "note_distill": "ノート抽出",
+    "note_moc": "コンテンツマップ",
+    "session_to_note": "会話をノート化",
+    "knowledge_recall": "ナレッジ呼出"
   },
   "tz": {
     "amsterdam": "アムステルダム (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "編集",
       "delete": "削除",
       "read": "読み取り"
-    }
+    },
+    "sectionKnowledge": "知識スペース",
+    "emptyKnowledge": "知識スペースが接続されていません",
+    "kbViaProject": "プロジェクト",
+    "kbWrote": "書込",
+    "kbRead": "読取",
+    "kbSearchCount": "検索 {{n}} 回"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} 件のノート",
       "read": "読み取り",
       "write": "読み書き",
-      "hint": "添付したスペースを使うと、アシスタントがノートを検索して引用できます。[[note]] でインライン参照することもできます。"
+      "hint": "添付したスペースを使うと、アシスタントがノートを検索して引用できます。[[note]] でインライン参照することもできます。",
+      "external": "外部ボールト",
+      "accessOff": "オフ",
+      "accessRead": "読取",
+      "accessWrite": "読取+書込",
+      "accessOffTip": "未接続 — アシスタントはこのスペースにアクセスできません",
+      "accessReadTip": "アシスタントはノートの検索と閲覧ができます",
+      "accessWriteTip": "アシスタントはノートの読み取りと編集ができます"
     },
     "mention": {
       "heading": "ナレッジノート",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "空欄なら内部空間を作成します。外部Vaultは第1段階では読み取り専用です。",
     "kbRootInvalid": "そのフォルダーを選択できませんでした",
     "allowExternalWrites": "この外部保管庫の編集を許可",
-    "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。"
+    "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。",
+    "result": {
+      "memory": "メモリ"
+    }
   }
 }

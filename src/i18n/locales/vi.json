@@ -4363,7 +4363,57 @@
         "mocUpkeep": "Bảo trì MOC",
         "memoryToNote": "Bộ nhớ → ghi chú"
       }
-    }
+    },
+    "toolNoteCreateName": "Tạo ghi chú",
+    "toolNoteCreateDesc": "Tạo một ghi chú markdown mới trong không gian tri thức.",
+    "toolNoteReadName": "Đọc ghi chú",
+    "toolNoteReadDesc": "Đọc ghi chú cùng liên kết, liên kết ngược và thẻ.",
+    "toolNoteUpdateName": "Ghi đè ghi chú",
+    "toolNoteUpdateDesc": "Thay thế toàn bộ nội dung ghi chú (có bảo vệ chống ghi xung đột).",
+    "toolNotePatchName": "Sửa cục bộ ghi chú",
+    "toolNotePatchDesc": "Thay thế đoạn khớp duy nhất bên trong ghi chú.",
+    "toolNoteAppendName": "Nối vào ghi chú",
+    "toolNoteAppendDesc": "Nối nội dung vào ghi chú, tùy chọn dưới một tiêu đề.",
+    "toolNoteDeleteName": "Xóa ghi chú",
+    "toolNoteDeleteDesc": "Xóa ghi chú; các liên kết trỏ tới nó sẽ bị hỏng.",
+    "toolNoteSearchName": "Tìm ghi chú",
+    "toolNoteSearchDesc": "Tìm kiếm kết hợp toàn văn + vector trên các ghi chú truy cập được.",
+    "toolNoteLinkName": "Liên kết ghi chú",
+    "toolNoteLinkDesc": "Chèn một wikilink từ ghi chú này sang ghi chú khác.",
+    "toolNoteBacklinksName": "Liên kết ngược",
+    "toolNoteBacklinksDesc": "Liệt kê các ghi chú trỏ tới một ghi chú, kèm vị trí chính xác.",
+    "toolNoteByTagName": "Ghi chú theo thẻ",
+    "toolNoteByTagDesc": "Liệt kê các ghi chú mang một thẻ nhất định.",
+    "toolNoteTagsName": "Danh sách thẻ",
+    "toolNoteTagsDesc": "Liệt kê các thẻ và số lượng trên các không gian tri thức.",
+    "toolNoteRenameName": "Đổi tên ghi chú",
+    "toolNoteRenameDesc": "Đổi tên hoặc di chuyển ghi chú; liên kết trỏ tới được viết lại.",
+    "toolNoteMoveName": "Di chuyển ghi chú",
+    "toolNoteMoveDesc": "Chuyển ghi chú sang thư mục khác; liên kết trỏ tới được viết lại.",
+    "toolNoteSetFrontmatterName": "Đặt frontmatter",
+    "toolNoteSetFrontmatterDesc": "Hợp nhất các thuộc tính YAML frontmatter vào ghi chú.",
+    "toolNoteAssignBlockName": "Gán block-id",
+    "toolNoteAssignBlockDesc": "Gán ^block-id cho một khối để tham chiếu chính xác.",
+    "toolNoteBrokenLinksName": "Liên kết hỏng",
+    "toolNoteBrokenLinksDesc": "Liệt kê các liên kết hỏng (treo) trong không gian tri thức.",
+    "toolNoteOrphansName": "Ghi chú cô lập",
+    "toolNoteOrphansDesc": "Liệt kê các ghi chú không có liên kết vào hay ra.",
+    "toolNoteGraphName": "Đồ thị ghi chú",
+    "toolNoteGraphDesc": "Trả về đồ thị liên kết ghi chú (nút và cạnh).",
+    "toolNoteSimilarName": "Ghi chú tương tự",
+    "toolNoteSimilarDesc": "Tìm các ghi chú tương đồng ngữ nghĩa với một ghi chú (vector).",
+    "toolNoteRelatedName": "Ghi chú liên quan",
+    "toolNoteRelatedDesc": "Ghi chú liên quan kết hợp liên kết, vector và thẻ chung.",
+    "toolNoteSuggestLinksName": "Gợi ý liên kết",
+    "toolNoteSuggestLinksDesc": "Gợi ý các ghi chú được nhắc trong nội dung nhưng chưa liên kết.",
+    "toolNoteDistillName": "Chắt lọc ghi chú",
+    "toolNoteDistillDesc": "Tách ghi chú hoặc văn bản dài thành các ghi chú nguyên tử lâu dài.",
+    "toolNoteMocName": "Bản đồ nội dung",
+    "toolNoteMocDesc": "Tạo hoặc làm mới một ghi chú trung tâm MOC cho chủ đề.",
+    "toolSessionToNoteName": "Lưu hội thoại thành ghi chú",
+    "toolSessionToNoteDesc": "Chắt lọc cuộc hội thoại thành một ghi chú có cấu trúc.",
+    "toolKnowledgeRecallName": "Truy hồi tri thức",
+    "toolKnowledgeRecallDesc": "Tìm kiếm đồng thời bộ nhớ và ghi chú (hai phần xếp hạng riêng)."
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -4637,7 +4687,32 @@
     "update_settings": "Cập nhật cài đặt",
     "web_fetch": "Lấy web",
     "web_search": "Tìm kiếm web",
-    "write": "Ghi tệp"
+    "write": "Ghi tệp",
+    "note_create": "Tạo ghi chú",
+    "note_read": "Đọc ghi chú",
+    "note_update": "Ghi đè ghi chú",
+    "note_patch": "Sửa cục bộ ghi chú",
+    "note_append": "Nối vào ghi chú",
+    "note_delete": "Xóa ghi chú",
+    "note_search": "Tìm ghi chú",
+    "note_link": "Liên kết ghi chú",
+    "note_backlinks": "Liên kết ngược",
+    "note_by_tag": "Ghi chú theo thẻ",
+    "note_tags": "Danh sách thẻ",
+    "note_rename": "Đổi tên ghi chú",
+    "note_move": "Di chuyển ghi chú",
+    "note_set_frontmatter": "Đặt frontmatter",
+    "note_assign_block": "Gán block-id",
+    "note_broken_links": "Liên kết hỏng",
+    "note_orphans": "Ghi chú cô lập",
+    "note_graph": "Đồ thị ghi chú",
+    "note_similar": "Ghi chú tương tự",
+    "note_related": "Ghi chú liên quan",
+    "note_suggest_links": "Gợi ý liên kết",
+    "note_distill": "Chắt lọc ghi chú",
+    "note_moc": "Bản đồ nội dung",
+    "session_to_note": "Lưu hội thoại thành ghi chú",
+    "knowledge_recall": "Truy hồi tri thức"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "Sửa",
       "delete": "Xóa",
       "read": "Đọc"
-    }
+    },
+    "sectionKnowledge": "Tri thức",
+    "emptyKnowledge": "Chưa gắn không gian tri thức",
+    "kbViaProject": "Dự án",
+    "kbWrote": "Đã ghi",
+    "kbRead": "Đã đọc",
+    "kbSearchCount": "{{n}} lượt tìm"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} ghi chú",
       "read": "Đọc",
       "write": "Đọc+ghi",
-      "hint": "Không gian đã đính kèm cho phép trợ lý tìm kiếm và trích dẫn ghi chú; bạn cũng có thể tham chiếu trực tiếp bằng [[note]]."
+      "hint": "Không gian đã đính kèm cho phép trợ lý tìm kiếm và trích dẫn ghi chú; bạn cũng có thể tham chiếu trực tiếp bằng [[note]].",
+      "external": "Kho ngoài",
+      "accessOff": "Tắt",
+      "accessRead": "Chỉ đọc",
+      "accessWrite": "Đọc+Ghi",
+      "accessOffTip": "Chưa gắn — trợ lý không thể truy cập không gian này",
+      "accessReadTip": "Trợ lý có thể tìm kiếm và đọc ghi chú",
+      "accessWriteTip": "Trợ lý có thể đọc và chỉnh sửa ghi chú"
     },
     "mention": {
       "heading": "Ghi chú tri thức",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "Để trống để tạo không gian nội bộ. Kho ngoài chỉ đọc ở Giai đoạn 1.",
     "kbRootInvalid": "Không thể chọn thư mục đó",
     "allowExternalWrites": "Cho phép chỉnh sửa kho này",
-    "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài."
+    "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài.",
+    "result": {
+      "memory": "Bộ nhớ"
+    }
   }
 }

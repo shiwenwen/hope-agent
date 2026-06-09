@@ -4363,7 +4363,57 @@
         "mocUpkeep": "MOC bakımı",
         "memoryToNote": "Bellek → not"
       }
-    }
+    },
+    "toolNoteCreateName": "Not Oluştur",
+    "toolNoteCreateDesc": "Bir bilgi alanında yeni bir markdown notu oluşturur.",
+    "toolNoteReadName": "Notu Oku",
+    "toolNoteReadDesc": "Bir notu bağlantıları, geri bağlantıları ve etiketleriyle okur.",
+    "toolNoteUpdateName": "Notu Güncelle",
+    "toolNoteUpdateDesc": "Bir notun tüm içeriğini değiştirir (eski yazma korumalı).",
+    "toolNotePatchName": "Notu Yamala",
+    "toolNotePatchDesc": "Bir notun içinde benzersiz eşleşen bir parçayı değiştirir.",
+    "toolNoteAppendName": "Nota Ekle",
+    "toolNoteAppendDesc": "Bir nota, isteğe bağlı olarak bir başlık altına içerik ekler.",
+    "toolNoteDeleteName": "Notu Sil",
+    "toolNoteDeleteDesc": "Bir notu siler; ona işaret eden bağlantılar kırılır.",
+    "toolNoteSearchName": "Notlarda Ara",
+    "toolNoteSearchDesc": "Erişilebilir notlarda hibrit tam metin + vector araması.",
+    "toolNoteLinkName": "Notları Bağla",
+    "toolNoteLinkDesc": "Bir nottan diğerine wikilink ekler.",
+    "toolNoteBacklinksName": "Geri Bağlantılar",
+    "toolNoteBacklinksDesc": "Bir nota bağlanan notları, tam konumlarıyla listeler.",
+    "toolNoteByTagName": "Etikete Göre Notlar",
+    "toolNoteByTagDesc": "Belirli bir etiketi taşıyan notları listeler.",
+    "toolNoteTagsName": "Etiketleri Listele",
+    "toolNoteTagsDesc": "Bilgi alanlarındaki etiketleri ve sayılarını listeler.",
+    "toolNoteRenameName": "Notu Yeniden Adlandır",
+    "toolNoteRenameDesc": "Notu yeniden adlandırır veya taşır; gelen bağlantılar yeniden yazılır.",
+    "toolNoteMoveName": "Notu Taşı",
+    "toolNoteMoveDesc": "Notu başka bir klasöre taşır; gelen bağlantılar yeniden yazılır.",
+    "toolNoteSetFrontmatterName": "Meta Veri Ayarla",
+    "toolNoteSetFrontmatterDesc": "YAML frontmatter özelliklerini bir nota birleştirir.",
+    "toolNoteAssignBlockName": "Blok Kimliği Ata",
+    "toolNoteAssignBlockDesc": "Hassas referanslar için bir bloğa ^block-id verir.",
+    "toolNoteBrokenLinksName": "Kırık Bağlantılar",
+    "toolNoteBrokenLinksDesc": "Bir bilgi alanındaki kırık (boşta) bağlantıları listeler.",
+    "toolNoteOrphansName": "Yetim Notlar",
+    "toolNoteOrphansDesc": "Gelen veya giden bağlantısı olmayan notları listeler.",
+    "toolNoteGraphName": "Not Grafiği",
+    "toolNoteGraphDesc": "Not bağlantı grafiğini döndürür (düğümler ve kenarlar).",
+    "toolNoteSimilarName": "Benzer Notlar",
+    "toolNoteSimilarDesc": "Bir nota anlamca benzer notları bulur (vector).",
+    "toolNoteRelatedName": "İlgili Notlar",
+    "toolNoteRelatedDesc": "Bağlantıları, vector'leri ve ortak etiketleri birleştiren ilgili notlar.",
+    "toolNoteSuggestLinksName": "Bağlantı Öner",
+    "toolNoteSuggestLinksDesc": "Metinde geçen ama henüz bağlanmamış notları önerir.",
+    "toolNoteDistillName": "Notları Damıt",
+    "toolNoteDistillDesc": "Uzun bir notu veya metni atomik kalıcı notlara böler.",
+    "toolNoteMocName": "İçerik Haritası",
+    "toolNoteMocDesc": "Bir konu için MOC merkez notu oluşturur veya yeniler.",
+    "toolSessionToNoteName": "Oturumu Nota Çevir",
+    "toolSessionToNoteDesc": "Konuşmayı yapılandırılmış bir nota damıtır.",
+    "toolKnowledgeRecallName": "Bilgi Çağırma",
+    "toolKnowledgeRecallDesc": "Belleği ve notları birlikte arar (iki sıralı bölüm)."
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -4637,7 +4687,32 @@
     "update_settings": "Ayarları güncelle",
     "web_fetch": "Web getir",
     "web_search": "Web arama",
-    "write": "Dosya yaz"
+    "write": "Dosya yaz",
+    "note_create": "Not Oluştur",
+    "note_read": "Notu Oku",
+    "note_update": "Notu Güncelle",
+    "note_patch": "Notu Yamala",
+    "note_append": "Nota Ekle",
+    "note_delete": "Notu Sil",
+    "note_search": "Notlarda Ara",
+    "note_link": "Notları Bağla",
+    "note_backlinks": "Geri Bağlantılar",
+    "note_by_tag": "Etikete Göre Notlar",
+    "note_tags": "Etiketleri Listele",
+    "note_rename": "Notu Yeniden Adlandır",
+    "note_move": "Notu Taşı",
+    "note_set_frontmatter": "Meta Veri Ayarla",
+    "note_assign_block": "Blok Kimliği Ata",
+    "note_broken_links": "Kırık Bağlantılar",
+    "note_orphans": "Yetim Notlar",
+    "note_graph": "Not Grafiği",
+    "note_similar": "Benzer Notlar",
+    "note_related": "İlgili Notlar",
+    "note_suggest_links": "Bağlantı Öner",
+    "note_distill": "Notları Damıt",
+    "note_moc": "İçerik Haritası",
+    "session_to_note": "Oturumu Nota Çevir",
+    "knowledge_recall": "Bilgi Çağırma"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "Düzenle",
       "delete": "Sil",
       "read": "Oku"
-    }
+    },
+    "sectionKnowledge": "Bilgi",
+    "emptyKnowledge": "Bağlı bilgi alanı yok",
+    "kbViaProject": "Proje",
+    "kbWrote": "Yazıldı",
+    "kbRead": "Okundu",
+    "kbSearchCount": "{{n}} arama"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} not",
       "read": "Okuma",
       "write": "Okuma+yazma",
-      "hint": "Eklenen alanlar asistanın notları aramasını ve alıntılamasını sağlar; [[note]] ile satır içinde de başvurabilirsiniz."
+      "hint": "Eklenen alanlar asistanın notları aramasını ve alıntılamasını sağlar; [[note]] ile satır içinde de başvurabilirsiniz.",
+      "external": "Harici kasa",
+      "accessOff": "Kapalı",
+      "accessRead": "Okuma",
+      "accessWrite": "Okuma+Yazma",
+      "accessOffTip": "Bağlı değil — asistan bu alana erişemez",
+      "accessReadTip": "Asistan notları arayabilir ve okuyabilir",
+      "accessWriteTip": "Asistan notları okuyabilir ve düzenleyebilir"
     },
     "mention": {
       "heading": "Bilgi notları",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "Dahili alan için boş bırakın. Harici kasalar 1. Aşamada salt okunurdur.",
     "kbRootInvalid": "Bu klasör seçilemedi",
     "allowExternalWrites": "Bu kasada düzenlemeye izin ver",
-    "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz."
+    "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz.",
+    "result": {
+      "memory": "Bellek"
+    }
   }
 }

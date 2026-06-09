@@ -11,8 +11,8 @@ use anyhow::{anyhow, bail, Result};
 
 use super::index;
 use super::types::{
-    Backlink, KbAccess, KbAttachInput, KnowledgeBaseMeta, Note, NoteReadResult, NoteSearchHit,
-    ReferenceableNote, RenameOutcome,
+    Backlink, CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KnowledgeBaseMeta, Note,
+    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome,
 };
 use crate::filesystem::{self, WorkspaceScope};
 
@@ -668,6 +668,179 @@ pub async fn ai_rewrite(text: &str, instruction: &str) -> Result<String> {
         bail!("the model returned empty content");
     }
     Ok(out)
+}
+
+// ── First-run default knowledge space ───────────────────────────────────────
+
+/// Seed one usable knowledge space on first run so a fresh install isn't empty.
+///
+/// Idempotent via a `<root>/.default-kb-seeded` sentinel: created **exactly once
+/// ever**, so a user who later deletes it never gets it auto-recreated. Existing
+/// installs that already have ≥1 KB just get the sentinel (no redundant space).
+/// Best-effort — every failure logs and returns without panicking (boot must not
+/// depend on it); a hard error before the sentinel is written simply retries next
+/// launch. Called from `app_init` after the registry + index are ready.
+pub fn ensure_default_knowledge_base() {
+    let Ok(sentinel) = crate::paths::root_dir().map(|d| d.join(".default-kb-seeded")) else {
+        return;
+    };
+    if sentinel.exists() {
+        return;
+    }
+    let Ok(reg) = registry() else {
+        return; // registry not ready — retry next boot (no sentinel written)
+    };
+    match reg.list_all_ids() {
+        // Existing user already has spaces — mark seeded, don't add a redundant one.
+        Ok(ids) if !ids.is_empty() => {
+            let _ = std::fs::write(&sentinel, b"");
+            return;
+        }
+        Ok(_) => {}
+        Err(e) => {
+            crate::app_warn!("knowledge", "seed", "count KBs failed: {}", e);
+            return;
+        }
+    }
+
+    let (name, emoji) = default_kb_label();
+    let kb = match reg.create(CreateKnowledgeBaseInput {
+        name,
+        emoji: Some(emoji),
+        root_dir: None, // internal — lazily materializes ~/.hope-agent/knowledge/{id}/notes/
+    }) {
+        Ok(kb) => kb,
+        Err(e) => {
+            crate::app_warn!("knowledge", "seed", "create default KB failed: {}", e);
+            return;
+        }
+    };
+
+    // Best-effort welcome note so the space isn't empty on first open + teaches
+    // the basics. A failure here still leaves a usable (empty) space.
+    let (rel, content) = welcome_note();
+    if let Err(e) = note_save(&kb.id, &rel, &content, None, true) {
+        crate::app_warn!("knowledge", "seed", "welcome note failed: {}", e);
+    }
+
+    let _ = std::fs::write(&sentinel, b"");
+    crate::app_info!(
+        "knowledge",
+        "seed",
+        "created default knowledge space {}",
+        kb.id
+    );
+}
+
+/// Resolve the UI locale for the first-run seed: `AppConfig.language` when set to
+/// a concrete code, else sniff the OS env (`LANG` / `LC_ALL` / `LANGUAGE`) for the
+/// `"auto"` default. Normalized to a base code (`zh` / `en` / …) with `zh-TW` kept
+/// distinct for Traditional Chinese.
+fn seed_locale() -> String {
+    let cfg = crate::config::cached_config().language.clone();
+    let raw = if cfg.is_empty() || cfg.eq_ignore_ascii_case("auto") {
+        // Skip set-but-empty vars (e.g. LANG="") so they don't short-circuit the
+        // chain and starve LC_ALL/LANGUAGE.
+        ["LANG", "LC_ALL", "LANGUAGE"]
+            .iter()
+            .find_map(|k| std::env::var(k).ok().filter(|s| !s.is_empty()))
+            .unwrap_or_default()
+    } else {
+        cfg
+    };
+    normalize_seed_locale(&raw)
+}
+
+/// Normalize a config/env locale string to a base code (`zh` / `en` / …), keeping
+/// `zh-TW` distinct for Traditional Chinese. Empty/unknown → `en`. Pure.
+fn normalize_seed_locale(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    if lower.starts_with("zh")
+        && (lower.contains("tw") || lower.contains("hk") || lower.contains("hant"))
+    {
+        return "zh-TW".to_string();
+    }
+    let base = lower.split(['-', '_', '.', ':']).next().unwrap_or("");
+    if base.is_empty() {
+        "en".to_string()
+    } else {
+        base.to_string()
+    }
+}
+
+/// Localized name + emoji for the default knowledge space (editable by the user).
+fn default_kb_label() -> (String, String) {
+    let name = match seed_locale().as_str() {
+        "zh" => "我的笔记",
+        "zh-TW" => "我的筆記",
+        "ja" => "マイノート",
+        "ko" => "내 노트",
+        "es" => "Mis notas",
+        "pt" => "Minhas notas",
+        "ru" => "Мои заметки",
+        "ar" => "ملاحظاتي",
+        "tr" => "Notlarım",
+        "vi" => "Ghi chú của tôi",
+        "ms" => "Nota Saya",
+        _ => "My Notes",
+    };
+    (name.to_string(), "📒".to_string())
+}
+
+/// Welcome note content for the seeded space (Chinese for zh / zh-TW, English
+/// otherwise). File name stays ASCII-stable; the title inside is localized.
+fn welcome_note() -> (String, String) {
+    let loc = seed_locale();
+    let content = if loc.starts_with("zh") {
+        "# 欢迎使用知识空间\n\n\
+         这是你的第一个知识空间。在这里用 Markdown 记笔记,并用 `[[双链]]` 把它们连接成网络。\n\n\
+         ## 试试看\n\n\
+         - 新建一篇笔记,记录一个想法\n\
+         - 用 `[[笔记名]]` 引用另一篇笔记,自动建立链接\n\
+         - 在对话输入框点知识空间图标,把这个空间挂载给助手——它就能搜索、阅读并帮你整理笔记\n\n\
+         随时可以重命名或删除这个知识空间。\n"
+    } else {
+        "# Welcome to your knowledge space\n\n\
+         This is your first knowledge space. Capture notes in Markdown and connect them \
+         into a network with `[[wikilinks]]`.\n\n\
+         ## Try it\n\n\
+         - Create a note to jot down an idea\n\
+         - Reference another note with `[[Note name]]` to auto-create a link\n\
+         - Attach this space to a chat (the knowledge icon by the composer) so the \
+         assistant can search, read, and organize your notes\n\n\
+         You can rename or delete this space anytime.\n"
+    };
+    ("Welcome.md".to_string(), content.to_string())
+}
+
+#[cfg(test)]
+mod seed_locale_tests {
+    use super::normalize_seed_locale;
+
+    #[test]
+    fn normalizes_base_codes() {
+        assert_eq!(normalize_seed_locale("en"), "en");
+        assert_eq!(normalize_seed_locale("zh"), "zh");
+        assert_eq!(normalize_seed_locale("zh_CN.UTF-8"), "zh");
+        assert_eq!(normalize_seed_locale("en_US.UTF-8"), "en");
+        assert_eq!(normalize_seed_locale("ja_JP"), "ja");
+        assert_eq!(normalize_seed_locale("pt-BR"), "pt");
+    }
+
+    #[test]
+    fn detects_traditional_chinese() {
+        assert_eq!(normalize_seed_locale("zh-TW"), "zh-TW");
+        assert_eq!(normalize_seed_locale("zh_TW.UTF-8"), "zh-TW");
+        assert_eq!(normalize_seed_locale("zh_HK"), "zh-TW");
+        assert_eq!(normalize_seed_locale("zh-Hant"), "zh-TW");
+        // Simplified stays base zh.
+        assert_eq!(normalize_seed_locale("zh-CN"), "zh");
+    }
+
+    #[test]
+    fn empty_falls_back_to_en() {
+        assert_eq!(normalize_seed_locale(""), "en");
+    }
 }
 
 #[cfg(test)]

@@ -4363,7 +4363,57 @@
         "mocUpkeep": "MOC 관리",
         "memoryToNote": "메모리→노트"
       }
-    }
+    },
+    "toolNoteCreateName": "노트 생성",
+    "toolNoteCreateDesc": "지식 공간에 새 markdown 노트를 생성합니다.",
+    "toolNoteReadName": "노트 읽기",
+    "toolNoteReadDesc": "노트 본문과 링크, 백링크, 태그를 읽습니다.",
+    "toolNoteUpdateName": "노트 덮어쓰기",
+    "toolNoteUpdateDesc": "노트 전체 내용을 교체합니다(충돌 쓰기 보호 적용).",
+    "toolNotePatchName": "노트 부분 수정",
+    "toolNotePatchDesc": "노트에서 유일하게 일치하는 구간을 교체합니다.",
+    "toolNoteAppendName": "노트에 추가",
+    "toolNoteAppendDesc": "노트에 내용을 추가하며, 특정 제목 아래에 지정할 수 있습니다.",
+    "toolNoteDeleteName": "노트 삭제",
+    "toolNoteDeleteDesc": "노트를 삭제하면 이를 가리키는 링크가 끊깁니다.",
+    "toolNoteSearchName": "노트 검색",
+    "toolNoteSearchDesc": "접근 가능한 노트에 대해 전문 + vector 혼합 검색을 합니다.",
+    "toolNoteLinkName": "노트 링크",
+    "toolNoteLinkDesc": "한 노트에서 다른 노트로 wikilink를 삽입합니다.",
+    "toolNoteBacklinksName": "백링크",
+    "toolNoteBacklinksDesc": "특정 노트를 가리키는 노트와 정확한 위치를 나열합니다.",
+    "toolNoteByTagName": "태그로 노트 찾기",
+    "toolNoteByTagDesc": "지정한 태그가 달린 노트를 나열합니다.",
+    "toolNoteTagsName": "태그 목록",
+    "toolNoteTagsDesc": "지식 공간 전체의 태그와 개수를 집계합니다.",
+    "toolNoteRenameName": "노트 이름 변경",
+    "toolNoteRenameDesc": "노트 이름을 바꾸거나 이동하면 들어오는 링크가 자동 갱신됩니다.",
+    "toolNoteMoveName": "노트 이동",
+    "toolNoteMoveDesc": "노트를 다른 폴더로 이동하면 들어오는 링크가 자동 갱신됩니다.",
+    "toolNoteSetFrontmatterName": "메타데이터 설정",
+    "toolNoteSetFrontmatterDesc": "YAML frontmatter 속성을 노트에 병합합니다.",
+    "toolNoteAssignBlockName": "블록 ID 지정",
+    "toolNoteAssignBlockDesc": "정확한 참조를 위해 블록에 ^block-id를 부여합니다.",
+    "toolNoteBrokenLinksName": "끊긴 링크",
+    "toolNoteBrokenLinksDesc": "지식 공간 내 끊긴(매달린) 링크를 나열합니다.",
+    "toolNoteOrphansName": "고립 노트",
+    "toolNoteOrphansDesc": "들어오거나 나가는 링크가 없는 노트를 나열합니다.",
+    "toolNoteGraphName": "노트 그래프",
+    "toolNoteGraphDesc": "노트 링크 그래프(노드와 엣지)를 반환합니다.",
+    "toolNoteSimilarName": "유사 노트",
+    "toolNoteSimilarDesc": "특정 노트와 의미적으로 유사한 노트를 vector로 찾습니다.",
+    "toolNoteRelatedName": "관련 노트",
+    "toolNoteRelatedDesc": "링크, vector, 공유 태그를 결합한 관련 노트입니다.",
+    "toolNoteSuggestLinksName": "링크 추천",
+    "toolNoteSuggestLinksDesc": "본문에 언급됐지만 아직 링크되지 않은 노트를 추천합니다.",
+    "toolNoteDistillName": "노트 정제",
+    "toolNoteDistillDesc": "긴 노트나 텍스트를 원자적 영구 노트로 분할합니다.",
+    "toolNoteMocName": "주제 지도",
+    "toolNoteMocDesc": "주제별 MOC 허브 노트를 생성하거나 갱신합니다.",
+    "toolSessionToNoteName": "대화를 노트로",
+    "toolSessionToNoteDesc": "현재 대화를 구조화된 노트로 정제합니다.",
+    "toolKnowledgeRecallName": "지식 호출",
+    "toolKnowledgeRecallDesc": "기억과 노트를 함께 검색합니다(순위별 두 구간)."
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -4637,7 +4687,32 @@
     "update_settings": "설정 업데이트",
     "web_fetch": "웹 가져오기",
     "web_search": "웹 검색",
-    "write": "파일 쓰기"
+    "write": "파일 쓰기",
+    "note_create": "노트 생성",
+    "note_read": "노트 읽기",
+    "note_update": "노트 덮어쓰기",
+    "note_patch": "노트 부분 수정",
+    "note_append": "노트에 추가",
+    "note_delete": "노트 삭제",
+    "note_search": "노트 검색",
+    "note_link": "노트 링크",
+    "note_backlinks": "백링크",
+    "note_by_tag": "태그로 노트 찾기",
+    "note_tags": "태그 목록",
+    "note_rename": "노트 이름 변경",
+    "note_move": "노트 이동",
+    "note_set_frontmatter": "메타데이터 설정",
+    "note_assign_block": "블록 ID 지정",
+    "note_broken_links": "끊긴 링크",
+    "note_orphans": "고립 노트",
+    "note_graph": "노트 그래프",
+    "note_similar": "유사 노트",
+    "note_related": "관련 노트",
+    "note_suggest_links": "링크 추천",
+    "note_distill": "노트 정제",
+    "note_moc": "주제 지도",
+    "session_to_note": "대화를 노트로",
+    "knowledge_recall": "지식 호출"
   },
   "tz": {
     "amsterdam": "암스테르담 (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "편집",
       "delete": "삭제",
       "read": "읽기"
-    }
+    },
+    "sectionKnowledge": "지식 공간",
+    "emptyKnowledge": "연결된 지식 공간 없음",
+    "kbViaProject": "프로젝트",
+    "kbWrote": "쓰기",
+    "kbRead": "읽기",
+    "kbSearchCount": "검색 {{n}}회"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "노트 {{count}}개",
       "read": "읽기",
       "write": "읽기+쓰기",
-      "hint": "첨부된 공간을 사용하면 어시스턴트가 노트를 검색하고 인용할 수 있습니다. [[note]]로 인라인 참조할 수도 있습니다."
+      "hint": "첨부된 공간을 사용하면 어시스턴트가 노트를 검색하고 인용할 수 있습니다. [[note]]로 인라인 참조할 수도 있습니다.",
+      "external": "외부 보관소",
+      "accessOff": "끄기",
+      "accessRead": "읽기",
+      "accessWrite": "읽기+쓰기",
+      "accessOffTip": "연결 안 됨 — 어시스턴트가 이 공간에 접근할 수 없습니다",
+      "accessReadTip": "어시스턴트가 노트를 검색하고 읽을 수 있습니다",
+      "accessWriteTip": "어시스턴트가 노트를 읽고 편집할 수 있습니다"
     },
     "mention": {
       "heading": "지식 노트",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "비워 두면 내부 공간을 만듭니다. 외부 보관소는 1단계에서 읽기 전용입니다.",
     "kbRootInvalid": "해당 폴더를 선택할 수 없습니다",
     "allowExternalWrites": "이 외부 보관함 편집 허용",
-    "allowExternalWritesHint": "외부 보관함은 기본적으로 읽기 전용입니다. 활성화하면 편집기와 AI 도구가 연결된 폴더에 쓸 수 있습니다. 백그라운드 자동 유지관리는 외부 보관함에 쓰지 않습니다."
+    "allowExternalWritesHint": "외부 보관함은 기본적으로 읽기 전용입니다. 활성화하면 편집기와 AI 도구가 연결된 폴더에 쓸 수 있습니다. 백그라운드 자동 유지관리는 외부 보관함에 쓰지 않습니다.",
+    "result": {
+      "memory": "기억"
+    }
   }
 }

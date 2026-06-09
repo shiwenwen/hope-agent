@@ -296,6 +296,15 @@ pub struct NoteLink {
 #[serde(rename_all = "camelCase")]
 pub struct NoteSearchHit {
     pub kb_id: String,
+    /// Human-readable source KB name (resolved from the registry — index.db only
+    /// stores `kb_id`, D9). Empty when unresolved; callers fall back to `kb_id`.
+    /// Lets every recall path attribute a hit to its knowledge space (the point in
+    /// multi-KB sessions). Filled by [`search::enrich_kb_names`].
+    #[serde(default)]
+    pub kb_name: String,
+    /// Source KB emoji, if any (for compact source badges in the UI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kb_emoji: Option<String>,
     pub note_id: i64,
     pub rel_path: String,
     pub title: String,

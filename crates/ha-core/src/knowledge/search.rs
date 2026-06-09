@@ -133,6 +133,8 @@ pub fn search_notes(
             .unwrap_or_default();
         hits.push(NoteSearchHit {
             kb_id: kb_id.clone(),
+            kb_name: String::new(),
+            kb_emoji: None,
             note_id,
             rel_path: rel_path.clone(),
             title: title.clone(),
@@ -142,7 +144,34 @@ pub fn search_notes(
             start_line,
         });
     }
+    enrich_kb_names(&mut hits);
     Ok(hits)
+}
+
+/// Fill `kb_name` / `kb_emoji` on each hit from the KB registry — the single
+/// truth source for KB display data (index.db only stores `kb_id`, D9). Resolves
+/// each distinct `kb_id` once; falls back to `kb_id` as the name when the KB is
+/// missing so a hit is never dropped. No-op when the registry is unavailable
+/// (kb_name stays empty → callers/UI fall back to kb_id).
+pub fn enrich_kb_names(hits: &mut [NoteSearchHit]) {
+    if hits.is_empty() {
+        return;
+    }
+    let Some(reg) = crate::get_knowledge_db() else {
+        return;
+    };
+    let mut cache: HashMap<String, (String, Option<String>)> = HashMap::new();
+    for h in hits.iter_mut() {
+        let (name, emoji) = cache
+            .entry(h.kb_id.clone())
+            .or_insert_with(|| match reg.get(&h.kb_id) {
+                Ok(Some(kb)) => (kb.name, kb.emoji),
+                _ => (h.kb_id.clone(), None),
+            })
+            .clone();
+        h.kb_name = name;
+        h.kb_emoji = emoji;
+    }
 }
 
 /// Vector-only "similar notes" (WS4 `note_similar`): embed `source_text`, KNN over
@@ -222,6 +251,8 @@ pub fn similar_notes(
             .unwrap_or_default();
         out.push(NoteSearchHit {
             kb_id: kb_id.clone(),
+            kb_name: String::new(),
+            kb_emoji: None,
             note_id,
             rel_path: rel_path.clone(),
             title: title.clone(),
@@ -232,5 +263,6 @@ pub fn similar_notes(
             start_line,
         });
     }
+    enrich_kb_names(&mut out);
     Ok(out)
 }

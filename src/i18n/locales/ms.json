@@ -4363,7 +4363,57 @@
         "mocUpkeep": "Penyelenggaraan MOC",
         "memoryToNote": "Memori → nota"
       }
-    }
+    },
+    "toolNoteCreateName": "Cipta Nota",
+    "toolNoteCreateDesc": "Cipta nota markdown baharu dalam ruang pengetahuan.",
+    "toolNoteReadName": "Baca Nota",
+    "toolNoteReadDesc": "Baca nota berserta pautan, pautan balik dan tagnya.",
+    "toolNoteUpdateName": "Kemas Kini Nota",
+    "toolNoteUpdateDesc": "Ganti keseluruhan kandungan nota (dilindungi stale-write).",
+    "toolNotePatchName": "Tampal Nota",
+    "toolNotePatchDesc": "Ganti petikan yang padan secara unik dalam nota.",
+    "toolNoteAppendName": "Tambah ke Nota",
+    "toolNoteAppendDesc": "Tambah kandungan ke nota, secara pilihan di bawah tajuk.",
+    "toolNoteDeleteName": "Padam Nota",
+    "toolNoteDeleteDesc": "Padam nota; pautan yang menuju kepadanya menjadi rosak.",
+    "toolNoteSearchName": "Cari Nota",
+    "toolNoteSearchDesc": "Carian hibrid teks penuh + vector merentas nota yang boleh diakses.",
+    "toolNoteLinkName": "Pautkan Nota",
+    "toolNoteLinkDesc": "Sisip wikilink dari satu nota ke nota lain.",
+    "toolNoteBacklinksName": "Pautan Balik",
+    "toolNoteBacklinksDesc": "Senaraikan nota yang memaut ke sesebuah nota, dengan lokasi tepat.",
+    "toolNoteByTagName": "Nota Ikut Tag",
+    "toolNoteByTagDesc": "Senaraikan nota yang membawa tag tertentu.",
+    "toolNoteTagsName": "Senarai Tag",
+    "toolNoteTagsDesc": "Senaraikan tag dan bilangannya merentas ruang pengetahuan.",
+    "toolNoteRenameName": "Namakan Semula Nota",
+    "toolNoteRenameDesc": "Namakan semula atau alih nota; pautan masuk ditulis semula.",
+    "toolNoteMoveName": "Alih Nota",
+    "toolNoteMoveDesc": "Alih nota ke folder lain; pautan masuk ditulis semula.",
+    "toolNoteSetFrontmatterName": "Tetapkan Frontmatter",
+    "toolNoteSetFrontmatterDesc": "Gabungkan ciri YAML frontmatter ke dalam nota.",
+    "toolNoteAssignBlockName": "Tetapkan ID Blok",
+    "toolNoteAssignBlockDesc": "Beri blok satu ^block-id untuk rujukan yang tepat.",
+    "toolNoteBrokenLinksName": "Pautan Rosak",
+    "toolNoteBrokenLinksDesc": "Senaraikan pautan rosak (terjuntai) dalam ruang pengetahuan.",
+    "toolNoteOrphansName": "Nota Terpencil",
+    "toolNoteOrphansDesc": "Senaraikan nota tanpa sebarang pautan masuk atau keluar.",
+    "toolNoteGraphName": "Graf Nota",
+    "toolNoteGraphDesc": "Pulangkan graf pautan nota (nod dan tepi).",
+    "toolNoteSimilarName": "Nota Serupa",
+    "toolNoteSimilarDesc": "Cari nota yang serupa secara semantik dengan sesebuah nota (vector).",
+    "toolNoteRelatedName": "Nota Berkaitan",
+    "toolNoteRelatedDesc": "Nota berkaitan yang menggabungkan pautan, vector dan tag dikongsi.",
+    "toolNoteSuggestLinksName": "Cadang Pautan",
+    "toolNoteSuggestLinksDesc": "Cadangkan nota yang disebut dalam isi tetapi belum dipaut.",
+    "toolNoteDistillName": "Saring Nota",
+    "toolNoteDistillDesc": "Pecahkan nota atau teks panjang menjadi nota kekal atom.",
+    "toolNoteMocName": "Peta Kandungan",
+    "toolNoteMocDesc": "Jana atau segarkan nota hab MOC bagi sesuatu topik.",
+    "toolSessionToNoteName": "Sesi ke Nota",
+    "toolSessionToNoteDesc": "Saring perbualan menjadi nota berstruktur.",
+    "toolKnowledgeRecallName": "Imbas Kembali Pengetahuan",
+    "toolKnowledgeRecallDesc": "Cari memori dan nota serentak (dua bahagian berperingkat)."
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -4637,7 +4687,32 @@
     "update_settings": "Kemas kini tetapan",
     "web_fetch": "Ambil web",
     "web_search": "Carian web",
-    "write": "Tulis fail"
+    "write": "Tulis fail",
+    "note_create": "Cipta Nota",
+    "note_read": "Baca Nota",
+    "note_update": "Kemas Kini Nota",
+    "note_patch": "Tampal Nota",
+    "note_append": "Tambah ke Nota",
+    "note_delete": "Padam Nota",
+    "note_search": "Cari Nota",
+    "note_link": "Pautkan Nota",
+    "note_backlinks": "Pautan Balik",
+    "note_by_tag": "Nota Ikut Tag",
+    "note_tags": "Senarai Tag",
+    "note_rename": "Namakan Semula Nota",
+    "note_move": "Alih Nota",
+    "note_set_frontmatter": "Tetapkan Frontmatter",
+    "note_assign_block": "Tetapkan ID Blok",
+    "note_broken_links": "Pautan Rosak",
+    "note_orphans": "Nota Terpencil",
+    "note_graph": "Graf Nota",
+    "note_similar": "Nota Serupa",
+    "note_related": "Nota Berkaitan",
+    "note_suggest_links": "Cadang Pautan",
+    "note_distill": "Saring Nota",
+    "note_moc": "Peta Kandungan",
+    "session_to_note": "Sesi ke Nota",
+    "knowledge_recall": "Imbas Kembali Pengetahuan"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -4846,7 +4921,13 @@
       "edit": "Sunting",
       "delete": "Padam",
       "read": "Baca"
-    }
+    },
+    "sectionKnowledge": "Pengetahuan",
+    "emptyKnowledge": "Tiada ruang pengetahuan dilampirkan",
+    "kbViaProject": "Projek",
+    "kbWrote": "Ditulis",
+    "kbRead": "Dibaca",
+    "kbSearchCount": "{{n}} carian"
   },
   "knowledge": {
     "picker": {
@@ -4859,7 +4940,14 @@
       "noteCount": "{{count}} nota",
       "read": "Baca",
       "write": "Baca+tulis",
-      "hint": "Ruang yang dilampirkan membolehkan pembantu mencari dan memetik nota; anda juga boleh merujuknya sebaris dengan [[note]]."
+      "hint": "Ruang yang dilampirkan membolehkan pembantu mencari dan memetik nota; anda juga boleh merujuknya sebaris dengan [[note]].",
+      "external": "Bilik kebal luaran",
+      "accessOff": "Mati",
+      "accessRead": "Baca",
+      "accessWrite": "Baca+Tulis",
+      "accessOffTip": "Tidak dilampirkan — pembantu tidak boleh akses ruang ini",
+      "accessReadTip": "Pembantu boleh cari dan baca nota",
+      "accessWriteTip": "Pembantu boleh baca dan sunting nota"
     },
     "mention": {
       "heading": "Nota pengetahuan",
@@ -5008,6 +5096,9 @@
     "kbRootHint": "Biarkan kosong untuk ruang dalaman. Bilik kebal luaran hanya-baca pada Fasa 1.",
     "kbRootInvalid": "Tidak dapat memilih folder itu",
     "allowExternalWrites": "Benarkan menyunting bilik kebal ini",
-    "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran."
+    "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran.",
+    "result": {
+      "memory": "Memori"
+    }
   }
 }
