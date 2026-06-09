@@ -1133,7 +1133,14 @@
       "moveTo": "移動先…",
       "moveToTitle": "「{{name}}」の移動先…",
       "rootFolder": "ルート",
-      "remoteWritesDisabled": "リモートファイル書き込みはオフです。サーバーホストの 設定 → サーバー → リモートファイル書き込みを許可 でオンにしてください。"
+      "remoteWritesDisabled": "リモートファイル書き込みはオフです。サーバーホストの 設定 → サーバー → リモートファイル書き込みを許可 でオンにしてください。",
+      "collapseLeft": "サイドバーを折りたたむ",
+      "expandLeft": "サイドバーを展開",
+      "collapseRight": "パネルを折りたたむ",
+      "expandRight": "パネルを展開",
+      "resizeLeft": "サイドバーの幅を調整",
+      "resizeRight": "パネルの幅を調整",
+      "resizeSplit": "分割幅を調整"
     },
     "common": {
       "create": "作成",
@@ -2276,7 +2283,14 @@
       "moveTo": "이동 위치…",
       "moveToTitle": "\"{{name}}\" 이동 위치…",
       "rootFolder": "루트",
-      "remoteWritesDisabled": "원격 파일 쓰기가 꺼져 있습니다. 서버 호스트의 설정 → 서버 → 원격 파일 쓰기 허용에서 켜세요."
+      "remoteWritesDisabled": "원격 파일 쓰기가 꺼져 있습니다. 서버 호스트의 설정 → 서버 → 원격 파일 쓰기 허용에서 켜세요.",
+      "collapseLeft": "사이드바 접기",
+      "expandLeft": "사이드바 펼치기",
+      "collapseRight": "패널 접기",
+      "expandRight": "패널 펼치기",
+      "resizeLeft": "사이드바 너비 조절",
+      "resizeRight": "패널 너비 조절",
+      "resizeSplit": "분할 너비 조절"
     },
     "common": {
       "create": "만들기",
@@ -3400,7 +3414,14 @@
       "moveTo": "移動到…",
       "moveToTitle": "將「{{name}}」移動到…",
       "rootFolder": "根目錄",
-      "remoteWritesDisabled": "遠端檔案寫入已關閉。請在伺服器主機的「設定 → 伺服器 → 允許遠端檔案寫入」中開啟。"
+      "remoteWritesDisabled": "遠端檔案寫入已關閉。請在伺服器主機的「設定 → 伺服器 → 允許遠端檔案寫入」中開啟。",
+      "collapseLeft": "收合側欄",
+      "expandLeft": "展開側欄",
+      "collapseRight": "收合面板",
+      "expandRight": "展開面板",
+      "resizeLeft": "調整側欄寬度",
+      "resizeRight": "調整面板寬度",
+      "resizeSplit": "調整分欄寬度"
     },
     "common": {
       "create": "建立",
@@ -4543,7 +4564,14 @@
       "moveTo": "Şuraya taşı…",
       "moveToTitle": "\"{{name}}\" şuraya taşınsın…",
       "rootFolder": "Kök",
-      "remoteWritesDisabled": "Uzak dosya yazma kapalı. Sunucu ana makinesinde Ayarlar → Sunucu → Uzak dosya yazmaya izin ver seçeneğini açın."
+      "remoteWritesDisabled": "Uzak dosya yazma kapalı. Sunucu ana makinesinde Ayarlar → Sunucu → Uzak dosya yazmaya izin ver seçeneğini açın.",
+      "collapseLeft": "Kenar çubuğunu daralt",
+      "expandLeft": "Kenar çubuğunu genişlet",
+      "collapseRight": "Paneli daralt",
+      "expandRight": "Paneli genişlet",
+      "resizeLeft": "Kenar çubuğunu yeniden boyutlandır",
+      "resizeRight": "Paneli yeniden boyutlandır",
+      "resizeSplit": "Bölmeyi yeniden boyutlandır"
     },
     "common": {
       "create": "Oluştur",
@@ -5686,7 +5714,14 @@
       "moveTo": "Di chuyển đến…",
       "moveToTitle": "Di chuyển \"{{name}}\" đến…",
       "rootFolder": "Gốc",
-      "remoteWritesDisabled": "Ghi tệp từ xa đang tắt. Bật trong Cài đặt → Máy chủ → Cho phép ghi tệp từ xa (trên máy chủ)."
+      "remoteWritesDisabled": "Ghi tệp từ xa đang tắt. Bật trong Cài đặt → Máy chủ → Cho phép ghi tệp từ xa (trên máy chủ).",
+      "collapseLeft": "Thu gọn thanh bên",
+      "expandLeft": "Mở rộng thanh bên",
+      "collapseRight": "Thu gọn bảng",
+      "expandRight": "Mở rộng bảng",
+      "resizeLeft": "Đổi kích thước thanh bên",
+      "resizeRight": "Đổi kích thước bảng",
+      "resizeSplit": "Đổi kích thước chia đôi"
     },
     "common": {
       "create": "Tạo",
@@ -6829,7 +6864,14 @@
       "moveTo": "Mover para…",
       "moveToTitle": "Mover \"{{name}}\" para…",
       "rootFolder": "Raiz",
-      "remoteWritesDisabled": "A gravação remota de arquivos está desativada. Ative em Configurações → Servidor → Permitir gravações remotas de arquivos (no host do servidor)."
+      "remoteWritesDisabled": "A gravação remota de arquivos está desativada. Ative em Configurações → Servidor → Permitir gravações remotas de arquivos (no host do servidor).",
+      "collapseLeft": "Recolher barra lateral",
+      "expandLeft": "Expandir barra lateral",
+      "collapseRight": "Recolher painel",
+      "expandRight": "Expandir painel",
+      "resizeLeft": "Redimensionar barra lateral",
+      "resizeRight": "Redimensionar painel",
+      "resizeSplit": "Redimensionar divisão"
     },
     "common": {
       "create": "Criar",
@@ -7972,7 +8014,14 @@
       "moveTo": "Переместить в…",
       "moveToTitle": "Переместить \"{{name}}\" в…",
       "rootFolder": "Корень",
-      "remoteWritesDisabled": "Удаленная запись файлов отключена. Включите ее в Настройки → Сервер → Разрешить удаленную запись файлов (на серверном хосте)."
+      "remoteWritesDisabled": "Удаленная запись файлов отключена. Включите ее в Настройки → Сервер → Разрешить удаленную запись файлов (на серверном хосте).",
+      "collapseLeft": "Свернуть боковую панель",
+      "expandLeft": "Развернуть боковую панель",
+      "collapseRight": "Свернуть панель",
+      "expandRight": "Развернуть панель",
+      "resizeLeft": "Изменить ширину боковой панели",
+      "resizeRight": "Изменить ширину панели",
+      "resizeSplit": "Изменить ширину разделения"
     },
     "common": {
       "create": "Создать",
@@ -9115,7 +9164,14 @@
       "moveTo": "نقل إلى…",
       "moveToTitle": "نقل \"{{name}}\" إلى…",
       "rootFolder": "الجذر",
-      "remoteWritesDisabled": "كتابة الملفات عن بُعد متوقفة. فعّلها من الإعدادات → الخادم → السماح بكتابة الملفات عن بُعد (على مضيف الخادم)."
+      "remoteWritesDisabled": "كتابة الملفات عن بُعد متوقفة. فعّلها من الإعدادات → الخادم → السماح بكتابة الملفات عن بُعد (على مضيف الخادم).",
+      "collapseLeft": "طي الشريط الجانبي",
+      "expandLeft": "توسيع الشريط الجانبي",
+      "collapseRight": "طي اللوحة",
+      "expandRight": "توسيع اللوحة",
+      "resizeLeft": "تغيير حجم الشريط الجانبي",
+      "resizeRight": "تغيير حجم اللوحة",
+      "resizeSplit": "تغيير حجم التقسيم"
     },
     "common": {
       "create": "إنشاء",
@@ -10258,7 +10314,14 @@
       "moveTo": "Mover a…",
       "moveToTitle": "Mover \"{{name}}\" a…",
       "rootFolder": "Raíz",
-      "remoteWritesDisabled": "La escritura remota de archivos está desactivada. Actívala en Configuración → Servidor → Permitir escritura remota de archivos (en el host del servidor)."
+      "remoteWritesDisabled": "La escritura remota de archivos está desactivada. Actívala en Configuración → Servidor → Permitir escritura remota de archivos (en el host del servidor).",
+      "collapseLeft": "Contraer barra lateral",
+      "expandLeft": "Expandir barra lateral",
+      "collapseRight": "Contraer panel",
+      "expandRight": "Expandir panel",
+      "resizeLeft": "Ajustar barra lateral",
+      "resizeRight": "Ajustar panel",
+      "resizeSplit": "Ajustar división"
     },
     "common": {
       "create": "Crear",
@@ -11401,7 +11464,14 @@
       "moveTo": "Pindah ke…",
       "moveToTitle": "Pindahkan \"{{name}}\" ke…",
       "rootFolder": "Akar",
-      "remoteWritesDisabled": "Penulisan fail jauh dimatikan. Hidupkan dalam Tetapan → Pelayan → Benarkan penulisan fail jauh (pada hos pelayan)."
+      "remoteWritesDisabled": "Penulisan fail jauh dimatikan. Hidupkan dalam Tetapan → Pelayan → Benarkan penulisan fail jauh (pada hos pelayan).",
+      "collapseLeft": "Runtuhkan bar sisi",
+      "expandLeft": "Kembangkan bar sisi",
+      "collapseRight": "Runtuhkan panel",
+      "expandRight": "Kembangkan panel",
+      "resizeLeft": "Saiz semula bar sisi",
+      "resizeRight": "Saiz semula panel",
+      "resizeSplit": "Saiz semula pembahagi"
     },
     "common": {
       "create": "Cipta",
@@ -11596,7 +11666,14 @@
       "kbRootPlaceholder": "外部库路径（可选，只读）",
       "notePathPlaceholder": "folder/note-name",
       "allowExternalWrites": "允许编辑此外部库",
-      "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。"
+      "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。",
+      "collapseLeft": "收起侧栏",
+      "expandLeft": "展开侧栏",
+      "collapseRight": "收起面板",
+      "expandRight": "展开面板",
+      "resizeLeft": "调整侧栏宽度",
+      "resizeRight": "调整面板宽度",
+      "resizeSplit": "调整分栏宽度"
     },
     "common": {
       "create": "创建",

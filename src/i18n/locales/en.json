@@ -4889,6 +4889,13 @@
       "preview": "Preview",
       "outline": "Outline"
     },
+    "collapseLeft": "Collapse sidebar",
+    "expandLeft": "Expand sidebar",
+    "collapseRight": "Collapse panel",
+    "expandRight": "Expand panel",
+    "resizeLeft": "Resize sidebar",
+    "resizeRight": "Resize panel",
+    "resizeSplit": "Resize split",
     "emptyEditor": "Select a note to view or edit.",
     "searchResults": "Search results",
     "backlinks": "Backlinks",

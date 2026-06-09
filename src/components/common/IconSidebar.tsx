@@ -154,6 +154,24 @@ export default function IconSidebar({
               </ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
+          {/* Knowledge Space entry — grouped directly under Conversations */}
+          <div className="w-full flex justify-center">
+            <IconTip label={t("knowledge.title", "Knowledge Space")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "knowledge"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenKnowledge}
+              >
+                <Library className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
         </div>
 
         <div className="my-1 h-px w-6 bg-border-soft/80" />
@@ -256,27 +274,6 @@ export default function IconSidebar({
               onClick={onOpenMemory}
             >
               <Brain className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        </div>
-
-        <div className="my-1 h-px w-6 bg-border-soft/60" />
-
-        {/* Knowledge Space entry */}
-        <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("knowledge.title", "Knowledge Space")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "knowledge"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenKnowledge}
-            >
-              <Library className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>

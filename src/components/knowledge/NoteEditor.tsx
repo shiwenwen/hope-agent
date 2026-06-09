@@ -13,7 +13,17 @@ import {
   highlightSpecialChars,
   keymap,
 } from "@codemirror/view"
-import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef } from "react"
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
+import { useTranslation } from "react-i18next"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import type { NoteEditorMode } from "@/types/knowledge"
@@ -99,6 +109,21 @@ const editorTheme = EditorView.theme({
   },
 })
 
+/** Persisted source-pane fraction for split mode (clamped to [0.2, 0.8]). */
+const SPLIT_RATIO_KEY = "hope.knowledge.splitRatio"
+const SPLIT_RATIO_MIN = 0.2
+const SPLIT_RATIO_MAX = 0.8
+
+function readSplitRatio(): number {
+  if (typeof window === "undefined") return 0.5
+  try {
+    const n = Number(window.localStorage.getItem(SPLIT_RATIO_KEY))
+    return Number.isFinite(n) && n >= SPLIT_RATIO_MIN && n <= SPLIT_RATIO_MAX ? n : 0.5
+  } catch {
+    return 0.5
+  }
+}
+
 /**
  * CodeMirror 6 markdown note editor (design D13). Three modes: Source (CM6),
  * Preview (streamdown), Split. The document is always plain `.md` text — wikilink
@@ -138,11 +163,59 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
   // doc swap is NOT reported as a user edit — otherwise just opening a note marks
   // it dirty.
   const applyingExternalRef = useRef(false)
+  // Split-mode (source + preview) draggable divider. Ratio = source-pane
+  // fraction of the editor area; persisted so it survives reloads.
+  const splitContainerRef = useRef<HTMLDivElement | null>(null)
+  const [splitRatio, setSplitRatio] = useState(readSplitRatio)
+  const { t } = useTranslation()
 
   onChangeRef.current = onChange
   dataRef.current = data
   kbIdRef.current = kbId
   bustRef.current = embedCacheKey
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      window.localStorage.setItem(SPLIT_RATIO_KEY, String(splitRatio))
+    } catch {
+      /* private mode / quota — non-fatal */
+    }
+  }, [splitRatio])
+
+  const onSplitDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      const container = splitContainerRef.current
+      if (!container) return
+      const totalWidth = container.getBoundingClientRect().width
+      if (totalWidth <= 0) return
+      const startX = e.clientX
+      const startRatio = splitRatio
+      const onMove = (ev: MouseEvent) => {
+        const next = Math.min(
+          SPLIT_RATIO_MAX,
+          Math.max(SPLIT_RATIO_MIN, startRatio + (ev.clientX - startX) / totalWidth),
+        )
+        setSplitRatio(next)
+      }
+      // Preview may host iframes (Mermaid) — suspend them so the drag isn't eaten.
+      const iframes = document.querySelectorAll("iframe")
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove)
+        document.removeEventListener("mouseup", onUp)
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+      }
+      document.addEventListener("mousemove", onMove)
+      document.addEventListener("mouseup", onUp)
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    },
+    [splitRatio],
+  )
 
   const showSource = mode === "source" || mode === "split" || mode === "live"
   const showPreview = mode === "preview" || mode === "split"
@@ -339,18 +412,34 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
     return <OutlineView content={value} onJump={onOutlineJump} />
   }
 
+  const splitActive = showSource && showPreview
+
   return (
-    <div className="flex h-full min-h-0 w-full">
+    <div ref={splitContainerRef} className="flex h-full min-h-0 w-full">
       {showSource && (
         <div
           ref={hostRef}
-          className={`h-full min-h-0 overflow-hidden ${showPreview ? "w-1/2 border-r border-border-soft/60" : "w-full"}`}
+          className={`h-full min-h-0 overflow-hidden ${splitActive ? "shrink-0 border-r border-border-soft/60" : "w-full"}`}
+          style={splitActive ? { width: `${splitRatio * 100}%` } : undefined}
         />
+      )}
+      {splitActive && (
+        <div
+          className="group relative w-px shrink-0 cursor-col-resize bg-border-soft/60"
+          onMouseDown={onSplitDragStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("knowledge.resizeSplit", "Resize split")}
+        >
+          {/* Wider invisible hit area around the 1px divider. */}
+          <div className="absolute inset-y-0 -left-1 -right-1" />
+          <div className="absolute inset-y-0 -left-px -right-px transition-colors group-hover:bg-primary/40" />
+        </div>
       )}
       {showPreview && (
         <div
           ref={previewRef}
-          className={`h-full min-h-0 overflow-auto p-4 ${showSource ? "w-1/2" : "w-full"}`}
+          className={`h-full min-h-0 overflow-auto p-4 ${showSource ? "min-w-0 flex-1" : "w-full"}`}
         >
           {kbId ? (
             <NoteTransclusionView

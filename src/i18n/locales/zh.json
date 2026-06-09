@@ -4889,6 +4889,13 @@
       "preview": "预览",
       "outline": "大纲"
     },
+    "collapseLeft": "收起侧栏",
+    "expandLeft": "展开侧栏",
+    "collapseRight": "收起面板",
+    "expandRight": "展开面板",
+    "resizeLeft": "调整侧栏宽度",
+    "resizeRight": "调整面板宽度",
+    "resizeSplit": "调整分栏宽度",
     "emptyEditor": "选择一篇笔记以查看或编辑。",
     "searchResults": "搜索结果",
     "backlinks": "反向链接",

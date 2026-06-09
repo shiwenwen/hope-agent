@@ -44,7 +44,7 @@ import { useFileBrowserSplit } from "../hooks/useFileBrowserSplit"
 import { FileBrowserTree, type DraftNode } from "./FileBrowserTree"
 import { FilePreviewPane, type QuotePayload } from "./FilePreviewPane"
 import { projectFsPreviewSource } from "@/components/chat/files/previewSource"
-import { useDragWidth } from "./useDragWidth"
+import { useDragWidth } from "@/hooks/useDragWidth"
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 
 // The read-only worktree-jump scope encodes its id as a triple

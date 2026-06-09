@@ -5,6 +5,7 @@ import { parsePayload } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { cn } from "@/lib/utils"
 import {
   Brain,
@@ -191,27 +192,6 @@ function clampResponsiveRightPanelWidth(width: number): number {
   )
 }
 
-function useViewportMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    typeof window === "undefined" ? false : window.matchMedia(query).matches,
-  )
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-
-    const media = window.matchMedia(query)
-    const handleChange = () => setMatches(media.matches)
-    handleChange()
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", handleChange)
-      return () => media.removeEventListener("change", handleChange)
-    }
-    media.addListener(handleChange)
-    return () => media.removeListener(handleChange)
-  }, [query])
-
-  return matches
-}
 
 function isSessionMode(value: unknown): value is SessionMode {
   return value === "default" || value === "smart" || value === "yolo"

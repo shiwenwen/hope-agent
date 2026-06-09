@@ -16,6 +16,10 @@ import {
   Lock,
   FolderInput,
   MessageSquareQuote,
+  PanelLeft,
+  PanelLeftDashed,
+  PanelRight,
+  PanelRightDashed,
   Pencil,
   Plus,
   RefreshCw,
@@ -63,6 +67,8 @@ import type {
 } from "@/types/knowledge"
 
 import { useReembedJob } from "@/hooks/useReembedJob"
+import { useDragWidth } from "@/hooks/useDragWidth"
+import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { isLocalModelJobActive } from "@/types/local-model-jobs"
 
 import AiRewriteDialog from "./AiRewriteDialog"
@@ -93,6 +99,52 @@ interface KnowledgeViewProps {
 }
 
 type SaveStatus = "idle" | "saved" | "failed"
+
+// ── Layout: collapsible + resizable side panes (mirrors the chat view) ──────
+const KB_LEFT_WIDTH_KEY = "hope.knowledge.leftWidth"
+const KB_RIGHT_WIDTH_KEY = "hope.knowledge.rightWidth"
+const KB_LEFT_COLLAPSED_KEY = "hope.knowledge.leftCollapsed"
+const KB_RIGHT_COLLAPSED_KEY = "hope.knowledge.rightCollapsed"
+const KB_LEFT_DEFAULT_WIDTH = 256 // = old w-64
+const KB_LEFT_MIN_WIDTH = 200
+const KB_LEFT_MAX_WIDTH = 420
+const KB_RIGHT_DEFAULT_WIDTH = 288 // = old w-72
+const KB_RIGHT_MIN_WIDTH = 220
+const KB_RIGHT_MAX_WIDTH = 480
+const KB_CONTENT_MIN_WIDTH = 360 // min usable editor column
+const KB_SPLIT_MIN_WIDTH = 680 // editor area needs this for two side-by-side panes
+const KB_LEFT_AUTO_COLLAPSE_GUTTER = 120
+const KB_RESPONSIVE_HYSTERESIS = 120 // gap between collapse-at and expand-at (anti-flap)
+// Collapse animation (must match the chat sidebar / RightPanelShell exactly).
+const PANE_WIDTH_TRANSITION =
+  "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none"
+const PANE_SURFACE_TRANSITION =
+  "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none"
+const PANE_HANDLE_BASE =
+  "absolute inset-y-0 z-20 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50"
+
+function readStoredBool(key: string): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem(key) === "true"
+  } catch {
+    return false
+  }
+}
+
+function clampPaneWidth(w: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, w))
+}
+
+function readStoredWidth(key: string, def: number, min: number, max: number): number {
+  if (typeof window === "undefined") return def
+  try {
+    const n = Number(window.localStorage.getItem(key))
+    return Number.isFinite(n) && n > 0 ? clampPaneWidth(n, min, max) : def
+  } catch {
+    return def
+  }
+}
 
 export default function KnowledgeView({
   onBack,
@@ -137,6 +189,201 @@ export default function KnowledgeView({
   const [graphMode, setGraphMode] = useState(false)
   // Bumped on knowledge:changed to bust the `![[ ]]` transclusion embed cache.
   const [embedCacheKey, setEmbedCacheKey] = useState(0)
+
+  // ── Collapsible + resizable side panes (mirrors the chat view) ──────────
+  const [leftCollapsed, setLeftCollapsed] = useState(() => readStoredBool(KB_LEFT_COLLAPSED_KEY))
+  const [rightCollapsed, setRightCollapsed] = useState(() => readStoredBool(KB_RIGHT_COLLAPSED_KEY))
+  const [leftWidth, setLeftWidth] = useState(() =>
+    readStoredWidth(KB_LEFT_WIDTH_KEY, KB_LEFT_DEFAULT_WIDTH, KB_LEFT_MIN_WIDTH, KB_LEFT_MAX_WIDTH),
+  )
+  const [rightWidth, setRightWidth] = useState(() =>
+    readStoredWidth(
+      KB_RIGHT_WIDTH_KEY,
+      KB_RIGHT_DEFAULT_WIDTH,
+      KB_RIGHT_MIN_WIDTH,
+      KB_RIGHT_MAX_WIDTH,
+    ),
+  )
+  // Suppress the width CSS transition during a drag so the pane tracks the cursor.
+  const [isResizingLeft, setIsResizingLeft] = useState(false)
+  const [isResizingRight, setIsResizingRight] = useState(false)
+  // Responsive-collapse intent tracking (per side): distinguishes a viewport-driven
+  // collapse from a deliberate user one so auto-expand never fights the user.
+  const autoCollapsedLeftRef = useRef(false)
+  const manualLeftExpandedOverrideRef = useRef(false)
+  const userLeftCollapsedPrefRef = useRef(leftCollapsed)
+  const autoCollapsedRightRef = useRef(false)
+  const manualRightExpandedOverrideRef = useRef(false)
+  const userRightCollapsedPrefRef = useRef(rightCollapsed)
+  // Responsive split→live auto-switch (analogous to right-panel auto-collapse).
+  const autoSwitchedToLiveRef = useRef(false)
+  const userModeOverrideRef = useRef(false)
+
+  // Persist widths; persist collapse only when it's a deliberate (non-auto) change
+  // so a transient responsive collapse isn't remembered as user intent.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      window.localStorage.setItem(KB_LEFT_WIDTH_KEY, String(Math.round(leftWidth)))
+    } catch {
+      /* quota / private mode */
+    }
+  }, [leftWidth])
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      window.localStorage.setItem(KB_RIGHT_WIDTH_KEY, String(Math.round(rightWidth)))
+    } catch {
+      /* quota / private mode */
+    }
+  }, [rightWidth])
+  useEffect(() => {
+    if (typeof window === "undefined" || autoCollapsedLeftRef.current) return
+    try {
+      window.localStorage.setItem(KB_LEFT_COLLAPSED_KEY, String(leftCollapsed))
+    } catch {
+      /* quota / private mode */
+    }
+  }, [leftCollapsed])
+  useEffect(() => {
+    if (typeof window === "undefined" || autoCollapsedRightRef.current) return
+    try {
+      window.localStorage.setItem(KB_RIGHT_COLLAPSED_KEY, String(rightCollapsed))
+    } catch {
+      /* quota / private mode */
+    }
+  }, [rightCollapsed])
+
+  const handleLeftCollapsedChange = useCallback((collapsed: boolean) => {
+    autoCollapsedLeftRef.current = false
+    manualLeftExpandedOverrideRef.current = !collapsed
+    userLeftCollapsedPrefRef.current = collapsed
+    setLeftCollapsed(collapsed)
+  }, [])
+  const handleRightCollapsedChange = useCallback((collapsed: boolean) => {
+    autoCollapsedRightRef.current = false
+    manualRightExpandedOverrideRef.current = !collapsed
+    userRightCollapsedPrefRef.current = collapsed
+    setRightCollapsed(collapsed)
+  }, [])
+  const handleModeChange = useCallback((m: NoteEditorMode) => {
+    userModeOverrideRef.current = true
+    autoSwitchedToLiveRef.current = false
+    setMode(m)
+  }, [])
+
+  const onDragLeft = useDragWidth({
+    width: leftWidth,
+    min: KB_LEFT_MIN_WIDTH,
+    max: KB_LEFT_MAX_WIDTH,
+    onChange: setLeftWidth,
+    direction: "ltr",
+    onResizingChange: setIsResizingLeft,
+  })
+  const onDragRight = useDragWidth({
+    width: rightWidth,
+    min: KB_RIGHT_MIN_WIDTH,
+    max: KB_RIGHT_MAX_WIDTH,
+    onChange: setRightWidth,
+    direction: "rtl",
+    onResizingChange: setIsResizingRight,
+  })
+
+  // Derived side-pane breakpoints (recomputed per render from live widths; the
+  // media-query strings are the effect deps so width changes re-bind listeners).
+  // `preferredLeftWidth` keys off user intent (not the live collapse) so an
+  // auto-collapse never feeds back into the breakpoint that triggered it.
+  const preferredLeftWidth = userLeftCollapsedPrefRef.current ? 0 : leftWidth
+  const rightCollapseAt = preferredLeftWidth + KB_CONTENT_MIN_WIDTH + rightWidth
+  const rightExpandAt = rightCollapseAt + KB_RESPONSIVE_HYSTERESIS
+  const leftCollapseAt = leftWidth + KB_CONTENT_MIN_WIDTH + KB_LEFT_AUTO_COLLAPSE_GUTTER
+  const leftExpandAt = leftCollapseAt + KB_RESPONSIVE_HYSTERESIS
+
+  const shouldAutoCollapseRight = useViewportMediaQuery(`(max-width: ${rightCollapseAt}px)`)
+  const shouldAutoExpandRight = useViewportMediaQuery(`(min-width: ${rightExpandAt}px)`)
+  const shouldAutoCollapseLeft = useViewportMediaQuery(`(max-width: ${leftCollapseAt}px)`)
+  const shouldAutoExpandLeft = useViewportMediaQuery(`(min-width: ${leftExpandAt}px)`)
+
+  useEffect(() => {
+    // Room returned → drop manual-expand overrides so auto-collapse can resume.
+    if (shouldAutoExpandRight) manualRightExpandedOverrideRef.current = false
+    if (shouldAutoExpandLeft) manualLeftExpandedOverrideRef.current = false
+
+    if (
+      shouldAutoCollapseRight &&
+      !rightCollapsed &&
+      !userRightCollapsedPrefRef.current &&
+      !manualRightExpandedOverrideRef.current
+    ) {
+      autoCollapsedRightRef.current = true
+      setRightCollapsed(true)
+    } else if (
+      shouldAutoExpandRight &&
+      rightCollapsed &&
+      autoCollapsedRightRef.current &&
+      !userRightCollapsedPrefRef.current
+    ) {
+      autoCollapsedRightRef.current = false
+      setRightCollapsed(false)
+    }
+
+    if (
+      shouldAutoCollapseLeft &&
+      !leftCollapsed &&
+      !userLeftCollapsedPrefRef.current &&
+      !manualLeftExpandedOverrideRef.current
+    ) {
+      autoCollapsedLeftRef.current = true
+      setLeftCollapsed(true)
+    } else if (
+      shouldAutoExpandLeft &&
+      leftCollapsed &&
+      autoCollapsedLeftRef.current &&
+      !userLeftCollapsedPrefRef.current
+    ) {
+      autoCollapsedLeftRef.current = false
+      setLeftCollapsed(false)
+    }
+  }, [
+    shouldAutoCollapseRight,
+    shouldAutoExpandRight,
+    shouldAutoCollapseLeft,
+    shouldAutoExpandLeft,
+    rightCollapsed,
+    leftCollapsed,
+  ])
+
+  // Split ⇄ live is driven by the editor pane's ACTUAL measured width (not derived
+  // viewport math) so collapsing a side pane — which grows the editor — naturally
+  // re-credits the freed space, with no breakpoint feedback loop. Not observed in
+  // graph mode (the editor pane isn't mounted), so it can't mutate mode then.
+  const centerRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = centerRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const evaluate = (width: number) => {
+      if (width <= 0) return
+      if (width < KB_SPLIT_MIN_WIDTH) {
+        if (mode === "split" && !userModeOverrideRef.current) {
+          autoSwitchedToLiveRef.current = true
+          setMode("live")
+        }
+      } else if (width >= KB_SPLIT_MIN_WIDTH + KB_RESPONSIVE_HYSTERESIS) {
+        // Room returned → allow auto-switch again; restore a prior auto-switch.
+        userModeOverrideRef.current = false
+        if (mode === "live" && autoSwitchedToLiveRef.current) {
+          autoSwitchedToLiveRef.current = false
+          setMode("split")
+        }
+      }
+    }
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) evaluate(e.contentRect.width)
+    })
+    ro.observe(el)
+    evaluate(el.getBoundingClientRect().width)
+    return () => ro.disconnect()
+  }, [mode, graphMode])
 
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
@@ -1298,6 +1545,33 @@ export default function KnowledgeView({
         className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-2"
         data-tauri-drag-region
       >
+        <IconTip
+          label={
+            leftCollapsed
+              ? t("knowledge.expandLeft", "Expand sidebar")
+              : t("knowledge.collapseLeft", "Collapse sidebar")
+          }
+          side="bottom"
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn("h-8 w-8", leftCollapsed ? "text-muted-foreground" : "text-foreground")}
+            aria-label={
+              leftCollapsed
+                ? t("knowledge.expandLeft", "Expand sidebar")
+                : t("knowledge.collapseLeft", "Collapse sidebar")
+            }
+            aria-expanded={!leftCollapsed}
+            onClick={() => handleLeftCollapsedChange(!leftCollapsed)}
+          >
+            {leftCollapsed ? (
+              <PanelLeftDashed className="h-4 w-4" />
+            ) : (
+              <PanelLeft className="h-4 w-4" />
+            )}
+          </Button>
+        </IconTip>
         <IconTip label={t("common.back", "Back")} side="bottom">
           <Button
             variant="ghost"
@@ -1321,9 +1595,11 @@ export default function KnowledgeView({
         </Button>
         {/* Container fills the middle (pinning Settings + tasks flush right); the
             input stays capped + left-anchored via max-w-md so it isn't too wide.
+            `min-w-0` lets it absorb ALL shrinkage on a narrow window — the input
+            compresses first instead of the right-side controls being clipped.
             data-tauri-drag-region keeps the empty area right of the input draggable
             (the input is a child, so clicking it still types). */}
-        <div className="relative flex-1" data-tauri-drag-region>
+        <div className="relative flex-1 min-w-0" data-tauri-drag-region>
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -1335,6 +1611,9 @@ export default function KnowledgeView({
             className="h-8 max-w-md pl-7 text-xs"
           />
         </div>
+        {/* Right cluster — shrink-0 so it's never clipped; the search input above
+            absorbs window shrinkage instead. */}
+        <div className="flex shrink-0 items-center gap-2">
         {onOpenSettings && <KnowledgeEmbeddingBadge onOpenSettings={onOpenSettings} />}
         <IconTip label={t("knowledge.graph.toggle", "Graph view")} side="bottom">
           <Button
@@ -1359,11 +1638,60 @@ export default function KnowledgeView({
           }}
         />
         <KnowledgeJobsButton />
+        {!graphMode && (
+          <IconTip
+            label={
+              rightCollapsed
+                ? t("knowledge.expandRight", "Expand panel")
+                : t("knowledge.collapseRight", "Collapse panel")
+            }
+            side="bottom"
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8",
+                rightCollapsed ? "text-muted-foreground" : "text-foreground",
+              )}
+              aria-label={
+                rightCollapsed
+                  ? t("knowledge.expandRight", "Expand panel")
+                  : t("knowledge.collapseRight", "Collapse panel")
+              }
+              aria-expanded={!rightCollapsed}
+              onClick={() => handleRightCollapsedChange(!rightCollapsed)}
+            >
+              {rightCollapsed ? (
+                <PanelRightDashed className="h-4 w-4" />
+              ) : (
+                <PanelRight className="h-4 w-4" />
+              )}
+            </Button>
+          </IconTip>
+        )}
+        </div>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {/* Left: KB list + notes */}
-        <div className="flex w-64 min-w-64 flex-col border-r border-border-soft/60">
+        {/* Left: KB list + notes — collapsible + resizable (mirrors chat) */}
+        <div
+          style={{ width: leftCollapsed ? 0 : leftWidth }}
+          className={cn("relative h-full shrink-0", !isResizingLeft && PANE_WIDTH_TRANSITION)}
+        >
+          <div className="h-full overflow-hidden">
+            <div
+              style={{ width: leftWidth }}
+              aria-hidden={leftCollapsed}
+              inert={leftCollapsed ? true : undefined}
+              className={cn(
+                "flex h-full flex-col border-r border-border-soft/60",
+                PANE_SURFACE_TRANSITION,
+                leftCollapsed
+                  ? "pointer-events-none -translate-x-4 opacity-0"
+                  : "translate-x-0 opacity-100",
+              )}
+            >
           <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
             <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("knowledge.spaces", "Spaces")}
@@ -1535,6 +1863,19 @@ export default function KnowledgeView({
           >
             {renderNodes(noteTree, 0)}
           </div>
+            </div>
+          </div>
+          <div
+            className={cn(
+              PANE_HANDLE_BASE,
+              "right-0",
+              leftCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+            )}
+            onMouseDown={onDragLeft}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("knowledge.resizeLeft", "Resize sidebar")}
+          />
         </div>
 
         {graphMode && activeKbId ? (
@@ -1548,7 +1889,11 @@ export default function KnowledgeView({
         ) : (
           <>
         {/* Center: editor */}
-        <div className="flex flex-1 min-w-0 flex-col">
+        <div
+          ref={centerRef}
+          className="flex flex-1 min-w-0 flex-col"
+          style={{ minWidth: `min(100%, ${KB_CONTENT_MIN_WIDTH}px)` }}
+        >
           {draftMode ? (
             <>
               <div className="flex items-center gap-2 border-b border-border-soft/60 px-3 py-1.5">
@@ -1571,7 +1916,7 @@ export default function KnowledgeView({
                   }}
                   className="h-7 flex-1 border-0 bg-transparent px-1 text-sm font-medium shadow-none focus-visible:ring-0"
                 />
-                <ModeSwitch mode={mode} onChange={setMode} />
+                <ModeSwitch mode={mode} onChange={handleModeChange} />
                 <Button variant="outline" size="sm" className="h-7" disabled={saving} onClick={saveDraft}>
                   {saving ? (
                     <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -1603,7 +1948,7 @@ export default function KnowledgeView({
                   }}
                   embedCacheKey={embedCacheKey}
                   onOutlineJump={(line) => {
-                    setMode("source")
+                    handleModeChange("source")
                     setRevealTarget({ line })
                   }}
                 />
@@ -1729,7 +2074,7 @@ export default function KnowledgeView({
                     </Button>
                   </IconTip>
                 )}
-                <ModeSwitch mode={mode} onChange={setMode} />
+                <ModeSwitch mode={mode} onChange={handleModeChange} />
                 {!readOnly && (
                   <Button
                     variant="outline"
@@ -1775,7 +2120,7 @@ export default function KnowledgeView({
                   onOutlineJump={(line) => {
                     // Outline has no CM6 view to scroll — switch to source first,
                     // then reveal the line (new object identity re-fires reveal).
-                    setMode("source")
+                    handleModeChange("source")
                     setRevealTarget({ line })
                   }}
                 />
@@ -1791,8 +2136,24 @@ export default function KnowledgeView({
           )}
         </div>
 
-        {/* Right: backlinks / outgoing / tags OR search results */}
-        <div className="flex w-72 min-w-72 flex-col border-l border-border-soft/60">
+        {/* Right: backlinks / tags — collapsible + resizable (mirrors chat) */}
+        <div
+          style={{ width: rightCollapsed ? 0 : rightWidth }}
+          className={cn("relative h-full shrink-0", !isResizingRight && PANE_WIDTH_TRANSITION)}
+        >
+          <div className="h-full overflow-hidden">
+            <div
+              style={{ width: rightWidth }}
+              aria-hidden={rightCollapsed}
+              inert={rightCollapsed ? true : undefined}
+              className={cn(
+                "flex h-full flex-col border-l border-border-soft/60",
+                PANE_SURFACE_TRANSITION,
+                rightCollapsed
+                  ? "pointer-events-none translate-x-4 opacity-0"
+                  : "translate-x-0 opacity-100",
+              )}
+            >
           {hits.length > 0 ? (
             <>
               <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
@@ -1931,6 +2292,19 @@ export default function KnowledgeView({
               {t("knowledge.backlinksHint", "Open a note to see its backlinks.")}
             </div>
           )}
+            </div>
+          </div>
+          <div
+            className={cn(
+              PANE_HANDLE_BASE,
+              "left-0",
+              rightCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
+            )}
+            onMouseDown={onDragRight}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("knowledge.resizeRight", "Resize panel")}
+          />
         </div>
           </>
         )}
