@@ -131,6 +131,34 @@ pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
     })
 }
 
+/// Fast-path check for the per-token streaming hot loop: returns
+/// `Some(accepting)` (`accepting = !cancel`) when `(session_id, turn_id)` is
+/// the live active turn, **without** cloning the snapshot's Strings + Arc that
+/// [`current`] allocates. Returns `None` when no entry matches that exact turn
+/// (the caller decides the fallback — see `turn_accepts_stream_event`).
+pub fn is_accepting(session_id: &str, turn_id: &str) -> Option<bool> {
+    let map = registry()
+        .lock()
+        .expect("active chat turn registry poisoned");
+    map.get(session_id).and_then(|entry| {
+        if entry.turn_id == turn_id {
+            Some(!entry.cancel.load(std::sync::atomic::Ordering::SeqCst))
+        } else {
+            None
+        }
+    })
+}
+
+/// True when the session has *any* live active-turn entry (turn_id agnostic).
+/// Lets `turn_accepts_stream_event` preserve the original "a different turn is
+/// live → reject without a DB probe" semantics without cloning a snapshot.
+pub fn has_entry(session_id: &str) -> bool {
+    registry()
+        .lock()
+        .expect("active chat turn registry poisoned")
+        .contains_key(session_id)
+}
+
 pub fn all_current() -> Vec<ActiveTurnSnapshot> {
     let map = registry()
         .lock()
@@ -340,6 +368,34 @@ mod tests {
         assert_eq!(snapshot.stream_id.as_deref(), Some("stream-current"));
         assert!(Arc::ptr_eq(&snapshot.cancel, &cancel));
         assert!(!set_stream_id(sid, "other-turn", "stream-other"));
+    }
+
+    #[test]
+    fn is_accepting_and_has_entry_match_current_semantics() {
+        let _lock = test_lock();
+        let sid = "test-active-turn-is-accepting";
+        // No entry yet.
+        assert_eq!(is_accepting(sid, "turn-x"), None);
+        assert!(!has_entry(sid));
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let _guard = try_acquire(
+            sid,
+            ChatSource::Desktop,
+            "turn-acc".to_string(),
+            Arc::clone(&cancel),
+        )
+        .unwrap();
+
+        // Matching live turn, not cancelled → Some(true).
+        assert_eq!(is_accepting(sid, "turn-acc"), Some(true));
+        assert!(has_entry(sid));
+        // Session has an entry but under a *different* turn → None (caller
+        // rejects without a DB probe, preserving old semantics).
+        assert_eq!(is_accepting(sid, "turn-other"), None);
+        // Cancelled → Some(false).
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(is_accepting(sid, "turn-acc"), Some(false));
     }
 
     #[test]

@@ -60,11 +60,16 @@ fn turn_accepts_stream_event(
     let Some(turn_id) = turn_id else {
         return true;
     };
-    if let Some(active) = super::active_turn::current(session_id) {
-        return active.turn_id == turn_id
-            && !active.cancel.load(std::sync::atomic::Ordering::SeqCst);
+    // Hot path: `is_accepting` reads the registry without cloning the
+    // 3-String + Arc snapshot that `current` allocates per call.
+    match super::active_turn::is_accepting(session_id, turn_id) {
+        Some(accepting) => accepting,
+        // No entry for *this* turn. Preserve the original semantics: if some
+        // other turn is live for this session, reject without a DB probe;
+        // only a fully-absent entry falls back to the terminal-state probe.
+        None if super::active_turn::has_entry(session_id) => false,
+        None => terminal_turn_state(db, Some(turn_id)).is_none(),
     }
-    terminal_turn_state(db, Some(turn_id)).is_none()
 }
 
 /// Successful chat round payload returned by the executor closure.
@@ -233,6 +238,21 @@ fn emit_stream_event(
     if !turn_accepts_stream_event(db, session_id, turn_id) {
         return false;
     }
+    emit_stream_event_unchecked(event_sink, session_id, source, turn_id, event);
+    true
+}
+
+/// Emit a stream event when the caller has *already* confirmed the turn
+/// accepts events this tick. The per-token streaming hot loop calls this after
+/// its own `turn_accepts_stream_event` guard, avoiding a second registry lock
+/// + snapshot clone per token.
+fn emit_stream_event_unchecked(
+    event_sink: &std::sync::Arc<dyn EventSink>,
+    session_id: &str,
+    source: stream_seq::ChatSource,
+    turn_id: Option<&str>,
+    event: &str,
+) {
     let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
         event.to_string()
@@ -246,7 +266,6 @@ fn emit_stream_event(
     // mirror is the primary consumer). The primary `event_sink`
     // above is intentionally not registered, so each consumer fires once.
     sink_registry::sink_registry().emit(session_id, &payload);
-    true
 }
 
 // ── Core Chat Engine ────────────────────────────────────────────────
@@ -744,8 +763,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                         .store(false, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 persist_cb(delta);
-                                emit_stream_event(
-                                    &db_owned,
+                                // Guard already checked above this tick — skip
+                                // the redundant turn_accepts lock + snapshot.
+                                emit_stream_event_unchecked(
                                     &event_sink_for_cb,
                                     &session_for_cb,
                                     source_for_cb,

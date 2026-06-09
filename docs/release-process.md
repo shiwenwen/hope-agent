@@ -38,6 +38,10 @@ PR (含 release notes + CHANGELOG + version bump)
 
 `package.json` 是版本号唯一真相源，[scripts/sync-version.mjs](../scripts/sync-version.mjs) 把它同步到 [src-tauri/Cargo.toml](../src-tauri/Cargo.toml) 与 [src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json)。CI 入口 [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) 在 tag 触发后校验三处一致且与 tag 名匹配。
 
+### 0.5 macOS 代码签名
+
+`release.yml` 用一个固定自签名证书签 macOS 包，让授予的系统权限（录屏 / 辅助功能等）跨自动更新不失效（ad-hoc 签名会随 cdhash 变化每次重置授权）。一次性配置（生成证书 + 4 个 GitHub Secrets）见 [macos-self-signing.md](macos-self-signing.md)。Secrets 未配时自动退回 ad-hoc，不影响发布。
+
 ---
 
 ## 1. patch 发版完整步骤

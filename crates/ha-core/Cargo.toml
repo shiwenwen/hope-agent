@@ -1,6 +1,6 @@
 [package]
 name = "ha-core"
-version = "0.7.0"
+version = "0.8.0"
 description = "Hope Agent core business logic — zero Tauri dependency"
 license.workspace = true
 authors.workspace = true
@@ -45,13 +45,17 @@ cron = "0.13"
 pdf-extract = "0.10"
 pdfium-render = "0.9"
 calamine = "0.34"
-zip = "2"
-quick-xml = "0.37"
+zip = "7"
+quick-xml = "0.39"
 scraper = "0.26.0"
 chromiumoxide = "0.9"
-readability = "0.3"
+# default-features=false 砍掉 readability 的 reqwest(0.11)抓取特性——只用它的纯
+# 离线正文抽取 extractor::extract()（web_fetch.rs，HTTP 我们自己用 reqwest 0.12）。
+# 连带消除整条重复的旧 HTTP 栈：reqwest 0.11 + hyper 0.14 + h2 0.3 + http 0.2 +
+# hyper-tls 0.5 + system-configuration + rustls-pemfile + base64 0.21 等。
+readability = { version = "0.3", default-features = false }
 htmd = "0.5"
-which = "7"
+which = "8"
 sysinfo = "0.38"
 open = "5"
 tiny_http = "0.12"
@@ -75,8 +79,13 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 tokio-native-tls = "0.3"
-openssl = { version = "0.10", features = ["vendored"] }
 hmac = "0.12"
+# WeChat iLink media CDN crypto — AES-128-ECB + MD5, pure Rust. Replaces the
+# former `openssl` dependency so openssl-sys is no longer compiled on Windows /
+# macOS (see the Linux-only `openssl` target dep below, kept solely to vendor
+# native-tls's OpenSSL on Linux).
+aes = "0.8"
+md-5 = "0.10"
 jsonwebtoken = "9"
 axum = "0.8"
 prost = "0.14"
@@ -105,6 +114,16 @@ objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSErro
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+
+# Not a code dependency — the WeChat media crypto moved to the pure-Rust `aes`
+# + `md-5` crates above. On Linux, `native-tls` (reqwest / tokio-tungstenite)
+# links openssl-sys; the `vendored` feature here statically bundles OpenSSL so
+# the headless server bin (Docker image + bare Linux release) needs no system
+# libssl at runtime. Windows uses SChannel and macOS uses Security.framework,
+# so neither compiles openssl-sys — keeping this Linux-only means the fragile
+# vendored-from-source OpenSSL build never runs on the Windows runner.
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 tempfile = "3"
