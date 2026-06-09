@@ -770,6 +770,13 @@ pub struct AppConfig {
     /// unaffected.
     #[serde(default)]
     pub hooks_allow_project_scope: bool,
+
+    /// Auto-update behavior: background check cadence, silent download, and
+    /// user notification. Shared single source of truth for both the desktop
+    /// (`@tauri-apps/plugin-updater`) and headless (`updater::auto_check`)
+    /// paths. See `crate::updater::AutoUpdateConfig`.
+    #[serde(default)]
+    pub auto_update: crate::updater::AutoUpdateConfig,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -875,6 +882,7 @@ impl Default for AppConfig {
             hooks: crate::hooks::HooksConfig::default(),
             disable_all_hooks: false,
             hooks_allow_project_scope: false,
+            auto_update: crate::updater::AutoUpdateConfig::default(),
         }
     }
 }

@@ -35,6 +35,16 @@
     "updateRestartManually": "Update installed but Hope Agent didn't restart automatically. Please quit and reopen the app.",
     "updateReady": "Check GitHub Releases for a newer desktop build or let Hope Agent install one for you.",
     "updateUpToDate": "You're up to date on v{{version}}.",
+    "updateAndRestart": "Update & restart",
+    "updateOnly": "Update only",
+    "updateAwaitingRestart": "Installed — restart to apply",
+    "restartNow": "Restart now",
+    "autoUpdateTitle": "Auto-update",
+    "autoUpdateDesc": "Check for new versions in the background and, optionally, download them ahead of time so installing is instant.",
+    "autoUpdateCheck": "Check for updates automatically",
+    "autoUpdateInterval": "Check interval (hours)",
+    "autoUpdateDownload": "Download updates in the background",
+    "autoUpdateNotify": "Notify me about available updates",
     "version": "Version"
   },
   "approval": {

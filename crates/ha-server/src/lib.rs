@@ -604,6 +604,14 @@ fn build_router_with_cors(
             put(routes::config::save_notification_config),
         )
         .route(
+            "/config/auto-update",
+            get(routes::config::get_auto_update_config),
+        )
+        .route(
+            "/config/auto-update",
+            put(routes::config::set_auto_update_config),
+        )
+        .route(
             "/config/startup-notification",
             get(routes::config::get_startup_notification_config),
         )

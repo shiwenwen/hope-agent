@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import type { LucideIcon } from "lucide-react"
 import {
   Brain,
+  Check,
   Download,
   ExternalLink,
   Globe,
@@ -10,20 +11,26 @@ import {
   Loader2,
   Monitor,
   RefreshCw,
+  RotateCcw,
 } from "lucide-react"
 import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import {
   checkForDesktopUpdate,
+  getAutoUpdateConfig,
+  invalidateAutoUpdateConfig,
   isDesktopUpdaterAvailable,
-  relaunchDesktopApp,
   setPendingUpdate as setGlobalPendingUpdate,
   subscribeManualCheckRequests,
+  type AutoUpdateConfig,
   type DesktopUpdate,
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { useDesktopUpdateInstall } from "@/hooks/useDesktopUpdateInstall"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 
@@ -44,12 +51,77 @@ export default function AboutPanel({
   const appVersion = useAppVersion()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [installingUpdate, setInstallingUpdate] = useState(false)
   const [pendingUpdate, setPendingUpdate] = useState<DesktopUpdate | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
-  const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
   const desktopUpdaterAvailable = isDesktopUpdaterAvailable()
+
+  // Shared install/restart lifecycle (same hook the App.tsx toast uses) so the
+  // two surfaces stay in lockstep; failure + staged-restart states are handled
+  // inside the hook.
+  const {
+    installing: installingUpdate,
+    downloadPercent,
+    awaitingRestart,
+    install: runInstall,
+    restartNow: runRestartNow,
+  } = useDesktopUpdateInstall(pendingUpdate, {
+    onError: (err) => {
+      const detail = describeError(err)
+      logger.error("updater", "AboutPanel::install", "install failed", {
+        error: detail,
+        fromVersion: appVersion,
+        toVersion: pendingUpdate?.version,
+      })
+      setUpdateStatus(t("about.updateInstallFailed"))
+      setUpdateError(detail)
+    },
+    beforeRelaunch: async () => {
+      // Give the user a beat to see the "installed, restarting" message before
+      // the process exits.
+      setUpdateStatus(t("about.updateInstalled"))
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    },
+  })
+
+  // ── Auto-update preferences ──────────────────────────────────
+  const [autoCfg, setAutoCfg] = useState<AutoUpdateConfig | null>(null)
+  const [autoSaving, setAutoSaving] = useState(false)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  // Load auto-update config on both transports — the headless `hope-agent
+  // server` runs the auto-update loop too, so its web UI must expose the same
+  // toggles (the get/set_auto_update_config commands work over Tauri AND HTTP).
+  useEffect(() => {
+    let cancelled = false
+    getAutoUpdateConfig(true)
+      .then((cfg) => {
+        if (!cancelled) setAutoCfg(cfg)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function saveAutoCfg(next: AutoUpdateConfig) {
+    setAutoCfg(next)
+    setAutoSaving(true)
+    try {
+      await getTransport().call("set_auto_update_config", { config: next })
+      invalidateAutoUpdateConfig()
+      setAutoSaveStatus("saved")
+      setTimeout(() => setAutoSaveStatus("idle"), 2000)
+    } catch (err) {
+      logger.error("updater", "AboutPanel::saveAutoCfg", "save failed", {
+        error: describeError(err),
+      })
+      setAutoSaveStatus("failed")
+      setTimeout(() => setAutoSaveStatus("idle"), 2000)
+    } finally {
+      setAutoSaving(false)
+    }
+  }
 
   function describeError(err: unknown): string {
     if (err instanceof Error) return err.message || err.toString()
@@ -123,7 +195,6 @@ export default function AboutPanel({
     setCheckingUpdate(true)
     setUpdateStatus(t("about.updateChecking"))
     setUpdateError(null)
-    setDownloadPercent(null)
 
     try {
       const update = await checkForDesktopUpdate()
@@ -161,76 +232,27 @@ export default function AboutPanel({
     }
   })
 
-  async function handleInstallUpdate() {
+  // `relaunchAfter` true ⇒ "更新并重启", false ⇒ "仅更新". The download / install
+  // / staged-restart lifecycle (and failure handling) lives in the shared hook;
+  // here we just set the "installing vX" status and delegate.
+  function handleInstall(relaunchAfter: boolean) {
     if (!pendingUpdate) return
-
-    setInstallingUpdate(true)
-    setDownloadPercent(0)
     setUpdateError(null)
     setUpdateStatus(t("about.updateInstalling", { version: pendingUpdate.version }))
-    logger.info("updater", "AboutPanel::handleInstallUpdate", "install started", {
+    logger.info("updater", "AboutPanel::install", "install started", {
       fromVersion: appVersion,
       toVersion: pendingUpdate.version,
+      relaunchAfter,
     })
+    void runInstall(relaunchAfter)
+  }
 
-    let downloaded = 0
-    let contentLength = 0
-
+  async function handleRestartNow() {
     try {
-      await pendingUpdate.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            contentLength = event.data.contentLength
-            setDownloadPercent(0)
-            break
-          case "Progress":
-            downloaded += event.data.chunkLength
-            if (contentLength > 0) {
-              setDownloadPercent(Math.min(100, Math.round((downloaded / contentLength) * 100)))
-            }
-            break
-          case "Finished":
-            setDownloadPercent(100)
-            break
-        }
-      })
-
-      await setPendingUpdate(null)
-      void setGlobalPendingUpdate(null)
-      setUpdateStatus(t("about.updateInstalled"))
-      logger.info(
-        "updater",
-        "AboutPanel::handleInstallUpdate",
-        "install completed, scheduling relaunch",
-      )
-      // Give the user a beat to see the "installed, restarting" message
-      // before the process exits — without this the UI flips to a blank
-      // pre-relaunch state and the whole flow feels like nothing happened.
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      try {
-        await relaunchDesktopApp()
-      } catch (err) {
-        // relaunch() normally never returns (process exits). If it threw,
-        // surface a manual-restart hint instead of silently leaving the
-        // user staring at the "installed" message.
-        const detail = describeError(err)
-        logger.error("updater", "AboutPanel::handleInstallUpdate", "relaunch failed", {
-          error: detail,
-        })
-        setUpdateStatus(t("about.updateRestartManually"))
-        setUpdateError(detail)
-      }
+      await runRestartNow()
     } catch (err) {
-      const detail = describeError(err)
-      logger.error("updater", "AboutPanel::handleInstallUpdate", "install failed", {
-        error: detail,
-        fromVersion: appVersion,
-        toVersion: pendingUpdate.version,
-      })
-      setUpdateStatus(t("about.updateInstallFailed"))
-      setUpdateError(detail)
-    } finally {
-      setInstallingUpdate(false)
+      setUpdateStatus(t("about.updateRestartManually"))
+      setUpdateError(describeError(err))
     }
   }
 
@@ -292,7 +314,7 @@ export default function AboutPanel({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-foreground">
-                      {updateStatus}
+                      {awaitingRestart ? t("about.updateAwaitingRestart") : updateStatus}
                     </p>
                     {pendingUpdate.body && (
                       <div className="update-notes-markdown mt-1 max-h-48 overflow-auto text-xs leading-relaxed text-muted-foreground">
@@ -300,21 +322,43 @@ export default function AboutPanel({
                       </div>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    className="mt-1 shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
-                    onClick={handleInstallUpdate}
-                    disabled={installingUpdate || checkingUpdate}
-                  >
-                    {installingUpdate ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Download className="h-3.5 w-3.5" />
-                    )}
-                    {installingUpdate
-                      ? t("about.updateInstalling", { version: pendingUpdate.version })
-                      : t("about.updateInstall", { version: pendingUpdate.version })}
-                  </Button>
+                  {awaitingRestart ? (
+                    <Button
+                      size="sm"
+                      className="mt-1 shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                      onClick={handleRestartNow}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      {t("about.restartNow")}
+                    </Button>
+                  ) : (
+                    <div className="mt-1 flex shrink-0 items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 rounded-full"
+                        onClick={() => handleInstall(false)}
+                        disabled={installingUpdate || checkingUpdate}
+                      >
+                        {t("about.updateOnly")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                        onClick={() => handleInstall(true)}
+                        disabled={installingUpdate || checkingUpdate}
+                      >
+                        {installingUpdate ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5" />
+                        )}
+                        {installingUpdate
+                          ? t("about.updateInstalling", { version: pendingUpdate.version })
+                          : t("about.updateAndRestart")}
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 {installingUpdate && downloadPercent !== null && (
                   <div className="px-5 pb-4">
@@ -376,6 +420,71 @@ export default function AboutPanel({
             </div>
           </div>
         </section>
+
+        {autoCfg && (
+          <section className="rounded-[24px] border border-border/70 bg-card px-6 py-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground">
+                  {t("about.autoUpdateTitle")}
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  {t("about.autoUpdateDesc")}
+                </p>
+              </div>
+              {autoSaving ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              ) : autoSaveStatus === "saved" ? (
+                <Check className="h-4 w-4 shrink-0 text-green-500" />
+              ) : null}
+            </div>
+
+            <div className="mt-4 flex flex-col divide-y divide-border/50">
+              <div className="flex items-center justify-between gap-4 py-3">
+                <span className="text-sm text-foreground">{t("about.autoUpdateCheck")}</span>
+                <Switch
+                  checked={autoCfg.checkEnabled}
+                  disabled={autoSaving}
+                  onCheckedChange={(v) => saveAutoCfg({ ...autoCfg, checkEnabled: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3">
+                <span className="text-sm text-foreground">{t("about.autoUpdateInterval")}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={autoCfg.checkIntervalHours}
+                  disabled={autoSaving || !autoCfg.checkEnabled}
+                  className="h-8 w-24"
+                  onChange={(e) =>
+                    setAutoCfg({ ...autoCfg, checkIntervalHours: Number(e.target.value) || 1 })
+                  }
+                  onBlur={() => {
+                    const clamped = Math.min(168, Math.max(1, autoCfg.checkIntervalHours || 12))
+                    saveAutoCfg({ ...autoCfg, checkIntervalHours: clamped })
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3">
+                <span className="text-sm text-foreground">{t("about.autoUpdateDownload")}</span>
+                <Switch
+                  checked={autoCfg.autoDownload}
+                  disabled={autoSaving || !autoCfg.checkEnabled}
+                  onCheckedChange={(v) => saveAutoCfg({ ...autoCfg, autoDownload: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 py-3">
+                <span className="text-sm text-foreground">{t("about.autoUpdateNotify")}</span>
+                <Switch
+                  checked={autoCfg.notify}
+                  disabled={autoSaving || !autoCfg.checkEnabled}
+                  onCheckedChange={(v) => saveAutoCfg({ ...autoCfg, notify: v })}
+                />
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-4 lg:grid-cols-3">
           {highlights.map((item) => {

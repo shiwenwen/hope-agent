@@ -31,7 +31,9 @@
 //! - Downloads are byte-capped at [`download::MAX_DOWNLOAD_BYTES`] so a
 //!   tampered manifest can't fill `~/.hope-agent/updater/staging/`.
 
+pub mod auto_check;
 pub mod backup;
+pub mod config;
 pub mod download;
 pub mod keys;
 pub mod manifest;
@@ -40,11 +42,14 @@ pub mod self_contained;
 pub mod service_control;
 pub mod signature;
 pub mod source_detector;
+pub mod staging;
 
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Result;
 use async_trait::async_trait;
+
+pub use config::AutoUpdateConfig;
 use serde::Serialize;
 
 use source_detector::InstallSource;

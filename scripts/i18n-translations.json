@@ -804,7 +804,17 @@
       "featureReachDesc": "ローカルのデスクトップアプリとして使うことも、常駐サービスとして動かすことも、チャネルや定期ルーチンに組み込むこともできます。",
       "releases": "リリース",
       "feedback": "フィードバックと課題",
-      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。"
+      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。",
+      "updateAndRestart": "更新して再起動",
+      "updateOnly": "更新のみ",
+      "updateAwaitingRestart": "インストール済み — 再起動で適用",
+      "restartNow": "今すぐ再起動",
+      "autoUpdateTitle": "自動更新",
+      "autoUpdateDesc": "バックグラウンドで新しいバージョンを確認し、必要に応じて事前にダウンロードしてインストールを即座に行います。",
+      "autoUpdateCheck": "自動的に更新を確認",
+      "autoUpdateInterval": "確認間隔（時間）",
+      "autoUpdateDownload": "バックグラウンドで更新をダウンロード",
+      "autoUpdateNotify": "更新があれば通知する"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -1746,7 +1756,17 @@
       "featureReachDesc": "로컬 데스크톱 앱으로 쓰거나, 서비스처럼 계속 실행하거나, 채널과 예약된 루틴에 연결할 수 있습니다.",
       "releases": "릴리스",
       "feedback": "피드백 및 이슈",
-      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
+      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다.",
+      "updateAndRestart": "업데이트 후 재시작",
+      "updateOnly": "업데이트만",
+      "updateAwaitingRestart": "설치됨 — 재시작하면 적용",
+      "restartNow": "지금 재시작",
+      "autoUpdateTitle": "자동 업데이트",
+      "autoUpdateDesc": "백그라운드에서 새 버전을 확인하고 선택적으로 미리 다운로드하여 즉시 설치할 수 있습니다.",
+      "autoUpdateCheck": "자동으로 업데이트 확인",
+      "autoUpdateInterval": "확인 주기(시간)",
+      "autoUpdateDownload": "백그라운드에서 업데이트 다운로드",
+      "autoUpdateNotify": "업데이트가 있으면 알림"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -2688,7 +2708,17 @@
       "featureReachDesc": "可以是本地桌面應用，也可以常駐為服務，接入聊天渠道和定時任務。",
       "releases": "發行版本",
       "feedback": "回饋與問題",
-      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。"
+      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。",
+      "updateAndRestart": "更新並重新啟動",
+      "updateOnly": "僅更新",
+      "updateAwaitingRestart": "已安裝，重新啟動後生效",
+      "restartNow": "立即重新啟動",
+      "autoUpdateTitle": "自動更新",
+      "autoUpdateDesc": "在背景檢查新版本，並可選擇提前下載，讓安裝瞬間完成。",
+      "autoUpdateCheck": "自動檢查更新",
+      "autoUpdateInterval": "檢查間隔（小時）",
+      "autoUpdateDownload": "在背景下載更新",
+      "autoUpdateNotify": "有可用更新時通知我"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -3611,7 +3641,17 @@
       "featureReachDesc": "Yerel masaüstü uygulaması olarak kullanın, hizmet olarak sürekli çalıştırın ya da kanallara ve zamanlanmış rutinlere bağlayın.",
       "releases": "Sürümler",
       "feedback": "Geri bildirim ve sorunlar",
-      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
+      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı.",
+      "updateAndRestart": "Güncelle ve yeniden başlat",
+      "updateOnly": "Yalnızca güncelle",
+      "updateAwaitingRestart": "Kuruldu — uygulamak için yeniden başlatın",
+      "restartNow": "Şimdi yeniden başlat",
+      "autoUpdateTitle": "Otomatik güncelleme",
+      "autoUpdateDesc": "Yeni sürümleri arka planda denetler ve isteğe bağlı olarak önceden indirerek kurulumu anında yapar.",
+      "autoUpdateCheck": "Güncellemeleri otomatik denetle",
+      "autoUpdateInterval": "Denetim aralığı (saat)",
+      "autoUpdateDownload": "Güncellemeleri arka planda indir",
+      "autoUpdateNotify": "Güncelleme olduğunda bana bildir"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -4553,7 +4593,17 @@
       "featureReachDesc": "Dùng như ứng dụng desktop cục bộ, giữ chạy như một dịch vụ, hoặc kết nối vào các kênh và lịch trình định kỳ.",
       "releases": "Bản phát hành",
       "feedback": "Phản hồi và lỗi",
-      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
+      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài.",
+      "updateAndRestart": "Cập nhật và khởi động lại",
+      "updateOnly": "Chỉ cập nhật",
+      "updateAwaitingRestart": "Đã cài đặt — khởi động lại để áp dụng",
+      "restartNow": "Khởi động lại ngay",
+      "autoUpdateTitle": "Tự động cập nhật",
+      "autoUpdateDesc": "Kiểm tra phiên bản mới trong nền và tùy chọn tải trước để cài đặt tức thì.",
+      "autoUpdateCheck": "Tự động kiểm tra cập nhật",
+      "autoUpdateInterval": "Khoảng thời gian kiểm tra (giờ)",
+      "autoUpdateDownload": "Tải cập nhật trong nền",
+      "autoUpdateNotify": "Thông báo khi có bản cập nhật"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -5495,7 +5545,17 @@
       "featureReachDesc": "Use como app local de desktop, mantenha rodando como serviço ou conecte a canais e rotinas agendadas.",
       "releases": "Lançamentos",
       "feedback": "Feedback e problemas",
-      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo."
+      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo.",
+      "updateAndRestart": "Atualizar e reiniciar",
+      "updateOnly": "Apenas atualizar",
+      "updateAwaitingRestart": "Instalado — reinicie para aplicar",
+      "restartNow": "Reiniciar agora",
+      "autoUpdateTitle": "Atualização automática",
+      "autoUpdateDesc": "Verifica novas versões em segundo plano e, opcionalmente, baixa com antecedência para uma instalação instantânea.",
+      "autoUpdateCheck": "Verificar atualizações automaticamente",
+      "autoUpdateInterval": "Intervalo de verificação (horas)",
+      "autoUpdateDownload": "Baixar atualizações em segundo plano",
+      "autoUpdateNotify": "Notificar-me sobre atualizações disponíveis"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -6437,7 +6497,17 @@
       "featureReachDesc": "Используйте его как локальное настольное приложение, держите как сервис или подключайте к каналам и расписаниям.",
       "releases": "Релизы",
       "feedback": "Отзывы и проблемы",
-      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании."
+      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании.",
+      "updateAndRestart": "Обновить и перезапустить",
+      "updateOnly": "Только обновить",
+      "updateAwaitingRestart": "Установлено — перезапустите для применения",
+      "restartNow": "Перезапустить сейчас",
+      "autoUpdateTitle": "Автообновление",
+      "autoUpdateDesc": "Проверяет новые версии в фоне и при необходимости заранее загружает их для мгновенной установки.",
+      "autoUpdateCheck": "Автоматически проверять обновления",
+      "autoUpdateInterval": "Интервал проверки (часы)",
+      "autoUpdateDownload": "Загружать обновления в фоне",
+      "autoUpdateNotify": "Уведомлять о доступных обновлениях"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -7379,7 +7449,17 @@
       "featureReachDesc": "استخدمه كتطبيق مكتبي محلي، أو أبقه يعمل كخدمة، أو وصله بالقنوات والمهام المجدولة.",
       "releases": "الإصدارات",
       "feedback": "الملاحظات والمشكلات",
-      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل."
+      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل.",
+      "updateAndRestart": "تحديث وإعادة تشغيل",
+      "updateOnly": "تحديث فقط",
+      "updateAwaitingRestart": "تم التثبيت — أعد التشغيل للتطبيق",
+      "restartNow": "أعد التشغيل الآن",
+      "autoUpdateTitle": "التحديث التلقائي",
+      "autoUpdateDesc": "يتحقق من الإصدارات الجديدة في الخلفية وينزّلها مسبقًا اختياريًا ليكون التثبيت فوريًا.",
+      "autoUpdateCheck": "التحقق من التحديثات تلقائيًا",
+      "autoUpdateInterval": "فترة التحقق (بالساعات)",
+      "autoUpdateDownload": "تنزيل التحديثات في الخلفية",
+      "autoUpdateNotify": "إعلامي بالتحديثات المتاحة"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -8321,7 +8401,17 @@
       "featureReachDesc": "Úsalo como app local de escritorio, mantenlo como servicio o intégralo en canales y rutinas programadas.",
       "releases": "Lanzamientos",
       "feedback": "Comentarios y problemas",
-      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
+      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo.",
+      "updateAndRestart": "Actualizar y reiniciar",
+      "updateOnly": "Solo actualizar",
+      "updateAwaitingRestart": "Instalado: reinicia para aplicar",
+      "restartNow": "Reiniciar ahora",
+      "autoUpdateTitle": "Actualización automática",
+      "autoUpdateDesc": "Busca nuevas versiones en segundo plano y, opcionalmente, las descarga con antelación para una instalación instantánea.",
+      "autoUpdateCheck": "Buscar actualizaciones automáticamente",
+      "autoUpdateInterval": "Intervalo de comprobación (horas)",
+      "autoUpdateDownload": "Descargar actualizaciones en segundo plano",
+      "autoUpdateNotify": "Avisarme de las actualizaciones disponibles"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -9263,7 +9353,17 @@
       "featureReachDesc": "Gunakannya sebagai aplikasi desktop tempatan, kekalkan ia berjalan sebagai perkhidmatan, atau sambungkan ke saluran dan rutin berjadual.",
       "releases": "Keluaran",
       "feedback": "Maklum balas dan isu",
-      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
+      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang.",
+      "updateAndRestart": "Kemas kini & mula semula",
+      "updateOnly": "Kemas kini sahaja",
+      "updateAwaitingRestart": "Dipasang — mula semula untuk digunakan",
+      "restartNow": "Mula semula sekarang",
+      "autoUpdateTitle": "Kemas kini automatik",
+      "autoUpdateDesc": "Semak versi baharu di latar belakang dan secara pilihan muat turun lebih awal supaya pemasangan serta-merta.",
+      "autoUpdateCheck": "Semak kemas kini secara automatik",
+      "autoUpdateInterval": "Selang semakan (jam)",
+      "autoUpdateDownload": "Muat turun kemas kini di latar belakang",
+      "autoUpdateNotify": "Beritahu saya tentang kemas kini yang tersedia"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -9555,6 +9655,18 @@
       "boundAgentHint": "本渠道新建会话的默认 Agent — 切换不会迁移已存在的会话,已建会话用 /agent(桌面)或 /handover 调整。",
       "notifyPrimaryChanges": "primary 变化提醒",
       "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。"
+    },
+    "about": {
+      "updateAndRestart": "更新并重启",
+      "updateOnly": "仅更新",
+      "updateAwaitingRestart": "已安装，重启后生效",
+      "restartNow": "现在重启",
+      "autoUpdateTitle": "自动更新",
+      "autoUpdateDesc": "在后台检查新版本，并可选择提前下载，让安装瞬间完成。",
+      "autoUpdateCheck": "自动检查更新",
+      "autoUpdateInterval": "检查间隔（小时）",
+      "autoUpdateDownload": "在后台下载更新",
+      "autoUpdateNotify": "有可用更新时通知我"
     }
   }
 }
