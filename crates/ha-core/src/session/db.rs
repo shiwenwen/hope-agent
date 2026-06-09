@@ -2870,6 +2870,36 @@ impl SessionDB {
 
     // ── History Search ──────────────────────────────────────────
 
+    /// True when a rusqlite error signals `messages_fts` shadow-table
+    /// corruption ("database disk image is malformed" / `SQLITE_CORRUPT`) — the
+    /// trigger to rebuild the FTS index.
+    fn is_fts_corruption(e: &rusqlite::Error) -> bool {
+        match e {
+            rusqlite::Error::SqliteFailure(f, msg) => {
+                f.code == rusqlite::ErrorCode::DatabaseCorrupt
+                    || msg
+                        .as_deref()
+                        .is_some_and(|m| m.contains("malformed") || m.contains("corrupt"))
+            }
+            _ => false,
+        }
+    }
+
+    /// Rebuild `messages_fts` via the writer connection. The open-time rebuild
+    /// now runs only once (gated by the `user_version` sentinel), so this is the
+    /// on-demand recovery path for corruption that develops afterward — invoked
+    /// from the read path when a query hits `SQLITE_CORRUPT`. Cheaper than the
+    /// old unconditional every-open rebuild: it fires only on real corruption,
+    /// and uses the writer because the read pool is `READ_ONLY`.
+    fn rebuild_fts(&self) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');")?;
+        Ok(())
+    }
+
     /// Search message history using FTS5 full-text search.
     ///
     /// Returns matching messages with session context and a highlighted snippet
@@ -2888,9 +2918,6 @@ impl SessionDB {
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        // FTS search is a hot read (Cmd+F + /sessions) — route to the read pool.
-        let conn = self.read_conn()?;
-
         let fts_query = sanitize_fts_query(query);
         if fts_query.is_empty() {
             return Ok(Vec::new());
@@ -2969,31 +2996,67 @@ impl SessionDB {
             where_sql, limit
         );
 
-        let mut stmt = conn.prepare(&sql)?;
+        // Run the FTS query on a read-pool connection. FTS shadow-table
+        // corruption surfaces while *stepping* the virtual table, so it is
+        // propagated (not swallowed like benign per-row errors) to drive the
+        // rebuild-and-retry below.
+        let run = |conn: &Connection| -> rusqlite::Result<Vec<SessionSearchResult>> {
+            let mut stmt = conn.prepare(&sql)?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params_vec.iter().map(|p| p.as_ref()).collect();
+            let rows = stmt.query_map(param_refs.as_slice(), |row| {
+                Ok(SessionSearchResult {
+                    message_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    message_role: row.get(2)?,
+                    content_snippet: row.get(3)?,
+                    timestamp: row.get(4)?,
+                    session_title: row.get(5)?,
+                    agent_id: row.get(6)?,
+                    is_cron: row.get::<_, i64>(7).unwrap_or(0) != 0,
+                    parent_session_id: row.get(8)?,
+                    project_id: row.get(9)?,
+                    channel_type: row.get(10)?,
+                    channel_chat_type: row.get(11)?,
+                    relevance_rank: row.get::<_, f64>(12).unwrap_or(0.0),
+                })
+            })?;
+            let mut results = Vec::new();
+            for r in rows {
+                match r {
+                    Ok(item) => results.push(item),
+                    // Corruption → propagate so the caller can rebuild + retry.
+                    Err(e) if Self::is_fts_corruption(&e) => return Err(e),
+                    // Benign per-row decode error → skip, matching the prior
+                    // `filter_map(|r| r.ok())` behavior.
+                    Err(_) => {}
+                }
+            }
+            Ok(results)
+        };
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            params_vec.iter().map(|p| p.as_ref()).collect();
-
-        let rows = stmt.query_map(param_refs.as_slice(), |row| {
-            Ok(SessionSearchResult {
-                message_id: row.get(0)?,
-                session_id: row.get(1)?,
-                message_role: row.get(2)?,
-                content_snippet: row.get(3)?,
-                timestamp: row.get(4)?,
-                session_title: row.get(5)?,
-                agent_id: row.get(6)?,
-                is_cron: row.get::<_, i64>(7).unwrap_or(0) != 0,
-                parent_session_id: row.get(8)?,
-                project_id: row.get(9)?,
-                channel_type: row.get(10)?,
-                channel_chat_type: row.get(11)?,
-                relevance_rank: row.get::<_, f64>(12).unwrap_or(0.0),
-            })
-        })?;
-
-        let results: Vec<SessionSearchResult> = rows.filter_map(|r| r.ok()).collect();
-        Ok(results)
+        // FTS search is a hot read (Cmd+F + /sessions) — route to the read pool.
+        let conn = self.read_conn()?;
+        match run(&conn) {
+            Ok(results) => Ok(results),
+            Err(e) if Self::is_fts_corruption(&e) => {
+                // The one-time open gate means the every-open rebuild no longer
+                // self-heals corruption that develops later, and the read pool
+                // is READ_ONLY. Recover on demand: rebuild via the writer, then
+                // retry once on a fresh read connection.
+                drop(conn);
+                app_warn!(
+                    "session",
+                    "db",
+                    "search_messages hit FTS corruption ({}); rebuilding index and retrying",
+                    e
+                );
+                self.rebuild_fts()?;
+                let conn = self.read_conn()?;
+                run(&conn).map_err(|e| anyhow::anyhow!("FTS search failed after rebuild: {}", e))
+            }
+            Err(e) => Err(anyhow::anyhow!("FTS search failed: {}", e)),
+        }
     }
 
     /// FTS5 search that returns up to `limit` *distinct* sessions (best-rank

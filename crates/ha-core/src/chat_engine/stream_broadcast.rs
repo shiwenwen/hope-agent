@@ -49,6 +49,14 @@ pub fn inject_seq(
     if !trimmed.trim_start().starts_with('{') {
         return (event.to_string(), seq, stream_id);
     }
+    // The `}` must be the final non-whitespace char. If anything follows it
+    // (e.g. `{"a":1}x`), the input isn't a bare object; the old serde path
+    // rejected such strings and returned them verbatim — splicing here would
+    // emit invalid JSON like `{"a":1,"_oc_seq":0}x`. Preserve verbatim. (`}` is
+    // ASCII, so `close + 1` is the byte just past it.)
+    if close + 1 != trimmed.len() {
+        return (event.to_string(), seq, stream_id);
+    }
 
     // Empty object `{}` → no leading comma (matches the old path's
     // `{"_oc_seq":N}` output for an empty input object).
@@ -209,5 +217,9 @@ mod tests {
             "not json at all"
         );
         assert_eq!(inject_seq("s", "[1,2,3]", None).0, "[1,2,3]");
+        // Trailing content after the object's close brace → not a bare object →
+        // verbatim (the old serde path returned this unchanged; splicing would
+        // corrupt it into `{"a":1,"_oc_seq":0}x`).
+        assert_eq!(inject_seq("s", "{\"a\":1}x", None).0, "{\"a\":1}x");
     }
 }

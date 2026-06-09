@@ -62,7 +62,14 @@ let _langReq = 0
 /** 异步切语言：先确保 bundle 就位再 changeLanguage，避免闪 key。 */
 async function loadAndSetLanguage(code: string): Promise<void> {
   const req = ++_langReq
-  await ensureLocale(code)
+  try {
+    await ensureLocale(code)
+  } catch (e) {
+    // 懒加载 chunk 失败（弱网 / 缺文件 / 半更新）：保持当前语言，记录后静默
+    // 返回。所有调用方（含三处 `void`）都不会因此产生 unhandledrejection。
+    console.error(`[i18n] failed to load locale "${code}", keeping current:`, e)
+    return
+  }
   // 被更晚发起的语言请求取代 → 放弃,不要覆盖更新的偏好。
   if (req !== _langReq) return
   await i18n.changeLanguage(code)
@@ -100,9 +107,12 @@ i18n
     },
   })
 
-if (_initialLang !== "en") {
-  void loadAndSetLanguage(_initialLang)
-}
+// 首屏初始语言的就绪 Promise：入口（main.tsx）在 createRoot().render() 前
+// await 它，确保第一帧就是系统语言而非闪一下 en——只 await 当前这一种 locale，
+// 其余 10 种仍按需懒加载，瘦身收益不变。en 用户立即 resolve（已内联）。
+// loadAndSetLanguage 内部已 try/catch，chunk 失败也只回退 en 不会 reject。
+export const i18nReady: Promise<void> =
+  _initialLang === "en" ? Promise.resolve() : loadAndSetLanguage(_initialLang)
 
 // Internal state: tracks whether user selected "auto" (follow system)
 let _followingSystem = true
