@@ -173,6 +173,18 @@ pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Resul
     imp::write_secure_file(path, bytes)
 }
 
+/// Atomically replace `path` with `bytes` (temp in the same dir → fsync → rename),
+/// so a crash / power loss leaves either the old file intact or the new one
+/// complete — never a truncated file. Creates parent dirs if missing.
+///
+/// Unlike [`write_secure_file`] (which forces 0600 for secrets), this is for user
+/// documents — knowledge-base notes: it preserves the destination's existing
+/// permissions when present, else a regular-file default (0644 on Unix). On
+/// Windows it relies on NTFS DACL inheritance.
+pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    imp::write_atomic(path, bytes)
+}
+
 /// Best-effort search for a Chrome / Chromium / Edge executable when the
 /// user has not configured an explicit path. Mostly used as a safety net
 /// in front of `chromiumoxide`'s own lookup, which is good but can miss
@@ -274,4 +286,80 @@ pub fn atomic_replace_binary(
     source: &std::path::Path,
 ) -> std::io::Result<()> {
     imp::atomic_replace_binary(target, source)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_atomic_creates_replaces_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("note.md");
+
+        write_atomic(&target, b"hello").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "hello");
+
+        // Overwrite — content fully replaced, not appended.
+        write_atomic(&target, b"world!!").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "world!!");
+
+        // The atomic temp must not survive a successful write.
+        let mut left: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, vec!["note.md".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_new_file_gets_default_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("fresh.md");
+
+        // A brand-new note (no existing file) must land at 0644, not the secret
+        // 0600 — set_permissions makes this umask-independent.
+        write_atomic(&target, b"x").unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_preserves_existing_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("n.md");
+
+        write_atomic(&target, b"a").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // A subsequent atomic write keeps the destination's 0600, not the default.
+        write_atomic(&target, b"bb").unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn write_secure_file_still_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret.json");
+        write_secure_file(&target, b"{}").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{}");
+        write_secure_file(&target, b"{\"k\":1}").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"k\":1}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_secure_file_forces_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("cred.json");
+        write_secure_file(&target, b"x").unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 }

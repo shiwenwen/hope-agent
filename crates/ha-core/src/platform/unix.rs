@@ -347,7 +347,10 @@ pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::F
     }
 }
 
-pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Shared atomic-replace core: write `bytes` to a sibling temp (same dir, so the
+/// rename stays on one filesystem), fsync, chmod to `mode`, then rename over the
+/// target. The temp is removed on a rename failure so we never litter the dir.
+fn write_replace(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -361,15 +364,32 @@ pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let mut f = fs::OpenOptions::new()
             .create_new(true)
             .write(true)
-            .mode(0o600)
+            .mode(mode)
             .open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
     }
     // Defensive: in case the OS umask altered the initial mode.
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
-    fs::rename(&tmp, path)?;
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(())
+}
+
+pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_replace(path, bytes, 0o600)
+}
+
+/// Atomic write for user documents (knowledge-base notes): preserves the
+/// destination's existing permissions when present, else a regular-file default
+/// (0644) — unlike `write_secure_file`, which forces 0600 for secrets.
+pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mode = fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o777)
+        .unwrap_or(0o644);
+    write_replace(path, bytes, mode)
 }
 
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {

@@ -191,7 +191,10 @@ pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::F
     }
 }
 
-pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Shared atomic-replace core: write `bytes` to a sibling temp (same dir), fsync,
+/// then rename over the target. Windows `rename` fails if the destination exists,
+/// so it is removed first; the temp is cleaned up on a rename failure.
+fn write_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -216,8 +219,22 @@ pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if path.exists() {
         let _ = fs::remove_file(path);
     }
-    fs::rename(&tmp, path)?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(())
+}
+
+pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_replace(path, bytes)
+}
+
+/// Atomic write for user documents (knowledge-base notes). On Windows there is no
+/// Unix-style mode to preserve — NTFS DACL inheritance applies — so this shares
+/// the same temp + remove-dest + rename path as `write_secure_file`.
+pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_replace(path, bytes)
 }
 
 pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
