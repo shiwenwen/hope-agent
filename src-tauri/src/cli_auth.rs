@@ -10,7 +10,7 @@ use ha_core::oauth::{self, TokenData};
 use ha_core::provider::ActiveModelUpdate;
 use tokio::sync::Mutex;
 
-const DEFAULT_CODEX_MODEL: &str = "gpt-5.4";
+const DEFAULT_CODEX_MODEL: &str = ha_core::agent::DEFAULT_CODEX_MODEL_ID;
 
 #[derive(Debug, Clone)]
 pub struct CodexLoginOptions {

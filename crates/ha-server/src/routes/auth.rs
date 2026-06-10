@@ -67,7 +67,7 @@ pub async fn finalize_codex_auth() -> Result<Json<Value>, AppError> {
         })?;
 
     ha_core::provider::ensure_codex_provider_persisted(
-        ActiveModelUpdate::Always("gpt-5.4".to_string()),
+        ActiveModelUpdate::Always(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
         "oauth-finalize-http",
     )
     .map_err(|e| AppError::internal(e.to_string()))?;
@@ -179,7 +179,7 @@ pub async fn try_restore_session() -> Result<Json<Value>, AppError> {
     // find it. Avoid a disk write + autosave snapshot when nothing actually
     // changed — this handler fires on every server-mode startup.
     ha_core::provider::ensure_codex_provider_persisted(
-        ActiveModelUpdate::IfMissing("gpt-5.4".to_string()),
+        ActiveModelUpdate::IfMissing(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
         "session-restore-http",
     )
     .map_err(|e| AppError::internal(e.to_string()))?;
