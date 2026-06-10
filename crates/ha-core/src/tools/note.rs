@@ -161,6 +161,30 @@ fn read_note_raw(scope: &WorkspaceScope, rel_path: &str) -> Result<Vec<u8>> {
 
 /// Stale-write guard: compare `expected` against the **current disk** raw BLAKE3
 /// (never the index cache), per the v4.6 contract. Returns the current bytes.
+/// Emit a `file_change` diff metadata payload for a note edit so the chat tool
+/// card renders an inline before/after diff (same shape `edit` / `apply_patch`
+/// emit). Notes are always markdown. No-op when no metadata sink is wired.
+async fn emit_note_diff(ctx: &ToolExecContext, rel_path: &str, before: &str, after: &str) {
+    if ctx.metadata_sink.is_none() {
+        return;
+    }
+    let (added, removed) = super::diff_util::compute_line_delta(before, after);
+    let (before_t, before_trunc) = super::diff_util::truncate_for_metadata(before);
+    let (after_t, after_trunc) = super::diff_util::truncate_for_metadata(after);
+    ctx.emit_metadata(serde_json::json!({
+        "kind": "file_change",
+        "path": rel_path,
+        "action": "edit",
+        "linesAdded": added,
+        "linesRemoved": removed,
+        "before": before_t,
+        "after": after_t,
+        "language": "markdown",
+        "truncated": before_trunc || after_trunc,
+    }))
+    .await;
+}
+
 fn guard_stale(scope: &WorkspaceScope, rel_path: &str, expected: Option<&str>) -> Result<Vec<u8>> {
     let bytes = read_note_raw(scope, rel_path).unwrap_or_default();
     if let Some(expected) = expected {
@@ -342,9 +366,11 @@ pub(crate) async fn tool_note_update(args: &Value, ctx: &ToolExecContext) -> Res
         .ok_or_else(|| anyhow!("Missing 'content' parameter"))?;
     let rel = norm_note_path(path);
     let scope = writable_scope(kb)?;
-    guard_stale(&scope, &rel, str_arg(args, "expected_file_hash"))?;
+    let before_bytes = guard_stale(&scope, &rel, str_arg(args, "expected_file_hash"))?;
+    let before = String::from_utf8_lossy(&before_bytes).to_string();
 
     let hash = write_and_index(&scope, kb, &rel, content, false)?;
+    emit_note_diff(ctx, &rel, &before, content).await;
     Ok(format!("Updated note '{rel}' (file_hash: {hash})"))
 }
 
@@ -381,6 +407,7 @@ pub(crate) async fn tool_note_patch(args: &Value, ctx: &ToolExecContext) -> Resu
     }
     let updated = content.replacen(old, new, 1);
     let hash = write_and_index(&scope, kb, &rel, &updated, false)?;
+    emit_note_diff(ctx, &rel, &content, &updated).await;
     Ok(format!("Patched note '{rel}' (file_hash: {hash})"))
 }
 

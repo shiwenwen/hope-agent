@@ -165,6 +165,24 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 
 **工作台「知识空间」段**：`WorkspacePanel` 新增段（[`workspace/useSessionKnowledge.ts`](../../src/components/chat/workspace/useSessionKnowledge.ts)）——① 本会话挂载库（owner 平面 `list_session_kbs_cmd`，`knowledge:changed` 刷新，**incognito 派生为空不调命令**）；② 笔记活动 live-tail（`note_*` 工具无 `tool_metadata`，故扫 messages 的 `tool.name` 聚合写/读笔记 + 检索计数，仅覆盖已载窗口，与 files/urls 的 live tail 同理）。
 
+## 侧边栏 AI 对话面板
+
+知识空间右栏「反向链接 ↔ AI 对话」分段切换（`RightPanelTabs`），让用户**结合当前文档对话、让 AI 跨笔记检索并编写 / 改写笔记**，无需切到主对话。
+
+**会话模型**：对话 = `kind='knowledge'` 的普通会话（[`SessionKind`](../../crates/ha-core/src/session/types.rs)，`sessions.kind` 列 + 一次性 migration），消息照常落 `messages` 表，但**从主会话列表 / `/sessions` picker / 全局 Cmd+F FTS 隐藏**（`list_sessions_paged_inner` 无条件 `kind!='knowledge'`、`search_messages` 全局路径 + `Regular` 过滤、`is_regular_chat()`）。锚定信息落 `knowledge_chat_threads(session_id PK, kb_id, anchor_note_path, created_at)`（[`registry.rs`](../../crates/ha-core/src/knowledge/registry.rs)，sessions.db 真相源 D9，随 session / KB 级联删）。一篇笔记可有多条对话；打开笔记默认加载该文档**最近一次**对话（`kb_chat_thread_get_cmd` → `latest_thread_session_for_note`），无则空草稿；历史对话列表（`kb_chat_threads_list_cmd`，KB 范围、`updated_at` 倒序、可选 FTS over 线程消息）可切换 + 搜索。
+
+**懒创建（无空会话、无闭包竞态）**：「新建对话」只把面板清成草稿（`currentSessionId=null`）。首条消息走主对话 `chat` 命令的 **auto-create 分支**——前端带 `toolScope:"knowledge"` + 单条 draft `kbAttachments`(write，= 当前活动 KB) + `kbAnchorNote`(当前笔记)，后端建会话 + 应用 draft attach 后调 [`service::mark_session_as_kb_thread`](../../crates/ha-core/src/knowledge/service.rs) 设 `kind=Knowledge` + 写 thread 行。复用既有 auto-create / `session_created` 流程，无需独立 create 命令、无 setState→send 的闭包竞态。
+
+**工具精简（`ToolScope`，与 source/D10 正交）**：`ChatEngineParams.tool_scope: Option<ToolScope>`（[`tools/mod.rs`](../../crates/ha-core/src/tools/mod.rs)）；`Knowledge` 在 `build_tool_schemas` 收尾 + `build_full_system_prompt` 的 eager/hints 块按 `is_knowledge_scope_tool` 白名单 `retain`（全 `note_*` + `knowledge_recall` + `recall_memory`/`save_memory`/`update_memory`/`memory_get` + 框架基础 `skill`/`tool_search`/`ask_user_question`/`runtime_cancel`/`job_status`），去掉 exec / browser / image / subagent / cron / channel / web / 原始 fs 等。**纯 schema/prompt 可见性收窄，绝不动 KB 访问**——source 仍 Desktop/Http，访问仍由 `effective_kb_access` 单点裁决。`configure_agent` 透传 → `agent.set_tool_scope`。
+
+**当前文档上下文（cache-safe）**：每轮经 `useChatStream` 新增的 `getExtraAttachments` 回调把当前打开笔记作为 `source:"quote"` 附件注入用户消息（截断 ~4000 字符 + 提示用 `note_read` 取全文），**绝不进 system 静态前缀**（避免击穿 prompt cache）；与「锚定笔记」解耦——续聊旧对话时 AI 看到的「当前文档」永远是编辑器里打开的那篇。
+
+**前端复用**：[`chat/KnowledgeChatPanel.tsx`](../../src/components/knowledge/chat/KnowledgeChatPanel.tsx) 复用主对话 `useChatStream`（新增 `toolScope`/`getExtraAttachments`/`draftKbAnchorNote` 三个**可选** prop，主对话 / QuickChat 不传 = 行为不变）+ `MessageList`/`ChatInput`(`enableNoteMention` 开 `[[note]]` 补全)/`ApprovalDialog`；[`chat/useKnowledgeChat.ts`](../../src/components/knowledge/chat/useKnowledgeChat.ts) 管 thread 生命周期 + 模型 / Agent 态（镜像 `useQuickChatSession`）。面板在 links 模式仍**保持挂载**（隐藏），故「加入对话」的命令式 ref（`addQuote` / `insertToken`）随时可用；`active` prop 控制是否真正加载。**桌面走 per-call 通道实时流式**；HTTP 无 reattach，靠 turn 完成后 reload 线程消息对账。
+
+**选区针对性编辑（替代旧 `AiRewriteDialog`，已删）两路并存**：
+- **加入对话**：编辑器选区 → 输入框上方可删除 quote chip（`useChatStream.pendingQuotes`）→ 进对话由 AI 用 `note_patch`/`note_update` 改写。note 工具结果带 `FileChangeMetadata`（[`note.rs::emit_note_diff`](../../crates/ha-core/src/tools/note.rs)，`language:"markdown"`，复用 `diff_util`）→ `ToolCallBlock` 内联 diff。落盘 emit `knowledge:changed` → 编辑器**重载当前笔记**（仅当 hash 变 + 非 dirty + 非 draft，脏态跳过防覆盖用户编辑）。
+- **快捷改写**（[`chat/QuickRewriteBar.tsx`](../../src/components/knowledge/chat/QuickRewriteBar.tsx)）：选区旁浮动条，一次性、不进对话历史，走重做后的 `kb_ai_rewrite_cmd`（接 `model_override`，默认跟随对话 / 全局 active 模型、可单独选）→ `UnifiedDiffView` 预览 → 应用（splice 编辑器，用户再正常保存）。每次结果经 `kb_rewrite_log_cmd` 落 `learning_events`（`kind="kb_quick_rewrite"`，记 instruction / model / 字数 / accepted）做统计。
+
 ## 首次运行默认空间
 
 `service::ensure_default_knowledge_base()`（[`service.rs`](../../crates/ha-core/src/knowledge/service.rs)，`app_init` 在 logger 就绪后调用，所有运行模式共用）让新装实例开箱即有一个可用空间:

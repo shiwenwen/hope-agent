@@ -298,6 +298,10 @@ fn build_router_with_cors(
             post(routes::knowledge::kb_ai_rewrite),
         )
         .route(
+            "/knowledge/rewrite/log",
+            post(routes::knowledge::kb_rewrite_log),
+        )
+        .route(
             "/knowledge/maintenance/run",
             post(routes::knowledge::kb_maintenance_run),
         )
@@ -360,6 +364,14 @@ fn build_router_with_cors(
             "/knowledge/{kb_id}/graph/layout",
             get(routes::knowledge::kb_graph_layout_get)
                 .post(routes::knowledge::kb_graph_layout_save),
+        )
+        .route(
+            "/knowledge/{kb_id}/chat/thread",
+            get(routes::knowledge::kb_chat_thread_get),
+        )
+        .route(
+            "/knowledge/{kb_id}/chat/threads",
+            get(routes::knowledge::kb_chat_threads_list),
         )
         .route(
             "/knowledge/{kb_id}/note/resolve",

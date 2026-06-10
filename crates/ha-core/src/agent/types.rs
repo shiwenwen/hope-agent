@@ -198,6 +198,11 @@ pub struct AssistantAgent {
     pub(super) steer_run_id: Option<String>,
     /// Tools denied for this agent (used for depth-based tool policy)
     pub(super) denied_tools: Vec<String>,
+    /// Optional tool-visibility scope for this turn (see [`crate::tools::ToolScope`]).
+    /// `Some(Knowledge)` trims the schema + system-prompt tool hints to the
+    /// knowledge-space white-list. Orthogonal to `denied_tools` and chat source;
+    /// purely narrows visibility, never widens KB access.
+    pub(super) tool_scope: Option<crate::tools::ToolScope>,
     /// Active skill's allowed tools: when non-empty, only these tools are sent to the LLM.
     /// Set when a skill with `allowed-tools` frontmatter is activated.
     pub(super) skill_allowed_tools: Vec<String>,

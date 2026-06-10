@@ -72,6 +72,15 @@ pub struct ChatRequest {
     /// incognito.
     #[serde(default)]
     pub kb_attachments: Vec<ha_core::knowledge::types::KbAttachInput>,
+    /// Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
+    /// chat to trim the injected tool set; `None` (default) for normal chats.
+    #[serde(default)]
+    pub tool_scope: Option<String>,
+    /// Knowledge-space sidebar chat: the note open when the conversation started.
+    /// Only honored on the auto-create branch — promotes the new session into a
+    /// KB chat thread.
+    #[serde(default)]
+    pub kb_anchor_note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -265,6 +274,17 @@ pub async fn chat(
             body.incognito.unwrap_or(false),
             &body.kb_attachments,
         );
+        // Knowledge-space sidebar chat: promote the new session into a KB chat
+        // thread bound to the single attached KB (mirrors the Tauri command).
+        if body.tool_scope.as_deref() == Some("knowledge") {
+            if let Some(kb_id) = body.kb_attachments.first().map(|a| a.kb_id.clone()) {
+                ha_core::knowledge::service::mark_session_as_kb_thread(
+                    &sid,
+                    &kb_id,
+                    body.kb_anchor_note.as_deref(),
+                );
+            }
+        }
     }
 
     // Persist per-session permission mode if the body included one.
@@ -511,6 +531,7 @@ pub async fn chat(
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
+        tool_scope: ha_core::tools::ToolScope::from_str_opt(body.tool_scope.as_deref()),
         subagent_depth: 0,
         steer_run_id: None,
         // Honors `--auto-approve-tools` / `HA_SERVER_AUTO_APPROVE_TOOLS=1`

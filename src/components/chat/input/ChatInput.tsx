@@ -567,6 +567,17 @@ export default function ChatInput({
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
 
+  // Shared by the inline Plan toggle and its "+" overflow-menu counterpart.
+  const handlePlanToggle = () => {
+    if (planState === "off" || planState === "completed") {
+      onEnterPlanMode?.()
+    } else if (planState === "planning") {
+      onExitPlanMode?.()
+    } else {
+      onTogglePlanPanel?.()
+    }
+  }
+
   const toggleSlashCommandMenu = () => {
     slash.setOpen(!slash.isOpen)
   }
@@ -698,6 +709,33 @@ export default function ChatInput({
       {getChatInputOverflowActionIds().map((actionId) => (
         <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
       ))}
+      {/* Knowledge + Plan collapse here when the toolbar is too tight to keep
+          them inline. */}
+      <KnowledgePicker
+        variant="menu"
+        sessionId={currentSessionId ?? null}
+        projectId={projectId ?? null}
+        disabled={incognitoEnabled}
+        draftAttachments={draftKbAttachments}
+        onDraftAttachChange={onDraftKbAttachChange}
+      />
+      <button
+        type="button"
+        aria-label={planToggleTip}
+        className={cn(
+          overflowMenuItemClass,
+          planState === "planning" && "text-blue-600",
+          planState === "review" && "text-purple-600",
+          planState === "executing" && "text-green-600",
+        )}
+        onClick={() => {
+          setShowOverflowMenu(false)
+          handlePlanToggle()
+        }}
+      >
+        <ClipboardList className="h-4 w-4 shrink-0" />
+        <span className="truncate">{planToggleLabel}</span>
+      </button>
     </>
   )
 
@@ -1066,43 +1104,40 @@ export default function ChatInput({
 
                 <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
-                {/* Knowledge Space attach — grants the assistant access to notes */}
-                <KnowledgePicker
-                  sessionId={currentSessionId ?? null}
-                  projectId={projectId ?? null}
-                  disabled={incognitoEnabled}
-                  draftAttachments={draftKbAttachments}
-                  onDraftAttachChange={onDraftKbAttachChange}
-                />
+                {/* Knowledge Space attach + Plan toggle — inline when roomy,
+                    collapsed into the "+" overflow menu when the toolbar is
+                    tight (see renderOverflowMenuItems). */}
+                {!toolbarCompact && (
+                  <KnowledgePicker
+                    sessionId={currentSessionId ?? null}
+                    projectId={projectId ?? null}
+                    disabled={incognitoEnabled}
+                    draftAttachments={draftKbAttachments}
+                    onDraftAttachChange={onDraftKbAttachChange}
+                  />
+                )}
 
-                {/* Plan Mode Toggle */}
-                <IconTip label={planToggleTip}>
-                  <button
-                    aria-label={planToggleTip}
-                    onClick={() => {
-                      if (planState === "off" || planState === "completed") {
-                        onEnterPlanMode?.()
-                      } else if (planState === "planning") {
-                        onExitPlanMode?.()
-                      } else {
-                        onTogglePlanPanel?.()
-                      }
-                    }}
-                    className={cn(
-                      "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                      planState === "planning"
-                        ? "text-blue-600 bg-blue-500/10"
-                        : planState === "review"
-                          ? "text-purple-600 bg-purple-500/10"
-                          : planState === "executing"
-                            ? "text-green-600 bg-green-500/10"
-                            : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <ClipboardList className="h-4 w-4 shrink-0" />
-                    <span>{planToggleLabel}</span>
-                  </button>
-                </IconTip>
+                {!toolbarCompact && (
+                  <IconTip label={planToggleTip}>
+                    <button
+                      aria-label={planToggleTip}
+                      onClick={handlePlanToggle}
+                      className={cn(
+                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                        planState === "planning"
+                          ? "text-blue-600 bg-blue-500/10"
+                          : planState === "review"
+                            ? "text-purple-600 bg-purple-500/10"
+                            : planState === "executing"
+                              ? "text-green-600 bg-green-500/10"
+                              : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <ClipboardList className="h-4 w-4 shrink-0" />
+                      <span>{planToggleLabel}</span>
+                    </button>
+                  </IconTip>
+                )}
 
                 {/* Tool Permission Mode */}
                 <PermissionModeSwitcher

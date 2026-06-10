@@ -267,7 +267,10 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `kb_graph_cmd` | `GET /api/knowledge/{kbId}/graph` | ✅ (WS1 图谱视图：nodes+edges，含 degree，节点上限 2000 截断标 `truncated`) |
 | `kb_graph_layout_get_cmd` | `GET /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 用户拖拽固定的节点坐标，按 `relPath` 键，落 sessions.db) |
 | `kb_graph_layout_save_cmd` | `POST /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 整体替换布局，body `{positions:[{relPath,x,y}]}`，空数组=重置) |
-| `kb_ai_rewrite_cmd` | `POST /api/knowledge/ai/rewrite` | ✅ (WS9 AI 改写：body `{text, instruction}` → side_query 返回改写后 Markdown；不落盘，GUI 走 diff 确认后经 `note_save`) |
+| `kb_chat_thread_get_cmd` | `GET /api/knowledge/{kbId}/chat/thread?note=` | ✅ (侧边栏对话默认加载：某笔记最近一次 `kind=knowledge` 会话 `SessionMeta`，无则 `null`) |
+| `kb_chat_threads_list_cmd` | `GET /api/knowledge/{kbId}/chat/threads?query=` | ✅ (历史对话列表：KB 内所有对话线程 `KbChatThread[]`，`query` 非空时 FTS 过滤) |
+| `kb_ai_rewrite_cmd` | `POST /api/knowledge/ai/rewrite` | ✅ (快捷改写：body `{text, instruction, modelOverride?}` → side_query 返回改写后 Markdown；不落盘，GUI 走 diff 确认后经 `note_save`) |
+| `kb_rewrite_log_cmd` | `POST /api/knowledge/rewrite/log` | ✅ (快捷改写统计：body `{kbId, notePath?, instruction, model?, charsBefore, charsAfter, accepted}` → 落 `learning_events`(`kind="kb_quick_rewrite"`)，best-effort) |
 | `kb_maintenance_run_cmd` | `POST /api/knowledge/maintenance/run` | ✅ (WS6 手动跑一轮维护：扫全部内部 KB 生成 draft 提案；返回 `MaintenanceReport`) |
 | `kb_maintenance_status_cmd` | `GET /api/knowledge/maintenance/status` | ✅ (running 标志 + 上轮 report) |
 | `kb_maintenance_list_cmd` | `GET /api/knowledge/{kbId}/maintenance/proposals?status=` | ✅ (某 KB 的提案，可按 draft/applied/rejected/failed 过滤) |
@@ -338,6 +341,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 `set_session_working_dir` 接受 `{ workingDir: string | null }`，后端 `canonicalize` 路径并校验是否为存在的目录，返回 `{ updated: true, workingDir: <canonical> }`；`null` 或空串清除选择。该字段以 `SessionMeta.workingDir` 呈现，被 `system_prompt::build` 注入到 "# Working Directory" 段落（位于 Project / Project Files 之后、Memory 之前）。执行层也会把它作为 path-aware 工具的默认根：`read` / `write` / `edit` / `ls` / `grep` / `find` / `apply_patch` 的相对路径，以及 `exec.cwd` 的相对路径，均按「显式绝对路径 > Session working dir > Agent home」解析；`exec` 无 `cwd` 时再回退到用户 home。与 Project / Incognito 正交：三者可同时启用。在 HTTP 模式下前端没有原生目录选择器，改走 `GET /api/filesystem/list-dir`（见 Filesystem 域）的服务端目录浏览器。
 
 新会话尚未 materialize 时也允许选目录：前端把选择存为 `draftWorkingDir`，首条消息发送时通过 `chat` 命令的可选 `workingDir` 字段（Tauri / `POST /api/chat` 同名）随请求带过去；后端只在自动创建 session 的分支应用，复用 `update_session_working_dir` 的 canonicalize + `is_dir` 校验，无效路径直接 400。已有 sessionId 的 `chat` 调用会忽略此字段，避免覆盖现成的工作目录设置。
+
+`chat` 命令还有两个知识空间侧边栏对话用的可选字段（Tauri / `POST /api/chat` 同名 camelCase）：`toolScope: "knowledge"` 把本轮注入工具集收窄到笔记 / 检索 / 记忆白名单（与 source / `effective_kb_access` 正交，只动 schema 可见性）；`kbAnchorNote` 仅在自动创建 session 的分支生效——配合单条 `kbAttachments`(write) 把新会话提升为 `kind=knowledge` 的对话线程并锚定该笔记。已有 sessionId 的调用忽略 `kbAnchorNote`。
 
 ### Chat
 

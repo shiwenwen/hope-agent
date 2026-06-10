@@ -295,6 +295,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         plan_context_override,
         skill_allowed_tools,
         denied_tools,
+        tool_scope,
         subagent_depth,
         steer_run_id,
         auto_approve_tools,
@@ -722,6 +723,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             extra_ctx_owned.as_deref(),
                             &skill_tools_owned,
                             &denied_tools_owned,
+                            tool_scope,
                             subagent_depth,
                             steer_run_id_owned,
                             plan_resolved_owned,
@@ -1232,6 +1234,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         extra_system_context.as_deref(),
                         &skill_allowed_tools,
                         &denied_tools,
+                        tool_scope,
                         subagent_depth,
                         steer_run_id.clone(),
                         plan_resolved.clone(),
@@ -1592,6 +1595,7 @@ fn configure_agent(
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
     denied_tools: &[String],
+    tool_scope: Option<crate::tools::ToolScope>,
     subagent_depth: u32,
     steer_run_id: Option<String>,
     plan_resolved: crate::agent::PlanResolvedContext,
@@ -1617,6 +1621,7 @@ fn configure_agent(
     if !denied_tools.is_empty() {
         agent.set_denied_tools(denied_tools.to_vec());
     }
+    agent.set_tool_scope(tool_scope);
     agent.set_subagent_depth(subagent_depth);
     if let Some(run_id) = steer_run_id {
         agent.set_steer_run_id(run_id);
@@ -1784,6 +1789,7 @@ mod stream_lifecycle_tests {
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
+            tool_scope: None,
             subagent_depth: 0,
             steer_run_id: None,
             auto_approve_tools: false,

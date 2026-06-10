@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
-use super::types::{ChannelSessionInfo, MessageRole, NewMessage, SessionMessage, SessionMeta};
+use super::types::{
+    ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+};
 
 /// Token snapshot for the latest persisted assistant row of a session.
 /// Powers `/status`'s Context usage + Cache info panels in a single read.
@@ -65,7 +67,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at
+           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -106,7 +108,8 @@ impl SessionDB {
                 parent_session_id TEXT,
                 incognito INTEGER NOT NULL DEFAULT 0,
                 title_source TEXT NOT NULL DEFAULT 'manual',
-                pinned_at TEXT
+                pinned_at TEXT,
+                kind TEXT NOT NULL DEFAULT 'regular'
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -469,6 +472,17 @@ impl SessionDB {
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);",
         )?;
+
+        // Migration: session classification (regular | knowledge). Knowledge
+        // sessions are the knowledge-space sidebar conversations — persisted but
+        // hidden from the main session list / picker. Probe-then-ALTER; fresh
+        // DBs already have the column from CREATE TABLE above.
+        let has_kind = conn.prepare("SELECT kind FROM sessions LIMIT 1").is_ok();
+        if !has_kind {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'regular';",
+            )?;
+        }
 
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
@@ -1041,7 +1055,23 @@ impl SessionDB {
             channel_info: None,
             incognito,
             working_dir: None,
+            kind: SessionKind::Regular,
         })
+    }
+
+    /// Set a session's classification (see [`SessionKind`]). Used by the
+    /// knowledge-space chat entry to mark a freshly-created session as a
+    /// `Knowledge` conversation so it is hidden from the main session list.
+    pub fn set_session_kind(&self, session_id: &str, kind: SessionKind) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET kind = ?1 WHERE id = ?2",
+            params![kind.as_str(), session_id],
+        )?;
+        Ok(())
     }
 
     /// Move a session to a project (or remove it from the current project when `project_id` is `None`).
@@ -1189,6 +1219,11 @@ impl SessionDB {
                 params_vec.push(Box::new(pid.to_string()));
             }
         }
+
+        // Knowledge-space sidebar conversations live in the KB panel, never the
+        // main session list / picker — hide them unconditionally (no active
+        // exception, unlike incognito below).
+        where_clauses.push("s.kind != 'knowledge'".to_string());
 
         // Hide incognito sessions from listings (the whole point of "no
         // trace"); the currently-open session is the lone exception so the
@@ -1636,6 +1671,10 @@ impl SessionDB {
             incognito: row.get::<_, i64>(16).unwrap_or(0) != 0,
             channel_info,
             working_dir: row.get(22).ok().flatten(),
+            kind: row
+                .get::<_, String>(26)
+                .map(|s| SessionKind::from_db_string(&s))
+                .unwrap_or_default(),
         })
     }
 
@@ -2940,10 +2979,12 @@ impl SessionDB {
             where_clauses.push(format!("m.session_id = ?{}", idx));
             params_vec.push(Box::new(sid.to_string()));
         } else {
-            // Global FTS path: hide incognito sessions. The in-session search
-            // path (Some(sid)) already scopes to one session and is allowed to
-            // search incognito content while it is open.
+            // Global FTS path: hide incognito sessions + knowledge-space
+            // conversations (the latter have their own KB-panel history search).
+            // The in-session search path (Some(sid)) already scopes to one
+            // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
+            where_clauses.push("s.kind != 'knowledge'".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -2953,7 +2994,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL)".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind != 'knowledge')".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -3714,7 +3755,7 @@ mod tests {
 }
 
 /// Sanitize query for FTS5 MATCH: wrap each token in double quotes for exact matching.
-fn sanitize_fts_query(query: &str) -> String {
+pub(crate) fn sanitize_fts_query(query: &str) -> String {
     let tokens: Vec<String> = query
         .split_whitespace()
         .filter(|t| !t.is_empty())

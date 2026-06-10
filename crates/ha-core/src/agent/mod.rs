@@ -130,6 +130,7 @@ impl AssistantAgent {
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            tool_scope: None,
             skill_allowed_tools: Vec::new(),
             plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
@@ -186,6 +187,7 @@ impl AssistantAgent {
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            tool_scope: None,
             skill_allowed_tools: Vec::new(),
             plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
@@ -367,6 +369,7 @@ impl AssistantAgent {
             channel_kb_context: None,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            tool_scope: None,
             skill_allowed_tools: Vec::new(),
             plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
             plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
@@ -1130,6 +1133,13 @@ impl AssistantAgent {
         self.denied_tools = tools;
     }
 
+    /// Set the per-turn tool-visibility scope (see [`crate::tools::ToolScope`]).
+    /// `Some(Knowledge)` trims the injected tool set to the knowledge-space
+    /// white-list; `None` (default) applies no extra narrowing.
+    pub fn set_tool_scope(&mut self, scope: Option<crate::tools::ToolScope>) {
+        self.tool_scope = scope;
+    }
+
     /// Set skill-level allowed tools: when non-empty, only these tools are sent to the LLM.
     pub fn set_skill_allowed_tools(&mut self, tools: Vec<String>) {
         self.skill_allowed_tools = tools;
@@ -1461,6 +1471,13 @@ impl AssistantAgent {
             schemas.retain(|t| !tools::is_kb_scoped_tool(extract_tool_name(t)));
         }
 
+        // Knowledge-space sidebar chat: trim to the curated white-list so the
+        // document-writing conversation isn't handed exec / browser / subagent /
+        // etc. Pure visibility narrowing — KB access is still `effective_kb_access`.
+        if let Some(scope) = self.tool_scope {
+            schemas.retain(|t| scope.allows(extract_tool_name(t)));
+        }
+
         schemas
     }
 
@@ -1501,6 +1518,14 @@ impl AssistantAgent {
                 }
                 _ => {}
             }
+        }
+
+        // Knowledge-space sidebar chat: don't advertise capabilities the trimmed
+        // tool set excludes (canvas / notifications / image / "unconfigured"
+        // upsells), matching `build_tool_schemas`' scope filter.
+        if let Some(scope) = self.tool_scope {
+            eager.retain(|name| scope.allows(name));
+            hints.clear();
         }
 
         if eager.contains(tools::TOOL_SEND_NOTIFICATION) {

@@ -384,6 +384,30 @@ pub struct GraphNodePosition {
     pub y: f64,
 }
 
+/// A knowledge-space sidebar conversation thread. One row per
+/// `kind='knowledge'` session, joined with session metadata for the history
+/// picker (title / recency / size). `anchorNotePath` is the note that was open
+/// when the conversation was created — used to default-load "the latest
+/// conversation about this note".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbChatThread {
+    pub session_id: String,
+    pub kb_id: String,
+    pub anchor_note_path: Option<String>,
+    /// Session title (LLM- or user-set), `None` until named.
+    pub title: Option<String>,
+    /// Thread creation time (epoch ms).
+    pub created_at: i64,
+    /// Session `updated_at` (rfc3339) — recency sort key for the picker.
+    pub updated_at: String,
+    /// Count of persisted messages (user + assistant + tool rows).
+    pub message_count: i64,
+    /// Last user/assistant message preview for the picker (trimmed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_snippet: Option<String>,
+}
+
 /// A note link graph (whole KB or an ego neighbourhood). `truncated` is set when
 /// a node cap dropped part of the graph (agent tool guard against huge output).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

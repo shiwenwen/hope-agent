@@ -555,6 +555,7 @@ fn execute_subagent(
             plan_context_override,
             skill_allowed_tools,
             denied_tools: denied,
+            tool_scope: None,
             subagent_depth: depth,
             steer_run_id: Some(run_id),
             auto_approve_tools: false,

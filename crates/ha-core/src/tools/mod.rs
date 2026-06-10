@@ -172,6 +172,61 @@ pub fn is_kb_scoped_tool(name: &str) -> bool {
     name.starts_with("note_") || name == TOOL_SESSION_TO_NOTE
 }
 
+/// White-list predicate for [`ToolScope::Knowledge`] — the trimmed tool set the
+/// knowledge-space sidebar chat injects. Keeps note read/write, cross-store
+/// recall, memory, and the framework basics the dispatcher / deferred-tool flow
+/// need (`skill` / `tool_search` / `ask_user_question` / `runtime_cancel` /
+/// `job_status`); everything else (exec / browser / image / subagent / cron /
+/// channel / web / raw fs …) is dropped so a document-writing chat can't wander
+/// into unrelated capabilities.
+///
+/// Purely schema/visibility narrowing — it never WIDENS anything. KB access is
+/// still decided solely by `effective_kb_access`.
+pub fn is_knowledge_scope_tool(name: &str) -> bool {
+    name.starts_with("note_")
+        || matches!(
+            name,
+            TOOL_SESSION_TO_NOTE
+                | TOOL_KNOWLEDGE_RECALL
+                | TOOL_RECALL_MEMORY
+                | TOOL_SAVE_MEMORY
+                | TOOL_UPDATE_MEMORY
+                | TOOL_MEMORY_GET
+                | TOOL_SKILL
+                | TOOL_TOOL_SEARCH
+                | TOOL_ASK_USER_QUESTION
+                | TOOL_RUNTIME_CANCEL
+                | TOOL_JOB_STATUS
+        )
+}
+
+/// Restricts which tools are visible for a turn, orthogonal to the agent's own
+/// allow/deny config and to the chat source. Currently the only variant is
+/// `Knowledge` (the knowledge-space sidebar chat's trimmed set). `None` on
+/// [`crate::chat_engine::ChatEngineParams`] means no extra narrowing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolScope {
+    Knowledge,
+}
+
+impl ToolScope {
+    /// Parse the wire string (`"knowledge"`) into a scope; anything else → None.
+    pub fn from_str_opt(s: Option<&str>) -> Option<Self> {
+        match s {
+            Some("knowledge") => Some(ToolScope::Knowledge),
+            _ => None,
+        }
+    }
+
+    /// True iff a tool `name` is visible under this scope.
+    pub fn allows(&self, name: &str) -> bool {
+        match self {
+            ToolScope::Knowledge => is_knowledge_scope_tool(name),
+        }
+    }
+}
+
 /// Combined context-level visibility check shared by schema generation,
 /// tool_search, and execution-layer defense-in-depth. Agent-level on/off
 /// switches are handled by `dispatch::resolve_tool_fate`; this helper applies
@@ -228,7 +283,59 @@ pub fn expand_tilde(path: &str) -> String {
 mod tests {
     use crate::agent_config::FilterConfig;
 
-    use super::{is_kb_scoped_tool, tool_visible_with_filters};
+    use super::{is_kb_scoped_tool, is_knowledge_scope_tool, tool_visible_with_filters, ToolScope};
+
+    #[test]
+    fn knowledge_scope_whitelist() {
+        // All note_* + the curated recall / memory / framework basics are kept.
+        for t in [
+            super::TOOL_NOTE_CREATE,
+            super::TOOL_NOTE_PATCH,
+            super::TOOL_NOTE_SEARCH,
+            "note_brand_new",
+            super::TOOL_SESSION_TO_NOTE,
+            super::TOOL_KNOWLEDGE_RECALL,
+            super::TOOL_RECALL_MEMORY,
+            super::TOOL_SAVE_MEMORY,
+            super::TOOL_MEMORY_GET,
+            super::TOOL_SKILL,
+            super::TOOL_TOOL_SEARCH,
+            super::TOOL_ASK_USER_QUESTION,
+            super::TOOL_RUNTIME_CANCEL,
+            super::TOOL_JOB_STATUS,
+        ] {
+            assert!(
+                is_knowledge_scope_tool(t),
+                "{t} should be in knowledge scope"
+            );
+            assert!(ToolScope::Knowledge.allows(t), "{t} should be allowed");
+        }
+        // Unrelated capabilities are dropped from the knowledge chat.
+        for t in [
+            super::TOOL_EXEC,
+            super::TOOL_BROWSER,
+            super::TOOL_WEB_SEARCH,
+            super::TOOL_SUBAGENT,
+            super::TOOL_MANAGE_CRON,
+            super::TOOL_IMAGE_GENERATE,
+            "read",
+            "write",
+            "edit",
+        ] {
+            assert!(!is_knowledge_scope_tool(t), "{t} must be excluded");
+            assert!(!ToolScope::Knowledge.allows(t), "{t} must be excluded");
+        }
+    }
+
+    #[test]
+    fn tool_scope_parses_wire_string() {
+        assert_eq!(
+            ToolScope::from_str_opt(Some("knowledge")),
+            Some(ToolScope::Knowledge)
+        );
+        assert_eq!(ToolScope::from_str_opt(Some("bogus")), None);
+        assert_eq!(ToolScope::from_str_opt(None), None);
+    }
 
     #[test]
     fn kb_scoped_tool_predicate() {

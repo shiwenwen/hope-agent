@@ -1160,18 +1160,8 @@
       },
       "outline": "アウトライン",
       "outlineEmpty": "見出しがありません",
-      "aiRewrite": "AI リライト",
-      "aiRewriteScope": "リライト対象：{{scope}}",
-      "aiRewriteSelection": "選択範囲",
-      "aiRewriteWholeNote": "ノート全体",
-      "aiRewritePlaceholder": "リライト方法を入力 —— 例：簡潔に、文法を修正、英語に翻訳…",
-      "aiRewriteGenerate": "生成",
-      "aiRewriteRegenerate": "再生成",
-      "aiRewriteApply": "適用",
-      "aiRewriteFailed": "AI リライトに失敗しました",
       "allowExternalWrites": "この外部保管庫の編集を許可",
       "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。",
-      "referenceInChat": "チャットで参照",
       "picker": {
         "title": "ナレッジスペース",
         "heading": "このチャットのナレッジスペース",
@@ -1231,6 +1221,26 @@
       "resizeSplit": "分割幅を調整",
       "result": {
         "memory": "メモリ"
+      },
+      "chatPanel": {
+        "tab": "AI チャット",
+        "addToChat": "AI チャットに追加",
+        "newConversation": "新しい会話",
+        "history": "会話履歴",
+        "searchHistory": "会話を検索…",
+        "noHistory": "会話履歴はまだありません。",
+        "untitled": "無題の会話",
+        "noKb": "ナレッジスペースを開いて会話を始めましょう。",
+        "messageCount": "{{count}} 件のメッセージ"
+      },
+      "quickRewrite": {
+        "title": "クイック書き換え",
+        "placeholder": "書き換え方法を入力 —— 例：簡潔に、文法を修正、英語に翻訳…",
+        "model": "モデル",
+        "generate": "生成",
+        "regenerate": "再生成",
+        "apply": "適用",
+        "failed": "書き換えに失敗しました"
       }
     },
     "common": {
@@ -2401,18 +2411,8 @@
       },
       "outline": "개요",
       "outlineEmpty": "제목 없음",
-      "aiRewrite": "AI 다시 쓰기",
-      "aiRewriteScope": "다시 쓰는 중: {{scope}}",
-      "aiRewriteSelection": "선택 영역",
-      "aiRewriteWholeNote": "전체 노트",
-      "aiRewritePlaceholder": "다시 쓰는 방법을 입력하세요 —— 예: 더 간결하게, 문법 수정, 영어로 번역…",
-      "aiRewriteGenerate": "생성",
-      "aiRewriteRegenerate": "다시 생성",
-      "aiRewriteApply": "적용",
-      "aiRewriteFailed": "AI 다시 쓰기 실패",
       "allowExternalWrites": "이 외부 보관함 편집 허용",
       "allowExternalWritesHint": "외부 보관함은 기본적으로 읽기 전용입니다. 활성화하면 편집기와 AI 도구가 연결된 폴더에 쓸 수 있습니다. 백그라운드 자동 유지관리는 외부 보관함에 쓰지 않습니다.",
-      "referenceInChat": "채팅에서 참조",
       "picker": {
         "title": "지식 공간",
         "heading": "이 채팅의 지식 공간",
@@ -2472,6 +2472,26 @@
       "resizeSplit": "분할 너비 조절",
       "result": {
         "memory": "기억"
+      },
+      "chatPanel": {
+        "tab": "AI 채팅",
+        "addToChat": "AI 채팅에 추가",
+        "newConversation": "새 대화",
+        "history": "대화 기록",
+        "searchHistory": "대화 검색…",
+        "noHistory": "아직 대화가 없습니다.",
+        "untitled": "제목 없는 대화",
+        "noKb": "지식 공간을 열어 대화를 시작하세요.",
+        "messageCount": "메시지 {{count}}개"
+      },
+      "quickRewrite": {
+        "title": "빠른 다시 쓰기",
+        "placeholder": "어떻게 다시 쓸지 입력 —— 예: 더 간결하게, 문법 수정, 영어로 번역…",
+        "model": "모델",
+        "generate": "생성",
+        "regenerate": "다시 생성",
+        "apply": "적용",
+        "failed": "다시 쓰기 실패"
       }
     },
     "common": {
@@ -3617,18 +3637,8 @@
       },
       "outline": "大綱",
       "outlineEmpty": "無標題",
-      "aiRewrite": "AI 改寫",
-      "aiRewriteScope": "正在改寫：{{scope}}",
-      "aiRewriteSelection": "選取內容",
-      "aiRewriteWholeNote": "整篇筆記",
-      "aiRewritePlaceholder": "描述如何改寫 —— 例如：更簡潔、修正文法、翻譯成英文…",
-      "aiRewriteGenerate": "生成",
-      "aiRewriteRegenerate": "重新生成",
-      "aiRewriteApply": "套用",
-      "aiRewriteFailed": "AI 改寫失敗",
       "allowExternalWrites": "允許編輯此外部庫",
       "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。",
-      "referenceInChat": "引用到聊天",
       "picker": {
         "title": "知識空間",
         "heading": "此聊天的知識空間",
@@ -3688,6 +3698,26 @@
       "resizeSplit": "調整分欄寬度",
       "result": {
         "memory": "記憶"
+      },
+      "chatPanel": {
+        "tab": "AI 對話",
+        "addToChat": "加入 AI 對話",
+        "newConversation": "新增對話",
+        "history": "歷史對話",
+        "searchHistory": "搜尋歷史對話…",
+        "noHistory": "還沒有對話紀錄。",
+        "untitled": "未命名對話",
+        "noKb": "開啟一個知識空間以開始對話。",
+        "messageCount": "{{count}} 則訊息"
+      },
+      "quickRewrite": {
+        "title": "快速改寫",
+        "placeholder": "描述如何改寫 —— 例如：更簡潔、修正文法、翻譯成英文…",
+        "model": "模型",
+        "generate": "生成",
+        "regenerate": "重新生成",
+        "apply": "套用",
+        "failed": "改寫失敗"
       }
     },
     "common": {
@@ -4866,18 +4896,8 @@
       },
       "outline": "Anahat",
       "outlineEmpty": "Başlık yok",
-      "aiRewrite": "AI ile yeniden yaz",
-      "aiRewriteScope": "Yeniden yazılıyor: {{scope}}",
-      "aiRewriteSelection": "seçim",
-      "aiRewriteWholeNote": "tüm not",
-      "aiRewritePlaceholder": "Nasıl yeniden yazılacağını açıklayın — örn. daha kısa yap, dil bilgisini düzelt, İngilizceye çevir…",
-      "aiRewriteGenerate": "Oluştur",
-      "aiRewriteRegenerate": "Yeniden oluştur",
-      "aiRewriteApply": "Uygula",
-      "aiRewriteFailed": "AI ile yeniden yazma başarısız",
       "allowExternalWrites": "Bu kasada düzenlemeye izin ver",
       "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz.",
-      "referenceInChat": "Sohbette referans ver",
       "picker": {
         "title": "Bilgi alanları",
         "heading": "Bu sohbetin bilgi alanları",
@@ -4937,6 +4957,26 @@
       "resizeSplit": "Bölmeyi yeniden boyutlandır",
       "result": {
         "memory": "Bellek"
+      },
+      "chatPanel": {
+        "tab": "AI sohbet",
+        "addToChat": "AI sohbete ekle",
+        "newConversation": "Yeni sohbet",
+        "history": "Sohbet geçmişi",
+        "searchHistory": "Sohbetlerde ara…",
+        "noHistory": "Henüz sohbet yok.",
+        "untitled": "Başlıksız sohbet",
+        "noKb": "Sohbete başlamak için bir bilgi alanı açın.",
+        "messageCount": "{{count}} mesaj"
+      },
+      "quickRewrite": {
+        "title": "Hızlı yeniden yazma",
+        "placeholder": "Nasıl yeniden yazılacağını açıklayın — örn. daha kısa yap, dil bilgisini düzelt, İngilizceye çevir…",
+        "model": "Model",
+        "generate": "Oluştur",
+        "regenerate": "Yeniden oluştur",
+        "apply": "Uygula",
+        "failed": "Yeniden yazma başarısız"
       }
     },
     "common": {
@@ -6107,18 +6147,8 @@
       },
       "outline": "Dàn ý",
       "outlineEmpty": "Không có tiêu đề",
-      "aiRewrite": "AI viết lại",
-      "aiRewriteScope": "Đang viết lại: {{scope}}",
-      "aiRewriteSelection": "vùng chọn",
-      "aiRewriteWholeNote": "toàn bộ ghi chú",
-      "aiRewritePlaceholder": "Mô tả cách viết lại — ví dụ: ngắn gọn hơn, sửa ngữ pháp, dịch sang tiếng Anh…",
-      "aiRewriteGenerate": "Tạo",
-      "aiRewriteRegenerate": "Tạo lại",
-      "aiRewriteApply": "Áp dụng",
-      "aiRewriteFailed": "Viết lại bằng AI thất bại",
       "allowExternalWrites": "Cho phép chỉnh sửa kho này",
       "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài.",
-      "referenceInChat": "Tham chiếu trong trò chuyện",
       "picker": {
         "title": "Không gian tri thức",
         "heading": "Không gian tri thức cho cuộc trò chuyện này",
@@ -6178,6 +6208,26 @@
       "resizeSplit": "Đổi kích thước chia đôi",
       "result": {
         "memory": "Bộ nhớ"
+      },
+      "chatPanel": {
+        "tab": "Trò chuyện AI",
+        "addToChat": "Thêm vào trò chuyện AI",
+        "newConversation": "Cuộc trò chuyện mới",
+        "history": "Lịch sử trò chuyện",
+        "searchHistory": "Tìm cuộc trò chuyện…",
+        "noHistory": "Chưa có cuộc trò chuyện nào.",
+        "untitled": "Cuộc trò chuyện chưa đặt tên",
+        "noKb": "Mở một không gian kiến thức để bắt đầu trò chuyện.",
+        "messageCount": "{{count}} tin nhắn"
+      },
+      "quickRewrite": {
+        "title": "Viết lại nhanh",
+        "placeholder": "Mô tả cách viết lại — ví dụ: ngắn gọn hơn, sửa ngữ pháp, dịch sang tiếng Anh…",
+        "model": "Mô hình",
+        "generate": "Tạo",
+        "regenerate": "Tạo lại",
+        "apply": "Áp dụng",
+        "failed": "Viết lại thất bại"
       }
     },
     "common": {
@@ -7348,18 +7398,8 @@
       },
       "outline": "Estrutura",
       "outlineEmpty": "Sem títulos",
-      "aiRewrite": "Reescrever com IA",
-      "aiRewriteScope": "Reescrevendo: {{scope}}",
-      "aiRewriteSelection": "seleção",
-      "aiRewriteWholeNote": "nota inteira",
-      "aiRewritePlaceholder": "Descreva como reescrever — ex.: tornar mais conciso, corrigir gramática, traduzir para inglês…",
-      "aiRewriteGenerate": "Gerar",
-      "aiRewriteRegenerate": "Gerar novamente",
-      "aiRewriteApply": "Aplicar",
-      "aiRewriteFailed": "Falha ao reescrever com IA",
       "allowExternalWrites": "Permitir edição deste cofre",
       "allowExternalWritesHint": "Cofres externos são somente leitura por padrão. Ative para permitir que o editor e as ferramentas de IA gravem na pasta vinculada. A manutenção em segundo plano nunca grava em cofres externos.",
-      "referenceInChat": "Referenciar no chat",
       "picker": {
         "title": "Espaços de conhecimento",
         "heading": "Espaços de conhecimento deste chat",
@@ -7419,6 +7459,26 @@
       "resizeSplit": "Redimensionar divisão",
       "result": {
         "memory": "Memória"
+      },
+      "chatPanel": {
+        "tab": "Chat de IA",
+        "addToChat": "Adicionar ao chat de IA",
+        "newConversation": "Nova conversa",
+        "history": "Histórico de conversas",
+        "searchHistory": "Buscar conversas…",
+        "noHistory": "Ainda não há conversas.",
+        "untitled": "Conversa sem título",
+        "noKb": "Abra um espaço de conhecimento para começar a conversar.",
+        "messageCount": "{{count}} mensagens"
+      },
+      "quickRewrite": {
+        "title": "Reescrita rápida",
+        "placeholder": "Descreva como reescrever — ex.: mais conciso, corrigir gramática, traduzir para inglês…",
+        "model": "Modelo",
+        "generate": "Gerar",
+        "regenerate": "Regenerar",
+        "apply": "Aplicar",
+        "failed": "Falha ao reescrever"
       }
     },
     "common": {
@@ -8589,18 +8649,8 @@
       },
       "outline": "Структура",
       "outlineEmpty": "Нет заголовков",
-      "aiRewrite": "ИИ-переписывание",
-      "aiRewriteScope": "Переписывается: {{scope}}",
-      "aiRewriteSelection": "выделение",
-      "aiRewriteWholeNote": "вся заметка",
-      "aiRewritePlaceholder": "Опишите, как переписать — напр.: короче, исправить грамматику, перевести на английский…",
-      "aiRewriteGenerate": "Сгенерировать",
-      "aiRewriteRegenerate": "Сгенерировать заново",
-      "aiRewriteApply": "Применить",
-      "aiRewriteFailed": "Не удалось переписать с помощью ИИ",
       "allowExternalWrites": "Разрешить редактирование этого хранилища",
       "allowExternalWritesHint": "Внешние хранилища по умолчанию доступны только для чтения. Включите, чтобы редактор и ИИ-инструменты могли записывать в привязанную папку. Фоновое обслуживание никогда не пишет во внешние хранилища.",
-      "referenceInChat": "Сослаться в чате",
       "picker": {
         "title": "Пространства знаний",
         "heading": "Пространства знаний для этого чата",
@@ -8660,6 +8710,26 @@
       "resizeSplit": "Изменить ширину разделения",
       "result": {
         "memory": "Память"
+      },
+      "chatPanel": {
+        "tab": "ИИ-чат",
+        "addToChat": "Добавить в ИИ-чат",
+        "newConversation": "Новый разговор",
+        "history": "История разговоров",
+        "searchHistory": "Поиск разговоров…",
+        "noHistory": "Разговоров пока нет.",
+        "untitled": "Разговор без названия",
+        "noKb": "Откройте пространство знаний, чтобы начать разговор.",
+        "messageCount": "Сообщений: {{count}}"
+      },
+      "quickRewrite": {
+        "title": "Быстрое переписывание",
+        "placeholder": "Опишите, как переписать — например: короче, исправить грамматику, перевести на английский…",
+        "model": "Модель",
+        "generate": "Сгенерировать",
+        "regenerate": "Сгенерировать заново",
+        "apply": "Применить",
+        "failed": "Не удалось переписать"
       }
     },
     "common": {
@@ -9830,18 +9900,8 @@
       },
       "outline": "المخطط",
       "outlineEmpty": "لا توجد عناوين",
-      "aiRewrite": "إعادة الكتابة بالذكاء الاصطناعي",
-      "aiRewriteScope": "جارٍ إعادة الكتابة: {{scope}}",
-      "aiRewriteSelection": "التحديد",
-      "aiRewriteWholeNote": "الملاحظة كاملة",
-      "aiRewritePlaceholder": "صِف كيفية إعادة الكتابة — مثل: اجعلها أكثر إيجازًا، صحّح القواعد، ترجم إلى الإنجليزية…",
-      "aiRewriteGenerate": "إنشاء",
-      "aiRewriteRegenerate": "إعادة الإنشاء",
-      "aiRewriteApply": "تطبيق",
-      "aiRewriteFailed": "فشلت إعادة الكتابة بالذكاء الاصطناعي",
       "allowExternalWrites": "السماح بتحرير هذه الخزنة",
       "allowExternalWritesHint": "الخزائن الخارجية للقراءة فقط افتراضيًا. فعّل الخيار للسماح للمحرر وأدوات الذكاء الاصطناعي بالكتابة في المجلد المرتبط. لا تكتب الصيانة التلقائية في الخلفية إلى الخزائن الخارجية أبدًا.",
-      "referenceInChat": "الإشارة في الدردشة",
       "picker": {
         "title": "مساحات المعرفة",
         "heading": "مساحات المعرفة لهذه المحادثة",
@@ -9901,6 +9961,26 @@
       "resizeSplit": "تغيير حجم التقسيم",
       "result": {
         "memory": "الذاكرة"
+      },
+      "chatPanel": {
+        "tab": "محادثة الذكاء الاصطناعي",
+        "addToChat": "إضافة إلى محادثة الذكاء الاصطناعي",
+        "newConversation": "محادثة جديدة",
+        "history": "سجل المحادثات",
+        "searchHistory": "البحث في المحادثات…",
+        "noHistory": "لا توجد محادثات بعد.",
+        "untitled": "محادثة بلا عنوان",
+        "noKb": "افتح مساحة معرفة لبدء المحادثة.",
+        "messageCount": "{{count}} رسالة"
+      },
+      "quickRewrite": {
+        "title": "إعادة صياغة سريعة",
+        "placeholder": "صِف كيفية إعادة الصياغة — مثل: اجعله أكثر إيجازًا، صحّح القواعد، ترجم إلى الإنجليزية…",
+        "model": "النموذج",
+        "generate": "إنشاء",
+        "regenerate": "إعادة الإنشاء",
+        "apply": "تطبيق",
+        "failed": "فشلت إعادة الصياغة"
       }
     },
     "common": {
@@ -11071,18 +11151,8 @@
       },
       "outline": "Esquema",
       "outlineEmpty": "Sin encabezados",
-      "aiRewrite": "Reescribir con IA",
-      "aiRewriteScope": "Reescribiendo: {{scope}}",
-      "aiRewriteSelection": "selección",
-      "aiRewriteWholeNote": "nota completa",
-      "aiRewritePlaceholder": "Describe cómo reescribir — p. ej.: hazlo más conciso, corrige la gramática, tradúcelo al inglés…",
-      "aiRewriteGenerate": "Generar",
-      "aiRewriteRegenerate": "Volver a generar",
-      "aiRewriteApply": "Aplicar",
-      "aiRewriteFailed": "Error al reescribir con IA",
       "allowExternalWrites": "Permitir editar esta bóveda",
       "allowExternalWritesHint": "Las bóvedas externas son de solo lectura de forma predeterminada. Actívalo para que el editor y las herramientas de IA puedan escribir en la carpeta vinculada. El mantenimiento en segundo plano nunca escribe en bóvedas externas.",
-      "referenceInChat": "Referenciar en el chat",
       "picker": {
         "title": "Espacios de conocimiento",
         "heading": "Espacios de conocimiento para este chat",
@@ -11142,6 +11212,26 @@
       "resizeSplit": "Ajustar división",
       "result": {
         "memory": "Memoria"
+      },
+      "chatPanel": {
+        "tab": "Chat de IA",
+        "addToChat": "Añadir al chat de IA",
+        "newConversation": "Nueva conversación",
+        "history": "Historial de conversaciones",
+        "searchHistory": "Buscar conversaciones…",
+        "noHistory": "Aún no hay conversaciones.",
+        "untitled": "Conversación sin título",
+        "noKb": "Abre un espacio de conocimiento para empezar a chatear.",
+        "messageCount": "{{count}} mensajes"
+      },
+      "quickRewrite": {
+        "title": "Reescritura rápida",
+        "placeholder": "Describe cómo reescribir — p. ej.: más conciso, corregir gramática, traducir al inglés…",
+        "model": "Modelo",
+        "generate": "Generar",
+        "regenerate": "Regenerar",
+        "apply": "Aplicar",
+        "failed": "Error al reescribir"
       }
     },
     "common": {
@@ -12312,18 +12402,8 @@
       },
       "outline": "Rangka",
       "outlineEmpty": "Tiada tajuk",
-      "aiRewrite": "Tulis semula dengan AI",
-      "aiRewriteScope": "Menulis semula: {{scope}}",
-      "aiRewriteSelection": "pilihan",
-      "aiRewriteWholeNote": "seluruh nota",
-      "aiRewritePlaceholder": "Terangkan cara menulis semula — cth.: jadikan lebih ringkas, betulkan tatabahasa, terjemah ke bahasa Inggeris…",
-      "aiRewriteGenerate": "Jana",
-      "aiRewriteRegenerate": "Jana semula",
-      "aiRewriteApply": "Guna",
-      "aiRewriteFailed": "Gagal menulis semula dengan AI",
       "allowExternalWrites": "Benarkan menyunting bilik kebal ini",
       "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran.",
-      "referenceInChat": "Rujuk dalam sembang",
       "picker": {
         "title": "Ruang pengetahuan",
         "heading": "Ruang pengetahuan untuk chat ini",
@@ -12383,6 +12463,26 @@
       "resizeSplit": "Saiz semula pembahagi",
       "result": {
         "memory": "Memori"
+      },
+      "chatPanel": {
+        "tab": "Sembang AI",
+        "addToChat": "Tambah ke sembang AI",
+        "newConversation": "Perbualan baharu",
+        "history": "Sejarah perbualan",
+        "searchHistory": "Cari perbualan…",
+        "noHistory": "Belum ada perbualan.",
+        "untitled": "Perbualan tanpa tajuk",
+        "noKb": "Buka ruang pengetahuan untuk mula bersembang.",
+        "messageCount": "{{count}} mesej"
+      },
+      "quickRewrite": {
+        "title": "Tulis semula pantas",
+        "placeholder": "Terangkan cara menulis semula — cth: lebih ringkas, betulkan tatabahasa, terjemah ke Bahasa Inggeris…",
+        "model": "Model",
+        "generate": "Jana",
+        "regenerate": "Jana semula",
+        "apply": "Guna",
+        "failed": "Gagal menulis semula"
       }
     },
     "common": {

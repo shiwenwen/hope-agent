@@ -24,6 +24,9 @@ interface Props {
    */
   draftAttachments?: KbDraftAttachment[]
   onDraftAttachChange?: (next: KbDraftAttachment[]) => void
+  /** "toolbar" (default) = compact icon button in the composer toolbar; "menu"
+   *  = full-width labeled row for the composer "+" overflow when space is tight. */
+  variant?: "toolbar" | "menu"
 }
 
 /**
@@ -42,6 +45,7 @@ export default function KnowledgePicker({
   disabled = false,
   draftAttachments = [],
   onDraftAttachChange,
+  variant = "toolbar",
 }: Props) {
   const { t } = useTranslation()
   // Draft mode iff no live session and the parent wired a draft handler.
@@ -129,85 +133,114 @@ export default function KnowledgePicker({
       ? t("knowledge.picker.needSession")
       : t("knowledge.picker.title")
 
+  // Shared body for both the floating popover (toolbar) and the inline accordion
+  // (menu). The menu variant expands inline inside the "+" dropdown rather than
+  // floating, so it never mis-positions in narrow side panels.
+  const pickerBody = (
+    <>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] text-muted-foreground font-medium">
+          {t("knowledge.picker.heading")}
+        </span>
+        {loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+      </div>
+
+      {kbs.length === 0 && !loading ? (
+        <p className="text-xs text-muted-foreground py-3 text-center">
+          {t("knowledge.picker.empty")}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-0.5 max-h-[280px] overflow-y-auto -mx-1 px-1">
+          {kbs.map((kb) => {
+            const att = attachmentFor(kb.id)
+            const viaProject = att?.via === "project"
+            const busy = busyId === kb.id
+            return (
+              <div
+                key={kb.id}
+                className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-secondary/50"
+              >
+                <span className="shrink-0 text-sm leading-none">{kb.emoji || "📚"}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1">
+                    <span className="truncate text-xs font-medium">{kb.name}</span>
+                    {kb.external && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">
+                    {viaProject
+                      ? t("knowledge.picker.viaProject")
+                      : t("knowledge.picker.noteCount", { count: kb.noteCount })}
+                  </span>
+                </div>
+
+                {/* Always-visible 关闭/只读/读写 segmented control. External
+                    vaults hide the write segment (read-capped, D11); project
+                    attaches are managed at the project level (rendered read-only). */}
+                <KbAccessControl
+                  value={!att ? "off" : att.access}
+                  allowWrite={!kb.external && !viaProject}
+                  disabled={viaProject}
+                  busy={busy}
+                  onChange={(next) => setAttach(kb, next === "off" ? null : next)}
+                />
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
+        {t("knowledge.picker.hint")}
+      </p>
+    </>
+  )
+
   return (
-    <div className="relative" ref={ref}>
-      <IconTip label={tipLabel}>
+    <div className={cn("relative", variant === "menu" && "w-full")} ref={ref}>
+      {variant === "menu" ? (
         <button
           type="button"
           disabled={btnDisabled}
           onClick={() => setOpen(!open)}
           className={cn(
-            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
-            attachedCount > 0
-              ? "text-blue-500"
-              : "text-muted-foreground hover:text-foreground",
+            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-all duration-150 hover:bg-secondary/60 disabled:pointer-events-none disabled:opacity-50",
+            attachedCount > 0 ? "text-blue-500" : "text-foreground/80 hover:text-foreground",
           )}
         >
-          <Library className="h-4 w-4" />
-          {attachedCount > 0 && <span className="tabular-nums">{attachedCount}</span>}
+          <Library className="h-4 w-4 shrink-0" />
+          <span className="truncate">{t("knowledge.picker.title")}</span>
+          {attachedCount > 0 && <span className="ml-auto tabular-nums text-xs">{attachedCount}</span>}
         </button>
-      </IconTip>
-
-      {open && !btnDisabled && (
-        <div className="absolute bottom-full left-0 mb-2 w-[320px] bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 p-3 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] text-muted-foreground font-medium">
-              {t("knowledge.picker.heading")}
-            </span>
-            {loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-          </div>
-
-          {kbs.length === 0 && !loading ? (
-            <p className="text-xs text-muted-foreground py-3 text-center">
-              {t("knowledge.picker.empty")}
-            </p>
-          ) : (
-            <div className="flex flex-col gap-0.5 max-h-[280px] overflow-y-auto -mx-1 px-1">
-              {kbs.map((kb) => {
-                const att = attachmentFor(kb.id)
-                const viaProject = att?.via === "project"
-                const busy = busyId === kb.id
-                return (
-                  <div
-                    key={kb.id}
-                    className="flex items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-secondary/50"
-                  >
-                    <span className="shrink-0 text-sm leading-none">{kb.emoji || "📚"}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1">
-                        <span className="truncate text-xs font-medium">{kb.name}</span>
-                        {kb.external && (
-                          <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        )}
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">
-                        {viaProject
-                          ? t("knowledge.picker.viaProject")
-                          : t("knowledge.picker.noteCount", { count: kb.noteCount })}
-                      </span>
-                    </div>
-
-                    {/* Always-visible 关闭/只读/读写 segmented control. External
-                        vaults hide the write segment (read-capped, D11); project
-                        attaches are managed at the project level (rendered read-only). */}
-                    <KbAccessControl
-                      value={!att ? "off" : att.access}
-                      allowWrite={!kb.external && !viaProject}
-                      disabled={viaProject}
-                      busy={busy}
-                      onChange={(next) => setAttach(kb, next === "off" ? null : next)}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
-            {t("knowledge.picker.hint")}
-          </p>
-        </div>
+      ) : (
+        <IconTip label={tipLabel}>
+          <button
+            type="button"
+            disabled={btnDisabled}
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
+              attachedCount > 0
+                ? "text-blue-500"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Library className="h-4 w-4" />
+            {attachedCount > 0 && <span className="tabular-nums">{attachedCount}</span>}
+          </button>
+        </IconTip>
       )}
+
+      {open &&
+        !btnDisabled &&
+        (variant === "menu" ? (
+          <div className="mt-1 rounded-lg border border-border/50 bg-background/40 p-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+            {pickerBody}
+          </div>
+        ) : (
+          <div className="absolute bottom-full left-0 mb-2 w-[300px] bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 p-3 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
+            {pickerBody}
+          </div>
+        ))}
     </div>
   )
 }

@@ -607,10 +607,6 @@ export default function App() {
                   <KnowledgeView
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("knowledge")}
-                    onInsertMention={(insert) => {
-                      setPendingChatInsert(insert)
-                      setView("chat")
-                    }}
                   />
                 </Suspense>
               )}

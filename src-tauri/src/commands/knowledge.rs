@@ -9,9 +9,10 @@ use crate::commands::CmdError;
 use ha_core::filesystem::{self, ExtractedContent, FileTextContent, WorkspaceScope};
 use ha_core::knowledge::{
     self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
-    KbAttachment, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult,
-    NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    KbAttachment, KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note,
+    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
 };
+use ha_core::session::SessionMeta;
 
 fn registry() -> Result<&'static std::sync::Arc<knowledge::KnowledgeRegistry>, CmdError> {
     ha_core::get_knowledge_db().ok_or_else(|| CmdError::msg("knowledge db not initialized"))
@@ -385,13 +386,65 @@ pub async fn kb_graph_layout_save_cmd(
     service::save_graph_layout(&kb_id, &positions).map_err(Into::into)
 }
 
-/// AI-assisted note rewrite (WS9): returns rewritten Markdown for the GUI to diff;
-/// nothing is written until the user confirms and the normal save runs.
+// ── Knowledge-space sidebar chat threads ────────────────────────
+
+/// Default-load target: the most recent chat thread anchored to `note` in this
+/// KB. `None` when the note has no prior conversation (panel shows empty state).
 #[tauri::command]
-pub async fn kb_ai_rewrite_cmd(text: String, instruction: String) -> Result<String, CmdError> {
-    service::ai_rewrite(&text, &instruction)
+pub async fn kb_chat_thread_get_cmd(
+    kb_id: String,
+    note: Option<String>,
+) -> Result<Option<SessionMeta>, CmdError> {
+    service::kb_chat_thread_latest(&kb_id, note.as_deref()).map_err(Into::into)
+}
+
+/// History picker: all chat threads in a KB, newest-active first. `query`
+/// FTS-filters by message content when non-empty.
+#[tauri::command]
+pub async fn kb_chat_threads_list_cmd(
+    kb_id: String,
+    query: Option<String>,
+) -> Result<Vec<KbChatThread>, CmdError> {
+    service::kb_chat_threads_list(&kb_id, query.as_deref()).map_err(Into::into)
+}
+
+/// Quick-rewrite of a text selection: returns rewritten Markdown for the GUI to
+/// diff in the floating bar; nothing is written until the user applies it and the
+/// normal save runs. `model_override` (`"providerId::modelId"`) pins the model —
+/// the panel defaults it to the current conversation's model.
+#[tauri::command]
+pub async fn kb_ai_rewrite_cmd(
+    text: String,
+    instruction: String,
+    model_override: Option<String>,
+) -> Result<String, CmdError> {
+    service::ai_rewrite(&text, &instruction, model_override.as_deref())
         .await
         .map_err(Into::into)
+}
+
+/// Record a quick-rewrite outcome (applied / discarded) for statistics. Called by
+/// the floating bar after the user decides. Best-effort; never blocks the action.
+#[tauri::command]
+pub async fn kb_rewrite_log_cmd(
+    kb_id: String,
+    note_path: Option<String>,
+    instruction: String,
+    model: Option<String>,
+    chars_before: i64,
+    chars_after: i64,
+    accepted: bool,
+) -> Result<(), CmdError> {
+    service::log_quick_rewrite(
+        &kb_id,
+        note_path.as_deref(),
+        &instruction,
+        model.as_deref(),
+        chars_before,
+        chars_after,
+        accepted,
+    );
+    Ok(())
 }
 
 // ── Layer-2 autonomous maintenance (WS6) ────────────────────────

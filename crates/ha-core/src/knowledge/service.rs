@@ -11,10 +11,11 @@ use anyhow::{anyhow, bail, Result};
 
 use super::index;
 use super::types::{
-    Backlink, CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KnowledgeBaseMeta, Note,
-    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome,
+    Backlink, CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
+    Note, NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome,
 };
 use crate::filesystem::{self, WorkspaceScope};
+use crate::session::{SessionKind, SessionMeta};
 
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
     crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
@@ -38,6 +39,72 @@ pub fn list_kb_meta(include_archived: bool) -> Result<Vec<KnowledgeBaseMeta>> {
 /// List a KB's indexed notes (metadata), ordered by path.
 pub fn list_notes(kb_id: &str) -> Result<Vec<Note>> {
     index_db()?.list_notes(kb_id)
+}
+
+// ── Knowledge-space sidebar chat threads ────────────────────────────
+//
+// A "thread" is a `kind='knowledge'` session bound (write) to a KB and anchored
+// to the note that was open when it was created. Owner plane (GUI-initiated):
+// these helpers create/list the conversation containers; the conversation turns
+// themselves run through the normal `chat` path with `toolScope: "knowledge"`.
+
+fn session_db() -> Result<&'static std::sync::Arc<crate::session::SessionDB>> {
+    crate::get_session_db().ok_or_else(|| anyhow!("session db not initialized"))
+}
+
+/// Latest knowledge-chat thread anchored to `anchor_note` in this KB — the
+/// default-load target when a note is opened. `None` when the note has no prior
+/// conversation (or no note is open).
+pub fn kb_chat_thread_latest(
+    kb_id: &str,
+    anchor_note: Option<&str>,
+) -> Result<Option<SessionMeta>> {
+    let Some(note) = anchor_note else {
+        return Ok(None);
+    };
+    let Some(sid) = registry()?.latest_thread_session_for_note(kb_id, note)? else {
+        return Ok(None);
+    };
+    session_db()?.get_session(&sid)
+}
+
+/// All knowledge-chat threads in a KB (history picker), newest-active first.
+/// `query` (when non-empty) FTS-filters to threads whose messages match.
+pub fn kb_chat_threads_list(kb_id: &str, query: Option<&str>) -> Result<Vec<KbChatThread>> {
+    registry()?.list_chat_threads(kb_id, query)
+}
+
+/// Promote a freshly auto-created session into a knowledge-space chat thread:
+/// mark it `kind=Knowledge` (so it's hidden from the main session list) and
+/// record the (kb, anchor-note) binding for default-load / history. Called from
+/// the `chat` command's auto-create branch when `tool_scope == "knowledge"`.
+/// Best-effort: a failure leaves a usable (if unlisted) regular session rather
+/// than blocking the user's first message.
+pub fn mark_session_as_kb_thread(session_id: &str, kb_id: &str, anchor_note: Option<&str>) {
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+    if let Err(e) = db.set_session_kind(session_id, SessionKind::Knowledge) {
+        crate::app_warn!(
+            "knowledge",
+            "kb_thread_mint",
+            "set_session_kind failed for {}: {}",
+            session_id,
+            e
+        );
+        return;
+    }
+    if let Ok(reg) = registry() {
+        if let Err(e) = reg.create_chat_thread(session_id, kb_id, anchor_note) {
+            crate::app_warn!(
+                "knowledge",
+                "kb_thread_mint",
+                "create_chat_thread failed for {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
 }
 
 /// Owner read: raw content + outgoing links + backlinks + tags.
@@ -636,7 +703,11 @@ fn strip_md_fence(text: &str) -> String {
 /// and the user confirms before saving — **this never touches disk**, so it needs
 /// no `WorkspaceScope` / write gate (the eventual save goes through `note_save`).
 /// Decoupled background call via the analysis agent (like recap / distill).
-pub async fn ai_rewrite(text: &str, instruction: &str) -> Result<String> {
+pub async fn ai_rewrite(
+    text: &str,
+    instruction: &str,
+    model_override: Option<&str>,
+) -> Result<String> {
     let text = text.trim();
     if text.is_empty() {
         bail!("nothing to rewrite");
@@ -661,13 +732,70 @@ pub async fn ai_rewrite(text: &str, instruction: &str) -> Result<String> {
         .saturating_add(512)
         .clamp(512, 8192);
     let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
+    let agent = build_rewrite_agent(&config, model_override).await?;
     let res = agent.side_query(&prompt, max_tokens).await?;
     let out = strip_md_fence(res.text.trim());
     if out.is_empty() {
         bail!("the model returned empty content");
     }
     Ok(out)
+}
+
+/// Build the one-shot agent for a quick rewrite. `model_override`
+/// (`"providerId::modelId"`, e.g. the current conversation's model or a
+/// user-picked one) pins that model; an empty / unresolvable override falls back
+/// to the default analysis agent so the rewrite still runs.
+async fn build_rewrite_agent(
+    config: &crate::config::AppConfig,
+    model_override: Option<&str>,
+) -> Result<crate::agent::AssistantAgent> {
+    if let Some(m) = model_override.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(active) = crate::provider::parse_model_ref(m) {
+            if let Some(prov) =
+                crate::provider::find_provider(&config.providers, &active.provider_id)
+            {
+                let agent =
+                    crate::agent::AssistantAgent::try_new_from_provider(prov, &active.model_id)
+                        .await?
+                        .with_failover_context(prov);
+                return Ok(agent);
+            }
+        }
+        crate::app_warn!(
+            "knowledge",
+            "ai_rewrite",
+            "quick-rewrite model override '{}' unresolvable; falling back to default",
+            m
+        );
+    }
+    let (agent, _model) = crate::recap::report::build_analysis_agent(config).await?;
+    Ok(agent)
+}
+
+/// Record a quick-rewrite outcome into the Learning Tracker (`learning_events`)
+/// for later statistics. Best-effort — never fails the user's action. `accepted`
+/// distinguishes applied rewrites from discarded ones. Owner plane (GUI action).
+pub fn log_quick_rewrite(
+    kb_id: &str,
+    note_path: Option<&str>,
+    instruction: &str,
+    model: Option<&str>,
+    chars_before: i64,
+    chars_after: i64,
+    accepted: bool,
+) {
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+    let meta = serde_json::json!({
+        "notePath": note_path,
+        "instruction": crate::truncate_utf8(instruction.trim(), 500),
+        "model": model,
+        "charsBefore": chars_before,
+        "charsAfter": chars_after,
+        "accepted": accepted,
+    });
+    db.record_learning_event("kb_quick_rewrite", None, Some(kb_id), Some(&meta));
 }
 
 // ── First-run default knowledge space ───────────────────────────────────────

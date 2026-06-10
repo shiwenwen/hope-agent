@@ -71,31 +71,25 @@ import { useDragWidth } from "@/hooks/useDragWidth"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { isLocalModelJobActive } from "@/types/local-model-jobs"
 
-import AiRewriteDialog from "./AiRewriteDialog"
 import HeadingOutline from "./HeadingOutline"
 import KnowledgeEmbeddingBadge from "./KnowledgeEmbeddingBadge"
 import KnowledgeGraphView from "./KnowledgeGraphView"
 import KnowledgeJobsButton from "./KnowledgeJobsButton"
 import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
 import NoteEditor, { type NoteEditorHandle } from "./NoteEditor"
+import {
+  KnowledgeChatPanel,
+  type KnowledgeChatPanelHandle,
+} from "./chat/KnowledgeChatPanel"
+import { QuickRewriteBar } from "./chat/QuickRewriteBar"
 import { buildKnownTargets, type WikilinkData } from "./cm/wikilinkExtensions"
 import { parseHeadings } from "./outline"
 import { formatNoteInsertion, relPathToken } from "@/components/chat/note-mention/noteTokens"
-
-/** Reference payload pushed to the chat composer (Phase 3 "reference in chat"):
- *  the `[[note]]` token plus the KB to auto-attach (read) so the injection at
- *  send time isn't silently dropped by `effective_kb_access`. */
-export interface KnowledgeMentionInsert {
-  token: string
-  attachKbId?: string
-}
 
 interface KnowledgeViewProps {
   onBack: () => void
   /** Jump to Settings → Knowledge (embedding / retrieval config). */
   onOpenSettings?: () => void
-  /** Push a `[[note]]` reference into the chat composer (and switch to chat). */
-  onInsertMention?: (insert: KnowledgeMentionInsert) => void
 }
 
 type SaveStatus = "idle" | "saved" | "failed"
@@ -146,11 +140,7 @@ function readStoredWidth(key: string, def: number, min: number, max: number): nu
   }
 }
 
-export default function KnowledgeView({
-  onBack,
-  onOpenSettings,
-  onInsertMention,
-}: KnowledgeViewProps) {
+export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
   // Desktop can reveal real files in the OS file manager; HTTP/Web cannot.
@@ -175,15 +165,23 @@ export default function KnowledgeView({
   const [baseHash, setBaseHash] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [mode, setMode] = useState<NoteEditorMode>("split")
-  // AI rewrite (WS9): imperative handle into the saved-note editor + the captured
-  // rewrite scope (selection range or whole doc) opened in the diff dialog.
+  // Imperative handle into the saved-note editor (selection / range splice),
+  // shared by the floating quick-rewrite bar and the "add selection to chat".
   const editorRef = useRef<NoteEditorHandle>(null)
-  const [rewrite, setRewrite] = useState<{
+  // Floating one-shot quick-rewrite bar: the captured range (selection or whole
+  // doc). Replaces the old modal AI-rewrite dialog.
+  const [quickRewrite, setQuickRewrite] = useState<{
     before: string
     from: number
     to: number
-    scope: "selection" | "all"
   } | null>(null)
+  // Right panel: embedded AI chat ↔ backlinks view. The chat panel is anchored
+  // to the open note + bound to the active KB, and is the default right-pane tab.
+  const [rightMode, setRightMode] = useState<"links" | "chat">("chat")
+  const chatPanelRef = useRef<KnowledgeChatPanelHandle>(null)
+  // Live editor text for the chat panel's per-turn current-note context.
+  const editorValueRef = useRef("")
+  const getEditorValue = useCallback(() => editorValueRef.current, [])
   // Whole-KB graph view (WS1) — a per-KB toggle, orthogonal to the per-note
   // source/split/preview mode.
   const [graphMode, setGraphMode] = useState(false)
@@ -545,6 +543,44 @@ export default function KnowledgeView({
     [tx],
   )
 
+  // "Add to AI chat": switch the right panel to the chat view and either stage
+  // the current selection as a removable quote chip, or — with no selection —
+  // insert a `[[note#heading]]` reference token into the composer. The chat
+  // panel stays mounted (hidden in links mode) so its ref is always ready.
+  const referenceCurrentSelectionInChat = useCallback(() => {
+    if (!openPath) return
+    setRightMode("chat")
+    setRightCollapsed(false)
+    const sel = editorRef.current?.getSelection()
+    if (sel && sel.from !== sel.to && sel.text.trim()) {
+      const startLine = (editorValue.slice(0, sel.from).match(/\n/g)?.length ?? 0) + 1
+      const endLine = (editorValue.slice(0, sel.to).match(/\n/g)?.length ?? 0) + 1
+      chatPanelRef.current?.addQuote({
+        path: openPath,
+        name: openPath.split("/").pop() ?? openPath,
+        startLine,
+        endLine,
+        content: sel.text,
+      })
+    } else {
+      // Whole-note reference: `[[relPath]]`, with the nearest heading above the
+      // cursor as a readable anchor when available.
+      let inner = relPathToken(openPath)
+      const sel2 = editorRef.current?.getSelection()
+      if (sel2) {
+        const selLine = (editorValue.slice(0, sel2.from).match(/\n/g)?.length ?? 0) + 1
+        let nearest: string | undefined
+        for (const h of parseHeadings(editorValue)) {
+          if (h.line <= selLine) nearest = h.text
+          else break
+        }
+        const anchor = nearest?.replace(/[[\]|#\n\r]/g, "").trim()
+        if (anchor) inner = `${inner}#${anchor}`
+      }
+      chatPanelRef.current?.insertToken(formatNoteInsertion(inner))
+    }
+  }, [openPath, editorValue])
+
   // setState in these loaders is deferred behind an `await` (async fetch), so
   // there's no synchronous cascading render.
   useEffect(() => {
@@ -603,7 +639,17 @@ export default function KnowledgeView({
     toast.error(t("knowledge.noteRemovedExternally", "This note was removed or moved outside the app."))
   }, [notes, openPath, draftMode, openKbId, activeKbId, t])
 
-  // Refresh on backend knowledge changes (own writes, watcher, reindex).
+  // Mirror the live editor text into a ref for the chat panel's per-turn
+  // current-note context (read lazily at send time, no re-render coupling).
+  useEffect(() => {
+    editorValueRef.current = editorValue
+  }, [editorValue])
+
+  // Refresh on backend knowledge changes (own writes, watcher, reindex). When
+  // the AI chat / quick-rewrite writes the currently-open note, reload its
+  // content so the editor reflects the change — unless the user has unsaved
+  // edits, where clobbering would lose their work (the stale-write guard still
+  // protects the file).
   useEffect(() => {
     return tx.listen("knowledge:changed", () => {
       void loadKbs()
@@ -613,8 +659,28 @@ export default function KnowledgeView({
         void loadDirs(activeKbId)
         void loadTags(activeKbId)
       }
+      if (openKbId && openPath && !dirty && !draftMode) {
+        void (async () => {
+          try {
+            const data = await tx.call<NoteReadResult>("kb_note_read_cmd", {
+              kbId: openKbId,
+              path: openPath,
+            })
+            // Only apply when the content actually changed on disk (avoid a
+            // needless editor reset / cursor jump on unrelated KB events).
+            if (data.contentHash !== baseHash) {
+              setNoteData(data)
+              setEditorValue(data.content)
+              setBaseHash(data.contentHash)
+              setDirty(false)
+            }
+          } catch {
+            /* note may have been removed; the other listeners handle that */
+          }
+        })()
+      }
     })
-  }, [tx, loadKbs, loadNotes, loadDirs, loadTags, activeKbId])
+  }, [tx, loadKbs, loadNotes, loadDirs, loadTags, activeKbId, openKbId, openPath, dirty, draftMode, baseHash])
 
   // ── Wikilink editor data ──
   const wikilinkData: WikilinkData = useMemo(
@@ -2013,7 +2079,7 @@ export default function KnowledgeView({
                   />
                 )}
                 {!readOnly && mode !== "preview" && mode !== "outline" && (
-                  <IconTip label={t("knowledge.aiRewrite", "AI rewrite")}>
+                  <IconTip label={t("knowledge.quickRewrite.title", "Quick rewrite")}>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -2021,15 +2087,10 @@ export default function KnowledgeView({
                       onClick={() => {
                         const sel = editorRef.current?.getSelection()
                         if (sel && sel.from !== sel.to && sel.text.trim()) {
-                          setRewrite({
-                            before: sel.text,
-                            from: sel.from,
-                            to: sel.to,
-                            scope: "selection",
-                          })
+                          setQuickRewrite({ before: sel.text, from: sel.from, to: sel.to })
                         } else {
                           const len = editorRef.current?.docLength() ?? editorValue.length
-                          setRewrite({ before: editorValue, from: 0, to: len, scope: "all" })
+                          setQuickRewrite({ before: editorValue, from: 0, to: len })
                         }
                       }}
                     >
@@ -2037,38 +2098,13 @@ export default function KnowledgeView({
                     </Button>
                   </IconTip>
                 )}
-                {onInsertMention && openPath && openKbId && (
-                  <IconTip label={t("knowledge.referenceInChat", "Reference in chat")}>
+                {openPath && (openKbId ?? activeKbId) && (
+                  <IconTip label={t("knowledge.chatPanel.addToChat", "Add to AI chat")}>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2"
-                      onClick={() => {
-                        // Build `[[relPath]]` (path form — unambiguous through the
-                        // resolver). With a selection, append the nearest heading
-                        // above it as a human-readable anchor (`[[relPath#Heading]]`);
-                        // the injection still pulls the whole note today.
-                        let inner = relPathToken(openPath)
-                        const sel = editorRef.current?.getSelection()
-                        if (sel && sel.from !== sel.to) {
-                          const selLine = (editorValue.slice(0, sel.from).match(/\n/g)?.length ?? 0) + 1
-                          let nearest: string | undefined
-                          for (const h of parseHeadings(editorValue)) {
-                            if (h.line <= selLine) nearest = h.text
-                            else break
-                          }
-                          // Strip chars that break the `[[ ]]` grammar (the inner
-                          // stops at the first `]`/newline; `#`/`|` re-split it), so
-                          // a heading like `## Section [done]` can't leave a stray
-                          // `]` or a bogus anchor in the composer.
-                          const anchor = nearest?.replace(/[[\]|#\n\r]/g, "").trim()
-                          if (anchor) inner = `${inner}#${anchor}`
-                        }
-                        onInsertMention({
-                          token: formatNoteInsertion(inner),
-                          attachKbId: openKbId,
-                        })
-                      }}
+                      onClick={() => referenceCurrentSelectionInChat()}
                     >
                       <MessageSquareQuote className="h-3.5 w-3.5" />
                     </Button>
@@ -2139,21 +2175,47 @@ export default function KnowledgeView({
         {/* Right: backlinks / tags — collapsible + resizable (mirrors chat) */}
         <div
           style={{ width: rightCollapsed ? 0 : rightWidth }}
-          className={cn("relative h-full shrink-0", !isResizingRight && PANE_WIDTH_TRANSITION)}
+          className={cn("relative h-full min-w-0", !isResizingRight && PANE_WIDTH_TRANSITION)}
         >
           <div className="h-full overflow-hidden">
             <div
-              style={{ width: rightWidth }}
+              // `width` is the preferred size; `maxWidth: 100%` lets the content
+              // reflow/compress when the row can't grant the full pane width
+              // (narrow window) instead of being hard-clipped by the overflow.
+              style={{ width: rightWidth, maxWidth: "100%" }}
               aria-hidden={rightCollapsed}
               inert={rightCollapsed ? true : undefined}
               className={cn(
-                "flex h-full flex-col border-l border-border-soft/60",
+                "flex h-full min-w-0 flex-col border-l border-border-soft/60",
                 PANE_SURFACE_TRANSITION,
                 rightCollapsed
                   ? "pointer-events-none translate-x-4 opacity-0"
                   : "translate-x-0 opacity-100",
               )}
             >
+          <RightPanelTabs mode={rightMode} onChange={setRightMode} />
+          {/* Chat panel stays mounted (so its imperative ref is always ready for
+              "add to chat") but only loads when actually shown. */}
+          <div
+            className={cn(
+              "min-h-0 min-w-0 flex-1",
+              rightMode === "chat" ? "flex flex-col" : "hidden",
+            )}
+          >
+            <KnowledgeChatPanel
+              ref={chatPanelRef}
+              active={rightMode === "chat" && !rightCollapsed}
+              kbId={openKbId ?? activeKbId}
+              notePath={openPath}
+              getEditorValue={getEditorValue}
+            />
+          </div>
+          <div
+            className={cn(
+              "min-h-0 min-w-0 flex-1",
+              rightMode === "chat" ? "hidden" : "flex flex-col",
+            )}
+          >
           {hits.length > 0 ? (
             <>
               <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
@@ -2292,6 +2354,7 @@ export default function KnowledgeView({
               {t("knowledge.backlinksHint", "Open a note to see its backlinks.")}
             </div>
           )}
+          </div>
             </div>
           </div>
           <div
@@ -2719,22 +2782,20 @@ export default function KnowledgeView({
         </DialogContent>
       </Dialog>
 
-      {/* AI rewrite (WS9) */}
-      {rewrite && (
-        <AiRewriteDialog
-          open
-          onOpenChange={(o) => !o && setRewrite(null)}
-          before={rewrite.before}
-          scopeLabel={
-            rewrite.scope === "selection"
-              ? t("knowledge.aiRewriteSelection", "selection")
-              : t("knowledge.aiRewriteWholeNote", "whole note")
-          }
-          onApply={(after) => {
-            editorRef.current?.replaceRange(rewrite.from, rewrite.to, after)
-            setRewrite(null)
-          }}
-        />
+      {/* One-shot floating quick-rewrite bar (replaces the old AI rewrite modal). */}
+      {quickRewrite && (openKbId ?? activeKbId) && (
+        <div className="fixed left-1/2 top-24 z-50 -translate-x-1/2">
+          <QuickRewriteBar
+            kbId={(openKbId ?? activeKbId) as string}
+            notePath={openPath}
+            before={quickRewrite.before}
+            onApply={(after) => {
+              editorRef.current?.replaceRange(quickRewrite.from, quickRewrite.to, after)
+              setQuickRewrite(null)
+            }}
+            onClose={() => setQuickRewrite(null)}
+          />
+        </div>
       )}
     </div>
   )
@@ -2811,6 +2872,40 @@ function firstHeading(md: string): string | null {
   }
   const m = body.match(/^#[ \t]+(.+?)[ \t]*$/m)
   return m ? m[1].trim() : null
+}
+
+function RightPanelTabs({
+  mode,
+  onChange,
+}: {
+  mode: "links" | "chat"
+  onChange: (m: "links" | "chat") => void
+}) {
+  const { t } = useTranslation()
+  const tabs: { key: "links" | "chat"; label: string }[] = [
+    { key: "chat", label: t("knowledge.chatPanel.tab", "AI Agent") },
+    { key: "links", label: t("knowledge.backlinks", "Backlinks") },
+  ]
+  return (
+    <div className="flex shrink-0 border-b border-border-soft/60 px-1.5 py-1">
+      <div className="flex w-full overflow-hidden rounded-md border border-border-soft/60">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            className={cn(
+              "min-w-0 flex-1 truncate px-2 py-1 text-[11px] font-medium transition-colors",
+              mode === tab.key
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted/50",
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ModeSwitch({

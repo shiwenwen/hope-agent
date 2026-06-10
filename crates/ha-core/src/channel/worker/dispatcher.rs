@@ -742,6 +742,7 @@ async fn handle_inbound_message(
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
+        tool_scope: None,
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: account.auto_approve_tools,

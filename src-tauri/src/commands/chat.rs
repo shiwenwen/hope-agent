@@ -198,6 +198,13 @@ pub async fn chat(
     // session (mirrors `working_dir`); applied before the engine runs so the
     // first turn already sees the access. No-op for incognito.
     kb_attachments: Option<Vec<ha_core::knowledge::types::KbAttachInput>>,
+    // Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
+    // chat to trim the injected tool set; `None` for normal chats.
+    tool_scope: Option<String>,
+    // Knowledge-space sidebar chat: the note open when the conversation started.
+    // Only honored on the auto-create branch (mirrors `working_dir` /
+    // `kb_attachments`) — promotes the new session into a KB chat thread.
+    kb_anchor_note: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
@@ -281,6 +288,22 @@ pub async fn chat(
                 incognito.unwrap_or(false),
                 attaches,
             );
+        }
+        // Knowledge-space sidebar chat: promote the freshly-created session into a
+        // KB chat thread (hidden from the main list + history/default-load), using
+        // the single attached KB as the binding.
+        if tool_scope.as_deref() == Some("knowledge") {
+            if let Some(kb_id) = kb_attachments
+                .as_ref()
+                .and_then(|a| a.first())
+                .map(|a| a.kb_id.clone())
+            {
+                ha_core::knowledge::service::mark_session_as_kb_thread(
+                    &sid,
+                    &kb_id,
+                    kb_anchor_note.as_deref(),
+                );
+            }
         }
     }
 
@@ -852,6 +875,7 @@ pub async fn chat(
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
+        tool_scope: ha_core::tools::ToolScope::from_str_opt(tool_scope.as_deref()),
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: false,

@@ -1,6 +1,6 @@
 mod acp_db;
 mod artifacts;
-mod db;
+pub(crate) mod db;
 mod environment;
 pub mod export;
 mod helpers;
@@ -32,5 +32,6 @@ pub use tasks::{
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
     build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
-    MessageRole, NewMessage, SessionMessage, SessionMeta, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
+    MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+    ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
 };

@@ -202,6 +202,26 @@ export interface UseChatStreamOptions {
    * yet and not incognito.
    */
   draftKbAttachments?: KbDraftAttachment[]
+  /**
+   * Knowledge-space sidebar chat: the note open when the conversation started.
+   * Sent only on the auto-create send so the backend promotes the new session
+   * into a KB chat thread anchored to it (history / default-load key).
+   */
+  draftKbAnchorNote?: string | null
+  /**
+   * Tool-visibility scope forwarded to the `chat` command. The knowledge-space
+   * sidebar passes `"knowledge"` to trim the injected tool set; omitted for the
+   * main / quick chat (full tools).
+   */
+  toolScope?: "knowledge"
+  /**
+   * Per-turn extra attachments merged at send time, AFTER the visible composer
+   * quotes/files. The knowledge panel uses this to inject the currently-open
+   * note as an invisible `quote` so the assistant always sees "the document I'm
+   * looking at" without the user manually quoting it. Returns `[]` for callers
+   * that don't need it.
+   */
+  getExtraAttachments?: () => ChatAttachment[]
 }
 
 export interface UseChatStreamReturn {
@@ -266,6 +286,9 @@ export function useChatStream({
   incognitoEnabled = false,
   draftWorkingDir = null,
   draftKbAttachments = [],
+  draftKbAnchorNote = null,
+  toolScope,
+  getExtraAttachments,
 }: UseChatStreamOptions): UseChatStreamReturn {
   // Latest draft attaches, snapshotted into the startChat payload at send time
   // (mirrors how draftWorkingDir is baked into the create call) so a later
@@ -812,6 +835,10 @@ export function useChatStream({
       quotesToSend,
       currentSessionId,
     )
+    // Per-turn invisible context (knowledge panel: the currently-open note).
+    if (getExtraAttachments) {
+      for (const extra of getExtraAttachments()) attachments.push(extra)
+    }
 
     // Empty assistant placeholder we'll stream into. `_clientId` was generated
     // alongside the user-side one above and survives the placeholder→DB
@@ -1009,6 +1036,11 @@ export function useChatStream({
                   kbId: a.kbId,
                   access: a.access,
                 })),
+          ...(toolScope ? { toolScope } : {}),
+          // Anchor only matters on the auto-create send; mirrors kbAttachments.
+          ...(toolScope && !currentSessionId && draftKbAnchorNote
+            ? { kbAnchorNote: draftKbAnchorNote }
+            : {}),
         },
         onEvent,
       )

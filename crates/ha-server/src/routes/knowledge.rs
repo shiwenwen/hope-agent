@@ -22,9 +22,10 @@ use ha_core::filesystem::{
 };
 use ha_core::knowledge::{
     self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
-    KbAttachment, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note, NoteReadResult,
-    NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    KbAttachment, KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note,
+    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
 };
+use ha_core::session::SessionMeta;
 
 use super::file_serve::{
     apply_inline_media_headers, resolve_mime_for_path, safe_content_disposition, HeaderOpts,
@@ -161,6 +162,22 @@ pub struct KbDirBody {
 pub struct KbAiRewriteBody {
     pub text: String,
     pub instruction: String,
+    #[serde(default)]
+    pub model_override: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbRewriteLogBody {
+    pub kb_id: String,
+    #[serde(default)]
+    pub note_path: Option<String>,
+    pub instruction: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub chars_before: i64,
+    pub chars_after: i64,
+    pub accepted: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -600,12 +617,70 @@ pub async fn kb_graph_layout_save(
     Ok(Json(true))
 }
 
+// ── Knowledge-space sidebar chat threads ────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbChatThreadQuery {
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbChatThreadsListQuery {
+    #[serde(default)]
+    pub query: Option<String>,
+}
+
+/// `GET /api/knowledge/{kb_id}/chat/thread?note=` — latest chat thread anchored
+/// to a note (default-load target). `null` body when none exists.
+pub async fn kb_chat_thread_get(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbChatThreadQuery>,
+) -> Result<Json<Option<SessionMeta>>, AppError> {
+    Ok(Json(service::kb_chat_thread_latest(
+        &kb_id,
+        q.note.as_deref(),
+    )?))
+}
+
+/// `GET /api/knowledge/{kb_id}/chat/threads?query=` — history picker list.
+pub async fn kb_chat_threads_list(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbChatThreadsListQuery>,
+) -> Result<Json<Vec<KbChatThread>>, AppError> {
+    Ok(Json(service::kb_chat_threads_list(
+        &kb_id,
+        q.query.as_deref(),
+    )?))
+}
+
 /// `POST /api/knowledge/ai/rewrite` — AI rewrite of a text selection (WS9). Returns
 /// rewritten Markdown; the client diffs it and the user saves through `note_save`.
 pub async fn kb_ai_rewrite(Json(body): Json<KbAiRewriteBody>) -> Result<Json<String>, AppError> {
     Ok(Json(
-        service::ai_rewrite(&body.text, &body.instruction).await?,
+        service::ai_rewrite(
+            &body.text,
+            &body.instruction,
+            body.model_override.as_deref(),
+        )
+        .await?,
     ))
+}
+
+/// `POST /api/knowledge/rewrite/log` — record a quick-rewrite outcome for stats.
+pub async fn kb_rewrite_log(Json(body): Json<KbRewriteLogBody>) -> Result<Json<bool>, AppError> {
+    service::log_quick_rewrite(
+        &body.kb_id,
+        body.note_path.as_deref(),
+        &body.instruction,
+        body.model.as_deref(),
+        body.chars_before,
+        body.chars_after,
+        body.accepted,
+    );
+    Ok(Json(true))
 }
 
 // ── Layer-2 autonomous maintenance (WS6) ────────────────────────

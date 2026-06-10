@@ -106,7 +106,24 @@ impl KnowledgeRegistry {
                 x        REAL NOT NULL,
                 y        REAL NOT NULL,
                 PRIMARY KEY (kb_id, rel_path)
-            );",
+            );
+
+            -- Knowledge-space sidebar conversations (Phase: KB chat panel). Binds
+            -- a `kind='knowledge'` session to its KB + the note it was anchored to
+            -- at creation (used to default-load \"the latest conversation about this
+            -- note\"). Truth source in sessions.db; cascades on session OR KB delete.
+            -- The conversation messages themselves live in the shared `messages`
+            -- table like any session.
+            CREATE TABLE IF NOT EXISTS knowledge_chat_threads (
+                session_id       TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                kb_id            TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                anchor_note_path TEXT,
+                created_at       INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_kb_chat_threads_kb
+                ON knowledge_chat_threads(kb_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_kb_chat_threads_note
+                ON knowledge_chat_threads(kb_id, anchor_note_path);",
         )?;
 
         // Additive column for branch DBs created before WS7 (external-writable
@@ -655,6 +672,135 @@ impl KnowledgeRegistry {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    // ── Knowledge-space chat threads ───────────────────────────────
+
+    /// Record a `kind='knowledge'` session as a KB chat thread anchored to a
+    /// note. Idempotent on `session_id` (re-anchoring keeps the first row).
+    pub fn create_chat_thread(
+        &self,
+        session_id: &str,
+        kb_id: &str,
+        anchor_note_path: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT INTO knowledge_chat_threads (session_id, kb_id, anchor_note_path, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(session_id) DO NOTHING",
+            params![session_id, kb_id, anchor_note_path, now],
+        )?;
+        Ok(())
+    }
+
+    /// Most-recently-active chat thread session anchored to a given note within
+    /// a KB (default-load target). `None` when the note has no prior thread.
+    pub fn latest_thread_session_for_note(
+        &self,
+        kb_id: &str,
+        anchor_note_path: &str,
+    ) -> Result<Option<String>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let sid: Option<String> = conn
+            .query_row(
+                "SELECT t.session_id
+                 FROM knowledge_chat_threads t
+                 JOIN sessions s ON s.id = t.session_id
+                 WHERE t.kb_id = ?1 AND t.anchor_note_path = ?2
+                 ORDER BY s.updated_at DESC
+                 LIMIT 1",
+                params![kb_id, anchor_note_path],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(sid)
+    }
+
+    /// All chat threads in a KB, newest-active first, joined with session
+    /// metadata for the history picker. `query` (when non-empty) filters to
+    /// threads whose messages match an FTS search.
+    pub fn list_chat_threads(
+        &self,
+        kb_id: &str,
+        query: Option<&str>,
+    ) -> Result<Vec<super::types::KbChatThread>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        // Optional FTS pre-filter: collect matching session ids first so the
+        // join below can restrict to them. Reuses the messages_fts index.
+        let fts_filter: Option<std::collections::HashSet<String>> = match query {
+            Some(q) if !crate::session::db::sanitize_fts_query(q).is_empty() => {
+                let sanitized = crate::session::db::sanitize_fts_query(q);
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT m.session_id
+                     FROM messages_fts fts
+                     JOIN messages m ON m.id = fts.rowid
+                     JOIN knowledge_chat_threads t ON t.session_id = m.session_id
+                     WHERE t.kb_id = ?1 AND messages_fts MATCH ?2",
+                )?;
+                let rows = stmt.query_map(params![kb_id, sanitized], |r| r.get::<_, String>(0))?;
+                let mut set = std::collections::HashSet::new();
+                for r in rows {
+                    set.insert(r?);
+                }
+                Some(set)
+            }
+            _ => None,
+        };
+
+        let mut stmt = conn.prepare(
+            "SELECT t.session_id, t.kb_id, t.anchor_note_path, t.created_at,
+                    s.title, s.updated_at,
+                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = t.session_id) AS msg_count,
+                    (SELECT m.content FROM messages m
+                       WHERE m.session_id = t.session_id
+                         AND m.role IN ('user','assistant') AND length(m.content) > 0
+                       ORDER BY m.id DESC LIMIT 1) AS last_snippet
+             FROM knowledge_chat_threads t
+             JOIN sessions s ON s.id = t.session_id
+             WHERE t.kb_id = ?1
+             ORDER BY s.updated_at DESC",
+        )?;
+        let rows = stmt.query_map(params![kb_id], |r| {
+            Ok(super::types::KbChatThread {
+                session_id: r.get(0)?,
+                kb_id: r.get(1)?,
+                anchor_note_path: r.get(2)?,
+                created_at: r.get(3)?,
+                title: r.get(4)?,
+                updated_at: r.get(5)?,
+                message_count: r.get(6)?,
+                last_snippet: r.get::<_, Option<String>>(7)?.map(|s| {
+                    let trimmed = s.trim();
+                    crate::truncate_utf8(trimmed, 160).to_string()
+                }),
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            let thread = r?;
+            if let Some(ref set) = fts_filter {
+                if !set.contains(&thread.session_id) {
+                    continue;
+                }
+            }
+            out.push(thread);
+        }
+        Ok(out)
     }
 }
 

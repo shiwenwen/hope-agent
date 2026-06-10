@@ -43,6 +43,22 @@ export interface KbDraftAttachment {
   access: KbAccess
 }
 
+/** A knowledge-space sidebar conversation thread. Mirrors ha-core
+ *  `KbChatThread` — one row per `kind='knowledge'` session, used by the panel's
+ *  history picker + default-load. */
+export interface KbChatThread {
+  sessionId: string
+  kbId: string
+  anchorNotePath?: string | null
+  title?: string | null
+  /** Thread creation time (epoch ms). */
+  createdAt: number
+  /** Session `updated_at` (rfc3339) — recency sort key. */
+  updatedAt: string
+  messageCount: number
+  lastSnippet?: string | null
+}
+
 /** A note the chat composer can reference via `[[ ]]`, flattened across the KBs
  *  reachable from the current chat. Mirrors ha-core `ReferenceableNote`. */
 export interface ReferenceableNote {
