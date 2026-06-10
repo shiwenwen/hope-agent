@@ -127,6 +127,9 @@ pub struct ReportMeta {
     pub session_count: u32,
     pub generated_at: String,
     pub analysis_model: String,
+    /// Output locale code this report was generated in (empty = legacy/English).
+    #[serde(default)]
+    pub locale: String,
     pub filters: RecapFilters,
     /// Compatibility/migration version of the report shape.
     pub schema_version: u32,

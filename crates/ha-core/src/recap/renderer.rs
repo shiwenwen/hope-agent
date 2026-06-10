@@ -51,14 +51,14 @@ section.card h2 { margin-top: 0; font-size: 18px; }
 .bar-label { width: 40%; color: var(--muted); }
 .bar-track { flex: 1; height: 10px; background: var(--border); border-radius: 6px; overflow: hidden; }
 .bar-fill { height: 100%; background: var(--accent); }
-.bar-value { width: 36px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar-value { width: 36px; text-align: end; color: var(--muted); font-variant-numeric: tabular-nums; }
 .health-pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .health-excellent { background: rgba(34,197,94,.15); color: var(--good); }
 .health-good { background: rgba(56,189,248,.15); color: var(--info); }
 .health-warning { background: rgba(245,158,11,.15); color: var(--warn); }
 .health-critical { background: rgba(239,68,68,.15); color: var(--bad); }
 .section-md p { margin: 8px 0; }
-.section-md ul, .section-md ol { padding-left: 20px; margin: 8px 0; }
+.section-md ul, .section-md ol { padding-inline-start: 20px; margin: 8px 0; }
 .section-md code { background: rgba(99,102,241,.12); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; }
 .section-md pre { background: rgba(0,0,0,.2); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
 .section-md strong { color: var(--text); }
@@ -68,17 +68,27 @@ section.card h2 { margin-top: 0; font-size: 18px; }
   color: var(--muted); margin-top: 8px;
 }
 .heatmap .cell { aspect-ratio: 1; border-radius: 2px; background: rgba(99,102,241,.10); }
-.heatmap .lbl { text-align: right; padding-right: 4px; line-height: 1; }
+.heatmap .lbl { text-align: end; padding-inline-end: 4px; line-height: 1; }
 "#;
 
 /// Render a complete `RecapReport` as a self-contained HTML string.
 pub fn render_html(report: &RecapReport) -> String {
     let mut out = String::with_capacity(8_192);
+    // Match the document language to the (now localized) report body so screen
+    // readers / translate prompts behave; only Arabic in our locale set is RTL.
+    let lang = if report.meta.locale.is_empty() {
+        "en"
+    } else {
+        report.meta.locale.as_str()
+    };
+    let dir = if lang == "ar" { " dir=\"rtl\"" } else { "" };
     let _ = write!(
         out,
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\
+        "<!doctype html>\n<html lang=\"{}\"{}><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
          <title>{}</title><style>{}</style></head><body><div class=\"wrap\">",
+        lang,
+        dir,
         escape(&report.meta.title),
         STYLE,
     );

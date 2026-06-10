@@ -354,6 +354,11 @@ pub struct RecapConfig {
     /// `None` inherits the global default agent.
     #[serde(default)]
     pub analysis_agent: Option<String>,
+    /// Output language for generated reports. `None` or "auto" follows the
+    /// global UI language (`AppConfig.language`, which itself may be "auto" →
+    /// system locale). A specific locale code (e.g. "zh", "en") overrides it.
+    #[serde(default)]
+    pub language: Option<String>,
     /// Default time window (days) when no prior report exists.
     #[serde(default = "default_recap_default_range_days")]
     pub default_range_days: u32,
@@ -372,6 +377,7 @@ impl Default for RecapConfig {
     fn default() -> Self {
         Self {
             analysis_agent: None,
+            language: None,
             default_range_days: default_recap_default_range_days(),
             max_sessions_per_report: default_recap_max_sessions_per_report(),
             facet_concurrency: default_recap_facet_concurrency(),

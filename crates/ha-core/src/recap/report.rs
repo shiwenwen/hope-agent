@@ -30,6 +30,8 @@ pub struct RecapContext {
     pub recap_db: Arc<RecapDb>,
     pub agent: AssistantAgent,
     pub analysis_model: String,
+    /// Resolved output language (locale code) for this report run.
+    pub locale: String,
     pub config_snapshot: AppConfig,
     pub cancel: CancellationToken,
 }
@@ -46,6 +48,7 @@ impl RecapContext {
         let session_db = crate::require_session_db()?.clone();
         let log_db = crate::require_log_db()?.clone();
         let cron_db = crate::require_cron_db()?.clone();
+        let locale = super::i18n::effective_recap_locale(&config);
         Ok(Self {
             session_db,
             log_db,
@@ -53,6 +56,7 @@ impl RecapContext {
             recap_db,
             agent,
             analysis_model,
+            locale,
             config_snapshot: config,
             cancel,
         })
@@ -220,6 +224,7 @@ where
         &ctx.recap_db,
         &ctx.agent,
         &ctx.analysis_model,
+        &ctx.locale,
         candidates,
         ctx.config_snapshot.recap.facet_concurrency,
         &progress,
@@ -245,12 +250,18 @@ where
     .map_err(|e| anyhow!("dashboard query join error: {}", e))??;
 
     let facet_summary = roll_up(&facets);
-    let sections =
-        generate_all_sections(&ctx.agent, &facet_summary, &quantitative, &progress).await?;
+    let sections = generate_all_sections(
+        &ctx.agent,
+        &facet_summary,
+        &quantitative,
+        &ctx.locale,
+        &progress,
+    )
+    .await?;
 
     progress(RecapProgress::Persisting);
     let now = chrono::Utc::now().to_rfc3339();
-    let title = report_title(&filters, total_sessions);
+    let title = report_title(&filters, total_sessions, &ctx.locale);
     let report = RecapReport {
         meta: ReportMeta {
             id: report_id.clone(),
@@ -260,6 +271,7 @@ where
             session_count: total_sessions,
             generated_at: now,
             analysis_model: ctx.analysis_model.clone(),
+            locale: ctx.locale.clone(),
             filters,
             schema_version: RECAP_SCHEMA_VERSION,
         },
@@ -302,8 +314,8 @@ fn compute_quantitative(
     })
 }
 
-fn report_title(filters: &RecapFilters, sessions: u32) -> String {
+fn report_title(filters: &RecapFilters, sessions: u32, locale: &str) -> String {
     let start = filters.start_date.as_deref().unwrap_or("…");
     let end = filters.end_date.as_deref().unwrap_or("…");
-    format!("Recap {} → {} ({} sessions)", start, end, sessions)
+    super::i18n::report_title(locale, start, end, sessions)
 }
