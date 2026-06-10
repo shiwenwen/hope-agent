@@ -174,10 +174,11 @@ EventBus 流式进度事件，前端实时展示：
 
 ### 缓存策略
 
-缓存键：`(session_id, last_message_ts, analysis_model, schema_version)`
+缓存键：`(session_id, language, last_message_ts, analysis_model, schema_version)`
 
 - 会话新增消息 → `last_message_ts` 变化 → 缓存失效，重新提取
 - 切换分析模型 → `analysis_model` 变化 → 重新提取
+- 切换输出语言 → `language` 变化 → 该语言独立缓存（facet 自然语言字段按语言提取，互不覆盖）
 - 升级 schema → `schema_version` 变化 → 重新提取
 - 保留期：`cache_retention_days`（默认 180 天），后台任务启动时 + 每 24h 清理过期 facet
 
@@ -243,7 +244,8 @@ EventBus 流式进度事件，前端实时展示：
 
 | 列 | 类型 | 说明 |
 |------|------|------|
-| `session_id` | TEXT PK | 会话 ID |
+| `session_id` | TEXT | 会话 ID（与 `language` 组成复合主键） |
+| `language` | TEXT | 输出语言 code（复合主键；空 = 旧缓存） |
 | `last_message_ts` | TEXT | 最后消息时间戳（缓存键） |
 | `message_count` | INTEGER | 消息数 |
 | `analysis_model` | TEXT | 分析模型（缓存键） |
@@ -251,7 +253,7 @@ EventBus 流式进度事件，前端实时展示：
 | `created_at` | TEXT | 创建时间 |
 | `schema_version` | INTEGER | Schema 版本（当前 v1） |
 
-索引：`idx_facets_ts` (last_message_ts)
+主键：`(session_id, language)`；索引：`idx_facets_ts` (last_message_ts)。升级到本结构时缺 `language` 列的旧表直接 drop 重建（纯可重建缓存，不迁移）。`get_latest_facet`（awareness 用）按 `last_message_ts DESC, created_at DESC` 取最近一行，保证多语言行下选择确定
 
 **recap_reports**
 
@@ -321,6 +323,7 @@ EventBus 流式进度事件，前端实时展示：
 ```rust
 pub struct RecapConfig {
     pub analysis_agent: Option<String>,  // 分析 Agent ID（None = 回退全局默认 Agent）
+    pub language: Option<String>,        // 输出语言（None/"auto" = 跟随界面语言）
     pub default_range_days: u32,         // 无历史报告时的默认范围（默认 30）
     pub max_sessions_per_report: u32,    // 单次报告最大会话数（默认 500）
     pub facet_concurrency: u8,           // Facet 提取并发度（默认 4）
@@ -329,6 +332,18 @@ pub struct RecapConfig {
 ```
 
 Analysis Agent 选择优先级：`config.recap.analysisAgent` > `AppConfig.default_agent_id` > `"ha-main"`（硬编码 `agent_loader::DEFAULT_AGENT_ID`）。选定 Agent 后，Recap 按普通聊天同款规则解析模型链：Agent `model.primary`/`fallbacks` 优先，否则回退全局 `active_model`/`fallback_models`。
+
+### 输出语言（i18n）
+
+输出语言由 [`recap::i18n::effective_recap_locale`](../../crates/ha-core/src/recap/i18n.rs) 解析，优先级 `config.recap.language`（显式）> `AppConfig.language`（界面语言）> 系统 locale（`agent_loader::detect_system_locale`）；空 / `"auto"` 逐级回落，结果经**大小写不敏感**归一化到支持的 12 种语言，不支持则落英文（避免发出自相矛盾的「用英文写」指令）。
+
+该 locale 一路透传：
+
+- **facet 提取**（`facet_language_directive`）：自然语言字段用目标语言，`outcome`/`sessionType`/`goalCategories` 等枚举与 JSON key 保持英文以稳住聚合直方图。
+- **章节生成**（`section_language_directive`）：正文 / 标题 / 列表标签用目标语言，代码标识符 / 模型名 / 路径 / 斜杠命令保持原样。
+- **章节标题 / 报告名**（`localized_section_title` / `report_title`）：后端 12 语言表，写入持久化报告作为**语言快照**（旧报告不回溯改写）。`SUPPORTED_LOCALES` 是列序单一真相源，`locale_index` 与标题列表对齐，单测锚定每列防错位。
+
+设置入口：「设置 → 复盘」语言选择器（GUI）+ `ha-settings` 的 `recap.language`（默认跟随界面）。
 
 ## HTML 导出（renderer）
 
@@ -340,6 +355,7 @@ Analysis Agent 选择优先级：`config.recap.analysisAgent` > `AppConfig.defau
 - **AI 章节**：内置极简 Markdown 渲染（粗体/斜体/行内代码/列表/标题）
 - **Facet 分布**：目标直方图 / Outcome 分布 / 摩擦分布柱状图
 - **活跃热力图**：7×24 网格，颜色深浅映射活跃度
+- **文档语言**：`<html lang>` 跟随报告 locale，阿拉伯语补 `dir="rtl"`；方向相关样式用 logical property（`padding-inline-*` / `text-align:end`）。固定 chrome 文案（Generated / Sessions 等）暂仍英文
 
 输出约 8KB 基础 + 内容，内联全部 CSS 和 SVG，可直接分享。
 
