@@ -128,11 +128,13 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Cmd
 
             match account_id {
                 Some(id) => {
-                    // Ensure Codex provider exists and fall back to Codex
-                    // `gpt-5.4` only when no active_model is set. Respect any
+                    // Ensure Codex provider exists and fall back to the default
+                    // Codex model only when no active_model is set. Respect any
                     // already-chosen active model (including non-Codex).
                     provider::ensure_codex_provider_persisted(
-                        ActiveModelUpdate::IfMissing(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
+                        ActiveModelUpdate::IfMissing(
+                            ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string(),
+                        ),
                         "session-restore",
                     )?;
 

@@ -262,7 +262,10 @@ fn print_codex_login_help() {
     println!("Options:");
     println!("  --no-open                         Print the auth URL without opening a browser");
     println!("  --open                            Open the browser (default)");
-    println!("  --model MODEL                     Active Codex model (default: gpt-5.4)");
+    println!(
+        "  --model MODEL                     Active Codex model (default: {})",
+        DEFAULT_CODEX_MODEL
+    );
     println!("  --no-active                       Do not switch the active model to Codex");
     println!("  --help, -h                        Print help and exit");
 }
