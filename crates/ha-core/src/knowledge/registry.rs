@@ -726,56 +726,20 @@ impl KnowledgeRegistry {
         Ok(sid)
     }
 
-    /// All chat threads in a KB, newest-active first, joined with session
-    /// metadata for the history picker. `query` (when non-empty) filters to
-    /// threads whose messages match an FTS search.
+    /// A page of chat threads in a KB, newest-active first, joined with session
+    /// metadata for the history picker. `query` (when non-empty) restricts to
+    /// threads whose messages match an FTS search. `limit` (default 50, clamped
+    /// to 1..=200) + `offset` paginate; the FTS filter is pushed into SQL as an
+    /// `IN` subquery so `LIMIT` applies to the *matched* set, not a pre-slice.
     pub fn list_chat_threads(
         &self,
         kb_id: &str,
         query: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
     ) -> Result<Vec<super::types::KbChatThread>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-
-        // Optional FTS pre-filter: collect matching session ids first so the
-        // join below can restrict to them. Reuses the messages_fts index.
-        let fts_filter: Option<std::collections::HashSet<String>> = match query {
-            Some(q) if !crate::session::db::sanitize_fts_query(q).is_empty() => {
-                let sanitized = crate::session::db::sanitize_fts_query(q);
-                let mut stmt = conn.prepare(
-                    "SELECT DISTINCT m.session_id
-                     FROM messages_fts fts
-                     JOIN messages m ON m.id = fts.rowid
-                     JOIN knowledge_chat_threads t ON t.session_id = m.session_id
-                     WHERE t.kb_id = ?1 AND messages_fts MATCH ?2",
-                )?;
-                let rows = stmt.query_map(params![kb_id, sanitized], |r| r.get::<_, String>(0))?;
-                let mut set = std::collections::HashSet::new();
-                for r in rows {
-                    set.insert(r?);
-                }
-                Some(set)
-            }
-            _ => None,
-        };
-
-        let mut stmt = conn.prepare(
-            "SELECT t.session_id, t.kb_id, t.anchor_note_path, t.created_at,
-                    s.title, s.updated_at, s.agent_id,
-                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = t.session_id) AS msg_count,
-                    (SELECT m.content FROM messages m
-                       WHERE m.session_id = t.session_id
-                         AND m.role IN ('user','assistant') AND length(m.content) > 0
-                       ORDER BY m.id DESC LIMIT 1) AS last_snippet
-             FROM knowledge_chat_threads t
-             JOIN sessions s ON s.id = t.session_id
-             WHERE t.kb_id = ?1
-             ORDER BY s.updated_at DESC",
-        )?;
-        let rows = stmt.query_map(params![kb_id], |r| {
+        // Nested (env-free) row mapper shared by both query branches.
+        fn map_row(r: &rusqlite::Row) -> rusqlite::Result<super::types::KbChatThread> {
             Ok(super::types::KbChatThread {
                 session_id: r.get(0)?,
                 kb_id: r.get(1)?,
@@ -790,17 +754,66 @@ impl KnowledgeRegistry {
                     crate::truncate_utf8(trimmed, 160).to_string()
                 }),
             })
-        })?;
-        let mut out = Vec::new();
-        for r in rows {
-            let thread = r?;
-            if let Some(ref set) = fts_filter {
-                if !set.contains(&thread.session_id) {
-                    continue;
+        }
+        const SELECT: &str = "t.session_id, t.kb_id, t.anchor_note_path, t.created_at,
+                    s.title, s.updated_at, s.agent_id,
+                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = t.session_id) AS msg_count,
+                    (SELECT m.content FROM messages m
+                       WHERE m.session_id = t.session_id
+                         AND m.role IN ('user','assistant') AND length(m.content) > 0
+                       ORDER BY m.id DESC LIMIT 1) AS last_snippet";
+
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let limit = limit.unwrap_or(50).clamp(1, 200);
+        let offset = offset.unwrap_or(0).max(0);
+
+        let sanitized = match query {
+            Some(q) => {
+                let s = crate::session::db::sanitize_fts_query(q);
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
                 }
             }
-            out.push(thread);
-        }
+            None => None,
+        };
+
+        let out = if let Some(q) = sanitized {
+            let sql = format!(
+                "SELECT {SELECT}
+                 FROM knowledge_chat_threads t
+                 JOIN sessions s ON s.id = t.session_id
+                 WHERE t.kb_id = ?1
+                   AND t.session_id IN (
+                       SELECT DISTINCT m.session_id FROM messages_fts fts
+                       JOIN messages m ON m.id = fts.rowid
+                       JOIN knowledge_chat_threads kt ON kt.session_id = m.session_id
+                       WHERE kt.kb_id = ?1 AND messages_fts MATCH ?2)
+                 ORDER BY s.updated_at DESC
+                 LIMIT ?3 OFFSET ?4"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![kb_id, q, limit, offset], map_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        } else {
+            let sql = format!(
+                "SELECT {SELECT}
+                 FROM knowledge_chat_threads t
+                 JOIN sessions s ON s.id = t.session_id
+                 WHERE t.kb_id = ?1
+                 ORDER BY s.updated_at DESC
+                 LIMIT ?2 OFFSET ?3"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![kb_id, limit, offset], map_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
         Ok(out)
     }
 

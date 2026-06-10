@@ -4997,6 +4997,11 @@
     "reindex": "Reindex",
     "newNote": "New note",
     "readOnly": "Read-only (external vault)",
+    "externalChange": {
+      "banner": "This file was modified outside the editor. Saving will overwrite those changes.",
+      "reload": "Reload",
+      "keepMine": "Keep mine"
+    },
     "mode": {
       "source": "Source",
       "live": "Live",

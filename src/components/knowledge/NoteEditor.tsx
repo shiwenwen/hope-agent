@@ -116,6 +116,13 @@ const editorTheme = EditorView.theme({
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
     background: "color-mix(in srgb, #6366f1 28%, transparent)",
   },
+  // highlightActiveLine() otherwise falls back to CM6's base-theme tint, which
+  // reads as a muddy band. Use a per-theme token (defined in index.css) so the
+  // current-line highlight stays very faint on light and a touch stronger on
+  // dark; tune the two `--cm-active-line` values there, not here.
+  ".cm-activeLine": {
+    background: "var(--cm-active-line)",
+  },
 })
 
 /** Persisted source-pane fraction for split mode (clamped to [0.2, 0.8]). */

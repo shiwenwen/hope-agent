@@ -4989,6 +4989,11 @@
     "reindex": "Yeniden dizinle",
     "newNote": "Yeni not",
     "readOnly": "Salt okunur (harici kasa)",
+    "externalChange": {
+      "banner": "Bu dosya düzenleyici dışında değiştirildi. Kaydetmek bu değişikliklerin üzerine yazar.",
+      "reload": "Yeniden yükle",
+      "keepMine": "Benimkini koru"
+    },
     "mode": {
       "source": "Kaynak",
       "live": "Canlı",

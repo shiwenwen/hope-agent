@@ -16,6 +16,8 @@ import type { AgentConfig } from "@/components/settings/types"
 import type { KbChatThread } from "@/types/knowledge"
 
 const PAGE_SIZE = 30
+/** Thread-history page size (separate from the per-thread message page). */
+const THREADS_PAGE = 30
 
 type ModelSnapshot = {
   models: AvailableModel[]
@@ -59,6 +61,10 @@ export interface UseKnowledgeChatReturn {
   // KB chat threads
   threads: KbChatThread[]
   reloadThreads: (query?: string) => Promise<void>
+  /** More history pages exist beyond what's loaded (drives infinite scroll). */
+  threadsHasMore: boolean
+  /** Append the next history page (same query as the last `reloadThreads`). */
+  loadMoreThreads: () => Promise<void>
   handleNewThread: () => void
   switchThread: (sessionId: string) => Promise<void>
   /** Reconcile the current thread with DB truth after a turn ends (HTTP has no
@@ -91,6 +97,17 @@ export function useKnowledgeChat(
   const [, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [threads, setThreads] = useState<KbChatThread[]>([])
+  const [threadsHasMore, setThreadsHasMore] = useState(false)
+  // Pagination cursor for the history list. Query + offset live in refs so
+  // `loadMoreThreads` keeps the active filter without re-arming on every render.
+  const threadsQueryRef = useRef<string | undefined>(undefined)
+  const threadsOffsetRef = useRef(0)
+  const threadsLoadingRef = useRef(false)
+  // Monotonic guard for thread list/page fetches (mirrors switchVersionRef): a
+  // reload bumps it; any in-flight reload/loadMore whose captured version is
+  // stale bails on resolve — last-issued-wins, so rapid search keystrokes and a
+  // search-during-paging never clobber the list or the offset cursor.
+  const threadsLoadVersionRef = useRef(0)
 
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
@@ -217,25 +234,73 @@ export function useKnowledgeChat(
     })
   }, [])
 
+  // `query === undefined` (no arg) = refresh in place, keeping the active filter
+  // (used by turn-completion / reloadSessions so a background refresh never drops
+  // the user's search). A string arg sets the filter (`""` clears it).
   const reloadThreads = useCallback(
     async (query?: string) => {
       if (!kbId) {
         setThreads([])
+        setThreadsHasMore(false)
         return
       }
+      const q = query === undefined ? threadsQueryRef.current : query.trim() || undefined
+      threadsQueryRef.current = q
+      threadsOffsetRef.current = 0
+      const v = ++threadsLoadVersionRef.current
       try {
         const list = await getTransport().call<KbChatThread[]>("kb_chat_threads_list_cmd", {
           kbId,
-          query: query?.trim() || undefined,
+          query: q,
+          limit: THREADS_PAGE,
+          offset: 0,
         })
+        // A newer reload (search keystroke / KB switch) superseded this one.
+        if (v !== threadsLoadVersionRef.current) return
         setThreads(list)
+        setThreadsHasMore(list.length >= THREADS_PAGE)
+        threadsOffsetRef.current = list.length
       } catch (e) {
+        if (v !== threadsLoadVersionRef.current) return
         logger.error("ui", "KnowledgeChat::reloadThreads", "Failed to list threads", e)
         setThreads([])
+        setThreadsHasMore(false)
       }
     },
     [kbId],
   )
+
+  // Append the next history page. Offset-based; a thread reordering between pages
+  // can dup a row, so we dedup by sessionId on merge (skips are acceptable and a
+  // fresh reloadThreads resets the cursor). Guarded by the load version so a page
+  // that resolves after a reload / search-reset is discarded — no stale append
+  // onto a now-filtered list and no cursor clobber.
+  const loadMoreThreads = useCallback(async () => {
+    if (!kbId || threadsLoadingRef.current || !threadsHasMore) return
+    threadsLoadingRef.current = true
+    const v = threadsLoadVersionRef.current
+    try {
+      const offset = threadsOffsetRef.current
+      const list = await getTransport().call<KbChatThread[]>("kb_chat_threads_list_cmd", {
+        kbId,
+        query: threadsQueryRef.current,
+        limit: THREADS_PAGE,
+        offset,
+      })
+      if (v !== threadsLoadVersionRef.current) return
+      setThreads((prev) => {
+        const seen = new Set(prev.map((t) => t.sessionId))
+        return [...prev, ...list.filter((t) => !seen.has(t.sessionId))]
+      })
+      setThreadsHasMore(list.length >= THREADS_PAGE)
+      threadsOffsetRef.current = offset + list.length
+    } catch (e) {
+      if (v !== threadsLoadVersionRef.current) return
+      logger.error("ui", "KnowledgeChat::loadMoreThreads", "Failed to page threads", e)
+    } finally {
+      threadsLoadingRef.current = false
+    }
+  }, [kbId, threadsHasMore])
 
   // reloadSessions for useChatStream compat — refresh the thread list so a newly
   // auto-created session surfaces in history without a manual reload.
@@ -312,7 +377,9 @@ export function useKnowledgeChat(
       } catch (e) {
         if (!cancelled) logger.error("ui", "KnowledgeChat::defaultLoad", "Failed", e)
       }
-      if (!cancelled) void reloadThreads()
+      // Reset the history filter on KB / note switch (the popover's search box
+      // remounts empty, so keep threadsQueryRef in sync).
+      if (!cancelled) void reloadThreads("")
     })()
     return () => {
       cancelled = true
@@ -446,6 +513,8 @@ export function useKnowledgeChat(
     handleSwitchAgent,
     threads,
     reloadThreads,
+    threadsHasMore,
+    loadMoreThreads,
     handleNewThread,
     switchThread,
     reconcileThread,

@@ -173,6 +173,10 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   }, [])
   const [baseHash, setBaseHash] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  // Fresh disk content captured when the open note changed externally *while*
+  // the user has unsaved edits — drives the conflict banner (reload / keep mine)
+  // instead of silently clobbering or only failing at save time.
+  const [externalConflict, setExternalConflict] = useState<NoteReadResult | null>(null)
   const [mode, setMode] = useState<NoteEditorMode>("split")
   // Imperative handle into the saved-note editor (selection / range splice),
   // shared by the floating quick-rewrite bar and the "add selection to chat".
@@ -539,6 +543,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setOpenPath(path)
         setOpenKbId(kbId)
         setDirty(false)
+        // Clear any conflict banner here too — re-opening the *same* path won't
+        // change `openPath`, so the [openPath] clearing effect wouldn't fire.
+        setExternalConflict(null)
         setSaveStatus("idle")
         setHits([]) // opening a note dismisses the search-results panel (#10)
         // A fresh object each call so re-clicking the same target re-triggers the
@@ -727,9 +734,32 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             /* note may have been removed; the other listeners handle that */
           }
         })()
+      } else if (openKbId && openPath && dirty && !draftMode) {
+        // Unsaved local edits + the file changed underneath us: surface a
+        // conflict banner rather than clobbering. The stale-write guard still
+        // blocks a blind save; this just lets the user reload / keep-mine first.
+        void (async () => {
+          try {
+            const data = await tx.call<NoteReadResult>("kb_note_read_cmd", {
+              kbId: openKbId,
+              path: openPath,
+            })
+            // Clear a stale banner if the disk reverted back to our base
+            // (e.g. the external editor undid its change).
+            setExternalConflict(data.contentHash !== baseHash ? data : null)
+          } catch {
+            /* note may have been removed; the other listeners handle that */
+          }
+        })()
       }
     })
   }, [tx, loadKbs, loadNotes, loadDirs, loadTags, activeKbId, openKbId, openPath, dirty, draftMode, baseHash])
+
+  // Switching / closing the note invalidates any pending external-change
+  // conflict (a fresh open re-establishes baseHash from disk).
+  useEffect(() => {
+    setExternalConflict(null)
+  }, [openPath])
 
   // ── Wikilink editor data ──
   const wikilinkData: WikilinkData = useMemo(
@@ -759,6 +789,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       })
       setBaseHash(newHash)
       setDirty(false)
+      setExternalConflict(null)
       setSaving(false)
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -1456,6 +1487,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             <span className="flex-1 truncate" title={n.relPath}>
               {node.name}
             </span>
+            {/* Unsaved marker — only the currently-open note can be dirty
+                (single editor / single `dirty` flag), so a per-row check is
+                exact without a per-path dirty map. */}
+            {openPath === n.relPath && dirty && (
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+            )}
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -2187,6 +2224,45 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
                   </Button>
                 )}
               </div>
+              {externalConflict && (
+                <div className="flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1">
+                    {t(
+                      "knowledge.externalChange.banner",
+                      "This file was modified outside the editor. Saving will overwrite those changes.",
+                    )}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-amber-700 hover:text-amber-800 dark:text-amber-400"
+                    onClick={() => {
+                      const data = externalConflict
+                      setNoteData(data)
+                      setEditorValue(data.content)
+                      setBaseHash(data.contentHash)
+                      setDirty(false)
+                      setExternalConflict(null)
+                    }}
+                  >
+                    {t("knowledge.externalChange.reload", "Reload")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-amber-700 hover:text-amber-800 dark:text-amber-400"
+                    onClick={() => {
+                      // Rebase the expected hash so the next save passes the
+                      // stale-write guard and overwrites the external version.
+                      setBaseHash(externalConflict.contentHash)
+                      setExternalConflict(null)
+                    }}
+                  >
+                    {t("knowledge.externalChange.keepMine", "Keep mine")}
+                  </Button>
+                </div>
+              )}
               <div className="flex-1 min-h-0">
                 <NoteEditor
                   ref={editorRef}

@@ -4989,6 +4989,11 @@
     "reindex": "재색인",
     "newNote": "새 노트",
     "readOnly": "읽기 전용(외부 보관소)",
+    "externalChange": {
+      "banner": "이 파일이 편집기 외부에서 수정되었습니다. 저장하면 해당 변경 사항을 덮어씁니다.",
+      "reload": "다시 불러오기",
+      "keepMine": "내 변경 사항 유지"
+    },
     "mode": {
       "source": "소스",
       "live": "라이브",

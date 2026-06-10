@@ -180,8 +180,20 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 **前端复用**：[`chat/KnowledgeChatPanel.tsx`](../../src/components/knowledge/chat/KnowledgeChatPanel.tsx) 复用主对话 `useChatStream`（新增 `toolScope`/`getExtraAttachments`/`draftKbAnchorNote` 三个**可选** prop，主对话 / QuickChat 不传 = 行为不变）+ `MessageList`/`ChatInput`(`enableNoteMention` 开 `[[note]]` 补全)/`ApprovalDialog`；[`chat/useKnowledgeChat.ts`](../../src/components/knowledge/chat/useKnowledgeChat.ts) 管 thread 生命周期 + 模型 / Agent 态（镜像 `useQuickChatSession`）。面板在 links 模式仍**保持挂载**（隐藏），故「加入对话」的命令式 ref（`addQuote` / `insertToken`）随时可用；`active` prop 控制是否真正加载。**桌面走 per-call 通道实时流式**；HTTP 无 reattach，靠 turn 完成后 reload 线程消息对账。
 
 **选区针对性编辑（替代旧 `AiRewriteDialog`，已删）两路并存**：
-- **加入对话**：编辑器选区 → 输入框上方可删除 quote chip（`useChatStream.pendingQuotes`）→ 进对话由 AI 用 `note_patch`/`note_update` 改写。note 工具结果带 `FileChangeMetadata`（[`note.rs::emit_note_diff`](../../crates/ha-core/src/tools/note.rs)，`language:"markdown"`，复用 `diff_util`）→ `ToolCallBlock` 内联 diff。落盘 emit `knowledge:changed` → 编辑器**重载当前笔记**（仅当 hash 变 + 非 dirty + 非 draft，脏态跳过防覆盖用户编辑）。
+- **加入对话**：编辑器选区 → 输入框上方可删除 quote chip（`useChatStream.pendingQuotes`）→ 进对话由 AI 用 `note_patch`/`note_update` 改写。note 工具结果带 `FileChangeMetadata`（[`note.rs::emit_note_diff`](../../crates/ha-core/src/tools/note.rs)，`language:"markdown"`，复用 `diff_util`）→ `ToolCallBlock` 内联 diff。落盘 emit `knowledge:changed` → 编辑器**重载当前笔记**（仅当 hash 变 + 非 dirty + 非 draft）。**脏态 + 磁盘 hash 变**（自身改写 / 外部 vault watcher 改了同一篇）不再静默跳过，而是弹**外部修改冲突横幅**（`externalConflict` slot，[`KnowledgeView.tsx`](../../src/components/knowledge/KnowledgeView.tsx)）：「重新加载」覆盖编辑器为磁盘版、「保留我的改动」把 `baseHash` rebase 到磁盘当前 hash 使下次保存能过 stale-write guard 覆盖外部版；切换 / 关闭笔记或保存成功即清。底层兜底仍是 stale-write guard（盲存必拒），横幅只是把冲突提前暴露给用户。
 - **快捷改写**（[`chat/QuickRewriteBar.tsx`](../../src/components/knowledge/chat/QuickRewriteBar.tsx)）：选区旁浮动条，一次性、不进对话历史，走重做后的 `kb_ai_rewrite_cmd`（接 `model_override`，默认跟随对话 / 全局 active 模型、可单独选）→ `UnifiedDiffView` 预览 → 应用（splice 编辑器，用户再正常保存）。每次结果经 `kb_rewrite_log_cmd` 落 `learning_events`（`kind="kb_quick_rewrite"`，记 instruction / model / 字数 / accepted）做统计。
+
+**与主站会话列表的能力差异（为何不复用 `ChatSidebar`）**：知识对话是 `kind='knowledge'` 的会话，被主站列表无条件过滤隐藏（`list_sessions_paged_inner`），且数据形态是锚定到笔记的 `KbChatThread`（含 `anchorNotePath`）而非 `SessionMeta`——两套数据源、两个场景，故 [`KnowledgeConversationHistory`](../../src/components/knowledge/chat/KnowledgeConversationHistory.tsx) 是独立轻量列表（定位「编辑辅助」而非持久会话管理）。当前能力对照：
+
+| 能力 | 知识对话列表 | 主站会话列表 |
+| --- | --- | --- |
+| FTS 搜索 | ✅（单 KB 内消息） | ✅（全局） |
+| 列表分页 / 无限滚动 | ✅（`limit`/`offset`，滚动到底加载） | ✅ |
+| 单 thread 内消息分页 | ✅ | ✅ |
+| 删除 / 重命名 / 置顶 | ❌ | ✅ |
+| agent 过滤 / 多选 | ❌ | ❌（多选两边都无） |
+
+分页契约：`kb_chat_threads_list_cmd(kbId, query?, limit?, offset?)` → `registry::list_chat_threads`，`limit` 默认 50 钳 `1..=200`、`offset` 翻页；**FTS 走 `IN` 子查询**使 `LIMIT` 作用于命中集（不是取全量再 Rust 切片）。前端 [`useKnowledgeChat`](../../src/components/knowledge/chat/useKnowledgeChat.ts) `THREADS_PAGE=30`，`reloadThreads` 取首页 + 重置游标、`loadMoreThreads` 按 `sessionId` dedup 追加（offset 式翻页期间线程重排会重复，dedup 吸收、偶发跳过可接受，重载即复位）。**删除 / 重命名 / 置顶尚未做**——需要时补 owner 命令 + 列表行内操作。
 
 ## 首次运行默认空间
 

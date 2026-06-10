@@ -4989,6 +4989,11 @@
     "reindex": "Indeks semula",
     "newNote": "Nota baharu",
     "readOnly": "Baca sahaja (bilik kebal luaran)",
+    "externalChange": {
+      "banner": "Fail ini telah diubah suai di luar editor. Menyimpan akan menulis ganti perubahan tersebut.",
+      "reload": "Muat semula",
+      "keepMine": "Kekalkan milik saya"
+    },
     "mode": {
       "source": "Sumber",
       "live": "Langsung",

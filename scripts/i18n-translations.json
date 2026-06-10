@@ -1285,7 +1285,12 @@
         "toastOnDesc": "編集の手を止めると、そっと提案します。",
         "toastOff": "スプライトモードをオフにしました"
       },
-      "openSettings": "ナレッジスペース設定"
+      "openSettings": "ナレッジスペース設定",
+      "externalChange": {
+        "banner": "このファイルはエディター外で変更されました。保存すると、その変更が上書きされます。",
+        "reload": "再読み込み",
+        "keepMine": "自分の変更を保持"
+      }
     },
     "common": {
       "create": "作成",
@@ -2580,7 +2585,12 @@
         "toastOnDesc": "편집을 잠시 멈추면 살며시 제안해 드려요.",
         "toastOff": "스프라이트 모드 꺼짐"
       },
-      "openSettings": "지식 공간 설정"
+      "openSettings": "지식 공간 설정",
+      "externalChange": {
+        "banner": "이 파일이 편집기 외부에서 수정되었습니다. 저장하면 해당 변경 사항을 덮어씁니다.",
+        "reload": "다시 불러오기",
+        "keepMine": "내 변경 사항 유지"
+      }
     },
     "common": {
       "create": "만들기",
@@ -3850,7 +3860,12 @@
         "toastOnDesc": "停筆片刻時，它會輕聲給你一句建議。",
         "toastOff": "精靈模式已關閉"
       },
-      "openSettings": "知識空間設定"
+      "openSettings": "知識空間設定",
+      "externalChange": {
+        "banner": "此檔案已在編輯器外被修改，儲存將覆蓋那些變更。",
+        "reload": "重新載入",
+        "keepMine": "保留我的變更"
+      }
     },
     "common": {
       "create": "建立",
@@ -5153,7 +5168,12 @@
         "toastOnDesc": "Düzenlemeye ara verdiğinizde nazikçe bir öneride bulunur.",
         "toastOff": "Peri modu kapalı"
       },
-      "openSettings": "Bilgi alanı ayarları"
+      "openSettings": "Bilgi alanı ayarları",
+      "externalChange": {
+        "banner": "Bu dosya düzenleyici dışında değiştirildi. Kaydetmek bu değişikliklerin üzerine yazar.",
+        "reload": "Yeniden yükle",
+        "keepMine": "Benimkini koru"
+      }
     },
     "common": {
       "create": "Oluştur",
@@ -6448,7 +6468,12 @@
         "toastOnDesc": "Nó sẽ nhẹ nhàng gợi ý khi bạn tạm dừng soạn thảo.",
         "toastOff": "Đã tắt chế độ tinh linh"
       },
-      "openSettings": "Cài đặt không gian tri thức"
+      "openSettings": "Cài đặt không gian tri thức",
+      "externalChange": {
+        "banner": "Tệp này đã bị sửa đổi bên ngoài trình chỉnh sửa. Lưu sẽ ghi đè lên những thay đổi đó.",
+        "reload": "Tải lại",
+        "keepMine": "Giữ bản của tôi"
+      }
     },
     "common": {
       "create": "Tạo",
@@ -7743,7 +7768,12 @@
         "toastOnDesc": "Ele intervém com uma sugestão gentil quando você faz uma pausa.",
         "toastOff": "Modo duende desativado"
       },
-      "openSettings": "Configurações do espaço de conhecimento"
+      "openSettings": "Configurações do espaço de conhecimento",
+      "externalChange": {
+        "banner": "Este arquivo foi modificado fora do editor. Salvar substituirá essas alterações.",
+        "reload": "Recarregar",
+        "keepMine": "Manter as minhas"
+      }
     },
     "common": {
       "create": "Criar",
@@ -9038,7 +9068,12 @@
         "toastOnDesc": "Он мягко подскажет, когда вы остановитесь.",
         "toastOff": "Режим спрайта выключен"
       },
-      "openSettings": "Настройки пространства знаний"
+      "openSettings": "Настройки пространства знаний",
+      "externalChange": {
+        "banner": "Этот файл был изменён вне редактора. Сохранение перезапишет эти изменения.",
+        "reload": "Перезагрузить",
+        "keepMine": "Оставить мои"
+      }
     },
     "common": {
       "create": "Создать",
@@ -10333,7 +10368,12 @@
         "toastOnDesc": "سيتدخل باقتراح لطيف عندما تتوقف عن التحرير.",
         "toastOff": "تم إيقاف وضع العفريت"
       },
-      "openSettings": "إعدادات مساحة المعرفة"
+      "openSettings": "إعدادات مساحة المعرفة",
+      "externalChange": {
+        "banner": "تم تعديل هذا الملف خارج المحرر. سيؤدي الحفظ إلى الكتابة فوق تلك التغييرات.",
+        "reload": "إعادة التحميل",
+        "keepMine": "الاحتفاظ بتغييراتي"
+      }
     },
     "common": {
       "create": "إنشاء",
@@ -11628,7 +11668,12 @@
         "toastOnDesc": "Intervendrá con una sugerencia suave cuando hagas una pausa.",
         "toastOff": "Modo duende desactivado"
       },
-      "openSettings": "Ajustes del espacio de conocimiento"
+      "openSettings": "Ajustes del espacio de conocimiento",
+      "externalChange": {
+        "banner": "Este archivo se modificó fuera del editor. Guardar sobrescribirá esos cambios.",
+        "reload": "Recargar",
+        "keepMine": "Mantener los míos"
+      }
     },
     "common": {
       "create": "Crear",
@@ -12923,7 +12968,12 @@
         "toastOnDesc": "Ia akan mencelah dengan cadangan lembut apabila anda berhenti seketika.",
         "toastOff": "Mod sprite dimatikan"
       },
-      "openSettings": "Tetapan ruang pengetahuan"
+      "openSettings": "Tetapan ruang pengetahuan",
+      "externalChange": {
+        "banner": "Fail ini telah diubah suai di luar editor. Menyimpan akan menulis ganti perubahan tersebut.",
+        "reload": "Muat semula",
+        "keepMine": "Kekalkan milik saya"
+      }
     },
     "common": {
       "create": "Cipta",

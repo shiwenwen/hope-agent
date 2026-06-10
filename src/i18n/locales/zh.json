@@ -4997,6 +4997,11 @@
     "reindex": "重建索引",
     "newNote": "新建笔记",
     "readOnly": "只读（外部库）",
+    "externalChange": {
+      "banner": "此文件已在编辑器外被修改，保存将覆盖那些改动。",
+      "reload": "重新加载",
+      "keepMine": "保留我的改动"
+    },
     "mode": {
       "source": "源码",
       "live": "实时",

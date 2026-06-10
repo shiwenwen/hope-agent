@@ -68,10 +68,16 @@ pub fn kb_chat_thread_latest(
     session_db()?.get_session(&sid)
 }
 
-/// All knowledge-chat threads in a KB (history picker), newest-active first.
-/// `query` (when non-empty) FTS-filters to threads whose messages match.
-pub fn kb_chat_threads_list(kb_id: &str, query: Option<&str>) -> Result<Vec<KbChatThread>> {
-    registry()?.list_chat_threads(kb_id, query)
+/// A page of knowledge-chat threads in a KB (history picker), newest-active
+/// first. `query` (when non-empty) FTS-filters to threads whose messages match;
+/// `limit` (default 50, clamped 1..=200) + `offset` paginate.
+pub fn kb_chat_threads_list(
+    kb_id: &str,
+    query: Option<&str>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<KbChatThread>> {
+    registry()?.list_chat_threads(kb_id, query, limit, offset)
 }
 
 /// Promote a freshly auto-created session into a knowledge-space chat thread:

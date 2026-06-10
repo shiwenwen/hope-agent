@@ -268,7 +268,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `kb_graph_layout_get_cmd` | `GET /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 用户拖拽固定的节点坐标，按 `relPath` 键，落 sessions.db) |
 | `kb_graph_layout_save_cmd` | `POST /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 整体替换布局，body `{positions:[{relPath,x,y}]}`，空数组=重置) |
 | `kb_chat_thread_get_cmd` | `GET /api/knowledge/{kbId}/chat/thread?note=` | ✅ (侧边栏对话默认加载：某笔记最近一次 `kind=knowledge` 会话 `SessionMeta`，无则 `null`) |
-| `kb_chat_threads_list_cmd` | `GET /api/knowledge/{kbId}/chat/threads?query=` | ✅ (历史对话列表：KB 内所有对话线程 `KbChatThread[]`，`query` 非空时 FTS 过滤) |
+| `kb_chat_threads_list_cmd` | `GET /api/knowledge/{kbId}/chat/threads?query=&limit=&offset=` | ✅ (历史对话列表分页：KB 内对话线程 `KbChatThread[]`，`query` 非空时 FTS 过滤；`limit` 默认 50 钳 1..=200、`offset` 翻页，FTS 走 `IN` 子查询使 `LIMIT` 作用于命中集) |
 | `kb_ai_rewrite_cmd` | `POST /api/knowledge/ai/rewrite` | ✅ (快捷改写：body `{text, instruction, modelOverride?}` → side_query 返回改写后 Markdown；不落盘，GUI 走 diff 确认后经 `note_save`) |
 | `kb_rewrite_log_cmd` | `POST /api/knowledge/rewrite/log` | ✅ (快捷改写统计：body `{kbId, notePath?, instruction, model?, charsBefore, charsAfter, accepted}` → 落 `learning_events`(`kind="kb_quick_rewrite"`)，best-effort) |
 | `kb_maintenance_run_cmd` | `POST /api/knowledge/maintenance/run` | ✅ (WS6 手动跑一轮维护：扫全部内部 KB 生成 draft 提案；返回 `MaintenanceReport`) |

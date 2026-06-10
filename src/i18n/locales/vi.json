@@ -4989,6 +4989,11 @@
     "reindex": "Lập chỉ mục lại",
     "newNote": "Ghi chú mới",
     "readOnly": "Chỉ đọc (kho ngoài)",
+    "externalChange": {
+      "banner": "Tệp này đã bị sửa đổi bên ngoài trình chỉnh sửa. Lưu sẽ ghi đè lên những thay đổi đó.",
+      "reload": "Tải lại",
+      "keepMine": "Giữ bản của tôi"
+    },
     "mode": {
       "source": "Nguồn",
       "live": "Trực tiếp",

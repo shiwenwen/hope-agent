@@ -4989,6 +4989,11 @@
     "reindex": "Reindexar",
     "newNote": "Nueva nota",
     "readOnly": "Solo lectura (almacén externo)",
+    "externalChange": {
+      "banner": "Este archivo se modificó fuera del editor. Guardar sobrescribirá esos cambios.",
+      "reload": "Recargar",
+      "keepMine": "Mantener los míos"
+    },
     "mode": {
       "source": "Origen",
       "live": "En vivo",

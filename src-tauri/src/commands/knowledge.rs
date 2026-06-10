@@ -398,14 +398,16 @@ pub async fn kb_chat_thread_get_cmd(
     service::kb_chat_thread_latest(&kb_id, note.as_deref()).map_err(Into::into)
 }
 
-/// History picker: all chat threads in a KB, newest-active first. `query`
-/// FTS-filters by message content when non-empty.
+/// History picker: a page of chat threads in a KB, newest-active first. `query`
+/// FTS-filters by message content when non-empty; `limit`/`offset` paginate.
 #[tauri::command]
 pub async fn kb_chat_threads_list_cmd(
     kb_id: String,
     query: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<KbChatThread>, CmdError> {
-    service::kb_chat_threads_list(&kb_id, query.as_deref()).map_err(Into::into)
+    service::kb_chat_threads_list(&kb_id, query.as_deref(), limit, offset).map_err(Into::into)
 }
 
 /// Quick-rewrite of a text selection: returns rewritten Markdown for the GUI to

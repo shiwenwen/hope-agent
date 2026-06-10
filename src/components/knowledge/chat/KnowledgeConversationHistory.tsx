@@ -11,6 +11,10 @@ interface Props {
   activeSessionId: string | null
   onSearch: (query: string) => void
   onPick: (sessionId: string) => void
+  /** True when more history pages exist beyond the loaded threads. */
+  hasMore: boolean
+  /** Append the next page (triggered on scroll near the bottom). */
+  onLoadMore: () => void
 }
 
 /**
@@ -23,6 +27,8 @@ export function KnowledgeConversationHistory({
   activeSessionId,
   onSearch,
   onPick,
+  hasMore,
+  onLoadMore,
 }: Props) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
@@ -48,7 +54,15 @@ export function KnowledgeConversationHistory({
           {t("knowledge.chatPanel.noHistory")}
         </p>
       ) : (
-        <div className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto">
+        <div
+          className="flex max-h-[320px] flex-col gap-0.5 overflow-y-auto"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            if (hasMore && el.scrollHeight - el.scrollTop - el.clientHeight < 48) {
+              onLoadMore()
+            }
+          }}
+        >
           {threads.map((thread) => (
             <button
               key={thread.sessionId}

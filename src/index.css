@@ -45,8 +45,16 @@
   --color-user-bubble: hsl(220 14% 94%);
 }
 
+/* Knowledge-space editor: current-line (cursor) highlight. Kept very faint so it
+   doesn't read as a heavy band — especially on the white light theme; the dark
+   theme can carry a touch more. Consumed by NoteEditor's CM6 `.cm-activeLine`. */
+:root {
+  --cm-active-line: rgba(0, 0, 0, 0.015);
+}
+
 /* Dark theme overrides */
 .dark {
+  --cm-active-line: rgba(255, 255, 255, 0.05);
   --color-background: hsl(220 13% 12%);
   --color-foreground: hsl(210 20% 90%);
   --color-card: hsl(220 13% 15%);

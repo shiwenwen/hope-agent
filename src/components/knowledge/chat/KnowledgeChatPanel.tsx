@@ -292,7 +292,9 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                 size="icon"
                 className={cn("h-7 w-7", historyOpen && "bg-secondary")}
                 onClick={() => {
-                  if (!historyOpen) void session.reloadThreads()
+                  // Opening the popover: reset to the unfiltered first page (the
+                  // popover's search box mounts empty).
+                  if (!historyOpen) void session.reloadThreads("")
                   setHistoryOpen((v) => !v)
                 }}
               >
@@ -304,6 +306,8 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                 threads={session.threads}
                 activeSessionId={session.currentSessionId}
                 onSearch={(q) => session.reloadThreads(q)}
+                hasMore={session.threadsHasMore}
+                onLoadMore={() => void session.loadMoreThreads()}
                 onPick={(sid) => {
                   setHistoryOpen(false)
                   void session.switchThread(sid)

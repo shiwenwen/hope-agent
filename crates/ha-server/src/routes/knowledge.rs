@@ -631,6 +631,10 @@ pub struct KbChatThreadQuery {
 pub struct KbChatThreadsListQuery {
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 /// `GET /api/knowledge/{kb_id}/chat/thread?note=` — latest chat thread anchored
@@ -653,6 +657,8 @@ pub async fn kb_chat_threads_list(
     Ok(Json(service::kb_chat_threads_list(
         &kb_id,
         q.query.as_deref(),
+        q.limit,
+        q.offset,
     )?))
 }
 

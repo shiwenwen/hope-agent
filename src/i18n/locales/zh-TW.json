@@ -4989,6 +4989,11 @@
     "reindex": "重建索引",
     "newNote": "新增筆記",
     "readOnly": "唯讀（外部庫）",
+    "externalChange": {
+      "banner": "此檔案已在編輯器外被修改，儲存將覆蓋那些變更。",
+      "reload": "重新載入",
+      "keepMine": "保留我的變更"
+    },
     "mode": {
       "source": "原始碼",
       "live": "即時",
