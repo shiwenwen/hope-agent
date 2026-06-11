@@ -59,26 +59,40 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
   for (const message of messages) {
     for (const tool of iterateMessageToolCalls(message)) {
       const meta = tool.metadata
-      if (!meta) continue
-      if (meta.kind === "file_change") {
+      if (meta?.kind === "file_change") {
         upsertWrite(meta)
-      } else if (meta.kind === "file_changes") {
+      } else if (meta?.kind === "file_changes") {
         meta.changes.forEach(upsertWrite)
-      } else if (meta.kind === "file_read") {
+      } else if (meta?.kind === "file_read") {
         const existing = entries.get(meta.path)
         // 已被改写过的文件不降级为「读」，只刷新活动顺序。
         if (existing?.kind === "modified") {
           touch(meta.path, existing)
-          continue
+        } else {
+          touch(meta.path, {
+            path: meta.path,
+            kind: "read",
+            diff: null,
+            readLines: meta.lines,
+            linesAdded: 0,
+            linesRemoved: 0,
+          })
         }
-        touch(meta.path, {
-          path: meta.path,
-          kind: "read",
-          diff: null,
-          readLines: meta.lines,
-          linesAdded: 0,
-          linesRemoved: 0,
-        })
+      }
+      // 工具产出的文件(send_attachment / image_generate / exec)经 mediaItems 下挂，
+      // 不走 file metadata —— 取本地路径作为产物文件补进「输出」(桌面有 localPath；
+      // HTTP 下被剥，靠后端读时聚合补)。与后端 artifacts.rs 的 __MEDIA_ITEMS__ 扫描同步。
+      for (const item of tool.mediaItems ?? []) {
+        if (item.localPath && !entries.has(item.localPath)) {
+          touch(item.localPath, {
+            path: item.localPath,
+            kind: "modified",
+            diff: null,
+            readLines: null,
+            linesAdded: 0,
+            linesRemoved: 0,
+          })
+        }
       }
     }
     // 旧消息兜底：无结构化 metadata 的改写文件(write/edit/apply_patch)，从 result/
