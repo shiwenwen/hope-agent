@@ -1130,7 +1130,14 @@
     "rendered": "Rendered",
     "extractedPreview": "Extracted preview — layout may differ from the original. Open the file for the exact formatting.",
     "quoteToChat": "Quote to chat",
-    "quoted": "Added to chat"
+    "quoted": "Added to chat",
+    "officeLoading": "Rendering preview…",
+    "prevSlide": "Previous slide",
+    "nextSlide": "Next slide",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "fitWidth": "Fit width",
+    "officeNoContent": "No content could be extracted from this file."
   },
   "diffPanel": {
     "fileTooLarge": "File too large, only the first 256KB is rendered",
