@@ -1772,23 +1772,43 @@ export default function ChatScreen({
   const previousRightPanelVisibilityRef = useRef<ExclusiveRightPanelVisibility>(
     EMPTY_RIGHT_PANEL_VISIBILITY,
   )
+  // Monotonic open-nonces capture a user re-opening an ALREADY-visible panel
+  // (clicking a file while preview is open / re-opening a diff): there's no
+  // visibility rising edge to latch onto (showPanel stayed true), so the nonce's
+  // rising edge force-claims the active slot.
+  const previousPreviewOpenNonceRef = useRef(filePreview.openNonce)
+  const previousDiffOpenNonceRef = useRef(diffPanel.openNonce)
   useLayoutEffect(() => {
     const previous = previousRightPanelVisibilityRef.current
     const newlyOpened =
       EXCLUSIVE_RIGHT_PANEL_ORDER.find(
         (panel) => rightPanelVisibility[panel] && !previous[panel],
       ) ?? null
+    let forced: ExclusiveRightPanel | null = null
+    if (filePreview.openNonce !== previousPreviewOpenNonceRef.current) {
+      forced = "preview"
+    } else if (diffPanel.openNonce !== previousDiffOpenNonceRef.current) {
+      forced = "diff"
+    }
+    previousPreviewOpenNonceRef.current = filePreview.openNonce
+    previousDiffOpenNonceRef.current = diffPanel.openNonce
     const stillActive =
       activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
         ? activeExclusiveRightPanel
         : null
-    const active = newlyOpened ?? stillActive ?? openExclusiveRightPanels[0] ?? null
+    const active = forced ?? newlyOpened ?? stillActive ?? openExclusiveRightPanels[0] ?? null
 
     previousRightPanelVisibilityRef.current = rightPanelVisibility
     if (activeExclusiveRightPanel !== active) {
       setActiveExclusiveRightPanel(active)
     }
-  }, [activeExclusiveRightPanel, openExclusiveRightPanels, rightPanelVisibility])
+  }, [
+    activeExclusiveRightPanel,
+    openExclusiveRightPanels,
+    rightPanelVisibility,
+    filePreview.openNonce,
+    diffPanel.openNonce,
+  ])
 
   // Reset dismissal flags (and any open panel state) on session switch so each
   // session gets a fresh chance to auto-open live mirror panels. Bind the stable

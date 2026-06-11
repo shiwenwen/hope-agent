@@ -18,6 +18,9 @@ export interface UseDiffPanel {
    */
   activeIndex: number
   setActiveIndex: (index: number) => void
+  /** Bumps on every `openDiff` — lets ChatScreen claim the active panel even
+   *  when the diff panel is already visible. See `UseFilePreview.openNonce`. */
+  openNonce: number
   openDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
   closeDiff: () => void
   panelWidth: number
@@ -31,6 +34,7 @@ export function useDiffPanel(): UseDiffPanel {
   const [activeChanges, setActiveChanges] = useState<FileChangeMetadata[]>([])
   const [activeIndex, setActiveIndex] = useState(0)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH)
+  const [openNonce, setOpenNonce] = useState(0)
 
   const openDiff = useCallback((payload: FileChangeMetadata | FileChangesMetadata) => {
     if (payload.kind === "file_change") {
@@ -40,6 +44,7 @@ export function useDiffPanel(): UseDiffPanel {
     }
     setActiveIndex(0)
     setShowPanel(true)
+    setOpenNonce((n) => n + 1)
   }, [])
 
   const closeDiff = useCallback(() => {
@@ -53,6 +58,7 @@ export function useDiffPanel(): UseDiffPanel {
     activeChanges,
     activeIndex,
     setActiveIndex,
+    openNonce,
     openDiff,
     closeDiff,
     panelWidth,

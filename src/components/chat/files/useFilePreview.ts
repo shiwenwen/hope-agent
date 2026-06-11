@@ -14,6 +14,13 @@ export type PreviewTarget =
 export interface UseFilePreview {
   showPanel: boolean
   target: PreviewTarget | null
+  /**
+   * Bumps on every `openPreview`. Lets ChatScreen claim the active right-panel
+   * slot even when the preview panel is ALREADY visible — a plain `showPanel`
+   * stays `true`, so there's no false→true rising edge for the exclusive-panel
+   * auto-activation to latch onto when the user clicks another file.
+   */
+  openNonce: number
   /** Open (or replace) the preview panel with a target. */
   openPreview: (target: PreviewTarget) => void
   closePreview: () => void
@@ -27,10 +34,12 @@ export interface UseFilePreview {
 export function useFilePreview(): UseFilePreview {
   const [showPanel, setShowPanel] = useState(false)
   const [target, setTarget] = useState<PreviewTarget | null>(null)
+  const [openNonce, setOpenNonce] = useState(0)
 
   const openPreview = useCallback((next: PreviewTarget) => {
     setTarget(next)
     setShowPanel(true)
+    setOpenNonce((n) => n + 1)
   }, [])
 
   const closePreview = useCallback(() => {
@@ -38,5 +47,5 @@ export function useFilePreview(): UseFilePreview {
     setTarget(null)
   }, [])
 
-  return { showPanel, target, openPreview, closePreview }
+  return { showPanel, target, openNonce, openPreview, closePreview }
 }
