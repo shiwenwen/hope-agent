@@ -1130,7 +1130,14 @@
     "rendered": "Görüntülenmiş",
     "extractedPreview": "Çıkarılan içerik önizlemesi — özgün düzen için sistemde açın.",
     "quoteToChat": "Sohbete alıntıla",
-    "quoted": "Sohbete eklendi"
+    "quoted": "Sohbete eklendi",
+    "officeLoading": "Önizleme oluşturuluyor…",
+    "prevSlide": "Önceki slayt",
+    "nextSlide": "Sonraki slayt",
+    "zoomOut": "Uzaklaştır",
+    "zoomIn": "Yakınlaştır",
+    "fitWidth": "Genişliğe sığdır",
+    "officeNoContent": "Bu dosyadan içerik çıkarılamadı."
   },
   "diffPanel": {
     "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",

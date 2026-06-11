@@ -18,8 +18,9 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { fileKindOf, shikiLang } from "@/lib/fileKind"
 import { cn } from "@/lib/utils"
-import type { ExtractedContent, FileTextContent } from "@/lib/transport"
+import type { FileTextContent } from "@/lib/transport"
 import type { PreviewSource } from "@/components/chat/files/previewSource"
+import { OfficeRichPreview } from "@/components/chat/files/office/OfficeRichPreview"
 import { BinaryPlaceholder } from "./BinaryPlaceholder"
 import { ShikiCodeView, type CodeSelection } from "./ShikiCodeView"
 
@@ -34,7 +35,7 @@ export interface QuotePayload {
 type Loaded =
   | { kind: "code" | "text" | "markdown" | "binary"; data: FileTextContent }
   | { kind: "image" | "pdf" | "audio" | "video"; url: string | null }
-  | { kind: "office"; data: ExtractedContent }
+  | { kind: "office" }
 
 export interface FilePreviewPaneProps {
   /** The file to preview (memoize this — it drives the load effect), or `null`. */
@@ -75,8 +76,9 @@ export function FilePreviewPane({
           const url = await source.rawUrl(false)
           if (!cancelled) setLoaded({ kind, url })
         } else if (kind === "office") {
-          const data = await source.extractDoc()
-          if (!cancelled) setLoaded({ kind: "office", data })
+          // Office files are rich-rendered from raw bytes by OfficeRichPreview;
+          // text extraction runs lazily only if that falls back.
+          if (!cancelled) setLoaded({ kind: "office" })
         } else {
           const data = await source.readText()
           if (cancelled) return
@@ -262,29 +264,9 @@ function PreviewBody({
   }
 
   if (loaded.kind === "office") {
-    const { text, images } = loaded.data
-    return (
-      <div className="space-y-4 px-4 py-3">
-        <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          {t(
-            "fileBrowser.extractedPreview",
-            "Extracted preview — layout may differ from the original. Open the file for the exact formatting.",
-          )}
-        </div>
-        {images.map((img, i) => (
-          <img
-            key={i}
-            src={`data:${img.mime};base64,${img.data}`}
-            alt={img.label}
-            className="mx-auto max-w-full rounded border"
-          />
-        ))}
-        {text ? <MarkdownRenderer content={text} /> : null}
-        {!text && images.length === 0 ? (
-          <div className="text-sm text-muted-foreground">{t("fileBrowser.empty", "No content")}</div>
-        ) : null}
-      </div>
-    )
+    // key on the file so a new source remounts (resets fetch/fail state) —
+    // OfficeRichPreview's effect only fetches, it never resets synchronously.
+    return <OfficeRichPreview key={source.displayPath ?? source.name} source={source} />
   }
 
   if (loaded.kind === "binary") {

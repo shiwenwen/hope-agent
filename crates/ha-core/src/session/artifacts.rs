@@ -148,6 +148,33 @@ fn upsert_write(map: &mut HashMap<String, FileAgg>, seq: &mut u64, c: &Value) {
     *seq += 1;
 }
 
+/// Upsert a tool-produced file (send_attachment / image_generate / exec via the
+/// `__MEDIA_ITEMS__` header) as a modified artifact. These never go through
+/// write/edit so they carry no diff metadata, but they're still session output.
+/// An existing entry (e.g. a richer `write` diff) is kept untouched — NOT even a
+/// recency bump — to mirror the frontend live tail's `if (!entries.has(path))`
+/// guard in `useSessionFileChanges.ts`. The two aggregators must stay in lockstep
+/// (AGENTS red line: change one, change both).
+fn upsert_media(map: &mut HashMap<String, FileAgg>, seq: &mut u64, path: &str) {
+    if map.contains_key(path) {
+        return;
+    }
+    map.insert(
+        path.to_string(),
+        FileAgg {
+            art: FileArtifact {
+                path: path.to_string(),
+                kind: "modified".to_string(),
+                lines_added: 0,
+                lines_removed: 0,
+                read_lines: None,
+            },
+            order: *seq,
+        },
+    );
+    *seq += 1;
+}
+
 /// Files the session read / modified, most-recently-touched first. Reads
 /// structured `tool_metadata` only (no legacy content-block fallback — those
 /// pre-metadata rows are covered by the frontend live tail within the loaded
@@ -156,50 +183,67 @@ fn aggregate_files(messages: &[SessionMessage]) -> (Vec<FileArtifact>, bool) {
     let mut map: HashMap<String, FileAgg> = HashMap::new();
     let mut seq: u64 = 0;
 
+    // Single interleaved pass per message — structured file metadata first, then
+    // that same message's tool-produced media — to mirror the frontend live
+    // tail's per-tool ordering in `useSessionFileChanges.ts` (AGENTS red line:
+    // the two aggregators must stay in lockstep).
     for msg in messages {
-        let Some(meta_str) = msg.tool_metadata.as_deref() else {
-            continue;
-        };
-        let Ok(meta) = serde_json::from_str::<Value>(meta_str) else {
-            continue;
-        };
-        match meta.get("kind").and_then(Value::as_str) {
-            Some("file_change") => upsert_write(&mut map, &mut seq, &meta),
-            Some("file_changes") => {
-                if let Some(changes) = meta.get("changes").and_then(Value::as_array) {
-                    for c in changes {
-                        upsert_write(&mut map, &mut seq, c);
+        // 1) Structured file metadata (write / edit / apply_patch / read).
+        if let Some(meta) = msg
+            .tool_metadata
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        {
+            match meta.get("kind").and_then(Value::as_str) {
+                Some("file_change") => upsert_write(&mut map, &mut seq, &meta),
+                Some("file_changes") => {
+                    if let Some(changes) = meta.get("changes").and_then(Value::as_array) {
+                        for c in changes {
+                            upsert_write(&mut map, &mut seq, c);
+                        }
                     }
                 }
-            }
-            Some("file_read") => {
-                let Some(path) = meta.get("path").and_then(Value::as_str) else {
-                    continue;
-                };
-                // A read after a modify keeps the file "modified" — only bump recency.
-                if let Some(existing) = map.get_mut(path) {
-                    if existing.art.kind == "modified" {
-                        existing.order = seq;
-                        seq += 1;
-                        continue;
+                Some("file_read") => {
+                    if let Some(path) = meta.get("path").and_then(Value::as_str) {
+                        // A read after a modify keeps the file "modified" — only bump recency.
+                        let bump_only = map.get(path).is_some_and(|e| e.art.kind == "modified");
+                        if bump_only {
+                            if let Some(existing) = map.get_mut(path) {
+                                existing.order = seq;
+                                seq += 1;
+                            }
+                        } else {
+                            map.insert(
+                                path.to_string(),
+                                FileAgg {
+                                    art: FileArtifact {
+                                        path: path.to_string(),
+                                        kind: "read".to_string(),
+                                        lines_added: 0,
+                                        lines_removed: 0,
+                                        read_lines: meta.get("lines").and_then(Value::as_i64),
+                                    },
+                                    order: seq,
+                                },
+                            );
+                            seq += 1;
+                        }
                     }
                 }
-                map.insert(
-                    path.to_string(),
-                    FileAgg {
-                        art: FileArtifact {
-                            path: path.to_string(),
-                            kind: "read".to_string(),
-                            lines_added: 0,
-                            lines_removed: 0,
-                            read_lines: meta.get("lines").and_then(Value::as_i64),
-                        },
-                        order: seq,
-                    },
-                );
-                seq += 1;
+                _ => {}
             }
-            _ => {}
+        }
+
+        // 2) Tool-produced files (send_attachment / image_generate / exec) ride a
+        //    `__MEDIA_ITEMS__` header in the tool result instead of file-diff
+        //    metadata — scan this message's result for their local paths.
+        if let Some(result) = msg.tool_result.as_deref() {
+            let (_, items) = crate::agent::extract_media_items(result);
+            for item in items {
+                if let Some(local_path) = item.local_path {
+                    upsert_media(&mut map, &mut seq, &local_path);
+                }
+            }
         }
     }
 

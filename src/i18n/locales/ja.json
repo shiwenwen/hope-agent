@@ -1130,7 +1130,14 @@
     "rendered": "レンダリング表示",
     "extractedPreview": "抽出内容のプレビュー — 元のレイアウトはシステムで開いてください。",
     "quoteToChat": "チャットに引用",
-    "quoted": "チャットに追加しました"
+    "quoted": "チャットに追加しました",
+    "officeLoading": "プレビューを生成中…",
+    "prevSlide": "前のスライド",
+    "nextSlide": "次のスライド",
+    "zoomOut": "縮小",
+    "zoomIn": "拡大",
+    "fitWidth": "幅に合わせる",
+    "officeNoContent": "このファイルから内容を抽出できませんでした"
   },
   "diffPanel": {
     "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
