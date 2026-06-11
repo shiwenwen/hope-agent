@@ -4326,6 +4326,21 @@
       "rebuildWarning": "Kaydetmek tüm bilgi alanlarının dizinini yeniden oluşturur.",
       "saved": "Kaydedildi — tüm alanlar yeniden oluşturuluyor"
     },
+    "knowledgeSearch": {
+      "title": "Gelişmiş · arama sıralaması",
+      "description": "note_search sonuçları nasıl sıralar: not parçalarında anahtar kelime (BM25) ve anlamsal (vektör) arama yapar, iki sıralamayı RRF ile birleştirir, sonra çeşitlilik için MMR ile yeniden sıralar. Varsayılanlar çoğu kütüphaneye uygundur — yalnızca sonuçlar yanlış geldiğinde değiştirin. Kaydetmek anında etkilidir, yeniden dizinleme gerekmez.",
+      "restore": "Varsayılanları geri yükle",
+      "textWeight": "Anahtar kelime ağırlığı",
+      "textWeightDesc": "Tam kelime/ifade eşleşmelerinin füzyondaki ağırlığı. Kod, ad veya jargon gibi birebir terimin önemli olduğu yerlerde artırın; yalnızca anlamsal ağırlığa oranı önemlidir.",
+      "vectorWeight": "Anlamsal ağırlık",
+      "vectorWeightDesc": "Anlam temelli (vektör) benzerliğin ağırlığı. Farklı kelimelerle ilgili notları çıkarmak için artırın. Vektör modeli kapalıysa etkisizdir (yalnızca anahtar kelime).",
+      "rrfK": "Füzyon yumuşatma (RRF k)",
+      "rrfKDesc": "Her sıralamanın tepesinin baskınlığı. Düşük = her yöntemin 1.'sine daha çok güven; yüksek = üst sonuçlar arasında daha dengeli harmanla. 60 standart dengedir.",
+      "mmrLambda": "Çeşitlilik (MMR λ)",
+      "mmrLambdaDesc": "Alaka vs. çeşitlilik. 1.0 = saf alaka (neredeyse aynı notlar gelebilir); düşük değer daha çeşitli sonuçlar katar. 0.7 alakayı korurken tekrarları azaltır.",
+      "candidateMultiplier": "Aday havuzu (×sonuç)",
+      "candidateMultiplierDesc": "Çeşitlilik için yeniden sıralamadan önce toplanacak aday sayısı (istenen sonuç sayısının katı). Yüksek = daha iyi çeşitlilik/geri çağırma (biraz yavaş); düşük = daha hızlı."
+    },
     "knowledgePassiveRecall": {
       "title": "Pasif ilgili notlar",
       "description": "Her turda, mesajınızla ilgili erişilebilir not başlıklarını ipucu olarak gösterir.",

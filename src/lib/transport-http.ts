@@ -85,6 +85,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   knowledge_embedding_rebuild_cmd: { method: "POST",   path: "/api/knowledge/embedding/rebuild" },
   knowledge_chunk_get_cmd:         { method: "GET",    path: "/api/knowledge/chunk" },
   knowledge_chunk_set_cmd:         { method: "POST",   path: "/api/knowledge/chunk" },
+  knowledge_search_config_get_cmd: { method: "GET",    path: "/api/knowledge/search-config" },
+  knowledge_search_config_set_cmd: { method: "POST",   path: "/api/knowledge/search-config" },
   reindex_note_cmd:                { method: "POST",   path: "/api/knowledge/{kbId}/note/reindex" },
   reindex_dir_cmd:                 { method: "POST",   path: "/api/knowledge/{kbId}/dir/reindex" },
   list_referenceable_notes_cmd:    { method: "POST",   path: "/api/knowledge/referenceable-notes" },

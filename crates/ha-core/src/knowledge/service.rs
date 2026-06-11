@@ -652,6 +652,29 @@ pub fn set_chunk_config(
     Ok(cfg)
 }
 
+// ── Search ranking config (owner plane GUI + ha-settings) ───────────────
+
+/// Current (clamped) hybrid-search ranking parameters.
+pub fn get_search_config() -> super::KnowledgeSearchConfig {
+    crate::config::cached_config().knowledge_search.clamped()
+}
+
+/// Persist new search ranking parameters (clamped first). Pure query-time — no
+/// reindex side effect, so unlike `set_chunk_config` this just writes config.
+/// Returns the clamped value saved.
+pub fn set_search_config(
+    cfg: super::KnowledgeSearchConfig,
+    source: &str,
+) -> Result<super::KnowledgeSearchConfig> {
+    let clamped = cfg.clamped();
+    let to_save = clamped.clone();
+    crate::config::mutate_config(("knowledge_search", source), move |store| {
+        store.knowledge_search = to_save.clone();
+        Ok(())
+    })?;
+    Ok(clamped)
+}
+
 // ── Maintenance config (WS6, owner plane GUI) ───────────────────
 
 /// Current (clamped) maintenance config for the GUI panel.

@@ -270,6 +270,24 @@ export interface SpriteConfig {
   timeoutSecs: number
 }
 
+/** Hybrid `note_search` ranking parameters (`AppConfig.knowledge_search`). */
+export interface KnowledgeSearchConfig {
+  textWeight: number
+  vectorWeight: number
+  rrfK: number
+  mmrLambda: number
+  candidateMultiplier: number
+}
+
+/** Best-practice defaults — the reset-to values (must mirror the Rust defaults). */
+export const KNOWLEDGE_SEARCH_DEFAULTS: KnowledgeSearchConfig = {
+  textWeight: 0.4,
+  vectorWeight: 0.6,
+  rrfK: 60,
+  mmrLambda: 0.7,
+  candidateMultiplier: 3,
+}
+
 export type SpriteCategory = "writing" | "review" | "encourage" | "remind" | "connect"
 
 /** A transient sprite suggestion, delivered via the `sprite:suggestion` event. */

@@ -578,6 +578,8 @@ pub fn run() {
             commands::knowledge::knowledge_embedding_rebuild_cmd,
             commands::knowledge::knowledge_chunk_get_cmd,
             commands::knowledge::knowledge_chunk_set_cmd,
+            commands::knowledge::knowledge_search_config_get_cmd,
+            commands::knowledge::knowledge_search_config_set_cmd,
             commands::knowledge::list_referenceable_notes_cmd,
             commands::knowledge::kb_mkdir_cmd,
             commands::knowledge::kb_rename_dir_cmd,

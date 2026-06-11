@@ -140,7 +140,7 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 
 **写入数据流**（内部 KB / owner 保存 / 工具）：写盘 → `index::reindex_note`（parse → chunk → embed → `replace_note_index` 单事务，FTS 触发器同步、vec 手动同步）→ `reresolve_kb_links`（全 KB 重解析，broken↔resolved 翻转）→ emit `knowledge:changed`。外部 vault：bind / 启动 / 打开 `reindex_kb`（mtime 增量 + prune）+ `notify` watcher 实时 reconcile。
 
-**检索管线**：`search_notes` → chunk FTS5（BM25）+ vec0 KNN（signature 过滤）→ 加权 RRF（text 0.4 / vec 0.6 / k 60）→ 聚合 best-chunk 回 note → MMR（λ 0.7）。向量单存 `note_vec`。
+**检索管线**：`search_notes` → chunk FTS5（BM25）+ vec0 KNN（signature 过滤）→ 加权 RRF → 聚合 best-chunk 回 note → MMR。向量单存 `note_vec`。融合 / 重排参数现可配（见下「排序配置」，默认 text 0.4 / vec 0.6 / RRF-k 60 / MMR-λ 0.7 / 候选 ×3）。`note_similar` 是纯向量 KNN（无融合）、`note_related` 用自有融合——`knowledge_search` 配置只作用于 `search_notes`。
 
 **Embedding 配置（D7，独立 selector）**：知识空间的向量化**不寄生记忆**——有自己完整的配置生命周期，记忆没配 / 关了都不影响知识空间向量检索（关了只降级 FTS-only，不回退到 `memory_embedding`）。
 
@@ -148,6 +148,7 @@ agent 在对话中直接调用，覆盖 CRUD / 链接图谱 / 检索 / 元数据
 - **helper**（[`knowledge/embedding.rs`](../../crates/ha-core/src/knowledge/embedding.rs)）：`knowledge_active_embedding_signature`（索引 + 检索热路径签名源，**不读** `memory::active_embedding_signature`）/ `set_knowledge_embedding_default`（验证 provider → 写 selection → 装 index embedder → spawn reembed）/ `disable_knowledge_embedding` / `apply_knowledge_embedding_from_config`（热重载）。复用 memory 的 `create_embedding_provider` 工厂、`EmbeddingProvider` trait、`signature()`、RRF / MMR 算法。**不复用** memory 的 `embedding_cache`——知识索引经 `IndexDb` 持有的裸 `EmbeddingProvider` 直接 embed，该缓存表是 memory SQLite backend 内部的（`embedding.rs` 注释明载）。
 - **重建**（[`knowledge/reembed.rs`](../../crates/ha-core/src/knowledge/reembed.rs)）：切模型 → 装新 embedder（维度变则 `note_vec` DROP 重建）→ spawn `LocalModelJobKind::KnowledgeReembed`，遍历所有 KB `reindex_kb(full=true)` 重 embed 全部 chunk，进度 KB-granular，完成写 `last_reembedded_signature`。复用 memory 的 `local_model_jobs` 框架（取消 / 单实例 / 进度 / retry）。
 - **分块配置（D12，高级）**：`AppConfig.knowledge_chunk: ChunkConfig`（`clamped()` 钳 `[200,8000]` / `[0,max/2]`）。owner 命令 `knowledge_chunk_{get,set}_cmd` / HTTP `GET|POST /api/knowledge/chunk`；`service::set_chunk_config` 写 config + 触发全 KB 重切（向量开→重嵌、关→FTS-only re-chunk；**不 stamp signature**，chunk 改动不是模型覆盖事件）。
+- **排序配置（`search.rs::KnowledgeSearchConfig`）**：`AppConfig.knowledge_search`——`text_weight`(0.4) / `vector_weight`(0.6) 融合权重（比值决定关键词↔语义平衡，两者皆 0 时 `clamped()` 回默认防全零打平）、`rrf_k`(60, `[1,1000]`) 融合平滑、`mmr_lambda`(0.7, `[0,1]`) 相关↔多样、`candidate_multiplier`(3, `[1,10]`) MMR 前候选池 = `limit×`。`search_notes` 每次读 `cached_config().knowledge_search.clamped()`。**纯查询期、无 reindex 副作用 → 与 chunk/embedding 不同，是正常 MEDIUM 设置**：owner 命令 `knowledge_search_config_{get,set}_cmd` / HTTP `GET|POST /api/knowledge/search-config`（`service::{get,set}_search_config`），**同时进 `ha-settings`**（`knowledge_search` category，MEDIUM）。GUI 在「设置 → 知识空间 → 高级 · 检索排序」,每项带详细说明 + **一键「恢复默认」**（发默认值持久化，改错可一键复原）。
 - **共享库交叉保护**：`save_embedding_model_config` / `delete_embedding_model_config` / Ollama 删模型清理都对 memory **与** knowledge 的 active model 双向守门（改 / 删 active model 一律拒；删 Ollama active 重置对应 selection + 清对应 embedder）。
 - **owner 平面 + GUI-only**：命令 `knowledge_embedding_{get,set_default,disable}_cmd` / HTTP `GET /api/knowledge/embedding`、`POST /api/knowledge/embedding/{set-default,disable}`。与 `memory_embedding` 一致**不进 `ha-settings`**（模型选择 + reembed 副作用，类比 `active_model` 的 GUI-only 豁免）。
 

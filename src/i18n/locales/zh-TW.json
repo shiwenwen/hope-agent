@@ -4326,6 +4326,21 @@
       "rebuildWarning": "儲存會重建所有知識空間的索引。",
       "saved": "已儲存，正在重建所有空間"
     },
+    "knowledgeSearch": {
+      "title": "進階 · 檢索排序",
+      "description": "note_search 如何排序：對筆記區塊同時跑關鍵字（BM25）和語意（向量）檢索，用 RRF 融合兩路排名，再用 MMR 重排去重。預設值適合大多數知識庫——結果不理想時再調。儲存即時生效，無需重建索引。",
+      "restore": "還原預設",
+      "textWeight": "關鍵字權重",
+      "textWeightDesc": "精確詞/片語比對在融合中的占比。程式碼、人名、術語等看重字面命中的情境可調高；只有它與語意權重的比值有意義。",
+      "vectorWeight": "語意權重",
+      "vectorWeightDesc": "基於含義的（向量）相似度占比。想召回用詞不同但相關的筆記可調高。向量模型關閉時無效（退化為純關鍵字）。",
+      "rrfK": "融合平滑（RRF k）",
+      "rrfKDesc": "每一路排名頂部的主導程度。越小越信任各方法的第一名；越大越在頂部結果間均勻融合。60 是標準平衡值。",
+      "mmrLambda": "多樣性（MMR λ）",
+      "mmrLambdaDesc": "相關性 vs 多樣性。1.0 = 純相關（可能回傳多篇雷同筆記）；越低越混入更多樣的結果。0.7 在保持相關的同時去重。",
+      "candidateMultiplier": "候選池（×回傳數）",
+      "candidateMultiplierDesc": "多樣性重排前收集多少候選，按請求結果數的倍數。越大多樣性/召回越好但稍慢；越小越快。"
+    },
     "knowledgePassiveRecall": {
       "title": "被動相關筆記",
       "description": "每輪對話自動列出與你訊息相關的可存取筆記標題作為提示。",

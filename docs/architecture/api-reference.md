@@ -256,6 +256,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `knowledge_embedding_rebuild_cmd` | `POST /api/knowledge/embedding/rebuild` | ✅ (强制全 KB 重建，无 same-signature 短路) |
 | `knowledge_chunk_get_cmd` | `GET /api/knowledge/chunk` | ✅ (D12 分块参数，GUI-only) |
 | `knowledge_chunk_set_cmd` | `POST /api/knowledge/chunk` | ✅ (写参数 clamp + 触发全 KB 重切) |
+| `knowledge_search_config_get_cmd` | `GET /api/knowledge/search-config` | ✅ (混合检索排序参数 `KnowledgeSearchConfig`：融合权重 / RRF-k / MMR-λ / 候选倍数) |
+| `knowledge_search_config_set_cmd` | `POST /api/knowledge/search-config` | ✅ (body `{config}`，clamp 后保存、无重索引；发默认值即恢复默认) |
 | `reindex_note_cmd` | `POST /api/knowledge/{kbId}/note/reindex` | ✅ (单篇重建，同步) |
 | `reindex_dir_cmd` | `POST /api/knowledge/{kbId}/dir/reindex` | ✅ (文件夹子树重建，同步) |
 | `kb_mkdir_cmd` | `POST /api/knowledge/{kbId}/dir` | ✅ (写闸门) |

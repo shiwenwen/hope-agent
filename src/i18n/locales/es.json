@@ -4326,6 +4326,21 @@
       "rebuildWarning": "Guardar reconstruye el índice de todos los espacios de conocimiento.",
       "saved": "Guardado — reconstruyendo todos los espacios"
     },
+    "knowledgeSearch": {
+      "title": "Avanzado · clasificación de búsqueda",
+      "description": "Cómo note_search ordena los resultados: ejecuta búsqueda por palabra clave (BM25) y semántica (vector) sobre los fragmentos de notas, fusiona ambos rankings (RRF) y reordena por diversidad (MMR). Los valores por defecto sirven para la mayoría de bibliotecas — cámbialos solo si los resultados parecen erróneos. Guardar surte efecto de inmediato, sin reindexar.",
+      "restore": "Restaurar valores por defecto",
+      "textWeight": "Peso de palabra clave",
+      "textWeightDesc": "Cuánto cuentan las coincidencias exactas de palabra/frase en la fusión. Súbelo para código, nombres o jerga donde importa el término literal; solo importa la proporción con el peso semántico.",
+      "vectorWeight": "Peso semántico",
+      "vectorWeightDesc": "Cuánto cuenta la similitud por significado (vector). Súbelo para mostrar notas relacionadas con otras palabras. Sin efecto si el modelo vectorial está apagado (solo palabra clave).",
+      "rrfK": "Suavizado de fusión (RRF k)",
+      "rrfKDesc": "Cuán fuerte domina la cima de cada ranking. Menor = confiar más en el nº 1 de cada método; mayor = mezclar más uniformemente en la cima. 60 es el equilibrio estándar.",
+      "mmrLambda": "Diversidad (MMR λ)",
+      "mmrLambdaDesc": "Relevancia vs. variedad. 1.0 = relevancia pura (puede devolver varias notas casi idénticas); valores menores mezclan resultados más variados. 0.7 mantiene la relevancia reduciendo duplicados.",
+      "candidateMultiplier": "Grupo de candidatos (×límite)",
+      "candidateMultiplierDesc": "Cuántos candidatos reunir antes de reordenar por diversidad, como múltiplo del número de resultados pedido. Mayor = mejor diversidad/recuperación (coste pequeño); menor = más rápido."
+    },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas pasivas",
       "description": "En cada turno, muestra como sugerencia los títulos de notas accesibles relacionadas con tu mensaje.",

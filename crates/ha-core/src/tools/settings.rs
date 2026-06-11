@@ -87,6 +87,7 @@ fn risk_level(category: &str) -> &'static str {
         | "teams"
         | "im_auto_transcribe"
         | "knowledge_passive_recall"
+        | "knowledge_search"
         | "sprite" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
@@ -178,6 +179,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "knowledge_maintenance" => Some(
             "Layer-2 autonomous maintenance scans knowledge bases and queues note-maintenance proposals (auto-link, dedup merge, tagging, MOC, memory→note, …) for review. Changes take effect on the next cycle. ⚠️ `enabled` lets background cycles run; `autoApprove` makes approved-free writes to the user's notes happen automatically (skipping the review queue) — confirm with the user before enabling either."
+        ),
+        "knowledge_search" => Some(
+            "Knowledge hybrid `note_search` ranking. note_search runs keyword (BM25) + semantic (vector) search over note chunks, fuses them with RRF, then re-ranks for diversity with MMR. Pure query-time (no reindex). `textWeight`/`vectorWeight` = fusion balance (ratio matters; raise textWeight for code/jargon, vectorWeight for meaning); `rrfK` = fusion smoothing (lower trusts each method's top hit more); `mmrLambda` = relevance↔diversity (1.0 pure relevance, lower trims near-duplicates); `candidateMultiplier` = candidate pool before MMR (×limit). Defaults (0.4/0.6/60/0.7/3) suit most libraries; send those to restore defaults."
         ),
         "sprite" => Some(
             "Knowledge-space sprite / inspiration mode: a proactive companion that, while the user works on a note, makes a bounded LLM call and may surface a transient suggestion bubble. ⚠️ `enabled` makes proactive (unprompted) LLM calls — has a cost. `proactive` (default true) biases it toward speaking vs. staying quiet. `triggers.*` toggle the occasions it may fire (editIdle / noteOpen / conversation / periodic / paste); `idleEditSecs` + `minChangeChars` gate edit-idle, `periodicSecs` the periodic streak, `pasteMinChars` the paste trigger. `cooldownSecs` / `maxPerSessionPerHour` throttle overall frequency; `senses.*` toggle which context (doc / edit / conversation / memory / awareness) is fused in."
@@ -500,6 +504,7 @@ fn read_category(category: &str) -> Result<Value> {
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
         "knowledge_maintenance" => Ok(serde_json::to_value(&cfg.knowledge_maintenance)?),
         "knowledge_passive_recall" => Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?),
+        "knowledge_search" => Ok(serde_json::to_value(&cfg.knowledge_search)?),
         "sprite" => Ok(serde_json::to_value(&cfg.sprite)?),
         "mcp_global" => Ok(serde_json::to_value(&cfg.mcp_global)?),
         "mcp_servers" => Ok(redact_mcp_servers_value(serde_json::to_value(
@@ -653,7 +658,7 @@ fn get_all_overview() -> Result<String> {
             "deferred_tools", "async_tools", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
-            "teams", "im_auto_transcribe", "knowledge_passive_recall", "sprite"
+            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
@@ -1011,6 +1016,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             // Clamp (mirrors `service::set_passive_recall_config`).
             store.knowledge_passive_recall = store.knowledge_passive_recall.clamped();
         }
+        "knowledge_search" => {
+            merge_field(&mut store.knowledge_search, values)?;
+            // Clamp (mirrors `service::set_search_config`).
+            store.knowledge_search = store.knowledge_search.clamped();
+        }
         "sprite" => {
             merge_field(&mut store.sprite, values)?;
             // Clamp so a skill write can't hammer the LLM (mirrors `sprite::set_config`).
@@ -1293,7 +1303,7 @@ mod tests {
 
     #[test]
     fn risk_level_medium_includes_new_categories() {
-        for cat in ["multimodal", "dreaming", "sprite"] {
+        for cat in ["multimodal", "dreaming", "sprite", "knowledge_search"] {
             assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
         }
     }

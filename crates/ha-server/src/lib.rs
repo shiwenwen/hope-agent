@@ -294,6 +294,11 @@ fn build_router_with_cors(
                 .post(routes::knowledge::knowledge_chunk_set),
         )
         .route(
+            "/knowledge/search-config",
+            get(routes::knowledge::knowledge_search_config_get)
+                .post(routes::knowledge::knowledge_search_config_set),
+        )
+        .route(
             "/knowledge/ai/rewrite",
             post(routes::knowledge::kb_ai_rewrite),
         )

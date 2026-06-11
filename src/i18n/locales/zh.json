@@ -4334,6 +4334,21 @@
       "rebuildWarning": "保存会重建所有知识空间的索引。",
       "saved": "已保存，正在重建所有空间"
     },
+    "knowledgeSearch": {
+      "title": "高级 · 检索排序",
+      "description": "note_search 如何排序：对笔记块同时跑关键词（BM25）和语义（向量）检索，用 RRF 融合两路排名，再用 MMR 重排去重。默认值适合大多数知识库——结果不理想时再调。保存即时生效，无需重建索引。",
+      "restore": "恢复默认",
+      "textWeight": "关键词权重",
+      "textWeightDesc": "精确词/短语匹配在融合中的占比。代码、人名、术语等看重字面命中的场景可调高；只有它与语义权重的比值有意义。",
+      "vectorWeight": "语义权重",
+      "vectorWeightDesc": "基于含义的（向量）相似度占比。想召回用词不同但相关的笔记可调高。向量模型关闭时无效（退化为纯关键词）。",
+      "rrfK": "融合平滑（RRF k）",
+      "rrfKDesc": "每一路排名头部的主导程度。越小越信任各方法的第一名；越大越在头部结果间均匀融合。60 是标准平衡值。",
+      "mmrLambda": "多样性（MMR λ）",
+      "mmrLambdaDesc": "相关性 vs 多样性。1.0 = 纯相关（可能返回多篇雷同笔记）；越低越混入更多样的结果。0.7 在保持相关的同时去重。",
+      "candidateMultiplier": "候选池（×返回数）",
+      "candidateMultiplierDesc": "多样性重排前收集多少候选，按请求结果数的倍数。越大多样性/召回越好但稍慢；越小越快。"
+    },
     "knowledgePassiveRecall": {
       "title": "被动相关笔记",
       "description": "每轮对话自动列出与你消息相关的可访问笔记标题作为提示。",

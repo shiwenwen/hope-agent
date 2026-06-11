@@ -4334,6 +4334,21 @@
       "rebuildWarning": "Saving rebuilds the index for every knowledge space.",
       "saved": "Saved — rebuilding every space"
     },
+    "knowledgeSearch": {
+      "title": "Advanced · search ranking",
+      "description": "How note_search ranks results: it runs keyword (BM25) and semantic (vector) search over note chunks, fuses the two rankings (RRF), then re-ranks for diversity (MMR). Defaults suit most libraries — only touch these if results feel off. Saving takes effect immediately, with no reindex.",
+      "restore": "Restore defaults",
+      "textWeight": "Keyword weight",
+      "textWeightDesc": "How much exact word/phrase matches count in fusion. Raise it for code, names, or jargon where the literal term matters; only the ratio to the semantic weight matters.",
+      "vectorWeight": "Semantic weight",
+      "vectorWeightDesc": "How much meaning-based (vector) similarity counts. Raise it to surface related notes that use different words. Has no effect if the vector model is off (keyword-only).",
+      "rrfK": "Fusion smoothing (RRF k)",
+      "rrfKDesc": "How sharply the top of each ranking dominates. Lower = trust each method's #1 hit more; higher = blend more evenly across the top results. 60 is the standard balance.",
+      "mmrLambda": "Diversity (MMR λ)",
+      "mmrLambdaDesc": "Relevance vs. variety. 1.0 = pure relevance (may return several near-identical notes); lower mixes in more varied results. 0.7 keeps results relevant while trimming duplicates.",
+      "candidateMultiplier": "Candidate pool (×limit)",
+      "candidateMultiplierDesc": "How many candidates to gather before diversity re-ranking, as a multiple of the requested result count. Higher = better diversity/recall at a small cost; lower = faster."
+    },
     "knowledgePassiveRecall": {
       "title": "Passive related notes",
       "description": "Each turn, surface titles of accessible notes related to your message as a hint.",

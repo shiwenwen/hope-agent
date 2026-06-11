@@ -530,6 +530,11 @@ pub struct AppConfig {
     /// (dedicated owner commands, not `update_settings`) like `knowledge_embedding`.
     #[serde(default)]
     pub knowledge_chunk: crate::knowledge::ChunkConfig,
+    /// Knowledge hybrid `note_search` ranking parameters (fusion weights / RRF-k /
+    /// MMR-λ / candidate pool). Pure query-time, no reindex — a normal MEDIUM
+    /// setting (GUI + `update_settings`), unlike `knowledge_chunk`.
+    #[serde(default)]
+    pub knowledge_search: crate::knowledge::KnowledgeSearchConfig,
     /// Knowledge Layer-2 autonomous maintenance (WS6): scheduling + per-task
     /// toggles + auto-approve for the proposal review queue. Disabled by default.
     #[serde(default)]
@@ -845,6 +850,7 @@ impl Default for AppConfig {
             memory_embedding: crate::memory::EmbeddingSelection::default(),
             knowledge_embedding: crate::memory::EmbeddingSelection::default(),
             knowledge_chunk: crate::knowledge::ChunkConfig::default(),
+            knowledge_search: crate::knowledge::KnowledgeSearchConfig::default(),
             knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig::default(),
             knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),

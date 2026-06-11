@@ -314,6 +314,22 @@ pub async fn knowledge_chunk_set_cmd(
     knowledge::set_chunk_config(max_chars, overlap_chars, "settings-ui").map_err(Into::into)
 }
 
+/// Current knowledge hybrid-search ranking parameters (clamped).
+#[tauri::command]
+pub async fn knowledge_search_config_get_cmd(
+) -> Result<ha_core::knowledge::KnowledgeSearchConfig, CmdError> {
+    Ok(knowledge::get_search_config())
+}
+
+/// Save search ranking parameters (clamped server-side, no reindex). The clamped
+/// result is returned. Send default values to restore defaults.
+#[tauri::command]
+pub async fn knowledge_search_config_set_cmd(
+    config: ha_core::knowledge::KnowledgeSearchConfig,
+) -> Result<ha_core::knowledge::KnowledgeSearchConfig, CmdError> {
+    knowledge::set_search_config(config, "settings-ui").map_err(Into::into)
+}
+
 /// Flat list of notes the chat composer can reference via `[[ ]]`. Pass
 /// `draft_kb_ids` for a brand-new chat whose attaches aren't persisted yet.
 #[tauri::command]

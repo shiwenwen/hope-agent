@@ -518,6 +518,25 @@ pub async fn knowledge_chunk_set(
     )?))
 }
 
+/// `GET /api/knowledge/search-config` — current hybrid-search ranking parameters.
+pub async fn knowledge_search_config_get(
+) -> Result<Json<ha_core::knowledge::KnowledgeSearchConfig>, AppError> {
+    Ok(Json(ha_core::knowledge::get_search_config()))
+}
+
+#[derive(Deserialize)]
+pub struct KnowledgeSearchSetBody {
+    pub config: ha_core::knowledge::KnowledgeSearchConfig,
+}
+
+/// `POST /api/knowledge/search-config` — save search ranking parameters (clamped,
+/// no reindex). Send default values to restore defaults.
+pub async fn knowledge_search_config_set(
+    Json(body): Json<KnowledgeSearchSetBody>,
+) -> Result<Json<ha_core::knowledge::KnowledgeSearchConfig>, AppError> {
+    Ok(Json(ha_core::knowledge::set_search_config(body.config, "http")?))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceableNotesBody {

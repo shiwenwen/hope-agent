@@ -4326,6 +4326,21 @@
       "rebuildWarning": "Salvar reconstrói o índice de todos os espaços de conhecimento.",
       "saved": "Salvo — reconstruindo todos os espaços"
     },
+    "knowledgeSearch": {
+      "title": "Avançado · classificação de busca",
+      "description": "Como o note_search ordena os resultados: executa busca por palavra-chave (BM25) e semântica (vetor) nos trechos das notas, funde os dois rankings (RRF) e reordena para diversidade (MMR). Os padrões servem à maioria das bibliotecas — só mexa se os resultados parecerem errados. Salvar tem efeito imediato, sem reindexação.",
+      "restore": "Restaurar padrões",
+      "textWeight": "Peso de palavra-chave",
+      "textWeightDesc": "Quanto correspondências exatas de palavra/frase contam na fusão. Aumente para código, nomes ou jargão onde o termo literal importa; só a proporção com o peso semântico importa.",
+      "vectorWeight": "Peso semântico",
+      "vectorWeightDesc": "Quanto a similaridade por significado (vetor) conta. Aumente para trazer notas relacionadas que usam outras palavras. Sem efeito se o modelo vetorial estiver desligado (só palavra-chave).",
+      "rrfK": "Suavização da fusão (RRF k)",
+      "rrfKDesc": "Quão fortemente o topo de cada ranking domina. Menor = confiar mais no nº 1 de cada método; maior = misturar de forma mais uniforme no topo. 60 é o equilíbrio padrão.",
+      "mmrLambda": "Diversidade (MMR λ)",
+      "mmrLambdaDesc": "Relevância vs. variedade. 1.0 = pura relevância (pode trazer várias notas quase iguais); valores menores misturam resultados mais variados. 0.7 mantém relevância reduzindo duplicatas.",
+      "candidateMultiplier": "Pool de candidatos (×limite)",
+      "candidateMultiplierDesc": "Quantos candidatos reunir antes da reordenação por diversidade, como múltiplo da quantidade de resultados pedida. Maior = melhor diversidade/recall (custo pequeno); menor = mais rápido."
+    },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas passivas",
       "description": "A cada turno, mostra títulos de notas acessíveis relacionadas à sua mensagem como dica.",

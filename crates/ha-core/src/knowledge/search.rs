@@ -6,16 +6,97 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::db::IndexDb;
 use super::types::NoteSearchHit;
 use crate::util::truncate_utf8;
 
-// Mirror the memory backend's fusion weights / constants for parity.
-const TEXT_WEIGHT: f64 = 0.4;
-const VECTOR_WEIGHT: f64 = 0.6;
-const RRF_K: f64 = 60.0;
-const MMR_LAMBDA: f32 = 0.7;
+// Defaults (mirror the memory backend's fusion constants for parity). Exposed as
+// tunables via `KnowledgeSearchConfig`; these are the reset-to values.
+const DEFAULT_TEXT_WEIGHT: f64 = 0.4;
+const DEFAULT_VECTOR_WEIGHT: f64 = 0.6;
+const DEFAULT_RRF_K: f64 = 60.0;
+const DEFAULT_MMR_LAMBDA: f32 = 0.7;
+const DEFAULT_CANDIDATE_MULTIPLIER: usize = 3;
 const SNIPPET_BYTES: usize = 320;
+
+fn default_text_weight() -> f64 {
+    DEFAULT_TEXT_WEIGHT
+}
+fn default_vector_weight() -> f64 {
+    DEFAULT_VECTOR_WEIGHT
+}
+fn default_rrf_k() -> f64 {
+    DEFAULT_RRF_K
+}
+fn default_mmr_lambda() -> f32 {
+    DEFAULT_MMR_LAMBDA
+}
+fn default_candidate_multiplier() -> usize {
+    DEFAULT_CANDIDATE_MULTIPLIER
+}
+
+/// User-tunable ranking parameters for the hybrid `note_search` pipeline
+/// (`AppConfig.knowledge_search`). Pure query-time — no reindex side effect — so
+/// unlike `knowledge_chunk` / `knowledge_embedding` it is a normal MEDIUM setting
+/// (GUI + `ha-settings`). Only affects `search_notes`; `note_similar` is
+/// vector-only and `note_related` uses its own fusion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSearchConfig {
+    /// Weight of the keyword (FTS5/BM25) arm in rank fusion. Relative to
+    /// `vector_weight` — only the ratio matters.
+    #[serde(default = "default_text_weight")]
+    pub text_weight: f64,
+    /// Weight of the semantic (vector) arm in rank fusion.
+    #[serde(default = "default_vector_weight")]
+    pub vector_weight: f64,
+    /// RRF smoothing constant: larger flattens the influence of top ranks
+    /// (gentler fusion); smaller sharpens it toward each arm's #1.
+    #[serde(default = "default_rrf_k")]
+    pub rrf_k: f64,
+    /// MMR relevance↔diversity tradeoff: 1.0 = pure relevance, 0.0 = pure
+    /// diversity (de-duplicates near-identical notes harder).
+    #[serde(default = "default_mmr_lambda")]
+    pub mmr_lambda: f32,
+    /// Candidate pool before MMR = requested `limit` × this multiplier.
+    #[serde(default = "default_candidate_multiplier")]
+    pub candidate_multiplier: usize,
+}
+
+impl Default for KnowledgeSearchConfig {
+    fn default() -> Self {
+        Self {
+            text_weight: DEFAULT_TEXT_WEIGHT,
+            vector_weight: DEFAULT_VECTOR_WEIGHT,
+            rrf_k: DEFAULT_RRF_K,
+            mmr_lambda: DEFAULT_MMR_LAMBDA,
+            candidate_multiplier: DEFAULT_CANDIDATE_MULTIPLIER,
+        }
+    }
+}
+
+impl KnowledgeSearchConfig {
+    /// Clamp to sane bounds. Weights to `[0, 1]`; if both end up ~0 (a footgun
+    /// that would flatten all scores), reset to defaults. `rrf_k` to `[1, 1000]`,
+    /// `mmr_lambda` to `[0, 1]`, `candidate_multiplier` to `[1, 10]`.
+    pub fn clamped(&self) -> KnowledgeSearchConfig {
+        let mut text_weight = self.text_weight.clamp(0.0, 1.0);
+        let mut vector_weight = self.vector_weight.clamp(0.0, 1.0);
+        if text_weight + vector_weight < f64::EPSILON {
+            text_weight = DEFAULT_TEXT_WEIGHT;
+            vector_weight = DEFAULT_VECTOR_WEIGHT;
+        }
+        KnowledgeSearchConfig {
+            text_weight,
+            vector_weight,
+            rrf_k: self.rrf_k.clamp(1.0, 1000.0),
+            mmr_lambda: self.mmr_lambda.clamp(0.0, 1.0),
+            candidate_multiplier: self.candidate_multiplier.clamp(1, 10),
+        }
+    }
+}
 
 /// Search `kb_ids` for `query`, returning up to `limit` note hits ordered by
 /// relevance (MMR-diversified), each carrying its best-matching chunk snippet.
@@ -28,7 +109,8 @@ pub fn search_notes(
     if kb_ids.is_empty() || query.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let fetch = (limit * 3).max(10);
+    let cfg = crate::config::cached_config().knowledge_search.clamped();
+    let fetch = (limit * cfg.candidate_multiplier).max(10);
 
     // Step 1: FTS5 BM25 over chunks.
     let fts = db.fts_search(kb_ids, query, fetch)?;
@@ -56,11 +138,13 @@ pub fn search_notes(
     let mut chunk_score: HashMap<i64, f64> = HashMap::new();
     let mut chunk_note: HashMap<i64, i64> = HashMap::new();
     for (rank, (chunk_id, note_id, _)) in fts.iter().enumerate() {
-        *chunk_score.entry(*chunk_id).or_insert(0.0) += TEXT_WEIGHT / (RRF_K + rank as f64 + 1.0);
+        *chunk_score.entry(*chunk_id).or_insert(0.0) +=
+            cfg.text_weight / (cfg.rrf_k + rank as f64 + 1.0);
         chunk_note.insert(*chunk_id, *note_id);
     }
     for (rank, (chunk_id, note_id, _)) in vec.iter().enumerate() {
-        *chunk_score.entry(*chunk_id).or_insert(0.0) += VECTOR_WEIGHT / (RRF_K + rank as f64 + 1.0);
+        *chunk_score.entry(*chunk_id).or_insert(0.0) +=
+            cfg.vector_weight / (cfg.rrf_k + rank as f64 + 1.0);
         chunk_note.insert(*chunk_id, *note_id);
     }
 
@@ -114,7 +198,7 @@ pub fn search_notes(
         .iter()
         .map(|(id, s, body)| (*id, *s, body.as_str()))
         .collect();
-    let reranked = crate::memory::mmr::mmr_rerank(&candidate_refs, limit, MMR_LAMBDA);
+    let reranked = crate::memory::mmr::mmr_rerank(&candidate_refs, limit, cfg.mmr_lambda);
 
     // Build hits in MMR order.
     let score_by_note: HashMap<i64, (i64, f64)> =
@@ -265,4 +349,36 @@ pub fn similar_notes(
     }
     enrich_kb_names(&mut out);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_config_clamps_and_recovers_zero_weights() {
+        let c = KnowledgeSearchConfig {
+            text_weight: 5.0,
+            vector_weight: -1.0,
+            rrf_k: 0.0,
+            mmr_lambda: 9.0,
+            candidate_multiplier: 999,
+        }
+        .clamped();
+        assert_eq!(c.text_weight, 1.0); // clamped to [0,1]
+        assert_eq!(c.vector_weight, 0.0);
+        assert_eq!(c.rrf_k, 1.0); // clamped to [1,1000]
+        assert_eq!(c.mmr_lambda, 1.0); // clamped to [0,1]
+        assert_eq!(c.candidate_multiplier, 10);
+
+        // Both weights zero → reset to defaults (avoid flattening all scores).
+        let z = KnowledgeSearchConfig {
+            text_weight: 0.0,
+            vector_weight: 0.0,
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(z.text_weight, DEFAULT_TEXT_WEIGHT);
+        assert_eq!(z.vector_weight, DEFAULT_VECTOR_WEIGHT);
+    }
 }

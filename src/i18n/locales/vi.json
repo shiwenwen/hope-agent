@@ -4326,6 +4326,21 @@
       "rebuildWarning": "Lưu sẽ dựng lại chỉ mục cho mọi không gian kiến thức.",
       "saved": "Đã lưu — đang dựng lại mọi không gian"
     },
+    "knowledgeSearch": {
+      "title": "Nâng cao · xếp hạng tìm kiếm",
+      "description": "Cách note_search xếp hạng kết quả: chạy tìm kiếm từ khóa (BM25) và ngữ nghĩa (vector) trên các đoạn ghi chú, hợp nhất hai bảng xếp hạng (RRF), rồi xếp lại để đa dạng (MMR). Mặc định phù hợp với hầu hết thư viện — chỉ chỉnh khi kết quả thấy không ổn. Lưu có hiệu lực ngay, không cần lập chỉ mục lại.",
+      "restore": "Khôi phục mặc định",
+      "textWeight": "Trọng số từ khóa",
+      "textWeightDesc": "Mức độ khớp từ/cụm chính xác tính trong hợp nhất. Tăng cho mã, tên, thuật ngữ khi từ ngữ nguyên văn quan trọng; chỉ tỉ lệ với trọng số ngữ nghĩa là quan trọng.",
+      "vectorWeight": "Trọng số ngữ nghĩa",
+      "vectorWeightDesc": "Mức độ tương đồng theo nghĩa (vector). Tăng để hiện các ghi chú liên quan dùng từ khác. Vô hiệu nếu mô hình vector tắt (chỉ từ khóa).",
+      "rrfK": "Làm mượt hợp nhất (RRF k)",
+      "rrfKDesc": "Mức độ áp đảo của đầu mỗi bảng xếp hạng. Thấp = tin #1 của mỗi phương pháp hơn; cao = hòa trộn đều hơn ở nhóm đầu. 60 là cân bằng chuẩn.",
+      "mmrLambda": "Đa dạng (MMR λ)",
+      "mmrLambdaDesc": "Liên quan vs. đa dạng. 1.0 = thuần liên quan (có thể trả nhiều ghi chú gần giống); thấp hơn pha thêm kết quả đa dạng. 0.7 giữ liên quan mà giảm trùng lặp.",
+      "candidateMultiplier": "Nhóm ứng viên (×số kết quả)",
+      "candidateMultiplierDesc": "Số ứng viên thu thập trước khi xếp lại theo đa dạng, theo bội số của số kết quả yêu cầu. Cao = đa dạng/độ phủ tốt hơn (hơi chậm); thấp = nhanh hơn."
+    },
     "knowledgePassiveRecall": {
       "title": "Ghi chú liên quan thụ động",
       "description": "Mỗi lượt, hiển thị tiêu đề các ghi chú có thể truy cập liên quan đến tin nhắn của bạn như một gợi ý.",

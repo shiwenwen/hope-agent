@@ -4326,6 +4326,21 @@
       "rebuildWarning": "Menyimpan akan membina semula indeks bagi setiap ruang pengetahuan.",
       "saved": "Disimpan — membina semula semua ruang"
     },
+    "knowledgeSearch": {
+      "title": "Lanjutan · kedudukan carian",
+      "description": "Cara note_search menyusun hasil: menjalankan carian kata kunci (BM25) dan semantik (vektor) ke atas cebisan nota, menggabungkan kedua-dua kedudukan (RRF), kemudian menyusun semula untuk kepelbagaian (MMR). Lalai sesuai untuk kebanyakan perpustakaan — ubah hanya jika hasil terasa pelik. Menyimpan berkesan serta-merta, tanpa pengindeksan semula.",
+      "restore": "Pulihkan lalai",
+      "textWeight": "Berat kata kunci",
+      "textWeightDesc": "Berapa banyak padanan kata/frasa tepat dikira dalam gabungan. Naikkan untuk kod, nama atau jargon yang mementingkan istilah literal; hanya nisbah dengan berat semantik yang penting.",
+      "vectorWeight": "Berat semantik",
+      "vectorWeightDesc": "Berapa banyak persamaan berdasarkan makna (vektor) dikira. Naikkan untuk memaparkan nota berkaitan yang guna perkataan berbeza. Tiada kesan jika model vektor dimatikan (kata kunci sahaja).",
+      "rrfK": "Pelicinan gabungan (RRF k)",
+      "rrfKDesc": "Sejauh mana puncak setiap kedudukan menguasai. Rendah = lebih percaya #1 setiap kaedah; tinggi = adun lebih sekata di kalangan hasil teratas. 60 ialah keseimbangan standard.",
+      "mmrLambda": "Kepelbagaian (MMR λ)",
+      "mmrLambdaDesc": "Kerelevanan lwn. kepelbagaian. 1.0 = kerelevanan tulen (mungkin pulangkan beberapa nota hampir serupa); lebih rendah campurkan hasil lebih pelbagai. 0.7 mengekalkan relevan sambil mengurangkan pendua.",
+      "candidateMultiplier": "Kolam calon (×had)",
+      "candidateMultiplierDesc": "Berapa calon dikumpul sebelum penyusunan semula kepelbagaian, sebagai gandaan bilangan hasil yang diminta. Tinggi = kepelbagaian/dapatan semula lebih baik (kos kecil); rendah = lebih pantas."
+    },
     "knowledgePassiveRecall": {
       "title": "Nota berkaitan pasif",
       "description": "Setiap giliran, paparkan tajuk nota boleh diakses yang berkaitan dengan mesej anda sebagai petunjuk.",
