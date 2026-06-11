@@ -222,15 +222,22 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 ## 精灵 / 灵感模式（Phase 2，`sprite/`）
 
-知识空间专属的**主动型**陪伴助手：用户编辑笔记停手片刻时，精灵主动在对话面板冒出一个**瞬态气泡**——写作建议 / 反馈 / 关联 / 提醒 / 情绪价值。默认全关（`AppConfig.sprite.enabled`）。
+知识空间专属的**主动型**陪伴助手：用户在笔记上工作时，精灵主动在对话面板冒出一个**瞬态气泡**——写作建议 / 反馈 / 关联 / 提醒 / 情绪价值。默认全关（`AppConfig.sprite.enabled`）。
 
-**架构（与 dreaming/maintenance 的关键差异）**：精灵反应的是「用户当前正在编辑的那篇文档」，而当前文档**只有前端知道**。因此精灵**不是**后台 app-idle 轮询循环，而是 **前端编辑空闲触发 → `kb_sprite_observe_cmd`（owner 命令，fire-and-forget spawn）→ `sprite::observe_and_maybe_speak`（节流 + side_query + emit）→ `sprite:suggestion` EventBus 事件 → 前端 `SpriteBubble`**。只复用 dreaming/maintenance 的 `SPRITE_RUNNING` 串行锁 + `side_query` 范式，**无 cron loop / idle ticker / app_init 接线**。
+**架构（与 dreaming/maintenance 的关键差异）**：精灵反应的是「用户当前正在编辑的那篇文档」，而当前文档**只有前端知道**。因此精灵**不是**后台 app-idle 轮询循环，而是 **前端多触发源 → `kb_sprite_observe_cmd`（owner 命令，fire-and-forget spawn）→ `sprite::observe_and_maybe_speak`（节流 + side_query + emit）→ `sprite:suggestion` EventBus 事件 → 前端 `SpriteBubble`**。只复用 dreaming/maintenance 的 `SPRITE_RUNNING` 串行锁 + `side_query` 范式，**无 cron loop / idle ticker / app_init 接线**。
 
-**触发（前端 `useKnowledgeSprite`）**：`KnowledgeView` 的 `NoteEditor.onChange`（只在用户真编辑时触发，非外部载入）bump `editorRevision` → 传给 `KnowledgeChatPanel` → hook 按 `idleEditSecs`(默认 8) debounce；触发时 `getEditorValue()` 取正文、对比上次观测算粗 diff（首尾公共串取中段）；`changed ≥ minChangeChars`(默认 80) 且 `enabled` 开 → POST `kb_sprite_observe_cmd`。**开关在对话栏**：面板顶 ✨ 按钮直接翻 `SpriteConfig.enabled`（`setEnabled` 乐观更新 + `sprite_config_set_cmd` 持久化 + 监听 `config:changed` 回流），不再有 localStorage 的 per-note 开关。
+**触发（前端 `useKnowledgeSprite`，仅在 AI 对话面板打开 `active` 时挂）**：5 个触发源，各由 `SpriteConfig.triggers.*` 独立开关（默认开，**唯 `periodic` 默认关**——最耗 token），全部 POST 同一个 `kb_sprite_observe_cmd`、由后端统一节流去重：
+- **editIdle**：`editorRevision`（`NoteEditor.onChange` 真编辑才 bump，非外部载入）debounce `idleEditSecs`(默认 6)，自上次观测 `changed ≥ minChangeChars`(默认 40) 才发；
+- **noteOpen**：打开笔记 `idleEditSecs` 后对当前内容发一次（无需编辑），**同时把 diff 基线设为载入内容**——故首次 editIdle 能正确触发（修早期「第一次空闲只建基线绝不触发」的 bug）；
+- **conversation**：对话 turn 完成（`conversationRevision` 由面板 loading→idle bump）后发；
+- **periodic**（默认关）：写作连续不停时每 `periodicSecs`(默认 120) 发（不等空闲）；
+- **paste**：单次插入 ≥ `paste_min_chars`(默认 180) 立即发。
 
-**节流（后端三层，闸在 LLM 之前）**：`SPRITE_RUNNING` CAS 串行锁（同一时刻仅一次观测，跨 side_query 持锁）+ 每 key（`session_id` 否则 `note_path`）`cooldown_secs`(默认 45) + 文档 hash 去重（同文档不重复调用）+ `max_per_session_per_hour`(默认 12)。任一不过直接 `Skipped`，不发 LLM。
+**开关在对话栏 + 设置面板两处**：面板顶 ✨ 按钮 + `SpriteSection` 都直接翻 `SpriteConfig.enabled`（乐观更新 + `sprite_config_set_cmd` + 监听 `config:changed` 回流）。
 
-**上下文融合（`context::build_instruction`，各 `senses.*` 开关）**：内置英文 persona(`context.rs::PERSONA`，**不外露配置**) + 当前文档(截断) + 最近编辑 + 对话上下文(前端送最近 6 条) + 记忆召回(`active_memory::shortlist_candidates`，scope = Agent + 可选 Global) + 跨会话感知(`awareness::collect::collect_entries`)，各段 `truncate_utf8` 预算裁剪。整条指令为英文、要求模型用文档语言作答。`build_analysis_agent` 的 `side_query`（**不复用主对话 cache**，bounded）→ 解析 `{category,text}`，`none`/空 = 沉默不发。`category ∈ writing|review|encourage|remind|connect`。
+**节流（后端三层，闸在 LLM 之前）**：`SPRITE_RUNNING` CAS 串行锁（同一时刻仅一次观测，跨 side_query 持锁）+ 每 key（`session_id` 否则 `note_path`）`cooldown_secs`(默认 30) + 文档 hash 去重（同文档不重复调用）+ `max_per_session_per_hour`(默认 12，硬上限保底，故多触发源全开也不会超量)。任一不过直接 `Skipped`（带 `app_debug!` 原因日志便于诊断），不发 LLM。
+
+**上下文融合（`context::build_instruction`，各 `senses.*` 开关）**：内置英文 persona（**两档** `PERSONA_PROACTIVE` / `PERSONA_RESTRAINED`，由 `SpriteConfig.proactive` 选，默认主动档；**不外露自由文本配置**）+ 当前文档(截断) + 最近编辑 + 对话上下文(前端送最近 6 条) + 记忆召回(`active_memory::shortlist_candidates`，scope = Agent + 可选 Global) + 跨会话感知(`awareness::collect::collect_entries`)，各段 `truncate_utf8` 预算裁剪。整条指令为英文、要求模型用文档语言作答。`build_analysis_agent` 的 `side_query`（**不复用主对话 cache**，bounded）→ 解析 `{category,text}`，`none`/空 = 沉默不发。`category ∈ writing|review|encourage|remind|connect`。
 
 **incognito 零精灵（两道关卡）**：后端 `observe_and_maybe_speak` 首行 `is_session_incognito` 短路（零召回 / 零 side_query / 零 emit）；前端 incognito 同样不触发（知识会话本就非 incognito，防御性）。
 

@@ -2,10 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { SpriteConfig, SpriteSuggestion } from "@/types/knowledge"
+import type { SpriteConfig, SpriteSuggestion, SpriteTriggers } from "@/types/knowledge"
 
 const DOC_SEND_CAP = 8000
 const EDIT_SEND_CAP = 1200
+
+const DEFAULT_TRIGGERS: SpriteTriggers = {
+  editIdle: true,
+  noteOpen: true,
+  conversation: true,
+  periodic: false,
+  paste: true,
+}
 
 /** Cheap "what changed" diff: strip the common prefix/suffix, return the middle
  *  of the new text (net-added region) + how many chars changed. */
@@ -31,7 +39,9 @@ interface Opts {
   agentId: string
   /** Increments on every editor change (push signal to debounce on). */
   editorRevision: number
-  /** Pulls the editor's current text (lazy — only read on fire). */
+  /** Increments when a knowledge-chat turn completes (conversation trigger). */
+  conversationRevision?: number
+  /** Pulls the editor's current text (lazy — only read on fire). O(1) ref read. */
   getEditorValue: () => string
   /** Recent conversation turns (newest last) for the conversation sense. */
   getRecentMessages: () => Array<{ role: string; text: string }>
@@ -40,37 +50,48 @@ interface Opts {
 }
 
 /**
- * Knowledge-space sprite / inspiration mode (Phase 2). Owns:
- * - the enable flag (`SpriteConfig.enabled`), toggled directly from the chat-bar
- *   button and persisted via `sprite_config_set_cmd` (no separate settings switch),
- * - the edit-idle trigger that posts `kb_sprite_observe_cmd`,
- * - the `sprite:suggestion` listener that surfaces a transient bubble.
- * The backend does all throttling + the LLM call; this only fires observations
- * and renders what comes back. Other tuning (idle / cooldown / senses) lives in
- * Settings → Knowledge Space.
+ * Knowledge-space sprite / inspiration mode (Phase 2). Owns the enable flag, the
+ * several trigger occasions (each toggleable via `SpriteConfig.triggers`), and
+ * the `sprite:suggestion` listener that surfaces a transient bubble.
+ *
+ * Trigger occasions, all posting the same `kb_sprite_observe_cmd` (the backend
+ * throttles uniformly — cooldown + hourly cap + doc-hash dedup):
+ * - **noteOpen**: shortly after a note opens, react to it as-is (also seeds the
+ *   diff baseline so the first edit-idle fires correctly).
+ * - **editIdle**: after a pause, if enough changed since the baseline.
+ * - **periodic**: every `periodicSecs` while actively writing (no idle wait).
+ * - **paste**: immediately on a large single insert.
+ * - **conversation**: shortly after a chat turn completes.
+ *
+ * The backend does all throttling + the LLM call. Tuning (thresholds / senses /
+ * triggers / proactivity) lives in Settings → Knowledge Space.
  */
 export function useKnowledgeSprite(opts: Opts) {
-  const { kbId, notePath, sessionId, agentId, editorRevision, active } = opts
+  const { kbId, notePath, sessionId, agentId, editorRevision, conversationRevision, active } = opts
 
   const [config, setConfig] = useState<SpriteConfig | null>(null)
   const [suggestion, setSuggestion] = useState<SpriteSuggestion | null>(null)
 
-  // Stable readers so the debounce effect doesn't re-arm on every render.
-  // Synced in an effect (not during render) so the debounce timer always pulls
-  // the latest closures without re-arming.
+  // Stable readers so the trigger effects don't re-arm on every render. Synced
+  // in an effect (not during render) so timers always pull the latest closures.
   const getEditorValueRef = useRef(opts.getEditorValue)
   const getRecentMessagesRef = useRef(opts.getRecentMessages)
-  // `null` = baseline not yet established for the current note. Re-established
-  // lazily on the next idle tick from the actually-loaded content.
+  // `null` = diff baseline not yet established for the current note. Seeded by
+  // the first trigger that runs (noteOpen dwell, or the first edit-idle tick).
   const lastObservedRef = useRef<string | null>(null)
+  // Last seen doc length, for cheap large-insert (paste) detection.
+  const prevLenRef = useRef(0)
   useEffect(() => {
     getEditorValueRef.current = opts.getEditorValue
     getRecentMessagesRef.current = opts.getRecentMessages
   })
 
   const enabled = config?.enabled ?? false
-  const idleSecs = config?.idleEditSecs ?? 8
-  const minChange = config?.minChangeChars ?? 80
+  const idleSecs = config?.idleEditSecs ?? 6
+  const minChange = config?.minChangeChars ?? 40
+  const periodicSecs = config?.periodicSecs ?? 120
+  const pasteMinChars = config?.pasteMinChars ?? 180
+  const triggers = config?.triggers ?? DEFAULT_TRIGGERS
   const armed = enabled && active && !!kbId && !!notePath
 
   // Load the sprite config when shown + whenever it changes elsewhere (settings).
@@ -106,16 +127,35 @@ export function useKnowledgeSprite(opts: Opts) {
 
   const dismiss = useCallback(() => setSuggestion(null), [])
 
+  // One observation post, shared by every trigger. Stable per note so the timer
+  // effects don't re-arm on unrelated renders.
+  const fire = useCallback(
+    (doc: string, edit: string | undefined) => {
+      getTransport()
+        .call("kb_sprite_observe_cmd", {
+          params: {
+            sessionId: sessionId ?? undefined,
+            kbId,
+            notePath,
+            agentId,
+            docContent: doc.slice(0, DOC_SEND_CAP),
+            recentEdit: edit ? edit.slice(0, EDIT_SEND_CAP) : undefined,
+            recentMessages: getRecentMessagesRef.current().slice(-6),
+          },
+        })
+        .catch((e) => logger.warn("knowledge", "useKnowledgeSprite::observe", "post failed", e))
+    },
+    [sessionId, kbId, notePath, agentId],
+  )
+
   // Switching notes invalidates the diff baseline. We intentionally do NOT read
   // the editor here: this child effect runs before the parent's editor-value
-  // mirror updates (and the new note's content loads async), so reading now
-  // would capture the *previous* note's text and the next idle tick would diff
-  // the whole new doc against it — a false observation with zero edits. Reset to
-  // `null` and let the trigger establish the baseline from the loaded content.
-  // A stale suggestion from the previous note is hidden by the notePath gate at
-  // return time rather than cleared here.
+  // mirror updates (and the new note's content loads async), so reading now would
+  // capture the *previous* note's text. Reset to `null` and let the first trigger
+  // seed the baseline from the loaded content; reset the paste length tracker too.
   useEffect(() => {
     lastObservedRef.current = null
+    prevLenRef.current = 0
   }, [notePath])
 
   // Listen for backend suggestions, filtered to the current note (+ session).
@@ -130,13 +170,28 @@ export function useKnowledgeSprite(opts: Opts) {
     return unlisten
   }, [armed, notePath, sessionId])
 
-  // Edit-idle trigger: debounce on editorRevision, fire when changed enough.
+  // ── Trigger: note-open dwell ──
+  // A short while after opening a note, react to it as-is (no edit needed) — and
+  // seed the baseline so a later edit-idle diffs against the loaded content. Skips
+  // if an edit already seeded the baseline, or the note is empty.
   useEffect(() => {
-    if (!armed) return
+    if (!armed || !triggers.noteOpen) return
+    const handle = window.setTimeout(() => {
+      if (lastObservedRef.current !== null) return
+      const doc = getEditorValueRef.current() ?? ""
+      lastObservedRef.current = doc
+      if (doc.trim().length === 0) return
+      fire(doc, undefined)
+    }, idleSecs * 1000)
+    return () => window.clearTimeout(handle)
+  }, [armed, notePath, triggers.noteOpen, idleSecs, fire])
+
+  // ── Trigger: edit-idle ──
+  // Debounce on editorRevision; fire when enough changed since the baseline.
+  useEffect(() => {
+    if (!armed || !triggers.editIdle) return
     const handle = window.setTimeout(() => {
       const doc = getEditorValueRef.current() ?? ""
-      // First tick after opening/switching a note just establishes the baseline
-      // from the loaded content — never fire on the diff between two notes.
       if (lastObservedRef.current === null) {
         lastObservedRef.current = doc
         return
@@ -144,22 +199,57 @@ export function useKnowledgeSprite(opts: Opts) {
       const { changed, edit } = diffMiddle(lastObservedRef.current, doc)
       if (changed < minChange) return
       lastObservedRef.current = doc
-      getTransport()
-        .call("kb_sprite_observe_cmd", {
-          params: {
-            sessionId: sessionId ?? undefined,
-            kbId,
-            notePath,
-            agentId,
-            docContent: doc.slice(0, DOC_SEND_CAP),
-            recentEdit: edit ? edit.slice(0, EDIT_SEND_CAP) : undefined,
-            recentMessages: getRecentMessagesRef.current().slice(-6),
-          },
-        })
-        .catch((e) => logger.warn("knowledge", "useKnowledgeSprite::observe", "post failed", e))
+      fire(doc, edit)
     }, idleSecs * 1000)
     return () => window.clearTimeout(handle)
-  }, [armed, editorRevision, idleSecs, minChange, sessionId, kbId, notePath, agentId])
+  }, [armed, editorRevision, triggers.editIdle, idleSecs, minChange, fire])
+
+  // ── Trigger: periodic while writing ──
+  // Fire every `periodicSecs` if enough changed since the baseline — doesn't wait
+  // for an idle pause (companions you through a long continuous writing streak).
+  useEffect(() => {
+    if (!armed || !triggers.periodic) return
+    const id = window.setInterval(() => {
+      const doc = getEditorValueRef.current() ?? ""
+      if (lastObservedRef.current === null) {
+        lastObservedRef.current = doc
+        return
+      }
+      const { changed, edit } = diffMiddle(lastObservedRef.current, doc)
+      if (changed < minChange) return
+      lastObservedRef.current = doc
+      fire(doc, edit)
+    }, periodicSecs * 1000)
+    return () => window.clearInterval(id)
+  }, [armed, notePath, triggers.periodic, periodicSecs, minChange, fire])
+
+  // ── Trigger: large paste / insert ──
+  // Runs on every editorRevision (cheap O(1) length read). A single change that
+  // adds ≥ pasteMinChars fires immediately, no idle wait. prevLen is tracked every
+  // revision (even when disabled) so toggling on can't see a stale huge delta.
+  useEffect(() => {
+    const doc = getEditorValueRef.current() ?? ""
+    const delta = doc.length - prevLenRef.current
+    prevLenRef.current = doc.length
+    if (!armed || !triggers.paste) return
+    if (lastObservedRef.current === null) return
+    if (delta >= pasteMinChars) {
+      const { edit } = diffMiddle(lastObservedRef.current, doc)
+      lastObservedRef.current = doc
+      fire(doc, edit)
+    }
+  }, [armed, editorRevision, triggers.paste, pasteMinChars, fire])
+
+  // ── Trigger: after a chat turn completes ──
+  useEffect(() => {
+    if (!armed || !triggers.conversation) return
+    if (!conversationRevision) return
+    const handle = window.setTimeout(() => {
+      const doc = getEditorValueRef.current() ?? ""
+      fire(doc, undefined)
+    }, 1500)
+    return () => window.clearTimeout(handle)
+  }, [armed, conversationRevision, triggers.conversation, fire])
 
   // Only surface a suggestion that belongs to the currently-open note.
   const visibleSuggestion = suggestion && suggestion.notePath === notePath ? suggestion : null

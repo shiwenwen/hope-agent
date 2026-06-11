@@ -159,11 +159,14 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     // Reconcile against DB truth when a turn finishes. On Tauri the per-call
     // channel already streamed the assistant live; on HTTP (no reattach wired
     // here) this is what fills in the final answer. Cheap for short threads.
+    // Also bumps `conversationRevision` so the sprite can react to a finished turn.
     const prevLoadingRef = useRef(session.loading)
+    const [conversationRevision, setConversationRevision] = useState(0)
     useEffect(() => {
       const was = prevLoadingRef.current
       prevLoadingRef.current = session.loading
       if (was && !session.loading) {
+        setConversationRevision((n) => n + 1)
         const sid = session.currentSessionIdRef.current
         if (sid) {
           // Merge DB truth into the current thread (on HTTP this fills in the
@@ -198,6 +201,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
       sessionId: session.currentSessionId,
       agentId: session.currentAgentId,
       editorRevision,
+      conversationRevision,
       getEditorValue,
       getRecentMessages: () =>
         session.messages.map((m) => ({ role: m.role, text: m.content })),

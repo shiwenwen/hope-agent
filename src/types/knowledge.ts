@@ -246,12 +246,25 @@ export interface SpriteSenses {
   awareness: boolean
 }
 
+/** When the sprite may fire (orthogonal to `senses` = what it reads). */
+export interface SpriteTriggers {
+  editIdle: boolean
+  noteOpen: boolean
+  conversation: boolean
+  periodic: boolean
+  paste: boolean
+}
+
 export interface SpriteConfig {
   enabled: boolean
   idleEditSecs: number
   minChangeChars: number
   cooldownSecs: number
   maxPerSessionPerHour: number
+  periodicSecs: number
+  pasteMinChars: number
+  proactive: boolean
+  triggers: SpriteTriggers
   senses: SpriteSenses
   maxTokens: number
   timeoutSecs: number

@@ -171,7 +171,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **外部 vault 实时同步（D6）**：`notify` watcher（per-KB 线程 + debounce）+ bind / 启动 reconcile（mtime 增量 + prune）
 - **侧边栏 AI 对话面板**：对话 = `kind='knowledge'` 会话，**从主会话列表 / `/sessions` / 全局 FTS 隐藏**；锚定落 `knowledge_chat_threads`（D9，级联删）。复用主对话 `useChatStream`（新增可选 prop，主对话不传 = 行为不变）；当前文档每轮经 `getExtraAttachments` 以 `source:"quote"` 注入（cache-safe）。选区编辑两路：quote chip 进对话由 AI 改写 / 浮动 `QuickRewriteBar` 一次性
 - **工具精简 `ToolScope::Knowledge`（与 D10 正交）**：仅 schema/prompt 可见性收窄到白名单（`note_*` + `knowledge_recall` + 记忆 + 框架基础），**绝不动 KB 访问**——访问仍由 `effective_kb_access` 单点裁决
-- **精灵 / 灵感模式（`sprite/`，默认关）**：前端编辑空闲触发 → owner 命令 `kb_sprite_observe_cmd` → 节流 + side_query + emit `sprite:suggestion` → 前端瞬态气泡（不进消息流）。**incognito 零精灵**（前后端双关卡）。非 agent 工具，设置三件套（MEDIUM）
+- **精灵 / 灵感模式（`sprite/`，默认关）**：前端**多触发源**（编辑停顿 / 打开笔记 / 对话回复后 / 周期写作 / 大段粘贴，各 `triggers.*` 可配，仅在 AI 对话面板打开时挂）→ owner 命令 `kb_sprite_observe_cmd` → 后端统一节流（cooldown + 时限 + doc-hash 去重）+ side_query（persona 随 `proactive` 分主动/克制档）+ emit `sprite:suggestion` → 前端瞬态气泡（不进消息流）。**incognito 零精灵**（前后端双关卡）。非 agent 工具，设置三件套（MEDIUM）
 - **自主维护（Layer 2，默认全关）**：后台扫内部 KB 产提案进 `sessions.db`（D9，级联删）；落地经 owner 平面（用户已批准故**绕 D10**，但写前重读磁盘 hash 守 stale-write + 跳外部只读）；`ha-settings` 归 **HIGH**
 - **块级引用（仅 Obsidian `^block-id`，Logseq 不做）/ 原生大纲只读视图**：见架构文档；大纲红线**只读、永不替代 CM6 底座**
 - **新增 KB 工具 / 端点**：工具走 `tools/note.rs` + `core_tools.rs` + `execution.rs`；Tauri / HTTP owner 薄壳调 `knowledge::service`；逻辑全在 ha-core（红线）

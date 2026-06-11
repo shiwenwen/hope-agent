@@ -624,7 +624,21 @@
         "timeout": "提案のタイムアウト（秒）",
         "timeoutDesc": "これより時間がかかる提案は中止します。",
         "enabled": "スプライトモードを有効化",
-        "enabledDesc": "マスタースイッチ。チャットパネル上部からも切替可能。"
+        "enabledDesc": "マスタースイッチ。チャットパネル上部からも切替可能。",
+        "proactive": "より積極的に",
+        "proactiveDesc": "黙っているより一言かけることを優先します。控えめにするにはオフに。",
+        "triggers": "話しかけるタイミング",
+        "trigger": {
+          "editIdle": "編集が止まったとき",
+          "noteOpen": "ノートを開いたとき",
+          "conversation": "チャット返信のあと",
+          "periodic": "執筆中に定期的に",
+          "paste": "大きな貼り付け時"
+        },
+        "periodic": "定期間隔（秒）",
+        "periodicDesc": "書き続けている間にどのくらいの頻度で話しかけてよいか（「定期」トリガー）。",
+        "pasteMin": "貼り付け判定（文字）",
+        "pasteMinDesc": "一度の挿入がこの文字数以上なら貼り付けとみなし即座にトリガーします。"
       }
     },
     "subagent": {
@@ -1924,7 +1938,21 @@
         "timeout": "제안 시간 제한(초)",
         "timeoutDesc": "이보다 오래 걸리는 제안은 중단합니다.",
         "enabled": "스프라이트 모드 사용",
-        "enabledDesc": "마스터 스위치 — 채팅 패널 상단에서도 켜고 끌 수 있습니다."
+        "enabledDesc": "마스터 스위치 — 채팅 패널 상단에서도 켜고 끌 수 있습니다.",
+        "proactive": "더 적극적으로",
+        "proactiveDesc": "조용히 있기보다 한마디 건네는 쪽을 택합니다. 절제하려면 끄세요.",
+        "triggers": "말 거는 시점",
+        "trigger": {
+          "editIdle": "편집을 멈췄을 때",
+          "noteOpen": "노트를 열었을 때",
+          "conversation": "채팅 답변 후",
+          "periodic": "작성 중 주기적으로",
+          "paste": "큰 붙여넣기 시"
+        },
+        "periodic": "주기 간격(초)",
+        "periodicDesc": "계속 작성하는 동안 얼마나 자주 말을 걸 수 있는지(\"주기\" 트리거).",
+        "pasteMin": "붙여넣기 기준(자)",
+        "pasteMinDesc": "한 번의 삽입이 이 글자 수 이상이면 붙여넣기로 보고 즉시 트리거합니다."
       }
     },
     "subagent": {
@@ -3224,7 +3252,21 @@
         "timeout": "建議逾時（秒）",
         "timeoutDesc": "超過此時長仍未生成則放棄本次建議。",
         "enabled": "啟用精靈模式",
-        "enabledDesc": "總開關——也可在對話面板頂部一鍵開關。"
+        "enabledDesc": "總開關——也可在對話面板頂部一鍵開關。",
+        "proactive": "更主動",
+        "proactiveDesc": "傾向多開口而非保持沉默。關閉則更克制。",
+        "triggers": "何時開口",
+        "trigger": {
+          "editIdle": "編輯停頓後",
+          "noteOpen": "開啟筆記時",
+          "conversation": "對話回覆後",
+          "periodic": "持續寫作時週期性",
+          "paste": "大段貼上時"
+        },
+        "periodic": "週期間隔（秒）",
+        "periodicDesc": "持續寫作時多久可開口一次（「週期」觸發）。",
+        "pasteMin": "貼上判定（字元）",
+        "pasteMinDesc": "單次插入達到這麼多字即視為貼上，立即觸發。"
       }
     },
     "subagent": {
@@ -4507,7 +4549,21 @@
         "timeout": "Öneri zaman aşımı (sn)",
         "timeoutDesc": "Bundan uzun süren bir öneriden vazgeç.",
         "enabled": "Peri modunu etkinleştir",
-        "enabledDesc": "Ana anahtar — sohbet paneli başlığından da açılıp kapatılabilir."
+        "enabledDesc": "Ana anahtar — sohbet paneli başlığından da açılıp kapatılabilir.",
+        "proactive": "Daha proaktif",
+        "proactiveDesc": "Sessiz kalmak yerine bir şeyler söylemeye eğilimli olur. Daha ölçülü olması için kapatın.",
+        "triggers": "Ne zaman söze karışır",
+        "trigger": {
+          "editIdle": "Düzenlemeye ara verince",
+          "noteOpen": "Bir not açılınca",
+          "conversation": "Sohbet yanıtından sonra",
+          "periodic": "Yazarken periyodik olarak",
+          "paste": "Büyük bir yapıştırmada"
+        },
+        "periodic": "Periyodik aralık (sn)",
+        "periodicDesc": "Kesintisiz yazarken ne sıklıkta söze karışabileceği (\"periyodik\" tetikleyici).",
+        "pasteMin": "Yapıştırma boyutu (karakter)",
+        "pasteMinDesc": "Tek seferde bu kadar büyük bir ekleme yapıştırma sayılır ve hemen tetiklenir."
       }
     },
     "subagent": {
@@ -5807,7 +5863,21 @@
         "timeout": "Thời gian chờ gợi ý (giây)",
         "timeoutDesc": "Bỏ qua gợi ý mất nhiều thời gian hơn mức này.",
         "enabled": "Bật chế độ tinh linh",
-        "enabledDesc": "Công tắc chính — cũng có thể bật/tắt từ đầu bảng trò chuyện."
+        "enabledDesc": "Công tắc chính — cũng có thể bật/tắt từ đầu bảng trò chuyện.",
+        "proactive": "Chủ động hơn",
+        "proactiveDesc": "Thiên về lên tiếng thay vì im lặng. Tắt để tinh tế hơn.",
+        "triggers": "Khi nào lên tiếng",
+        "trigger": {
+          "editIdle": "Sau khi ngừng chỉnh sửa",
+          "noteOpen": "Khi mở một ghi chú",
+          "conversation": "Sau khi trò chuyện trả lời",
+          "periodic": "Định kỳ khi đang viết",
+          "paste": "Khi dán đoạn lớn"
+        },
+        "periodic": "Khoảng định kỳ (giây)",
+        "periodicDesc": "Tần suất có thể lên tiếng khi viết liên tục (trình kích hoạt \"định kỳ\").",
+        "pasteMin": "Cỡ dán (ký tự)",
+        "pasteMinDesc": "Một lần chèn lớn từ mức này trở lên được coi là dán và kích hoạt ngay."
       }
     },
     "subagent": {
@@ -7107,7 +7177,21 @@
         "timeout": "Tempo limite da sugestão (s)",
         "timeoutDesc": "Desiste de uma sugestão que demore mais que isto.",
         "enabled": "Ativar modo duende",
-        "enabledDesc": "Interruptor principal — também alternável no topo do painel de chat."
+        "enabledDesc": "Interruptor principal — também alternável no topo do painel de chat.",
+        "proactive": "Mais proativo",
+        "proactiveDesc": "Tende a oferecer uma frase em vez de ficar calado. Desligue para um modo mais discreto.",
+        "triggers": "Quando se manifesta",
+        "trigger": {
+          "editIdle": "Após uma pausa na edição",
+          "noteOpen": "Ao abrir uma nota",
+          "conversation": "Após uma resposta no chat",
+          "periodic": "Periodicamente ao escrever",
+          "paste": "Em uma colagem grande"
+        },
+        "periodic": "Intervalo periódico (s)",
+        "periodicDesc": "Com que frequência pode se manifestar durante uma escrita contínua (o gatilho \"periódico\").",
+        "pasteMin": "Tamanho da colagem (caracteres)",
+        "pasteMinDesc": "Uma única inserção deste tamanho ou maior conta como colagem e dispara imediatamente."
       }
     },
     "subagent": {
@@ -8407,7 +8491,21 @@
         "timeout": "Тайм-аут подсказки (с)",
         "timeoutDesc": "Прекращать подсказку, которая длится дольше этого.",
         "enabled": "Включить режим спрайта",
-        "enabledDesc": "Главный переключатель — также доступен вверху панели чата."
+        "enabledDesc": "Главный переключатель — также доступен вверху панели чата.",
+        "proactive": "Более активный",
+        "proactiveDesc": "Склонен подсказать, а не молчать. Выключите для более сдержанного режима.",
+        "triggers": "Когда подаёт голос",
+        "trigger": {
+          "editIdle": "После паузы в редактировании",
+          "noteOpen": "При открытии заметки",
+          "conversation": "После ответа в чате",
+          "periodic": "Периодически во время письма",
+          "paste": "При большой вставке"
+        },
+        "periodic": "Интервал периодичности (с)",
+        "periodicDesc": "Как часто он может подавать голос при непрерывном письме (триггер «периодически»).",
+        "pasteMin": "Размер вставки (символы)",
+        "pasteMinDesc": "Одна вставка такого размера или больше считается вставкой и срабатывает сразу."
       }
     },
     "subagent": {
@@ -9707,7 +9805,21 @@
         "timeout": "مهلة الاقتراح (ثانية)",
         "timeoutDesc": "التخلي عن أي اقتراح يستغرق وقتًا أطول من ذلك.",
         "enabled": "تفعيل وضع العفريت",
-        "enabledDesc": "المفتاح الرئيسي — يمكن تبديله أيضًا من أعلى لوحة المحادثة."
+        "enabledDesc": "المفتاح الرئيسي — يمكن تبديله أيضًا من أعلى لوحة المحادثة.",
+        "proactive": "أكثر استباقية",
+        "proactiveDesc": "يميل إلى تقديم سطر بدلاً من الصمت. أوقفه لسلوك أكثر تحفّظًا.",
+        "triggers": "متى يتحدث",
+        "trigger": {
+          "editIdle": "بعد توقّف مؤقت عن التحرير",
+          "noteOpen": "عند فتح ملاحظة",
+          "conversation": "بعد رد في المحادثة",
+          "periodic": "دوريًا أثناء الكتابة",
+          "paste": "عند لصق كبير"
+        },
+        "periodic": "الفاصل الدوري (ثانية)",
+        "periodicDesc": "كم مرة يمكنه التحدث أثناء الكتابة المتواصلة (مُشغِّل \"دوري\").",
+        "pasteMin": "حجم اللصق (أحرف)",
+        "pasteMinDesc": "أي إدراج واحد بهذا الحجم أو أكبر يُعدّ لصقًا ويُشغّل فورًا."
       }
     },
     "subagent": {
@@ -11007,7 +11119,21 @@
         "timeout": "Tiempo de espera de sugerencia (s)",
         "timeoutDesc": "Abandona una sugerencia que tarde más que esto.",
         "enabled": "Activar modo duende",
-        "enabledDesc": "Interruptor principal: también se alterna en la cabecera del panel de chat."
+        "enabledDesc": "Interruptor principal: también se alterna en la cabecera del panel de chat.",
+        "proactive": "Más proactivo",
+        "proactiveDesc": "Tiende a ofrecer una frase en lugar de callar. Desactívalo para un duende más discreto.",
+        "triggers": "Cuándo interviene",
+        "trigger": {
+          "editIdle": "Tras una pausa al editar",
+          "noteOpen": "Al abrir una nota",
+          "conversation": "Tras una respuesta del chat",
+          "periodic": "Periódicamente mientras escribes",
+          "paste": "En un pegado grande"
+        },
+        "periodic": "Intervalo periódico (s)",
+        "periodicDesc": "Con qué frecuencia puede intervenir durante una escritura continua (el disparador \"periódico\").",
+        "pasteMin": "Tamaño de pegado (caracteres)",
+        "pasteMinDesc": "Una sola inserción de este tamaño o mayor cuenta como pegado y se dispara de inmediato."
       }
     },
     "subagent": {
@@ -12307,7 +12433,21 @@
         "timeout": "Tamat masa cadangan (s)",
         "timeoutDesc": "Berhenti pada cadangan yang mengambil masa lebih lama daripada ini.",
         "enabled": "Hidupkan mod sprite",
-        "enabledDesc": "Suis utama — boleh juga ditogol dari bahagian atas panel sembang."
+        "enabledDesc": "Suis utama — boleh juga ditogol dari bahagian atas panel sembang.",
+        "proactive": "Lebih proaktif",
+        "proactiveDesc": "Cenderung menawarkan satu baris daripada berdiam. Matikan untuk sprite yang lebih terkawal.",
+        "triggers": "Bila ia mencelah",
+        "trigger": {
+          "editIdle": "Selepas berhenti menyunting",
+          "noteOpen": "Apabila nota dibuka",
+          "conversation": "Selepas balasan sembang",
+          "periodic": "Berkala semasa menulis",
+          "paste": "Pada tampalan besar"
+        },
+        "periodic": "Selang berkala (s)",
+        "periodicDesc": "Berapa kerap ia boleh mencelah semasa menulis berterusan (pencetus \"berkala\").",
+        "pasteMin": "Saiz tampal (aksara)",
+        "pasteMinDesc": "Satu sisipan sebesar ini atau lebih dikira sebagai tampalan dan mencetus serta-merta."
       }
     },
     "subagent": {

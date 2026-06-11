@@ -13,7 +13,7 @@ pub mod config;
 pub mod context;
 pub mod types;
 
-pub use config::{SpriteConfig, SpriteSenses};
+pub use config::{SpriteConfig, SpriteSenses, SpriteTriggers};
 pub use types::{SpriteCategory, SpriteObserveParams, SpriteOutcome, SpriteSuggestion};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -223,6 +223,7 @@ fn parse_suggestion(raw: &str) -> Option<SpriteSuggestion> {
 pub async fn observe_and_maybe_speak(params: SpriteObserveParams) -> SpriteOutcome {
     let cfg = crate::config::cached_config().sprite.clamped();
     if !cfg.enabled {
+        crate::app_debug!("sprite", "observe", "skip: disabled");
         return SpriteOutcome::Skipped("disabled");
     }
 
@@ -256,12 +257,20 @@ pub async fn observe_and_maybe_speak(params: SpriteObserveParams) -> SpriteOutco
             0
         };
         if hour_count >= cfg.max_per_session_per_hour {
+            crate::app_debug!("sprite", "observe", "skip: hourly cap ({}) reached", hour_count);
             return SpriteOutcome::Skipped("rate");
         }
         if t.last_call_secs != 0 && now - t.last_call_secs < cfg.cooldown_secs as i64 {
+            crate::app_debug!(
+                "sprite",
+                "observe",
+                "skip: cooldown ({}s left)",
+                cfg.cooldown_secs as i64 - (now - t.last_call_secs)
+            );
             return SpriteOutcome::Skipped("cooldown");
         }
         if t.last_doc_hash != 0 && t.last_doc_hash == doc_hash {
+            crate::app_debug!("sprite", "observe", "skip: doc unchanged since last");
             return SpriteOutcome::Skipped("unchanged");
         }
     }
@@ -346,6 +355,7 @@ pub async fn observe_and_maybe_speak(params: SpriteObserveParams) -> SpriteOutco
     };
 
     let Some(suggestion) = parse_suggestion(&res.text) else {
+        crate::app_debug!("sprite", "observe", "silent: model returned none/empty");
         return SpriteOutcome::Silent;
     };
 
@@ -376,6 +386,8 @@ mod tests {
             min_change_chars: 5,
             cooldown_secs: 1,
             max_per_session_per_hour: 999,
+            periodic_secs: 1,
+            paste_min_chars: 1,
             max_tokens: 10,
             timeout_secs: 999,
             ..Default::default()
@@ -385,6 +397,8 @@ mod tests {
         assert_eq!(c.min_change_chars, 20);
         assert_eq!(c.cooldown_secs, 10);
         assert_eq!(c.max_per_session_per_hour, 60);
+        assert_eq!(c.periodic_secs, 15);
+        assert_eq!(c.paste_min_chars, 40);
         assert_eq!(c.max_tokens, 64);
         assert_eq!(c.timeout_secs, 60);
     }

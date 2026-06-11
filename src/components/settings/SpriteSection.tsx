@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
-import type { SpriteConfig, SpriteSenses } from "@/types/knowledge"
+import type { SpriteConfig, SpriteSenses, SpriteTriggers } from "@/types/knowledge"
 
 const SENSE_KEYS: Array<keyof SpriteSenses> = [
   "doc",
@@ -17,6 +17,14 @@ const SENSE_KEYS: Array<keyof SpriteSenses> = [
   "conversation",
   "memory",
   "awareness",
+]
+
+const TRIGGER_KEYS: Array<keyof SpriteTriggers> = [
+  "editIdle",
+  "noteOpen",
+  "conversation",
+  "periodic",
+  "paste",
 ]
 
 // Dirty-tracking excludes `enabled`: the master switch auto-persists on toggle
@@ -194,6 +202,41 @@ export default function SpriteSection() {
               </Row>
 
               <Row
+                label={t("settings.sprite.proactive", "More proactive")}
+                desc={t(
+                  "settings.sprite.proactiveDesc",
+                  "Lean toward offering a line rather than staying quiet. Turn off for a more restrained sprite.",
+                )}
+              >
+                <Switch
+                  checked={cfg.proactive}
+                  onCheckedChange={(v) => patch({ proactive: v })}
+                />
+              </Row>
+
+              <div>
+                <div className="mb-1.5 text-xs font-medium">
+                  {t("settings.sprite.triggers", "When it chimes in")}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {TRIGGER_KEYS.map((key) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border/50 px-2 py-1.5"
+                    >
+                      <span className="truncate text-[11px]">
+                        {t(`settings.sprite.trigger.${key}`, key)}
+                      </span>
+                      <Switch
+                        checked={cfg.triggers[key]}
+                        onCheckedChange={(v) => patch({ triggers: { ...cfg.triggers, [key]: v } })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <Row
                 label={t("settings.sprite.idleEdit", "Speak after editing pause (s)")}
                 desc={t("settings.sprite.idleEditDesc", "Seconds of editing inactivity before it may chime in.")}
               >
@@ -258,6 +301,44 @@ export default function SpriteSection() {
                     })
                   }
                   className="h-7 w-16 text-xs"
+                />
+              </Row>
+
+              <Row
+                label={t("settings.sprite.periodic", "Periodic interval (s)")}
+                desc={t(
+                  "settings.sprite.periodicDesc",
+                  "How often it may chime in during a continuous writing streak (the \"periodic\" trigger).",
+                )}
+              >
+                <Input
+                  type="number"
+                  min={15}
+                  max={600}
+                  value={cfg.periodicSecs}
+                  onChange={(e) =>
+                    patch({ periodicSecs: Math.min(600, Math.max(15, Number(e.target.value) || 120)) })
+                  }
+                  className="h-7 w-16 text-xs"
+                />
+              </Row>
+
+              <Row
+                label={t("settings.sprite.pasteMin", "Paste size (chars)")}
+                desc={t(
+                  "settings.sprite.pasteMinDesc",
+                  "A single insert at least this large counts as a paste and triggers immediately.",
+                )}
+              >
+                <Input
+                  type="number"
+                  min={40}
+                  max={4000}
+                  value={cfg.pasteMinChars}
+                  onChange={(e) =>
+                    patch({ pasteMinChars: Math.min(4000, Math.max(40, Number(e.target.value) || 180)) })
+                  }
+                  className="h-7 w-20 text-xs"
                 />
               </Row>
 
