@@ -410,6 +410,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Notifications --
   get_notification_config:         { method: "GET",    path: "/api/config/notification" },
   save_notification_config:        { method: "PUT",    path: "/api/config/notification" },
+  get_auto_update_config:          { method: "GET",    path: "/api/config/auto-update" },
+  set_auto_update_config:          { method: "PUT",    path: "/api/config/auto-update" },
   get_startup_notification_config: { method: "GET",    path: "/api/config/startup-notification" },
   save_startup_notification_config:{ method: "PUT",    path: "/api/config/startup-notification" },
 
@@ -644,6 +646,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_language:                    { method: "POST",   path: "/api/config/language" },
   get_ui_effects_enabled:          { method: "GET",    path: "/api/config/ui-effects" },
   set_ui_effects_enabled:          { method: "POST",   path: "/api/config/ui-effects" },
+  get_prevent_sleep_enabled:       { method: "GET",    path: "/api/config/prevent-sleep" },
+  set_prevent_sleep_enabled:       { method: "POST",   path: "/api/config/prevent-sleep" },
   get_sidebar_display_mode:        { method: "GET",    path: "/api/config/sidebar-display-mode" },
   set_sidebar_display_mode:        { method: "POST",   path: "/api/config/sidebar-display-mode" },
   get_tool_call_narration_enabled: { method: "GET",    path: "/api/config/tool-call-narration" },

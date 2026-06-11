@@ -130,8 +130,15 @@ export default function SessionList({
 
   return (
     <>
-      {/* Session type filter tabs */}
-      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 overflow-x-auto scrollbar-none">
+      {/* Session type filter tabs — sticky below the agent/project section
+          headers (each h-8 = 32px) when those are present, top-0 in search mode
+          where they're not rendered. */}
+      <div
+        className={cn(
+          "sticky z-20 flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 bg-surface-panel overflow-x-auto scrollbar-none",
+          isSearching ? "top-0" : "top-16",
+        )}
+      >
         {(["all", "session", "cron", "subagent"] as const).map((filter) => {
           const label = {
             all: t("chat.filterAll"),

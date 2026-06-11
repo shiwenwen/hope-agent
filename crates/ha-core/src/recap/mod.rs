@@ -9,6 +9,7 @@ pub mod aggregate;
 pub mod api;
 pub mod db;
 pub mod facets;
+mod i18n;
 pub mod renderer;
 pub mod report;
 pub mod sections;

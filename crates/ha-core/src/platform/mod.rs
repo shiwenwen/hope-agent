@@ -15,6 +15,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+pub(crate) mod keep_awake;
 pub(crate) mod service;
 pub(crate) mod system_permissions;
 #[cfg(unix)]

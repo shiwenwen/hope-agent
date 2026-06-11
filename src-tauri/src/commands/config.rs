@@ -172,6 +172,26 @@ pub async fn save_notification_config(
 }
 
 #[tauri::command]
+pub async fn get_auto_update_config() -> Result<ha_core::updater::AutoUpdateConfig, CmdError> {
+    let store = ha_core::config::cached_config();
+    Ok(store.auto_update.clone())
+}
+
+#[tauri::command]
+pub async fn set_auto_update_config(
+    config: ha_core::updater::AutoUpdateConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("auto_update", "settings-ui"), |store| {
+        store.auto_update = config;
+        // Clamp the interval to the supported range on write so the stored
+        // value matches what the loops actually use.
+        store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_startup_notification_config(
 ) -> Result<ha_core::config::StartupNotificationConfig, CmdError> {
     let store = ha_core::config::cached_config();
@@ -539,6 +559,23 @@ pub async fn get_ui_effects_enabled() -> Result<bool, CmdError> {
 pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("ui_effects", "settings-ui"), |store| {
         store.ui_effects_enabled = enabled;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_prevent_sleep_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.prevent_sleep)
+}
+
+#[tauri::command]
+pub async fn set_prevent_sleep_enabled(enabled: bool) -> Result<(), CmdError> {
+    // The OS sleep assertion is driven by the `config:changed` listener in
+    // ha-core (`spawn_keep_awake_listener`); this only persists the toggle.
+    ha_core::config::mutate_config(("prevent_sleep", "settings-ui"), |store| {
+        store.prevent_sleep = enabled;
         Ok(())
     })
     .map_err(Into::into)

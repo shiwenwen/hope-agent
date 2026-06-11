@@ -644,6 +644,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 |---|---|---|
 | `get_notification_config` | `GET /api/config/notification` | ✅ |
 | `save_notification_config` | `PUT /api/config/notification` | ✅ |
+| `get_auto_update_config` | `GET /api/config/auto-update` | ✅ |
+| `set_auto_update_config` | `PUT /api/config/auto-update` | ✅ |
 | `get_startup_notification_config` | `GET /api/config/startup-notification` | ✅ |
 | `save_startup_notification_config` | `PUT /api/config/startup-notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |
@@ -905,6 +907,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `set_language` | `POST /api/config/language` | ✅ |
 | `get_ui_effects_enabled` | `GET /api/config/ui-effects` | ✅ |
 | `set_ui_effects_enabled` | `POST /api/config/ui-effects` | ✅ |
+| `get_prevent_sleep_enabled` | `GET /api/config/prevent-sleep` | ✅ |
+| `set_prevent_sleep_enabled` | `POST /api/config/prevent-sleep` | ✅ |
 | `get_tool_call_narration_enabled` | `GET /api/config/tool-call-narration` | ✅ |
 | `set_tool_call_narration_enabled` | `POST /api/config/tool-call-narration` | ✅ |
 | `get_autostart_enabled` | `GET /api/config/autostart` | ✅ |

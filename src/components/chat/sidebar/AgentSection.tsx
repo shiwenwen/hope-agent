@@ -232,23 +232,19 @@ export default function AgentSection({
   }
 
   return (
-    <div
-      className={cn(
-        "border-b border-border/50 px-3 pb-1",
-        displayMode === "compact" ? "pt-2" : "pt-3",
-      )}
-    >
+    <div className="contents">
       <SidebarSectionHeader
         title={t("settings.agents")}
         count={agents.length}
         expanded={agentsExpanded}
         onToggle={() => setAgentsExpanded(!agentsExpanded)}
+        className="sticky top-0 z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3"
       />
       <AnimatedCollapse open={agentsExpanded} unmountOnExit={false}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={agents.map((agent) => agent.id)} strategy={rectSortingStrategy}>
             <div
-              className="grid gap-1 pb-2"
+              className="grid gap-1 px-3 pb-2 pt-1"
               style={{
                 gridTemplateColumns: `repeat(${agentColumnCount}, minmax(0, 1fr))`,
               }}

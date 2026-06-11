@@ -69,7 +69,7 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), CmdEr
         .ok_or_else(|| CmdError::msg("Failed to extract account ID from token"))?;
 
     // Ensure Codex provider exists in store
-    let default_model_id = "gpt-5.4".to_string();
+    let default_model_id = ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string();
     let model_for_agent = default_model_id.clone();
     provider::ensure_codex_provider_persisted(
         ActiveModelUpdate::Always(model_for_agent.clone()),
@@ -128,11 +128,13 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Cmd
 
             match account_id {
                 Some(id) => {
-                    // Ensure Codex provider exists and fall back to Codex
-                    // `gpt-5.4` only when no active_model is set. Respect any
+                    // Ensure Codex provider exists and fall back to the default
+                    // Codex model only when no active_model is set. Respect any
                     // already-chosen active model (including non-Codex).
                     provider::ensure_codex_provider_persisted(
-                        ActiveModelUpdate::IfMissing("gpt-5.4".to_string()),
+                        ActiveModelUpdate::IfMissing(
+                            ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string(),
+                        ),
                         "session-restore",
                     )?;
 
@@ -242,7 +244,7 @@ pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentS
         .active_model
         .as_ref()
         .map(|am| am.model_id.clone())
-        .unwrap_or_else(|| "gpt-5.4".to_string());
+        .unwrap_or_else(|| ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string());
     let effort = state.reasoning_effort.lock().await.clone();
     Ok(CurrentSettings {
         model,

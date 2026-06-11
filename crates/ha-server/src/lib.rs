@@ -794,6 +794,14 @@ fn build_router_with_cors(
             put(routes::config::save_notification_config),
         )
         .route(
+            "/config/auto-update",
+            get(routes::config::get_auto_update_config),
+        )
+        .route(
+            "/config/auto-update",
+            put(routes::config::set_auto_update_config),
+        )
+        .route(
             "/config/startup-notification",
             get(routes::config::get_startup_notification_config),
         )
@@ -1005,6 +1013,14 @@ fn build_router_with_cors(
         .route(
             "/config/ui-effects",
             post(routes::config::set_ui_effects_enabled),
+        )
+        .route(
+            "/config/prevent-sleep",
+            get(routes::config::get_prevent_sleep_enabled),
+        )
+        .route(
+            "/config/prevent-sleep",
+            post(routes::config::set_prevent_sleep_enabled),
         )
         .route(
             "/config/sidebar-display-mode",

@@ -254,6 +254,16 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
                 existing.models.push(m.clone());
             }
         }
+        // Reorder so the canonical default order (latest first, e.g. gpt-5.5)
+        // leads the picker. Older configs appended new models to the tail,
+        // burying the newest model at the bottom; this lifts the defaults to the
+        // front while keeping any non-default extras in their original order.
+        existing.models.sort_by_key(|m| {
+            defaults
+                .iter()
+                .position(|d| d.id == m.id)
+                .unwrap_or(usize::MAX)
+        });
         if !added.is_empty() {
             crate::app_info!(
                 "provider",

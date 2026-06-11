@@ -356,6 +356,27 @@ pub async fn save_notification_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Auto-update Config ──────────────────────────────────────────
+
+/// `GET /api/config/auto-update` -- get auto-update config.
+pub async fn get_auto_update_config() -> Result<Json<ha_core::updater::AutoUpdateConfig>, AppError>
+{
+    let store = ha_core::config::cached_config();
+    Ok(Json(store.auto_update.clone()))
+}
+
+/// `PUT /api/config/auto-update` -- save auto-update config (interval clamped).
+pub async fn set_auto_update_config(
+    Json(body): Json<ConfigBody<ha_core::updater::AutoUpdateConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("auto_update", "http"), |store| {
+        store.auto_update = body.config;
+        store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Startup Notification Config ─────────────────────────────────
 
 /// `GET /api/config/startup-notification` -- get IM startup-notification config.
@@ -1003,6 +1024,27 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
         .unwrap_or(true);
     ha_core::config::mutate_config(("ui_effects", "http"), |store| {
         store.ui_effects_enabled = enabled;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/prevent-sleep` -- get the host sleep-prevention toggle.
+pub async fn get_prevent_sleep_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.prevent_sleep)))
+}
+
+/// `POST /api/config/prevent-sleep` -- set the host sleep-prevention toggle.
+/// The OS assertion is driven by ha-core's `config:changed` listener; this only
+/// persists the flag.
+pub async fn set_prevent_sleep_enabled(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config(("prevent_sleep", "http"), |store| {
+        store.prevent_sleep = enabled;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))

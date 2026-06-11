@@ -24,7 +24,8 @@ mod types;
 // Re-export public API
 pub use config::{
     build_api_url, get_codex_models, is_complete_endpoint_url, is_valid_codex_model,
-    is_valid_reasoning_effort, live_reasoning_effort, USER_AGENT, VALID_REASONING_EFFORTS,
+    is_valid_reasoning_effort, live_reasoning_effort, DEFAULT_CODEX_MODEL_ID, USER_AGENT,
+    VALID_REASONING_EFFORTS,
 };
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub(crate) use context::build_compaction_provider;

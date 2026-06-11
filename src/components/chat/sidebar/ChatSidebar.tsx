@@ -535,9 +535,22 @@ export default function ChatSidebar({
                 sessionListNode
               ) : (
                 <>
-                  {/* Projects section — shown above agents so users reach their
-                      active workspace first. Falls back silently when no handler
-                      is wired (backwards-compat). */}
+                  {/* Collapsible Agents section */}
+                  <AgentSection
+                    agents={agents}
+                    agentsExpanded={agentsExpanded}
+                    setAgentsExpanded={setAgentsExpanded}
+                    selectedAgentId={selectedAgentId}
+                    toggleAgentFilter={toggleAgentFilter}
+                    onNewChat={onNewChat}
+                    onEditAgent={onEditAgent}
+                    onReorderAgents={onReorderAgents}
+                    panelWidth={panelWidth}
+                    displayMode={sidebarDisplayMode}
+                  />
+
+                  {/* Projects section — shown below agents. Falls back silently
+                      when no handler is wired (backwards-compat). */}
                   {(projects.length > 0 || onAddProject) && (
                     <ProjectSection
                       projects={projects}
@@ -568,20 +581,6 @@ export default function ChatSidebar({
                       displayMode={sidebarDisplayMode}
                     />
                   )}
-
-                  {/* Collapsible Agents section */}
-                  <AgentSection
-                    agents={agents}
-                    agentsExpanded={agentsExpanded}
-                    setAgentsExpanded={setAgentsExpanded}
-                    selectedAgentId={selectedAgentId}
-                    toggleAgentFilter={toggleAgentFilter}
-                    onNewChat={onNewChat}
-                    onEditAgent={onEditAgent}
-                    onReorderAgents={onReorderAgents}
-                    panelWidth={panelWidth}
-                    displayMode={sidebarDisplayMode}
-                  />
 
                   {/* Session filter tabs + session list */}
                   {sessionListNode}

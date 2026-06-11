@@ -331,6 +331,8 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **UpdaterBridge trait** ([`updater::UpdaterBridge`](crates/ha-core/src/updater/mod.rs)) 由 src-tauri 在 `setup.rs` 注册 (`crate::commands::update_bridge::register`)；ha-core 通过 `OnceLock` 反向调用，**严禁** ha-core 直接依赖 tauri-plugin-updater
 - **Bare-binary release artifact**：`.github/workflows/release.yml` 每平台 build 后跑 `Bundle + sign bare binary` step，用同一 Minisign 私钥签 `tar.gz` (Unix) / `zip` (Windows)；`patch-manifest` job (`needs: build`) 合并 `bare_binary.platforms.<key>` 写回 `latest.json`
 - **Binary swap 必须走 [`platform::atomic_replace_binary`](crates/ha-core/src/platform/mod.rs)**——Unix `rename(2)` 不影响在跑进程，Windows `MoveFileExW` 把 in-use binary rename-aside；**禁止 `fs::write` 直接覆盖运行中 binary**
+- **自动更新统一配置 `AppConfig.auto_update`**（[`updater::AutoUpdateConfig`](crates/ha-core/src/updater/config.rs)，`ha-settings` 归 **HIGH**）：桌面（JS plugin-updater）与 headless（[`updater::auto_check`](crates/ha-core/src/updater/auto_check.rs) primary-gated loop，`!is_desktop()` 才起）共享同一份开关。后台只做**检查 + 静默预下载 + 校验**到 staging，**绝不自行 swap/restart**——安装仍走 `app_update install`（headless 用户审批）或桌面「更新并重启 / 仅更新」二选一，**桌面绝不无条件自动 relaunch**。命令 `get/set_auto_update_config`（Tauri + HTTP `/api/config/auto-update`）
+- **下载健壮性红线**：自升级下载走 [`download::download_to`](crates/ha-core/src/updater/download.rs)（重试 + `Range` 断点续传）；`self_contained::install` swap 后**先 `--version` 冷烟自检、失败自动 `backup::most_recent()` 回滚**再重启；staging 经 [`staging::prune`](crates/ha-core/src/updater/staging.rs) GC，backup 树不被触及
 
 ## 编码规范
 
@@ -393,7 +395,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 - **LOW**：UI 偏好、显示配额（theme / language / notification / canvas 等）
 - **MEDIUM**：行为调整，影响上下文 / 成本 / 输出质量（compact / memory_* / web_search / approval / multimodal / dreaming 等）
-- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / embedding / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` 等）——技能在 `update_settings` 前**必须二次确认**
+- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / embedding / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` / `auto_update` 等）——技能在 `update_settings` 前**必须二次确认**
 
 ### 强制留 GUI 的例外（read-only via skill）
 

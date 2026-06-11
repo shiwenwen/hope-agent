@@ -212,9 +212,25 @@ fn codex_noop_provider_id(active: &ActiveModelUpdate) -> Option<String> {
 }
 
 fn codex_provider_needs_backfill(provider: &ProviderConfig) -> bool {
-    default_codex_model_ids()
+    let defaults = default_codex_model_ids();
+    // Missing any default model → needs backfill.
+    if defaults
         .iter()
         .any(|id| !provider.models.iter().any(|m| &m.id == id))
+    {
+        return true;
+    }
+    // All defaults present but not in canonical order → needs reorder. Older
+    // configs appended newly-added defaults (e.g. gpt-5.5) to the tail; without
+    // this the noop short-circuit skips ensure_codex_provider and the newest
+    // model stays buried at the bottom of the picker forever.
+    let current: Vec<&str> = provider
+        .models
+        .iter()
+        .map(|m| m.id.as_str())
+        .filter(|id| defaults.contains(id))
+        .collect();
+    current.as_slice() != defaults
 }
 
 fn default_codex_model_ids() -> &'static [&'static str] {

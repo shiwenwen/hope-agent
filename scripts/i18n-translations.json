@@ -654,7 +654,12 @@
         "mmrLambdaDesc": "関連性 vs 多様性。1.0=純粋に関連（ほぼ同じノートが並ぶことも）、低いほど多様。0.7 は関連を保ちつつ重複を抑える。",
         "candidateMultiplier": "候補プール（×件数）",
         "candidateMultiplierDesc": "多様性並べ替え前に集める候補数（要求件数の倍数）。大きいほど多様性/再現率↑（わずかに遅い）、小さいほど速い。"
-      }
+      },
+      "recapLanguage": "レポートの言語",
+      "recapLanguageDesc": "AI が生成するレポートのセクションとタイトルの言語。デフォルトではインターフェース言語に従います。",
+      "recapLanguageFollow": "インターフェース言語に従う",
+      "systemPreventSleep": "スリープを防止",
+      "systemPreventSleepDesc": "長時間タスク・ダウンロード・バックグラウンド処理がシステムのスリープで中断されないよう、コンピューターを起動状態に保ちます。ディスプレイは通常どおりオフになります。"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -996,7 +1001,18 @@
       "featureReachDesc": "ローカルのデスクトップアプリとして使うことも、常駐サービスとして動かすことも、チャネルや定期ルーチンに組み込むこともできます。",
       "releases": "リリース",
       "feedback": "フィードバックと課題",
-      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。"
+      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。",
+      "updateAndRestart": "更新して再起動",
+      "updateOnly": "更新のみ",
+      "updateAwaitingRestart": "インストール済み — 再起動で適用",
+      "restartNow": "今すぐ再起動",
+      "autoUpdateTitle": "自動更新",
+      "autoUpdateDesc": "バックグラウンドで新しいバージョンを確認し、必要に応じて事前にダウンロードしてインストールを即座に行います。",
+      "autoUpdateCheck": "自動的に更新を確認",
+      "autoUpdateInterval": "確認間隔（時間）",
+      "autoUpdateDownload": "バックグラウンドで更新をダウンロード",
+      "autoUpdateNotify": "更新があれば通知する",
+      "updateHistoryViewOnGitHub": "GitHub で見る"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -1983,7 +1999,12 @@
         "mmrLambdaDesc": "관련성 대 다양성. 1.0=순수 관련성(거의 같은 노트가 여러 개 나올 수 있음), 낮을수록 다양. 0.7은 관련성을 유지하면서 중복을 줄임.",
         "candidateMultiplier": "후보 풀(×개수)",
         "candidateMultiplierDesc": "다양성 재정렬 전에 모을 후보 수(요청 결과 수의 배수). 클수록 다양성/재현율↑(약간 느림), 작을수록 빠름."
-      }
+      },
+      "recapLanguage": "리포트 언어",
+      "recapLanguageDesc": "AI가 생성하는 리포트 섹션과 제목의 언어입니다. 기본적으로 인터페이스 언어를 따릅니다.",
+      "recapLanguageFollow": "인터페이스 언어 따르기",
+      "systemPreventSleep": "절전 모드 방지",
+      "systemPreventSleepDesc": "장시간 작업, 다운로드, 백그라운드 활동이 시스템 절전으로 중단되지 않도록 컴퓨터를 깨어 있게 유지합니다. 디스플레이는 정상적으로 꺼질 수 있습니다."
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -2325,7 +2346,18 @@
       "featureReachDesc": "로컬 데스크톱 앱으로 쓰거나, 서비스처럼 계속 실행하거나, 채널과 예약된 루틴에 연결할 수 있습니다.",
       "releases": "릴리스",
       "feedback": "피드백 및 이슈",
-      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
+      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다.",
+      "updateAndRestart": "업데이트 후 재시작",
+      "updateOnly": "업데이트만",
+      "updateAwaitingRestart": "설치됨 — 재시작하면 적용",
+      "restartNow": "지금 재시작",
+      "autoUpdateTitle": "자동 업데이트",
+      "autoUpdateDesc": "백그라운드에서 새 버전을 확인하고 선택적으로 미리 다운로드하여 즉시 설치할 수 있습니다.",
+      "autoUpdateCheck": "자동으로 업데이트 확인",
+      "autoUpdateInterval": "확인 주기(시간)",
+      "autoUpdateDownload": "백그라운드에서 업데이트 다운로드",
+      "autoUpdateNotify": "업데이트가 있으면 알림",
+      "updateHistoryViewOnGitHub": "GitHub에서 보기"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -3312,7 +3344,12 @@
         "mmrLambdaDesc": "相關性 vs 多樣性。1.0 = 純相關（可能回傳多篇雷同筆記）；越低越混入更多樣的結果。0.7 在保持相關的同時去重。",
         "candidateMultiplier": "候選池（×回傳數）",
         "candidateMultiplierDesc": "多樣性重排前收集多少候選，按請求結果數的倍數。越大多樣性/召回越好但稍慢；越小越快。"
-      }
+      },
+      "recapLanguage": "回顧語言",
+      "recapLanguageDesc": "AI 生成的回顧章節與標題使用的語言，預設跟隨介面語言。",
+      "recapLanguageFollow": "跟隨介面語言",
+      "systemPreventSleep": "阻止電腦休眠",
+      "systemPreventSleepDesc": "保持電腦喚醒，避免長時間任務、下載與背景活動被系統休眠打斷；螢幕仍可正常熄滅。"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -3654,7 +3691,18 @@
       "featureReachDesc": "可以是本地桌面應用，也可以常駐為服務，接入聊天渠道和定時任務。",
       "releases": "發行版本",
       "feedback": "回饋與問題",
-      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。"
+      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。",
+      "updateAndRestart": "更新並重新啟動",
+      "updateOnly": "僅更新",
+      "updateAwaitingRestart": "已安裝，重新啟動後生效",
+      "restartNow": "立即重新啟動",
+      "autoUpdateTitle": "自動更新",
+      "autoUpdateDesc": "在背景檢查新版本，並可選擇提前下載，讓安裝瞬間完成。",
+      "autoUpdateCheck": "自動檢查更新",
+      "autoUpdateInterval": "檢查間隔（小時）",
+      "autoUpdateDownload": "在背景下載更新",
+      "autoUpdateNotify": "有可用更新時通知我",
+      "updateHistoryViewOnGitHub": "在 GitHub 檢視"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -4624,7 +4672,12 @@
         "mmrLambdaDesc": "Alaka vs. çeşitlilik. 1.0 = saf alaka (neredeyse aynı notlar gelebilir); düşük değer daha çeşitli sonuçlar katar. 0.7 alakayı korurken tekrarları azaltır.",
         "candidateMultiplier": "Aday havuzu (×sonuç)",
         "candidateMultiplierDesc": "Çeşitlilik için yeniden sıralamadan önce toplanacak aday sayısı (istenen sonuç sayısının katı). Yüksek = daha iyi çeşitlilik/geri çağırma (biraz yavaş); düşük = daha hızlı."
-      }
+      },
+      "recapLanguage": "Rapor dili",
+      "recapLanguageDesc": "Yapay zeka tarafından oluşturulan rapor bölümleri ve başlıkları için dil. Varsayılan olarak arayüz dilini izler.",
+      "recapLanguageFollow": "Arayüz dilini izle",
+      "systemPreventSleep": "Uykuyu engelle",
+      "systemPreventSleepDesc": "Uzun süren görevlerin, indirmelerin ve arka plan etkinliğinin sistem uykusuyla kesilmemesi için bilgisayarınızı uyanık tutun. Ekran yine de kapanabilir."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -4966,7 +5019,18 @@
       "featureReachDesc": "Yerel masaüstü uygulaması olarak kullanın, hizmet olarak sürekli çalıştırın ya da kanallara ve zamanlanmış rutinlere bağlayın.",
       "releases": "Sürümler",
       "feedback": "Geri bildirim ve sorunlar",
-      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
+      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı.",
+      "updateAndRestart": "Güncelle ve yeniden başlat",
+      "updateOnly": "Yalnızca güncelle",
+      "updateAwaitingRestart": "Kuruldu — uygulamak için yeniden başlatın",
+      "restartNow": "Şimdi yeniden başlat",
+      "autoUpdateTitle": "Otomatik güncelleme",
+      "autoUpdateDesc": "Yeni sürümleri arka planda denetler ve isteğe bağlı olarak önceden indirerek kurulumu anında yapar.",
+      "autoUpdateCheck": "Güncellemeleri otomatik denetle",
+      "autoUpdateInterval": "Denetim aralığı (saat)",
+      "autoUpdateDownload": "Güncellemeleri arka planda indir",
+      "autoUpdateNotify": "Güncelleme olduğunda bana bildir",
+      "updateHistoryViewOnGitHub": "GitHub'da görüntüle"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -5953,7 +6017,12 @@
         "mmrLambdaDesc": "Liên quan vs. đa dạng. 1.0 = thuần liên quan (có thể trả nhiều ghi chú gần giống); thấp hơn pha thêm kết quả đa dạng. 0.7 giữ liên quan mà giảm trùng lặp.",
         "candidateMultiplier": "Nhóm ứng viên (×số kết quả)",
         "candidateMultiplierDesc": "Số ứng viên thu thập trước khi xếp lại theo đa dạng, theo bội số của số kết quả yêu cầu. Cao = đa dạng/độ phủ tốt hơn (hơi chậm); thấp = nhanh hơn."
-      }
+      },
+      "recapLanguage": "Ngôn ngữ báo cáo",
+      "recapLanguageDesc": "Ngôn ngữ cho các phần và tiêu đề báo cáo do AI tạo. Mặc định theo ngôn ngữ giao diện.",
+      "recapLanguageFollow": "Theo ngôn ngữ giao diện",
+      "systemPreventSleep": "Ngăn chế độ ngủ",
+      "systemPreventSleepDesc": "Giữ cho máy tính luôn hoạt động để các tác vụ dài, tải xuống và hoạt động nền không bị gián đoạn do hệ thống ngủ. Màn hình vẫn có thể tắt."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -6295,7 +6364,18 @@
       "featureReachDesc": "Dùng như ứng dụng desktop cục bộ, giữ chạy như một dịch vụ, hoặc kết nối vào các kênh và lịch trình định kỳ.",
       "releases": "Bản phát hành",
       "feedback": "Phản hồi và lỗi",
-      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
+      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài.",
+      "updateAndRestart": "Cập nhật và khởi động lại",
+      "updateOnly": "Chỉ cập nhật",
+      "updateAwaitingRestart": "Đã cài đặt — khởi động lại để áp dụng",
+      "restartNow": "Khởi động lại ngay",
+      "autoUpdateTitle": "Tự động cập nhật",
+      "autoUpdateDesc": "Kiểm tra phiên bản mới trong nền và tùy chọn tải trước để cài đặt tức thì.",
+      "autoUpdateCheck": "Tự động kiểm tra cập nhật",
+      "autoUpdateInterval": "Khoảng thời gian kiểm tra (giờ)",
+      "autoUpdateDownload": "Tải cập nhật trong nền",
+      "autoUpdateNotify": "Thông báo khi có bản cập nhật",
+      "updateHistoryViewOnGitHub": "Xem trên GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -7282,7 +7362,12 @@
         "mmrLambdaDesc": "Relevância vs. variedade. 1.0 = pura relevância (pode trazer várias notas quase iguais); valores menores misturam resultados mais variados. 0.7 mantém relevância reduzindo duplicatas.",
         "candidateMultiplier": "Pool de candidatos (×limite)",
         "candidateMultiplierDesc": "Quantos candidatos reunir antes da reordenação por diversidade, como múltiplo da quantidade de resultados pedida. Maior = melhor diversidade/recall (custo pequeno); menor = mais rápido."
-      }
+      },
+      "recapLanguage": "Idioma do relatório",
+      "recapLanguageDesc": "Idioma das seções e títulos do relatório gerados por IA. Segue o idioma da interface por padrão.",
+      "recapLanguageFollow": "Seguir o idioma da interface",
+      "systemPreventSleep": "Impedir suspensão",
+      "systemPreventSleepDesc": "Mantenha o computador ativo para que tarefas demoradas, downloads e atividades em segundo plano não sejam interrompidos pela suspensão do sistema. A tela ainda pode desligar."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -7624,7 +7709,18 @@
       "featureReachDesc": "Use como app local de desktop, mantenha rodando como serviço ou conecte a canais e rotinas agendadas.",
       "releases": "Lançamentos",
       "feedback": "Feedback e problemas",
-      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo."
+      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo.",
+      "updateAndRestart": "Atualizar e reiniciar",
+      "updateOnly": "Apenas atualizar",
+      "updateAwaitingRestart": "Instalado — reinicie para aplicar",
+      "restartNow": "Reiniciar agora",
+      "autoUpdateTitle": "Atualização automática",
+      "autoUpdateDesc": "Verifica novas versões em segundo plano e, opcionalmente, baixa com antecedência para uma instalação instantânea.",
+      "autoUpdateCheck": "Verificar atualizações automaticamente",
+      "autoUpdateInterval": "Intervalo de verificação (horas)",
+      "autoUpdateDownload": "Baixar atualizações em segundo plano",
+      "autoUpdateNotify": "Notificar-me sobre atualizações disponíveis",
+      "updateHistoryViewOnGitHub": "Ver no GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -8611,7 +8707,12 @@
         "mmrLambdaDesc": "Релевантность против разнообразия. 1.0 = чистая релевантность (может вернуть несколько почти одинаковых заметок); ниже — больше разнообразия. 0.7 сохраняет релевантность, убирая дубликаты.",
         "candidateMultiplier": "Пул кандидатов (×лимит)",
         "candidateMultiplierDesc": "Сколько кандидатов собрать перед переупорядочиванием по разнообразию, кратно запрошенному числу результатов. Больше = лучше разнообразие/полнота (небольшая цена); меньше = быстрее."
-      }
+      },
+      "recapLanguage": "Язык отчёта",
+      "recapLanguageDesc": "Язык разделов и заголовков отчёта, создаваемых ИИ. По умолчанию следует языку интерфейса.",
+      "recapLanguageFollow": "Следовать языку интерфейса",
+      "systemPreventSleep": "Запретить спящий режим",
+      "systemPreventSleepDesc": "Не давайте компьютеру засыпать, чтобы длительные задачи, загрузки и фоновая активность не прерывались переходом системы в спящий режим. Экран при этом может отключаться."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -8953,7 +9054,18 @@
       "featureReachDesc": "Используйте его как локальное настольное приложение, держите как сервис или подключайте к каналам и расписаниям.",
       "releases": "Релизы",
       "feedback": "Отзывы и проблемы",
-      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании."
+      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании.",
+      "updateAndRestart": "Обновить и перезапустить",
+      "updateOnly": "Только обновить",
+      "updateAwaitingRestart": "Установлено — перезапустите для применения",
+      "restartNow": "Перезапустить сейчас",
+      "autoUpdateTitle": "Автообновление",
+      "autoUpdateDesc": "Проверяет новые версии в фоне и при необходимости заранее загружает их для мгновенной установки.",
+      "autoUpdateCheck": "Автоматически проверять обновления",
+      "autoUpdateInterval": "Интервал проверки (часы)",
+      "autoUpdateDownload": "Загружать обновления в фоне",
+      "autoUpdateNotify": "Уведомлять о доступных обновлениях",
+      "updateHistoryViewOnGitHub": "Открыть на GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -9940,7 +10052,12 @@
         "mmrLambdaDesc": "الصلة مقابل التنوّع. 1.0 = صلة خالصة (قد تُعيد عدة ملاحظات شبه متطابقة)؛ الأقل يمزج نتائج أكثر تنوّعًا. 0.7 يحافظ على الصلة مع تقليل التكرار.",
         "candidateMultiplier": "تجمّع المرشحين (×العدد)",
         "candidateMultiplierDesc": "عدد المرشحين المجمَّعين قبل إعادة الترتيب للتنوّع، كمضاعف لعدد النتائج المطلوب. أكبر = تنوّع/استرجاع أفضل (تكلفة بسيطة)؛ أصغر = أسرع."
-      }
+      },
+      "recapLanguage": "لغة التقرير",
+      "recapLanguageDesc": "لغة أقسام التقرير وعناوينه التي ينشئها الذكاء الاصطناعي. تتبع لغة الواجهة افتراضيًا.",
+      "recapLanguageFollow": "اتباع لغة الواجهة",
+      "systemPreventSleep": "منع السكون",
+      "systemPreventSleepDesc": "أبقِ الحاسوب مستيقظًا حتى لا تنقطع المهام الطويلة والتنزيلات والنشاط في الخلفية بسبب سكون النظام. يمكن أن تنطفئ الشاشة كالمعتاد."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -10282,7 +10399,18 @@
       "featureReachDesc": "استخدمه كتطبيق مكتبي محلي، أو أبقه يعمل كخدمة، أو وصله بالقنوات والمهام المجدولة.",
       "releases": "الإصدارات",
       "feedback": "الملاحظات والمشكلات",
-      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل."
+      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل.",
+      "updateAndRestart": "تحديث وإعادة تشغيل",
+      "updateOnly": "تحديث فقط",
+      "updateAwaitingRestart": "تم التثبيت — أعد التشغيل للتطبيق",
+      "restartNow": "أعد التشغيل الآن",
+      "autoUpdateTitle": "التحديث التلقائي",
+      "autoUpdateDesc": "يتحقق من الإصدارات الجديدة في الخلفية وينزّلها مسبقًا اختياريًا ليكون التثبيت فوريًا.",
+      "autoUpdateCheck": "التحقق من التحديثات تلقائيًا",
+      "autoUpdateInterval": "فترة التحقق (بالساعات)",
+      "autoUpdateDownload": "تنزيل التحديثات في الخلفية",
+      "autoUpdateNotify": "إعلامي بالتحديثات المتاحة",
+      "updateHistoryViewOnGitHub": "العرض على GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -11269,7 +11397,12 @@
         "mmrLambdaDesc": "Relevancia vs. variedad. 1.0 = relevancia pura (puede devolver varias notas casi idénticas); valores menores mezclan resultados más variados. 0.7 mantiene la relevancia reduciendo duplicados.",
         "candidateMultiplier": "Grupo de candidatos (×límite)",
         "candidateMultiplierDesc": "Cuántos candidatos reunir antes de reordenar por diversidad, como múltiplo del número de resultados pedido. Mayor = mejor diversidad/recuperación (coste pequeño); menor = más rápido."
-      }
+      },
+      "recapLanguage": "Idioma del informe",
+      "recapLanguageDesc": "Idioma de las secciones y títulos del informe generados por IA. Sigue el idioma de la interfaz de forma predeterminada.",
+      "recapLanguageFollow": "Seguir el idioma de la interfaz",
+      "systemPreventSleep": "Evitar suspensión",
+      "systemPreventSleepDesc": "Mantén el ordenador despierto para que las tareas largas, las descargas y la actividad en segundo plano no se interrumpan por la suspensión del sistema. La pantalla puede apagarse igualmente."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -11611,7 +11744,18 @@
       "featureReachDesc": "Úsalo como app local de escritorio, mantenlo como servicio o intégralo en canales y rutinas programadas.",
       "releases": "Lanzamientos",
       "feedback": "Comentarios y problemas",
-      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
+      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo.",
+      "updateAndRestart": "Actualizar y reiniciar",
+      "updateOnly": "Solo actualizar",
+      "updateAwaitingRestart": "Instalado: reinicia para aplicar",
+      "restartNow": "Reiniciar ahora",
+      "autoUpdateTitle": "Actualización automática",
+      "autoUpdateDesc": "Busca nuevas versiones en segundo plano y, opcionalmente, las descarga con antelación para una instalación instantánea.",
+      "autoUpdateCheck": "Buscar actualizaciones automáticamente",
+      "autoUpdateInterval": "Intervalo de comprobación (horas)",
+      "autoUpdateDownload": "Descargar actualizaciones en segundo plano",
+      "autoUpdateNotify": "Avisarme de las actualizaciones disponibles",
+      "updateHistoryViewOnGitHub": "Ver en GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -12598,7 +12742,12 @@
         "mmrLambdaDesc": "Kerelevanan lwn. kepelbagaian. 1.0 = kerelevanan tulen (mungkin pulangkan beberapa nota hampir serupa); lebih rendah campurkan hasil lebih pelbagai. 0.7 mengekalkan relevan sambil mengurangkan pendua.",
         "candidateMultiplier": "Kolam calon (×had)",
         "candidateMultiplierDesc": "Berapa calon dikumpul sebelum penyusunan semula kepelbagaian, sebagai gandaan bilangan hasil yang diminta. Tinggi = kepelbagaian/dapatan semula lebih baik (kos kecil); rendah = lebih pantas."
-      }
+      },
+      "recapLanguage": "Bahasa laporan",
+      "recapLanguageDesc": "Bahasa untuk bahagian dan tajuk laporan yang dijana AI. Mengikut bahasa antara muka secara lalai.",
+      "recapLanguageFollow": "Ikut bahasa antara muka",
+      "systemPreventSleep": "Halang tidur",
+      "systemPreventSleepDesc": "Pastikan komputer anda kekal aktif supaya tugas panjang, muat turun dan aktiviti latar belakang tidak terganggu oleh tidur sistem. Paparan masih boleh dimatikan."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -12940,7 +13089,18 @@
       "featureReachDesc": "Gunakannya sebagai aplikasi desktop tempatan, kekalkan ia berjalan sebagai perkhidmatan, atau sambungkan ke saluran dan rutin berjadual.",
       "releases": "Keluaran",
       "feedback": "Maklum balas dan isu",
-      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
+      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang.",
+      "updateAndRestart": "Kemas kini & mula semula",
+      "updateOnly": "Kemas kini sahaja",
+      "updateAwaitingRestart": "Dipasang — mula semula untuk digunakan",
+      "restartNow": "Mula semula sekarang",
+      "autoUpdateTitle": "Kemas kini automatik",
+      "autoUpdateDesc": "Semak versi baharu di latar belakang dan secara pilihan muat turun lebih awal supaya pemasangan serta-merta.",
+      "autoUpdateCheck": "Semak kemas kini secara automatik",
+      "autoUpdateInterval": "Selang semakan (jam)",
+      "autoUpdateDownload": "Muat turun kemas kini di latar belakang",
+      "autoUpdateNotify": "Beritahu saya tentang kemas kini yang tersedia",
+      "updateHistoryViewOnGitHub": "Lihat di GitHub"
     },
     "onboarding": {
       "importOpenClaw": {
@@ -13374,7 +13534,12 @@
         "narrativeModelDesc": "覆盖打分用的模型。留空则跟随主对话 / recap 模型链。",
         "narrativeModelDefault": "跟随主对话 Agent",
         "narrativeModelClear": "清空"
-      }
+      },
+      "recapLanguage": "复盘语言",
+      "recapLanguageDesc": "AI 生成的复盘章节与标题使用的语言，默认跟随界面语言。",
+      "recapLanguageFollow": "跟随界面语言",
+      "systemPreventSleep": "阻止电脑休眠",
+      "systemPreventSleepDesc": "保持电脑唤醒，避免长时间任务、下载与后台活动被系统休眠打断；屏幕仍可正常熄灭。"
     },
     "chat": {
       "handover": {
@@ -13469,7 +13634,20 @@
     },
     "common": {
       "create": "创建",
-      "clear": "清除"
+      "clear": "清除",
+      "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。"
+    },
+    "about": {
+      "updateAndRestart": "更新并重启",
+      "updateOnly": "仅更新",
+      "updateAwaitingRestart": "已安装，重启后生效",
+      "restartNow": "现在重启",
+      "autoUpdateTitle": "自动更新",
+      "autoUpdateDesc": "在后台检查新版本，并可选择提前下载，让安装瞬间完成。",
+      "autoUpdateCheck": "自动检查更新",
+      "autoUpdateInterval": "检查间隔（小时）",
+      "autoUpdateDownload": "在后台下载更新",
+      "autoUpdateNotify": "有可用更新时通知我"
     }
   }
 }

@@ -8,20 +8,25 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select"
 import {
   AgentSelectDisplay,
   INHERIT_AGENT_SENTINEL,
   InheritAgentSelectDisplay,
 } from "@/components/common/AgentSelectDisplay"
+import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
 interface RecapConfig {
   analysisAgent?: string | null
+  language?: string | null
   defaultRangeDays: number
   maxSessionsPerReport: number
   facetConcurrency: number
   cacheRetentionDays: number
 }
+
+const FOLLOW_LANGUAGE_SENTINEL = "__follow__"
 
 interface AgentItem {
   id: string
@@ -32,6 +37,7 @@ interface AgentItem {
 
 const DEFAULT_CONFIG: RecapConfig = {
   analysisAgent: null,
+  language: null,
   defaultRangeDays: 30,
   maxSessionsPerReport: 500,
   facetConcurrency: 4,
@@ -119,6 +125,15 @@ export default function RecapSettingsPanel() {
     commitIfChanged(next)
   }
 
+  const handleLanguageChange = (value: string) => {
+    const next: RecapConfig = {
+      ...config,
+      language: value === FOLLOW_LANGUAGE_SENTINEL ? null : value,
+    }
+    setConfig(next)
+    commitIfChanged(next)
+  }
+
   if (!loaded) return null
   const selectedAgentId = config.analysisAgent?.trim() || null
   const selectedAgent = selectedAgentId
@@ -170,6 +185,33 @@ export default function RecapSettingsPanel() {
               {agents.map((agent) => (
                 <SelectItem key={agent.id} value={agent.id} textValue={agent.name}>
                   <AgentSelectDisplay agent={agent} />
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-3 px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-0.5 sm:pr-4">
+            <div className="text-sm font-medium">{t("settings.recapLanguage")}</div>
+            <div className="text-xs text-muted-foreground">
+              {t("settings.recapLanguageDesc")}
+            </div>
+          </div>
+          <Select
+            value={config.language?.trim() || FOLLOW_LANGUAGE_SENTINEL}
+            onValueChange={handleLanguageChange}
+          >
+            <SelectTrigger className="h-8 w-full text-sm sm:w-72">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FOLLOW_LANGUAGE_SENTINEL}>
+                {t("settings.recapLanguageFollow")}
+              </SelectItem>
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <SelectItem key={lang.code} value={lang.code}>
+                  {lang.label}
                 </SelectItem>
               ))}
             </SelectContent>

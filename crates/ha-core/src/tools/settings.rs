@@ -45,6 +45,7 @@ fn risk_level(category: &str) -> &'static str {
         | "theme"
         | "language"
         | "ui_effects"
+        | "prevent_sleep"
         | "sidebar_ui"
         | "notification"
         | "startup_notification"
@@ -95,7 +96,8 @@ fn risk_level(category: &str) -> &'static str {
         | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem"
         // Autonomous maintenance can write to the user's notes (auto_approve =
         // approval policy) — treat as HIGH so the skill confirms before changes.
-        | "knowledge_maintenance" => "high",
+        | "knowledge_maintenance"
+        | "auto_update" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         // `channels` and `mcp_servers` are categorized "low" for read because
@@ -117,6 +119,13 @@ fn risk_level(category: &str) -> &'static str {
 /// Human-readable note about side effects (e.g. "requires app restart").
 fn side_effect_note(category: &str) -> Option<&'static str> {
     match category {
+        "auto_update" => Some(
+            "Controls background update checks + silent pre-download for BOTH desktop and headless. \
+             Enabling checkEnabled reaches out to the release server on a timer; autoDownload \
+             pre-fetches + verifies the new binary; the actual install / restart always stays \
+             behind the user-confirmed `app_update install` (headless) or the GUI restart choice \
+             (desktop). checkIntervalHours is clamped to [1, 168]."
+        ),
         "server" => Some("Changes take effect on next app restart."),
         "shortcuts" => Some("Global shortcut re-registration happens immediately; conflicts may silently fail."),
         "embedding" => {
@@ -420,6 +429,7 @@ fn read_category(category: &str) -> Result<Value> {
         "language" => Ok(json!({ "language": cfg.language })),
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
+        "prevent_sleep" => Ok(json!({ "preventSleep": cfg.prevent_sleep })),
         "sidebar_ui" => Ok(json!({
             "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode)
         })),
@@ -436,6 +446,7 @@ fn read_category(category: &str) -> Result<Value> {
         "session_title" => Ok(serde_json::to_value(&cfg.session_title)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
         "startup_notification" => Ok(serde_json::to_value(&cfg.startup_notification)?),
+        "auto_update" => Ok(serde_json::to_value(&cfg.auto_update)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
         "approval" => Ok(json!({
@@ -568,6 +579,7 @@ fn get_all_overview() -> Result<String> {
         "theme": cfg.theme,
         "language": cfg.language,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
+        "preventSleep": cfg.prevent_sleep,
         "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode),
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
@@ -647,7 +659,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "sidebar_ui", "notification", "startup_notification",
+            "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "notification", "startup_notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
@@ -663,7 +675,7 @@ fn get_all_overview() -> Result<String> {
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
             "acp_control", "skill_env", "security", "security.ssrf",
-            "smart_mode", "mcp_global", "knowledge_maintenance"
+            "smart_mode", "mcp_global", "knowledge_maintenance", "auto_update"
         ],
         "read_only": [
             "active_model", "fallback_models", "channels", "mcp_servers",
@@ -835,6 +847,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.ui_effects_enabled = v;
             }
         }
+        "prevent_sleep" => {
+            if let Some(v) = values.get("preventSleep").and_then(|v| v.as_bool()) {
+                store.prevent_sleep = v;
+            }
+        }
         "sidebar_ui" => {
             if let Some(v) = values.get("sidebarUiMode").and_then(|v| v.as_str()) {
                 store.sidebar_ui_mode = config::normalize_sidebar_ui_mode(v);
@@ -884,6 +901,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "session_title" => merge_field(&mut store.session_title, values)?,
         "notification" => merge_field(&mut store.notification, values)?,
         "startup_notification" => merge_field(&mut store.startup_notification, values)?,
+        "auto_update" => {
+            merge_field(&mut store.auto_update, values)?;
+            // Keep the persisted interval inside the supported range.
+            store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
+        }
         "image_generate" => merge_field(&mut store.image_generate, values)?,
         "canvas" => merge_field(&mut store.canvas, values)?,
         "image" => merge_field(&mut store.image, values)?,

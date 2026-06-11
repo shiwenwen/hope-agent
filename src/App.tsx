@@ -9,12 +9,11 @@ import { initFocusTracking, listenNotificationConfigChange, notify } from "@/lib
 import { useDesktopAlerts } from "@/hooks/useDesktopAlerts"
 import {
   autoCheckForUpdate,
-  relaunchDesktopApp,
   requestManualCheck,
-  setPendingUpdate as setGlobalPendingUpdate,
   startPeriodicUpdateCheck,
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { useDesktopUpdateInstall } from "@/hooks/useDesktopUpdateInstall"
 import { initDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { SKILLS_EVENTS } from "@/types/skills"
@@ -81,7 +80,7 @@ export default function App() {
   const [pendingChatInsert, setPendingChatInsert] = useState<ChatInsert | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
-  const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
+  const { pendingUpdate: globalPendingUpdate, downloadStatus } = useDesktopUpdateStore()
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [showIgnoreOptions, setShowIgnoreOptions] = useState(false)
 
@@ -91,48 +90,23 @@ export default function App() {
     globalPendingUpdate.version !== dismissedVersion &&
     globalPendingUpdate.version !== ignoredVersion
 
-  const [installingUpdate, setInstallingUpdate] = useState(false)
-  const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
 
-  async function handleInstallUpdate() {
-    if (!globalPendingUpdate) return
-
-    setInstallingUpdate(true)
-    setDownloadPercent(0)
-
-    let downloaded = 0
-    let contentLength = 0
-
-    try {
-      await globalPendingUpdate.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            contentLength = event.data.contentLength
-            setDownloadPercent(0)
-            break
-          case "Progress":
-            downloaded += event.data.chunkLength
-            if (contentLength > 0) {
-              setDownloadPercent(Math.min(100, Math.round((downloaded / contentLength) * 100)))
-            }
-            break
-          case "Finished":
-            setDownloadPercent(100)
-            break
-        }
-      })
-
-      void setGlobalPendingUpdate(null)
-      await relaunchDesktopApp()
-    } catch (e) {
-      logger.error("update", "App::handleInstallUpdate", "Failed to install update via toast", e)
-      setInstallingUpdate(false)
-      if (globalPendingUpdate?.version) {
-        setDismissedVersion(globalPendingUpdate.version)
-      }
-    }
-  }
+  // Shared desktop-update install/restart lifecycle (also drives AboutPanel),
+  // so the toast and the settings surface can't drift and the failure / staged
+  // states are handled in one place.
+  const {
+    installing: installingUpdate,
+    downloadPercent,
+    awaitingRestart,
+    install: runInstall,
+    restartNow,
+  } = useDesktopUpdateInstall(globalPendingUpdate, {
+    onError: (e) => {
+      logger.error("update", "App::install", "Failed to install update via toast", e)
+      if (globalPendingUpdate?.version) setDismissedVersion(globalPendingUpdate.version)
+    },
+  })
 
   // Load user avatar
   async function fetchUserAvatar() {
@@ -633,11 +607,17 @@ export default function App() {
                 <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-top-5 fade-in duration-300">
                   <div className="relative flex flex-col gap-3 rounded-2xl border border-emerald-500/20 bg-card p-4 shadow-xl dark:bg-zinc-900/90 w-[380px]">
                     {/* Close / Ignore button */}
-                    {!showIgnoreOptions && (
+                    {!showIgnoreOptions && !installingUpdate && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          setShowIgnoreOptions(true)
+                          if (awaitingRestart) {
+                            // "稍后重启": dismiss; the staged binary applies on
+                            // the next launch.
+                            setDismissedVersion(globalPendingUpdate.version)
+                          } else {
+                            setShowIgnoreOptions(true)
+                          }
                         }}
                         className="absolute top-3 right-3 p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors z-10"
                       >
@@ -690,7 +670,9 @@ export default function App() {
                     ) : installingUpdate ? (
                       <div className="flex flex-col gap-2 mt-1">
                         <div className="flex items-center justify-between pr-6">
-                          <p className="text-sm font-medium text-foreground">正在下载更新...</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {i18n.language.startsWith("zh") ? "正在更新..." : "Updating..."}
+                          </p>
                           <p className="text-sm font-medium text-emerald-500">
                             {downloadPercent ?? 0}%
                           </p>
@@ -700,6 +682,47 @@ export default function App() {
                             className="h-full bg-emerald-500 transition-all duration-300 rounded-full"
                             style={{ width: `${downloadPercent ?? 0}%` }}
                           />
+                        </div>
+                      </div>
+                    ) : awaitingRestart ? (
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 mt-1">
+                          <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0 pr-5">
+                          <p className="text-sm font-semibold text-foreground truncate">
+                            {i18n.language.startsWith("zh")
+                              ? `v${globalPendingUpdate.version} 已就绪`
+                              : `v${globalPendingUpdate.version} ready`}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            {i18n.language.startsWith("zh")
+                              ? "更新已安装，重启后生效。可立即重启，或关闭此提示，下次启动自动应用。"
+                              : "Update installed. Restart to apply now, or dismiss and it applies on next launch."}
+                          </p>
+                          <div className="mt-4 flex justify-end">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void restartNow()
+                              }}
+                              className="px-4 py-2 text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 rounded-lg transition-colors duration-200"
+                            >
+                              {i18n.language.startsWith("zh") ? "现在重启" : "Restart now"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -743,15 +766,31 @@ export default function App() {
                               </p>
                             )}
                           </div>
-                          <div className="mt-4 flex justify-end">
+                          {downloadStatus === "downloaded" && (
+                            <p className="mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                              {i18n.language.startsWith("zh")
+                                ? "已后台下载完成，可秒装"
+                                : "Downloaded — installs instantly"}
+                            </p>
+                          )}
+                          <div className="mt-4 flex justify-end gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
-                                handleInstallUpdate()
+                                void runInstall(false)
+                              }}
+                              className="px-3 py-2 text-xs font-medium text-muted-foreground bg-secondary hover:bg-secondary/80 rounded-lg transition-colors duration-200"
+                            >
+                              {i18n.language.startsWith("zh") ? "仅更新" : "Update only"}
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void runInstall(true)
                               }}
                               className="px-4 py-2 text-xs font-semibold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors duration-200 dark:text-emerald-400 dark:hover:text-white"
                             >
-                              {i18n.language.startsWith("zh") ? "立即更新" : "Update"}
+                              {i18n.language.startsWith("zh") ? "更新并重启" : "Update & restart"}
                             </button>
                           </div>
                         </div>
