@@ -64,6 +64,7 @@ import {
   CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
   CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX,
+  CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
   getChatInputOverflowActionIds,
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
@@ -117,6 +118,9 @@ interface ChatInputProps {
   /** Enable the `[[note]]` picker + the `@` menu's knowledge-notes section.
    *  Off by default so files-only surfaces (QuickChat) keep their behavior. */
   enableNoteMention?: boolean
+  /** Enable the `@` menu's built-in **skills** section (`@skill:<name>` →
+   *  office / browser / mac control). Off by default; the main chat opts in. */
+  enableSkillMention?: boolean
   // Working directory
   workingDir?: string | null
   /** True when `workingDir` is inherited from the parent project rather than
@@ -179,6 +183,7 @@ export default function ChatInput({
   draftKbAttachments,
   onDraftKbAttachChange,
   enableNoteMention = false,
+  enableSkillMention = false,
   workingDir,
   workingDirInherited = false,
   workingDirSaving = false,
@@ -199,6 +204,9 @@ export default function ChatInput({
   const toolbarRef = useRef<HTMLDivElement>(null)
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
   const [toolbarCompact, setToolbarCompact] = useState(false)
+  // Narrower tier than `toolbarCompact`: Knowledge + Plan stay inline until the
+  // toolbar is genuinely cramped, then collapse into the "+" menu too.
+  const [toolbarTight, setToolbarTight] = useState(false)
   const [toolbarStacked, setToolbarStacked] = useState(false)
   const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
@@ -416,6 +424,7 @@ export default function ChatInput({
           draftKbAttachments: draftKbAttachments ?? [],
         }
       : undefined,
+    enableSkillMention,
   )
   // `[[note]]` picker — knowledge-space notes reachable from this chat.
   const noteMention = useNoteMention(
@@ -441,6 +450,7 @@ export default function ChatInput({
 
     const update = (width = el.getBoundingClientRect().width) => {
       setToolbarCompact(width <= CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
+      setToolbarTight(width <= CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX)
       setToolbarStacked(width <= CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX)
     }
 
@@ -704,38 +714,43 @@ export default function ChatInput({
     }
   }
 
+  // Add-style actions (working dir / attach / slash) always live here once the
+  // toolbar is compact. Knowledge + Plan only join the menu at the narrower
+  // `toolbarTight` tier — above it they stay inline.
   const renderOverflowMenuItems = () => (
     <>
       {getChatInputOverflowActionIds().map((actionId) => (
         <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
       ))}
-      {/* Knowledge + Plan collapse here when the toolbar is too tight to keep
-          them inline. */}
-      <KnowledgePicker
-        variant="menu"
-        sessionId={currentSessionId ?? null}
-        projectId={projectId ?? null}
-        disabled={incognitoEnabled}
-        draftAttachments={draftKbAttachments}
-        onDraftAttachChange={onDraftKbAttachChange}
-      />
-      <button
-        type="button"
-        aria-label={planToggleTip}
-        className={cn(
-          overflowMenuItemClass,
-          planState === "planning" && "text-blue-600",
-          planState === "review" && "text-purple-600",
-          planState === "executing" && "text-green-600",
-        )}
-        onClick={() => {
-          setShowOverflowMenu(false)
-          handlePlanToggle()
-        }}
-      >
-        <ClipboardList className="h-4 w-4 shrink-0" />
-        <span className="truncate">{planToggleLabel}</span>
-      </button>
+      {toolbarTight && (
+        <>
+          <KnowledgePicker
+            variant="menu"
+            sessionId={currentSessionId ?? null}
+            projectId={projectId ?? null}
+            disabled={incognitoEnabled}
+            draftAttachments={draftKbAttachments}
+            onDraftAttachChange={onDraftKbAttachChange}
+          />
+          <button
+            type="button"
+            aria-label={planToggleTip}
+            className={cn(
+              overflowMenuItemClass,
+              planState === "planning" && "text-blue-600",
+              planState === "review" && "text-purple-600",
+              planState === "executing" && "text-green-600",
+            )}
+            onClick={() => {
+              setShowOverflowMenu(false)
+              handlePlanToggle()
+            }}
+          >
+            <ClipboardList className="h-4 w-4 shrink-0" />
+            <span className="truncate">{planToggleLabel}</span>
+          </button>
+        </>
+      )}
     </>
   )
 
@@ -777,6 +792,8 @@ export default function ChatInput({
           noteEntries={mention.noteEntries}
           notesLoading={mention.notesLoading}
           noteCapable={mention.noteCapable}
+          skillEntries={mention.skillEntries}
+          skillCapable={mention.skillCapable}
           selectedIndex={mention.selectedIndex}
           mode={mention.mode}
           dirPath={mention.dirPath}
@@ -787,6 +804,7 @@ export default function ChatInput({
           hasFileQuery={mention.hasFileQuery}
           onSelect={mention.applyEntry}
           onSelectNote={mention.applyNote}
+          onSelectSkill={mention.applySkill}
           onHover={mention.setSelectedIndex}
         />
 
@@ -1010,6 +1028,7 @@ export default function ChatInput({
             workingDir={workingDir ?? null}
             fileEnabled={!!workingDir}
             noteEnabled={enableNoteMention}
+            skillEnabled={enableSkillMention}
             hero={hero}
             readOnly={voice.state === "recording" || voice.state === "transcribing"}
           />
@@ -1116,10 +1135,10 @@ export default function ChatInput({
 
                 <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
-                {/* Knowledge Space attach + Plan toggle — inline when roomy,
-                    collapsed into the "+" overflow menu when the toolbar is
-                    tight (see renderOverflowMenuItems). */}
-                {!toolbarCompact && (
+                {/* Knowledge Space attach + Plan toggle — primary actions, kept
+                    inline down to the narrow `toolbarTight` tier (then they join
+                    the "+" overflow menu, see renderOverflowMenuItems). */}
+                {!toolbarTight && (
                   <KnowledgePicker
                     sessionId={currentSessionId ?? null}
                     projectId={projectId ?? null}
@@ -1129,7 +1148,7 @@ export default function ChatInput({
                   />
                 )}
 
-                {!toolbarCompact && (
+                {!toolbarTight && (
                   <IconTip label={planToggleTip}>
                     <button
                       aria-label={planToggleTip}

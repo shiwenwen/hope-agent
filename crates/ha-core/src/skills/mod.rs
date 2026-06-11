@@ -5,6 +5,7 @@ pub mod commands;
 mod discovery;
 pub mod fork_helper;
 mod frontmatter;
+pub mod mention;
 mod prompt;
 mod requirements;
 mod slash;
@@ -20,6 +21,9 @@ pub use activation::{
 pub use commands::{PresetCandidate, PresetSkillSource};
 pub use discovery::*;
 pub use fork_helper::{extract_fork_result, spawn_skill_fork, MAX_RESULT_CHARS};
+pub use mention::{
+    list_mentionable_skills, resolve_inline_skill_mentions, MentionableSkill, AT_MENTIONABLE_SKILLS,
+};
 pub use prompt::*;
 pub use requirements::*;
 pub use slash::*;

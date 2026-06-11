@@ -1264,6 +1264,10 @@ fn build_router_with_cors(
         // Skills
         .route("/skills", get(routes::skills::list_skills))
         .route(
+            "/skills/mentionable",
+            get(routes::skills::list_mentionable_skills),
+        )
+        .route(
             "/skills/env-check",
             get(routes::skills::get_skill_env_check),
         )

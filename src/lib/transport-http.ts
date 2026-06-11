@@ -531,6 +531,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Skills --
   get_skills:                      { method: "GET",    path: "/api/skills" },
+  list_mentionable_skills:         { method: "GET",    path: "/api/skills/mentionable" },
   get_skill_detail:                { method: "GET",    path: "/api/skills/{name}" },
   toggle_skill:                    { method: "POST",   path: "/api/skills/{name}/toggle" },
   get_extra_skills_dirs:           { method: "GET",    path: "/api/skills/extra-dirs" },

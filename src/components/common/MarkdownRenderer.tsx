@@ -43,6 +43,8 @@ import { shouldRenderAsBareJson } from "./markdownJson"
 import { useFileActions } from "@/components/chat/files/useFileActions"
 import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
+import { isSkillMentionName, skillNameFromHref } from "@/components/chat/skill-mention/skillTokens"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -355,6 +357,12 @@ export function MarkdownLink({
   ...rest
 }: MarkdownAnchorProps) {
   const isIncomplete = href === "streamdown:incomplete-link"
+  // `@skill` mentions are `[@label](#skill:<name>)` links — render the same rose
+  // chip the composer shows, not the raw link. Fragment href survives sanitize.
+  const skillName = isIncomplete ? null : skillNameFromHref(href)
+  if (skillName && isSkillMentionName(skillName)) {
+    return <SkillMentionChip name={skillName} />
+  }
   const localPath = isIncomplete ? null : localPathFromHref(href)
   // Local file links follow the unified file-operation policy (preview / open /
   // download by kind × mode) + a right-click menu — but ONLY local links pay the

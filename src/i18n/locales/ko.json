@@ -559,6 +559,16 @@
       "savedTo": "{{path}} 에 내보냈습니다",
       "downloaded": "{{filename}} 을(를) 다운로드했습니다",
       "failed": "대화 내보내기에 실패했습니다."
+    },
+    "skillMention": {
+      "heading": "스킬",
+      "labels": {
+        "docx": "Word 문서",
+        "pptx": "PowerPoint 슬라이드",
+        "xlsx": "Excel 스프레드시트",
+        "browser": "브라우저 제어",
+        "mac": "Mac 제어"
+      }
     }
   },
   "codexAuth": {

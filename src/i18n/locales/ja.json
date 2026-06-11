@@ -559,6 +559,16 @@
       "savedTo": "{{path}} にエクスポートしました",
       "downloaded": "{{filename}} をダウンロードしました",
       "failed": "会話のエクスポートに失敗しました。"
+    },
+    "skillMention": {
+      "heading": "スキル",
+      "labels": {
+        "docx": "Word 文書",
+        "pptx": "PowerPoint スライド",
+        "xlsx": "Excel スプレッドシート",
+        "browser": "ブラウザ操作",
+        "mac": "Mac 操作"
+      }
     }
   },
   "codexAuth": {

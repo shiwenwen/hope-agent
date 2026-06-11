@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { File, Folder, Loader2 } from "lucide-react"
+import { File, FileText, Folder, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { SkillMentionIcon } from "../skill-mention/SkillMentionIcon"
+import { skillMentionMeta, type MentionableSkill } from "../skill-mention/skillTokens"
 import type { MentionEntry, MentionMode } from "./types"
 import type { ReferenceableNote } from "@/types/knowledge"
 
@@ -15,7 +17,11 @@ interface FileMentionMenuProps {
   notesLoading: boolean
   /** Whether a note source exists (drives the note header / empty state). */
   noteCapable: boolean
-  /** Flat cursor over `[...entries, ...noteEntries]`. */
+  /** Built-in skill section rows (already filtered). */
+  skillEntries: MentionableSkill[]
+  /** Whether the skill section is enabled (drives its header). */
+  skillCapable: boolean
+  /** Flat cursor over `[...entries, ...noteEntries, ...skillEntries]`. */
   selectedIndex: number
   mode: MentionMode
   /** Absolute path of the directory being shown (list mode) — surfaced as breadcrumb. */
@@ -28,7 +34,8 @@ interface FileMentionMenuProps {
   hasFileQuery: boolean
   onSelect: (entry: MentionEntry) => void
   onSelectNote: (note: ReferenceableNote) => void
-  /** Hover handler; receives the FLAT index across both sections. */
+  onSelectSkill: (skill: MentionableSkill) => void
+  /** Hover handler; receives the FLAT index across all sections. */
   onHover: (index: number) => void
 }
 
@@ -38,6 +45,8 @@ export default function FileMentionMenu({
   noteEntries,
   notesLoading,
   noteCapable,
+  skillEntries,
+  skillCapable,
   selectedIndex,
   mode,
   dirPath,
@@ -48,6 +57,7 @@ export default function FileMentionMenu({
   hasFileQuery,
   onSelect,
   onSelectNote,
+  onSelectSkill,
   onHover,
 }: FileMentionMenuProps) {
   const { t } = useTranslation()
@@ -61,16 +71,18 @@ export default function FileMentionMenu({
 
   const hasFiles = entries.length > 0
   const hasNotes = noteEntries.length > 0
+  const hasSkills = skillEntries.length > 0
   const showFileSection = !!workingDir && hasFileQuery
-  // Nothing to paint: no file section (working dir / its loading+empty/error) and
-  // no note rows or in-flight note load. Avoids an empty floating box when `@`
-  // opens with no working dir and nothing to show.
-  if (!showFileSection && !error && !hasNotes && !notesLoading) return null
+  // Nothing to paint: no file section (working dir / its loading+empty/error),
+  // no note rows or in-flight note load, and no skill rows. Avoids an empty
+  // floating box when `@` opens with nothing to show.
+  if (!showFileSection && !error && !hasNotes && !notesLoading && !hasSkills) return null
 
   // Compute breadcrumb relative to workingDir for list mode; search mode shows
   // the working dir basename.
   const breadcrumb = computeBreadcrumb(workingDir, dirPath, mode)
   const showNoteSection = hasNotes || (noteCapable && notesLoading)
+  const showSkillSection = skillCapable && hasSkills
   const sectionHeaderClass =
     "flex items-center gap-2 px-2.5 py-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider"
   const rowClass = (selected: boolean) =>
@@ -174,10 +186,57 @@ export default function FileMentionMenu({
             onClick={() => onSelectNote(note)}
             onMouseEnter={() => onHover(flatIdx)}
           >
-            <span className="shrink-0 text-sm leading-none">{note.kbEmoji || "📓"}</span>
-            <span className="text-[13px] truncate">{note.title}</span>
+            {note.kbEmoji ? (
+              <span className="shrink-0 text-sm leading-none">{note.kbEmoji}</span>
+            ) : (
+              <FileText className="h-4 w-4 shrink-0 text-violet-500 dark:text-violet-400" />
+            )}
+            <span className="truncate text-[13px] text-foreground">{note.title}</span>
             <span className="ml-auto max-w-[40%] truncate text-[11px] text-muted-foreground/60">
               {note.kbName}
+            </span>
+          </button>
+        )
+      })}
+
+      {/* ── Built-in skills section (`@skill:<name>`) ── */}
+      {showSkillSection && (
+        <div
+          className={cn(
+            sectionHeaderClass,
+            ((showFileSection && hasFiles) || showNoteSection) &&
+              "mt-1 border-t border-border/40 pt-1.5",
+          )}
+        >
+          <span className="truncate normal-case tracking-normal">
+            {t("chat.skillMention.heading", "Skills")}
+          </span>
+        </div>
+      )}
+
+      {skillEntries.map((skill, k) => {
+        const flatIdx = entries.length + noteEntries.length + k
+        const isSelected = flatIdx === selectedIndex
+        const meta = skillMentionMeta(skill.name)
+        const label = meta ? t(meta.labelKey) : skill.name
+        return (
+          <button
+            key={`skill-${skill.name}`}
+            ref={isSelected ? selectedRef : undefined}
+            type="button"
+            role="option"
+            aria-selected={isSelected}
+            className={rowClass(isSelected)}
+            onClick={() => onSelectSkill(skill)}
+            onMouseEnter={() => onHover(flatIdx)}
+            title={skill.description}
+          >
+            {meta && (
+              <SkillMentionIcon kind={meta.iconKind} className="h-4 w-4 shrink-0 text-rose-500" />
+            )}
+            <span className="text-[13px] truncate">{label}</span>
+            <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground/50">
+              @skill
             </span>
           </button>
         )

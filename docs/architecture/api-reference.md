@@ -748,6 +748,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `get_skills` | `GET /api/skills` | ✅ |
+| `list_mentionable_skills` | `GET /api/skills/mentionable` | ✅ |
 | `get_skill_detail` | `GET /api/skills/{name}` | ✅ |
 | `toggle_skill` | `POST /api/skills/{name}/toggle` | ✅ |
 | `get_extra_skills_dirs` | `GET /api/skills/extra-dirs` | ✅ |

@@ -559,6 +559,16 @@
       "savedTo": "Đã xuất tới {{path}}",
       "downloaded": "Đã tải {{filename}}",
       "failed": "Không thể xuất cuộc trò chuyện."
+    },
+    "skillMention": {
+      "heading": "Kỹ năng",
+      "labels": {
+        "docx": "Tài liệu Word",
+        "pptx": "Trang chiếu PowerPoint",
+        "xlsx": "Bảng tính Excel",
+        "browser": "Điều khiển trình duyệt",
+        "mac": "Điều khiển Mac"
+      }
     }
   },
   "codexAuth": {

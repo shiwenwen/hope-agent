@@ -23,6 +23,7 @@ import {
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { FileText, Folder } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { useFileActions } from "@/components/chat/files/useFileActions"
@@ -31,11 +32,14 @@ import { basename } from "@/lib/path"
 import { cn } from "@/lib/utils"
 import { parseMentions, parseNoteRefs } from "../file-mention/mentionTokens"
 import { joinAbs } from "../file-mention/types"
+import { SkillMentionIcon } from "../skill-mention/SkillMentionIcon"
+import { isSkillMentionName, parseSkillMentions, skillMentionMeta } from "../skill-mention/skillTokens"
 import type { ComposerInputHandle } from "./composerInputHandle"
 
 type MentionSpan =
   | { kind: "file"; raw: string; relPath: string; start: number; end: number }
   | { kind: "note"; raw: string; start: number; end: number }
+  | { kind: "skill"; raw: string; name: string; start: number; end: number }
 
 interface MentionComposerInputProps {
   value: string
@@ -43,6 +47,8 @@ interface MentionComposerInputProps {
   workingDir: string | null
   fileEnabled: boolean
   noteEnabled: boolean
+  /** Render `@skill:<name>` (allowlisted built-ins) as rose chips. */
+  skillEnabled?: boolean
   hero?: boolean
   readOnly?: boolean
   onChange: (value: string) => void
@@ -55,12 +61,17 @@ interface MentionConfig {
   workingDir: string | null
   fileEnabled: boolean
   noteEnabled: boolean
+  skillEnabled: boolean
+  /** Resolve a skill id → localized chip label (threaded from `t`). */
+  skillLabel: (name: string) => string
 }
 
 const FILE_CHIP_CLASS =
   "cm-mention-chip cm-mention-file mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-blue-500/20 bg-blue-500/10 px-1.5 text-sm font-medium text-blue-600 shadow-sm outline-none dark:border-blue-300/20 dark:bg-blue-300/15 dark:text-blue-200"
 const NOTE_CHIP_CLASS =
   "cm-mention-chip cm-mention-note mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 text-sm font-medium text-violet-600 shadow-sm dark:border-violet-300/20 dark:bg-violet-300/15 dark:text-violet-200"
+const SKILL_CHIP_CLASS =
+  "cm-mention-chip cm-mention-skill mx-0.5 inline-flex h-6 max-w-[16rem] align-baseline items-center gap-1 rounded-md border border-rose-500/20 bg-rose-500/10 px-1.5 text-sm font-medium text-rose-600 shadow-sm dark:border-rose-300/20 dark:bg-rose-300/15 dark:text-rose-200"
 const CHIP_ICON_CLASS = "h-4 w-4 shrink-0"
 const CHIP_LABEL_CLASS = "truncate"
 const widgetIconRoots = new WeakMap<HTMLElement, Root>()
@@ -75,6 +86,9 @@ function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
   if (config.fileEnabled) {
     for (const mention of parseMentions(input)) {
       if (!isCommittedMention(input, mention.end)) continue
+      // `plan:` belongs to its own picker, not file chips. (Skill mentions use
+      // the `[@…](#skill:…)` link form — their `@` sits after `[`, so the bare
+      // `@token` file grammar never matches them.)
       if (mention.relPath.startsWith("plan:")) continue
       spans.push({
         kind: "file",
@@ -89,6 +103,21 @@ function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
   if (config.noteEnabled) {
     for (const note of parseNoteRefs(input)) {
       spans.push({ kind: "note", raw: note.raw, start: note.start, end: note.end })
+    }
+  }
+
+  if (config.skillEnabled) {
+    // The `[@label](#skill:name)` link is self-delimiting — no trailing-space
+    // commitment gate needed. Only allowlisted built-ins become chips.
+    for (const skill of parseSkillMentions(input)) {
+      if (!isSkillMentionName(skill.name)) continue
+      spans.push({
+        kind: "skill",
+        raw: skill.raw,
+        name: skill.name,
+        start: skill.start,
+        end: skill.end,
+      })
     }
   }
 
@@ -122,14 +151,17 @@ function appendIcon(parent: HTMLElement, icon: React.ReactNode) {
 class MentionWidget extends WidgetType {
   private readonly span: MentionSpan
   private readonly workingDir: string | null
+  private readonly skillLabel: (name: string) => string
 
   constructor(
     span: MentionSpan,
     workingDir: string | null,
+    skillLabel: (name: string) => string,
   ) {
     super()
     this.span = span
     this.workingDir = workingDir
+    this.skillLabel = skillLabel
   }
 
   eq(other: MentionWidget): boolean {
@@ -138,7 +170,8 @@ class MentionWidget extends WidgetType {
       other.span.raw === this.span.raw &&
       (other.span.kind !== "file" ||
         (this.span.kind === "file" && other.span.relPath === this.span.relPath)) &&
-      other.workingDir === this.workingDir
+      other.workingDir === this.workingDir &&
+      other.skillLabel === this.skillLabel
     )
   }
 
@@ -154,6 +187,20 @@ class MentionWidget extends WidgetType {
       root.title = this.span.raw
       appendIcon(root, createElement(FileText, { className: CHIP_ICON_CLASS }))
       appendText(root, CHIP_LABEL_CLASS, title)
+      return root
+    }
+
+    if (this.span.kind === "skill") {
+      const meta = skillMentionMeta(this.span.name)
+      root.className = SKILL_CHIP_CLASS
+      root.title = this.span.raw
+      if (meta) {
+        appendIcon(
+          root,
+          createElement(SkillMentionIcon, { kind: meta.iconKind, className: CHIP_ICON_CLASS }),
+        )
+      }
+      appendText(root, CHIP_LABEL_CLASS, this.skillLabel(this.span.name))
       return root
     }
 
@@ -203,7 +250,7 @@ function mentionDecorations(getConfig: () => MentionConfig) {
         span.start,
         span.end,
         Decoration.replace({
-          widget: new MentionWidget(span, config.workingDir),
+          widget: new MentionWidget(span, config.workingDir, config.skillLabel),
           inclusive: false,
         }),
       )
@@ -368,6 +415,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       workingDir,
       fileEnabled,
       noteEnabled,
+      skillEnabled = false,
       hero = false,
       readOnly = false,
       onChange,
@@ -377,12 +425,28 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     },
     ref,
   ) {
+    const { t } = useTranslation()
+    // Resolve a skill id → localized chip label. Stable per language so the
+    // widget's `eq` can treat it as constant between renders.
+    const skillLabel = useCallback(
+      (name: string) => {
+        const meta = skillMentionMeta(name)
+        return meta ? t(meta.labelKey) : name
+      },
+      [t],
+    )
     const hostRef = useRef<HTMLDivElement | null>(null)
     const viewRef = useRef<EditorView | null>(null)
     const valueRef = useRef(value)
     const onChangeRef = useRef(onChange)
     const onSelectionChangeRef = useRef(onSelectionChange)
-    const configRef = useRef<MentionConfig>({ workingDir, fileEnabled, noteEnabled })
+    const configRef = useRef<MentionConfig>({
+      workingDir,
+      fileEnabled,
+      noteEnabled,
+      skillEnabled,
+      skillLabel,
+    })
     const readOnlyComp = useRef(new Compartment())
     const placeholderComp = useRef(new Compartment())
     const sizeComp = useRef(new Compartment())
@@ -397,7 +461,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     valueRef.current = value
     onChangeRef.current = onChange
     onSelectionChangeRef.current = onSelectionChange
-    configRef.current = { workingDir, fileEnabled, noteEnabled }
+    configRef.current = { workingDir, fileEnabled, noteEnabled, skillEnabled, skillLabel }
 
     const { primary: pendingFilePrimary, run: runPendingFileAction } = useFileActions(
       pendingFileAction?.target ?? null,
@@ -492,7 +556,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       const view = viewRef.current
       if (!view) return
       view.dispatch({})
-    }, [fileEnabled, noteEnabled, workingDir])
+    }, [fileEnabled, noteEnabled, skillEnabled, skillLabel, workingDir])
 
     useImperativeHandle(
       ref,

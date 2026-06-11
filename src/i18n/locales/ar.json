@@ -559,6 +559,16 @@
       "savedTo": "تم التصدير إلى {{path}}",
       "downloaded": "تم تنزيل {{filename}}",
       "failed": "تعذّر تصدير المحادثة."
+    },
+    "skillMention": {
+      "heading": "المهارات",
+      "labels": {
+        "docx": "مستند Word",
+        "pptx": "شرائح PowerPoint",
+        "xlsx": "جدول بيانات Excel",
+        "browser": "التحكم في المتصفح",
+        "mac": "التحكم في Mac"
+      }
     }
   },
   "codexAuth": {

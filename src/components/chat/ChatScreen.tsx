@@ -2229,6 +2229,7 @@ export default function ChatScreen({
                       draftKbAttachments={draftKbAttachments}
                       onDraftKbAttachChange={setDraftKbAttachments}
                       enableNoteMention
+                      enableSkillMention
                       workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
                       workingDirInherited={
                         session.currentSessionId ? workingDirSource === "project" : false

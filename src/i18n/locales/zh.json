@@ -559,6 +559,16 @@
       "savedTo": "已导出至 {{path}}",
       "downloaded": "已下载 {{filename}}",
       "failed": "导出失败。"
+    },
+    "skillMention": {
+      "heading": "技能",
+      "labels": {
+        "docx": "Word 文档",
+        "pptx": "PPT 演示",
+        "xlsx": "Excel 表格",
+        "browser": "浏览器控制",
+        "mac": "Mac 控制"
+      }
     }
   },
   "codexAuth": {

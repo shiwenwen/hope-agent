@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
+import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
@@ -949,7 +950,9 @@ export default function MessageList({
               !compactUserAnchorVisible && "pointer-events-none",
             )}
           >
-            <span className="min-w-0 flex-1 truncate">{compactUserAnchor.text}</span>
+            <span className="min-w-0 flex-1 truncate">
+              <SkillMentionText text={compactUserAnchor.text} />
+            </span>
           </button>
         </div>
       )}

@@ -445,6 +445,26 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         });
     }
 
+    // Built-in skill activation via the composer's `@skill` mention. Mirrors the
+    // note bridge above: deterministic, user-controlled, injected into this
+    // turn's system context. The fixed allowlist (office trio + browser + mac
+    // control) and the OS gate are enforced inside the resolver, so arbitrary
+    // skill names in the message can't ride here — they stay as plain text.
+    //
+    // Gate on `fires_user_lifecycle_hooks()` (Desktop / HTTP / IM): only a real
+    // user turn carries a composer `@skill` gesture. Internal Subagent /
+    // ParentInjection runs are excluded so a sub-agent's untrusted output
+    // containing a `[@…](#skill:…)` token can't self-activate a built-in skill
+    // into the parent's system context.
+    if source.fires_user_lifecycle_hooks() {
+        if let Some(extra) = crate::skills::resolve_inline_skill_mentions(&message) {
+            extra_system_context = Some(match extra_system_context.take() {
+                Some(e) => format!("{e}\n\n{extra}"),
+                None => extra,
+            });
+        }
+    }
+
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
     // rendered for `/skill` invocations) so attached IM chats see what the
     // desktop user saw, not the raw `[SYSTEM:...]` prompt fed to the model.

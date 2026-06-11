@@ -559,6 +559,16 @@
       "savedTo": "Exportado a {{path}}",
       "downloaded": "Descargado {{filename}}",
       "failed": "No se pudo exportar la conversación."
+    },
+    "skillMention": {
+      "heading": "Habilidades",
+      "labels": {
+        "docx": "Documento de Word",
+        "pptx": "Diapositivas de PowerPoint",
+        "xlsx": "Hoja de cálculo de Excel",
+        "browser": "Control del navegador",
+        "mac": "Control de Mac"
+      }
     }
   },
   "codexAuth": {

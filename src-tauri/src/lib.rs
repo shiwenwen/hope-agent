@@ -192,6 +192,7 @@ pub fn run() {
             // Skills
             commands::skills::get_skills,
             commands::skills::get_skill_detail,
+            commands::skills::list_mentionable_skills,
             commands::skills::get_extra_skills_dirs,
             commands::skills::add_extra_skills_dir,
             commands::skills::remove_extra_skills_dir,

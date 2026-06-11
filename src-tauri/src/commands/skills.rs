@@ -22,6 +22,16 @@ pub async fn get_skill_detail(
     core::get_skill_detail(&name).ok_or_else(|| CmdError::msg(format!("Skill not found: {}", name)))
 }
 
+/// Curated, fixed allowlist of built-in skills offered by the composer's
+/// `@skill` menu (office trio + browser + macOS-only mac control), filtered to
+/// what's invocable on this host.
+#[tauri::command]
+pub async fn list_mentionable_skills(
+    _state: State<'_, AppState>,
+) -> Result<Vec<ha_core::skills::MentionableSkill>, CmdError> {
+    Ok(ha_core::skills::list_mentionable_skills())
+}
+
 #[tauri::command]
 pub async fn get_extra_skills_dirs(_state: State<'_, AppState>) -> Result<Vec<String>, CmdError> {
     Ok(core::get_extra_skills_dirs())
