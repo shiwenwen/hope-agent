@@ -4024,6 +4024,8 @@
     "system": "Sistem",
     "systemAutostart": "Mulakan pada log masuk",
     "systemAutostartDesc": "Mulakan Hope Agent secara automatik apabila anda log masuk ke komputer anda",
+    "systemPreventSleep": "Halang tidur",
+    "systemPreventSleepDesc": "Pastikan komputer anda kekal aktif supaya tugas panjang, muat turun dan aktiviti latar belakang tidak terganggu oleh tidur sistem. Paparan masih boleh dimatikan.",
     "tabAppearance": "Rupa & bahasa",
     "tabAwareness": "Behavior Awareness",
     "tabChatBasic": "Asas",

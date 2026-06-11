@@ -4024,6 +4024,8 @@
     "system": "系統",
     "systemAutostart": "開機自動啟動",
     "systemAutostartDesc": "登錄系統時自動啟動 Hope Agent",
+    "systemPreventSleep": "阻止電腦休眠",
+    "systemPreventSleepDesc": "保持電腦喚醒，避免長時間任務、下載與背景活動被系統休眠打斷；螢幕仍可正常熄滅。",
     "tabAppearance": "外觀與語言",
     "tabAwareness": "行為感知",
     "tabChatBasic": "基本",

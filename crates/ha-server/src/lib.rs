@@ -825,6 +825,14 @@ fn build_router_with_cors(
             post(routes::config::set_ui_effects_enabled),
         )
         .route(
+            "/config/prevent-sleep",
+            get(routes::config::get_prevent_sleep_enabled),
+        )
+        .route(
+            "/config/prevent-sleep",
+            post(routes::config::set_prevent_sleep_enabled),
+        )
+        .route(
             "/config/sidebar-display-mode",
             get(routes::config::get_sidebar_display_mode),
         )

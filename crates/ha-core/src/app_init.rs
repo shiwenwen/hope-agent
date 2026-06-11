@@ -595,6 +595,57 @@ fn spawn_hooks_config_listener() {
     });
 }
 
+/// Apply the `prevent_sleep` user setting and keep it in sync with config
+/// changes. Holds an OS sleep assertion (macOS `caffeinate` / Linux logind
+/// inhibitor / Windows `ES_SYSTEM_REQUIRED`) for the lifetime of the setting.
+/// Primary-only: sleep prevention is a host-level resource, so only one process
+/// should hold the assertion — secondary instances must not spawn duplicates.
+fn spawn_keep_awake_listener() {
+    // `keep_awake::apply` does blocking work (fork/exec a helper + waitpid on
+    // Unix, thread join on Windows), so every call is offloaded to a blocking
+    // thread and never run on a tokio worker. The loop also tracks the last
+    // applied value, so unrelated `config:changed` events (which carry no
+    // category we can cheaply discriminate on) don't re-enter `apply` — this
+    // avoids a spawn/log storm when the OS helper is unavailable.
+    let Some(bus) = crate::globals::get_event_bus() else {
+        // No hot-reload without a bus; still honour the current setting once,
+        // off any runtime thread.
+        let enabled = crate::config::cached_config().prevent_sleep;
+        std::thread::spawn(move || crate::platform::keep_awake::apply(enabled));
+        app_warn!(
+            "platform",
+            "keep_awake",
+            "EventBus not initialized — sleep-prevention hot-reload disabled"
+        );
+        return;
+    };
+    // Subscribe before the initial apply so a `config:changed` racing startup is
+    // buffered for the loop rather than lost.
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        let mut last = crate::config::cached_config().prevent_sleep;
+        let _ = tokio::task::spawn_blocking(move || crate::platform::keep_awake::apply(last)).await;
+        loop {
+            match rx.recv().await {
+                Ok(event) if event.name != "config:changed" => continue,
+                Ok(_) => {} // config:changed
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {} // converge
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+            // Cache is refreshed before `config:changed` fires, so this sees the
+            // new value. Only act on an actual transition.
+            let desired = crate::config::cached_config().prevent_sleep;
+            if desired != last {
+                last = desired;
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::platform::keep_awake::apply(desired)
+                })
+                .await;
+            }
+        }
+    });
+}
+
 /// Whether a `config:changed` event should rebuild the hooks registry.
 fn hooks_config_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
     event.name == "config:changed"
@@ -735,6 +786,10 @@ pub async fn start_background_tasks() {
     }
 
     if primary {
+        // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
+        // a single process owns the OS assertion; reacts to config changes.
+        spawn_keep_awake_listener();
+
         // Cron scheduler self-hosts a dedicated OS thread with its own tokio
         // runtime (see scheduler.rs). Primary-only because the periodic
         // tick's `claim_scheduled_job_for_execution` would double-claim

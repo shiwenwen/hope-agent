@@ -4024,6 +4024,8 @@
     "system": "النظام",
     "systemAutostart": "التشغيل عند تسجيل الدخول",
     "systemAutostartDesc": "تشغيل Hope Agent تلقائياً عند تسجيل الدخول إلى حاسوبك",
+    "systemPreventSleep": "منع السكون",
+    "systemPreventSleepDesc": "أبقِ الحاسوب مستيقظًا حتى لا تنقطع المهام الطويلة والتنزيلات والنشاط في الخلفية بسبب سكون النظام. يمكن أن تنطفئ الشاشة كالمعتاد.",
     "tabAppearance": "المظهر واللغة",
     "tabAwareness": "وعي السلوك",
     "tabChatBasic": "أساسي",

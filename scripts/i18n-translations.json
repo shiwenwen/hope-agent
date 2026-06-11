@@ -493,7 +493,9 @@
       "fsRemoteWritesDesc": "HTTP クライアントがプロジェクト作業ディレクトリ内でファイルの作成・編集・削除・アップロードを行えるようにします。既定はオフ — デスクトップアプリはこの設定に関係なく常にローカルへ書き込めます。",
       "recapLanguage": "レポートの言語",
       "recapLanguageDesc": "AI が生成するレポートのセクションとタイトルの言語。デフォルトではインターフェース言語に従います。",
-      "recapLanguageFollow": "インターフェース言語に従う"
+      "recapLanguageFollow": "インターフェース言語に従う",
+      "systemPreventSleep": "スリープを防止",
+      "systemPreventSleepDesc": "長時間タスク・ダウンロード・バックグラウンド処理がシステムのスリープで中断されないよう、コンピューターを起動状態に保ちます。ディスプレイは通常どおりオフになります。"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -1449,7 +1451,9 @@
       "fsRemoteWritesDesc": "HTTP 클라이언트가 프로젝트 작업 디렉터리에서 파일을 만들고 편집·삭제·업로드할 수 있도록 합니다. 기본값은 꺼짐 — 데스크톱 앱은 이 설정과 관계없이 항상 로컬에 쓸 수 있습니다.",
       "recapLanguage": "리포트 언어",
       "recapLanguageDesc": "AI가 생성하는 리포트 섹션과 제목의 언어입니다. 기본적으로 인터페이스 언어를 따릅니다.",
-      "recapLanguageFollow": "인터페이스 언어 따르기"
+      "recapLanguageFollow": "인터페이스 언어 따르기",
+      "systemPreventSleep": "절전 모드 방지",
+      "systemPreventSleepDesc": "장시간 작업, 다운로드, 백그라운드 활동이 시스템 절전으로 중단되지 않도록 컴퓨터를 깨어 있게 유지합니다. 디스플레이는 정상적으로 꺼질 수 있습니다."
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -2405,7 +2409,9 @@
       "fsRemoteWritesDesc": "允許 HTTP 用戶端在專案工作目錄中新增、編輯、刪除與上傳檔案。預設關閉 —— 無論此開關如何，桌面應用程式皆可在本機寫入。",
       "recapLanguage": "回顧語言",
       "recapLanguageDesc": "AI 生成的回顧章節與標題使用的語言，預設跟隨介面語言。",
-      "recapLanguageFollow": "跟隨介面語言"
+      "recapLanguageFollow": "跟隨介面語言",
+      "systemPreventSleep": "阻止電腦休眠",
+      "systemPreventSleepDesc": "保持電腦喚醒，避免長時間任務、下載與背景活動被系統休眠打斷；螢幕仍可正常熄滅。"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -3342,7 +3348,9 @@
       "fsRemoteWritesDesc": "HTTP istemcilerinin proje çalışma dizininde dosya oluşturmasına, düzenlemesine, silmesine ve yüklemesine izin verir. Varsayılan olarak kapalı — masaüstü uygulaması bu ayardan bağımsız olarak her zaman yerel olarak yazabilir.",
       "recapLanguage": "Rapor dili",
       "recapLanguageDesc": "Yapay zeka tarafından oluşturulan rapor bölümleri ve başlıkları için dil. Varsayılan olarak arayüz dilini izler.",
-      "recapLanguageFollow": "Arayüz dilini izle"
+      "recapLanguageFollow": "Arayüz dilini izle",
+      "systemPreventSleep": "Uykuyu engelle",
+      "systemPreventSleepDesc": "Uzun süren görevlerin, indirmelerin ve arka plan etkinliğinin sistem uykusuyla kesilmemesi için bilgisayarınızı uyanık tutun. Ekran yine de kapanabilir."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -4298,7 +4306,9 @@
       "fsRemoteWritesDesc": "Cho phép máy khách HTTP tạo, chỉnh sửa, xóa và tải tệp lên trong thư mục làm việc của dự án. Tắt theo mặc định — ứng dụng máy tính luôn có thể ghi cục bộ bất kể cài đặt này.",
       "recapLanguage": "Ngôn ngữ báo cáo",
       "recapLanguageDesc": "Ngôn ngữ cho các phần và tiêu đề báo cáo do AI tạo. Mặc định theo ngôn ngữ giao diện.",
-      "recapLanguageFollow": "Theo ngôn ngữ giao diện"
+      "recapLanguageFollow": "Theo ngôn ngữ giao diện",
+      "systemPreventSleep": "Ngăn chế độ ngủ",
+      "systemPreventSleepDesc": "Giữ cho máy tính luôn hoạt động để các tác vụ dài, tải xuống và hoạt động nền không bị gián đoạn do hệ thống ngủ. Màn hình vẫn có thể tắt."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -5254,7 +5264,9 @@
       "fsRemoteWritesDesc": "Permite que clientes HTTP criem, editem, excluam e enviem arquivos no diretório de trabalho do projeto. Desativado por padrão — o aplicativo desktop sempre pode gravar localmente, independentemente desta configuração.",
       "recapLanguage": "Idioma do relatório",
       "recapLanguageDesc": "Idioma das seções e títulos do relatório gerados por IA. Segue o idioma da interface por padrão.",
-      "recapLanguageFollow": "Seguir o idioma da interface"
+      "recapLanguageFollow": "Seguir o idioma da interface",
+      "systemPreventSleep": "Impedir suspensão",
+      "systemPreventSleepDesc": "Mantenha o computador ativo para que tarefas demoradas, downloads e atividades em segundo plano não sejam interrompidos pela suspensão do sistema. A tela ainda pode desligar."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -6210,7 +6222,9 @@
       "fsRemoteWritesDesc": "Позволяет HTTP-клиентам создавать, изменять, удалять и загружать файлы в рабочем каталоге проекта. По умолчанию выключено — настольное приложение всегда может писать локально независимо от этой настройки.",
       "recapLanguage": "Язык отчёта",
       "recapLanguageDesc": "Язык разделов и заголовков отчёта, создаваемых ИИ. По умолчанию следует языку интерфейса.",
-      "recapLanguageFollow": "Следовать языку интерфейса"
+      "recapLanguageFollow": "Следовать языку интерфейса",
+      "systemPreventSleep": "Запретить спящий режим",
+      "systemPreventSleepDesc": "Не давайте компьютеру засыпать, чтобы длительные задачи, загрузки и фоновая активность не прерывались переходом системы в спящий режим. Экран при этом может отключаться."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -7166,7 +7180,9 @@
       "fsRemoteWritesDesc": "السماح لعملاء HTTP بإنشاء الملفات وتحريرها وحذفها ورفعها داخل دليل عمل المشروع. مُعطّل افتراضيًا — يمكن لتطبيق سطح المكتب الكتابة محليًا دائمًا بغض النظر عن هذا الإعداد.",
       "recapLanguage": "لغة التقرير",
       "recapLanguageDesc": "لغة أقسام التقرير وعناوينه التي ينشئها الذكاء الاصطناعي. تتبع لغة الواجهة افتراضيًا.",
-      "recapLanguageFollow": "اتباع لغة الواجهة"
+      "recapLanguageFollow": "اتباع لغة الواجهة",
+      "systemPreventSleep": "منع السكون",
+      "systemPreventSleepDesc": "أبقِ الحاسوب مستيقظًا حتى لا تنقطع المهام الطويلة والتنزيلات والنشاط في الخلفية بسبب سكون النظام. يمكن أن تنطفئ الشاشة كالمعتاد."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -8122,7 +8138,9 @@
       "fsRemoteWritesDesc": "Permite que los clientes HTTP creen, editen, eliminen y suban archivos en el directorio de trabajo del proyecto. Desactivado de forma predeterminada — la aplicación de escritorio siempre puede escribir localmente sin importar este ajuste.",
       "recapLanguage": "Idioma del informe",
       "recapLanguageDesc": "Idioma de las secciones y títulos del informe generados por IA. Sigue el idioma de la interfaz de forma predeterminada.",
-      "recapLanguageFollow": "Seguir el idioma de la interfaz"
+      "recapLanguageFollow": "Seguir el idioma de la interfaz",
+      "systemPreventSleep": "Evitar suspensión",
+      "systemPreventSleepDesc": "Mantén el ordenador despierto para que las tareas largas, las descargas y la actividad en segundo plano no se interrumpan por la suspensión del sistema. La pantalla puede apagarse igualmente."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -9078,7 +9096,9 @@
       "fsRemoteWritesDesc": "Benarkan pelanggan HTTP mencipta, menyunting, memadam dan memuat naik fail dalam direktori kerja projek. Dimatikan secara lalai — aplikasi desktop sentiasa boleh menulis secara setempat tanpa mengira tetapan ini.",
       "recapLanguage": "Bahasa laporan",
       "recapLanguageDesc": "Bahasa untuk bahagian dan tajuk laporan yang dijana AI. Mengikut bahasa antara muka secara lalai.",
-      "recapLanguageFollow": "Ikut bahasa antara muka"
+      "recapLanguageFollow": "Ikut bahasa antara muka",
+      "systemPreventSleep": "Halang tidur",
+      "systemPreventSleepDesc": "Pastikan komputer anda kekal aktif supaya tugas panjang, muat turun dan aktiviti latar belakang tidak terganggu oleh tidur sistem. Paparan masih boleh dimatikan."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -9645,7 +9665,9 @@
       },
       "recapLanguage": "复盘语言",
       "recapLanguageDesc": "AI 生成的复盘章节与标题使用的语言，默认跟随界面语言。",
-      "recapLanguageFollow": "跟随界面语言"
+      "recapLanguageFollow": "跟随界面语言",
+      "systemPreventSleep": "阻止电脑休眠",
+      "systemPreventSleepDesc": "保持电脑唤醒，避免长时间任务、下载与后台活动被系统休眠打断；屏幕仍可正常熄灭。"
     },
     "chat": {
       "handover": {

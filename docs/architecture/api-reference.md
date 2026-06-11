@@ -834,6 +834,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `set_language` | `POST /api/config/language` | ✅ |
 | `get_ui_effects_enabled` | `GET /api/config/ui-effects` | ✅ |
 | `set_ui_effects_enabled` | `POST /api/config/ui-effects` | ✅ |
+| `get_prevent_sleep_enabled` | `GET /api/config/prevent-sleep` | ✅ |
+| `set_prevent_sleep_enabled` | `POST /api/config/prevent-sleep` | ✅ |
 | `get_tool_call_narration_enabled` | `GET /api/config/tool-call-narration` | ✅ |
 | `set_tool_call_narration_enabled` | `POST /api/config/tool-call-narration` | ✅ |
 | `get_autostart_enabled` | `GET /api/config/autostart` | ✅ |

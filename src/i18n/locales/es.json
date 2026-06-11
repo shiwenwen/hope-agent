@@ -4024,6 +4024,8 @@
     "system": "Sistema",
     "systemAutostart": "Iniciar al arrancar la sesión",
     "systemAutostartDesc": "Inicia Hope Agent automáticamente al iniciar sesión en tu ordenador",
+    "systemPreventSleep": "Evitar suspensión",
+    "systemPreventSleepDesc": "Mantén el ordenador despierto para que las tareas largas, las descargas y la actividad en segundo plano no se interrumpan por la suspensión del sistema. La pantalla puede apagarse igualmente.",
     "tabAppearance": "Apariencia e idioma",
     "tabAwareness": "Conciencia de comportamiento",
     "tabChatBasic": "Básico",

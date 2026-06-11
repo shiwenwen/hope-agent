@@ -432,6 +432,8 @@ pub fn run() {
             commands::config::set_language,
             commands::config::get_ui_effects_enabled,
             commands::config::set_ui_effects_enabled,
+            commands::config::get_prevent_sleep_enabled,
+            commands::config::set_prevent_sleep_enabled,
             commands::config::get_sidebar_display_mode,
             commands::config::set_sidebar_display_mode,
             commands::config::get_tool_call_narration_enabled,

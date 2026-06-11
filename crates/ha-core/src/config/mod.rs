@@ -628,6 +628,12 @@ pub struct AppConfig {
     /// Whether UI background effects (stars, weather) are enabled
     #[serde(default = "crate::default_true")]
     pub ui_effects_enabled: bool,
+    /// Prevent the host from idle-sleeping while the app runs (user setting,
+    /// default off). When on, the primary process holds an OS sleep assertion
+    /// (macOS `caffeinate -i` / Linux logind inhibitor / Windows
+    /// `ES_SYSTEM_REQUIRED`); the display may still turn off independently.
+    #[serde(default)]
+    pub prevent_sleep: bool,
     /// Sidebar visual density: "compact" (default) | "detailed"
     #[serde(default = "default_sidebar_ui_mode")]
     pub sidebar_ui_mode: String,
@@ -858,6 +864,7 @@ impl Default for AppConfig {
             theme: default_theme(),
             language: default_language(),
             ui_effects_enabled: true,
+            prevent_sleep: false,
             sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),

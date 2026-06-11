@@ -4024,6 +4024,8 @@
     "system": "Sistema",
     "systemAutostart": "Iniciar no login",
     "systemAutostartDesc": "Iniciar Hope Agent automaticamente quando você fizer login no computador",
+    "systemPreventSleep": "Impedir suspensão",
+    "systemPreventSleepDesc": "Mantenha o computador ativo para que tarefas demoradas, downloads e atividades em segundo plano não sejam interrompidos pela suspensão do sistema. A tela ainda pode desligar.",
     "tabAppearance": "Aparência e idioma",
     "tabAwareness": "Consciência de comportamento",
     "tabChatBasic": "Básico",

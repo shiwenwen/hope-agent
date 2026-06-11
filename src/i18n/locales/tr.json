@@ -4024,6 +4024,8 @@
     "system": "Sistem",
     "systemAutostart": "Oturum açıldığında başlat",
     "systemAutostartDesc": "Bilgisayarınızda oturum açtığınızda Hope Agent'ı otomatik olarak başlat",
+    "systemPreventSleep": "Uykuyu engelle",
+    "systemPreventSleepDesc": "Uzun süren görevlerin, indirmelerin ve arka plan etkinliğinin sistem uykusuyla kesilmemesi için bilgisayarınızı uyanık tutun. Ekran yine de kapanabilir.",
     "tabAppearance": "Görünüm ve dil",
     "tabAwareness": "Davranış Farkındalığı",
     "tabChatBasic": "Temel",

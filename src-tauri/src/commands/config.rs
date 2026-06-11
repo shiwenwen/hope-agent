@@ -565,6 +565,23 @@ pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_prevent_sleep_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.prevent_sleep)
+}
+
+#[tauri::command]
+pub async fn set_prevent_sleep_enabled(enabled: bool) -> Result<(), CmdError> {
+    // The OS sleep assertion is driven by the `config:changed` listener in
+    // ha-core (`spawn_keep_awake_listener`); this only persists the toggle.
+    ha_core::config::mutate_config(("prevent_sleep", "settings-ui"), |store| {
+        store.prevent_sleep = enabled;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_sidebar_display_mode() -> Result<String, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(ha_core::config::normalize_sidebar_ui_mode(

@@ -1029,6 +1029,27 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/prevent-sleep` -- get the host sleep-prevention toggle.
+pub async fn get_prevent_sleep_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.prevent_sleep)))
+}
+
+/// `POST /api/config/prevent-sleep` -- set the host sleep-prevention toggle.
+/// The OS assertion is driven by ha-core's `config:changed` listener; this only
+/// persists the flag.
+pub async fn set_prevent_sleep_enabled(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ha_core::config::mutate_config(("prevent_sleep", "http"), |store| {
+        store.prevent_sleep = enabled;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/sidebar-display-mode` -- get sidebar density mode.
 pub async fn get_sidebar_display_mode() -> Result<Json<Value>, AppError> {
     let store = load_config()?;

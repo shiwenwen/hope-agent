@@ -4024,6 +4024,8 @@
     "system": "システム",
     "systemAutostart": "ログイン時に起動",
     "systemAutostartDesc": "コンピュータにログインすると Hope Agent を自動起動",
+    "systemPreventSleep": "スリープを防止",
+    "systemPreventSleepDesc": "長時間タスク・ダウンロード・バックグラウンド処理がシステムのスリープで中断されないよう、コンピューターを起動状態に保ちます。ディスプレイは通常どおりオフになります。",
     "tabAppearance": "外観と言語",
     "tabAwareness": "行動認識",
     "tabChatBasic": "基本",

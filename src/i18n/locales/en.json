@@ -4032,6 +4032,8 @@
     "system": "System",
     "systemAutostart": "Launch at login",
     "systemAutostartDesc": "Automatically start Hope Agent when you log in to your computer",
+    "systemPreventSleep": "Prevent sleep",
+    "systemPreventSleepDesc": "Keep your computer awake so long-running tasks, downloads, and background activity aren't interrupted by system sleep. The display can still turn off.",
     "tabAppearance": "Appearance & Language",
     "tabAwareness": "Behavior Awareness",
     "tabChatBasic": "Basic",

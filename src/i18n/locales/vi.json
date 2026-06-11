@@ -4024,6 +4024,8 @@
     "system": "Hệ thống",
     "systemAutostart": "Khởi động khi đăng nhập",
     "systemAutostartDesc": "Tự động khởi động Hope Agent khi bạn đăng nhập vào máy tính",
+    "systemPreventSleep": "Ngăn chế độ ngủ",
+    "systemPreventSleepDesc": "Giữ cho máy tính luôn hoạt động để các tác vụ dài, tải xuống và hoạt động nền không bị gián đoạn do hệ thống ngủ. Màn hình vẫn có thể tắt.",
     "tabAppearance": "Giao diện & ngôn ngữ",
     "tabAwareness": "Nhận biết hành vi",
     "tabChatBasic": "Cơ bản",
