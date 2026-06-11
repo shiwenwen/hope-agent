@@ -242,7 +242,7 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 **incognito 零精灵（两道关卡）**：后端 `observe_and_maybe_speak` 首行 `is_session_incognito` 短路（零召回 / 零 side_query / 零 emit）；前端 incognito 同样不触发（知识会话本就非 incognito，防御性）。
 
-**呈现**：`SpriteBubble` 渲染于 `MessageList` 与 composer 之间（柔光 + Agent 头像 + 分类角标），**瞬态、不进对话历史**；「回应」把建议塞进输入框顺势聊；新建议替换旧、发消息清空。前端按 `notePath`(+`sessionId`) 过滤 `sprite:suggestion`。
+**呈现**：`SpriteBubble` 渲染于 `MessageList` 与 composer 之间（**整体紫色 + 模糊光晕呼吸的扩散效果** + Agent 头像 + 分类角标），**瞬态、不进对话历史**；「回应」把建议塞进输入框顺势聊；新建议替换旧、发消息清空。前端按 `notePath`(+`sessionId`) 过滤 `sprite:suggestion`。**施法光效**：后端在 side_query 调用前后 emit `sprite:casting {active}`（仅在通过节流闸门、真正发起 LLM 调用时），前端同样按 `notePath`(+`sessionId`) 过滤后驱动标题栏猫咪图标的「施法」态光环（比启用态更快更亮的品红涟漪 + 脉冲），LLM 返回即熄；前端兜底 30s 自动清除以防「结束」事件丢失。
 
 **配置**：`SpriteConfig`(`config.rs`，`clamped()` 钳值，**无 persona 字段**) 挂 `AppConfig.sprite`；设置三件套 = `SpriteSection` GUI（设置 → 知识空间，**只放调参不放 enabled**；保存时 merge 最新 `enabled` 防覆盖对话栏开关）+ `tools/settings.rs` 的 `sprite` 分支（MEDIUM）+ `ha-settings/SKILL.md`。owner 命令 `sprite_config_{get,set}_cmd`（GUI + 对话栏开关）+ `kb_sprite_observe_cmd`（触发），**均非 agent 工具**。
 

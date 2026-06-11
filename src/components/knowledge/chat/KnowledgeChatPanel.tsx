@@ -241,6 +241,8 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                   "relative h-7 w-7 overflow-visible",
                   sprite.enabled &&
                     "text-purple-500 hover:text-purple-500 dark:text-purple-400 dark:hover:text-purple-400",
+                  sprite.casting &&
+                    "text-fuchsia-500 hover:text-fuchsia-500 dark:text-fuchsia-400 dark:hover:text-fuchsia-400",
                 )}
                 onClick={() => {
                   const next = !sprite.enabled
@@ -254,20 +256,32 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
                   }
                 }}
               >
-                {/* Enabled: purple cat with slow, diffusing light-wave ripples. */}
+                {/* Enabled: purple cat with slow, diffusing light-wave ripples.
+                    Casting (LLM in flight): faster, brighter fuchsia "spell"
+                    rings to signal the sprite is actively working. */}
                 {sprite.enabled && (
                   <span
                     className="pointer-events-none absolute inset-0 flex items-center justify-center"
                     aria-hidden
                   >
-                    <span className="absolute h-4 w-4 rounded-full border border-purple-400/60 animate-ping [animation-duration:3s]" />
-                    <span className="absolute h-4 w-4 rounded-full border border-purple-400/40 animate-ping [animation-duration:3s] [animation-delay:1.5s]" />
+                    {sprite.casting ? (
+                      <>
+                        <span className="absolute h-5 w-5 rounded-full border-2 border-fuchsia-400/70 animate-ping [animation-duration:1.1s]" />
+                        <span className="absolute h-4 w-4 rounded-full border border-violet-400/60 animate-ping [animation-duration:1.1s] [animation-delay:0.45s]" />
+                      </>
+                    ) : (
+                      <>
+                        <span className="absolute h-4 w-4 rounded-full border border-purple-400/60 animate-ping [animation-duration:3s]" />
+                        <span className="absolute h-4 w-4 rounded-full border border-purple-400/40 animate-ping [animation-duration:3s] [animation-delay:1.5s]" />
+                      </>
+                    )}
                   </span>
                 )}
                 <Cat
                   className={cn(
-                    "relative h-4 w-4",
-                    sprite.enabled && "drop-shadow-[0_0_3px_#a855f7]",
+                    "relative h-4 w-4 transition-all",
+                    sprite.enabled && !sprite.casting && "drop-shadow-[0_0_3px_#a855f7]",
+                    sprite.casting && "animate-pulse drop-shadow-[0_0_6px_#d946ef]",
                   )}
                 />
               </Button>
@@ -335,15 +349,6 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
           />
-          {/* Sprite triggered — a soft purple light-wave rises in the list,
-              keyed on the suggestion so it replays each time the sprite speaks. */}
-          {sprite.suggestion && (
-            <div
-              key={sprite.suggestion.text}
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-purple-500/20 via-purple-500/5 to-transparent animate-in fade-in-0 slide-in-from-bottom-4 duration-700"
-            />
-          )}
         </div>
 
         <ApprovalDialog

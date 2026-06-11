@@ -71,6 +71,10 @@ export function useKnowledgeSprite(opts: Opts) {
 
   const [config, setConfig] = useState<SpriteConfig | null>(null)
   const [suggestion, setSuggestion] = useState<SpriteSuggestion | null>(null)
+  // True only while the backend is actually running the side_query for THIS note
+  // (drives the cat's "casting" glow). Backend emits start/stop around the call.
+  const [casting, setCasting] = useState(false)
+  const castingTimerRef = useRef<number | null>(null)
 
   // Stable readers so the trigger effects don't re-arm on every render. Synced
   // in an effect (not during render) so timers always pull the latest closures.
@@ -170,6 +174,34 @@ export function useKnowledgeSprite(opts: Opts) {
     return unlisten
   }, [armed, notePath, sessionId])
 
+  // Listen for the "casting" signal (LLM call in flight) for the current note.
+  // A safety timeout clears it if the backend's "done" event is ever missed.
+  useEffect(() => {
+    const clearTimer = () => {
+      if (castingTimerRef.current != null) {
+        window.clearTimeout(castingTimerRef.current)
+        castingTimerRef.current = null
+      }
+    }
+    if (!armed) {
+      setCasting(false)
+      clearTimer()
+      return
+    }
+    const unlisten = getTransport().listen("sprite:casting", (raw) => {
+      const c = raw as { notePath?: string; sessionId?: string; active?: boolean } | null
+      if (!c || c.notePath !== notePath) return
+      if (c.sessionId && sessionId && c.sessionId !== sessionId) return
+      clearTimer()
+      setCasting(!!c.active)
+      if (c.active) castingTimerRef.current = window.setTimeout(() => setCasting(false), 30000)
+    })
+    return () => {
+      unlisten()
+      clearTimer()
+    }
+  }, [armed, notePath, sessionId])
+
   // ── Trigger: note-open dwell ──
   // A short while after opening a note, react to it as-is (no edit needed) — and
   // seed the baseline so a later edit-idle diffs against the loaded content. Skips
@@ -260,6 +292,8 @@ export function useKnowledgeSprite(opts: Opts) {
     ready: config != null,
     setEnabled,
     suggestion: visibleSuggestion,
+    /** Backend is running the side_query for this note → drive the cat "casting" glow. */
+    casting: casting && armed,
     dismiss,
   }
 }

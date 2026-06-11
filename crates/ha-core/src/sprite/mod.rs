@@ -217,6 +217,24 @@ fn parse_suggestion(raw: &str) -> Option<SpriteSuggestion> {
     })
 }
 
+/// Emit the transient "casting" signal so the UI can show the sprite cat
+/// actively working (a distinct glow) only while the LLM call is in flight —
+/// fired after the throttle gates pass, cleared when the call returns. UI-only
+/// (ids + bool, no KB content); the frontend filters by note/session.
+fn emit_casting(params: &SpriteObserveParams, active: bool) {
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            "sprite:casting",
+            serde_json::json!({
+                "sessionId": params.session_id,
+                "kbId": params.kb_id,
+                "notePath": params.note_path,
+                "active": active,
+            }),
+        );
+    }
+}
+
 /// Observe the current editing context and, if there's something worth saying
 /// (and throttle gates allow), run a bounded side_query and emit a
 /// `sprite:suggestion` event. Returns an outcome for logging only.
@@ -332,11 +350,14 @@ pub async fn observe_and_maybe_speak(params: SpriteObserveParams) -> SpriteOutco
         }
     };
 
+    // Cat "casting" glow on for exactly the duration of the LLM call.
+    emit_casting(&params, true);
     let outcome = tokio::time::timeout(
         Duration::from_secs(cfg.timeout_secs),
         agent.side_query(&instruction, cfg.max_tokens),
     )
     .await;
+    emit_casting(&params, false);
 
     // Anchor the cooldown to *completion* time so a long side_query doesn't let
     // the cooldown elapse during its own run (applies to success + failure).
