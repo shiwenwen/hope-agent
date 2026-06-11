@@ -38,6 +38,7 @@ import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoT
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
 import MessageList from "@/components/chat/MessageList"
+import { ChatWelcomeHero } from "@/components/chat/ChatWelcomeHero"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
 import BrowserPanel from "@/components/chat/BrowserPanel"
@@ -1884,6 +1885,11 @@ export default function ChatScreen({
     !planMode.planCardInfo &&
     !planMode.planSubagentRunning &&
     !searchBarOpen
+  // The hero greeting (logo + slogan) is rendered above the centered composer
+  // only when that composer is actually mounted (cron / subagent sessions have
+  // no input box). When true, MessageList must suppress its own empty greeting
+  // so the two don't overlap.
+  const heroComposerActive = emptySessionInputHero && !isCronSession && !isSubagentSession
 
   return (
     <>
@@ -2123,6 +2129,7 @@ export default function ChatScreen({
                 onResetToLatest={session.resetToLatest}
                 sessionId={session.currentSessionId}
                 incognito={incognitoEnabled}
+                heroComposer={heroComposerActive}
                 pendingScrollIntent={session.pendingScrollIntent}
                 onScrollTargetHandled={session.clearPendingScrollIntent}
                 pendingQuestionGroup={planMode.pendingQuestionGroup}
@@ -2179,7 +2186,14 @@ export default function ChatScreen({
                     </div>
                   )}
 
-                  <div className={cn(emptySessionInputHero && "w-full max-w-[920px]")}>
+                  <div
+                    className={cn(emptySessionInputHero && "flex w-full max-w-[920px] flex-col")}
+                  >
+                    {heroComposerActive && (
+                      <div className="mb-5 sm:mb-6">
+                        <ChatWelcomeHero incognito={incognitoEnabled} />
+                      </div>
+                    )}
                     <ChatInput
                       input={stream.input}
                       onInputChange={stream.setInput}

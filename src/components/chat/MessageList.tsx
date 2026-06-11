@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDown, Ghost } from "lucide-react"
-import alphaLogoUrl from "@/assets/alpha-logo.png"
+import { ArrowDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
+import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
@@ -38,6 +38,12 @@ interface MessageListProps {
   onResetToLatest?: () => void | Promise<void>
   sessionId?: string | null
   incognito?: boolean
+  /**
+   * When true, `ChatScreen` is rendering the empty-session greeting itself,
+   * stacked above the centered hero composer — so MessageList must NOT also
+   * render its own empty greeting (the two would overlap). See {@link ChatWelcomeHero}.
+   */
+  heroComposer?: boolean
   /** Search-jump target + literal substrings to inline-highlight inside
    *  the matched bubble. `null` between jumps. The terms are painted via
    *  the CSS Custom Highlight API in `lib/inlineHighlight.ts`. */
@@ -105,6 +111,7 @@ export default function MessageList({
   onResetToLatest,
   sessionId,
   incognito = false,
+  heroComposer = false,
   pendingScrollIntent,
   onScrollTargetHandled,
   pendingQuestionGroup,
@@ -905,27 +912,9 @@ export default function MessageList({
                   <span>{t("planMode.planningInProgress")}</span>
                 </div>
               )}
-              {showEmpty && (
+              {showEmpty && !heroComposer && (
                 <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
-                  {incognito ? (
-                    <div className="max-w-[360px] px-4 text-center text-muted-foreground">
-                      <Ghost className="mx-auto mb-3 h-6 w-6" />
-                      <div className="text-sm font-semibold text-foreground/70">
-                        {t("chat.incognitoEmptyTitle")}
-                      </div>
-                      <p className="mt-2 text-sm leading-relaxed">{t("chat.incognitoEmptyBody")}</p>
-                    </div>
-                  ) : (
-                    <div className="px-4 text-center">
-                      <img
-                        src={alphaLogoUrl}
-                        alt=""
-                        className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-95"
-                        draggable={false}
-                      />
-                      <p className="text-sm text-muted-foreground">{t("chat.howCanIHelp")}</p>
-                    </div>
-                  )}
+                  <ChatWelcomeHero incognito={incognito} />
                 </div>
               )}
             </div>
