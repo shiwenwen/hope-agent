@@ -275,7 +275,12 @@ pub async fn observe_and_maybe_speak(params: SpriteObserveParams) -> SpriteOutco
             0
         };
         if hour_count >= cfg.max_per_session_per_hour {
-            crate::app_debug!("sprite", "observe", "skip: hourly cap ({}) reached", hour_count);
+            crate::app_debug!(
+                "sprite",
+                "observe",
+                "skip: hourly cap ({}) reached",
+                hour_count
+            );
             return SpriteOutcome::Skipped("rate");
         }
         if t.last_call_secs != 0 && now - t.last_call_secs < cfg.cooldown_secs as i64 {

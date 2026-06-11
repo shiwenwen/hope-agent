@@ -174,8 +174,12 @@ export function useKnowledgeSprite(opts: Opts) {
     return unlisten
   }, [armed, notePath, sessionId])
 
-  // Listen for the "casting" signal (LLM call in flight) for the current note.
-  // A safety timeout clears it if the backend's "done" event is ever missed.
+  // Listen for the "casting" signal (LLM call in flight). Subscribed
+  // unconditionally (display is masked by `armed` in the return) so a "done"
+  // event is never missed while the panel is briefly hidden; a "done" for any
+  // note clears the glow (covers switching notes mid-cast), and a 30s safety
+  // timeout clears it if the "done" event is ever dropped. All setState happens
+  // in the event/timer callbacks — never synchronously in the effect body.
   useEffect(() => {
     const clearTimer = () => {
       if (castingTimerRef.current != null) {
@@ -183,24 +187,25 @@ export function useKnowledgeSprite(opts: Opts) {
         castingTimerRef.current = null
       }
     }
-    if (!armed) {
-      setCasting(false)
-      clearTimer()
-      return
-    }
     const unlisten = getTransport().listen("sprite:casting", (raw) => {
       const c = raw as { notePath?: string; sessionId?: string; active?: boolean } | null
-      if (!c || c.notePath !== notePath) return
+      if (!c) return
+      if (!c.active) {
+        clearTimer()
+        setCasting(false)
+        return
+      }
+      if (c.notePath !== notePath) return
       if (c.sessionId && sessionId && c.sessionId !== sessionId) return
       clearTimer()
-      setCasting(!!c.active)
-      if (c.active) castingTimerRef.current = window.setTimeout(() => setCasting(false), 30000)
+      setCasting(true)
+      castingTimerRef.current = window.setTimeout(() => setCasting(false), 30000)
     })
     return () => {
       unlisten()
       clearTimer()
     }
-  }, [armed, notePath, sessionId])
+  }, [notePath, sessionId])
 
   // ── Trigger: note-open dwell ──
   // A short while after opening a note, react to it as-is (no edit needed) — and

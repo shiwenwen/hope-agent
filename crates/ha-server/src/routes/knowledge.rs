@@ -534,7 +534,10 @@ pub struct KnowledgeSearchSetBody {
 pub async fn knowledge_search_config_set(
     Json(body): Json<KnowledgeSearchSetBody>,
 ) -> Result<Json<ha_core::knowledge::KnowledgeSearchConfig>, AppError> {
-    Ok(Json(ha_core::knowledge::set_search_config(body.config, "http")?))
+    Ok(Json(ha_core::knowledge::set_search_config(
+        body.config,
+        "http",
+    )?))
 }
 
 #[derive(Deserialize)]
