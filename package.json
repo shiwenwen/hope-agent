@@ -1,7 +1,7 @@
 {
   "name": "hope-agent",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.10.0",
   "license": "MIT",
   "author": "shiwenwen",
   "homepage": "https://github.com/shiwenwen/hope-agent",
@@ -96,6 +96,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@iconify-json/fluent-emoji-flat": "^1.2.5",
+    "@iconify-json/logos": "^1.2.11",
     "@iconify-json/vscode-icons": "^1.2.53",
     "@svgr/core": "^8.1.0",
     "@svgr/plugin-jsx": "^8.1.0",
