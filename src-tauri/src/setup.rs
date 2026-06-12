@@ -8,6 +8,29 @@ use std::sync::Arc;
 pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Store global AppHandle for event emission
     let _ = APP_HANDLE.set(app.handle().clone());
+
+    // Bundled skills ship as a Tauri resource (`bundle.resources` → `skills/`).
+    // ha-core's skill resolver finds the bundled dir from this env override
+    // first, so point it at the real on-disk resource location. This is robust
+    // across the differing per-platform layouts (macOS `Contents/Resources`,
+    // Linux `/usr/lib/<app>`, Windows next to the exe) that the resolver's
+    // `current_exe()` heuristic can't reliably cover. Without it, packaged
+    // builds find no bundled skills and the `@skill` menu / skill tool / office
+    // + browser + mac-control skills all come up empty. Set before any skill
+    // access (the first lands via frontend commands, after `.setup()`). Guarded
+    // on `is_dir()` so `tauri dev` (resources not staged) falls through to the
+    // debug-only workspace-root fallback.
+    {
+        use tauri::Manager;
+        if let Ok(skills_dir) = app
+            .path()
+            .resolve("skills", tauri::path::BaseDirectory::Resource)
+        {
+            if skills_dir.is_dir() {
+                std::env::set_var("HOPE_AGENT_BUNDLED_SKILLS_DIR", &skills_dir);
+            }
+        }
+    }
     if cfg!(debug_assertions) {
         app.handle().plugin(
             tauri_plugin_log::Builder::default()
