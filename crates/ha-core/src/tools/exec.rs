@@ -26,18 +26,106 @@ pub(crate) const MIN_MAX_OUTPUT_CHARS: usize = 8_000;
 pub(crate) const DEFAULT_YIELD_MS: u64 = 10_000;
 pub(crate) const MAX_YIELD_MS: u64 = 120_000;
 
-// ── Shell PATH Resolution ─────────────────────────────────────────
+// ── Shell Environment Resolution ──────────────────────────────────
 
 #[cfg(unix)]
-static LOGIN_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
+static LOGIN_SHELL_ENV: OnceLock<Vec<(String, String)>> = OnceLock::new();
 
-/// Resolve the full PATH from the user's login shell.
-/// This ensures tools like npm, python, etc. are available even when
-/// launched from a desktop environment that doesn't source .bashrc/.zshrc.
+/// Capture the full environment of the user's login + interactive shell.
 ///
-/// On Windows this returns `None` — the inherited process PATH already
-/// reflects the user's HKCU + HKLM PATH; spawning a "login shell" is a
-/// Unix-only concept.
+/// GUI apps launched from Finder/Dock inherit a minimal environment that never
+/// sources `.zprofile` / `.zshrc`, so tools installed via nvm / pyenv / brew and
+/// anything the user exports (API keys, language config, …) are invisible to
+/// spawned commands. We run the login shell once in *interactive* mode
+/// (`-l -i`) — `.zshrc`, where nvm/pyenv/brew shellenv almost always live, is
+/// only sourced for interactive shells — then snapshot every variable with
+/// `env -0` (NUL-separated so values containing newlines survive intact).
+///
+/// Guarded by a 5s timeout with stdin closed, so a misbehaving `.zshrc` cannot
+/// hang the process; returns `None` to trigger the PATH-only fallback.
+#[cfg(unix)]
+fn capture_login_shell_env() -> Option<Vec<(String, String)>> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let mut child = Command::new(&shell)
+        .args(["-l", "-i", "-c", "printf __HA_ENV_SNAPSHOT__; command env -0"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let timeout = Duration::from_secs(5);
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if start.elapsed() > timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                app_warn!("tool", "exec", "Login shell env resolution timed out after 5s");
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => return None,
+        }
+    };
+    if !status.success() {
+        return None;
+    }
+
+    let mut buf = Vec::new();
+    child.stdout.take()?.read_to_end(&mut buf).ok()?;
+    let raw = String::from_utf8_lossy(&buf);
+    // A chatty .zshrc may print to stdout before our command runs; everything
+    // up to and including the marker is noise, so parse only what follows it.
+    let payload = raw
+        .split_once("__HA_ENV_SNAPSHOT__")
+        .map(|(_, after)| after)
+        .unwrap_or(&raw);
+    let vars: Vec<(String, String)> = payload
+        .split('\0')
+        .filter_map(|entry| {
+            let (k, v) = entry.split_once('=')?;
+            (!k.is_empty()).then(|| (k.to_string(), v.to_string()))
+        })
+        .collect();
+    if vars.is_empty() {
+        return None;
+    }
+    app_info!(
+        "tool",
+        "exec",
+        "Resolved {} env vars from login shell",
+        vars.len()
+    );
+    Some(vars)
+}
+
+/// Full login-shell environment snapshot (Unix), cached for the process
+/// lifetime. Empty on Windows or when resolution fails — callers then fall
+/// back to the inherited environment plus a PATH-only probe.
+#[cfg(unix)]
+pub(crate) fn login_shell_env() -> &'static [(String, String)] {
+    LOGIN_SHELL_ENV
+        .get_or_init(|| capture_login_shell_env().unwrap_or_default())
+        .as_slice()
+}
+
+#[cfg(windows)]
+pub(crate) fn login_shell_env() -> &'static [(String, String)] {
+    &[]
+}
+
+/// Resolve the user's login-shell PATH. Prefers the value from the full
+/// environment snapshot; if that failed, probes PATH on its own (login,
+/// non-interactive to avoid re-triggering a hang) as a last resort.
+///
+/// On Windows this returns `None` — the inherited process PATH already reflects
+/// the user's HKCU + HKLM PATH; spawning a "login shell" is a Unix-only concept.
 #[cfg(windows)]
 pub(crate) fn get_login_shell_path() -> Option<&'static str> {
     None
@@ -45,30 +133,23 @@ pub(crate) fn get_login_shell_path() -> Option<&'static str> {
 
 #[cfg(unix)]
 pub(crate) fn get_login_shell_path() -> Option<&'static str> {
-    LOGIN_SHELL_PATH
+    if let Some((_, path)) = login_shell_env().iter().find(|(k, _)| k == "PATH") {
+        return Some(path.as_str());
+    }
+    static PATH_ONLY: OnceLock<Option<String>> = OnceLock::new();
+    PATH_ONLY
         .get_or_init(|| {
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
             let output = std::process::Command::new(&shell)
                 .args(["-l", "-c", "echo $PATH"])
                 .output()
                 .ok()?;
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    app_info!(
-                        "tool",
-                        "exec",
-                        "Resolved login shell PATH: {}",
-                        crate::truncate_utf8(&path, 120)
-                    );
-                    Some(path)
-                } else {
-                    None
-                }
-            } else {
+            if !output.status.success() {
                 app_warn!("tool", "exec", "Failed to resolve login shell PATH");
-                None
+                return None;
             }
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!path.is_empty()).then_some(path)
         })
         .as_deref()
 }
@@ -363,9 +444,16 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     cmd.current_dir(&session_cwd);
 
-    // Apply login shell PATH
-    if let Some(shell_path) = get_login_shell_path() {
-        cmd.env("PATH", shell_path);
+    // Inject the user's full login-shell environment (PATH plus everything they
+    // export in .zprofile/.zshrc) so commands resolve like they do in a real
+    // terminal. Falls back to a PATH-only injection if the snapshot is empty.
+    let shell_env = login_shell_env();
+    if shell_env.is_empty() {
+        if let Some(shell_path) = get_login_shell_path() {
+            cmd.env("PATH", shell_path);
+        }
+    } else {
+        cmd.envs(shell_env.iter().map(|(k, v)| (k, v)));
     }
 
     // Apply custom environment variables
@@ -839,6 +927,7 @@ async fn exec_via_pty(
                 .collect()
         })
         .unwrap_or_default();
+    let shell_env: Vec<(String, String)> = login_shell_env().to_vec();
     let login_path = get_login_shell_path().map(|s| s.to_string());
     let _sid = session_id.to_string();
 
@@ -886,9 +975,15 @@ async fn exec_via_pty(
         let effective_cwd = cwd_owned.as_deref().unwrap_or(&default_cwd_owned);
         cmd.cwd(effective_cwd);
 
-        // Apply login shell PATH
-        if let Some(ref path) = login_path {
-            cmd.env("PATH", path);
+        // Inject the user's full login-shell environment; fall back to PATH only.
+        if shell_env.is_empty() {
+            if let Some(ref path) = login_path {
+                cmd.env("PATH", path);
+            }
+        } else {
+            for (k, v) in &shell_env {
+                cmd.env(k, v);
+            }
         }
 
         // Apply custom environment variables

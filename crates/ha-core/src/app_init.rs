@@ -102,6 +102,14 @@ pub fn init_runtime(role: &'static str) {
         eprintln!("[runtime_lock] ensure_dirs failed: {e}");
     }
 
+    // Pre-warm the user's login-shell environment snapshot on a background
+    // thread so the first `exec` doesn't pay the one-time (~1s) cost of sourcing
+    // the shell on its hot path. Unix-only; Windows inherits the process env.
+    #[cfg(unix)]
+    std::thread::spawn(|| {
+        let _ = crate::tools::exec::login_shell_env();
+    });
+
     // Elect Primary / Secondary across the data dir. Tier is captured
     // here but logged via `app_info!` further down once APP_LOGGER is
     // initialised; commit C8 wires the cleanup + single-owner loop
