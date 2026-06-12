@@ -75,6 +75,14 @@ const KNOWN_TOOL_STATUS_NAMES = new Set([
   "enter_plan_mode",
 ])
 
+/**
+ * write / edit / apply_patch all mean "the AI is modifying a file". They share
+ * one status wording ("edit file …") so the chat row stays consistent; the
+ * underlying tool name still surfaces in the expanded diff/detail view and in
+ * Settings.
+ */
+const EDIT_CLASS_TOOLS = new Set(["write", "edit", "apply_patch"])
+
 export function hasToolError(
   tool: Pick<ToolCall, "isError" | "result">,
 ): boolean {
@@ -122,13 +130,16 @@ export function getExecutionToolLabel(params: {
     return String(t(`executionStatus.tool.single.skill_read.${state}`, { name: skillName }))
   }
 
-  const keyBase = KNOWN_TOOL_STATUS_NAMES.has(tool.name)
-    ? `executionStatus.tool.single.${tool.name}`
+  // Collapse the three file-mutating tools onto the `edit` wording.
+  const statusName = EDIT_CLASS_TOOLS.has(tool.name) ? "edit" : tool.name
+
+  const keyBase = KNOWN_TOOL_STATUS_NAMES.has(statusName)
+    ? `executionStatus.tool.single.${statusName}`
     : "executionStatus.tool.single.fallback"
 
   return String(
     t(`${keyBase}.${state}`, {
-      name: getToolDisplayName(t, tool.name),
+      name: getToolDisplayName(t, statusName),
     }),
   )
 }

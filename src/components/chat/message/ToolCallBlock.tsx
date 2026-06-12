@@ -66,7 +66,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   process: Cpu,
   grep: Search,
   find: FileSearch,
-  apply_patch: FileCode,
+  apply_patch: FilePen,
   web_search: Globe,
   web_fetch: Globe,
   save_memory: Brain,
