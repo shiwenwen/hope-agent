@@ -432,6 +432,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 | 技术栈/架构/规范变更                                | `AGENTS.md`                                                           |
 | 已有子系统架构变更                                  | `docs/architecture/` 对应文档                                         |
 | 新增架构级能力                                      | `docs/architecture/` 新建文档 + `docs/README.md` 索引                 |
+| 新增/删除子系统、架构文档、运行时 DB 或稳定 log category | [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/)（`source-map.md` 索引 + `diagnostic-playbook.md` 子系统速查） |
 | 新增/删除 Tauri 命令、HTTP 路由、`COMMAND_MAP` 条目 | [`api-reference.md`](docs/architecture/api-reference.md) 对应表格     |
 | 功能变化导致 README 过时                            | `README.md` + `README.en.md`（同一 PR 双语同步）                      |
 | 新增调研/对比分析                                   | `docs/research/` 新建调研文档                                         |
@@ -440,6 +441,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 - **AGENTS.md 是契约面**——只放跨 PR 必守的规则、红线、文件入口；**实现细节、内部数据结构、迁移逻辑、边角行为一律下沉到对应 architecture 文档**
 - **架构文档强制**：子系统边界 / 数据流 / 持久化格式 / 跨模块 contract 改动须更新对应 `docs/architecture/`；新增架构级能力（新子系统 / 协议层）须同 PR 新建文档并登记到 `docs/README.md`
+- **ha-self-diagnosis 索引同步**：新增 / 删除子系统、`docs/architecture/` 文档、`~/.hope-agent/` 运行时 DB（`paths.rs`）或稳定 log `category` 时，同步更新 [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/) 的 `source-map.md`（文档 / 目录 / DB 索引）与 `diagnostic-playbook.md`（Subsystem Reference：入口模块 / DB·config / log category / 故障 gotcha）。此处是 agent 自查与排障的 fallback 真相源，过时会直接误导诊断；新增的 log `category` 须为稳定字符串便于 grep
 - **README 双语同步**：根目录 `README.md`（中文）+ `README.en.md`（英文），任一改动同次提交同步另一份
 - **Release Notes 双语同步**：每版本 `vX.Y.Z.md` + `vX.Y.Z.en.md`，顶部互加 `简体中文 · English` 切换链接
 - **CHANGELOG entry 单行**：每条 changelog 一句话讲用户感知 + `(#PR)` 引用，**不放**文件路径 / 数据结构 / 单测数 / 实现取舍——那些写 PR description 或 [`docs/architecture/`](docs/architecture/)。涉及契约 / 红线变更可加一行用户操作影响（如「首次启动自动迁移」），仍不展开实现。Release notes 可以稍长一段，但同样面向用户视角而不是实现叙事

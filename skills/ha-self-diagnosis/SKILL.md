@@ -32,7 +32,7 @@ Workflow:
 3. Cross-check runtime/config behavior with `get_settings` when useful.
 4. Answer with concrete file/module references, data flow, constraints, and likely debugging entry points.
 
-If the source tree is not available, use `references/source-map.md` and the bundled architecture notes in this skill as the fallback map. Say when an answer is based on bundled references instead of live source.
+If the source tree is not available, use `references/source-map.md` and `references/diagnostic-playbook.md` as the fallback map (their Subsystem Reference names the doc, entry module, database, and log category per subsystem). Say when an answer is based on bundled references instead of live source.
 
 ### issue-report
 
@@ -56,7 +56,7 @@ Never bypass the `issue_report(action="create")` confirmation. Never paste raw s
 Use these in order:
 
 1. Live source and docs in the current working directory.
-2. Local runtime data under `~/.hope-agent/`, especially `logs.db`, `sessions.db`, and `async_jobs.db`.
+2. Local runtime data under `~/.hope-agent/` (full DB table in `references/source-map.md`): start with `logs.db` and `sessions.db`, then the subsystem-specific store — `memory.db`, `knowledge/index.db`, `cron.db`, `async_jobs.db`, `local_model_jobs.db`, `recap/recap.db`, `canvas/canvas.db` — and non-DB state like `crash_journal.json` / `config.json`.
 3. Settings via `get_settings`.
 4. Bundled references in this skill:
    - `references/source-map.md`
