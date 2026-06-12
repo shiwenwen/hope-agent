@@ -42,6 +42,7 @@ interface BuiltinTool {
 }
 
 type ApprovalTimeoutAction = "deny" | "proceed"
+type ExecShellMode = "fullTerminal" | "portable"
 
 const DEFAULT_LIMITS: ToolLimitsConfig = {
   maxImages: 10,
@@ -53,6 +54,8 @@ export default function ToolGeneralPanel() {
   const { t, i18n } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(300)
   const [savedTimeout, setSavedTimeout] = useState(300)
+  const [execShellMode, setExecShellMode] = useState<ExecShellMode>("fullTerminal")
+  const [savedExecShellMode, setSavedExecShellMode] = useState<ExecShellMode>("fullTerminal")
   const [approvalTimeoutEnabled, setApprovalTimeoutEnabled] = useState(false)
   const [savedApprovalTimeoutEnabled, setSavedApprovalTimeoutEnabled] = useState(false)
   const [approvalTimeout, setApprovalTimeout] = useState(300)
@@ -84,6 +87,10 @@ export default function ToolGeneralPanel() {
     getTransport().call<number>("get_tool_timeout")
       .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
+
+    getTransport().call<ExecShellMode>("get_exec_shell_mode")
+      .then((v) => { if (!cancelled) { setExecShellMode(v); setSavedExecShellMode(v); } })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load exec shell mode", e))
 
     // Load approval timeout
     getTransport().call<boolean>("get_approval_timeout_enabled")
@@ -150,6 +157,16 @@ export default function ToolGeneralPanel() {
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save tool timeout", e)
     }
   }, [savedTimeout])
+
+  const saveExecShellMode = useCallback(async (value: ExecShellMode) => {
+    try {
+      await getTransport().call("set_exec_shell_mode", { mode: value })
+      setSavedExecShellMode(value)
+    } catch (e) {
+      setExecShellMode(savedExecShellMode)
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save exec shell mode", e)
+    }
+  }, [savedExecShellMode])
 
   const saveApprovalTimeout = useCallback(async (value: number) => {
     try {
@@ -309,6 +326,29 @@ export default function ToolGeneralPanel() {
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
             </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">{t("settings.execShellMode")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.execShellModeDesc")}</div>
+            </div>
+            <Select
+              value={execShellMode}
+              onValueChange={(value) => {
+                const mode = value as ExecShellMode
+                setExecShellMode(mode)
+                void saveExecShellMode(mode)
+              }}
+            >
+              <SelectTrigger className="w-52 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fullTerminal">{t("settings.execShellModeFullTerminal")}</SelectItem>
+                <SelectItem value="portable">{t("settings.execShellModePortable")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">

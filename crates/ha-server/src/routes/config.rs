@@ -415,6 +415,27 @@ pub async fn set_tool_timeout(Json(body): Json<Value>) -> Result<Json<Value>, Ap
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/exec-shell-mode` -- get exec shell environment mode.
+pub async fn get_exec_shell_mode() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.exec_shell_mode)))
+}
+
+/// `POST /api/config/exec-shell-mode` -- set exec shell environment mode.
+pub async fn set_exec_shell_mode(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let mode = body
+        .get("mode")
+        .cloned()
+        .ok_or_else(|| AppError::bad_request("missing mode"))?;
+    let mode: ha_core::config::ExecShellMode = serde_json::from_value(mode)
+        .map_err(|_| AppError::bad_request("mode must be fullTerminal or portable"))?;
+    ha_core::config::mutate_config(("exec_shell_mode", "http"), |store| {
+        store.exec_shell_mode = mode;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/approval-timeout` -- get tool approval wait timeout (seconds).
 pub async fn get_approval_timeout() -> Result<Json<Value>, AppError> {
     let store = load_config()?;

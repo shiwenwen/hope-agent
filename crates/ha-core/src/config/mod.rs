@@ -304,6 +304,21 @@ pub(crate) fn default_tool_timeout() -> u64 {
     300
 }
 
+fn default_exec_shell_mode() -> ExecShellMode {
+    ExecShellMode::FullTerminal
+}
+
+/// Shell environment used by the `exec` tool on Unix-like platforms.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ExecShellMode {
+    /// Run commands through the user's login + interactive shell (`$SHELL -l -i -c`).
+    /// This best matches a normal Terminal session, including nvm / pyenv / rvm setup.
+    FullTerminal,
+    /// Legacy lightweight mode: run through `sh -c` and only inject a cached login-shell PATH.
+    Portable,
+}
+
 pub(crate) fn default_ask_user_question_timeout() -> u64 {
     1800
 }
@@ -641,6 +656,11 @@ pub struct AppConfig {
     /// Default 300 (5 min). Set to 0 to disable.
     #[serde(default = "default_tool_timeout")]
     pub tool_timeout: u64,
+    /// Shell environment mode for the `exec` tool. Defaults to a full terminal
+    /// environment so CLIs installed through shell managers (nvm / pyenv / rvm)
+    /// are available just like in the user's Terminal.
+    #[serde(default = "default_exec_shell_mode")]
+    pub exec_shell_mode: ExecShellMode,
     /// Threshold (bytes) for persisting large tool results to disk.
     /// Results exceeding this size are written to disk with a preview in context.
     /// Default: 50000 (50KB). Set to 0 to disable.
@@ -898,6 +918,7 @@ impl Default for AppConfig {
             image: crate::tools::image::ImageToolConfig::default(),
             pdf: crate::tools::pdf::PdfToolConfig::default(),
             tool_timeout: default_tool_timeout(),
+            exec_shell_mode: default_exec_shell_mode(),
             tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),

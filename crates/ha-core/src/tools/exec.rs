@@ -5,6 +5,7 @@ use std::process::Stdio;
 use std::sync::OnceLock;
 use tokio_util::sync::CancellationToken;
 
+use crate::config::ExecShellMode;
 use crate::process_registry::{
     create_session_id, get_registry, now_ms, ProcessSession, ProcessStatus,
 };
@@ -41,6 +42,34 @@ static LOGIN_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 #[cfg(windows)]
 pub(crate) fn get_login_shell_path() -> Option<&'static str> {
     None
+}
+
+fn configured_exec_shell_mode() -> ExecShellMode {
+    crate::config::cached_config().exec_shell_mode
+}
+
+#[cfg(unix)]
+fn user_shell() -> Option<String> {
+    std::env::var("SHELL").ok().filter(|s| !s.trim().is_empty())
+}
+
+fn build_exec_command(command: &str, mode: ExecShellMode) -> tokio::process::Command {
+    #[cfg(unix)]
+    {
+        match (mode, user_shell()) {
+            (ExecShellMode::FullTerminal, Some(shell)) => {
+                let mut cmd = tokio::process::Command::new(shell);
+                cmd.args(["-l", "-i", "-c", command]);
+                cmd
+            }
+            _ => crate::platform::default_shell_command_tokio(command),
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = mode;
+        crate::platform::default_shell_command_tokio(command)
+    }
 }
 
 #[cfg(unix)]
@@ -321,6 +350,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     let max_output = compute_max_output_chars(ctx.context_window_tokens);
     let session_cwd = cwd.clone().unwrap_or_else(|| ctx.default_cwd());
+    let shell_mode = configured_exec_shell_mode();
 
     app_info!(
         "tool",
@@ -350,6 +380,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                 serde_json::json!({
                     "cwd": &session_cwd, "explicitCwd": &cwd, "timeout": timeout_secs,
                     "background": background, "pty": use_pty, "sandbox": sandbox,
+                    "execShellMode": shell_mode,
                 })
                 .to_string(),
             ),
@@ -358,14 +389,18 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         );
     }
 
-    // Build the command via the platform shell (sh -c on Unix, cmd /C on Windows)
-    let mut cmd = crate::platform::default_shell_command_tokio(command);
+    // Build the command via the configured shell environment.
+    let mut cmd = build_exec_command(command, shell_mode);
 
     cmd.current_dir(&session_cwd);
 
-    // Apply login shell PATH
-    if let Some(shell_path) = get_login_shell_path() {
-        cmd.env("PATH", shell_path);
+    // Portable mode uses `sh -c`; inject a cached login-shell PATH so common
+    // shell-managed CLIs remain findable without paying full interactive-shell
+    // startup on every command.
+    if shell_mode == ExecShellMode::Portable {
+        if let Some(shell_path) = get_login_shell_path() {
+            cmd.env("PATH", shell_path);
+        }
     }
 
     // Apply custom environment variables
@@ -830,6 +865,7 @@ async fn exec_via_pty(
     let command_owned = command.to_string();
     let cwd_owned = cwd.map(|s| s.to_string());
     let default_cwd_owned = ctx.default_cwd();
+    let shell_mode = configured_exec_shell_mode();
     let env_vars: Vec<(String, String)> = args
         .get("env")
         .and_then(|v| v.as_object())
@@ -839,7 +875,9 @@ async fn exec_via_pty(
                 .collect()
         })
         .unwrap_or_default();
-    let login_path = get_login_shell_path().map(|s| s.to_string());
+    let login_path = (shell_mode == ExecShellMode::Portable)
+        .then(|| get_login_shell_path().map(|s| s.to_string()))
+        .flatten();
     let _sid = session_id.to_string();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(String, Option<i32>)> {
@@ -869,11 +907,22 @@ async fn exec_via_pty(
             })?;
 
         #[cfg(unix)]
-        let mut cmd = {
-            let mut c = CommandBuilder::new("sh");
-            c.arg("-c");
-            c.arg(&command_owned);
-            c
+        let mut cmd = match shell_mode {
+            ExecShellMode::FullTerminal => {
+                let shell = user_shell().unwrap_or_else(|| "sh".to_string());
+                let mut c = CommandBuilder::new(shell);
+                c.arg("-l");
+                c.arg("-i");
+                c.arg("-c");
+                c.arg(&command_owned);
+                c
+            }
+            ExecShellMode::Portable => {
+                let mut c = CommandBuilder::new("sh");
+                c.arg("-c");
+                c.arg(&command_owned);
+                c
+            }
         };
         #[cfg(windows)]
         let mut cmd = {
@@ -886,9 +935,11 @@ async fn exec_via_pty(
         let effective_cwd = cwd_owned.as_deref().unwrap_or(&default_cwd_owned);
         cmd.cwd(effective_cwd);
 
-        // Apply login shell PATH
-        if let Some(ref path) = login_path {
-            cmd.env("PATH", path);
+        // Portable mode uses `sh -c`; inject the cached login-shell PATH.
+        if shell_mode == ExecShellMode::Portable {
+            if let Some(ref path) = login_path {
+                cmd.env("PATH", path);
+            }
         }
 
         // Apply custom environment variables

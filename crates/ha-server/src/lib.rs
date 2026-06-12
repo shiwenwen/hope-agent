@@ -818,6 +818,14 @@ fn build_router_with_cors(
             post(routes::config::set_tool_timeout),
         )
         .route(
+            "/config/exec-shell-mode",
+            get(routes::config::get_exec_shell_mode),
+        )
+        .route(
+            "/config/exec-shell-mode",
+            post(routes::config::set_exec_shell_mode),
+        )
+        .route(
             "/config/approval-timeout",
             get(routes::config::get_approval_timeout),
         )

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.1] - 2026-06-12
 
+### Changed
+
+- **Exec 默认使用完整终端环境**：shell 命令默认通过用户登录交互 shell 执行，能加载 nvm / pyenv / rvm 等终端配置，并可在设置中切回更轻量的便携模式。 (#TBD)
+
 ### Fixed
 
 - **修复安装版内置技能不可用**：Office 三件套 / 浏览器 / Mac 控制等随包内置技能此前未被打入桌面安装包，导致安装版里输入框 `@` 提及的「技能」段为空、`skill` 工具与内置斜杠命令也找不到这些技能（开发模式与 Docker 自托管不受影响）。现已将内置技能随安装包发布，安装版可正常使用。

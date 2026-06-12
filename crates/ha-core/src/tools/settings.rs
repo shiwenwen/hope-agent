@@ -448,7 +448,10 @@ fn read_category(category: &str) -> Result<Value> {
         "startup_notification" => Ok(serde_json::to_value(&cfg.startup_notification)?),
         "auto_update" => Ok(serde_json::to_value(&cfg.auto_update)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
-        "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
+        "tool_timeout" => Ok(json!({
+            "toolTimeout": cfg.tool_timeout,
+            "execShellMode": cfg.exec_shell_mode,
+        })),
         "approval" => Ok(json!({
             "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
@@ -584,6 +587,7 @@ fn get_all_overview() -> Result<String> {
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
+        "execShellMode": cfg.exec_shell_mode,
         "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
         "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
         "notification": {
@@ -872,6 +876,9 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "tool_timeout" => {
             if let Some(v) = values.get("toolTimeout").and_then(|v| v.as_u64()) {
                 store.tool_timeout = v;
+            }
+            if let Some(v) = values.get("execShellMode") {
+                store.exec_shell_mode = serde_json::from_value(v.clone())?;
             }
         }
         "approval" => {

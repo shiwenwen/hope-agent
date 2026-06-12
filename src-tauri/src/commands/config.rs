@@ -695,6 +695,21 @@ pub async fn set_tool_timeout(seconds: u64) -> Result<(), CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_exec_shell_mode() -> Result<ha_core::config::ExecShellMode, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.exec_shell_mode)
+}
+
+#[tauri::command]
+pub async fn set_exec_shell_mode(mode: ha_core::config::ExecShellMode) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("exec_shell_mode", "settings-ui"), |store| {
+        store.exec_shell_mode = mode;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_approval_timeout() -> Result<u64, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.permission.approval_timeout_secs)

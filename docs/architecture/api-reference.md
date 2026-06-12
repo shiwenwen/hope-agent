@@ -921,6 +921,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 |---|---|---|
 | `get_tool_timeout` | `GET /api/config/tool-timeout` | ✅ |
 | `set_tool_timeout` | `POST /api/config/tool-timeout` | ✅ |
+| `get_exec_shell_mode` | `GET /api/config/exec-shell-mode` | ✅ |
+| `set_exec_shell_mode` | `POST /api/config/exec-shell-mode` | ✅ |
 | `get_approval_timeout` | `GET /api/config/approval-timeout` | ✅ |
 | `set_approval_timeout` | `POST /api/config/approval-timeout` | ✅ |
 | `get_approval_timeout_enabled` | `GET /api/config/approval-timeout-enabled` | ✅ |

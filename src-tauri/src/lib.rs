@@ -447,6 +447,8 @@ pub fn run() {
             // Tool timeout
             commands::config::get_tool_timeout,
             commands::config::set_tool_timeout,
+            commands::config::get_exec_shell_mode,
+            commands::config::set_exec_shell_mode,
             commands::config::get_approval_timeout,
             commands::config::get_approval_timeout_enabled,
             commands::config::set_approval_timeout,
