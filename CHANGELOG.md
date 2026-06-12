@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-06-12
+
+### Fixed
+
+- **修复安装版内置技能不可用**：Office 三件套 / 浏览器 / Mac 控制等随包内置技能此前未被打入桌面安装包，导致安装版里输入框 `@` 提及的「技能」段为空、`skill` 工具与内置斜杠命令也找不到这些技能（开发模式与 Docker 自托管不受影响）。现已将内置技能随安装包发布，安装版可正常使用。
+
 ## [0.10.0] - 2026-06-12
 
 ### Added
