@@ -186,15 +186,13 @@ fn parse_exec_timeout_secs(args: &Value) -> u64 {
 /// Shared handling for `ApprovalCheckError::TimedOut` in the exec path.
 /// Returns `Ok(())` when the configured timeout action is Proceed and
 /// `Err(..)` (after marking the process session Failed) when Deny.
-async fn handle_exec_approval_timeout(
-    session_id: &str,
-    command: &str,
-    timeout_secs: u64,
-) -> Result<()> {
+/// Decide what to do when the exec approval dialog times out, per
+/// `approval_timeout_action`. Registry-free (see
+/// [`resolve_exec_command_approval`]); callers own any `ProcessSession`
+/// cleanup on the `Deny` branch.
+fn exec_approval_timeout_outcome(command: &str, timeout_secs: u64) -> Result<()> {
     match approval_timeout_action() {
         crate::config::ApprovalTimeoutAction::Deny => {
-            let mut registry = get_registry().lock().await;
-            registry.mark_exited(session_id, None, None, ProcessStatus::Failed);
             app_warn!(
                 "tool",
                 "exec",
@@ -216,6 +214,116 @@ async fn handle_exec_approval_timeout(
                 command
             );
             Ok(())
+        }
+    }
+}
+
+/// Single source of truth for `exec`'s command-level approval gate: the
+/// unified permission engine + the legacy AllowAlways command-prefix shortcut
+/// + the interactive approval dialog + the timeout action. Returns `Ok(())`
+/// when the command may run, `Err` (carrying a [`super::rejection::ToolRejection`])
+/// when it must be blocked.
+///
+/// Deliberately does NOT touch the process-session registry: the async
+/// approval-reorder path ([`super::execution::execute_tool_with_context`])
+/// calls this *before* any `ProcessSession` exists, so registry cleanup on
+/// denial is the caller's responsibility. `tool_exec` (the synchronous path)
+/// owns a live session and marks it `Failed` on the `Err` branch.
+pub(crate) async fn resolve_exec_command_approval(
+    command: &str,
+    args: &Value,
+    ctx: &super::ToolExecContext,
+    session_cwd: &str,
+) -> Result<()> {
+    let decision = super::execution::resolve_tool_permission(TOOL_EXEC, args, ctx, false).await;
+    match decision {
+        crate::permission::Decision::Allow => Ok(()),
+        crate::permission::Decision::Deny { reason } => {
+            app_warn!(
+                "tool",
+                "exec",
+                "Command execution denied by policy ({}): {}",
+                reason,
+                command
+            );
+            Err(super::rejection::ToolRejection::denied_by_policy(
+                TOOL_EXEC, reason,
+            ))
+        }
+        crate::permission::Decision::Ask { reason } => {
+            let allow_always_ok = !reason.forbids_allow_always();
+            // Legacy command-prefix shortcut still applies for non-strict ask
+            // reasons — once the user has AllowAlways'd `git status`, future
+            // `git status *` skips the dialog.
+            if allow_always_ok && is_command_allowed(command).await {
+                app_info!(
+                    "tool",
+                    "exec",
+                    "Command auto-approved by allowlist prefix: {}",
+                    command
+                );
+                return Ok(());
+            }
+            let reason_payload = Some(super::approval::ApprovalReasonPayload::from(&reason));
+            match check_and_request_approval(
+                command,
+                session_cwd,
+                ctx.session_id.as_deref(),
+                reason_payload,
+            )
+            .await
+            {
+                Ok(ApprovalResponse::AllowOnce) => {
+                    app_info!("tool", "exec", "Command approved (once): {}", command);
+                    Ok(())
+                }
+                Ok(ApprovalResponse::AllowAlways) => {
+                    if allow_always_ok {
+                        app_info!("tool", "exec", "Command approved (always): {}", command);
+                        if let Err(e) = crate::permission::allowlist::add_allow_always_for_call(
+                            TOOL_EXEC,
+                            args,
+                            ctx.allowlist_grant_context(),
+                        ) {
+                            app_warn!(
+                                "tool",
+                                "exec",
+                                "Command AllowAlways persistence failed: {}",
+                                e
+                            );
+                        }
+                    } else {
+                        app_info!(
+                            "tool",
+                            "exec",
+                            "Command approved once (AllowAlways unavailable: {:?}): {}",
+                            reason,
+                            command
+                        );
+                    }
+                    Ok(())
+                }
+                Ok(ApprovalResponse::Deny) => {
+                    app_warn!("tool", "exec", "Command execution denied by user: {}", command);
+                    Err(super::rejection::ToolRejection::denied_by_user(TOOL_EXEC))
+                }
+                Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
+                    exec_approval_timeout_outcome(command, timeout_secs)
+                }
+                Err(e) => {
+                    app_warn!(
+                        "tool",
+                        "exec",
+                        "Approval check failed ({}); blocking command execution: {}",
+                        e,
+                        command
+                    );
+                    Err(super::rejection::ToolRejection::approval_failed(
+                        TOOL_EXEC,
+                        e.to_string(),
+                    ))
+                }
+            }
         }
     }
 }
@@ -505,124 +613,25 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     }
 
     // ── Command approval gate ───────────────────────────────────
-    // Run the unified permission engine — it knows about plan mode, YOLO,
-    // protected paths, dangerous commands, edit-command patterns, and the
-    // session preset. `exec` keeps a separate command-prefix AllowAlways
-    // store on top: once the user picks "allow always" for `git status`,
-    // the prefix shortcut keeps the engine from re-asking for similar
-    // commands.
+    // Single source of truth: `resolve_exec_command_approval` (unified
+    // permission engine + legacy AllowAlways command-prefix shortcut +
+    // interactive approval + timeout action). The async approval-reorder path
+    // runs the SAME gate *before* detaching (see
+    // `execution::execute_tool_with_context`) and then sets `exec_pre_approved`
+    // so this inner call is skipped — the user approves the command once,
+    // before any synthetic "started" job id is returned (ASYNC-1 / HOOKS-2).
     //
-    // Gate predicate is `ToolExecContext::should_run_exec_command_gate` —
-    // it reads `auto_approve_tools` only, deliberately ignoring
-    // `external_pre_approved`. The latter is set by async-job re-entry to
-    // silence the *engine* gate (the engine intentionally excludes `exec`
-    // and would never have run anyway), and must NOT silence this
-    // command-level audit — otherwise dangerous shell commands could slip
-    // through whenever the call is re-dispatched into a background runtime.
+    // Gate predicate is `ToolExecContext::should_run_exec_command_gate` — it
+    // ignores `external_pre_approved` (async-job re-entry silences only the
+    // *engine* gate, never this command-level audit) and honors
+    // `exec_pre_approved` (set only after the reorder already ran this gate).
     if ctx.should_run_exec_command_gate() {
-        let decision = super::execution::resolve_tool_permission(TOOL_EXEC, args, ctx, false).await;
-        match decision {
-            crate::permission::Decision::Allow => {}
-            crate::permission::Decision::Deny { reason } => {
-                let mut registry = get_registry().lock().await;
-                registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                app_warn!(
-                    "tool",
-                    "exec",
-                    "Command execution denied by policy ({}): {}",
-                    reason,
-                    command
-                );
-                return Err(super::rejection::ToolRejection::denied_by_policy(
-                    TOOL_EXEC, reason,
-                ));
-            }
-            crate::permission::Decision::Ask { reason } => {
-                let allow_always_ok = !reason.forbids_allow_always();
-                // Legacy command-prefix shortcut still applies for non-strict
-                // ask reasons — once the user has AllowAlways'd `git status`,
-                // future `git status *` skips the dialog.
-                if allow_always_ok && is_command_allowed(command).await {
-                    app_info!(
-                        "tool",
-                        "exec",
-                        "Command auto-approved by allowlist prefix: {}",
-                        command
-                    );
-                } else {
-                    let reason_payload =
-                        Some(super::approval::ApprovalReasonPayload::from(&reason));
-                    match check_and_request_approval(
-                        command,
-                        &session_cwd,
-                        ctx.session_id.as_deref(),
-                        reason_payload,
-                    )
-                    .await
-                    {
-                        Ok(ApprovalResponse::AllowOnce) => {
-                            app_info!("tool", "exec", "Command approved (once): {}", command);
-                        }
-                        Ok(ApprovalResponse::AllowAlways) => {
-                            if allow_always_ok {
-                                app_info!("tool", "exec", "Command approved (always): {}", command);
-                                if let Err(e) =
-                                    crate::permission::allowlist::add_allow_always_for_call(
-                                        TOOL_EXEC,
-                                        args,
-                                        ctx.allowlist_grant_context(),
-                                    )
-                                {
-                                    app_warn!(
-                                        "tool",
-                                        "exec",
-                                        "Command AllowAlways persistence failed: {}",
-                                        e
-                                    );
-                                }
-                            } else {
-                                app_info!(
-                                    "tool",
-                                    "exec",
-                                    "Command approved once (AllowAlways unavailable: {:?}): {}",
-                                    reason,
-                                    command
-                                );
-                            }
-                        }
-                        Ok(ApprovalResponse::Deny) => {
-                            let mut registry = get_registry().lock().await;
-                            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                            app_warn!(
-                                "tool",
-                                "exec",
-                                "Command execution denied by user: {}",
-                                command
-                            );
-                            return Err(super::rejection::ToolRejection::denied_by_user(TOOL_EXEC));
-                        }
-                        Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
-                            handle_exec_approval_timeout(&session_id, command, timeout_secs)
-                                .await?;
-                        }
-                        Err(e) => {
-                            let mut registry = get_registry().lock().await;
-                            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                            app_warn!(
-                                "tool",
-                                "exec",
-                                "Approval check failed ({}); blocking command execution: {}",
-                                e,
-                                command
-                            );
-                            return Err(super::rejection::ToolRejection::approval_failed(
-                                TOOL_EXEC,
-                                e.to_string(),
-                            ));
-                        }
-                    }
-                }
-            }
+        if let Err(e) = resolve_exec_command_approval(command, args, ctx, &session_cwd).await {
+            // The reorder path owns no `ProcessSession`; here in `tool_exec` one
+            // already exists, so mark it `Failed` before surfacing the rejection.
+            let mut registry = get_registry().lock().await;
+            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+            return Err(e);
         }
     }
 

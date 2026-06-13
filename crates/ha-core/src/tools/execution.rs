@@ -228,6 +228,20 @@ pub struct ToolExecContext {
     /// approval gates including command-level" and is set only by IM
     /// auto-approve accounts or slash-skill execution.
     pub external_pre_approved: bool,
+    /// Set ONLY by the async approval-reorder path
+    /// ([`execute_tool_with_context`]) after it has already run `exec`'s
+    /// command-level gate ([`exec::resolve_exec_command_approval`]) and the
+    /// user approved — *before* detaching the call into a background job. The
+    /// spawned re-dispatch reads this via [`Self::should_run_exec_command_gate`]
+    /// to skip the inner gate, so the command is approved exactly once and the
+    /// model never sees a synthetic "started" job id ahead of the prompt
+    /// (ASYNC-1 / HOOKS-2).
+    ///
+    /// Physically separate from [`Self::external_pre_approved`], which silences
+    /// only the *engine* gate and must NEVER suppress the command-level audit.
+    /// This flag may suppress the command gate precisely because it is set only
+    /// once that gate has already passed for this exact call.
+    pub exec_pre_approved: bool,
     /// Per-session permission mode (Default / Smart / Yolo). Resolved from the
     /// `sessions.permission_mode` column at agent build time. The engine
     /// consumes this together with `global_yolo` to decide approval behavior.
@@ -313,18 +327,23 @@ impl ToolExecContext {
     }
 
     /// True when `exec` must run its command-level audit (dangerous-commands
-    /// + edit-commands + AllowAlways prefix). Only `auto_approve_tools`
-    /// bypasses this — `external_pre_approved` deliberately does NOT,
-    /// because the outer engine gate excludes `TOOL_EXEC` and this audit is
-    /// `exec`'s only safeguard against dangerous patterns when the call is
+    /// + edit-commands + AllowAlways prefix). Two flags bypass it:
+    ///   - `auto_approve_tools` — "skip ALL approval" (IM auto-approve /
+    ///     slash-skill execution); and
+    ///   - `exec_pre_approved` — the async approval-reorder already ran this
+    ///     exact gate and the user approved, before detaching.
+    ///
+    /// `external_pre_approved` deliberately does NOT bypass it: it silences
+    /// only the engine gate (which excludes `TOOL_EXEC` anyway), and this audit
+    /// is `exec`'s only safeguard against dangerous patterns when the call is
     /// re-dispatched through the async-job spawner / auto-bg helper.
     ///
-    /// Changing this read site without also updating
-    /// [`Self::auto_approve_tools`] / [`Self::external_pre_approved`] doc
-    /// is a security regression.
+    /// Changing this read site without also updating the
+    /// [`Self::auto_approve_tools`] / [`Self::external_pre_approved`] /
+    /// [`Self::exec_pre_approved`] docs is a security regression.
     #[inline]
     pub fn should_run_exec_command_gate(&self) -> bool {
-        !self.auto_approve_tools
+        !self.auto_approve_tools && !self.exec_pre_approved
     }
 
     /// Returns the default path for path-aware tools: session working dir,
@@ -1974,6 +1993,7 @@ mod tests {
     fn external_pre_approved_skips_engine_for_non_exec() {
         let ctx = ToolExecContext {
             external_pre_approved: true,
+            exec_pre_approved: false,
             ..ToolExecContext::default()
         };
         assert!(ctx.local_auto_approve());
@@ -1992,6 +2012,7 @@ mod tests {
         // must still run inside `exec::tool_exec`.
         let ctx = ToolExecContext {
             external_pre_approved: true,
+            exec_pre_approved: false,
             auto_approve_tools: false,
             ..ToolExecContext::default()
         };
@@ -2024,6 +2045,7 @@ mod tests {
         // already decided this tool must always ask.
         let ctx = ToolExecContext {
             external_pre_approved: true,
+            exec_pre_approved: false,
             plan_mode_allowed_tools: vec!["exec".to_string()],
             plan_mode_ask_tools: vec!["exec".to_string()],
             ..ToolExecContext::default()
@@ -2062,6 +2084,7 @@ mod tests {
         let inner_ctx = ToolExecContext {
             bypass_async_dispatch: true,
             external_pre_approved: true,
+            exec_pre_approved: false,
             // auto_approve_tools intentionally NOT touched
             ..ToolExecContext::default()
         };

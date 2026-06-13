@@ -1722,6 +1722,7 @@ impl AssistantAgent {
             },
             auto_approve_tools: self.auto_approve_tools,
             external_pre_approved: false,
+            exec_pre_approved: false,
             session_mode,
             agent_custom_approval_enabled: caps.enable_custom_tool_approval,
             agent_custom_approval_tools: caps.custom_approval_tools.clone(),
