@@ -43,7 +43,11 @@ impl AsyncJobsDB {
                 created_at INTEGER NOT NULL,
                 completed_at INTEGER,
                 injected INTEGER NOT NULL DEFAULT 0,
-                origin TEXT NOT NULL DEFAULT 'explicit'
+                origin TEXT NOT NULL DEFAULT 'explicit',
+                approval_origin TEXT,
+                incognito INTEGER NOT NULL DEFAULT 0,
+                pid INTEGER,
+                cancel_requested INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_async_jobs_session_status
@@ -62,8 +66,9 @@ impl AsyncJobsDB {
             "INSERT INTO async_tool_jobs (
                 job_id, session_id, agent_id, tool_name, tool_call_id,
                 args_json, status, result_preview, result_path, error,
-                created_at, completed_at, injected, origin
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                created_at, completed_at, injected, origin,
+                approval_origin, incognito, pid, cancel_requested
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
             params![
                 job.job_id,
                 job.session_id,
@@ -79,6 +84,10 @@ impl AsyncJobsDB {
                 job.completed_at,
                 job.injected as i32,
                 job.origin,
+                job.approval_origin,
+                job.incognito as i32,
+                job.pid,
+                job.cancel_requested as i32,
             ],
         )?;
         Ok(())
@@ -137,7 +146,8 @@ impl AsyncJobsDB {
         let mut stmt = conn.prepare(
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
-                    created_at, completed_at, injected, origin
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested
              FROM async_tool_jobs WHERE job_id=?1",
         )?;
         stmt.query_row(params![job_id], row_to_job)
@@ -154,7 +164,8 @@ impl AsyncJobsDB {
         let mut stmt = conn.prepare(
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
-                    created_at, completed_at, injected, origin
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested
              FROM async_tool_jobs WHERE status IN ('running','cancelling','awaiting_approval')",
         )?;
         let rows = stmt.query_map([], row_to_job)?;
@@ -261,7 +272,8 @@ impl AsyncJobsDB {
         let sql = format!(
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
-                    created_at, completed_at, injected, origin
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested
              FROM async_tool_jobs
              WHERE status IN ({})
                AND injected=0",
@@ -279,6 +291,8 @@ impl AsyncJobsDB {
 
 fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
     let injected: i32 = row.get(12)?;
+    let incognito: i32 = row.get(15)?;
+    let cancel_requested: i32 = row.get(17)?;
     let status_str: String = row.get(6)?;
     let status = AsyncJobStatus::parse(&status_str).unwrap_or_else(|| {
         crate::app_warn!(
@@ -304,5 +318,9 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
         completed_at: row.get(11)?,
         injected: injected != 0,
         origin: row.get(13)?,
+        approval_origin: row.get(14)?,
+        incognito: incognito != 0,
+        pid: row.get(16)?,
+        cancel_requested: cancel_requested != 0,
     })
 }

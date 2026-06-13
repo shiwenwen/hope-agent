@@ -89,6 +89,20 @@ pub struct AsyncJob {
     /// `explicit` for `run_in_background: true`,
     /// `policy_forced` for agent `always-background`.
     pub origin: String,
+    /// How this job's execution was authorized (snake_case: `user` /
+    /// `timeout_proceed` / `yolo` / `auto_approve` / `external_pre_approved`).
+    /// `None` for jobs that never hit an approval gate. Column lands in A-7;
+    /// real values written by B4 / F6 (TIMEOUT-2 audit).
+    pub approval_origin: Option<String>,
+    /// Whether the owning session is incognito — incognito jobs skip on-disk
+    /// args/output persistence. Column lands in A-7; set by E4.
+    pub incognito: bool,
+    /// OS process id of the spawned child (exec), for restart orphan cleanup.
+    /// Column lands in A-7; set by I3.
+    pub pid: Option<i64>,
+    /// Cross-process cancel flag — set via DB so another process's runner can
+    /// observe cancellation. Column lands in A-7; set by I4.
+    pub cancel_requested: bool,
 }
 
 /// Reason a job was created — primarily for telemetry / injection wording.

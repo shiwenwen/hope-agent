@@ -294,6 +294,10 @@ mod tests {
             completed_at: None,
             injected: false,
             origin: JobOrigin::Explicit.as_str().to_string(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
         };
         db.insert(&job).expect("insert");
     }
