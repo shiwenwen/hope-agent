@@ -1075,8 +1075,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "文件过大，仅渲染前 256KB",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "拆分",
+    "layoutUnified": "统一",
     "noDiffData": "无 diff 数据",
     "openDiff": "查看 diff",
     "resizePanel": "调整 diff 面板宽度",

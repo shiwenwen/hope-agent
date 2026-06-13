@@ -1065,8 +1065,8 @@
     "diffPanel": {
       "title": "ファイルの変更",
       "openDiff": "差分を表示",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "統合",
+      "layoutSplit": "分割",
       "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
       "noDiffData": "差分データがありません",
       "resizePanel": "差分パネルのサイズを変更"
@@ -2418,8 +2418,8 @@
     "diffPanel": {
       "title": "파일 변경 사항",
       "openDiff": "diff 보기",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "통합",
+      "layoutSplit": "분할",
       "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",
       "noDiffData": "diff 데이터 없음",
       "resizePanel": "diff 패널 크기 조절"
@@ -3771,8 +3771,8 @@
     "diffPanel": {
       "title": "檔案變更",
       "openDiff": "查看 diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "統一",
+      "layoutSplit": "拆分",
       "fileTooLarge": "檔案過大，僅渲染前 256KB",
       "noDiffData": "無 diff 資料",
       "resizePanel": "調整 diff 面板寬度"
@@ -5107,8 +5107,8 @@
     "diffPanel": {
       "title": "Dosya değişiklikleri",
       "openDiff": "Diff'i aç",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "Birleşik",
+      "layoutSplit": "Bölünmüş",
       "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
       "noDiffData": "Diff verisi yok",
       "resizePanel": "Diff panelini yeniden boyutlandır"
@@ -6460,8 +6460,8 @@
     "diffPanel": {
       "title": "Thay đổi tệp",
       "openDiff": "Mở diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "Hợp nhất",
+      "layoutSplit": "Tách đôi",
       "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
       "noDiffData": "Không có dữ liệu diff",
       "resizePanel": "Thay đổi kích thước bảng diff"
@@ -7813,8 +7813,8 @@
     "diffPanel": {
       "title": "Alterações de arquivo",
       "openDiff": "Abrir diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "Unificado",
+      "layoutSplit": "Dividido",
       "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",
       "noDiffData": "Sem dados de diff",
       "resizePanel": "Redimensionar painel de diff"
@@ -9166,8 +9166,8 @@
     "diffPanel": {
       "title": "Изменения в файлах",
       "openDiff": "Открыть diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "Объединённый",
+      "layoutSplit": "Раздельный",
       "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",
       "noDiffData": "Нет данных diff",
       "resizePanel": "Изменить размер панели diff"
@@ -10519,8 +10519,8 @@
     "diffPanel": {
       "title": "تغييرات الملفات",
       "openDiff": "فتح الفرق",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "موحد",
+      "layoutSplit": "مقسم",
       "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
       "noDiffData": "لا توجد بيانات للفرق",
       "resizePanel": "تغيير حجم لوحة الفرق"
@@ -11872,8 +11872,8 @@
     "diffPanel": {
       "title": "Cambios de archivo",
       "openDiff": "Abrir diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "Unificado",
+      "layoutSplit": "Dividido",
       "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
       "noDiffData": "Sin datos de diff",
       "resizePanel": "Redimensionar panel de diff"
@@ -13225,8 +13225,8 @@
     "diffPanel": {
       "title": "Perubahan fail",
       "openDiff": "Buka diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "Bersatu",
+      "layoutSplit": "Pisah",
       "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
       "noDiffData": "Tiada data diff",
       "resizePanel": "Saiz semula panel diff"
@@ -13564,8 +13564,8 @@
     "diffPanel": {
       "title": "文件改动",
       "openDiff": "查看 diff",
-      "layoutUnified": "Unified",
-      "layoutSplit": "Split",
+      "layoutUnified": "统一",
+      "layoutSplit": "拆分",
       "fileTooLarge": "文件过大，仅渲染前 256KB",
       "noDiffData": "无 diff 数据",
       "resizePanel": "调整 diff 面板宽度"

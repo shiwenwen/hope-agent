@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "檔案過大，僅渲染前 256KB",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "拆分",
+    "layoutUnified": "統一",
     "noDiffData": "無 diff 資料",
     "openDiff": "查看 diff",
     "resizePanel": "調整 diff 面板寬度",

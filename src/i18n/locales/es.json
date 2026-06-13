@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "Dividido",
+    "layoutUnified": "Unificado",
     "noDiffData": "Sin datos de diff",
     "openDiff": "Abrir diff",
     "resizePanel": "Redimensionar panel de diff",

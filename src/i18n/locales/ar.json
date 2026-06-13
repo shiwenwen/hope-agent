@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "مقسم",
+    "layoutUnified": "موحد",
     "noDiffData": "لا توجد بيانات للفرق",
     "openDiff": "فتح الفرق",
     "resizePanel": "تغيير حجم لوحة الفرق",

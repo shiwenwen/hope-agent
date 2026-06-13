@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "분할",
+    "layoutUnified": "통합",
     "noDiffData": "diff 데이터 없음",
     "openDiff": "diff 보기",
     "resizePanel": "diff 패널 크기 조절",

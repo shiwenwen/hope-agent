@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { ChevronRight, BrainCircuit } from "lucide-react"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { getAutoExpandThinking, getCachedAutoExpandThinking } from "../thinkingCache"
+import { formatDuration } from "../chatUtils"
 import InterruptedMark from "./InterruptedMark"
 
 interface ThinkingBlockProps {
@@ -30,17 +31,6 @@ export default function ThinkingBlock({
   const contentRef = useRef<HTMLDivElement>(null)
   const startedAtRef = useRef<number | null>(null)
   const isOpen = manualOpen ?? (isStreaming ? autoExpand : false)
-
-  const formatElapsed = useMemo(
-    () => (ms: number) => {
-      if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-      const totalSeconds = Math.floor(ms / 1000)
-      const minutes = Math.floor(totalSeconds / 60)
-      const seconds = totalSeconds % 60
-      return `${minutes}m ${seconds}s`
-    },
-    [],
-  )
 
   // Load auto-expand setting
   useEffect(() => {
@@ -104,7 +94,7 @@ export default function ThinkingBlock({
         {(isStreaming || elapsedMs > 0 || (durationMs != null && durationMs > 0)) && (
           <span className="text-[10px] text-muted-foreground/70">
             {t("thinking.elapsed", {
-              time: formatElapsed(elapsedMs > 0 ? elapsedMs : durationMs || 0),
+              time: formatDuration(elapsedMs > 0 ? elapsedMs : durationMs || 0),
             })}
           </span>
         )}

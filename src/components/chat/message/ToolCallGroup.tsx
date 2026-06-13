@@ -15,6 +15,7 @@ import {
   GitCompare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDuration } from "../chatUtils"
 import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
@@ -31,14 +32,6 @@ import {
   type ExecutionToolGroupLabelKey,
   type ToolCategory,
 } from "./executionStatus"
-
-function formatElapsed(ms: number): string {
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}m ${seconds}s`
-}
 
 /** Icon per category */
 const CATEGORY_ICONS: Record<ToolCategory, React.ComponentType<{ className?: string }>> = {
@@ -153,7 +146,7 @@ function GroupItem({
   const startedAtMs = tool.startedAtMs || 0
   const elapsedMs = tool.durationMs ?? (isRunning && startedAtMs ? now - startedAtMs : undefined)
   const elapsedText = useMemo(
-    () => (elapsedMs != null && elapsedMs >= 0 ? formatElapsed(elapsedMs) : null),
+    () => (elapsedMs != null && elapsedMs >= 0 ? formatDuration(elapsedMs) : null),
     [elapsedMs],
   )
   const canExpand = tool.name === "exec" || (!isRunning && !!tool.result)
@@ -337,7 +330,7 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
   }, [tools, now])
 
   const totalElapsedText = useMemo(
-    () => (totalElapsedMs != null ? formatElapsed(totalElapsedMs) : null),
+    () => (totalElapsedMs != null ? formatDuration(totalElapsedMs) : null),
     [totalElapsedMs],
   )
 

@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "Bölünmüş",
+    "layoutUnified": "Birleşik",
     "noDiffData": "Diff verisi yok",
     "openDiff": "Diff'i aç",
     "resizePanel": "Diff panelini yeniden boyutlandır",

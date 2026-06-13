@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "Tách đôi",
+    "layoutUnified": "Hợp nhất",
     "noDiffData": "Không có dữ liệu diff",
     "openDiff": "Mở diff",
     "resizePanel": "Thay đổi kích thước bảng diff",

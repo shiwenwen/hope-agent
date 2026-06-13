@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "Pisah",
+    "layoutUnified": "Bersatu",
     "noDiffData": "Tiada data diff",
     "openDiff": "Buka diff",
     "resizePanel": "Saiz semula panel diff",

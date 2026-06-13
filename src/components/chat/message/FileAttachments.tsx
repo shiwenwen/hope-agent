@@ -51,12 +51,12 @@ function AttachmentRow({
         <button
           type="button"
           onClick={() => run(primary)}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-foreground/70 transition-colors hover:bg-muted hover:text-foreground max-w-[220px]"
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] text-foreground/70 transition-colors hover:bg-muted hover:text-foreground max-w-[240px]"
         >
           <FileMimeIcon
             mime={attachmentMime(file)}
             name={attachmentName(file)}
-            className="h-3 w-3 shrink-0 text-muted-foreground"
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
           />
           <span className="truncate">{attachmentName(file)}</span>
         </button>

@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "分割",
+    "layoutUnified": "統合",
     "noDiffData": "差分データがありません",
     "openDiff": "差分を表示",
     "resizePanel": "差分パネルのサイズを変更",

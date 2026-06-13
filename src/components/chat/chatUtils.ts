@@ -181,14 +181,23 @@ export function formatMessageTime(timestamp?: string): string {
   }
 }
 
-/** Format duration in ms to human-readable string */
+/**
+ * Format a duration (ms) with second / minute / hour rollover — the single
+ * source of truth for all elapsed-time displays (tool steps, thinking blocks,
+ * processed-group totals, message total). Sub-minute shows one decimal second
+ * (`0.1s`, `5.3s`); from a minute up, whole units (`1m 30s`, `2h 5m`).
+ */
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.round(seconds % 60)
-  return `${minutes}m ${remainingSeconds}s`
+  const totalSeconds = Math.max(0, ms) / 1000
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  if (totalMinutes < 60) {
+    const seconds = Math.round(totalSeconds % 60)
+    return `${totalMinutes}m ${seconds}s`
+  }
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${hours}h ${minutes}m`
 }
 
 export type MessageFileAttachment =

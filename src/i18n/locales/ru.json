@@ -1143,8 +1143,8 @@
   },
   "diffPanel": {
     "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",
-    "layoutSplit": "Split",
-    "layoutUnified": "Unified",
+    "layoutSplit": "Раздельный",
+    "layoutUnified": "Объединённый",
     "noDiffData": "Нет данных diff",
     "openDiff": "Открыть diff",
     "resizePanel": "Изменить размер панели diff",
