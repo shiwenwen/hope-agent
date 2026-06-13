@@ -183,6 +183,32 @@ pub fn replay_pending_jobs() {
     match db.list_pending_injection() {
         Ok(rows) => {
             for job in rows {
+                // H6: this row is terminal but un-injected — it never had its
+                // terminal hook fired (process died before finalize, or it was
+                // just marked `interrupted` above). Fire it now so async
+                // terminals stay visible to hooks across restarts (HOOKS-1/4).
+                // Not double-fired in the normal path: a finalized job is
+                // injected=true and excluded by `list_pending_injection`; only
+                // crash/restart survivors reach here.
+                {
+                    let (is_error, is_interrupt) = job.status.terminal_hook_flags();
+                    let detail = if is_error {
+                        job.error.as_deref().unwrap_or("")
+                    } else {
+                        job.result_preview.as_deref().unwrap_or("")
+                    };
+                    crate::hooks::fire_async_job_terminal(
+                        job.session_id.as_deref(),
+                        job.agent_id.as_deref(),
+                        &job.tool_name,
+                        job.tool_call_id.as_deref(),
+                        &job.job_id,
+                        is_error,
+                        is_interrupt,
+                        detail,
+                    );
+                }
+
                 if job.status == AsyncJobStatus::Cancelled {
                     let _ = db.mark_injected(&job.job_id);
                     continue;

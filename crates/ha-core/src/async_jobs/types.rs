@@ -65,6 +65,18 @@ impl AsyncJobStatus {
             Self::Running | Self::Cancelling | Self::AwaitingApproval
         )
     }
+
+    /// `(is_error, is_interrupt)` for the terminal PostToolUse hook fire (H4/H6).
+    /// `Completed` → success; `Cancelled` / `Interrupted` → interrupted failure;
+    /// everything else (`Failed` / `TimedOut`, plus non-terminal states that
+    /// should never reach the fire site) → a plain (non-interrupt) failure.
+    pub fn terminal_hook_flags(self) -> (bool, bool) {
+        match self {
+            Self::Completed => (false, false),
+            Self::Cancelled | Self::Interrupted => (true, true),
+            _ => (true, false),
+        }
+    }
 }
 
 /// A single async tool job row.
@@ -147,6 +159,24 @@ mod tests {
     fn async_job_status_parse_unknown_returns_none() {
         assert!(AsyncJobStatus::parse("not-a-status").is_none());
         assert!(AsyncJobStatus::parse("").is_none());
+    }
+
+    #[test]
+    fn terminal_hook_flags_map_status_to_error_and_interrupt() {
+        // (is_error, is_interrupt)
+        assert_eq!(AsyncJobStatus::Completed.terminal_hook_flags(), (false, false));
+        assert_eq!(AsyncJobStatus::Failed.terminal_hook_flags(), (true, false));
+        assert_eq!(AsyncJobStatus::TimedOut.terminal_hook_flags(), (true, false));
+        assert_eq!(
+            AsyncJobStatus::Cancelled.terminal_hook_flags(),
+            (true, true),
+            "cancellation is an interrupted failure"
+        );
+        assert_eq!(
+            AsyncJobStatus::Interrupted.terminal_hook_flags(),
+            (true, true),
+            "restart interruption is an interrupted failure"
+        );
     }
 
     #[test]

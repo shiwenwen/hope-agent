@@ -557,6 +557,30 @@ async fn finalize_job(
     super::wait::notify_completion(job_id);
     emit_completion_event(job_id, tool_name, status.as_str());
 
+    // H4: fire the terminal PostToolUse / PostToolUseFailure hook so a
+    // backgrounded job is visible to hooks (HOOKS-1) — including cancellation
+    // (HOOKS-4, is_interrupt=true). Borrow (as_deref) before the owned fields
+    // are moved into `dispatch_injection` below. Fire-and-forget on the
+    // process-lived runtime, so it survives this OS thread exiting.
+    {
+        let (is_error, is_interrupt) = status.terminal_hook_flags();
+        let detail = if is_error {
+            error_text.as_deref().unwrap_or("")
+        } else {
+            preview.as_deref().unwrap_or("")
+        };
+        crate::hooks::fire_async_job_terminal(
+            session_id,
+            agent_id,
+            tool_name,
+            tool_call_id.as_deref(),
+            job_id,
+            is_error,
+            is_interrupt,
+            detail,
+        );
+    }
+
     // Schedule injection back into the parent session.
     if status == AsyncJobStatus::Cancelled {
         let _ = db.mark_injected(job_id);
