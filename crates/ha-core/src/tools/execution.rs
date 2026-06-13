@@ -1193,6 +1193,37 @@ pub async fn execute_tool_with_context(
         run_tool_approval(name, args, ctx, None, false).await?;
     }
 
+    // ── exec async approval reorder (B5 / B6) ─────────────────────
+    // `exec` is excluded from the outer engine gate above — its command-level
+    // approval normally lives inside `tool_exec`. For an async-eligible exec
+    // call that would otherwise detach, run that gate HERE, *before* handing
+    // off to the spawner, so:
+    //   - the user approves the command before the model ever sees a synthetic
+    //     "started" job id (ASYNC-1) and approval surfaces fire in causal order
+    //     (HOOKS-2); and
+    //   - for the auto-background tier the approval wait is excluded from the
+    //     `auto_background_secs` + `max_job_secs` budgets (ASYNC-2) — those
+    //     timers only start inside the spawner calls below.
+    // On approval, `exec_pre_approved` rides into the spawned context so the
+    // inner gate in `tool_exec` is skipped (one prompt, not two). On deny the
+    // rejection returns WITHOUT spawning — the model gets a STOP, never a
+    // phantom job. Non-exec async tools already ran the engine gate above, so
+    // they reach the spawn branches already approved.
+    let mut exec_pre_approved = false;
+    if name == TOOL_EXEC
+        && !matches!(async_decision, AsyncDecision::Sync)
+        && ctx.should_run_exec_command_gate()
+    {
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let session_cwd = args
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(|raw| ctx.resolve_path(raw))
+            .unwrap_or_else(|| ctx.default_cwd());
+        exec::resolve_exec_command_approval(command, args, ctx, &session_cwd).await?;
+        exec_pre_approved = true;
+    }
+
     // Log tool execution start
     if let Some(logger) = crate::get_logger() {
         let args_preview = {
@@ -1239,7 +1270,11 @@ pub async fn execute_tool_with_context(
     // job_id is returned to the LLM as the tool result; the real work runs on
     // a dedicated OS thread via `async_jobs::spawn_explicit_job`.
     if let AsyncDecision::ImmediateBackground(origin) = async_decision {
-        let raw = async_jobs::spawn_explicit_job(name, args.clone(), ctx.clone(), origin)?;
+        let mut spawn_ctx = ctx.clone();
+        // For exec the command gate already ran above; carry the verdict so the
+        // re-dispatch inside the background runtime doesn't prompt again.
+        spawn_ctx.exec_pre_approved = exec_pre_approved;
+        let raw = async_jobs::spawn_explicit_job(name, args.clone(), spawn_ctx, origin)?;
         // Skip the disk-persist tail since the synthetic JSON is small and
         // mirrors the same shape `job_status` returns later.
         return Ok(raw);
@@ -1264,6 +1299,10 @@ pub async fn execute_tool_with_context(
         // bypass `exec`'s command-level dangerous/edit audit and let any
         // shell command run silently as long as it's async-eligible.
         inner_ctx.external_pre_approved = true;
+        // For exec the command gate already ran above (before the budget timer
+        // starts); carry the verdict so the inner re-dispatch doesn't prompt
+        // again on the background OS thread.
+        inner_ctx.exec_pre_approved = exec_pre_approved;
         let raw =
             async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
         // The inner worker suppresses generic disk persistence so detached jobs
@@ -2101,6 +2140,25 @@ mod tests {
             &inner_ctx,
             inner_ctx.local_auto_approve()
         ));
+    }
+
+    #[test]
+    fn exec_pre_approved_bypasses_exec_command_gate() {
+        // B2: the async approval-reorder sets `exec_pre_approved=true` only
+        // AFTER it already ran the command gate at the outer dispatch, so the
+        // background re-dispatch must skip the inner gate — one prompt, not
+        // two. Physically distinct from `external_pre_approved`, which must
+        // NEVER pierce the command gate (see the regression above).
+        let ctx = ToolExecContext {
+            exec_pre_approved: true,
+            external_pre_approved: true,
+            auto_approve_tools: false,
+            ..ToolExecContext::default()
+        };
+        assert!(
+            !ctx.should_run_exec_command_gate(),
+            "exec_pre_approved (set post-approval by the reorder) must bypass the inner gate"
+        );
     }
 
     /// `ToolExecContext::emit_effective_args` is the bridge the streaming
