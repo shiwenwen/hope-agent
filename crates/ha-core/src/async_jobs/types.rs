@@ -164,9 +164,15 @@ mod tests {
     #[test]
     fn terminal_hook_flags_map_status_to_error_and_interrupt() {
         // (is_error, is_interrupt)
-        assert_eq!(AsyncJobStatus::Completed.terminal_hook_flags(), (false, false));
+        assert_eq!(
+            AsyncJobStatus::Completed.terminal_hook_flags(),
+            (false, false)
+        );
         assert_eq!(AsyncJobStatus::Failed.terminal_hook_flags(), (true, false));
-        assert_eq!(AsyncJobStatus::TimedOut.terminal_hook_flags(), (true, false));
+        assert_eq!(
+            AsyncJobStatus::TimedOut.terminal_hook_flags(),
+            (true, false)
+        );
         assert_eq!(
             AsyncJobStatus::Cancelled.terminal_hook_flags(),
             (true, true),

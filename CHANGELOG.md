@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **后台执行的命令先审批后启动**：当 `exec` 命令需要审批、又被设为后台执行（`run_in_background`）时，现在会先弹出审批、获批后才真正启动；此前会立刻返回「已在后台运行」，审批弹窗反而稍后才出现，容易让模型误以为命令已在执行。被拒绝时直接停下，不再产生一个无法对应的后台任务。
+- **Hook 现在能看到后台任务的终局**：自定义 hook 的 `PostToolUse` / `PostToolUseFailure` 现在也会在后台异步工具（`exec` / `web_search` / `image_generate` 等）真正完成、失败、超时或被取消时触发（携带 `job_id` 以与提交时的 `PreToolUse` 区分），重启后仍会为未上报的任务补发；此前后台任务的终局与取消对 hook 完全不可见。
 
 ## [0.10.2] - 2026-06-13
 

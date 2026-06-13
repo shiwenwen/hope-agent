@@ -32,7 +32,7 @@
 | `PreToolUse` | `tool_name` | `tools::execution::fire_pre_tool_use_hook`（`execution.rs`，可见性闸后、权限引擎前）| `deny`/`ask`/`defer`/`allow` 决策 + `updatedInput` 改写入参 |
 | `PreCompact` | `trigger` ∈ {manual, auto} | `agent::context`（`run_compaction` 入口，使用率 ≥ `reactiveTriggerRatio` 时）| `block` 跳过本次压缩；使用率 ≥ `CACHE_TTL_EMERGENCY_RATIO` 强制覆盖 |
 
-> **async exec 的审批时序**：`PreToolUse` 一律在可见性闸后、引擎/审批前早早触发（与是否后台化无关）。`exec` 的命令级审批历来在 `tool_exec` 内部跑——对 `run_in_background` 的 exec 曾导致审批弹窗出现在 synthetic `{status:"started"}` **之后**（HOOKS-2 时序倒置）。现已前移：`execute_tool_with_context` 在 detach 前跑完命令审批（详见 [tool-system.md「exec 命令审批前移」](tool-system.md#exec-命令审批前移)），故审批/拒绝因果上恒在「后台化」之前。异步 job 的**终局** hook（PostToolUse/Failure + `job_id` 关联）单独接线。
+> **async exec 的审批时序**：`PreToolUse` 一律在可见性闸后、引擎/审批前早早触发（与是否后台化无关）。`exec` 的命令级审批历来在 `tool_exec` 内部跑——对 `run_in_background` 的 exec 曾导致审批弹窗出现在 synthetic `{status:"started"}` **之后**（HOOKS-2 时序倒置）。现已前移：`execute_tool_with_context` 在 detach 前跑完命令审批（详见 [tool-system.md「exec 命令审批前移」](tool-system.md#exec-命令审批前移)），故审批/拒绝因果上恒在「后台化」之前。异步 job 的**终局** hook（PostToolUse/Failure + `job_id` 关联）见 §2.2「异步 job 终局可见性」。
 
 ### 2.2 真触发 · 观察型（21）
 
@@ -43,8 +43,8 @@
 | `SessionStart` | `source` ∈ {startup, resume, …} | `agent::context` / `hooks::fire_session_start_observation` |
 | `SessionEnd` | `source` | `hooks::fire_session_end` / `dispatch_session_end`（`mod.rs`）|
 | `UserPromptExpansion` | 命令名 | `hooks::fire_user_prompt_expansion`（`mod.rs`）|
-| `PostToolUse` | `tool_name` | `agent::streaming_loop::fire_post_tool_use_hook`（成功路径）|
-| `PostToolUseFailure` | `tool_name` | 同上（`is_error=true` 路径）|
+| `PostToolUse` | `tool_name` | `streaming_loop::fire_post_tool_use_hook`（同步成功路径）+ `hooks::fire_async_job_terminal`（异步 job 终局，`job_id=Some`）|
+| `PostToolUseFailure` | `tool_name` | 同上（`is_error=true`；异步取消 / 重启中断 `is_interrupt=true`）|
 | `PostToolBatch` | 无 | `agent::streaming_loop`（每 API round 全部 tool settle 后一次）|
 | `PermissionRequest` | `tool_name` | `hooks::fire_permission_request`（`mod.rs`）|
 | `PermissionDenied` | `tool_name` | `hooks::fire_permission_denied`（`mod.rs`）|
@@ -62,6 +62,16 @@
 
 > `Stop` / `StopFailure` 当前 fire-and-forget（未实现 block-to-continue）；落地该语义时移出 `is_observation_only`。
 > `Elicitation` / `ElicitationResult` 已重新用于原生 `ask_user_question`（payload 用 `request_id` / `question_count`，**非**官方 MCP elicitation schema）；MCP 落地后对齐官方 schema（见 Roadmap）。
+
+#### 异步 job 终局可见性
+
+`async_capable` 工具被后台化后，真实结果在**离开当轮**之后才落地，同步路径的 `fire_post_tool_use_hook` 看不到它。`async_jobs::spawn::finalize_job` 在写完终局后调 `hooks::fire_async_job_terminal` 补发终局 hook，对齐 Claude Code 的 PostToolUse 覆盖面：
+
+- **事件选择**：`Completed` → `PostToolUse`；`Failed` / `TimedOut` / `Cancelled` / `Interrupted` → `PostToolUseFailure`。映射单点在 `AsyncJobStatus::terminal_hook_flags()`（返回 `(is_error, is_interrupt)`）。
+- **`job_id` 关联（红线）**：终局 fire 一定带 `job_id=Some`。同一 `tool_use_id` 会 fire **两次**——后台化提交时的 `PreToolUse`（`job_id` 字段不存在）+ 这条终局 `PostToolUse(Failure)`（`job_id=Some`）。hook 靠 `job_id` 有无区分二者。`tool_input` 为 `Null`（finalize 处只有 job id、没有原始入参），matcher 按 `tool_name` 命中。
+- **取消可见(HOOKS-4)**：取消的 job 也 fire（`is_interrupt=true`），不再对 hooks 静默；但**不**走 `dispatch_injection`（取消多源于 turn-cancel / session-delete，注入会凭空起新回合 / 命中幽灵会话）。
+- **重启补发(HOOKS-1)**：`replay_pending_jobs` 对 terminal-but-uninjected 行补发终局 hook，覆盖重启时被标 `interrupted` 的 job(进程死前从未 fire)。正常 finalize 过的 job 是 `injected=true`，被 `list_pending_injection` 排除，不重复 fire。
+- **线程红线**：`fire_async_job_terminal` **强制走进程级 `fire_and_forget_runtime()`**，不用 `Handle::try_current()`——finalize 跑在 job OS 线程的 current-thread runtime 上，该 runtime 线程结束即 drop，spawn 在其上的 dispatch 会被静默杀掉。纯 fire-and-forget，不阻塞 finalize。
 
 ### 2.3 协议保留 · 不触发（4）
 
