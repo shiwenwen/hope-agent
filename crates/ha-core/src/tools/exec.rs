@@ -51,7 +51,12 @@ fn capture_login_shell_env() -> Option<Vec<(String, String)>> {
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let mut child = Command::new(&shell)
-        .args(["-l", "-i", "-c", "printf __HA_ENV_SNAPSHOT__; command env -0"])
+        .args([
+            "-l",
+            "-i",
+            "-c",
+            "printf __HA_ENV_SNAPSHOT__; command env -0",
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -66,7 +71,11 @@ fn capture_login_shell_env() -> Option<Vec<(String, String)>> {
             Ok(None) if start.elapsed() > timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
-                app_warn!("tool", "exec", "Login shell env resolution timed out after 5s");
+                app_warn!(
+                    "tool",
+                    "exec",
+                    "Login shell env resolution timed out after 5s"
+                );
                 return None;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
