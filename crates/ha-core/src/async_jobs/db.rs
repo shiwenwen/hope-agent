@@ -28,6 +28,23 @@ impl AsyncJobsDB {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Schema evolution for this rebuildable cache. The approval/governance
+        // columns (approval_origin / incognito / pid / cancel_requested) are
+        // referenced by every INSERT/SELECT below; an `async_tool_jobs` table
+        // from a prior version lacks them, and `CREATE TABLE IF NOT EXISTS`
+        // would NOT add them — every async spawn would then fail with "no such
+        // column". Project policy is "no migration — drop and rebuild": this DB
+        // is a pure cache (terminal rows are advisory, in-flight rows are
+        // marked interrupted on restart regardless), so on a stale schema we
+        // drop the table and let the CREATE below rebuild the current shape.
+        // A failing probe means the table is either absent (DROP is a no-op) or
+        // stale (DROP clears it); a current table passes and is untouched.
+        if conn
+            .prepare("SELECT approval_origin FROM async_tool_jobs LIMIT 0")
+            .is_err()
+        {
+            conn.execute_batch("DROP TABLE IF EXISTS async_tool_jobs;")?;
+        }
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS async_tool_jobs (
                 job_id TEXT PRIMARY KEY,
@@ -344,4 +361,84 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
         pid: row.get(16)?,
         cancel_requested: cancel_requested != 0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_job(id: &str) -> AsyncJob {
+        AsyncJob {
+            job_id: id.to_string(),
+            session_id: None,
+            agent_id: None,
+            tool_name: "exec".into(),
+            tool_call_id: None,
+            args_json: "{}".into(),
+            status: AsyncJobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: 0,
+            completed_at: None,
+            injected: false,
+            origin: "explicit".into(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        }
+    }
+
+    /// A table from before the approval/governance columns must be rebuilt on
+    /// open so the current-shape (18-column) INSERT succeeds — otherwise every
+    /// async spawn fails with "no such column" on upgrade.
+    #[test]
+    fn open_rebuilds_table_missing_approval_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("async_jobs.db");
+        // Simulate the pre-A-7 (14-column) schema + a stale row.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE async_tool_jobs (
+                    job_id TEXT PRIMARY KEY, session_id TEXT, agent_id TEXT,
+                    tool_name TEXT NOT NULL, tool_call_id TEXT, args_json TEXT NOT NULL,
+                    status TEXT NOT NULL, result_preview TEXT, result_path TEXT, error TEXT,
+                    created_at INTEGER NOT NULL, completed_at INTEGER,
+                    injected INTEGER NOT NULL DEFAULT 0,
+                    origin TEXT NOT NULL DEFAULT 'explicit'
+                );",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO async_tool_jobs (job_id, tool_name, args_json, status, created_at)
+                 VALUES ('old', 'exec', '{}', 'completed', 0)",
+                [],
+            )
+            .unwrap();
+        }
+        let db = AsyncJobsDB::open(&path).expect("open must rebuild stale schema");
+        db.insert(&sample_job("new"))
+            .expect("18-column insert must succeed after rebuild");
+        // Policy is drop-and-rebuild, not migrate — the stale row is gone.
+        assert!(db.load("old").unwrap().is_none());
+        assert!(db.load("new").unwrap().is_some());
+    }
+
+    /// A current-shape table must NOT be dropped on reopen (no spurious data loss).
+    #[test]
+    fn open_preserves_current_schema_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("async_jobs.db");
+        {
+            let db = AsyncJobsDB::open(&path).unwrap();
+            db.insert(&sample_job("keep")).unwrap();
+        }
+        let db = AsyncJobsDB::open(&path).expect("reopen current schema");
+        assert!(
+            db.load("keep").unwrap().is_some(),
+            "current-schema table must survive reopen"
+        );
+    }
 }
