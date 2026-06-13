@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-06-13
+
+### Added
+
+- **Office 文档预览还原版式**：预览 Word / Excel / PowerPoint（.docx / .xlsx / .pptx）时，右侧面板直接按接近原文件的版式渲染（Word 文档排版、Excel 表格与合并单元格、PPT 幻灯片翻页，均可缩放 / 适应宽度），不再只是纯文本提取；无法渲染的文件（旧 `.doc` / `.ppt`、损坏或过大）自动回退到文本提取。 (#307)
+
 ## [0.10.1] - 2026-06-12
 
 ### Fixed

@@ -25,7 +25,7 @@
 
 ## 预览面板
 
-- **复用** 文件浏览器的 [`FilePreviewPane`](../../src/components/chat/project/file-browser/FilePreviewPane.tsx)，已重构为吃一个 **`PreviewSource`**（[`previewSource.ts`](../../src/components/chat/files/previewSource.ts)：`readText` / `extractDoc` / `rawUrl`）而非 scope 绑定的 `(fs, entry)`。三个适配器：`projectFsPreviewSource`（文件浏览器，relPath）/ `pathPreviewSource`（绝对路径）/ `mediaPreviewSource`（`MediaItem`）。渲染按 kind 派发：code/text/markdown → Shiki，markdown 可切渲染/源码，image → `<img>`，pdf → `<iframe>`，**audio/video → 原生 `<audio>/<video>`（本次新增）**，office → extract（顶部小字提示「排版可能与原文件有差异」），其余 → 二进制占位。
+- **复用** 文件浏览器的 [`FilePreviewPane`](../../src/components/chat/project/file-browser/FilePreviewPane.tsx)，已重构为吃一个 **`PreviewSource`**（[`previewSource.ts`](../../src/components/chat/files/previewSource.ts)：`readText` / `extractDoc` / `rawUrl`）而非 scope 绑定的 `(fs, entry)`。三个适配器：`projectFsPreviewSource`（文件浏览器，relPath）/ `pathPreviewSource`（绝对路径）/ `mediaPreviewSource`（`MediaItem`）。渲染按 kind 派发：code/text/markdown → Shiki，markdown 可切渲染/源码，image → `<img>`，pdf → `<iframe>`，**audio/video → 原生 `<audio>/<video>`**，office → **前端富渲染**（[`files/office/`](../../src/components/chat/files/office/)：docx 用 docx-preview、xlsx/xls 用 SheetJS、pptx 用 pptxviewjs，均懒加载 `await import`，解析 `rawUrl` 取得的原始字节渲染近原版式），不支持子格式 / 损坏 / 超大 / 渲染失败 → 回退后端 extract 文本（`OfficeTextFallback`，顶部小字提示「排版可能与原文件有差异」），其余 → 二进制占位。
 - **面板与控制器**：[`FilePreviewPanel`](../../src/components/chat/files/FilePreviewPanel.tsx) 把 `PreviewTarget` 转 `PreviewSource` 后渲染 `FilePreviewPane`；[`useFilePreview`](../../src/components/chat/files/useFilePreview.ts) 是 ChatScreen 的控制器（`showPanel` / `target` / `openPreview` / `closePreview`），作为右侧 `ExclusiveRightPanel` 的 `"preview"` 接入（与 diff/workspace 同套：类型并集 / ORDER / ICONS / visibility memo / label / 渲染分支 / 切会话重置）。
 
 ## preview-by-path 后端（核心进 ha-core）
@@ -49,5 +49,5 @@ HTTP 三端点共用 `authorized_canonical_file_path(sessionId, path, messages)`
 ## 已知局限
 
 - HTTP 下 Markdown 绝对路径链接只有**被工具引用过或落在工作目录内**才可预览/下载；纯文中提及、又在工作目录外的主机路径仍 403。
-- Office 预览是 extract 近似排版（非原版式），顶部小字提示差异；菜单仍可「打开/下载」原文件看完整版式。远端下挂的 office `MediaItem` 无本地路径可提取，降级为下载。
+- Office 预览优先**前端富渲染**（docx/xlsx/pptx 解析 `rawUrl` 取得的原始字节渲染近原版式）；旧二进制格式（`.doc`/`.ppt`）/ 损坏 / 超大（>30MB）/ 渲染失败时**回退** extract 文本近似（顶部小字提示差异）。Excel 仅还原结构 + 合并单元格（不含单元格填充色 / 边框，SheetJS 社区版限制），PPT 走 Canvas（文本不可选、无动画——纯前端 pptx 固有局限）。菜单仍可「打开/下载」原文件看完整版式。远端下挂的 office `MediaItem` 富渲染需可 `fetch` 的 `rawUrl`，否则回退文本 / 下载。
 - 桌面 asset 协议须允许任意绝对路径（`pickLocalImage` + 文件浏览器预览早已在用 `convertFileSrc(abs)`）。

@@ -1130,7 +1130,14 @@
     "rendered": "Đã kết xuất",
     "extractedPreview": "Xem trước nội dung trích xuất — mở trong hệ thống để xem bố cục gốc.",
     "quoteToChat": "Trích dẫn vào trò chuyện",
-    "quoted": "Đã thêm vào trò chuyện"
+    "quoted": "Đã thêm vào trò chuyện",
+    "officeLoading": "Đang dựng bản xem trước…",
+    "prevSlide": "Trang trước",
+    "nextSlide": "Trang sau",
+    "zoomOut": "Thu nhỏ",
+    "zoomIn": "Phóng to",
+    "fitWidth": "Vừa chiều rộng",
+    "officeNoContent": "Không thể trích xuất nội dung từ tệp này."
   },
   "diffPanel": {
     "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",

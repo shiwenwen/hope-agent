@@ -1139,7 +1139,14 @@
     "rendered": "渲染视图",
     "extractedPreview": "提取预览，排版可能与原文件有差异 —— 打开原文件查看完整版式。",
     "quoteToChat": "引用到会话",
-    "quoted": "已引用到会话"
+    "quoted": "已引用到会话",
+    "officeLoading": "正在渲染预览…",
+    "prevSlide": "上一页",
+    "nextSlide": "下一页",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "fitWidth": "适应宽度",
+    "officeNoContent": "无法从该文件提取内容"
   },
   "effort": {
     "high": "高",

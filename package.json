@@ -73,13 +73,16 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "antd": "^6.3.5",
+    "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "diff": "^9.0.0",
+    "docx-preview": "^0.3.7",
     "es-toolkit": "^1.45.1",
     "i18next": "^26.0.3",
     "katex": "^0.16.38",
     "lucide-react": "^1.7.0",
+    "pptxviewjs": "^1.1.9",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -92,7 +95,8 @@
     "streamdown": "^2.4.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.4",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

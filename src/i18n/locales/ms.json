@@ -1130,7 +1130,14 @@
     "rendered": "Dipaparkan",
     "extractedPreview": "Pratonton kandungan diekstrak — buka dalam sistem untuk susun atur asal.",
     "quoteToChat": "Petik ke sembang",
-    "quoted": "Ditambah ke sembang"
+    "quoted": "Ditambah ke sembang",
+    "officeLoading": "Memaparkan pratonton…",
+    "prevSlide": "Slaid sebelumnya",
+    "nextSlide": "Slaid seterusnya",
+    "zoomOut": "Zum keluar",
+    "zoomIn": "Zum masuk",
+    "fitWidth": "Muat lebar",
+    "officeNoContent": "Tiada kandungan boleh diekstrak daripada fail ini."
   },
   "diffPanel": {
     "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
