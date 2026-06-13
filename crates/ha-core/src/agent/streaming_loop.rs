@@ -340,6 +340,22 @@ async fn drain_queued_turn_user_messages<F>(
     }
 }
 
+/// Pull the `job_id` out of a synthetic `{"status":"started","job_id":...}`
+/// background-tool result, if that's what the string is. Returns `None` for
+/// any non-JSON / non-started payload (safe fallback — nothing to cancel).
+/// Used by the turn-cancel grace window to reap a job that a just-approved
+/// background tool spawned (MISC-2).
+fn extract_started_job_id(tool_result: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(tool_result.trim()).ok()?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("started") {
+        return None;
+    }
+    v.get("job_id")
+        .and_then(|j| j.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
 /// elapsed_ms, side_output)`. The side output carries structured metadata
 /// (file change before/after snapshots, line deltas, etc.) emitted by the
@@ -387,7 +403,30 @@ async fn execute_tool_with_cancel(
             }
         } => {
             cancellation_token.cancel();
-            let _ = tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+            // Grace window: let the dispatch wind down. If the user approved a
+            // background-capable tool (exec / web_search / …) inside this
+            // window, the dispatch returns a synthetic `{job_id,status:"started"}`
+            // and has ALREADY detached a runner with its own fresh cancel token —
+            // the turn cancel never reaches it, so the job would run on as an
+            // orphan while the model is told "cancelled" (MISC-2). Capture that
+            // result and cancel the freshly-spawned job so the verdict stays
+            // truthful. (Sync inline tools that don't finish in time are dropped
+            // here as before; their exec process group is reaped by
+            // `ProcessGroupGuard::drop`.)
+            if let Ok(Ok(grace_result)) =
+                tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await
+            {
+                if let Some(job_id) = extract_started_job_id(&grace_result) {
+                    app_info!(
+                        "async_jobs",
+                        "cancel",
+                        "Reaping job {} spawned by tool '{}' inside the turn-cancel grace window",
+                        job_id,
+                        name
+                    );
+                    let _ = crate::async_jobs::cancel_job(&job_id);
+                }
+            }
             tools::ToolRejection::cancelled(name).to_tool_result()
         }
     };
@@ -1021,5 +1060,37 @@ impl AssistantAgent {
             Some(collected_thinking)
         };
         Ok((collected_text, thinking_result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_started_job_id;
+    use crate::async_jobs::{synthetic_started_result, JobOrigin};
+
+    #[test]
+    fn extract_started_job_id_reads_synthetic_started_payload() {
+        let body = synthetic_started_result("job_abc", "exec", JobOrigin::Explicit);
+        assert_eq!(extract_started_job_id(&body).as_deref(), Some("job_abc"));
+
+        let auto = synthetic_started_result("job_xyz", "web_search", JobOrigin::AutoBackgrounded);
+        assert_eq!(extract_started_job_id(&auto).as_deref(), Some("job_xyz"));
+    }
+
+    #[test]
+    fn extract_started_job_id_ignores_non_started_and_non_json() {
+        // Plain tool output — not JSON.
+        assert_eq!(extract_started_job_id("command finished, exit 0"), None);
+        // JSON, but a completed/terminal result, not a backgrounded "started".
+        assert_eq!(
+            extract_started_job_id(r#"{"status":"completed","job_id":"j1"}"#),
+            None
+        );
+        // Started but no job id (defensive — nothing to cancel).
+        assert_eq!(extract_started_job_id(r#"{"status":"started"}"#), None);
+        assert_eq!(
+            extract_started_job_id(r#"{"status":"started","job_id":""}"#),
+            None
+        );
     }
 }
