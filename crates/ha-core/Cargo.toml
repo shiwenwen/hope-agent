@@ -1,6 +1,6 @@
 [package]
 name = "ha-core"
-version = "0.10.1"
+version = "0.10.2"
 description = "Hope Agent core business logic — zero Tauri dependency"
 license.workspace = true
 authors.workspace = true
