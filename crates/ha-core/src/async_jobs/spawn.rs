@@ -523,6 +523,31 @@ async fn run_job_to_completion(
     let agent_id = ctx.agent_id.clone();
     let tool_call_id = ctx.tool_call_id.clone();
 
+    // I4: cross-process cancel watcher. A cancel issued from another process
+    // (desktop + headless server share async_jobs.db) can't reach this
+    // runtime's in-memory token, so it sets the DB `cancel_requested` flag
+    // instead. Poll it (single-row PK read, 5s) and trip the local token on a
+    // hit; the watcher stops itself the moment the token is cancelled (by any
+    // source) and is aborted once the job settles below.
+    let poll_handle = {
+        let poll_token = cancel_token.clone();
+        let poll_db = db.clone();
+        let poll_job_id = job_id.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = poll_token.cancelled() => return,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                        if poll_db.is_cancel_requested(&poll_job_id).unwrap_or(false) {
+                            poll_token.cancel();
+                            return;
+                        }
+                    }
+                }
+            }
+        })
+    };
+
     let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
         &tool_name, &args, &ctx,
     ));
@@ -550,6 +575,10 @@ async fn run_job_to_completion(
             },
         }
     };
+
+    // The job has settled — stop the cross-process cancel watcher (no-op if it
+    // already exited because the token was cancelled).
+    poll_handle.abort();
 
     finalize_job(
         &db,

@@ -59,6 +59,19 @@ pub fn cancel_job(job_id: &str) -> anyhow::Result<Option<AsyncJob>> {
     if !db.mark_cancelling(job_id, Some("Cancellation requested"))? {
         return db.load(job_id);
     }
+    // I4: persist the cross-process cancel flag so a runner owning this job in
+    // ANOTHER process (desktop + headless server share async_jobs.db) observes
+    // it on its next poll and aborts the work — the in-memory token signal
+    // below only reaches a runner in THIS process. Best-effort.
+    if let Err(e) = db.set_cancel_requested(job_id) {
+        app_warn!(
+            "async_jobs",
+            "cancel",
+            "Failed to set cancel_requested flag for {}: {}",
+            job_id,
+            e
+        );
+    }
     let signalled = cancel::cancel_job(job_id);
     if !signalled {
         // No in-process runner owns this job id. Mark it terminal so callers
