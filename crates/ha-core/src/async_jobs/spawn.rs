@@ -177,6 +177,7 @@ pub fn spawn_explicit_job(
         {
             Ok(rt) => rt,
             Err(e) => {
+                let err_msg = format!("runtime build failed: {}", e);
                 app_error!(
                     "async_jobs",
                     "spawn",
@@ -189,12 +190,43 @@ pub fn spawn_explicit_job(
                     AsyncJobStatus::Failed,
                     None,
                     None,
-                    Some(&format!("runtime build failed: {}", e)),
+                    Some(&err_msg),
                     now_secs(),
                 );
                 super::wait::notify_completion(&job_id_owned);
                 emit_completion_event(&job_id_owned, &tool_name_owned, "failed");
                 super::cancel::remove_job(&job_id_owned);
+                // I6: don't silently lose the job. `finalize_job` never runs on
+                // this build-failure path, so fire the terminal hook (H4 parity)
+                // and inject the failure back into the parent session — the model
+                // already saw a synthetic "started" and would otherwise wait
+                // forever. `dispatch_injection` spawns its own thread + runtime,
+                // so it works even though THIS runtime failed to build.
+                crate::hooks::fire_async_job_terminal(
+                    ctx.session_id.as_deref(),
+                    ctx.agent_id.as_deref(),
+                    &tool_name_owned,
+                    ctx.tool_call_id.as_deref(),
+                    &job_id_owned,
+                    true,
+                    false,
+                    &err_msg,
+                );
+                if let Some(sid) = ctx.session_id.clone() {
+                    injection::dispatch_injection(
+                        sid,
+                        ctx.agent_id.clone(),
+                        job_id_owned.clone(),
+                        tool_name_owned.clone(),
+                        ctx.tool_call_id.clone(),
+                        AsyncJobStatus::Failed,
+                        None,
+                        None,
+                        Some(err_msg),
+                    );
+                } else {
+                    let _ = db.mark_injected(&job_id_owned);
+                }
                 return;
             }
         };
@@ -398,9 +430,13 @@ pub async fn dispatch_with_auto_background(
                             *p = Phase::Consumed;
                             drop(p);
                             cancel_token.cancel();
+                            // I6 (MISC-9): the row failed to persist, so the
+                            // pre-allocated `job_id` is a ghost the model could
+                            // never poll — keep it out of the error and surface
+                            // the tool instead.
                             return Err(anyhow::anyhow!(
-                                "Failed to record auto-background job '{}': {}",
-                                job_id,
+                                "Failed to background tool '{}': {}",
+                                name,
                                 e
                             ));
                         }
