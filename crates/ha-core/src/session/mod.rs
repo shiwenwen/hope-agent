@@ -1,7 +1,9 @@
 mod acp_db;
 mod artifacts;
+pub(crate) mod cleanup_watcher;
 pub(crate) mod db;
 mod environment;
+pub(crate) mod events;
 pub mod export;
 mod helpers;
 mod pending;

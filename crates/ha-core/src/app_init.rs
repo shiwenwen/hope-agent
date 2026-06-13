@@ -808,6 +808,12 @@ pub async fn start_background_tasks() {
     // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
 
+    // Tier-agnostic: session-lifecycle cleanup fan-out (delete/purge → deny
+    // pending approvals, cancel jobs, drop IM pending, clear rules). NOT inside
+    // spawn_channel_listeners — server / ACP have no channel registry but still
+    // delete sessions.
+    crate::session::cleanup_watcher::spawn_session_cleanup_watcher();
+
     // Tier-agnostic: per-process in-memory hooks registry + hot-reload.
     spawn_hooks_config_listener();
 
@@ -1120,6 +1126,10 @@ pub async fn start_minimal_background_tasks() {
 
     // EventBus listeners — multi-subscriber-safe, tier-agnostic.
     spawn_channel_listeners();
+
+    // Session-lifecycle cleanup fan-out — tier-agnostic, required in
+    // server / ACP too (they delete sessions but have no channel registry).
+    crate::session::cleanup_watcher::spawn_session_cleanup_watcher();
 
     // Hooks registry initial load + hot-reload. Required in server / ACP modes
     // too (this fn is their only background-task entry): without it the global
