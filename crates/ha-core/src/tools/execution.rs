@@ -661,6 +661,29 @@ fn decide_async_path(name: &str, args: &Value, ctx: &ToolExecContext) -> AsyncDe
     AsyncDecision::Sync
 }
 
+/// Whether the exec async approval-reorder should run `exec`'s command gate
+/// *before* detaching the call into a background job (B5/B6). It runs only when
+/// all hold:
+///   - the tool is `exec` (the only tool excluded from the outer engine gate);
+///   - the call will actually background (`async_decision != Sync`);
+///   - exec was NOT already approved at the outer engine gate this turn
+///     (`already_approved`) — set by the Plan-Mode-ask path so the reorder
+///     doesn't re-prompt for the identical command (review#3); and
+///   - the command gate isn't globally bypassed
+///     (`ctx.should_run_exec_command_gate()` = `!auto_approve_tools &&
+///     !exec_pre_approved` on the ctx).
+fn should_run_exec_reorder_gate(
+    name: &str,
+    async_decision: AsyncDecision,
+    already_approved: bool,
+    ctx: &ToolExecContext,
+) -> bool {
+    name == TOOL_EXEC
+        && !matches!(async_decision, AsyncDecision::Sync)
+        && !already_approved
+        && ctx.should_run_exec_command_gate()
+}
+
 /// Check if a read tool call targets a SKILL.md file (pre-authorized by skill system).
 fn is_skill_read(name: &str, args: &Value) -> bool {
     if name != TOOL_READ {
@@ -1134,6 +1157,12 @@ pub async fn execute_tool_with_context(
     // auto-approve accounts and skill-triggered slash commands.
     let effective_auto_approve = ctx.local_auto_approve() || mcp_tool_auto_approves(name).await;
     let needs_engine = needs_permission_engine(name, args, ctx, effective_auto_approve);
+    // exec async approval-reorder state (B5/B6). Declared here — above the
+    // engine gate — so the Plan-Mode-ask path below can record that exec was
+    // already approved at the outer gate and suppress the reorder's second
+    // prompt (review#3: plan-ask + async-eligible exec double-prompted).
+    let mut exec_pre_approved = false;
+    let mut exec_approval_origin: Option<approval::ApprovalOrigin> = None;
     if needs_engine {
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
@@ -1194,6 +1223,22 @@ pub async fn execute_tool_with_context(
                     )
                     .await?;
                     restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
+                    // review#3: `exec` reaches the outer engine gate ONLY via
+                    // Plan-Mode `ask_tools` (it is otherwise excluded). The user
+                    // just approved that PlanModeAsk prompt; the async
+                    // approval-reorder below would re-run the SAME engine →
+                    // PlanModeAsk again → a redundant SECOND prompt for the
+                    // identical command. Record the approval so the reorder (and
+                    // the backgrounded inner gate) skip it — one prompt, not two.
+                    // Gated on PlanModeAsk specifically so a future non-plan
+                    // route to the engine can't accidentally bypass exec's
+                    // command-level dangerous/protected audit.
+                    if name == TOOL_EXEC
+                        && matches!(reason, crate::permission::AskReason::PlanModeAsk)
+                    {
+                        exec_pre_approved = true;
+                        exec_approval_origin = Some(approval::ApprovalOrigin::User);
+                    }
                 }
             }
         }
@@ -1221,12 +1266,7 @@ pub async fn execute_tool_with_context(
     // rejection returns WITHOUT spawning — the model gets a STOP, never a
     // phantom job. Non-exec async tools already ran the engine gate above, so
     // they reach the spawn branches already approved.
-    let mut exec_pre_approved = false;
-    let mut exec_approval_origin: Option<approval::ApprovalOrigin> = None;
-    if name == TOOL_EXEC
-        && !matches!(async_decision, AsyncDecision::Sync)
-        && ctx.should_run_exec_command_gate()
-    {
+    if should_run_exec_reorder_gate(name, async_decision, exec_pre_approved, ctx) {
         let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
         let session_cwd = args
             .get("cwd")
@@ -1880,7 +1920,8 @@ fn persist_large_result(
 mod tests {
     use super::{
         build_persisted_large_result_preview, mcp_server_auto_approves_config,
-        needs_permission_engine, tool_timeout, ToolExecContext,
+        needs_permission_engine, should_run_exec_reorder_gate, tool_timeout, AsyncDecision,
+        JobOrigin, ToolExecContext,
     };
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
@@ -2157,6 +2198,45 @@ mod tests {
             &inner_ctx,
             inner_ctx.local_auto_approve()
         ));
+    }
+
+    #[test]
+    fn exec_reorder_gate_skips_when_already_approved_at_outer_gate() {
+        // review#3: a Plan-Mode-ask exec that the user already approved at the
+        // OUTER engine gate must NOT be re-prompted by the async reorder.
+        let ctx = ToolExecContext::default(); // auto_approve=false, exec_pre_approved=false
+        let bg = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
+        // Fresh async exec, not yet approved → reorder runs its gate.
+        assert!(should_run_exec_reorder_gate("exec", bg, false, &ctx));
+        // Already approved at the outer plan-ask gate → reorder is suppressed
+        // (one prompt, not two).
+        assert!(!should_run_exec_reorder_gate("exec", bg, true, &ctx));
+        // Sync (non-backgrounding) exec → reorder never runs (inner gate handles it).
+        assert!(!should_run_exec_reorder_gate(
+            "exec",
+            AsyncDecision::Sync,
+            false,
+            &ctx
+        ));
+        // Non-exec async tool → already gated by the outer engine, no reorder.
+        assert!(!should_run_exec_reorder_gate("web_search", bg, false, &ctx));
+    }
+
+    #[test]
+    fn exec_reorder_gate_respects_global_command_gate_bypass() {
+        // auto_approve_tools / exec_pre_approved on the ctx globally bypass the
+        // command gate → the reorder must not prompt either.
+        let auto = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        let pre = ToolExecContext {
+            exec_pre_approved: true,
+            ..ToolExecContext::default()
+        };
+        let bg = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
+        assert!(!should_run_exec_reorder_gate("exec", bg, false, &auto));
+        assert!(!should_run_exec_reorder_gate("exec", bg, false, &pre));
     }
 
     #[test]
