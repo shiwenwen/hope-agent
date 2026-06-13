@@ -500,6 +500,18 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     })
 }
 
+/// Remove all cached permission rules for a session. Called by the session
+/// cleanup watcher on delete / purge so a deleted session's in-memory
+/// AllowAlways rules don't linger for the process lifetime (INCOG-7).
+pub fn clear_session_rules(session_id: &str) {
+    if let Some(cache) = SESSION_RULES.get() {
+        cache
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn clear_caches_for_tests() {
     if let Some(cache) = SESSION_RULES.get() {

@@ -99,6 +99,45 @@ pub fn cancel_job(job_id: &str) -> anyhow::Result<Option<AsyncJob>> {
     db.load(job_id)
 }
 
+/// Cancel every active (`running`/`cancelling`/`awaiting_approval`) job owned
+/// by `session_id`. Called by the session cleanup watcher when a session is
+/// deleted or purged so abandoned background jobs don't run on forever
+/// (DELETE-4). Returns the number of jobs cancelled.
+pub fn cancel_jobs_for_session(session_id: &str) -> usize {
+    let Some(db) = get_async_jobs_db() else {
+        return 0;
+    };
+    let jobs = match db.list_active_by_session(session_id) {
+        Ok(j) => j,
+        Err(e) => {
+            app_warn!(
+                "async_jobs",
+                "cleanup",
+                "list_active_by_session failed for {}: {}",
+                session_id,
+                e
+            );
+            return 0;
+        }
+    };
+    let mut cancelled = 0;
+    for job in jobs {
+        if cancel_job(&job.job_id).is_ok() {
+            cancelled += 1;
+        }
+    }
+    if cancelled > 0 {
+        app_info!(
+            "async_jobs",
+            "cleanup",
+            "cancelled {} active job(s) for removed session {}",
+            cancelled,
+            session_id
+        );
+    }
+    cancelled
+}
+
 /// Replay logic invoked from `start_background_tasks`:
 ///   1. Mark every job left in `running` as `interrupted` (the underlying
 ///      process did not survive the restart).

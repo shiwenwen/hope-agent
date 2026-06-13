@@ -176,6 +176,27 @@ impl AsyncJobsDB {
         Ok(out)
     }
 
+    /// All active (`running`/`cancelling`/`awaiting_approval`) jobs owned by a
+    /// session — used by session-delete cleanup to cancel them (DELETE-4).
+    /// Hits the `idx_async_jobs_session_status` index.
+    pub fn list_active_by_session(&self, session_id: &str) -> Result<Vec<AsyncJob>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
+                    args_json, status, result_preview, result_path, error,
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested
+             FROM async_tool_jobs
+             WHERE session_id=?1 AND status IN ('running','cancelling','awaiting_approval')",
+        )?;
+        let rows = stmt.query_map(params![session_id], row_to_job)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Return the set of all `result_path` values currently referenced by the
     /// DB. Used by orphan spool-file cleanup to know which files on disk are
     /// still "owned" by a row.

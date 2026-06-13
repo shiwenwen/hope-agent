@@ -80,6 +80,34 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
     }
 }
 
+/// Drop all pending text-reply approval state for a whole session. Called by
+/// the session cleanup watcher on delete / purge: resolves the session →
+/// (account, chat) IM conversation and clears that chat's `TEXT_PENDING` stack,
+/// so a deleted session leaves no stale IM approval entries that could hijack a
+/// later reply (SURFACE-2 / INCOG-4). No-op when the session has no attached IM
+/// conversation.
+pub async fn drop_pending_for_session(session_id: &str) {
+    let Some(channel_db) = crate::globals::get_channel_db() else {
+        return;
+    };
+    let conv = match channel_db.get_conversation_by_session(session_id) {
+        Ok(Some(c)) => c,
+        Ok(None) => return,
+        Err(e) => {
+            app_warn!(
+                "channel",
+                "approval",
+                "drop_pending_for_session lookup failed for {}: {}",
+                session_id,
+                e
+            );
+            return;
+        }
+    };
+    let key = (conv.account_id, conv.chat_id);
+    get_text_pending().lock().await.remove(&key);
+}
+
 // ── InlineButton helper ──────────────────────────────────────────
 
 impl InlineButton {

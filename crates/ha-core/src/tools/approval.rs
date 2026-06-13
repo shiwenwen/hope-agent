@@ -139,6 +139,8 @@ pub enum ApprovalResolutionSource {
     Http,
     /// IM channel (button or text reply).
     Im,
+    /// Auto-denied because the owning session was deleted / purged (A-9).
+    SessionDeleted,
 }
 
 impl ApprovalResolutionSource {
@@ -147,6 +149,7 @@ impl ApprovalResolutionSource {
             Self::Gui => "gui",
             Self::Http => "http",
             Self::Im => "im",
+            Self::SessionDeleted => "session_deleted",
         }
     }
 }
@@ -282,6 +285,36 @@ pub async fn submit_approval_response(
         source,
     );
     Ok(())
+}
+
+/// Deny and resolve every pending approval owned by `session_id`. Called by the
+/// session cleanup watcher when a session is deleted / purged so the blocked
+/// tool turn unblocks instead of hanging forever, and every surface dismisses
+/// its dialog (DELETE-1 / INCOG-4). Returns the number of approvals denied.
+pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResolutionSource) -> usize {
+    // Drain matching entries under the lock, then send/emit after releasing it
+    // (the receiver side and bus subscribers must not run while we hold it).
+    let drained: Vec<(String, PendingApprovalEntry)> = {
+        let mut pending = get_pending_approvals().lock().await;
+        let ids: Vec<String> = pending
+            .iter()
+            .filter(|(_, e)| e.session_id.as_deref() == Some(session_id))
+            .map(|(k, _)| k.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| pending.remove(&id).map(|e| (id, e)))
+            .collect()
+    };
+    if drained.is_empty() {
+        return 0;
+    }
+    let count = drained.len();
+    for (request_id, entry) in drained {
+        let _ = entry.sender.send(ApprovalResponse::Deny);
+        emit_approval_resolved(&request_id, Some(session_id), "deny", source);
+    }
+    emit_pending_interactions_changed(Some(session_id));
+    count
 }
 
 /// Broadcast to the frontend that some session's pending-interaction count

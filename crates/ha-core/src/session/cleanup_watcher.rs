@@ -65,26 +65,46 @@ pub fn spawn_session_cleanup_watcher() {
                 continue;
             };
 
-            cleanup_session(session_id);
+            cleanup_session(session_id).await;
         }
     });
 }
 
 /// Fan out cleanup for one removed session. Each step is best-effort and
 /// independent so a failure in one subsystem can't block the rest.
-///
-/// Fan-out targets are stubbed for now — wired by later Epic A subtasks:
-///   - A-8: `async_jobs::cancel_jobs_for_session`
-///   - A-9: approval `deny_pending_for_session` / channel
-///     `drop_pending_for_session` / allowlist `clear_session_rules` /
-///     `active_turn` live-cancel
-fn cleanup_session(session_id: &str) {
-    // TODO(A-8/A-9): wire real fan-out. Logged for now to confirm end-to-end
-    // event delivery while the cleanup targets land.
-    app_debug!(
-        "session",
-        "cleanup_watcher",
-        "session lifecycle event for {} — fan-out pending (A-8/A-9)",
-        session_id
-    );
+async fn cleanup_session(session_id: &str) {
+    // A-8: cancel active / awaiting-approval background jobs (DELETE-4).
+    let cancelled_jobs = crate::async_jobs::cancel_jobs_for_session(session_id);
+
+    // A-9: deny + resolve pending approvals so a blocked tool turn unblocks and
+    // every surface dismisses its dialog (DELETE-1 / INCOG-4).
+    let denied = crate::tools::deny_pending_for_session(
+        session_id,
+        crate::tools::ApprovalResolutionSource::SessionDeleted,
+    )
+    .await;
+
+    // A-9: drop stale IM text-reply approval state for this session (SURFACE-2).
+    crate::channel::worker::approval::drop_pending_for_session(session_id).await;
+
+    // A-9: clear per-session allowlist rules so they don't linger (INCOG-7).
+    crate::permission::allowlist::clear_session_rules(session_id);
+
+    // A-9: live-cancel any in-flight turn (DELETE-5 / INCOG-1 in-flight turn).
+    if let Some(snapshot) = crate::chat_engine::active_turn::current(session_id) {
+        snapshot
+            .cancel
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    if cancelled_jobs > 0 || denied > 0 {
+        app_debug!(
+            "session",
+            "cleanup_watcher",
+            "fanned out cleanup for {} (jobs={}, approvals={})",
+            session_id,
+            cancelled_jobs,
+            denied
+        );
+    }
 }
