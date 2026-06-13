@@ -627,6 +627,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       <div
         ref={hostRef}
         role="textbox"
+        data-chat-composer="true"
         aria-multiline="true"
         aria-readonly={readOnly}
         onKeyDown={onKeyDown}

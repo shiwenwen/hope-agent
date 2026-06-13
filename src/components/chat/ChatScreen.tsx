@@ -863,12 +863,13 @@ export default function ChatScreen({
       const modKey = e.metaKey || e.ctrlKey
       if (!modKey || e.altKey) return
       if (e.key.toLowerCase() !== "f") return
-      // Don't hijack the shortcut if the user is editing inside an
-      // unrelated contenteditable (e.g. a markdown canvas field). Free
-      // inputs (ChatInput textarea etc.) are fine to preempt since there
-      // is no browser find-in-page equivalent for chat history anyway.
+      // Don't hijack the shortcut while editing inside a genuine document
+      // editor (knowledge note / markdown canvas) where Cmd+F means
+      // find-in-document. The chat composer is itself a contenteditable
+      // (CM6) but has no find-in-page equivalent for chat history, so let
+      // the shortcut through there.
       const target = e.target as HTMLElement | null
-      if (target?.isContentEditable) return
+      if (target?.isContentEditable && !target.closest("[data-chat-composer]")) return
 
       if (e.shiftKey) {
         e.preventDefault()
@@ -891,8 +892,11 @@ export default function ChatScreen({
       if (!modKey || e.altKey || e.shiftKey || e.repeat) return
       if (e.key.toLowerCase() !== "n") return
 
+      // The chat composer is a contenteditable (CM6) but Cmd+N has no
+      // document-local meaning there, so only bail inside other editors
+      // (knowledge note / markdown canvas).
       const target = e.target as HTMLElement | null
-      if (target?.isContentEditable) return
+      if (target?.isContentEditable && !target.closest("[data-chat-composer]")) return
 
       e.preventDefault()
       void handleStartNewChatFromCurrentContext()
