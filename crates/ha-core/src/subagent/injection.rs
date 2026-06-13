@@ -8,6 +8,34 @@ use super::{
     PENDING_INJECTIONS, SESSION_IDLE_NOTIFY,
 };
 
+/// Callback fired exactly once, on the dedicated injection OS-thread, when an
+/// injection reaches its terminal **Injected** state (the parent turn ran and
+/// persisted, the result was already consumed, or it failed terminally). Tool
+/// jobs pass a closure that marks the `async_tool_jobs` row injected; subagent
+/// runs pass `None`. Carried through the re-queue so a deferred injection still
+/// marks its source done when the queued attempt eventually lands.
+pub(crate) type OnInjected = Arc<dyn Fn() + Send + Sync>;
+
+/// Result of one `inject_and_run_parent` attempt. Lets the caller decide
+/// whether the source record is done (`Injected`), owned by the retry queue
+/// (`Queued`), or must stay pending for restart replay (`Abandoned`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InjectionOutcome {
+    /// Parent turn ran (or the result was already fetched / all models failed
+    /// terminally). `on_injected` has fired — nothing more to do.
+    Injected,
+    /// Deferred: another injection holds the session, or the user pre-empted
+    /// this turn. The task was pushed to `PENDING_INJECTIONS` (carrying its
+    /// `on_injected`); the next flush owns the retry. Caller must NOT mark the
+    /// source injected.
+    Queued,
+    /// Gave up after waiting for the session to go idle (announce_timeout).
+    /// Nothing persisted, nothing re-queued, `on_injected` NOT fired — the
+    /// source row stays un-injected so `replay_pending_jobs()` retries it on
+    /// the next restart (MISC-15: abandoned must not look delivered).
+    Abandoned,
+}
+
 struct ParentInjectionSink {
     parent_session_id: String,
     run_id: String,
@@ -35,6 +63,9 @@ pub(super) struct PendingInjection {
     pub run_id: String,
     pub push_message: String,
     pub session_db: Arc<crate::session::SessionDB>,
+    /// Carried so a deferred injection still marks its source done when the
+    /// queued attempt eventually lands. `None` for subagent runs.
+    pub on_injected: Option<OnInjected>,
 }
 
 /// Drain and re-trigger pending injections for a session.
@@ -72,14 +103,19 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                 .enable_all()
                 .build()
             {
-                Ok(rt) => rt.block_on(inject_and_run_parent(
-                    t.parent_session_id,
-                    t.parent_agent_id,
-                    t.child_agent_id,
-                    t.run_id,
-                    t.push_message,
-                    t.session_db,
-                )),
+                Ok(rt) => {
+                    // Outcome is ignored here: a successful run fires the carried
+                    // `on_injected` internally, and a re-cancel re-queues itself.
+                    let _ = rt.block_on(inject_and_run_parent(
+                        t.parent_session_id,
+                        t.parent_agent_id,
+                        t.child_agent_id,
+                        t.run_id,
+                        t.push_message,
+                        t.session_db,
+                        t.on_injected,
+                    ));
+                }
                 Err(e) => app_error!(
                     "subagent",
                     "inject",
@@ -161,7 +197,8 @@ pub(crate) async fn inject_and_run_parent(
     run_id: String,
     push_message: String,
     session_db: Arc<crate::session::SessionDB>,
-) {
+    on_injected: Option<OnInjected>,
+) -> InjectionOutcome {
     use crate::provider;
 
     // 0. Skip if the parent agent already fetched this result via check/result tool
@@ -175,7 +212,10 @@ pub(crate) async fn inject_and_run_parent(
                 &run_id
             );
             set.remove(&run_id); // Clean up — no longer needed
-            return;
+            if let Some(cb) = on_injected.as_ref() {
+                cb();
+            }
+            return InjectionOutcome::Injected;
         }
     }
 
@@ -189,17 +229,23 @@ pub(crate) async fn inject_and_run_parent(
                 "Session {} already has active injection, queuing for later",
                 &parent_session_id
             );
-            if let Ok(mut queue) = PENDING_INJECTIONS.lock() {
-                queue.push(PendingInjection {
-                    parent_session_id,
-                    parent_agent_id,
-                    child_agent_id,
-                    run_id,
-                    push_message,
-                    session_db,
-                });
+            match PENDING_INJECTIONS.lock() {
+                Ok(mut queue) => {
+                    queue.push(PendingInjection {
+                        parent_session_id,
+                        parent_agent_id,
+                        child_agent_id,
+                        run_id,
+                        push_message,
+                        session_db,
+                        on_injected,
+                    });
+                    return InjectionOutcome::Queued;
+                }
+                // Couldn't enqueue (poisoned): leave the source pending for
+                // replay rather than firing on_injected on a dropped task.
+                Err(_) => return InjectionOutcome::Abandoned,
             }
-            return;
         }
         guard.insert(parent_session_id.clone());
     }
@@ -235,7 +281,7 @@ pub(crate) async fn inject_and_run_parent(
                 "Timed out waiting for session {} to become idle, skipping",
                 &parent_session_id
             );
-            return;
+            return InjectionOutcome::Abandoned;
         }
         // Re-check if result was fetched while we were waiting
         if FETCHED_RUN_IDS
@@ -249,7 +295,10 @@ pub(crate) async fn inject_and_run_parent(
                 "Run {} fetched while waiting, skipping",
                 &run_id
             );
-            return;
+            if let Some(cb) = on_injected.as_ref() {
+                cb();
+            }
+            return InjectionOutcome::Injected;
         }
         // Wait for notify (instant wake) or fallback timeout (in case notify is missed)
         tokio::select! {
@@ -264,7 +313,10 @@ pub(crate) async fn inject_and_run_parent(
         .unwrap_or_else(|p| p.into_inner())
         .contains(&run_id)
     {
-        return;
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
+        return InjectionOutcome::Injected;
     }
 
     // 2. Register cancel flag — user's chat() will set this to abort the injection
@@ -331,7 +383,13 @@ pub(crate) async fn inject_and_run_parent(
             delta: None,
             error: Some("No model configured for parent agent".into()),
         });
-        return;
+        // Persistent misconfiguration: mark injected so a restart doesn't
+        // re-inject in a loop. The tool output is still saved to disk; only
+        // the notification is dropped, and the parent can't run without a model.
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
+        return InjectionOutcome::Injected;
     }
 
     let mut last_error = String::new();
@@ -466,17 +524,23 @@ pub(crate) async fn inject_and_run_parent(
     // conversation).
     let was_cancelled = !succeeded && cancel.load(Ordering::SeqCst);
     if was_cancelled {
-        // Re-queue for retry after the user's chat completes
-        if let Ok(mut queue) = PENDING_INJECTIONS.lock() {
-            queue.push(PendingInjection {
-                parent_session_id: parent_session_id.clone(),
-                parent_agent_id: parent_agent_id.clone(),
-                child_agent_id,
-                run_id: run_id.clone(),
-                push_message,
-                session_db,
-            });
-        }
+        // Re-queue for retry after the user's chat completes, carrying
+        // on_injected so the eventual landing still marks the source done.
+        let requeued = match PENDING_INJECTIONS.lock() {
+            Ok(mut queue) => {
+                queue.push(PendingInjection {
+                    parent_session_id: parent_session_id.clone(),
+                    parent_agent_id: parent_agent_id.clone(),
+                    child_agent_id,
+                    run_id: run_id.clone(),
+                    push_message,
+                    session_db,
+                    on_injected,
+                });
+                true
+            }
+            Err(_) => false,
+        };
         app_info!(
             "subagent",
             "inject",
@@ -491,7 +555,16 @@ pub(crate) async fn inject_and_run_parent(
             delta: None,
             error: Some("Cancelled: user started new chat, will retry when idle".into()),
         });
+        if requeued {
+            InjectionOutcome::Queued
+        } else {
+            // Couldn't re-queue (poisoned): leave the source pending for replay.
+            InjectionOutcome::Abandoned
+        }
     } else if succeeded {
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "done".into(),
             parent_session_id,
@@ -500,7 +573,13 @@ pub(crate) async fn inject_and_run_parent(
             delta: None,
             error: None,
         });
+        InjectionOutcome::Injected
     } else {
+        // All models failed: a terminal error row was persisted above. Mark
+        // injected so the failure isn't re-injected on every restart.
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),
             parent_session_id,
@@ -509,6 +588,7 @@ pub(crate) async fn inject_and_run_parent(
             delta: None,
             error: Some(format!("All models failed: {}", last_error)),
         });
+        InjectionOutcome::Injected
     }
 }
 

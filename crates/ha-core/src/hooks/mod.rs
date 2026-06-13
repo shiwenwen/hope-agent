@@ -359,13 +359,15 @@ pub(crate) async fn rewake_inject(session_id: &str, stderr: &str) {
         session_id,
         stderr.len()
     );
-    crate::subagent::injection::inject_and_run_parent(
+    // Hook rewake has no async-job row to settle; ignore the outcome.
+    let _ = crate::subagent::injection::inject_and_run_parent(
         session_id.to_string(),
         agent_id.clone(),
         agent_id,
         format!("hook-rewake-{}", uuid::Uuid::new_v4()),
         push,
         db,
+        None,
     )
     .await;
 }

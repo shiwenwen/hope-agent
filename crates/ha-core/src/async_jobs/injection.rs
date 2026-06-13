@@ -6,7 +6,7 @@
 //! and retry machinery with no duplication.
 
 use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::types::AsyncJobStatus;
 
@@ -121,15 +121,37 @@ pub fn dispatch_injection(
             .build()
         {
             Ok(rt) => {
-                rt.block_on(crate::subagent::injection::inject_and_run_parent(
+                // I7: hand the mark-injected step to the injection pipeline as a
+                // callback so it fires only at the real terminal landing — even
+                // when the attempt is deferred and re-queued (the callback rides
+                // the PendingInjection through flush). An idle-timeout returns
+                // `Abandoned` WITHOUT firing it, so the row stays un-injected and
+                // `replay_pending_jobs()` retries it on the next restart
+                // (MISC-15: an abandoned injection must not look delivered).
+                let on_injected: crate::subagent::injection::OnInjected = {
+                    let jid = job_id_for_db.clone();
+                    Arc::new(move || mark_injected_with_retry(&jid))
+                };
+                let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     parent_agent_id,
                     child_agent_id,
                     job_id,
                     push_message,
                     db_clone,
+                    Some(on_injected),
                 ));
-                mark_injected_with_retry(&job_id_for_db);
+                if matches!(
+                    outcome,
+                    crate::subagent::injection::InjectionOutcome::Abandoned
+                ) {
+                    app_warn!(
+                        "async_jobs",
+                        "injection",
+                        "Injection for job {} abandoned (parent never went idle); left pending for restart replay",
+                        &job_id_for_db
+                    );
+                }
             }
             Err(e) => app_error!(
                 "async_jobs",
