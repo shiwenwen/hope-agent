@@ -1143,7 +1143,13 @@
       "kbViaProject": "プロジェクト",
       "kbWrote": "書込",
       "kbRead": "読取",
-      "kbSearchCount": "検索 {{n}} 回"
+      "kbSearchCount": "検索 {{n}} 回",
+      "sectionSession": "セッション",
+      "sessionShowMore": "もっと見る",
+      "sessionShowLess": "折りたたむ",
+      "environment": {
+        "version": "バージョン"
+      }
     },
     "fileActions": {
       "preview": "プレビュー",
@@ -2488,7 +2494,13 @@
       "kbViaProject": "프로젝트",
       "kbWrote": "쓰기",
       "kbRead": "읽기",
-      "kbSearchCount": "검색 {{n}}회"
+      "kbSearchCount": "검색 {{n}}회",
+      "sectionSession": "세션",
+      "sessionShowMore": "더 보기",
+      "sessionShowLess": "접기",
+      "environment": {
+        "version": "버전"
+      }
     },
     "fileActions": {
       "preview": "미리보기",
@@ -4014,7 +4026,13 @@
       "kbViaProject": "專案",
       "kbWrote": "寫入",
       "kbRead": "讀取",
-      "kbSearchCount": "檢索 {{n}} 次"
+      "kbSearchCount": "檢索 {{n}} 次",
+      "sectionSession": "會話",
+      "sessionShowMore": "展開更多",
+      "sessionShowLess": "收起",
+      "environment": {
+        "version": "版本"
+      }
     }
   },
   "tr": {
@@ -5161,7 +5179,13 @@
       "kbViaProject": "Proje",
       "kbWrote": "Yazıldı",
       "kbRead": "Okundu",
-      "kbSearchCount": "{{n}} arama"
+      "kbSearchCount": "{{n}} arama",
+      "sectionSession": "Oturum",
+      "sessionShowMore": "Daha fazla göster",
+      "sessionShowLess": "Daha az göster",
+      "environment": {
+        "version": "Sürüm"
+      }
     },
     "fileActions": {
       "preview": "Önizle",
@@ -6506,7 +6530,13 @@
       "kbViaProject": "Dự án",
       "kbWrote": "Đã ghi",
       "kbRead": "Đã đọc",
-      "kbSearchCount": "{{n}} lượt tìm"
+      "kbSearchCount": "{{n}} lượt tìm",
+      "sectionSession": "Phiên",
+      "sessionShowMore": "Xem thêm",
+      "sessionShowLess": "Thu gọn",
+      "environment": {
+        "version": "Phiên bản"
+      }
     },
     "fileActions": {
       "preview": "Xem trước",
@@ -7851,7 +7881,13 @@
       "kbViaProject": "Projeto",
       "kbWrote": "Escreveu",
       "kbRead": "Leu",
-      "kbSearchCount": "{{n}} buscas"
+      "kbSearchCount": "{{n}} buscas",
+      "sectionSession": "Sessão",
+      "sessionShowMore": "Mostrar mais",
+      "sessionShowLess": "Mostrar menos",
+      "environment": {
+        "version": "Versão"
+      }
     },
     "fileActions": {
       "preview": "Pré-visualizar",
@@ -9196,7 +9232,13 @@
       "kbViaProject": "Проект",
       "kbWrote": "Запись",
       "kbRead": "Чтение",
-      "kbSearchCount": "Поисков: {{n}}"
+      "kbSearchCount": "Поисков: {{n}}",
+      "sectionSession": "Сессия",
+      "sessionShowMore": "Показать больше",
+      "sessionShowLess": "Свернуть",
+      "environment": {
+        "version": "Версия"
+      }
     },
     "fileActions": {
       "preview": "Просмотр",
@@ -10541,7 +10583,13 @@
       "kbViaProject": "مشروع",
       "kbWrote": "كُتِب",
       "kbRead": "قُرِئ",
-      "kbSearchCount": "{{n}} عمليات بحث"
+      "kbSearchCount": "{{n}} عمليات بحث",
+      "sectionSession": "الجلسة",
+      "sessionShowMore": "عرض المزيد",
+      "sessionShowLess": "عرض أقل",
+      "environment": {
+        "version": "الإصدار"
+      }
     },
     "fileActions": {
       "preview": "معاينة",
@@ -11886,7 +11934,13 @@
       "kbViaProject": "Proyecto",
       "kbWrote": "Escribió",
       "kbRead": "Leyó",
-      "kbSearchCount": "{{n}} búsquedas"
+      "kbSearchCount": "{{n}} búsquedas",
+      "sectionSession": "Sesión",
+      "sessionShowMore": "Mostrar más",
+      "sessionShowLess": "Mostrar menos",
+      "environment": {
+        "version": "Versión"
+      }
     },
     "fileActions": {
       "preview": "Vista previa",
@@ -13231,7 +13285,13 @@
       "kbViaProject": "Projek",
       "kbWrote": "Ditulis",
       "kbRead": "Dibaca",
-      "kbSearchCount": "{{n}} carian"
+      "kbSearchCount": "{{n}} carian",
+      "sectionSession": "Sesi",
+      "sessionShowMore": "Tunjuk lagi",
+      "sessionShowLess": "Tunjuk kurang",
+      "environment": {
+        "version": "Versi"
+      }
     },
     "fileActions": {
       "preview": "Pratonton",
@@ -13648,6 +13708,14 @@
       "autoUpdateInterval": "检查间隔（小时）",
       "autoUpdateDownload": "在后台下载更新",
       "autoUpdateNotify": "有可用更新时通知我"
+    },
+    "workspace": {
+      "sectionSession": "会话",
+      "sessionShowMore": "展开更多",
+      "sessionShowLess": "收起",
+      "environment": {
+        "version": "版本"
+      }
     }
   }
 }

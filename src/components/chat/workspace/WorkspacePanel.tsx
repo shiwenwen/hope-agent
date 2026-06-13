@@ -1,27 +1,41 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import {
+  BarChart3,
   BookText,
   Bot,
+  Brain,
   CalendarClock,
+  Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CheckCircle2,
   CircleAlert,
+  Clock,
+  Copy,
   Cpu,
+  Database,
   EyeOff,
   FileText,
   Files,
   FolderGit2,
   FolderOpen,
+  Gauge,
   GitCompare,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
   Globe,
   HardDrive,
+  Hash,
   LayoutDashboard,
+  Loader2,
   Lock,
   MessageCircle,
+  MessageSquare,
+  Monitor,
   Radio,
   Search,
   Server,
@@ -35,11 +49,23 @@ import { Button } from "@/components/ui/button"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import { basename } from "@/lib/path"
+import { logger } from "@/lib/logger"
+import { useAppVersion } from "@/lib/appMeta"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
-import type { ActiveModel, FileChangeMetadata, Message, SessionMeta, SessionMode } from "@/types/chat"
+import { computeContextUsage, contextUsageLevel, formatMessageTime } from "../chatUtils"
+import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
+import type { CommandResult } from "../slash-commands/types"
+import type {
+  ActiveModel,
+  AvailableModel,
+  FileChangeMetadata,
+  Message,
+  SessionMeta,
+  SessionMode,
+} from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
@@ -81,6 +107,16 @@ interface WorkspacePanelProps {
   permissionMode?: SessionMode
   planState?: PlanModeState
   activeModel?: ActiveModel | null
+  /** 会话卡（复刻状态悬浮窗）所需:Agent 名 / Think 档 / 模型解析 / 会话动作回调。 */
+  agentName?: string
+  reasoningEffort?: string
+  availableModels?: AvailableModel[]
+  currentAgentId?: string
+  /** 「查看上下文」把 `/context` 结果回派给 ChatScreen（与悬浮窗共用入口）。 */
+  onCommandAction?: (result: CommandResult) => void
+  /** 「查看系统提示词」—— 复用 ChatScreen 的 loadSystemPrompt。 */
+  onViewSystemPrompt?: () => void
+  systemPromptLoading?: boolean
   /** 无痕会话:跳过后端聚合,只用 live tail（守「关闭即焚」）。 */
   incognito?: boolean
   /** 当前会话是否正在跑一轮:true→false 跳变时面板重新拉后端聚合。 */
@@ -358,6 +394,316 @@ function gitSyncLabel(t: ReturnType<typeof useTranslation>["t"], git: WorkspaceG
   }
 }
 
+/** Shared action-button styling for the session card (matches the status popover). */
+const SESSION_ACTION_BTN =
+  "rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-50"
+
+/** Green → amber → red fill for the session card's context-usage bar (shared thresholds). */
+function sessionUsageBarClass(pct: number): string {
+  const level = contextUsageLevel(pct)
+  return level === "low"
+    ? "bg-green-500/70"
+    : level === "mid"
+      ? "bg-yellow-500/70"
+      : "bg-red-500/70"
+}
+
+/**
+ * 会话卡 —— 把标题栏状态悬浮窗的能力「复刻一份」到工作台。模型 / 认证、上下文用量条
+ * + 压缩 / 查看上下文、Agent 作为核心常驻;缓存、会话名 / ID、消息数、思考模式、更新
+ * 时间、查看系统提示词折进「展开更多」。动作走与悬浮窗完全相同的 transport
+ * (`compact_context_now` / `/context` / `get_system_prompt`);上下文数值与悬浮窗共用
+ * `computeContextUsage`,两处永不漂移。App 版本不在此卡(归「环境」卡)。
+ */
+function SessionSection({
+  sessionId,
+  sessionMeta,
+  agentName,
+  reasoningEffort,
+  activeModel,
+  availableModels,
+  messages,
+  currentAgentId,
+  turnActive,
+  onCommandAction,
+  onViewSystemPrompt,
+  systemPromptLoading,
+}: {
+  sessionId?: string | null
+  sessionMeta?: SessionMeta | null
+  agentName?: string
+  reasoningEffort?: string
+  activeModel?: ActiveModel | null
+  availableModels?: AvailableModel[]
+  messages: Message[]
+  currentAgentId?: string
+  turnActive?: boolean
+  onCommandAction?: (result: CommandResult) => void
+  onViewSystemPrompt?: () => void
+  systemPromptLoading?: boolean
+}) {
+  const { t } = useTranslation()
+  const [showMore, setShowMore] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const currentModel = useMemo(
+    () =>
+      activeModel
+        ? ((availableModels ?? []).find(
+            (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId,
+          ) ?? null)
+        : null,
+    [activeModel, availableModels],
+  )
+  const usage = useMemo(
+    () => (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null),
+    [currentModel, messages],
+  )
+  // Cache stats from the latest assistant turn that carries usage (Anthropic).
+  const cache = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role !== "assistant" || !m.usage) continue
+      const u = m.usage
+      if (u.cacheCreationInputTokens == null && u.cacheReadInputTokens == null) return null
+      return {
+        created: u.cacheCreationInputTokens || 0,
+        read: u.cacheReadInputTokens || 0,
+        lastInput: u.lastInputTokens,
+      }
+    }
+    return null
+  }, [messages])
+
+  const modelLabel = currentModel
+    ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
+    : activeModel?.modelId || "—"
+  const authLabel = (currentModel?.apiType ?? "") === "codex" ? "oauth" : "api-key"
+  const sessionTitle = sessionMeta?.title
+    ? sessionMeta.title
+    : sessionId
+      ? sessionId.slice(0, 8)
+      : t("chat.statusNewSession")
+
+  const handleCopyId = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      await navigator.clipboard.writeText(sessionId)
+    } catch (e) {
+      logger.error("ui", "WorkspaceSession::copyId", "Copy session id failed", e)
+      return
+    }
+    setCopied(true)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 1500)
+  }, [sessionId])
+
+  const handleCompact = useCallback(async () => {
+    if (!sessionId) return
+    setCompacting(true)
+    try {
+      const result = await getTransport().call<{
+        tierApplied: number
+        tokensBefore: number
+        tokensAfter: number
+        messagesAffected: number
+      }>("compact_context_now", { sessionId })
+      const saved = result.tokensBefore - result.tokensAfter
+      toast.success(
+        result.messagesAffected > 0
+          ? t("chat.compactDone", { saved, affected: result.messagesAffected })
+          : t("chat.compactNoChange"),
+      )
+    } catch (e) {
+      logger.error("ui", "WorkspaceSession::compact", "Compact failed", e)
+      toast.error(t("chat.compactFailed"))
+    } finally {
+      setCompacting(false)
+    }
+  }, [sessionId, t])
+
+  const handleViewContext = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const result = await getTransport().call<CommandResult>("execute_slash_command", {
+        sessionId,
+        agentId: currentAgentId,
+        commandText: "/context",
+      })
+      result._slashCommandText = "/context"
+      onCommandAction?.(result)
+    } catch (e) {
+      logger.error("ui", "WorkspaceSession::viewContext", "View context failed", e)
+    }
+  }, [sessionId, currentAgentId, onCommandAction])
+
+  return (
+    <WorkspaceSection title={t("workspace.sectionSession", "会话")} icon={MessageCircle}>
+      <div className="space-y-2">
+        {/* 核心 — 模型 + 认证 */}
+        <div className="space-y-0.5">
+          <EnvRow
+            icon={Brain}
+            label={t("chat.statusModel")}
+            value={modelLabel}
+            detail={authLabel}
+            title={modelLabel}
+          />
+        </div>
+
+        {/* 核心 — 上下文用量条 + 压缩 / 查看上下文 */}
+        {usage ? (
+          <div className="space-y-1.5 rounded-md border border-border/40 bg-secondary/25 px-2.5 py-2">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">{t("chat.statusContext")}</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {usage.usedK}k/{usage.ctxK}k ({usage.pct}%)
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  sessionUsageBarClass(usage.pct),
+                )}
+                style={{ width: `${Math.min(usage.pct, 100)}%` }}
+              />
+            </div>
+            <div className="flex gap-1.5 pt-0.5">
+              {usage.usedTokens > 0 ? (
+                <button
+                  type="button"
+                  className={cn(SESSION_ACTION_BTN, "flex-1")}
+                  disabled={compacting || turnActive}
+                  onClick={handleCompact}
+                >
+                  {compacting ? t("chat.compacting") : t("chat.compactNow")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={cn(SESSION_ACTION_BTN, "inline-flex flex-1 items-center justify-center gap-1")}
+                onClick={handleViewContext}
+              >
+                <BarChart3 className="h-3 w-3" />
+                {t("chat.viewContext", "View context")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* 核心 — Agent */}
+        <div className="space-y-0.5">
+          <EnvRow icon={Bot} label={t("chat.statusAgent")} value={agentName || t("chat.mainAgent")} />
+        </div>
+
+        {/* 展开更多 / 收起 */}
+        <button
+          type="button"
+          aria-expanded={showMore}
+          onClick={() => setShowMore((v) => !v)}
+          className="flex w-full items-center justify-center gap-1 rounded-md py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground"
+        >
+          {showMore ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {showMore ? t("workspace.sessionShowLess", "收起") : t("workspace.sessionShowMore", "展开更多")}
+        </button>
+
+        <AnimatedCollapse open={showMore}>
+          <div className="space-y-0.5 pt-0.5">
+            {cache ? (
+              <EnvRow
+                icon={Database}
+                label={t("chat.statusCache")}
+                value={formatCacheUsageDisplay({
+                  created: cache.created,
+                  read: cache.read,
+                  writeLabel: t("chat.statusCacheWrite"),
+                  hitLabel: t("chat.statusCacheHit"),
+                })}
+                detail={
+                  cache.lastInput != null ? formatCompactTokenCount(cache.lastInput) : undefined
+                }
+              />
+            ) : null}
+
+            <EnvRow icon={MessageCircle} label={t("chat.statusSession")} value={sessionTitle} />
+
+            {sessionId ? (
+              <IconTip label={copied ? t("chat.copied") : t("chat.copy")}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleCopyId}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      void handleCopyId()
+                    }
+                  }}
+                  className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary/35"
+                >
+                  <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="w-14 shrink-0 text-muted-foreground">
+                    {t("chat.statusSessionId")}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
+                    {sessionId}
+                  </span>
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                  )}
+                </div>
+              </IconTip>
+            ) : null}
+
+            <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground">
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <span>{t("chat.statusMessages", { count: messages.length })}</span>
+            </div>
+
+            <EnvRow
+              icon={Gauge}
+              label={t("chat.statusThinking")}
+              value={reasoningEffort ? t(`effort.${reasoningEffort}`) : "—"}
+            />
+
+            {sessionMeta?.updatedAt ? (
+              <EnvRow
+                icon={Clock}
+                label={t("chat.statusUpdated")}
+                value={formatMessageTime(sessionMeta.updatedAt)}
+              />
+            ) : null}
+
+            {onViewSystemPrompt ? (
+              <button
+                type="button"
+                className={cn(
+                  SESSION_ACTION_BTN,
+                  "mt-1 inline-flex w-full items-center justify-center gap-1.5",
+                )}
+                disabled={systemPromptLoading}
+                onClick={onViewSystemPrompt}
+              >
+                {systemPromptLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <FileText className="h-3 w-3" />
+                )}
+                {t("chat.viewSystemPrompt")}
+              </button>
+            ) : null}
+          </div>
+        </AnimatedCollapse>
+      </div>
+    </WorkspaceSection>
+  )
+}
+
 function EnvironmentSection({
   sessionId,
   sessionMeta,
@@ -366,7 +712,6 @@ function EnvironmentSection({
   workingDirSource,
   permissionMode = "default",
   planState = "off",
-  activeModel,
   turnActive,
 }: {
   sessionId?: string | null
@@ -376,10 +721,10 @@ function EnvironmentSection({
   workingDirSource?: "session" | "project"
   permissionMode?: SessionMode
   planState?: PlanModeState
-  activeModel?: ActiveModel | null
   turnActive?: boolean
 }) {
   const { t } = useTranslation()
+  const appVersion = useAppVersion()
   const environmentRefreshKey = useMemo(
     () =>
       [
@@ -435,6 +780,12 @@ function EnvironmentSection({
       meta={<StatusPill label={statusLabel} tone={status.tone} loading={env.loading} />}
     >
       <div className="space-y-0.5">
+        <EnvRow
+          icon={Monitor}
+          label={t("workspace.environment.version", "版本")}
+          value={`v${appVersion}`}
+        />
+
         <EnvRow
           icon={isLocalRuntime ? HardDrive : Server}
           label={t("workspace.environment.runtime", "运行")}
@@ -496,15 +847,6 @@ function EnvironmentSection({
             label={t("workspace.environment.plan", "计划")}
             value={planStateLabel(t, planState)}
             tone={planState === "executing" ? "info" : planState === "completed" ? "good" : "muted"}
-          />
-        ) : null}
-
-        {activeModel ? (
-          <EnvRow
-            icon={Bot}
-            label={t("workspace.environment.model", "模型")}
-            value={activeModel.modelId}
-            detail={activeModel.providerId}
           />
         ) : null}
 
@@ -736,6 +1078,13 @@ export default function WorkspacePanel({
   permissionMode = "default",
   planState = "off",
   activeModel,
+  agentName,
+  reasoningEffort,
+  availableModels,
+  currentAgentId,
+  onCommandAction,
+  onViewSystemPrompt,
+  systemPromptLoading,
   incognito = false,
   turnActive = false,
   onClose,
@@ -776,6 +1125,22 @@ export default function WorkspacePanel({
       </div>
 
       <div className="flex-1 space-y-2 overflow-auto p-2">
+        {/* 会话 — 复刻状态悬浮窗的能力(模型 / 上下文 / 动作),核心常驻 + 展开更多。 */}
+        <SessionSection
+          sessionId={sessionId}
+          sessionMeta={sessionMeta}
+          agentName={agentName}
+          reasoningEffort={reasoningEffort}
+          activeModel={activeModel}
+          availableModels={availableModels}
+          messages={messages}
+          currentAgentId={currentAgentId}
+          turnActive={turnActive}
+          onCommandAction={onCommandAction}
+          onViewSystemPrompt={onViewSystemPrompt}
+          systemPromptLoading={systemPromptLoading}
+        />
+
         <EnvironmentSection
           sessionId={sessionId}
           sessionMeta={sessionMeta}
@@ -784,7 +1149,6 @@ export default function WorkspacePanel({
           workingDirSource={workingDirSource}
           permissionMode={permissionMode}
           planState={planState}
-          activeModel={activeModel}
           turnActive={turnActive}
         />
 

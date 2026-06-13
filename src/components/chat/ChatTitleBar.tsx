@@ -30,7 +30,7 @@ import {
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDisplay"
-import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
+import { computeContextUsage, contextUsageLevel, formatMessageTime } from "./chatUtils"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./input/IncognitoToggle"
 import { logger } from "@/lib/logger"
@@ -577,7 +577,7 @@ export default function ChatTitleBar({
               {/* Model + Auth */}
               {(() => {
                 const modelLabel = currentModel
-                  ? `${currentModel.providerName}/${currentModel.modelId}`
+                  ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
                   : activeModel?.modelId || "—"
                 const apiType = currentModel?.apiType || "—"
                 const authLabel = apiType === "codex" ? "oauth" : "api-key"
@@ -601,19 +601,18 @@ export default function ChatTitleBar({
               {/* Context window usage. See `getContextUsageTokens` for the
                *  cumulative-vs-last-round rule. */}
               {(() => {
-                if (!currentModel) return null
-                const ctxK = Math.round(currentModel.contextWindow / 1000)
-                const lastAssistantWithUsage = [...messages]
-                  .reverse()
-                  .find((msg) => msg.role === "assistant" && getContextUsageTokens(msg.usage))
-                const usedTokens = getContextUsageTokens(lastAssistantWithUsage?.usage) ?? 0
-                const usedK = Math.round(usedTokens / 1000)
-                const pct =
-                  currentModel.contextWindow > 0
-                    ? Math.round((usedTokens / currentModel.contextWindow) * 100)
-                    : 0
+                const usage = currentModel
+                  ? computeContextUsage(messages, currentModel.contextWindow)
+                  : null
+                if (!usage) return null
+                const { usedTokens, usedK, ctxK, pct } = usage
+                const level = contextUsageLevel(pct)
                 const barColor =
-                  pct < 50 ? "bg-green-500/70" : pct < 80 ? "bg-yellow-500/70" : "bg-red-500/70"
+                  level === "low"
+                    ? "bg-green-500/70"
+                    : level === "mid"
+                      ? "bg-yellow-500/70"
+                      : "bg-red-500/70"
                 return (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">

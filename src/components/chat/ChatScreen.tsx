@@ -62,6 +62,7 @@ import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
+import { computeContextUsage } from "./chatUtils"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
@@ -1150,6 +1151,17 @@ export default function ChatScreen({
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
   const taskProgressSnapshot = useTaskProgressSnapshot(session.currentSessionId, session.messages)
+  // Context-window fullness for the input-dock bottom bar. Derived from the
+  // active model's window + the latest assistant usage (shared helper, same
+  // numbers as the status popover / workspace session card).
+  const contextUsage = useMemo(() => {
+    const model = activeModel
+      ? availableModels.find(
+          (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId,
+        )
+      : null
+    return model ? computeContextUsage(session.messages, model.contextWindow) : null
+  }, [activeModel, availableModels, session.messages])
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -2289,6 +2301,7 @@ export default function ChatScreen({
                           : null
                       }
                       hero={emptySessionInputHero}
+                      contextUsage={contextUsage}
                     />
                   </div>
                 </div>
@@ -2446,6 +2459,13 @@ export default function ChatScreen({
                 permissionMode={stream.permissionMode}
                 planState={planMode.planState}
                 activeModel={activeModel}
+                agentName={session.agentName}
+                reasoningEffort={reasoningEffort}
+                availableModels={availableModels}
+                currentAgentId={session.currentAgentId}
+                onCommandAction={handleCommandAction}
+                onViewSystemPrompt={loadSystemPrompt}
+                systemPromptLoading={systemPromptLoading}
                 incognito={incognitoEnabled}
                 turnActive={
                   workspaceTaskExecutionState === "running" ||
