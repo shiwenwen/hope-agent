@@ -140,7 +140,16 @@ pub fn spawn_explicit_job(
     };
 
     let job_id = new_job_id();
-    record_running_job(&db, &job_id, &ctx, tool_name, &args, origin)?;
+    // review#1: register the cancel token BEFORE the row becomes queryable, so a
+    // concurrent cancel (e.g. cancel_jobs_for_session on session delete) that
+    // sees the fresh `running` row also finds a live token — instead of taking
+    // the "no active runner" branch and marking it Cancelled while this worker
+    // keeps running unsignalled. Roll the registration back if the insert fails.
+    let cancel_token = super::cancel::register_job(&job_id);
+    if let Err(e) = record_running_job(&db, &job_id, &ctx, tool_name, &args, origin) {
+        super::cancel::remove_job(&job_id);
+        return Err(e);
+    }
 
     let synthetic = synthetic_started_result(&job_id, tool_name, origin);
 
@@ -150,7 +159,6 @@ pub fn spawn_explicit_job(
     // `AlwaysBackground` policy would re-enter `spawn_explicit_job` forever.
     let max_secs = effective_max_job_secs(&args);
     let clean_args = strip_async_control_args(args);
-    let cancel_token = super::cancel::register_job(&job_id);
     ctx.bypass_async_dispatch = true;
     // Engine gate already ran (or was deliberately skipped for `exec`) at
     // the outer dispatch; the recursive inner call must not re-prompt (the
@@ -424,11 +432,18 @@ pub async fn dispatch_with_auto_background(
                                 ));
                             }
                         };
+                        // review#1: register the cancel token BEFORE the row is
+                        // queryable, so a concurrent session-delete cancel finds
+                        // a live token instead of taking the "no active runner"
+                        // branch and marking it Cancelled while this detached
+                        // worker keeps running unsignalled.
+                        super::cancel::register_job_token(&job_id, cancel_token.clone());
                         if let Err(e) =
                             record_running_job(db, &job_id, ctx, name, args, JobOrigin::AutoBackgrounded)
                         {
                             *p = Phase::Consumed;
                             drop(p);
+                            super::cancel::remove_job(&job_id);
                             cancel_token.cancel();
                             // I6 (MISC-9): the row failed to persist, so the
                             // pre-allocated `job_id` is a ghost the model could
@@ -440,7 +455,6 @@ pub async fn dispatch_with_auto_background(
                                 e
                             ));
                         }
-                        super::cancel::register_job_token(&job_id, cancel_token.clone());
                         *p = Phase::DetachedRunning;
                         drop(p);
                         app_info!(

@@ -64,14 +64,33 @@ pub fn cancel_job(job_id: &str) -> anyhow::Result<Option<AsyncJob>> {
         // No in-process runner owns this job id. Mark it terminal so callers
         // are not left with an un-cancellable row forever; any late runner
         // completion is ignored by `update_terminal`'s active-status guard.
+        const NO_RUNNER_MSG: &str = "Cancelled; no active runner handle was found in this process";
         let _ = db.update_terminal(
             job_id,
             AsyncJobStatus::Cancelled,
             None,
             None,
-            Some("Cancelled; no active runner handle was found in this process"),
+            Some(NO_RUNNER_MSG),
             chrono::Utc::now().timestamp(),
         )?;
+        // review#5: this is a real terminal settle, so it must be visible to
+        // PostToolUse/PostToolUseFailure hooks like finalize_job and
+        // replay_pending_jobs (H4 contract: cancelled jobs fire the hook,
+        // is_interrupt=true). mark_injected below closes off the replay
+        // fallback, so fire it here. Deliberately NOT routed through
+        // dispatch_injection (cancel comes from turn-cancel/session-delete;
+        // injecting would spawn an unwanted parent turn / hit a ghost session).
+        let (is_error, is_interrupt) = AsyncJobStatus::Cancelled.terminal_hook_flags();
+        crate::hooks::fire_async_job_terminal(
+            job.session_id.as_deref(),
+            job.agent_id.as_deref(),
+            &job.tool_name,
+            job.tool_call_id.as_deref(),
+            job_id,
+            is_error,
+            is_interrupt,
+            NO_RUNNER_MSG,
+        );
         let _ = db.mark_injected(job_id);
         wait::notify_completion(job_id);
         if let Some(bus) = crate::get_event_bus() {
