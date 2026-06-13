@@ -15,7 +15,8 @@ use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{InlineButton, ReplyPayload};
 use crate::tools::approval::{
-    submit_approval_response, ApprovalReasonKind, ApprovalReasonPayload, ApprovalResponse,
+    submit_approval_response, ApprovalReasonKind, ApprovalReasonPayload, ApprovalResolutionSource,
+    ApprovalResponse,
 };
 use crate::ttl_cache::TtlCache;
 
@@ -708,7 +709,8 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
     };
     let request_id = entry.request_id;
 
-    match submit_approval_response(&request_id, parsed.response).await {
+    match submit_approval_response(&request_id, parsed.response, ApprovalResolutionSource::Im).await
+    {
         Ok(()) => true,
         Err(e) => {
             // Approval already expired (5-min timeout) — don't consume the message
@@ -893,7 +895,7 @@ pub async fn handle_approval_callback_with_source(
         )?;
     }
 
-    submit_approval_response(request_id, response).await?;
+    submit_approval_response(request_id, response, ApprovalResolutionSource::Im).await?;
     Ok(label)
 }
 

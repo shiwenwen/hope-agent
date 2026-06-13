@@ -126,6 +126,88 @@ pub enum ApprovalResponse {
     Deny,
 }
 
+/// Where an approval decision came from. Carried in the
+/// [`EVENT_APPROVAL_RESOLVED`] broadcast so every surface (GUI / IM / HTTP) can
+/// dismiss its dialog and tell "decided elsewhere" apart from "I decided this".
+/// Variants grow as each resolution path lands (timeout → F, session delete →
+/// A-9, eviction → G).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalResolutionSource {
+    /// Desktop GUI (Tauri command).
+    Gui,
+    /// HTTP / WS client.
+    Http,
+    /// IM channel (button or text reply).
+    Im,
+}
+
+impl ApprovalResolutionSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Gui => "gui",
+            Self::Http => "http",
+            Self::Im => "im",
+        }
+    }
+}
+
+/// Why a [`submit_approval_response`] call failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalSubmitError {
+    /// No pending approval matched the request id — already resolved, timed
+    /// out, evicted, or never existed. HTTP maps this to 410 Gone (MISC-18).
+    NotPending,
+    /// The pending entry existed but its receiver was already dropped (the
+    /// awaiting tool future is gone). The decision had no effect — surfaces
+    /// should report "approval no longer active" instead of a false success
+    /// (PENDING-1).
+    NoLongerActive,
+}
+
+impl std::fmt::Display for ApprovalSubmitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotPending => write!(f, "No pending approval request"),
+            Self::NoLongerActive => write!(f, "Approval is no longer active"),
+        }
+    }
+}
+
+impl std::error::Error for ApprovalSubmitError {}
+
+/// Broadcast when an approval is resolved by any surface, so all surfaces can
+/// dismiss their dialog and (for non-originating ones) indicate it was handled
+/// elsewhere. Payload: `{ requestId, sessionId?, decision, source }`.
+pub const EVENT_APPROVAL_RESOLVED: &str = "approval:resolved";
+
+fn approval_decision_str(response: ApprovalResponse) -> &'static str {
+    match response {
+        ApprovalResponse::AllowOnce => "allow_once",
+        ApprovalResponse::AllowAlways => "allow_always",
+        ApprovalResponse::Deny => "deny",
+    }
+}
+
+/// Emit the [`EVENT_APPROVAL_RESOLVED`] broadcast. No-op without an event bus.
+pub fn emit_approval_resolved(
+    request_id: &str,
+    session_id: Option<&str>,
+    decision: &str,
+    source: ApprovalResolutionSource,
+) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            EVENT_APPROVAL_RESOLVED,
+            serde_json::json!({
+                "requestId": request_id,
+                "sessionId": session_id,
+                "decision": decision,
+                "source": source.as_str(),
+            }),
+        );
+    }
+}
+
 /// In-memory entry for a pending approval. Stores the oneshot sender plus the
 /// originating session id so we can aggregate counts per session for the
 /// sidebar "needs your response" indicator.
@@ -168,21 +250,38 @@ pub async fn pending_approval_session_id(request_id: &str) -> Result<Option<Stri
         .ok_or_else(|| anyhow::anyhow!("No pending approval request: {}", request_id))
 }
 
-/// Submit an approval response (called by Tauri command from frontend)
-pub async fn submit_approval_response(request_id: &str, response: ApprovalResponse) -> Result<()> {
+/// Submit an approval response from a given surface (GUI / HTTP / IM).
+///
+/// On success broadcasts [`EVENT_APPROVAL_RESOLVED`] so other surfaces dismiss
+/// their dialog. Returns:
+/// - `Err(NotPending)` when no pending approval matches (already resolved /
+///   timed out / evicted) — HTTP maps to 410.
+/// - `Err(NoLongerActive)` when the entry existed but its receiver was already
+///   dropped (the awaiting tool future is gone): the decision had no effect, so
+///   surface a clear error instead of a false success (PENDING-1).
+pub async fn submit_approval_response(
+    request_id: &str,
+    response: ApprovalResponse,
+    source: ApprovalResolutionSource,
+) -> std::result::Result<(), ApprovalSubmitError> {
     let mut pending = get_pending_approvals().lock().await;
-    if let Some(entry) = pending.remove(request_id) {
-        let session_id = entry.session_id.clone();
-        let _ = entry.sender.send(response);
-        drop(pending);
-        emit_pending_interactions_changed(session_id.as_deref());
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!(
-            "No pending approval request: {}",
-            request_id
-        ))
+    let Some(entry) = pending.remove(request_id) else {
+        return Err(ApprovalSubmitError::NotPending);
+    };
+    let session_id = entry.session_id.clone();
+    let delivered = entry.sender.send(response).is_ok();
+    drop(pending);
+    emit_pending_interactions_changed(session_id.as_deref());
+    if !delivered {
+        return Err(ApprovalSubmitError::NoLongerActive);
     }
+    emit_approval_resolved(
+        request_id,
+        session_id.as_deref(),
+        approval_decision_str(response),
+        source,
+    );
+    Ok(())
 }
 
 /// Broadcast to the frontend that some session's pending-interaction count

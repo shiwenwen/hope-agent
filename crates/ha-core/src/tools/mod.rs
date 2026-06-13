@@ -55,7 +55,10 @@ mod write;
 
 pub(crate) use task::task_reminder_text;
 
-pub use approval::{submit_approval_response, ApprovalResponse};
+pub use approval::{
+    emit_approval_resolved, submit_approval_response, ApprovalResolutionSource, ApprovalResponse,
+    ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
+};
 pub use definitions::{
     get_ask_user_question_tool, get_available_tools, get_canvas_tool, get_core_tools,
     get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
