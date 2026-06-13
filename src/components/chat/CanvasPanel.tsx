@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils"
 import { X, RefreshCw, Maximize2, Minimize2, ExternalLink, PanelLeftClose } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
-import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
 
 interface CanvasInfo {
   projectId: string
@@ -513,8 +512,10 @@ export default function CanvasPanel({
         </div>
       </div>
 
-      {/* iframe preview */}
-      <div className={cn("flex-1 overflow-hidden bg-white dark:bg-surface-app", PANEL_SCROLL_FADE)}>
+      {/* iframe preview — no scroll-fade mask: the iframe scrolls internally,
+          so a mask on this non-scrolling wrapper would permanently dim the live
+          canvas's top/bottom edge. */}
+      <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
         <iframe
           ref={iframeRef}
           key={`${canvas.projectId}-${refreshKey}`}

@@ -71,6 +71,7 @@ import {
 import MentionComposerInput from "./MentionComposerInput"
 import type { ComposerInputHandle } from "./composerInputHandle"
 import type { ContextUsageInfo } from "../chatUtils"
+import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
 
 interface ChatInputProps {
@@ -152,16 +153,15 @@ interface ChatInputProps {
 
 /**
  * Thin context-usage bar fused into the input dock's bottom border. The filled
- * width tracks how full the context window is; color ramps green → amber → red.
- * Sits in the toolbar's `pb-2` padding zone (no buttons there), so its hover
- * target never steals clicks. Clipped to the dock's rounded bottom corners.
+ * width tracks how full the context window is; color ramps green → yellow → red
+ * via the shared `contextUsageBarClass` (dependency-free leaf module, so the
+ * input dock stays clear of chatUtils' heavier runtime chain). Sits in the
+ * toolbar's `pb-2` padding zone (no buttons there), so its hover target never
+ * steals clicks. Clipped to the dock's rounded bottom corners.
  */
 function ContextUsageBottomBar({ usage }: { usage: ContextUsageInfo }) {
   const { t } = useTranslation()
-  // Same green → amber → red thresholds as chatUtils' `contextUsageLevel`;
-  // inlined so this input component avoids chatUtils' heavier import chain.
-  const fill =
-    usage.pct < 50 ? "bg-green-500" : usage.pct < 80 ? "bg-amber-500" : "bg-red-500"
+  const fill = contextUsageBarClass(usage.pct)
   const width = Math.min(usage.pct, 100)
   return (
     <Tooltip>

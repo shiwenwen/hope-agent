@@ -61,18 +61,20 @@ export default function ProcessedBlockGroup({
           </span>
         )}
       </button>
-      {/* Folded steps — inline media suppressed; it's hoisted below instead. */}
-      <MediaHoistContext.Provider value={true}>
+      {/* Collapsed: suppress the steps' inline media and hoist it below so the
+          output stays visible while folded. Expanded: show each step's media
+          inline next to the step that produced it (no suppression, no hoist). */}
+      <MediaHoistContext.Provider value={!expanded}>
         <AnimatedCollapse open={expanded}>
           <div className="ml-3 border-l border-border/40 pl-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             {children}
           </div>
         </AnimatedCollapse>
       </MediaHoistContext.Provider>
-      {/* Hoisted media — outside the suppression provider so it renders. */}
-      {mediaTools?.map((tool) => (
-        <ToolMediaPreview key={tool.callId} tool={tool} className="ml-1" />
-      ))}
+      {!expanded &&
+        mediaTools?.map((tool) => (
+          <ToolMediaPreview key={tool.callId} tool={tool} className="ml-1" />
+        ))}
     </div>
   )
 }

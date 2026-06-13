@@ -32,13 +32,30 @@ export function useFitZoom<T extends HTMLElement>(
   fitPadding = 16,
 ): FitZoom {
   const contentWidthRef = useRef(0)
+  // Latest `measure` without re-subscribing the ResizeObserver, so the recovery
+  // path in computeFit can re-measure after a too-early first sample.
+  const measureRef = useRef(measure)
+  useEffect(() => {
+    measureRef.current = measure
+  }, [measure])
   const [scale, setScale] = useState(1)
   const [fitMode, setFitMode] = useState(true)
 
   const computeFit = useCallback(() => {
     const outer = outerRef.current
-    const cw = contentWidthRef.current
-    if (!outer || cw <= 0) return
+    if (!outer) return
+    let cw = contentWidthRef.current
+    if (cw <= 0) {
+      // Recover from a first sample taken before layout settled (measure()==0):
+      // re-measure now (the ResizeObserver also fires on attach, so this retries
+      // until layout is ready). Safe because cw<=0 only before any successful
+      // capture — i.e. before the user could have zoomed — so we never bake in a
+      // zoomed width. Once captured (>0) we never re-measure, so a later zoom
+      // can't skew the fit baseline.
+      cw = measureRef.current()
+      if (cw > 0) contentWidthRef.current = cw
+    }
+    if (cw <= 0) return
     const avail = outer.clientWidth - fitPadding
     setScale(avail > 0 ? Math.min(1, avail / cw) : 1)
   }, [outerRef, fitPadding])

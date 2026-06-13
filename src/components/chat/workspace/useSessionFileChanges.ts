@@ -83,7 +83,14 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
       // 不走 file metadata —— 取本地路径作为产物文件补进「输出」(桌面有 localPath；
       // HTTP 下被剥，靠后端读时聚合补)。与后端 artifacts.rs 的 __MEDIA_ITEMS__ 扫描同步。
       for (const item of tool.mediaItems ?? []) {
-        if (item.localPath && !entries.has(item.localPath)) {
+        if (!item.localPath) continue
+        const existing = entries.get(item.localPath)
+        if (existing) {
+          // 已读/已改的文件又作为媒体产出：不重复登记，但若之前只是「读」则
+          // 升级为「产物」(modified)——产物比读更重要，且要刷新活动顺序。
+          if (existing.kind === "read") existing.kind = "modified"
+          touch(item.localPath, existing)
+        } else {
           touch(item.localPath, {
             path: item.localPath,
             kind: "modified",
@@ -116,14 +123,17 @@ export function aggregateSessionFileChanges(messages: Message[]): SessionFileEnt
 }
 
 /**
- * 便宜的存在性检查：本会话有没有产生过文件活动(任一带结构化 metadata 的 tool)。
- * 供 ChatScreen 算「是否自动展开工作台」用——短路即返回，不做整段聚合，避免在
- * 流式 render hot-path 上每帧全量扫描。
+ * 便宜的存在性检查：本会话有没有产生过文件活动。供 ChatScreen 算「是否自动展开
+ * 工作台」用——短路即返回，不做整段聚合，避免在流式 render hot-path 上每帧全量扫描。
+ * 判定口径必须与 {@link aggregateSessionFileChanges} 对齐：结构化 metadata **或**
+ * 带本地路径的媒体产物(send_attachment / image_generate / exec)都算文件活动，
+ * 否则只产媒体的会话面板永不自动展开。
  */
 export function messagesHaveFileActivity(messages: Message[]): boolean {
   for (const message of messages) {
     for (const tool of iterateMessageToolCalls(message)) {
       if (tool.metadata) return true
+      if (tool.mediaItems?.some((item) => item.localPath)) return true
     }
   }
   return false

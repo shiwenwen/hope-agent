@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
@@ -55,8 +55,15 @@ import { openExternalUrl } from "@/lib/openExternalUrl"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
-import { computeContextUsage, contextUsageLevel, formatMessageTime } from "../chatUtils"
+import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "../chatUtils"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
+import {
+  compactContextNow,
+  compactResultMessage,
+  computeCacheStats,
+  resolveCurrentModel,
+  runViewContext,
+} from "../sessionStatus"
 import type { CommandResult } from "../slash-commands/types"
 import type {
   ActiveModel,
@@ -399,15 +406,6 @@ function gitSyncLabel(t: ReturnType<typeof useTranslation>["t"], git: WorkspaceG
 const SESSION_ACTION_BTN =
   "rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-50"
 
-/** Green → amber → red fill for the session card's context-usage bar (shared thresholds). */
-function sessionUsageBarClass(pct: number): string {
-  const level = contextUsageLevel(pct)
-  return level === "low"
-    ? "bg-green-500/70"
-    : level === "mid"
-      ? "bg-yellow-500/70"
-      : "bg-red-500/70"
-}
 
 /**
  * 会话卡 —— 把标题栏状态悬浮窗的能力「复刻一份」到工作台。模型 / 认证、上下文用量条
@@ -448,35 +446,21 @@ function SessionSection({
   const [compacting, setCompacting] = useState(false)
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Clear the "copied" reset timer on unmount so it can't fire after the card
+  // is closed / the session switched (leaked timer + stale setState).
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+  }, [])
 
   const currentModel = useMemo(
-    () =>
-      activeModel
-        ? ((availableModels ?? []).find(
-            (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId,
-          ) ?? null)
-        : null,
+    () => resolveCurrentModel(activeModel, availableModels),
     [activeModel, availableModels],
   )
   const usage = useMemo(
     () => (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null),
     [currentModel, messages],
   )
-  // Cache stats from the latest assistant turn that carries usage (Anthropic).
-  const cache = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if (m.role !== "assistant" || !m.usage) continue
-      const u = m.usage
-      if (u.cacheCreationInputTokens == null && u.cacheReadInputTokens == null) return null
-      return {
-        created: u.cacheCreationInputTokens || 0,
-        read: u.cacheReadInputTokens || 0,
-        lastInput: u.lastInputTokens,
-      }
-    }
-    return null
-  }, [messages])
+  const cache = useMemo(() => computeCacheStats(messages), [messages])
 
   const modelLabel = currentModel
     ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
@@ -505,18 +489,7 @@ function SessionSection({
     if (!sessionId) return
     setCompacting(true)
     try {
-      const result = await getTransport().call<{
-        tierApplied: number
-        tokensBefore: number
-        tokensAfter: number
-        messagesAffected: number
-      }>("compact_context_now", { sessionId })
-      const saved = result.tokensBefore - result.tokensAfter
-      toast.success(
-        result.messagesAffected > 0
-          ? t("chat.compactDone", { saved, affected: result.messagesAffected })
-          : t("chat.compactNoChange"),
-      )
+      toast.success(compactResultMessage(t, await compactContextNow(sessionId)))
     } catch (e) {
       logger.error("ui", "WorkspaceSession::compact", "Compact failed", e)
       toast.error(t("chat.compactFailed"))
@@ -528,13 +501,7 @@ function SessionSection({
   const handleViewContext = useCallback(async () => {
     if (!sessionId) return
     try {
-      const result = await getTransport().call<CommandResult>("execute_slash_command", {
-        sessionId,
-        agentId: currentAgentId,
-        commandText: "/context",
-      })
-      result._slashCommandText = "/context"
-      onCommandAction?.(result)
+      onCommandAction?.(await runViewContext(sessionId, currentAgentId))
     } catch (e) {
       logger.error("ui", "WorkspaceSession::viewContext", "View context failed", e)
     }
@@ -567,7 +534,7 @@ function SessionSection({
               <div
                 className={cn(
                   "h-full rounded-full transition-all duration-300",
-                  sessionUsageBarClass(usage.pct),
+                  contextUsageBarClass(usage.pct),
                 )}
                 style={{ width: `${Math.min(usage.pct, 100)}%` }}
               />

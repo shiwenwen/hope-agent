@@ -1,21 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-  ChevronLeft,
-  ChevronRight,
-  GalleryHorizontal,
-  GalleryVertical,
-  Maximize,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react"
+import { ChevronLeft, ChevronRight, GalleryHorizontal, GalleryVertical } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { OfficeLoading } from "./OfficeLoading"
+import { OfficeZoomControls } from "./OfficeZoomBar"
 import type { OfficeViewProps } from "./types"
-import { MAX_SCALE, MIN_SCALE, useFitZoom } from "./useFitZoom"
+import { useFitZoom } from "./useFitZoom"
 
 type PptxMode = "continuous" | "flip"
 
@@ -52,6 +45,10 @@ export function PptxView({ data, onError }: OfficeViewProps) {
   const renderedRef = useRef<Set<number>>(new Set())
   // Serialize renders — concurrent renderSlide() calls race the viewer's state.
   const renderChainRef = useRef<Promise<void>>(Promise.resolve())
+  // Flip mode fits to width once per deck / mode-entry. Re-measuring on every
+  // slide nav would re-sample the canvas width under the current CSS zoom and
+  // corrupt the fit baseline; all slides share one size so the first fit holds.
+  const flipFitDoneRef = useRef(false)
 
   const [mode, setMode] = useState<PptxMode>("continuous")
   const [count, setCount] = useState(0)
@@ -91,6 +88,7 @@ export function PptxView({ data, onError }: OfficeViewProps) {
     setLoading(true)
     renderedRef.current = new Set()
     renderChainRef.current = Promise.resolve()
+    flipFitDoneRef.current = false
     void (async () => {
       try {
         const { PPTXViewer } = await import("pptxviewjs")
@@ -191,7 +189,13 @@ export function PptxView({ data, onError }: OfficeViewProps) {
       if (!viewer || !canvas) return
       await viewer.renderSlide(current, canvas)
       captureAspect(canvas)
-      requestAnimationFrame(() => onContentReady())
+      // Fit only on the first flip render after a deck load / mode switch —
+      // never on slide nav (re-measuring under zoom would skew the baseline).
+      // Resize re-fits via useFitZoom's ResizeObserver.
+      if (!flipFitDoneRef.current) {
+        flipFitDoneRef.current = true
+        requestAnimationFrame(() => onContentReady())
+      }
     })
   }, [loading, mode, current, enqueue, captureAspect, onContentReady])
 
@@ -199,6 +203,7 @@ export function PptxView({ data, onError }: OfficeViewProps) {
     // Canvases remount on switch, so forget what was painted in the old layout.
     renderedRef.current = new Set()
     renderChainRef.current = Promise.resolve()
+    flipFitDoneRef.current = false
     setMode((m) => (m === "continuous" ? "flip" : "continuous"))
   }, [])
 
@@ -289,41 +294,13 @@ export function PptxView({ data, onError }: OfficeViewProps) {
             )}
           </div>
           <div className="flex items-center gap-1">
-            <IconTip label={t("fileBrowser.zoomOut", "Zoom out")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                disabled={scale <= MIN_SCALE}
-                onClick={zoomOut}
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-            </IconTip>
-            <span className="min-w-[3rem] text-center text-xs tabular-nums text-muted-foreground">
-              {Math.round(scale * 100)}%
-            </span>
-            <IconTip label={t("fileBrowser.zoomIn", "Zoom in")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                disabled={scale >= MAX_SCALE}
-                onClick={zoomIn}
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-            </IconTip>
-            <IconTip label={t("fileBrowser.fitWidth", "Fit width")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={fitMode ? "h-7 w-7 text-foreground" : "h-7 w-7"}
-                onClick={fitWidth}
-              >
-                <Maximize className="h-4 w-4" />
-              </Button>
-            </IconTip>
+            <OfficeZoomControls
+              scale={scale}
+              fitMode={fitMode}
+              zoomIn={zoomIn}
+              zoomOut={zoomOut}
+              fitWidth={fitWidth}
+            />
           </div>
         </div>
       )}

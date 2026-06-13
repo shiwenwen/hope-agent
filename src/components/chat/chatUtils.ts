@@ -149,12 +149,14 @@ export function computeContextUsage(
   }
 }
 
-export type ContextUsageLevel = "low" | "mid" | "high"
-
-/** Shared thresholds for the green → amber → red context-usage color ramp. */
-export function contextUsageLevel(pct: number): ContextUsageLevel {
-  return pct < 50 ? "low" : pct < 80 ? "mid" : "high"
-}
+// Pure color/level helpers live in a dependency-free leaf module so the input
+// dock can import them without chatUtils' runtime chain; re-exported here for
+// the popover / workspace card that already pull chatUtils at runtime.
+export {
+  type ContextUsageLevel,
+  contextUsageLevel,
+  contextUsageBarClass,
+} from "./contextUsageColor"
 
 /** Format message timestamp to HH:mm */
 export function formatMessageTime(timestamp?: string): string {

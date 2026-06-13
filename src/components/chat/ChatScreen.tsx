@@ -63,6 +63,7 @@ import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import { computeContextUsage } from "./chatUtils"
+import { resolveCurrentModel } from "./sessionStatus"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
@@ -1162,11 +1163,7 @@ export default function ChatScreen({
   // active model's window + the latest assistant usage (shared helper, same
   // numbers as the status popover / workspace session card).
   const contextUsage = useMemo(() => {
-    const model = activeModel
-      ? availableModels.find(
-          (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId,
-        )
-      : null
+    const model = resolveCurrentModel(activeModel, availableModels)
     return model ? computeContextUsage(session.messages, model.contextWindow) : null
   }, [activeModel, availableModels, session.messages])
   const setPlanState = planMode.setPlanState

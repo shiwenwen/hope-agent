@@ -17,7 +17,7 @@ import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
-import { getFailedToolCount, getToolExecutionState } from "./executionStatus"
+import { getFailedToolCount, getToolExecutionState, getToolsWallClockMs } from "./executionStatus"
 import type {
   ChatDisplayMode,
   ChatTurnStatus,
@@ -153,10 +153,6 @@ function processUnitToolsComplete(tools: ToolCall[]): boolean {
   return tools.every((tool) => getToolExecutionState(tool) !== "running")
 }
 
-function sumToolDurations(tools: ToolCall[]): number {
-  return tools.reduce((sum, tool) => sum + (tool.durationMs ?? 0), 0)
-}
-
 /** A tool whose result carries renderable media (generated images, attachments). */
 function toolHasMedia(tool: ToolCall): boolean {
   return !!(tool.mediaItems?.length || tool.mediaUrls?.length)
@@ -177,7 +173,8 @@ function buildProcessedGroup(group: RenderUnit[]): {
   const totalElapsedMs = group.reduce((sum, item) => sum + (item.elapsedMs ?? 0), 0)
   const mediaTools = tools.filter(toolHasMedia)
   return {
-    tone: failedCount > 0 ? "failed" : "tool",
+    // A run with no tools is pure thinking — color its dot accordingly.
+    tone: failedCount > 0 ? "failed" : tools.length === 0 ? "thinking" : "tool",
     node: (
       <ProcessedBlockGroup
         key={`processed-${group[0].key}`}
@@ -562,7 +559,7 @@ export function AssistantContentBlocks({
           key: `grp-${tools[0].callId}`,
           processTools: tools,
           isProcessComplete: !isStreamingMessage && processUnitToolsComplete(tools),
-          elapsedMs: sumToolDurations(tools),
+          elapsedMs: getToolsWallClockMs(tools),
           node: (
             <ToolCallGroup
               key={`grp-${tools[0].callId}`}

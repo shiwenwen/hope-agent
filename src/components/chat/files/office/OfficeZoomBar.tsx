@@ -13,11 +13,16 @@ interface OfficeZoomBarProps {
   fitWidth: () => void
 }
 
-/** Shared bottom toolbar for office rich previews: zoom out / % / zoom in / fit. */
-export function OfficeZoomBar({ scale, fitMode, zoomIn, zoomOut, fitWidth }: OfficeZoomBarProps) {
+/**
+ * Zoom controls (zoom out / % / zoom in / fit-width) without a container — for
+ * embedding inside a host toolbar that has its own controls (e.g. PptxView's
+ * mode-toggle + page nav). {@link OfficeZoomBar} wraps these in the standard
+ * bordered bottom bar used by Docx/Xlsx.
+ */
+export function OfficeZoomControls({ scale, fitMode, zoomIn, zoomOut, fitWidth }: OfficeZoomBarProps) {
   const { t } = useTranslation()
   return (
-    <div className="flex shrink-0 items-center justify-center gap-1 border-t border-border px-3 py-1.5">
+    <>
       <IconTip label={t("fileBrowser.zoomOut", "Zoom out")}>
         <Button
           variant="ghost"
@@ -53,6 +58,15 @@ export function OfficeZoomBar({ scale, fitMode, zoomIn, zoomOut, fitWidth }: Off
           <Maximize className="h-4 w-4" />
         </Button>
       </IconTip>
+    </>
+  )
+}
+
+/** Shared bottom toolbar for office rich previews: zoom out / % / zoom in / fit. */
+export function OfficeZoomBar(props: OfficeZoomBarProps) {
+  return (
+    <div className="flex shrink-0 items-center justify-center gap-1 border-t border-border px-3 py-1.5">
+      <OfficeZoomControls {...props} />
     </div>
   )
 }

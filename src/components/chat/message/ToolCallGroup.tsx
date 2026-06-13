@@ -29,6 +29,7 @@ import {
   getFailedToolCount,
   getToolCategory,
   getToolExecutionState,
+  getToolsWallClockMs,
   type ExecutionToolGroupLabelKey,
   type ToolCategory,
 } from "./executionStatus"
@@ -313,21 +314,9 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
   const labelSegments = getExecutionToolGroupLabelSegments(tools, t, getSkillName)
   const labelSeparator = getExecutionToolGroupSegmentSeparator(labelSegments)
 
-  // Calculate total elapsed time across all tools in the group
-  const totalElapsedMs = useMemo(() => {
-    let total = 0
-    let hasAny = false
-    for (const tool of tools) {
-      const isRunning = tool.result === undefined
-      const ms =
-        tool.durationMs ?? (isRunning && tool.startedAtMs ? now - tool.startedAtMs : undefined)
-      if (ms != null && ms >= 0) {
-        total += ms
-        hasAny = true
-      }
-    }
-    return hasAny ? total : undefined
-  }, [tools, now])
+  // Wall-clock elapsed across the group — span of earliest→latest so parallel
+  // tools in one round count once instead of being summed (see helper).
+  const totalElapsedMs = useMemo(() => getToolsWallClockMs(tools, now), [tools, now])
 
   const totalElapsedText = useMemo(
     () => (totalElapsedMs != null ? formatDuration(totalElapsedMs) : null),
