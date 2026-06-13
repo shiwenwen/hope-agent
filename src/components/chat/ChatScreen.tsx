@@ -324,6 +324,13 @@ export default function ChatScreen({
   // Right side file-preview panel (Markdown links / attachments / workspace
   // files → in-app preview). Opened via `onPreviewFile` from the message tree.
   const filePreview = useFilePreview()
+  // Fullscreen toggle for the right-side preview panel (its RightPanelShell is
+  // owned here, unlike files/canvas which own their own). Reset whenever the
+  // preview isn't actively shown so it never reopens stuck-maximized.
+  const [filePreviewMaximized, setFilePreviewMaximized] = useState(false)
+  useEffect(() => {
+    if (!filePreview.showPanel || !filePreview.target) setFilePreviewMaximized(false)
+  }, [filePreview.showPanel, filePreview.target])
 
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
@@ -2488,6 +2495,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
               maxWidth={860}
+              maximized={filePreviewMaximized}
               reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="preview"
@@ -2495,7 +2503,12 @@ export default function ChatScreen({
               <FilePreviewPanel
                 target={filePreview.target}
                 sessionId={session.currentSessionId}
-                onClose={filePreview.closePreview}
+                maximized={filePreviewMaximized}
+                onToggleMaximize={() => setFilePreviewMaximized((v) => !v)}
+                onClose={() => {
+                  setFilePreviewMaximized(false)
+                  filePreview.closePreview()
+                }}
               />
             </RightPanelShell>
           )}

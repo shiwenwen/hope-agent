@@ -1143,6 +1143,8 @@
     "officeLoading": "正在渲染预览…",
     "prevSlide": "上一页",
     "nextSlide": "下一页",
+    "pptSwitchToPaged": "翻页阅读",
+    "pptSwitchToContinuous": "连续阅读",
     "zoomOut": "缩小",
     "zoomIn": "放大",
     "fitWidth": "适应宽度",

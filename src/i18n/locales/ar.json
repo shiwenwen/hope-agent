@@ -1134,6 +1134,8 @@
     "officeLoading": "جارٍ عرض المعاينة…",
     "prevSlide": "الشريحة السابقة",
     "nextSlide": "الشريحة التالية",
+    "pptSwitchToPaged": "عرض تقليب الصفحات",
+    "pptSwitchToContinuous": "عرض متواصل",
     "zoomOut": "تصغير",
     "zoomIn": "تكبير",
     "fitWidth": "ملاءمة العرض",

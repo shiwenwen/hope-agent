@@ -1134,6 +1134,8 @@
     "officeLoading": "Önizleme oluşturuluyor…",
     "prevSlide": "Önceki slayt",
     "nextSlide": "Sonraki slayt",
+    "pptSwitchToPaged": "Sayfa çevirme görünümü",
+    "pptSwitchToContinuous": "Sürekli görünüm",
     "zoomOut": "Uzaklaştır",
     "zoomIn": "Yakınlaştır",
     "fitWidth": "Genişliğe sığdır",

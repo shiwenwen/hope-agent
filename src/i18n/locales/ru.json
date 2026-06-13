@@ -1134,6 +1134,8 @@
     "officeLoading": "Отрисовка предпросмотра…",
     "prevSlide": "Предыдущий слайд",
     "nextSlide": "Следующий слайд",
+    "pptSwitchToPaged": "Постранично",
+    "pptSwitchToContinuous": "Сплошной просмотр",
     "zoomOut": "Уменьшить",
     "zoomIn": "Увеличить",
     "fitWidth": "По ширине",

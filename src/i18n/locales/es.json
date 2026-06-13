@@ -1134,6 +1134,8 @@
     "officeLoading": "Generando vista previa…",
     "prevSlide": "Diapositiva anterior",
     "nextSlide": "Diapositiva siguiente",
+    "pptSwitchToPaged": "Vista por páginas",
+    "pptSwitchToContinuous": "Vista continua",
     "zoomOut": "Alejar",
     "zoomIn": "Acercar",
     "fitWidth": "Ajustar al ancho",

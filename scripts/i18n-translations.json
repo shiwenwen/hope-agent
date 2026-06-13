@@ -1118,7 +1118,9 @@
       "rendered": "レンダリング表示",
       "extractedPreview": "抽出内容のプレビュー — 元のレイアウトはシステムで開いてください。",
       "quoteToChat": "チャットに引用",
-      "quoted": "チャットに追加しました"
+      "quoted": "チャットに追加しました",
+      "pptSwitchToPaged": "ページ送り表示",
+      "pptSwitchToContinuous": "連続表示"
     },
     "workspace": {
       "panelTitle": "ワークスペース",
@@ -2469,7 +2471,9 @@
       "rendered": "렌더링 보기",
       "extractedPreview": "추출된 내용 미리보기 — 원본 레이아웃은 시스템에서 여세요.",
       "quoteToChat": "대화에 인용",
-      "quoted": "대화에 추가됨"
+      "quoted": "대화에 추가됨",
+      "pptSwitchToPaged": "페이지 넘김 보기",
+      "pptSwitchToContinuous": "연속 보기"
     },
     "workspace": {
       "panelTitle": "워크스페이스",
@@ -3820,7 +3824,9 @@
       "rendered": "渲染檢視",
       "extractedPreview": "擷取內容預覽 —— 在系統中開啟可檢視原始排版。",
       "quoteToChat": "引用到對話",
-      "quoted": "已引用到對話"
+      "quoted": "已引用到對話",
+      "pptSwitchToPaged": "翻頁閱讀",
+      "pptSwitchToContinuous": "連續閱讀"
     },
     "fileActions": {
       "preview": "預覽",
@@ -5154,7 +5160,9 @@
       "rendered": "Görüntülenmiş",
       "extractedPreview": "Çıkarılan içerik önizlemesi — özgün düzen için sistemde açın.",
       "quoteToChat": "Sohbete alıntıla",
-      "quoted": "Sohbete eklendi"
+      "quoted": "Sohbete eklendi",
+      "pptSwitchToPaged": "Sayfa çevirme görünümü",
+      "pptSwitchToContinuous": "Sürekli görünüm"
     },
     "workspace": {
       "panelTitle": "Çalışma alanı",
@@ -6505,7 +6513,9 @@
       "rendered": "Đã kết xuất",
       "extractedPreview": "Xem trước nội dung trích xuất — mở trong hệ thống để xem bố cục gốc.",
       "quoteToChat": "Trích dẫn vào trò chuyện",
-      "quoted": "Đã thêm vào trò chuyện"
+      "quoted": "Đã thêm vào trò chuyện",
+      "pptSwitchToPaged": "Xem lật trang",
+      "pptSwitchToContinuous": "Xem liên tục"
     },
     "workspace": {
       "panelTitle": "Không gian làm việc",
@@ -7856,7 +7866,9 @@
       "rendered": "Renderizado",
       "extractedPreview": "Pré-visualização do conteúdo extraído — abra no sistema para o layout original.",
       "quoteToChat": "Citar no chat",
-      "quoted": "Adicionado ao chat"
+      "quoted": "Adicionado ao chat",
+      "pptSwitchToPaged": "Visualização por página",
+      "pptSwitchToContinuous": "Visualização contínua"
     },
     "workspace": {
       "panelTitle": "Espaço de trabalho",
@@ -9207,7 +9219,9 @@
       "rendered": "Отрисовано",
       "extractedPreview": "Предпросмотр извлечённого содержимого — откройте в системе для исходного оформления.",
       "quoteToChat": "Цитировать в чат",
-      "quoted": "Добавлено в чат"
+      "quoted": "Добавлено в чат",
+      "pptSwitchToPaged": "Постранично",
+      "pptSwitchToContinuous": "Сплошной просмотр"
     },
     "workspace": {
       "panelTitle": "Рабочая область",
@@ -10558,7 +10572,9 @@
       "rendered": "معروض",
       "extractedPreview": "معاينة المحتوى المستخرج — افتح في النظام لرؤية التنسيق الأصلي.",
       "quoteToChat": "اقتباس إلى المحادثة",
-      "quoted": "تمت الإضافة إلى المحادثة"
+      "quoted": "تمت الإضافة إلى المحادثة",
+      "pptSwitchToPaged": "عرض تقليب الصفحات",
+      "pptSwitchToContinuous": "عرض متواصل"
     },
     "workspace": {
       "panelTitle": "مساحة العمل",
@@ -11909,7 +11925,9 @@
       "rendered": "Renderizado",
       "extractedPreview": "Vista previa del contenido extraído — ábrelo en el sistema para el diseño original.",
       "quoteToChat": "Citar en el chat",
-      "quoted": "Añadido al chat"
+      "quoted": "Añadido al chat",
+      "pptSwitchToPaged": "Vista por páginas",
+      "pptSwitchToContinuous": "Vista continua"
     },
     "workspace": {
       "panelTitle": "Espacio de trabajo",
@@ -13260,7 +13278,9 @@
       "rendered": "Dipaparkan",
       "extractedPreview": "Pratonton kandungan diekstrak — buka dalam sistem untuk susun atur asal.",
       "quoteToChat": "Petik ke sembang",
-      "quoted": "Ditambah ke sembang"
+      "quoted": "Ditambah ke sembang",
+      "pptSwitchToPaged": "Paparan selak halaman",
+      "pptSwitchToContinuous": "Paparan berterusan"
     },
     "workspace": {
       "panelTitle": "Ruang kerja",
@@ -13716,6 +13736,10 @@
       "environment": {
         "version": "版本"
       }
+    },
+    "fileBrowser": {
+      "pptSwitchToPaged": "翻页阅读",
+      "pptSwitchToContinuous": "连续阅读"
     }
   }
 }

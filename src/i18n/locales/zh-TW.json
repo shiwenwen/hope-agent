@@ -1134,6 +1134,8 @@
     "officeLoading": "正在算繪預覽…",
     "prevSlide": "上一頁",
     "nextSlide": "下一頁",
+    "pptSwitchToPaged": "翻頁閱讀",
+    "pptSwitchToContinuous": "連續閱讀",
     "zoomOut": "縮小",
     "zoomIn": "放大",
     "fitWidth": "符合寬度",

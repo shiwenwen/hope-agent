@@ -1134,6 +1134,8 @@
     "officeLoading": "Rendering preview…",
     "prevSlide": "Previous slide",
     "nextSlide": "Next slide",
+    "pptSwitchToPaged": "Page-flip view",
+    "pptSwitchToContinuous": "Continuous view",
     "zoomOut": "Zoom out",
     "zoomIn": "Zoom in",
     "fitWidth": "Fit width",

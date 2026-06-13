@@ -1134,6 +1134,8 @@
     "officeLoading": "プレビューを生成中…",
     "prevSlide": "前のスライド",
     "nextSlide": "次のスライド",
+    "pptSwitchToPaged": "ページ送り表示",
+    "pptSwitchToContinuous": "連続表示",
     "zoomOut": "縮小",
     "zoomIn": "拡大",
     "fitWidth": "幅に合わせる",

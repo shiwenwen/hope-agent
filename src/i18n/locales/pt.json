@@ -1134,6 +1134,8 @@
     "officeLoading": "Gerando pré-visualização…",
     "prevSlide": "Slide anterior",
     "nextSlide": "Próximo slide",
+    "pptSwitchToPaged": "Visualização por página",
+    "pptSwitchToContinuous": "Visualização contínua",
     "zoomOut": "Diminuir zoom",
     "zoomIn": "Aumentar zoom",
     "fitWidth": "Ajustar à largura",

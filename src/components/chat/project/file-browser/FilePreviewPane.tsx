@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, X } from "lucide-react"
+import { Loader2, Maximize2, Minimize2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -45,6 +45,11 @@ export interface FilePreviewPaneProps {
   /** Quoted line range to highlight + scroll to in the preview (from a reveal). */
   highlightLines?: { start: number; end: number; nonce: number } | null
   className?: string
+  /** When `onToggleMaximize` is provided, a maximize/restore toggle is shown
+   *  next to close (used by the right-side preview panel; the file-browser
+   *  split view leaves it unset so no button appears). */
+  maximized?: boolean
+  onToggleMaximize?: () => void
 }
 
 export function FilePreviewPane({
@@ -53,6 +58,8 @@ export function FilePreviewPane({
   onQuote,
   highlightLines,
   className,
+  maximized,
+  onToggleMaximize,
 }: FilePreviewPaneProps) {
   const { t } = useTranslation()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -165,6 +172,28 @@ export function FilePreviewPane({
                 {t("fileBrowser.viewSource", "View source")}
               </button>
             </div>
+          ) : null}
+          {onToggleMaximize ? (
+            <IconTip
+              label={
+                maximized
+                  ? t("fileBrowser.minimize", "Restore")
+                  : t("fileBrowser.maximize", "Maximize")
+              }
+            >
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                onClick={onToggleMaximize}
+              >
+                {maximized ? (
+                  <Minimize2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </IconTip>
           ) : null}
           {onClose ? (
             <IconTip label={t("common.close", "Close")}>

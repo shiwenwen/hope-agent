@@ -1134,6 +1134,8 @@
     "officeLoading": "Đang dựng bản xem trước…",
     "prevSlide": "Trang trước",
     "nextSlide": "Trang sau",
+    "pptSwitchToPaged": "Xem lật trang",
+    "pptSwitchToContinuous": "Xem liên tục",
     "zoomOut": "Thu nhỏ",
     "zoomIn": "Phóng to",
     "fitWidth": "Vừa chiều rộng",
