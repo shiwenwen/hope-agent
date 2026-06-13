@@ -17,7 +17,12 @@ import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
-import { getFailedToolCount, getToolExecutionState, getToolsWallClockMs } from "./executionStatus"
+import {
+  getFailedToolCount,
+  getToolExecutionState,
+  getToolsWallClockMs,
+  toolHasMedia,
+} from "./executionStatus"
 import type {
   ChatDisplayMode,
   ChatTurnStatus,
@@ -151,11 +156,6 @@ interface RenderUnit {
 
 function processUnitToolsComplete(tools: ToolCall[]): boolean {
   return tools.every((tool) => getToolExecutionState(tool) !== "running")
-}
-
-/** A tool whose result carries renderable media (generated images, attachments). */
-function toolHasMedia(tool: ToolCall): boolean {
-  return !!(tool.mediaItems?.length || tool.mediaUrls?.length)
 }
 
 /**

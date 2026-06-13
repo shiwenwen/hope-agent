@@ -105,6 +105,11 @@ export function getFailedToolCount(tools: ToolCall[]): number {
   return tools.filter((tool) => getToolExecutionState(tool) === "failed").length
 }
 
+/** A tool whose result carries renderable media (generated images, attachments). */
+export function toolHasMedia(tool: ToolCall): boolean {
+  return !!(tool.mediaItems?.length || tool.mediaUrls?.length)
+}
+
 /**
  * Wall-clock elapsed across a set of tools: the span from the earliest start to
  * the latest end. Tools that ran in parallel within a round therefore count

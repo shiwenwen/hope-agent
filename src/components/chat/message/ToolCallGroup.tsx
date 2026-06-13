@@ -20,6 +20,7 @@ import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/
 import { IconTip } from "@/components/ui/tooltip"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
+import { MediaHoistContext } from "./mediaHoistContext"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
 import {
@@ -30,6 +31,7 @@ import {
   getToolCategory,
   getToolExecutionState,
   getToolsWallClockMs,
+  toolHasMedia,
   type ExecutionToolGroupLabelKey,
   type ToolCategory,
 } from "./executionStatus"
@@ -386,14 +388,22 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
         )}
       </button>
 
-      {/* Expanded: show each item with inline result access */}
-      <AnimatedCollapse open={expanded} unmountOnExit={false}>
-        <div className="ml-3 border-l border-border/40 pl-0.5">
-          {tools.map((tool) => (
-            <GroupItem key={tool.callId} tool={tool} onOpenDiff={onOpenDiff} />
-          ))}
-        </div>
-      </AnimatedCollapse>
+      {/* Collapsed: suppress each item's inline media and hoist it below so the
+          produced files / images stay visible while the group is folded.
+          Expanded: show media inline next to the tool that produced it. */}
+      <MediaHoistContext.Provider value={!expanded}>
+        <AnimatedCollapse open={expanded} unmountOnExit={false}>
+          <div className="ml-3 border-l border-border/40 pl-0.5">
+            {tools.map((tool) => (
+              <GroupItem key={tool.callId} tool={tool} onOpenDiff={onOpenDiff} />
+            ))}
+          </div>
+        </AnimatedCollapse>
+      </MediaHoistContext.Provider>
+      {!expanded &&
+        tools
+          .filter(toolHasMedia)
+          .map((tool) => <ToolMediaPreview key={tool.callId} tool={tool} className="ml-1" />)}
     </div>
   )
 }
