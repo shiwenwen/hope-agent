@@ -103,7 +103,9 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Luôn cho phép» không được lưu trong phiên ẩn danh.",
+    "resolvedElsewhere": "Phê duyệt đã được xử lý trên thiết bị khác"
   },
   "auth": {
     "tokenLabel": "Bearer Token",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 = chờ mãi",
       "timeoutSeconds": "Số giây chờ",
       "timeoutTitle": "Thời gian chờ hộp thoại phê duyệt",
+      "unattendedTitle": "Phê duyệt không người trực",
+      "unattendedDesc": "Phải làm gì khi một công cụ cần phê duyệt nhưng không ai có thể trả lời — một lần chạy cron, một máy chủ headless không có client kết nối và không có chat IM, một client ACP không khai báo khả năng quyền, hoặc một subagent không có giao diện. 'Chặn thực thi' (khuyến nghị) fail-closed từ chối; 'Tiếp tục' tự chạy công cụ, một sự nới lỏng bảo mật chỉ dành cho tự động hóa không người trực đáng tin cậy.",
       "title": "Quyền",
       "yoloCliActive": "⚠️ Cờ CLI --dangerously-skip-all-approvals đang bật và không thể tắt từ GUI.",
       "yoloDesc": "Khi bật, mọi công cụ chạy không cần phê duyệt; chỉ Plan Mode vẫn có thể chặn. Khớp đường dẫn bảo vệ / lệnh nguy hiểm sẽ ghi cảnh báo nhưng vẫn thực thi.",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "Giới hạn trên cho một lệnh gọi job_status(block=true) duy nhất. Chỉ áp dụng khi thời lượng tối đa mỗi job = 0; ngược lại ưu tiên thời lượng tối đa mỗi job.",
     "asyncToolsMaxJob": "Thời lượng job tối đa",
     "asyncToolsMaxJobDesc": "Giới hạn thời gian chạy tối đa của job nền. Quá hạn sẽ bị kết thúc. 0 = không giới hạn ở tầng async job; từng công cụ vẫn có thể áp dụng timeout riêng.",
+    "asyncToolsMaxConcurrent": "Số job nền tối đa chạy đồng thời",
+    "asyncToolsMaxConcurrentDesc": "Số lượng tối đa job công cụ run_in_background được chạy cùng lúc; mỗi job chiếm một luồng OS riêng. Khi đạt giới hạn, các yêu cầu nền mới sẽ bị từ chối (mô hình được yêu cầu chờ hoặc chạy đồng bộ). 0 = không giới hạn. Mặc định 8.",
     "asyncToolsOrphanGrace": "Khoảng ân hạn spool mồ côi",
     "asyncToolsOrphanGraceDesc": "File spool không có bản ghi DB tham chiếu sẽ được dọn sau số giờ này. Thời gian ân hạn tránh xung đột với ghi đang diễn ra.",
     "asyncToolsRetention": "Lưu trữ job đã kết thúc",

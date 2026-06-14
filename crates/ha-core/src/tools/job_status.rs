@@ -170,6 +170,12 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
                     json!("Cancellation has been requested; the job is shutting down. Do not repeatedly poll in this chat turn; wait for the terminal task-notification."),
                 );
             }
+            AsyncJobStatus::AwaitingApproval => {
+                map.insert(
+                    "hint".to_string(),
+                    json!("This job is NOT executing yet — it is blocked waiting for a human to approve the tool call. Do not claim it is running or report progress on it. Do not repeatedly poll in this chat turn; it resolves once the user answers the approval (you will get a terminal task-notification)."),
+                );
+            }
         }
     }
     payload.to_string()
@@ -288,6 +294,10 @@ mod tests {
             completed_at: None,
             injected: false,
             origin: JobOrigin::Explicit.as_str().to_string(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
         };
         db.insert(&job).expect("insert");
     }

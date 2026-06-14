@@ -103,7 +103,9 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "シークレットセッションでは「常に許可」は保存されません。",
+    "resolvedElsewhere": "承認は別のデバイスで処理されました"
   },
   "auth": {
     "tokenLabel": "Bearer トークン",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 = 永久に待機",
       "timeoutSeconds": "タイムアウト秒数",
       "timeoutTitle": "承認ダイアログのタイムアウト",
+      "unattendedTitle": "無人対応の承認",
+      "unattendedDesc": "ツールが承認を必要とするのに誰も応答できない場合(cron 実行 / クライアント未接続かつ IM チャットもない headless サーバー / 権限ケーパビリティ未宣言の ACP クライアント / 提示面のないサブエージェント)の動作。「実行をブロック」(推奨)はフェイルクローズで拒否、「続行」はツールを自動実行します(セキュリティ緩和、信頼できる無人自動化専用)。",
       "title": "権限",
       "yoloCliActive": "⚠️ CLI フラグ --dangerously-skip-all-approvals が有効で、GUI からは無効にできません。",
       "yoloDesc": "オンにすると、すべてのツールが承認なしで実行されます。Plan Mode だけは引き続きブロックできます。保護パス / 危険コマンドに一致した場合は警告ログを残して実行します。",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "単一の job_status(block=true) 呼び出しの上限。ジョブごとの最大時間 = 0 の場合のみ適用され、それ以外はジョブごとの最大時間が優先されます。",
     "asyncToolsMaxJob": "ジョブごとの最大時間",
     "asyncToolsMaxJobDesc": "バックグラウンドジョブの最大実行時間。超過すると強制終了されます。0 = async job 層では無制限。個別のツールは独自のタイムアウトを適用する場合があります。",
+    "asyncToolsMaxConcurrent": "バックグラウンドジョブの最大同時実行数",
+    "asyncToolsMaxConcurrentDesc": "同時に実行できる run_in_background ツールジョブの上限。各ジョブは専用の OS スレッドを占有します。上限に達すると新しいバックグラウンド要求は拒否されます（モデルには待機するか同期実行するよう伝えられます）。0 = 無制限。デフォルト 8。",
     "asyncToolsOrphanGrace": "孤立 spool の猶予時間",
     "asyncToolsOrphanGraceDesc": "DB 行から参照されない spool ファイルはこの時間（時間）後に削除されます。猶予期間により書き込み中との競合を防ぎます。",
     "asyncToolsRetention": "終了ジョブの保持日数",

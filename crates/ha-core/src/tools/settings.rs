@@ -97,6 +97,9 @@ fn risk_level(category: &str) -> &'static str {
         // Autonomous maintenance can write to the user's notes (auto_approve =
         // approval policy) — treat as HIGH so the skill confirms before changes.
         | "knowledge_maintenance"
+        // Unattended-approval action can flip surface-less approvals to auto-run
+        // (proceed) — a security loosening; HIGH so the skill confirms first.
+        | "unattended_approval"
         | "auto_update" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
@@ -449,6 +452,9 @@ fn read_category(category: &str) -> Result<Value> {
         "auto_update" => Ok(serde_json::to_value(&cfg.auto_update)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
+        "unattended_approval" => Ok(json!({
+            "unattendedApprovalAction": cfg.permission.unattended_approval_action,
+        })),
         "approval" => Ok(json!({
             "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
@@ -675,7 +681,7 @@ fn get_all_overview() -> Result<String> {
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
             "acp_control", "skill_env", "security", "security.ssrf",
-            "smart_mode", "mcp_global", "knowledge_maintenance", "auto_update"
+            "smart_mode", "mcp_global", "knowledge_maintenance", "unattended_approval", "auto_update"
         ],
         "read_only": [
             "active_model", "fallback_models", "channels", "mcp_servers",
@@ -886,6 +892,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
             if let Some(v) = values.get("approvalTimeoutAction") {
                 store.permission.approval_timeout_action = serde_json::from_value(v.clone())?;
+            }
+        }
+        "unattended_approval" => {
+            if let Some(v) = values.get("unattendedApprovalAction") {
+                store.permission.unattended_approval_action = serde_json::from_value(v.clone())?;
             }
         }
         "proxy" => merge_field(&mut store.proxy, values)?,

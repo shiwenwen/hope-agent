@@ -57,6 +57,12 @@ pub fn validate_callback_source_for_session(
     source: &'static str,
 ) -> anyhow::Result<()> {
     let Some(callback_source) = callback_source else {
+        // Permissive on a missing source — Telegram no-message callbacks (>48h-old
+        // / inline buttons) legitimately carry no chat context and can't be
+        // validated. This is acceptable for the lower-risk ask_user Q&A path; the
+        // security-sensitive *approval* path fails closed at its own caller
+        // (`handle_approval_callback_with_source`, MISC-11) and never passes None
+        // here, so this branch can't weaken approvals.
         return Ok(());
     };
     let channel_db = crate::globals::get_channel_db()

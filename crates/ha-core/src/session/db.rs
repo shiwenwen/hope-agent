@@ -2601,6 +2601,9 @@ impl SessionDB {
     /// session does not exist or is not incognito — both are safe outcomes
     /// for the "user navigated away from this session" caller.
     pub fn purge_session_if_incognito(&self, session_id: &str) -> Result<bool> {
+        // Snapshot before the DELETE for the purge event payload (row is gone
+        // afterwards). Only emitted below when a row was actually removed.
+        let snapshot = self.get_session(session_id)?;
         let was_incognito = {
             let conn = self
                 .conn
@@ -2630,6 +2633,13 @@ impl SessionDB {
             "purged incognito session {}",
             session_id
         );
+        // Emit `session:purged` after lock release for cleanup_watcher fan-out.
+        if let Some(meta) = snapshot {
+            crate::session::events::emit_session_deleted(
+                &meta,
+                crate::session::events::SessionDeleteReason::IncognitoPurge,
+            );
+        }
         Ok(true)
     }
 
@@ -2691,7 +2701,10 @@ impl SessionDB {
             rows.filter_map(|r| r.ok()).collect()
         };
         for id in &ids {
-            if let Err(e) = self.delete_session(id) {
+            if let Err(e) = self.delete_session_with_reason(
+                id,
+                crate::session::events::SessionDeleteReason::OrphanSweep,
+            ) {
                 app_warn!(
                     "session",
                     "purge_orphan_incognito",
@@ -2713,7 +2726,32 @@ impl SessionDB {
     }
 
     /// Delete a session and all its messages (CASCADE) and attachments.
+    ///
+    /// Thin wrapper over [`Self::delete_session_with_reason`] tagging the
+    /// emitted lifecycle event as a user delete.
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
+        self.delete_session_with_reason(
+            session_id,
+            crate::session::events::SessionDeleteReason::UserDelete,
+        )
+    }
+
+    /// Delete a session and all its messages (CASCADE) and attachments, tagging
+    /// the emitted `session:deleted` event with `reason`.
+    ///
+    /// Captures a pre-delete `SessionMeta` snapshot (the row is gone by emit
+    /// time, but the event payload needs `agent_id` / `incognito`). After the
+    /// row + side effects are removed and the conn lock is released, emits the
+    /// lifecycle event so `cleanup_watcher` can fan out coordinated cleanup of
+    /// in-memory subsystems. No event is emitted when the session did not exist.
+    pub fn delete_session_with_reason(
+        &self,
+        session_id: &str,
+        reason: crate::session::events::SessionDeleteReason,
+    ) -> Result<()> {
+        // Snapshot before deletion — needed for the emit payload, and lets us
+        // skip the event entirely when nothing was there to delete.
+        let snapshot = self.get_session(session_id)?;
         {
             let conn = self
                 .conn
@@ -2748,6 +2786,12 @@ impl SessionDB {
         // can't outlive the session (and doesn't accumulate in long-running
         // server processes).
         crate::permission::session_edits::clear(session_id);
+
+        // Emit after the conn lock is released — subscribers (cleanup_watcher
+        // fan-out) may re-lock the DB.
+        if let Some(meta) = snapshot {
+            crate::session::events::emit_session_deleted(&meta, reason);
+        }
 
         Ok(())
     }
@@ -2823,6 +2867,25 @@ impl SessionDB {
             .ok()
             .flatten();
         Ok(result)
+    }
+
+    /// List the ids of every session assigned to `project_id` (any status /
+    /// kind). Used by project deletion to cancel each session's in-flight async
+    /// jobs *before* the sessions are unassigned — afterwards there's no
+    /// `project_id` link to find them and they would run on orphaned. Epic E
+    /// (DELETE-6).
+    pub fn session_ids_in_project(&self, project_id: &str) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT id FROM sessions WHERE project_id = ?1")?;
+        let rows = stmt.query_map(params![project_id], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     /// Get a single session's metadata.

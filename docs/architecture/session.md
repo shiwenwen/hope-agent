@@ -479,6 +479,19 @@ stateDiagram-v2
 | 前端切走当前无痕会话（`handleSwitchSession` / `handleNewChat` / `handleNewChatInProject`） | 调 `purge_session_if_incognito` 硬删，不留任何记录 |
 | 启动期 | `purge_orphan_incognito_sessions` 兜底：扫描 `incognito = 1 AND updated_at < (now - 60s)` 的残留会话调用 `delete_session`（防御 crash / SIGKILL / 物理断电）。60s cutoff 是 defense-in-depth：即使 `runtime_lock` 选举失败导致两个进程并存，也不会误杀对方刚创建的活跃会话 |
 
+### 四旁路守卫（Epic E）
+
+「关闭即焚」不止是「不进列表」——任何把无痕会话内容**写到磁盘**或**在焚毁后还跑回合**的旁路都必须封死。`ToolExecContext.incognito`（agent 侧从 `SessionMeta` 单点注入，派生 `Default` 故各辅助构造点默认 `false`）是工具执行期的无痕真相源；`is_session_incognito` 改为 **fail-closed 三态**：DB 未初始化→`false`、行确不存在（删除/焚毁）→`true`（兜底跳过尾随落盘/记忆）、瞬时锁/IO 错误→warn+`false`（不误吞正常会话）。
+
+| 旁路 | 风险 | 守卫 | 编号 |
+|---|---|---|---|
+| **记忆提取** | 焚毁后尾随的 inline/idle/flush 提取把内容写进 memory.db | `is_session_incognito` fail-closed：行不存在按无痕跳过 | INCOG-1 |
+| **大工具结果落盘** | `tool_results/<sid>/` 留明文 | `maybe_persist_large_tool_result` 无痕走内存内联、不落盘；焚毁 watcher `purge_tool_results_for_session` 递归删目录兜底 | INCOG-5 |
+| **异步任务落盘** | `async_jobs.db` 行存明文 args + spool 文件留全量输出 | `record_running_job` 无痕 args 存占位 + `incognito` 列；`finalize_job`/`persist_result` 无痕只留 inline preview、绝不 spool；焚毁 watcher `purge_jobs_for_session` 删行+spool 兜底 | INCOG-2 |
+| **持久 AllowAlways** | 「始终允许」规则越过焚毁存活 | `GrantContext.incognito` → `choose_scope` 强制 `AllowScope::Session`（内存态、焚毁随 `clear_session_rules` 清除）；前端隐藏 AllowAlways 按钮 | INCOG-6 |
+
+辅以两道「焚毁不留尾巴」守卫:**幽灵回合**——异步结果注入(`async_jobs::injection::dispatch_injection` + `subagent::injection::inject_and_run_parent` 顶部 + idle 等待后双兜底)在会话已删/已焚时 `mark_injected` + 跳过,杜绝向死会话凭空起计费 LLM 回合(INCOG-3/DELETE-3);**在途回合**——前端焚毁前 best-effort `stop_chat` + 后端 `cleanup_watcher` 在 `session:purged` live-cancel `active_turn`,双保险中断在途流式(INCOG-1/DELETE-5)。`cleanup_watcher` 区分 `session:deleted`(仅 cancel 活跃 job)与 `session:purged`(额外清盘 tool_results + job 行/spool)。
+
 ### 与 Project / IM Channel 互斥
 
 无痕会话不能进项目、不能绑定 IM channel：

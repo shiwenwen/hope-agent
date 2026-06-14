@@ -774,7 +774,13 @@ pub async fn respond_to_approval(
             )));
         }
     };
-    tools::submit_approval_response(&request_id, approval_response).await?;
+    tools::submit_approval_response(
+        &request_id,
+        approval_response,
+        tools::ApprovalResolutionSource::Http,
+    )
+    .await
+    .map_err(|e| AppError::gone(e.to_string()))?;
     Ok(Json(json!({ "approved": true })))
 }
 
@@ -826,7 +832,13 @@ pub async fn respond_to_approval_body(
             )));
         }
     };
-    tools::submit_approval_response(&body.request_id, approval_response).await?;
+    tools::submit_approval_response(
+        &body.request_id,
+        approval_response,
+        tools::ApprovalResolutionSource::Http,
+    )
+    .await
+    .map_err(|e| AppError::gone(e.to_string()))?;
     Ok(Json(json!({ "approved": true })))
 }
 

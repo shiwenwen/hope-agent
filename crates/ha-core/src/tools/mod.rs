@@ -55,7 +55,10 @@ mod write;
 
 pub(crate) use task::task_reminder_text;
 
-pub use approval::{submit_approval_response, ApprovalResponse};
+pub use approval::{
+    deny_pending_for_session, emit_approval_resolved, submit_approval_response, ApprovalOrigin,
+    ApprovalResolutionSource, ApprovalResponse, ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
+};
 pub use definitions::{
     get_ask_user_question_tool, get_available_tools, get_canvas_tool, get_core_tools,
     get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
@@ -63,7 +66,9 @@ pub use definitions::{
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
     is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
-pub use execution::{execute_tool_with_context, ToolExecContext};
+pub use execution::{
+    execute_tool_with_context, purge_tool_results_for_session, PidSink, ToolExecContext,
+};
 pub use rejection::{ToolRejection, TOOL_ERROR_PREFIX};
 
 // ── Tool Name Constants ──────────────────────────────────────────

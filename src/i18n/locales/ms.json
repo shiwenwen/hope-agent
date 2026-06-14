@@ -103,7 +103,9 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Sentiasa benarkan» tidak disimpan dalam sesi inkognito.",
+    "resolvedElsewhere": "Kelulusan dikendalikan pada peranti lain"
   },
   "auth": {
     "tokenLabel": "Bearer Token",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 = tunggu selamanya",
       "timeoutSeconds": "Saat Tamat Masa",
       "timeoutTitle": "Tamat Masa Dialog Kelulusan",
+      "unattendedTitle": "Kelulusan tanpa pengawasan",
+      "unattendedDesc": "Apa yang perlu dilakukan apabila alat memerlukan kelulusan tetapi tiada sesiapa boleh menjawab — larian cron, pelayan headless tanpa klien bersambung dan tanpa sembang IM, klien ACP tanpa keupayaan kebenaran, atau subejen tanpa antara muka. 'Sekat pelaksanaan' (disyorkan) gagal-tertutup menolak; 'Teruskan' menjalankan alat secara automatik — pelonggaran keselamatan untuk automasi tanpa pengawasan yang dipercayai sahaja.",
       "title": "Kebenaran",
       "yoloCliActive": "⚠️ Bendera CLI --dangerously-skip-all-approvals sedang aktif dan tidak boleh dimatikan daripada GUI.",
       "yoloDesc": "Apabila dihidupkan, semua alat berjalan tanpa kelulusan; hanya Plan Mode masih boleh menyekat. Padanan laluan dilindungi / arahan berbahaya menulis amaran tetapi tetap dijalankan.",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "Had atas untuk satu panggilan job_status(block=true). Hanya digunakan apabila tempoh maksimum setiap kerja = 0; jika tidak, tempoh maksimum setiap kerja diutamakan.",
     "asyncToolsMaxJob": "Tempoh maksimum kerja",
     "asyncToolsMaxJobDesc": "Had masa pelaksanaan kerja latar. Jika melebihi, ia dihentikan. 0 = tiada had pada lapisan kerja async; alat individu masih boleh mengenakan tamat masa sendiri.",
+    "asyncToolsMaxConcurrent": "Maks. kerja latar serentak",
+    "asyncToolsMaxConcurrentDesc": "Bilangan maksimum kerja alat run_in_background yang boleh berjalan serentak; setiap satu menggunakan satu utas OS khusus. Apabila had dicapai, permintaan latar baharu ditolak (model diminta menunggu atau menjalankan secara segerak). 0 = tiada had. Lalai 8.",
     "asyncToolsOrphanGrace": "Tempoh ihsan spool yatim",
     "asyncToolsOrphanGraceDesc": "Fail spool tanpa rujukan DB dibersihkan selepas jam ini. Tempoh ihsan mengelak perlumbaan dengan penulisan sedang berjalan.",
     "asyncToolsRetention": "Pengekalan kerja terminal",

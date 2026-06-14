@@ -665,6 +665,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_approval_timeout_enabled:    { method: "POST",   path: "/api/config/approval-timeout-enabled" },
   get_approval_timeout_action:     { method: "GET",    path: "/api/config/approval-timeout-action" },
   set_approval_timeout_action:     { method: "POST",   path: "/api/config/approval-timeout-action" },
+  get_unattended_approval_action:  { method: "GET",    path: "/api/config/unattended-approval-action" },
+  set_unattended_approval_action:  { method: "POST",   path: "/api/config/unattended-approval-action" },
 
   // -- Permission system v2 --
   get_protected_paths:             { method: "GET",    path: "/api/permission/protected-paths" },

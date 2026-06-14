@@ -103,7 +103,9 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "시크릿 세션에서는 '항상 허용'이 저장되지 않습니다.",
+    "resolvedElsewhere": "다른 기기에서 승인이 처리되었습니다"
   },
   "auth": {
     "tokenLabel": "Bearer 토큰",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 = 계속 대기",
       "timeoutSeconds": "타임아웃 초",
       "timeoutTitle": "승인 대화상자 타임아웃",
+      "unattendedTitle": "무인 승인",
+      "unattendedDesc": "도구가 승인을 필요로 하지만 아무도 응답할 수 없는 경우(cron 실행 / 연결된 클라이언트도 IM 채팅도 없는 헤드리스 서버 / 권한 기능을 선언하지 않은 ACP 클라이언트 / 표시 화면이 없는 서브에이전트)의 동작. '실행 차단'(권장)은 페일클로즈로 거부하고, '진행'은 도구를 자동 실행합니다(보안 완화, 신뢰할 수 있는 무인 자동화 전용).",
       "title": "권한",
       "yoloCliActive": "⚠️ CLI 플래그 --dangerously-skip-all-approvals가 활성화되어 있으며 GUI에서 비활성화할 수 없습니다.",
       "yoloDesc": "켜면 모든 도구가 승인 없이 실행됩니다. Plan Mode만 계속 차단할 수 있습니다. 보호 경로 / 위험 명령 일치는 경고 로그를 남기고 실행됩니다.",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "단일 job_status(block=true) 호출의 상한. 작업당 최대 시간 = 0일 때만 적용되며, 그렇지 않으면 작업당 최대 시간이 우선합니다.",
     "asyncToolsMaxJob": "작업당 최대 시간",
     "asyncToolsMaxJobDesc": "백그라운드 작업의 최대 실행 시간. 초과 시 강제 종료됩니다. 0 = async job 계층에서는 제한 없음. 개별 도구는 자체 타임아웃을 적용할 수 있습니다.",
+    "asyncToolsMaxConcurrent": "백그라운드 작업 최대 동시 실행 수",
+    "asyncToolsMaxConcurrentDesc": "동시에 실행할 수 있는 run_in_background 도구 작업의 상한. 각 작업은 전용 OS 스레드를 차지합니다. 상한에 도달하면 새 백그라운드 요청은 거부됩니다(모델에 대기하거나 동기로 실행하도록 안내). 0 = 무제한. 기본값 8.",
     "asyncToolsOrphanGrace": "고아 spool 유예 시간",
     "asyncToolsOrphanGraceDesc": "DB 레코드로 참조되지 않는 spool 파일은 이 시간(시간) 이후에 정리됩니다. 유예 기간으로 쓰기 중인 파일과의 경합을 방지합니다.",
     "asyncToolsRetention": "종결 작업 보존(일)",

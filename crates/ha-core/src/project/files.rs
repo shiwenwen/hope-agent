@@ -49,6 +49,41 @@ pub fn delete_project_cascade(project_id: &str, db: &ProjectDB) -> Result<bool> 
         return Ok(false);
     }
 
+    // Step 0 (E7 / DELETE-6): cancel in-flight async jobs for every session in
+    // this project BEFORE unassigning them. `db.delete` only clears `project_id`
+    // — the sessions survive, so no `session:deleted` fires and the cleanup
+    // watcher never sees them. Once `project_id` is NULL there's no link left to
+    // find these jobs, so they'd run on against an orphaned workspace. Cancel
+    // here while the link still exists. Best-effort: a lookup failure must not
+    // block the deletion.
+    if let Some(session_db) = crate::get_session_db() {
+        match session_db.session_ids_in_project(project_id) {
+            Ok(ids) => {
+                let mut cancelled = 0;
+                for sid in &ids {
+                    cancelled += crate::async_jobs::cancel_jobs_for_session(sid);
+                }
+                if cancelled > 0 {
+                    crate::app_info!(
+                        "project",
+                        "delete_cascade",
+                        "cancelled {} async job(s) across {} session(s) before deleting project {}",
+                        cancelled,
+                        ids.len(),
+                        project_id
+                    );
+                }
+            }
+            Err(e) => crate::app_warn!(
+                "project",
+                "delete_cascade",
+                "session_ids_in_project failed for {} ({}); proceeding with deletion",
+                project_id,
+                e
+            ),
+        }
+    }
+
     // Step 1 + 2: DB side — session unassign + project row removal.
     db.delete(project_id)?;
 

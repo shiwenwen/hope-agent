@@ -36,6 +36,15 @@ pub struct ApprovalRequest {
     /// (`protected_path` / `dangerous_command`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<ApprovalReasonPayload>,
+    /// When true, the owning session is incognito — the frontend hides the
+    /// AllowAlways button and shows a notice, because a persistent grant would
+    /// outlive the burn-on-close and break the no-trace guarantee. The backend
+    /// independently forces any AllowAlways to in-memory session scope
+    /// ([`crate::permission::allowlist`] `choose_scope`); this is the UX half.
+    /// Epic E (INCOG-6). Skipped on the wire when false to keep normal payloads
+    /// unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub incognito: bool,
 }
 
 /// Reason payload — flat shape so the frontend can switch on `kind` without
@@ -68,6 +77,26 @@ pub enum ApprovalReasonKind {
     MacControlAction,
     MacControlDangerousAction,
     PlanModeAsk,
+}
+
+impl ApprovalReasonKind {
+    /// Whether this is a **strict** reason: it always demands a per-call human
+    /// decision, bars AllowAlways, and must never auto-proceed unattended (Epic
+    /// F / TIMEOUT-1 — a strict approval that times out is force-denied even when
+    /// `approval_timeout_action=proceed`).
+    ///
+    /// KEEP IN SYNC with [`crate::permission::AskReason::forbids_allow_always`],
+    /// the canonical source — `reason_kind_is_strict_matches_ask_reason` asserts
+    /// the two agree across every variant.
+    pub fn is_strict(self) -> bool {
+        matches!(
+            self,
+            Self::ProtectedPath
+                | Self::DangerousCommand
+                | Self::MacControlDangerousAction
+                | Self::PlanModeAsk
+        )
+    }
 }
 
 impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
@@ -126,6 +155,148 @@ pub enum ApprovalResponse {
     Deny,
 }
 
+/// Where an approval decision came from. Carried in the
+/// [`EVENT_APPROVAL_RESOLVED`] broadcast so every surface (GUI / IM / HTTP) can
+/// dismiss its dialog and tell "decided elsewhere" apart from "I decided this".
+/// Variants grow as each resolution path lands (timeout → F, session delete →
+/// A-9, eviction → G).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalResolutionSource {
+    /// Desktop GUI (Tauri command).
+    Gui,
+    /// HTTP / WS client.
+    Http,
+    /// IM channel (button or text reply).
+    Im,
+    /// Auto-denied because the owning session was deleted / purged (A-9).
+    SessionDeleted,
+    /// Approval dialog timed out and was resolved to **deny** — either
+    /// `approval_timeout_action=deny` or a strict reason force-denied (F2/F3).
+    TimeoutDeny,
+    /// Approval dialog timed out and was resolved to **proceed**
+    /// (`approval_timeout_action=proceed`, non-strict reason).
+    TimeoutProceed,
+    /// Auto-denied because the IM chat that owned the prompt was taken over /
+    /// evicted while the session stayed active (G5 / SURFACE-4).
+    Eviction,
+}
+
+impl ApprovalResolutionSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Gui => "gui",
+            Self::Http => "http",
+            Self::Im => "im",
+            Self::SessionDeleted => "session_deleted",
+            Self::TimeoutDeny => "timeout_deny",
+            Self::TimeoutProceed => "timeout_proceed",
+            Self::Eviction => "eviction",
+        }
+    }
+}
+
+/// How a backgrounded tool call got authorized to run — the persistent audit
+/// counterpart to [`ApprovalResolutionSource`] (transient broadcast), sharing
+/// the same snake_case word table. Stored in the async-job `approval_origin`
+/// column so audits can tell a real human grant apart from a weaker
+/// timeout-proceed (TIMEOUT-2). Written by the exec async approval-reorder; the
+/// sync exec path / other origins are wired by later subtasks (F6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalOrigin {
+    /// User clicked Approve (once or always), or a prior AllowAlways prefix
+    /// matched — a real human grant.
+    User,
+    /// Approval dialog timed out and `approval_timeout_action=proceed` — a
+    /// weaker authorization than an explicit click.
+    TimeoutProceed,
+    /// An unattended surface (cron / headless-no-client / ACP-no-capability /
+    /// subagent-no-parent-surface) auto-proceeded because
+    /// `unattendedApprovalAction=proceed` — a weaker, non-human authorization,
+    /// recorded distinctly from a real `User` grant. A strict reason can never
+    /// reach here (it is force-denied). Epic D / F (TIMEOUT-1).
+    UnattendedProceed,
+    /// A YOLO session or global dangerous-skip bypassed the gate.
+    Yolo,
+    /// IM auto-approve account / slash-skill execution skipped all gates.
+    AutoApprove,
+    /// Async-job re-entry pre-approved at the outer engine gate.
+    ExternalPreApproved,
+    /// The permission engine allowed the command without prompting (safe for
+    /// the current session preset, not via YOLO).
+    PolicyAllow,
+}
+
+impl ApprovalOrigin {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::TimeoutProceed => "timeout_proceed",
+            Self::UnattendedProceed => "unattended_proceed",
+            Self::Yolo => "yolo",
+            Self::AutoApprove => "auto_approve",
+            Self::ExternalPreApproved => "external_pre_approved",
+            Self::PolicyAllow => "policy_allow",
+        }
+    }
+}
+
+/// Why a [`submit_approval_response`] call failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalSubmitError {
+    /// No pending approval matched the request id — already resolved, timed
+    /// out, evicted, or never existed. HTTP maps this to 410 Gone (MISC-18).
+    NotPending,
+    /// The pending entry existed but its receiver was already dropped (the
+    /// awaiting tool future is gone). The decision had no effect — surfaces
+    /// should report "approval no longer active" instead of a false success
+    /// (PENDING-1).
+    NoLongerActive,
+}
+
+impl std::fmt::Display for ApprovalSubmitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotPending => write!(f, "No pending approval request"),
+            Self::NoLongerActive => write!(f, "Approval is no longer active"),
+        }
+    }
+}
+
+impl std::error::Error for ApprovalSubmitError {}
+
+/// Broadcast when an approval is resolved by any surface, so all surfaces can
+/// dismiss their dialog and (for non-originating ones) indicate it was handled
+/// elsewhere. Payload: `{ requestId, sessionId?, decision, source }`.
+pub const EVENT_APPROVAL_RESOLVED: &str = "approval:resolved";
+
+fn approval_decision_str(response: ApprovalResponse) -> &'static str {
+    match response {
+        ApprovalResponse::AllowOnce => "allow_once",
+        ApprovalResponse::AllowAlways => "allow_always",
+        ApprovalResponse::Deny => "deny",
+    }
+}
+
+/// Emit the [`EVENT_APPROVAL_RESOLVED`] broadcast. No-op without an event bus.
+pub fn emit_approval_resolved(
+    request_id: &str,
+    session_id: Option<&str>,
+    decision: &str,
+    source: ApprovalResolutionSource,
+) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            EVENT_APPROVAL_RESOLVED,
+            serde_json::json!({
+                "requestId": request_id,
+                "sessionId": session_id,
+                "decision": decision,
+                "source": source.as_str(),
+            }),
+        );
+    }
+}
+
 /// In-memory entry for a pending approval. Stores the oneshot sender plus the
 /// originating session id so we can aggregate counts per session for the
 /// sidebar "needs your response" indicator.
@@ -140,6 +311,31 @@ static PENDING_APPROVALS: OnceLock<TokioMutex<HashMap<String, PendingApprovalEnt
 
 fn get_pending_approvals() -> &'static TokioMutex<HashMap<String, PendingApprovalEntry>> {
     PENDING_APPROVALS.get_or_init(|| TokioMutex::new(HashMap::new()))
+}
+
+/// True iff an approval is currently registered and awaiting a human decision
+/// for `session_id`. Used by `subagent` spawn_and_wait to tell the parent the
+/// child is **paused on an approval** rather than merely "backgrounded" (D6 /
+/// DEADLOCK-5). A pending child approval only persists where it can actually be
+/// answered — unattended surfaces fail-close instead of registering one.
+pub(crate) async fn session_has_pending_approval(session_id: &str) -> bool {
+    let pending = get_pending_approvals().lock().await;
+    pending
+        .values()
+        .any(|e| e.session_id.as_deref() == Some(session_id))
+}
+
+/// Return the request ids of every pending approval owned by `session_id`.
+/// Used by the IM eviction watcher (G5 / SURFACE-4) to deny each pending
+/// approval when the owning chat is taken over — there is no reverse index, so
+/// this scans the registry (the pending set is tiny in practice).
+pub async fn pending_request_ids_for_session(session_id: &str) -> Vec<String> {
+    let pending = get_pending_approvals().lock().await;
+    pending
+        .iter()
+        .filter(|(_, e)| e.session_id.as_deref() == Some(session_id))
+        .map(|(rid, _)| rid.clone())
+        .collect()
 }
 
 /// Count pending approvals grouped by session id. Approvals registered without
@@ -168,21 +364,68 @@ pub async fn pending_approval_session_id(request_id: &str) -> Result<Option<Stri
         .ok_or_else(|| anyhow::anyhow!("No pending approval request: {}", request_id))
 }
 
-/// Submit an approval response (called by Tauri command from frontend)
-pub async fn submit_approval_response(request_id: &str, response: ApprovalResponse) -> Result<()> {
+/// Submit an approval response from a given surface (GUI / HTTP / IM).
+///
+/// On success broadcasts [`EVENT_APPROVAL_RESOLVED`] so other surfaces dismiss
+/// their dialog. Returns:
+/// - `Err(NotPending)` when no pending approval matches (already resolved /
+///   timed out / evicted) — HTTP maps to 410.
+/// - `Err(NoLongerActive)` when the entry existed but its receiver was already
+///   dropped (the awaiting tool future is gone): the decision had no effect, so
+///   surface a clear error instead of a false success (PENDING-1).
+pub async fn submit_approval_response(
+    request_id: &str,
+    response: ApprovalResponse,
+    source: ApprovalResolutionSource,
+) -> std::result::Result<(), ApprovalSubmitError> {
     let mut pending = get_pending_approvals().lock().await;
-    if let Some(entry) = pending.remove(request_id) {
-        let session_id = entry.session_id.clone();
-        let _ = entry.sender.send(response);
-        drop(pending);
-        emit_pending_interactions_changed(session_id.as_deref());
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!(
-            "No pending approval request: {}",
-            request_id
-        ))
+    let Some(entry) = pending.remove(request_id) else {
+        return Err(ApprovalSubmitError::NotPending);
+    };
+    let session_id = entry.session_id.clone();
+    let delivered = entry.sender.send(response).is_ok();
+    drop(pending);
+    emit_pending_interactions_changed(session_id.as_deref());
+    if !delivered {
+        return Err(ApprovalSubmitError::NoLongerActive);
     }
+    emit_approval_resolved(
+        request_id,
+        session_id.as_deref(),
+        approval_decision_str(response),
+        source,
+    );
+    Ok(())
+}
+
+/// Deny and resolve every pending approval owned by `session_id`. Called by the
+/// session cleanup watcher when a session is deleted / purged so the blocked
+/// tool turn unblocks instead of hanging forever, and every surface dismisses
+/// its dialog (DELETE-1 / INCOG-4). Returns the number of approvals denied.
+pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResolutionSource) -> usize {
+    // Drain matching entries under the lock, then send/emit after releasing it
+    // (the receiver side and bus subscribers must not run while we hold it).
+    let drained: Vec<(String, PendingApprovalEntry)> = {
+        let mut pending = get_pending_approvals().lock().await;
+        let ids: Vec<String> = pending
+            .iter()
+            .filter(|(_, e)| e.session_id.as_deref() == Some(session_id))
+            .map(|(k, _)| k.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| pending.remove(&id).map(|e| (id, e)))
+            .collect()
+    };
+    if drained.is_empty() {
+        return 0;
+    }
+    let count = drained.len();
+    for (request_id, entry) in drained {
+        let _ = entry.sender.send(ApprovalResponse::Deny);
+        emit_approval_resolved(&request_id, Some(session_id), "deny", source);
+    }
+    emit_pending_interactions_changed(Some(session_id));
+    count
 }
 
 /// Broadcast to the frontend that some session's pending-interaction count
@@ -253,7 +496,27 @@ pub(crate) enum ApprovalCheckError {
     RequestSerialization,
     EventBusUnavailable,
     Cancelled,
-    TimedOut { timeout_secs: u64 },
+    TimedOut {
+        timeout_secs: u64,
+        /// The approval reason was strict (forbids AllowAlways). F2/F3 force a
+        /// deny on timeout regardless of `approval_timeout_action` — a strict
+        /// reason must never auto-proceed unattended. Epic F (TIMEOUT-1).
+        strict: bool,
+    },
+    /// No human could answer this prompt (cron / headless-no-client / ACP-no-
+    /// capability / subagent-no-parent-surface) and `unattendedApprovalAction`
+    /// is `deny`. Fail-closed without blocking (Epic D). Callers render it via
+    /// [`crate::tools::ToolRejection::denied_unattended`].
+    Unattended {
+        reason: crate::permission::UnattendedReason,
+    },
+    /// No human could answer, `unattendedApprovalAction=proceed`, and the reason
+    /// was NOT strict — auto-proceed with a weaker-than-click origin. A strict
+    /// reason on an unattended surface returns [`Self::Unattended`] (fail-closed
+    /// deny) instead, never this. Epic D / F (TIMEOUT-1).
+    UnattendedProceed {
+        reason: crate::permission::UnattendedReason,
+    },
 }
 
 impl fmt::Display for ApprovalCheckError {
@@ -262,11 +525,47 @@ impl fmt::Display for ApprovalCheckError {
             Self::RequestSerialization => write!(f, "Failed to serialize approval request"),
             Self::EventBusUnavailable => write!(f, "EventBus not available for approval events"),
             Self::Cancelled => write!(f, "Approval request cancelled"),
-            Self::TimedOut { timeout_secs } => {
-                write!(f, "Approval request timed out ({}s)", timeout_secs)
+            Self::TimedOut {
+                timeout_secs,
+                strict,
+            } => {
+                if *strict {
+                    write!(
+                        f,
+                        "Approval request timed out ({}s); strict reason — denied",
+                        timeout_secs
+                    )
+                } else {
+                    write!(f, "Approval request timed out ({}s)", timeout_secs)
+                }
+            }
+            Self::Unattended { reason } => {
+                write!(f, "No one available to approve ({})", reason.explain())
+            }
+            Self::UnattendedProceed { reason } => {
+                write!(
+                    f,
+                    "No one available to approve; auto-proceeding ({})",
+                    reason.explain()
+                )
             }
         }
     }
+}
+
+/// Whether an unattended approval surface should auto-proceed: only when the
+/// user configured `proceed` AND the reason is not strict. A strict reason
+/// (forbids AllowAlways — protected path / dangerous command / mac-dangerous /
+/// plan-ask) must NEVER auto-proceed when no human can answer; it is force-denied
+/// regardless of the configured action, mirroring the strict-timeout rule so the
+/// "auto-allow always needs a human" invariant holds on every path (TIMEOUT-1).
+/// Pure helper so the security-critical decision is unit-testable without global
+/// config / runtime-role state.
+fn unattended_effective_proceed(
+    action: crate::permission::UnattendedApprovalAction,
+    strict: bool,
+) -> bool {
+    matches!(action, crate::permission::UnattendedApprovalAction::Proceed) && !strict
 }
 
 /// Request approval from the user for a command.
@@ -279,9 +578,91 @@ pub(crate) async fn check_and_request_approval(
     session_id: Option<&str>,
     reason: Option<ApprovalReasonPayload>,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
+    // Epic D (DEADLOCK-1..5): an `Ask` was decided, but on some entries no human
+    // can ever answer it. Resolve the surface BEFORE registering a pending entry
+    // or blocking on the oneshot — otherwise the turn / HTTP request / cron run
+    // hangs forever and a generic timeout later masks the real cause. This is the
+    // single chokepoint for both the exec command gate and the engine Ask path.
+    // F1 (TIMEOUT-1) / Epic D: capture strictness up front. A strict reason
+    // (protected path / dangerous command / mac-dangerous / plan-ask) must NEVER
+    // auto-proceed when no human can answer — whether the surface is unattended
+    // up front (here) or the prompt later times out (F2/F3 below). `reason` is
+    // moved into the outbound `ApprovalRequest`, so read it before that.
+    let strict = reason.as_ref().map(|r| r.kind.is_strict()).unwrap_or(false);
+
+    if let crate::permission::ApprovalSurface::Unattended(unattended) =
+        crate::permission::evaluate_approval_surface(session_id)
+    {
+        let action = crate::config::cached_config()
+            .permission
+            .unattended_approval_action;
+        // A strict reason overrides `proceed` to a fail-closed deny, mirroring the
+        // strict-timeout rule (F2/F3) so "auto-allow always needs a human" holds
+        // on every path, not just the timeout one (TIMEOUT-1).
+        let effective_proceed = unattended_effective_proceed(action, strict);
+        // Structured signal for any in-app consumer (cron run telemetry / dashboard
+        // / future UI), parallel to `approval_required`. The whole-job timeout no
+        // longer masks the cause (D2/D3 fail-close instead of hanging); this makes
+        // "a tool needed an approval no one could give" observable, not just prose
+        // in the model's reply. `effective` reflects the strict override.
+        if let Some(bus) = crate::globals::get_event_bus() {
+            bus.emit(
+                "approval:unattended",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "reason": unattended.as_str(),
+                    "action": match action {
+                        crate::permission::UnattendedApprovalAction::Proceed => "proceed",
+                        crate::permission::UnattendedApprovalAction::Deny => "deny",
+                    },
+                    "strict": strict,
+                    "effective": if effective_proceed { "proceed" } else { "deny" },
+                    "command": command,
+                }),
+            );
+        }
+        if effective_proceed {
+            app_warn!(
+                "tool",
+                "approval",
+                "Unattended approval surface ({}) for '{}' (session={:?}) — auto-proceeding per unattendedApprovalAction=proceed",
+                unattended.as_str(),
+                command,
+                session_id
+            );
+            // Weaker-than-click authorization: the caller records it distinctly
+            // from a real User grant (audit) and still runs the tool.
+            return Err(ApprovalCheckError::UnattendedProceed { reason: unattended });
+        }
+        if strict && matches!(action, crate::permission::UnattendedApprovalAction::Proceed) {
+            app_warn!(
+                "permission",
+                "strict_unattended_deny",
+                "Unattended approval surface ({}) for '{}' (session={:?}) — reason is strict; forcing deny despite unattendedApprovalAction=proceed",
+                unattended.as_str(),
+                command,
+                session_id
+            );
+        } else {
+            app_warn!(
+                "tool",
+                "approval",
+                "Unattended approval surface ({}) for '{}' (session={:?}) — fail-closed deny (no one could approve)",
+                unattended.as_str(),
+                command,
+                session_id
+            );
+        }
+        // Observation hook parity with the user-decline path.
+        crate::hooks::fire_permission_denied(session_id, command, unattended.as_str(), None);
+        return Err(ApprovalCheckError::Unattended { reason: unattended });
+    }
+
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let timeout_secs = approval_timeout_secs();
+    // `strict` was captured above (before the unattended check) and is reused
+    // here for the timeout force-deny (F2/F3).
 
     // Register the pending approval
     {
@@ -302,6 +683,8 @@ pub(crate) async fn check_and_request_approval(
         cwd: cwd.to_string(),
         session_id: session_id.map(|s| s.to_string()),
         reason,
+        // E5 (INCOG-6): tell the surface to hide AllowAlways for incognito turns.
+        incognito: crate::session::is_session_incognito(session_id),
     };
 
     if let Some(bus) = crate::globals::get_event_bus() {
@@ -323,7 +706,7 @@ pub(crate) async fn check_and_request_approval(
         );
         // PermissionRequest hook (observation): the structured permission event,
         // matchable on the command. Single chokepoint for every approval prompt.
-        crate::hooks::fire_permission_request(session_id, command);
+        crate::hooks::fire_permission_request(session_id, command, None);
         app_info!(
             "tool",
             "approval",
@@ -364,7 +747,7 @@ pub(crate) async fn check_and_request_approval(
             // PermissionDenied hook (observation): the user declined the prompt.
             // Single chokepoint for every user-facing decline.
             if matches!(response, ApprovalResponse::Deny) {
-                crate::hooks::fire_permission_denied(session_id, command, "user_declined");
+                crate::hooks::fire_permission_denied(session_id, command, "user_declined", None);
             }
             Ok(response)
         }
@@ -411,6 +794,21 @@ pub(crate) async fn check_and_request_approval(
                     }),
                 );
             }
+            // F4 (TIMEOUT-3 / SURFACE-1): also emit the unified `approval:resolved`
+            // so every surface dismisses its dialog symmetrically with the submit
+            // path (G6). The effective decision mirrors what F2/F3 enforce: a
+            // strict reason OR `action=deny` resolves to deny, else proceed.
+            let resolved_deny = strict
+                || matches!(
+                    approval_timeout_action(),
+                    crate::config::ApprovalTimeoutAction::Deny
+                );
+            let (decision, resolution_source) = if resolved_deny {
+                ("deny", ApprovalResolutionSource::TimeoutDeny)
+            } else {
+                ("allow_once", ApprovalResolutionSource::TimeoutProceed)
+            };
+            emit_approval_resolved(&request_id, session_id, decision, resolution_source);
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "warn",
@@ -425,8 +823,75 @@ pub(crate) async fn check_and_request_approval(
                     None,
                 );
             }
-            Err(ApprovalCheckError::TimedOut { timeout_secs })
+            Err(ApprovalCheckError::TimedOut {
+                timeout_secs,
+                strict,
+            })
         }
         Err(_) => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permission::AskReason;
+
+    /// F1 (TIMEOUT-1): `ApprovalReasonKind::is_strict()` is a serializable mirror
+    /// of the canonical `AskReason::forbids_allow_always()`. Assert they agree for
+    /// EVERY reason variant so the strict set can never silently drift between the
+    /// two representations.
+    #[test]
+    fn reason_kind_is_strict_matches_ask_reason() {
+        let all = [
+            AskReason::EditTool,
+            AskReason::EditCommand {
+                matched_pattern: "rm".into(),
+            },
+            AskReason::DangerousCommand {
+                matched_pattern: "rm -rf".into(),
+            },
+            AskReason::ProtectedPath {
+                matched_path: "/etc".into(),
+            },
+            AskReason::AgentCustomList,
+            AskReason::SmartJudge {
+                rationale: "x".into(),
+            },
+            AskReason::BrowserEvaluate {
+                script_preview: "x".into(),
+            },
+            AskReason::MacControlAction {
+                action: "click".into(),
+            },
+            AskReason::MacControlDangerousAction {
+                action: "quit".into(),
+            },
+            AskReason::PlanModeAsk,
+        ];
+        for reason in &all {
+            let kind = ApprovalReasonPayload::from(reason).kind;
+            assert_eq!(
+                kind.is_strict(),
+                reason.forbids_allow_always(),
+                "strict mismatch for {:?}",
+                reason
+            );
+        }
+    }
+
+    /// Red line (TIMEOUT-1): a strict reason must NEVER auto-proceed on an
+    /// unattended surface, even when the user configured
+    /// `unattendedApprovalAction=proceed` — it is force-denied, exactly like the
+    /// strict-timeout path. Non-strict reasons still honor the configured action.
+    #[test]
+    fn strict_reason_never_auto_proceeds_unattended() {
+        use crate::permission::UnattendedApprovalAction::{Deny, Proceed};
+        // Non-strict: honor whatever the user configured.
+        assert!(unattended_effective_proceed(Proceed, false));
+        assert!(!unattended_effective_proceed(Deny, false));
+        // Strict: force-denied regardless of the configured action.
+        assert!(!unattended_effective_proceed(Proceed, true));
+        assert!(!unattended_effective_proceed(Deny, true));
     }
 }
