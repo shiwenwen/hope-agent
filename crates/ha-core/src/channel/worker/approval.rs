@@ -448,10 +448,8 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 // chat's stale text-reply entry, else it lingers in TEXT_PENDING
                 // and a later message gets hijacked as an answer to a dead prompt.
                 "approval:resolved" => {
-                    if let Some(request_id) = event
-                        .payload
-                        .get("requestId")
-                        .and_then(|v| v.as_str())
+                    if let Some(request_id) =
+                        event.payload.get("requestId").and_then(|v| v.as_str())
                     {
                         drop_pending_by_request_id(request_id).await;
                     }
@@ -1460,6 +1458,43 @@ mod tests {
 
         let mut pending = get_text_pending().lock().await;
         pending.remove(&key_b);
+    }
+
+    #[tokio::test]
+    async fn drop_pending_for_chat_clears_only_target_chat() {
+        // G5 (SURFACE-4): eviction clears the taken-over chat's text stack only.
+        let evicted = ("acct-evict".to_string(), "chat-evicted".to_string());
+        let other = ("acct-evict".to_string(), "chat-other".to_string());
+        {
+            let mut pending = get_text_pending().lock().await;
+            pending
+                .entry(evicted.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "evicted-req".to_string(),
+                    forbids_allow_always: false,
+                });
+            pending
+                .entry(other.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "other-req".to_string(),
+                    forbids_allow_always: false,
+                });
+        }
+
+        drop_pending_for_chat("acct-evict", "chat-evicted").await;
+
+        let mut pending = get_text_pending().lock().await;
+        assert!(
+            pending.get(&evicted).is_none(),
+            "evicted chat's text stack should be cleared",
+        );
+        assert!(
+            pending.get(&other).is_some(),
+            "other chat must be untouched",
+        );
+        pending.remove(&other);
     }
 
     #[test]
