@@ -982,7 +982,7 @@ async fn run_tool_approval(
     ctx: &ToolExecContext,
     reason_payload: Option<approval::ApprovalReasonPayload>,
     allow_always_forbidden: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<approval::ApprovalOrigin> {
     let desc = format!("tool: {} {}", name, {
         let s = args.to_string();
         if s.len() > 200 {
@@ -1002,7 +1002,7 @@ async fn run_tool_approval(
     {
         Ok(approval::ApprovalResponse::AllowOnce) => {
             app_info!("tool", "approval", "Tool '{}' approved (once)", name);
-            Ok(())
+            Ok(approval::ApprovalOrigin::User)
         }
         Ok(approval::ApprovalResponse::AllowAlways) => {
             if allow_always_forbidden {
@@ -1037,7 +1037,7 @@ async fn run_tool_approval(
                     ),
                 }
             }
-            Ok(())
+            Ok(approval::ApprovalOrigin::User)
         }
         Ok(approval::ApprovalResponse::Deny) => {
             Err(super::rejection::ToolRejection::denied_by_user(name))
@@ -1087,7 +1087,8 @@ async fn run_tool_approval(
                         name,
                         timeout_secs
                     );
-                    Ok(())
+                    // F6: weaker-than-click authorization for the audit column.
+                    Ok(approval::ApprovalOrigin::TimeoutProceed)
                 }
             }
         }
@@ -1225,12 +1226,36 @@ pub async fn execute_tool_with_context(
     // auto-approve accounts and skill-triggered slash commands.
     let effective_auto_approve = ctx.local_auto_approve() || mcp_tool_auto_approves(name).await;
     let needs_engine = needs_permission_engine(name, args, ctx, effective_auto_approve);
+
+    // F7 (IMYOLO-1 / DELETE-2): an IM auto-approve account / slash-skill skips the
+    // engine gate entirely (`auto_approve_tools` → `needs_engine=false`). That
+    // convenience stays opt-in, but a *strict* call slipping through silently
+    // (dangerous command / protected path / mac-dangerous / plan-ask) must be
+    // auditable. Probe the engine WITHOUT enforcing — only when the bypass is
+    // specifically `auto_approve_tools` (NOT `external_pre_approved` async
+    // re-entry, already gated at the outer dispatch; NOT MCP trust). Audit only:
+    // the call still proceeds.
+    if ctx.auto_approve_tools && !ctx.external_pre_approved && !needs_engine {
+        if let crate::permission::Decision::Ask { reason } =
+            resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await
+        {
+            if reason.forbids_allow_always() {
+                app_warn!(
+                    "permission",
+                    "auto_approve_bypass",
+                    "Tool '{}' auto-approved (IM/skill), bypassing a STRICT approval ({:?}) — audit only, proceeding",
+                    name,
+                    reason
+                );
+            }
+        }
+    }
     // exec async approval-reorder state (B5/B6). Declared here — above the
     // engine gate — so the Plan-Mode-ask path below can record that exec was
     // already approved at the outer gate and suppress the reorder's second
     // prompt (review#3: plan-ask + async-eligible exec double-prompted).
     let mut exec_pre_approved = false;
-    let mut exec_approval_origin: Option<approval::ApprovalOrigin> = None;
+    let mut tool_approval_origin: Option<approval::ApprovalOrigin> = None;
     if needs_engine {
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
@@ -1240,7 +1265,7 @@ pub async fn execute_tool_with_context(
                 // returned `ask`/`defer` still wants human confirmation — force
                 // the prompt (no reason banner) so its request can't fail open.
                 if pre_force_prompt {
-                    run_tool_approval(name, args, ctx, None, false).await?;
+                    tool_approval_origin = Some(run_tool_approval(name, args, ctx, None, false).await?);
                 }
             }
             crate::permission::Decision::Deny { reason } => {
@@ -1282,14 +1307,18 @@ pub async fn execute_tool_with_context(
                     // the hooks approval refactor.
                     let mac_control_focus_anchor =
                         capture_mac_control_approval_focus_anchor(name).await;
-                    run_tool_approval(
-                        name,
-                        args,
-                        ctx,
-                        Some(approval::ApprovalReasonPayload::from(&reason)),
-                        forbidden,
-                    )
-                    .await?;
+                    // F6: the prompt outcome IS the audit origin (User on approve,
+                    // TimeoutProceed on a non-strict timeout-proceed).
+                    tool_approval_origin = Some(
+                        run_tool_approval(
+                            name,
+                            args,
+                            ctx,
+                            Some(approval::ApprovalReasonPayload::from(&reason)),
+                            forbidden,
+                        )
+                        .await?,
+                    );
                     restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
                     // review#3: `exec` reaches the outer engine gate ONLY via
                     // Plan-Mode `ask_tools` (it is otherwise excluded). The user
@@ -1304,8 +1333,9 @@ pub async fn execute_tool_with_context(
                     if name == TOOL_EXEC
                         && matches!(reason, crate::permission::AskReason::PlanModeAsk)
                     {
+                        // Origin already captured from the prompt above; just mark
+                        // the reorder gate as satisfied so exec isn't re-prompted.
                         exec_pre_approved = true;
-                        exec_approval_origin = Some(approval::ApprovalOrigin::User);
                     }
                 }
             }
@@ -1315,7 +1345,7 @@ pub async fn execute_tool_with_context(
         // PreToolUse hook explicitly asked for confirmation — honor it rather
         // than letting the request through silently. SKILL.md reads are exempt
         // so skill bootstrap never blocks on a prompt.
-        run_tool_approval(name, args, ctx, None, false).await?;
+        tool_approval_origin = Some(run_tool_approval(name, args, ctx, None, false).await?);
     }
 
     // ── exec async approval reorder (B5 / B6) ─────────────────────
@@ -1343,7 +1373,24 @@ pub async fn execute_tool_with_context(
             .unwrap_or_else(|| ctx.default_cwd());
         let origin = exec::resolve_exec_command_approval(command, args, ctx, &session_cwd).await?;
         exec_pre_approved = true;
-        exec_approval_origin = Some(origin);
+        tool_approval_origin = Some(origin);
+    }
+
+    // F6 (TIMEOUT-2): every backgrounded job's `approval_origin` column records
+    // HOW it was authorized. The engine gate / exec reorder set it for prompted,
+    // exec, and policy-allowed-with-force-prompt calls; fill the remaining bypass
+    // cases so no spawned job carries a null origin — async re-entry
+    // (external_pre_approved), IM/skill auto-approve (effective_auto_approve), or
+    // a silent engine Allow (policy/yolo). Only the async spawn branches below
+    // consume this; sync execution ignores it.
+    if tool_approval_origin.is_none() {
+        tool_approval_origin = Some(if ctx.external_pre_approved {
+            approval::ApprovalOrigin::ExternalPreApproved
+        } else if effective_auto_approve {
+            approval::ApprovalOrigin::AutoApprove
+        } else {
+            exec::policy_allow_origin(ctx)
+        });
     }
 
     // Log tool execution start
@@ -1397,7 +1444,7 @@ pub async fn execute_tool_with_context(
         // re-dispatch inside the background runtime doesn't prompt again, plus
         // the audit origin for the job's `approval_origin` column.
         spawn_ctx.exec_pre_approved = exec_pre_approved;
-        spawn_ctx.approval_origin = exec_approval_origin;
+        spawn_ctx.approval_origin = tool_approval_origin;
         let raw = async_jobs::spawn_explicit_job(name, args.clone(), spawn_ctx, origin)?;
         // Skip the disk-persist tail since the synthetic JSON is small and
         // mirrors the same shape `job_status` returns later.
@@ -1427,7 +1474,7 @@ pub async fn execute_tool_with_context(
         // starts); carry the verdict so the inner re-dispatch doesn't prompt
         // again on the background OS thread, plus the audit origin.
         inner_ctx.exec_pre_approved = exec_pre_approved;
-        inner_ctx.approval_origin = exec_approval_origin;
+        inner_ctx.approval_origin = tool_approval_origin;
         let raw =
             async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
         // The inner worker suppresses generic disk persistence so detached jobs

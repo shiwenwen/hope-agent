@@ -238,8 +238,9 @@ fn exec_approval_timeout_outcome(
 
 /// Classify a no-prompt engine `Allow` for the audit column: a YOLO session or
 /// global dangerous-skip means the gate was bypassed; otherwise the engine
-/// just deemed the command safe under the current preset.
-fn exec_policy_allow_origin(ctx: &super::ToolExecContext) -> ApprovalOrigin {
+/// just deemed the command safe under the current preset. Shared with the
+/// non-exec tool path (F6) via `super::execution`.
+pub(crate) fn policy_allow_origin(ctx: &super::ToolExecContext) -> ApprovalOrigin {
     if crate::security::dangerous::is_dangerous_skip_active()
         || matches!(ctx.session_mode, crate::permission::SessionMode::Yolo)
     {
@@ -268,7 +269,7 @@ pub(crate) async fn resolve_exec_command_approval(
 ) -> Result<ApprovalOrigin> {
     let decision = super::execution::resolve_tool_permission(TOOL_EXEC, args, ctx, false).await;
     match decision {
-        crate::permission::Decision::Allow => Ok(exec_policy_allow_origin(ctx)),
+        crate::permission::Decision::Allow => Ok(policy_allow_origin(ctx)),
         crate::permission::Decision::Deny { reason } => {
             app_warn!(
                 "tool",
