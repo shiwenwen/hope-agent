@@ -187,6 +187,17 @@ fn escape_xml_text(input: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// E2 / DELETE-3 / INCOG-3 backstop: is the parent session still present?
+/// An absent row (deleted or incognito-burned) must abort the injection before
+/// it resurrects a ghost turn (a billed LLM round + persisted rows against a
+/// session that no longer exists). A transient lookup error is treated as
+/// *alive* so a momentary glitch doesn't drop a real injection —
+/// `dispatch_injection` already fired the primary gate, and the idle-timeout
+/// path leaves the source row for restart replay.
+fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> bool {
+    !matches!(db.get_session(session_id), Ok(None))
+}
+
 /// Backend-driven result injection: wait for idle, then run the parent agent with the push message.
 /// Respects user chat priority: waits if busy, cancels if user sends a new message, skips if
 /// the agent already fetched the result via check/result tool actions.
@@ -217,6 +228,24 @@ pub(crate) async fn inject_and_run_parent(
             }
             return InjectionOutcome::Injected;
         }
+    }
+
+    // E2 / DELETE-3 / INCOG-3 backstop (entry): mirror dispatch_injection's gate
+    // in case the session was already gone by the time this attempt starts. Fire
+    // `on_injected` (consume the source so replay won't retry a dead session)
+    // and bail — this is `Injected`, not `Abandoned`.
+    if !parent_session_present(&session_db, &parent_session_id) {
+        app_info!(
+            "subagent",
+            "inject",
+            "Parent session {} gone; skipping injection for run {}",
+            &parent_session_id,
+            &run_id
+        );
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
+        return InjectionOutcome::Injected;
     }
 
     // Guard: if another injection is active for this session, queue for later
@@ -394,6 +423,23 @@ pub(crate) async fn inject_and_run_parent(
 
     let mut last_error = String::new();
     let mut succeeded = false;
+
+    // E2 / DELETE-3 / INCOG-3 backstop (post-idle): the most dangerous window —
+    // the session can be deleted or burned *during* the idle wait above. Re-check
+    // before writing the push row or running a billed turn against a dead session.
+    if !parent_session_present(&session_db, &parent_session_id) {
+        app_info!(
+            "subagent",
+            "inject",
+            "Parent session {} gone during idle wait; skipping injection for run {}",
+            &parent_session_id,
+            &run_id
+        );
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
+        return InjectionOutcome::Injected;
+    }
 
     // Write the push user row BEFORE agent.chat() so intermediate rows
     // streamed from the callback land between it and the final assistant

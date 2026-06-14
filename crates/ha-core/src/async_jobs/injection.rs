@@ -64,16 +64,55 @@ pub fn dispatch_injection(
         }
     };
 
+    // Resolve the session row once — it backs both the agent-id fallback and
+    // the ghost-turn gate below, so one lookup serves both.
+    let session_lookup = session_db.get_session(&session_id);
+
     // Resolve the parent agent id from the session row when not supplied.
     let parent_agent_id = match parent_agent_id {
         Some(id) => id,
-        None => session_db
-            .get_session(&session_id)
+        None => session_lookup
+            .as_ref()
             .ok()
-            .flatten()
-            .map(|s| s.agent_id)
+            .and_then(|row| row.as_ref())
+            .map(|s| s.agent_id.clone())
             .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
     };
+
+    // E2 / DELETE-3 / INCOG-3: the parent session can be deleted or burned
+    // (incognito close) after the job started. Injecting into a gone session
+    // would resurrect a *ghost turn* — append a user row and run a billed LLM
+    // turn against a session that no longer exists. Gate it before spawning the
+    // injection thread.
+    match session_lookup {
+        // Alive — proceed to inject as normal.
+        Ok(Some(_)) => {}
+        // Row genuinely gone: mark the job injected so `replay_pending_jobs()`
+        // won't keep retrying a dead session forever, then skip.
+        Ok(None) => {
+            app_info!(
+                "async_jobs",
+                "injection",
+                "Parent session {} gone (deleted/burned); marking job {} injected and skipping ghost turn",
+                &session_id,
+                &job_id
+            );
+            mark_injected_with_retry(&job_id);
+            return;
+        }
+        // Transient lookup failure: don't drop a real job on a momentary glitch.
+        // Proceed — `inject_and_run_parent` re-checks existence as a backstop,
+        // and an idle timeout there leaves the row un-injected for restart replay.
+        Err(e) => {
+            app_warn!(
+                "async_jobs",
+                "injection",
+                "Parent session {} lookup failed ({}); proceeding — inject backstop will re-check",
+                &session_id,
+                e
+            );
+        }
+    }
 
     // Deduplicate in-flight dispatches inside this process. Replay on startup
     // + a late EventBus retry for the same terminal job could otherwise fire

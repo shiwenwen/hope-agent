@@ -65,10 +65,46 @@ pub fn lookup_session_meta(session_id: Option<&str>) -> Option<SessionMeta> {
 }
 
 /// Whether the given session is running in incognito mode.
+///
+/// **Fail-closed three-state** (Epic E / INCOG-1). A late-arriving operation
+/// (memory extraction, large-result disk persistence, async-job spool) must
+/// never leave a trace for a session that was burned on close, so the three DB
+/// outcomes are deliberately *not* collapsed into one `false` like the generic
+/// [`lookup_session_meta`] helper does:
+///   - **DB not initialized** (early startup / unit tests) → `false`: no
+///     incognito session can exist before the store is up, so this is safe.
+///   - **Row genuinely absent** (`Ok(None)`) → `true` (**fail-closed**): a live
+///     session always has its row, so an absent row means it was deleted or
+///     burned (incognito close physically removes it). Any trailing work must
+///     be treated as incognito and skip every persistence sidecar.
+///   - **Transient lookup error** (lock contention / IO) → `false` + warn: a
+///     momentary glitch must NOT silently drop a *normal* session's memory
+///     extraction & persistence. The privacy-critical burn path is additionally
+///     guarded by the watcher purge ([`super::cleanup_watcher`]) and the
+///     frontend best-effort cancel.
 pub fn is_session_incognito(session_id: Option<&str>) -> bool {
-    lookup_session_meta(session_id)
-        .map(|meta| meta.incognito)
-        .unwrap_or(false)
+    let Some(sid) = session_id else {
+        return false;
+    };
+    let Some(db) = crate::get_session_db() else {
+        // DB not initialized — no incognito sessions can exist yet.
+        return false;
+    };
+    match db.get_session(sid) {
+        Ok(Some(meta)) => meta.incognito,
+        // Row gone (deleted / incognito-burned) — fail closed.
+        Ok(None) => true,
+        Err(e) => {
+            crate::app_warn!(
+                "session",
+                "is_session_incognito",
+                "meta lookup for {} failed, treating as non-incognito: {}",
+                sid,
+                e
+            );
+            false
+        }
+    }
 }
 
 /// Resolve the effective working directory for a session: session-level value
