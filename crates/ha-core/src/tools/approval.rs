@@ -79,6 +79,26 @@ pub enum ApprovalReasonKind {
     PlanModeAsk,
 }
 
+impl ApprovalReasonKind {
+    /// Whether this is a **strict** reason: it always demands a per-call human
+    /// decision, bars AllowAlways, and must never auto-proceed unattended (Epic
+    /// F / TIMEOUT-1 — a strict approval that times out is force-denied even when
+    /// `approval_timeout_action=proceed`).
+    ///
+    /// KEEP IN SYNC with [`crate::permission::AskReason::forbids_allow_always`],
+    /// the canonical source — `reason_kind_is_strict_matches_ask_reason` asserts
+    /// the two agree across every variant.
+    pub fn is_strict(self) -> bool {
+        matches!(
+            self,
+            Self::ProtectedPath
+                | Self::DangerousCommand
+                | Self::MacControlDangerousAction
+                | Self::PlanModeAsk
+        )
+    }
+}
+
 impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
     fn from(value: &crate::permission::AskReason) -> Self {
         use crate::permission::AskReason::*;
@@ -446,6 +466,10 @@ pub(crate) enum ApprovalCheckError {
     Cancelled,
     TimedOut {
         timeout_secs: u64,
+        /// The approval reason was strict (forbids AllowAlways). F2/F3 force a
+        /// deny on timeout regardless of `approval_timeout_action` — a strict
+        /// reason must never auto-proceed unattended. Epic F (TIMEOUT-1).
+        strict: bool,
     },
     /// No human could answer this prompt (cron / headless-no-client / ACP-no-
     /// capability / subagent-no-parent-surface) and `unattendedApprovalAction`
@@ -462,8 +486,19 @@ impl fmt::Display for ApprovalCheckError {
             Self::RequestSerialization => write!(f, "Failed to serialize approval request"),
             Self::EventBusUnavailable => write!(f, "EventBus not available for approval events"),
             Self::Cancelled => write!(f, "Approval request cancelled"),
-            Self::TimedOut { timeout_secs } => {
-                write!(f, "Approval request timed out ({}s)", timeout_secs)
+            Self::TimedOut {
+                timeout_secs,
+                strict,
+            } => {
+                if *strict {
+                    write!(
+                        f,
+                        "Approval request timed out ({}s); strict reason — denied",
+                        timeout_secs
+                    )
+                } else {
+                    write!(f, "Approval request timed out ({}s)", timeout_secs)
+                }
             }
             Self::Unattended { reason } => {
                 write!(f, "No one available to approve ({})", reason.explain())
@@ -548,6 +583,10 @@ pub(crate) async fn check_and_request_approval(
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let timeout_secs = approval_timeout_secs();
+    // F1 (TIMEOUT-1): capture strictness now — `reason` is moved into the
+    // outbound `ApprovalRequest` below. A strict reason that later times out is
+    // force-denied (F2/F3) regardless of `approval_timeout_action`.
+    let strict = reason.as_ref().map(|r| r.kind.is_strict()).unwrap_or(false);
 
     // Register the pending approval
     {
@@ -693,8 +732,60 @@ pub(crate) async fn check_and_request_approval(
                     None,
                 );
             }
-            Err(ApprovalCheckError::TimedOut { timeout_secs })
+            Err(ApprovalCheckError::TimedOut {
+                timeout_secs,
+                strict,
+            })
         }
         Err(_) => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permission::AskReason;
+
+    /// F1 (TIMEOUT-1): `ApprovalReasonKind::is_strict()` is a serializable mirror
+    /// of the canonical `AskReason::forbids_allow_always()`. Assert they agree for
+    /// EVERY reason variant so the strict set can never silently drift between the
+    /// two representations.
+    #[test]
+    fn reason_kind_is_strict_matches_ask_reason() {
+        let all = [
+            AskReason::EditTool,
+            AskReason::EditCommand {
+                matched_pattern: "rm".into(),
+            },
+            AskReason::DangerousCommand {
+                matched_pattern: "rm -rf".into(),
+            },
+            AskReason::ProtectedPath {
+                matched_path: "/etc".into(),
+            },
+            AskReason::AgentCustomList,
+            AskReason::SmartJudge {
+                rationale: "x".into(),
+            },
+            AskReason::BrowserEvaluate {
+                script_preview: "x".into(),
+            },
+            AskReason::MacControlAction {
+                action: "click".into(),
+            },
+            AskReason::MacControlDangerousAction {
+                action: "quit".into(),
+            },
+            AskReason::PlanModeAsk,
+        ];
+        for reason in &all {
+            let kind = ApprovalReasonPayload::from(reason).kind;
+            assert_eq!(
+                kind.is_strict(),
+                reason.forbids_allow_always(),
+                "strict mismatch for {:?}",
+                reason
+            );
+        }
     }
 }

@@ -188,7 +188,27 @@ fn parse_exec_timeout_secs(args: &Value) -> u64 {
 /// [`resolve_exec_command_approval`]); callers own any `ProcessSession`
 /// cleanup on the `Deny` branch. On `Proceed` reports the weaker
 /// [`ApprovalOrigin::TimeoutProceed`] authorization for the audit column.
-fn exec_approval_timeout_outcome(command: &str, timeout_secs: u64) -> Result<ApprovalOrigin> {
+fn exec_approval_timeout_outcome(
+    command: &str,
+    timeout_secs: u64,
+    strict: bool,
+) -> Result<ApprovalOrigin> {
+    // F3 (TIMEOUT-1): a strict command (dangerous / protected-path) must never
+    // run unattended on timeout — force a deny even when
+    // `approval_timeout_action=proceed`.
+    if strict {
+        app_warn!(
+            "permission",
+            "strict_timeout_deny",
+            "Approval timed out after {}s; reason is strict — blocking command despite approval_timeout_action: {}",
+            timeout_secs,
+            command
+        );
+        return Err(super::rejection::ToolRejection::approval_timeout(
+            TOOL_EXEC,
+            timeout_secs,
+        ));
+    }
     match approval_timeout_action() {
         crate::config::ApprovalTimeoutAction::Deny => {
             app_warn!(
@@ -334,8 +354,14 @@ pub(crate) async fn resolve_exec_command_approval(
                     );
                     Err(super::rejection::ToolRejection::denied_by_user(TOOL_EXEC))
                 }
-                Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
-                    exec_approval_timeout_outcome(command, timeout_secs)
+                Err(ApprovalCheckError::TimedOut { timeout_secs, .. }) => {
+                    // F3: `reason.forbids_allow_always()` is the strict predicate
+                    // (same one `allow_always_ok` above derives from).
+                    exec_approval_timeout_outcome(
+                        command,
+                        timeout_secs,
+                        reason.forbids_allow_always(),
+                    )
                 }
                 Err(ApprovalCheckError::Unattended { reason }) => {
                     // Surface check already logged + fired the denied hook.

@@ -1042,7 +1042,29 @@ async fn run_tool_approval(
         Ok(approval::ApprovalResponse::Deny) => {
             Err(super::rejection::ToolRejection::denied_by_user(name))
         }
-        Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
+        Err(approval::ApprovalCheckError::TimedOut {
+            timeout_secs,
+            strict,
+        }) => {
+            // F2 (TIMEOUT-1): a strict reason (protected path / dangerous command
+            // / mac-dangerous / plan-ask) must NEVER auto-proceed unattended —
+            // force a deny even when `approval_timeout_action=proceed`.
+            if strict && matches!(
+                approval::approval_timeout_action(),
+                crate::config::ApprovalTimeoutAction::Proceed
+            ) {
+                app_warn!(
+                    "permission",
+                    "strict_timeout_deny",
+                    "Tool '{}' approval timed out after {}s; reason is strict — forcing deny despite approval_timeout_action=proceed",
+                    name,
+                    timeout_secs
+                );
+                return Err(super::rejection::ToolRejection::approval_timeout(
+                    name,
+                    timeout_secs,
+                ));
+            }
             match approval::approval_timeout_action() {
                 crate::config::ApprovalTimeoutAction::Deny => {
                     app_warn!(
