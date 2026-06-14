@@ -314,6 +314,7 @@ export function usePlanMode(
     const handler = (raw: unknown) => {
       try {
         const group = parsePayload<AskUserQuestionGroup>(raw)
+        if (!group) return
         if (group.sessionId !== currentSessionId) return
         setPendingQuestionGroup(group)
       } catch {
@@ -329,6 +330,7 @@ export function usePlanMode(
     return getTransport().listen("ask_user_timed_out", (raw) => {
       try {
         const payload = parsePayload<{ requestId?: string; sessionId?: string }>(raw)
+        if (!payload) return
         if (payload.sessionId !== currentSessionId) return
         setPendingQuestionGroup((prev) =>
           prev?.requestId === payload.requestId ? null : prev,

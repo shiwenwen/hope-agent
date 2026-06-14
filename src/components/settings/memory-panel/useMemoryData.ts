@@ -97,6 +97,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
     const handleSnapshot = (raw: unknown): LocalModelJobSnapshot | null => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return null
       if (job.kind !== "memory_reembed") return null
       setReembedJob((current) => {
         // Pick the snapshot we want to track: a new spawn replaces a terminal

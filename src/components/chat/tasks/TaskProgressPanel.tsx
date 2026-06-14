@@ -3,6 +3,7 @@ import { AlertCircle, ChevronRight, CirclePause, ListChecks, PanelRight, Trash2 
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import type { Task, TaskStatus } from "@/types/chat"
@@ -59,7 +60,7 @@ export default function TaskProgressPanel({
     try {
       await op()
     } catch (err) {
-      console.warn(`[TaskProgressPanel] ${label} failed`, err)
+      logger.warn("chat", "TaskProgressPanel::withBusy", `${label} failed`, err)
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev)

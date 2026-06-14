@@ -108,7 +108,11 @@ export default function KnowledgeJobsButton() {
   // never synchronously in the effect body (no cascading render).
   useEffect(() => {
     void refresh()
-    const onSnap = (raw: unknown) => upsert(parsePayload<LocalModelJobSnapshot>(raw))
+    const onSnap = (raw: unknown) => {
+      const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return
+      upsert(job)
+    }
     const un1 = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.created, onSnap)
     const un2 = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, onSnap)
     const un3 = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, onSnap)

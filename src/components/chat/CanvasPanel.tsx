@@ -178,6 +178,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_show", (raw) => {
         try {
           const data = parsePayload<CanvasShowPayload>(raw)
+          if (!data) return
           // Drop events from other sessions (e.g. cron / IM / subagent tool
           // calls). Older payloads without sessionId still pass through.
           if (data.sessionId && data.sessionId !== currentSessionIdRef.current) {
@@ -208,6 +209,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_reload", (raw) => {
         try {
           const data = parsePayload<{ projectId: string }>(raw)
+          if (!data) return
           // If it's the current canvas, refresh
           setCanvas((prev) => {
             if (prev && prev.projectId === data.projectId) {
@@ -235,6 +237,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_deleted", (raw) => {
         try {
           const data = parsePayload<{ projectId: string }>(raw)
+          if (!data) return
           setCanvas((prev) => {
             if (prev && prev.projectId === data.projectId) {
               return null
@@ -252,6 +255,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_snapshot_request", (raw) => {
         try {
           const data = parsePayload<{ requestId: string }>(raw)
+          if (!data) return
           handleSnapshotRequest(data.requestId)
         } catch {
           /* ignore */
@@ -264,6 +268,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_eval_request", (raw) => {
         try {
           const data = parsePayload<{ requestId: string; code: string }>(raw)
+          if (!data) return
           handleEvalRequest(data.requestId, data.code)
         } catch {
           /* ignore */

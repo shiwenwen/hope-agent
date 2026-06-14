@@ -27,7 +27,9 @@ export function useApprovals(currentSessionId: string | null): UseApprovalsRetur
   useEffect(() => {
     return getTransport().listen("approval_required", (raw) => {
       try {
-        setAllApprovalRequests((prev) => [...prev, parsePayload<ApprovalRequest>(raw)])
+        const req = parsePayload<ApprovalRequest>(raw)
+        if (!req) return
+        setAllApprovalRequests((prev) => [...prev, req])
       } catch (e) {
         logger.error("ui", "ChatScreen::approval", "Failed to parse approval request", e)
       }
@@ -40,6 +42,7 @@ export function useApprovals(currentSessionId: string | null): UseApprovalsRetur
     return getTransport().listen("approval_timed_out", (raw) => {
       try {
         const payload = parsePayload<{ request_id?: string; requestId?: string }>(raw)
+        if (!payload) return
         const requestId = payload.request_id ?? payload.requestId
         if (!requestId) return
         setAllApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))

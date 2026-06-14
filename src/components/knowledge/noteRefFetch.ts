@@ -5,6 +5,7 @@
 // Keyed by `kbId::normalizedRef`; the whole map clears when `bust` advances (a
 // knowledge:changed tick) so edits to referenced notes show through.
 
+import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type { NoteReadResult } from "@/types/knowledge"
 
@@ -27,7 +28,7 @@ export function fetchNoteRef(
     p = tx
       .call<NoteReadResult | null>("kb_note_read_ref_cmd", { kbId, reference })
       .catch((e) => {
-        console.error("kb_note_read_ref failed", e)
+        logger.error("knowledge", "noteRefFetch::fetchNoteRef", "kb_note_read_ref failed", e)
         // Don't pin a transient transport failure as a permanent broken ref —
         // drop the entry so the next access retries. A successful null (genuinely
         // unresolved ref) stays cached.
