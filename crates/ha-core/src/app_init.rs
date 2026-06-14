@@ -38,6 +38,7 @@ static RUNTIME_ROLE: OnceLock<&'static str> = OnceLock::new();
 /// not be used for "current version" comparisons in the updater path.
 static APP_VERSION: OnceLock<&'static str> = OnceLock::new();
 
+
 /// Register the calling binary's `CARGO_PKG_VERSION` so [`app_version`]
 /// returns the user-facing app version. Idempotent; first call wins.
 pub fn set_app_version(version: &'static str) {
@@ -68,6 +69,30 @@ pub fn runtime_role() -> Option<&'static str> {
 /// desktop-only guidance for clickable file paths).
 pub fn is_desktop() -> bool {
     runtime_role() == Some("desktop")
+}
+
+/// True iff the process started as the ACP stdio bridge (`hope-agent acp`).
+/// ACP runs over stdio for an editor client (Zed etc.); approvals can only
+/// reach a human if that client declared a permission capability (Epic D7).
+/// **Must use this, not `ChatSource`** — ACP turns reuse `ChatSource::Http`
+/// ([`crate::acp`]), so source alone can't distinguish ACP from a real HTTP
+/// client (D1 risk note).
+pub fn is_acp() -> bool {
+    runtime_role() == Some("acp")
+}
+
+/// Whether an interactive, approval-capable client is attached to this
+/// process. Drives the unattended-approval surface check (Epic D): a headless
+/// `server` with no web client and no IM-attached session has no one to answer
+/// an `Ask`. Desktop always counts (the window + OS notification surface always
+/// exist); `server` mode is attended while ≥1 client holds the `/ws/events`
+/// stream — that's the channel `approval_required` broadcasts reach, and its
+/// live count is already maintained by `server_status::events_ws_count`
+/// (no extra wiring). ACP does NOT use this — it gates on the client's declared
+/// permission capability instead.
+pub fn desktop_client_present() -> bool {
+    is_desktop()
+        || crate::server_status::events_ws_counter().load(std::sync::atomic::Ordering::SeqCst) > 0
 }
 
 /// Initialize all global singletons (databases, OnceLocks, channel registry,

@@ -1060,6 +1060,14 @@ async fn run_tool_approval(
                 }
             }
         }
+        Err(approval::ApprovalCheckError::Unattended { reason }) => {
+            // Surface check already logged + fired the denied hook. Fail-closed
+            // with the structured root cause instead of a generic "check failed".
+            Err(super::rejection::ToolRejection::denied_unattended(
+                name,
+                reason.explain(),
+            ))
+        }
         Err(e) => {
             app_warn!(
                 "tool",

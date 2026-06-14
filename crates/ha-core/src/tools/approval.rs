@@ -424,6 +424,13 @@ pub(crate) enum ApprovalCheckError {
     EventBusUnavailable,
     Cancelled,
     TimedOut { timeout_secs: u64 },
+    /// No human could answer this prompt (cron / headless-no-client / ACP-no-
+    /// capability / subagent-no-parent-surface) and `unattendedApprovalAction`
+    /// is `deny`. Fail-closed without blocking (Epic D). Callers render it via
+    /// [`crate::tools::ToolRejection::denied_unattended`].
+    Unattended {
+        reason: crate::permission::UnattendedReason,
+    },
 }
 
 impl fmt::Display for ApprovalCheckError {
@@ -434,6 +441,9 @@ impl fmt::Display for ApprovalCheckError {
             Self::Cancelled => write!(f, "Approval request cancelled"),
             Self::TimedOut { timeout_secs } => {
                 write!(f, "Approval request timed out ({}s)", timeout_secs)
+            }
+            Self::Unattended { reason } => {
+                write!(f, "No one available to approve ({})", reason.explain())
             }
         }
     }
@@ -449,6 +459,52 @@ pub(crate) async fn check_and_request_approval(
     session_id: Option<&str>,
     reason: Option<ApprovalReasonPayload>,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
+    // Epic D (DEADLOCK-1..5): an `Ask` was decided, but on some entries no human
+    // can ever answer it. Resolve the surface BEFORE registering a pending entry
+    // or blocking on the oneshot — otherwise the turn / HTTP request / cron run
+    // hangs forever and a generic timeout later masks the real cause. This is the
+    // single chokepoint for both the exec command gate and the engine Ask path.
+    if let crate::permission::ApprovalSurface::Unattended(unattended) =
+        crate::permission::evaluate_approval_surface(session_id)
+    {
+        match crate::config::cached_config()
+            .permission
+            .unattended_approval_action
+        {
+            crate::permission::UnattendedApprovalAction::Proceed => {
+                app_warn!(
+                    "tool",
+                    "approval",
+                    "Unattended approval surface ({}) for '{}' (session={:?}) — auto-proceeding per unattendedApprovalAction=proceed",
+                    unattended.as_str(),
+                    command,
+                    session_id
+                );
+                return Ok(ApprovalResponse::AllowOnce);
+            }
+            crate::permission::UnattendedApprovalAction::Deny => {
+                app_warn!(
+                    "tool",
+                    "approval",
+                    "Unattended approval surface ({}) for '{}' (session={:?}) — fail-closed deny (no one could approve)",
+                    unattended.as_str(),
+                    command,
+                    session_id
+                );
+                // Observation hook parity with the user-decline path.
+                crate::hooks::fire_permission_denied(
+                    session_id,
+                    command,
+                    unattended.as_str(),
+                    None,
+                );
+                return Err(ApprovalCheckError::Unattended {
+                    reason: unattended,
+                });
+            }
+        }
+    }
+
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let timeout_secs = approval_timeout_secs();

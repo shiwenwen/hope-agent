@@ -337,6 +337,13 @@ pub(crate) async fn resolve_exec_command_approval(
                 Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
                     exec_approval_timeout_outcome(command, timeout_secs)
                 }
+                Err(ApprovalCheckError::Unattended { reason }) => {
+                    // Surface check already logged + fired the denied hook.
+                    Err(super::rejection::ToolRejection::denied_unattended(
+                        TOOL_EXEC,
+                        reason.explain(),
+                    ))
+                }
                 Err(e) => {
                     app_warn!(
                         "tool",
