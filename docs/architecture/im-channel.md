@@ -1446,6 +1446,14 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 **绕过审计（Epic F / IMYOLO-1）**：auto-approve 跳过引擎门时，若被跳过的调用本会命中 strict 原因（`forbids_allow_always`：危险命令 / 保护路径 / 高危 macOS 控制 / Plan-ask），执行层会跑一次 no-enforce 探测并 `app_warn('permission','auto_approve_bypass')`。**纯审计、不拦截**——auto-approve 是 opt-in 信任，但 strict 调用静默通过应可被排障/审计 grep 到。
 
+### 多端审批一致性（Epic G / SURFACE-1~5 + MISC-11）
+
+一条审批可能同时挂在 IM 与桌面/Web，决议与应答必须跨端一致、来源可信：
+
+- **来源 fail-closed（MISC-11 + SURFACE-3）**：按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源 chat，**缺源（None）直接拒**——别的会话点一下不能批掉你的审批。文本回复 `try_handle_approval_reply` submit 前复用同一 `validate_callback_source_for_session`：审批的 session 若已 handover 改绑别的 chat，旧 chat 的回复被拒 + `send_source_mismatch_notice` 提示去原 chat 应答。Telegram 无-message callback 传 `None` 的合法路径只保留给低风险 ask_user Q&A（approval 一律 fail-closed）。
+- **任一端决议即撤窗（SURFACE-1/2）**：所有决议路径 emit `approval:resolved`，listener 收到后 `drop_pending_by_request_id` 清掉本端 `TEXT_PENDING` 残留(杜绝旧 prompt 劫持后续消息)；前端按 `requestId` 撤窗 + 他端处理 toast。
+- **chat 接管拒决残留（SURFACE-4）**：`eviction_watcher` 在 `notify_session_eviction` 门之前无条件枚举该 session 的 pending 审批逐个 `submit_approval_response(Deny, source=eviction)` + `drop_pending_for_chat` 兜底——被接管的 chat 不再残留可被误应答的审批。
+
 ### Smart 模式判官说明
 
 当会话处于 Smart 模式（`SessionMode::Smart`）且 `judge_model` 返回 `Ask` 时，`ApprovalReasonPayload { kind: SmartJudge, detail: rationale }` 会经 EventBus 事件 `approval_required` 一并落到 IM 端。`format_approval_text` / `format_text_approval` 在 command preview 后追加一行 `💭 Smart Judge: {rationale}`（UTF-8 安全截断到 280 字节，文本 fallback 路径置于 `Reply: 1 / 2 / 3` 数字列表前以避免破坏数字解析）。其它 `AskReason` kind 会渲染对应安全摘要；保护路径等敏感细节只展示命中类别，不回显具体路径。

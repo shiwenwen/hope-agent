@@ -224,6 +224,15 @@ pub struct PermissionGlobalConfig {
 - **`approval_origin`**:每个后台 job 的 `async_jobs.approval_origin` 列记录授权方式(`ApprovalOrigin`:`user` / `timeout_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`)。审批闸单点算出写入 spawn ctx:`run_tool_approval` 返回 origin(批准→`User`、非 strict 超时放行→`TimeoutProceed`),exec 走 reorder,其余 bypass 由 spawn 前兜底(`external_pre_approved` / `auto_approve` / `policy_allow_origin` 区分 PolicyAllow 与 Yolo)。
 - **`auto_approve_bypass` 探测**:`auto_approve_tools`(IM auto-approve 账号 / skill 斜杠)跳过引擎门时,若被跳过的调用本会命中 strict 原因,跑一次 no-enforce `resolve_tool_permission` 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截(IM auto-approve 是 opt-in);显式排除 `external_pre_approved`(async 重入已在外层门审计)防重复告警。
 
+#### 多端审批一致性(Epic G / SURFACE-1~5 + MISC-11)
+
+一条审批可能同时呈现在多端(桌面弹窗 / Web / IM 按钮或文本),决议必须**单点广播、各端统一撤窗**,且只能由**有权的来源**应答。
+
+- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction`。
+- **IM listener 残留清理(SURFACE-2)**:`spawn_channel_approval_listener` 收到 `approval:resolved` 调 `drop_pending_by_request_id` 清 IM 端 `TEXT_PENDING`,杜绝旧 prompt 劫持后续消息。
+- **IM 应答来源 fail-closed(MISC-11 + SURFACE-3)**:按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源,**缺源(None)直接拒**(fail-closed;共享 `validate_callback_source_for_session` 的 `None→Ok` 仅留给低风险 ask_user Q&A 路径);文本回复 `try_handle_approval_reply` submit 前复用同一 `validate_callback_source_for_session`,session 已改绑别的 chat 则拒 + `send_source_mismatch_notice`。
+- **chat 接管拒决(SURFACE-4)**:`eviction_watcher` 在 `notify_session_eviction` 门之前无条件——`pending_request_ids_for_session` 枚举 + 逐个 `submit_approval_response(Deny, source=eviction)` + `drop_pending_for_chat` 兜底,被踢 chat 的审批即时解阻塞、各端撤窗。
+
 ### `AgentConfig.capabilities`（权限相关字段）
 
 ```rust
