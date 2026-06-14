@@ -47,7 +47,11 @@ async fn run_bounded_in_order<T, Fut>(max: usize, futs: Vec<Fut>) -> Vec<T>
 where
     Fut: std::future::Future<Output = T>,
 {
-    let sem = Arc::new(tokio::sync::Semaphore::new(max));
+    // `max.max(1)`: a degenerate cap of 0 would make `Semaphore::new(0)` +
+    // `acquire_owned()` park forever (acquire only errors on a *closed*
+    // semaphore), so clamp it to single-flight. Today both callers pass 8;
+    // this guards future reuse with a config-derived bound.
+    let sem = Arc::new(tokio::sync::Semaphore::new(max.max(1)));
     let wrapped = futs.into_iter().map(|f| {
         let sem = sem.clone();
         async move {
