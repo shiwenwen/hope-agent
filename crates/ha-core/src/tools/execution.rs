@@ -1049,10 +1049,12 @@ async fn run_tool_approval(
             // F2 (TIMEOUT-1): a strict reason (protected path / dangerous command
             // / mac-dangerous / plan-ask) must NEVER auto-proceed unattended —
             // force a deny even when `approval_timeout_action=proceed`.
-            if strict && matches!(
-                approval::approval_timeout_action(),
-                crate::config::ApprovalTimeoutAction::Proceed
-            ) {
+            if strict
+                && matches!(
+                    approval::approval_timeout_action(),
+                    crate::config::ApprovalTimeoutAction::Proceed
+                )
+            {
                 app_warn!(
                     "permission",
                     "strict_timeout_deny",
@@ -1265,7 +1267,8 @@ pub async fn execute_tool_with_context(
                 // returned `ask`/`defer` still wants human confirmation — force
                 // the prompt (no reason banner) so its request can't fail open.
                 if pre_force_prompt {
-                    tool_approval_origin = Some(run_tool_approval(name, args, ctx, None, false).await?);
+                    tool_approval_origin =
+                        Some(run_tool_approval(name, args, ctx, None, false).await?);
                 }
             }
             crate::permission::Decision::Deny { reason } => {
