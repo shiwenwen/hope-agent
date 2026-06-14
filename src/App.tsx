@@ -198,6 +198,7 @@ export default function App() {
 
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return
       // Reembed / reindex jobs aren't installs — their progress + completion is
       // shown in the memory / knowledge panels. Skip the install-flavored global
       // toast ("{model} 已安装" / "安装失败" 等), which only fits model installs.
@@ -244,6 +245,7 @@ export default function App() {
         outcome?: string
         skill_id?: string | null
       }>(raw)
+      if (!report) return
       if (report.outcome !== "created") return
       const name = report.skill_id || t("skills.toast.unnamedSkill")
       toast.info(t("skills.toast.draftCreated", { name }), {
@@ -263,6 +265,7 @@ export default function App() {
   useEffect(() => {
     const handler = (raw: unknown) => {
       const payload = parsePayload<{ message?: string }>(raw)
+      if (!payload) return
       if (payload.message) toast.info(payload.message)
     }
     const unlisten = getTransport().listen("hook:status", handler)

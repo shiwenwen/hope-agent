@@ -468,6 +468,7 @@ export default function LocalModelsPanel() {
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return
       if (clearAfterCancelJobIdsRef.current.has(job.jobId) && isLocalModelJobTerminal(job)) {
         void clearJobRecord(job.jobId).catch((e) => {
           logger.warn("local-llm", "LocalModelsPanel::clearCancelledJob", "Failed to clear cancelled job", {
@@ -503,6 +504,7 @@ export default function LocalModelsPanel() {
     }
     const handleLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      if (!entry) return
       setCurrentJob((current) => {
         if (current?.jobId !== entry.jobId) return current
         appendDialogLog(entry.message, entry.createdAt)

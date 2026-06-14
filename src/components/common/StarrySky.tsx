@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, memo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
+import { logger } from "@/lib/logger"
 import { classifyWeather, generatePoints } from "./weatherUtils"
 import type { WeatherData } from "./weatherUtils"
 import WeatherCanvas from "./WeatherCanvas"
@@ -87,7 +88,7 @@ function AppBackgroundInner() {
           }
         }
       } catch (e) {
-        console.error("Failed to load background effects data", e)
+        logger.error("ui", "AppBackground::loadData", "Failed to load background effects data", e)
       }
     }
     loadData()

@@ -610,7 +610,22 @@ export type PickLocalImageFn = () => Promise<PickedImage | null>;
  * but older backend paths that explicitly `serde_json::to_string(...)` before
  * emitting still arrive as a JSON string. This helper handles both shapes so
  * call sites don't need to repeat the `typeof raw === "string"` check.
+ *
+ * Returns `null` for any payload that isn't a decodable object (`undefined` /
+ * `null` / a non-object primitive / an unparseable string). Every call site in
+ * this app expects an object shape, so a malformed or empty frame must surface
+ * as `null` rather than poison downstream `payload.x` access. This guard is the
+ * root-cause fix for crashes like "undefined is not an object (evaluating
+ * 't.jobId')" seen when the macOS WebView flushes a stray event after wake.
  */
-export function parsePayload<T>(raw: unknown): T {
-  return (typeof raw === "string" ? JSON.parse(raw) : raw) as T;
+export function parsePayload<T>(raw: unknown): T | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return value !== null && typeof value === "object" ? (value as T) : null;
 }

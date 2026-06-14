@@ -251,6 +251,7 @@ export default function LocalEmbeddingAssistantCard({
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return
       // 顶层 fire：接力把 currentJob 从 pull 切到 reembed 后，pull.completed 经
       // setCurrentJob 不匹配会丢 result。handleTerminalJob 内部 ownedJobIdsRef +
       // handledCompletedJobs 去重，重复调用安全。
@@ -285,6 +286,7 @@ export default function LocalEmbeddingAssistantCard({
 
     const handleLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      if (!entry) return
       setCurrentJob((current) => {
         if (current?.jobId !== entry.jobId) return current
         appendDialogLog(entry.message, entry.createdAt)

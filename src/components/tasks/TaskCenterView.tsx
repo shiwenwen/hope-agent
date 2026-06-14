@@ -108,10 +108,13 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
 
   useEffect(() => {
     const onSnapshot = (raw: unknown) => {
-      upsertJob(parsePayload<LocalModelJobSnapshot>(raw))
+      const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return
+      upsertJob(job)
     }
     const onLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      if (!entry) return
       if (!expandedLogsRef.current[entry.jobId]) return
       setLogs((prev) => {
         const current = prev[entry.jobId] ?? []
