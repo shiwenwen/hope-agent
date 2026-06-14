@@ -615,6 +615,14 @@ async fn run_job_to_completion(
     // already exited because the token was cancelled).
     poll_handle.abort();
 
+    // E4 (INCOG-2) hardening: re-evaluate incognito at settle time, not only at
+    // spawn. `ctx.incognito` was captured when the job started; a long-running
+    // job whose session was burned/deleted meanwhile would otherwise keep a
+    // stale `false` and spool its large result to disk for a session that no
+    // longer exists. `is_session_incognito` is fail-closed (row-absent => true),
+    // so a now-gone session also skips the spool.
+    let incognito = incognito || crate::session::is_session_incognito(session_id.as_deref());
+
     finalize_job(
         &db,
         &job_id,
