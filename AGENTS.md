@@ -186,6 +186,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **保护路径 / 危险命令 / 编辑命令**：三独立列表，存 `~/.hope-agent/permission/*.json`；非 YOLO 模式强制弹窗（AllowAlways 按钮置灰），YOLO 只 `app_warn!` 不弹
 - **Global YOLO**：CLI flag `--dangerously-skip-all-approvals` 与 `permission.global_yolo` OR 组合；判定入口 `security::dangerous::is_dangerous_skip_active()`，**与 Plan Mode 正交**
 - **审批超时**：`approval_timeout_secs`（默认 300s，`0` 不限）+ `approval_timeout_action ∈ deny|proceed`
+- **无人值守审批 fail-closed**（[`permission::approval_surface`](crates/ha-core/src/permission/approval_surface.rs)）：审批阻塞前经单一入口 `check_and_request_approval` 预检 `evaluate_approval_surface(session_id)`——确证无人能批（cron `is_cron` / 无客户端 headless + 无 IM attach / ACP 无 capability / subagent 无父 surface）时按 `permission.unattended_approval_action ∈ deny(默认)|proceed` 处理：deny → `ToolRejection::denied_unattended` 即时拒绝(不再永久挂死)、proceed → 自动放行；emit `approval:unattended` 事件。**保守红线**：任何可能 surface(desktop 窗口 / web 客户端 / IM)即 Attended,唯 cron 例外。判 ACP 必须用 `is_acp()` 非 `ChatSource`(ACP 复用 Http)
 - **Agent 工具开关**：`AgentConfig.capabilities.tools.allow/deny` 仅表示非 Core 工具的显式开 / 关覆盖；Core 工具不受影响。system_prompt / schemas / tool_search / 执行层统一走 `dispatch::resolve_tool_fate`
 - **工具结果磁盘持久化**：> `toolResultDiskThreshold`（默认 50KB）写盘，上下文留 head+tail 预览
 - **异步 Tool 执行**：`exec` / `web_search` / `image_generate` 标 `async_capable=true`；落 `~/.hope-agent/async_jobs.db` + spool；`job_status` deferred 工具主动 poll/wait
@@ -396,7 +397,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 - **LOW**：UI 偏好、显示配额（theme / language / notification / canvas 等）
 - **MEDIUM**：行为调整，影响上下文 / 成本 / 输出质量（compact / memory_* / web_search / approval / multimodal / dreaming 等）
-- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / embedding / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` / `auto_update` 等）——技能在 `update_settings` 前**必须二次确认**
+- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / embedding / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` / `unattended_approval` / `auto_update` 等）——技能在 `update_settings` 前**必须二次确认**
 
 ### 强制留 GUI 的例外（read-only via skill）
 

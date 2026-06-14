@@ -927,6 +927,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `set_approval_timeout_enabled` | `POST /api/config/approval-timeout-enabled` | ✅ |
 | `get_approval_timeout_action` | `GET /api/config/approval-timeout-action` | ✅ |
 | `set_approval_timeout_action` | `POST /api/config/approval-timeout-action` | ✅ |
+| `get_unattended_approval_action` | `GET /api/config/unattended-approval-action` | ✅ |
+| `set_unattended_approval_action` | `POST /api/config/unattended-approval-action` | ✅ |
 | `get_tool_result_disk_threshold` | `GET /api/config/tool-result-threshold` | ✅ |
 | `set_tool_result_disk_threshold` | `POST /api/config/tool-result-threshold` | ✅ |
 | `get_tool_limits` | `GET /api/config/tool-limits` | ✅ |
