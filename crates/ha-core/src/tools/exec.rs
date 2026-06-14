@@ -371,6 +371,21 @@ pub(crate) async fn resolve_exec_command_approval(
                         reason.explain(),
                     ))
                 }
+                Err(ApprovalCheckError::UnattendedProceed { reason }) => {
+                    // Non-strict reason + unattendedApprovalAction=proceed: run it,
+                    // but record the weaker-than-click origin. A strict reason is
+                    // force-denied as `Unattended` above, so it never reaches here
+                    // and `exec_pre_approved` is never set for it (closes the
+                    // strict-bypass via the async exec reorder).
+                    app_warn!(
+                        "tool",
+                        "exec",
+                        "Command auto-proceeded on unattended surface ({}): {}",
+                        reason.explain(),
+                        command
+                    );
+                    Ok(ApprovalOrigin::UnattendedProceed)
+                }
                 Err(e) => {
                     app_warn!(
                         "tool",

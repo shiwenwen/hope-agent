@@ -1102,6 +1102,20 @@ async fn run_tool_approval(
                 reason.explain(),
             ))
         }
+        Err(approval::ApprovalCheckError::UnattendedProceed { reason }) => {
+            // Non-strict reason on an unattended surface with
+            // `unattendedApprovalAction=proceed`. Auto-proceed, but record the
+            // weaker-than-click origin (a strict reason never reaches here — it
+            // is force-denied as `Unattended` above).
+            app_warn!(
+                "tool",
+                "approval",
+                "Tool '{}' auto-proceeded on unattended surface ({})",
+                name,
+                reason.explain()
+            );
+            Ok(approval::ApprovalOrigin::UnattendedProceed)
+        }
         Err(e) => {
             app_warn!(
                 "tool",

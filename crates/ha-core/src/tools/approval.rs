@@ -209,6 +209,12 @@ pub enum ApprovalOrigin {
     /// Approval dialog timed out and `approval_timeout_action=proceed` — a
     /// weaker authorization than an explicit click.
     TimeoutProceed,
+    /// An unattended surface (cron / headless-no-client / ACP-no-capability /
+    /// subagent-no-parent-surface) auto-proceeded because
+    /// `unattendedApprovalAction=proceed` — a weaker, non-human authorization,
+    /// recorded distinctly from a real `User` grant. A strict reason can never
+    /// reach here (it is force-denied). Epic D / F (TIMEOUT-1).
+    UnattendedProceed,
     /// A YOLO session or global dangerous-skip bypassed the gate.
     Yolo,
     /// IM auto-approve account / slash-skill execution skipped all gates.
@@ -225,6 +231,7 @@ impl ApprovalOrigin {
         match self {
             Self::User => "user",
             Self::TimeoutProceed => "timeout_proceed",
+            Self::UnattendedProceed => "unattended_proceed",
             Self::Yolo => "yolo",
             Self::AutoApprove => "auto_approve",
             Self::ExternalPreApproved => "external_pre_approved",
@@ -503,6 +510,13 @@ pub(crate) enum ApprovalCheckError {
     Unattended {
         reason: crate::permission::UnattendedReason,
     },
+    /// No human could answer, `unattendedApprovalAction=proceed`, and the reason
+    /// was NOT strict — auto-proceed with a weaker-than-click origin. A strict
+    /// reason on an unattended surface returns [`Self::Unattended`] (fail-closed
+    /// deny) instead, never this. Epic D / F (TIMEOUT-1).
+    UnattendedProceed {
+        reason: crate::permission::UnattendedReason,
+    },
 }
 
 impl fmt::Display for ApprovalCheckError {
@@ -528,8 +542,30 @@ impl fmt::Display for ApprovalCheckError {
             Self::Unattended { reason } => {
                 write!(f, "No one available to approve ({})", reason.explain())
             }
+            Self::UnattendedProceed { reason } => {
+                write!(
+                    f,
+                    "No one available to approve; auto-proceeding ({})",
+                    reason.explain()
+                )
+            }
         }
     }
+}
+
+/// Whether an unattended approval surface should auto-proceed: only when the
+/// user configured `proceed` AND the reason is not strict. A strict reason
+/// (forbids AllowAlways — protected path / dangerous command / mac-dangerous /
+/// plan-ask) must NEVER auto-proceed when no human can answer; it is force-denied
+/// regardless of the configured action, mirroring the strict-timeout rule so the
+/// "auto-allow always needs a human" invariant holds on every path (TIMEOUT-1).
+/// Pure helper so the security-critical decision is unit-testable without global
+/// config / runtime-role state.
+fn unattended_effective_proceed(
+    action: crate::permission::UnattendedApprovalAction,
+    strict: bool,
+) -> bool {
+    matches!(action, crate::permission::UnattendedApprovalAction::Proceed) && !strict
 }
 
 /// Request approval from the user for a command.
@@ -547,17 +583,28 @@ pub(crate) async fn check_and_request_approval(
     // or blocking on the oneshot — otherwise the turn / HTTP request / cron run
     // hangs forever and a generic timeout later masks the real cause. This is the
     // single chokepoint for both the exec command gate and the engine Ask path.
+    // F1 (TIMEOUT-1) / Epic D: capture strictness up front. A strict reason
+    // (protected path / dangerous command / mac-dangerous / plan-ask) must NEVER
+    // auto-proceed when no human can answer — whether the surface is unattended
+    // up front (here) or the prompt later times out (F2/F3 below). `reason` is
+    // moved into the outbound `ApprovalRequest`, so read it before that.
+    let strict = reason.as_ref().map(|r| r.kind.is_strict()).unwrap_or(false);
+
     if let crate::permission::ApprovalSurface::Unattended(unattended) =
         crate::permission::evaluate_approval_surface(session_id)
     {
         let action = crate::config::cached_config()
             .permission
             .unattended_approval_action;
+        // A strict reason overrides `proceed` to a fail-closed deny, mirroring the
+        // strict-timeout rule (F2/F3) so "auto-allow always needs a human" holds
+        // on every path, not just the timeout one (TIMEOUT-1).
+        let effective_proceed = unattended_effective_proceed(action, strict);
         // Structured signal for any in-app consumer (cron run telemetry / dashboard
         // / future UI), parallel to `approval_required`. The whole-job timeout no
         // longer masks the cause (D2/D3 fail-close instead of hanging); this makes
         // "a tool needed an approval no one could give" observable, not just prose
-        // in the model's reply.
+        // in the model's reply. `effective` reflects the strict override.
         if let Some(bus) = crate::globals::get_event_bus() {
             bus.emit(
                 "approval:unattended",
@@ -568,50 +615,54 @@ pub(crate) async fn check_and_request_approval(
                         crate::permission::UnattendedApprovalAction::Proceed => "proceed",
                         crate::permission::UnattendedApprovalAction::Deny => "deny",
                     },
+                    "strict": strict,
+                    "effective": if effective_proceed { "proceed" } else { "deny" },
                     "command": command,
                 }),
             );
         }
-        match action {
-            crate::permission::UnattendedApprovalAction::Proceed => {
-                app_warn!(
-                    "tool",
-                    "approval",
-                    "Unattended approval surface ({}) for '{}' (session={:?}) — auto-proceeding per unattendedApprovalAction=proceed",
-                    unattended.as_str(),
-                    command,
-                    session_id
-                );
-                return Ok(ApprovalResponse::AllowOnce);
-            }
-            crate::permission::UnattendedApprovalAction::Deny => {
-                app_warn!(
-                    "tool",
-                    "approval",
-                    "Unattended approval surface ({}) for '{}' (session={:?}) — fail-closed deny (no one could approve)",
-                    unattended.as_str(),
-                    command,
-                    session_id
-                );
-                // Observation hook parity with the user-decline path.
-                crate::hooks::fire_permission_denied(
-                    session_id,
-                    command,
-                    unattended.as_str(),
-                    None,
-                );
-                return Err(ApprovalCheckError::Unattended { reason: unattended });
-            }
+        if effective_proceed {
+            app_warn!(
+                "tool",
+                "approval",
+                "Unattended approval surface ({}) for '{}' (session={:?}) — auto-proceeding per unattendedApprovalAction=proceed",
+                unattended.as_str(),
+                command,
+                session_id
+            );
+            // Weaker-than-click authorization: the caller records it distinctly
+            // from a real User grant (audit) and still runs the tool.
+            return Err(ApprovalCheckError::UnattendedProceed { reason: unattended });
         }
+        if strict && matches!(action, crate::permission::UnattendedApprovalAction::Proceed) {
+            app_warn!(
+                "permission",
+                "strict_unattended_deny",
+                "Unattended approval surface ({}) for '{}' (session={:?}) — reason is strict; forcing deny despite unattendedApprovalAction=proceed",
+                unattended.as_str(),
+                command,
+                session_id
+            );
+        } else {
+            app_warn!(
+                "tool",
+                "approval",
+                "Unattended approval surface ({}) for '{}' (session={:?}) — fail-closed deny (no one could approve)",
+                unattended.as_str(),
+                command,
+                session_id
+            );
+        }
+        // Observation hook parity with the user-decline path.
+        crate::hooks::fire_permission_denied(session_id, command, unattended.as_str(), None);
+        return Err(ApprovalCheckError::Unattended { reason: unattended });
     }
 
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
     let timeout_secs = approval_timeout_secs();
-    // F1 (TIMEOUT-1): capture strictness now — `reason` is moved into the
-    // outbound `ApprovalRequest` below. A strict reason that later times out is
-    // force-denied (F2/F3) regardless of `approval_timeout_action`.
-    let strict = reason.as_ref().map(|r| r.kind.is_strict()).unwrap_or(false);
+    // `strict` was captured above (before the unattended check) and is reused
+    // here for the timeout force-deny (F2/F3).
 
     // Register the pending approval
     {
@@ -827,5 +878,20 @@ mod tests {
                 reason
             );
         }
+    }
+
+    /// Red line (TIMEOUT-1): a strict reason must NEVER auto-proceed on an
+    /// unattended surface, even when the user configured
+    /// `unattendedApprovalAction=proceed` — it is force-denied, exactly like the
+    /// strict-timeout path. Non-strict reasons still honor the configured action.
+    #[test]
+    fn strict_reason_never_auto_proceeds_unattended() {
+        use crate::permission::UnattendedApprovalAction::{Deny, Proceed};
+        // Non-strict: honor whatever the user configured.
+        assert!(unattended_effective_proceed(Proceed, false));
+        assert!(!unattended_effective_proceed(Deny, false));
+        // Strict: force-denied regardless of the configured action.
+        assert!(!unattended_effective_proceed(Proceed, true));
+        assert!(!unattended_effective_proceed(Deny, true));
     }
 }
