@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "Always allow isn't saved in incognito sessions."
+    "incognitoNoAllowAlways": "Always allow isn't saved in incognito sessions.",
+    "resolvedElsewhere": "Approval handled on another device"
   },
   "auth": {
     "tokenLabel": "Bearer token",

@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "لا يتم حفظ «السماح دائمًا» في الجلسات المتخفية."
+    "incognitoNoAllowAlways": "لا يتم حفظ «السماح دائمًا» في الجلسات المتخفية.",
+    "resolvedElsewhere": "تمت معالجة الموافقة على جهاز آخر"
   },
   "auth": {
     "tokenLabel": "رمز Bearer",

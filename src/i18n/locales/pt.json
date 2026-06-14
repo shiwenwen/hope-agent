@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "«Permitir sempre» não é salvo em sessões anônimas."
+    "incognitoNoAllowAlways": "«Permitir sempre» não é salvo em sessões anônimas.",
+    "resolvedElsewhere": "Aprovação tratada em outro dispositivo"
   },
   "auth": {
     "tokenLabel": "Token Bearer",

@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "시크릿 세션에서는 '항상 허용'이 저장되지 않습니다."
+    "incognitoNoAllowAlways": "시크릿 세션에서는 '항상 허용'이 저장되지 않습니다.",
+    "resolvedElsewhere": "다른 기기에서 승인이 처리되었습니다"
   },
   "auth": {
     "tokenLabel": "Bearer 토큰",

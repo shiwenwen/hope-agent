@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "«Разрешать всегда» не сохраняется в режиме инкогнито."
+    "incognitoNoAllowAlways": "«Разрешать всегда» не сохраняется в режиме инкогнито.",
+    "resolvedElsewhere": "Запрос обработан на другом устройстве"
   },
   "auth": {
     "tokenLabel": "Токен Bearer",

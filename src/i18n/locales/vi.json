@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "«Luôn cho phép» không được lưu trong phiên ẩn danh."
+    "incognitoNoAllowAlways": "«Luôn cho phép» không được lưu trong phiên ẩn danh.",
+    "resolvedElsewhere": "Phê duyệt đã được xử lý trên thiết bị khác"
   },
   "auth": {
     "tokenLabel": "Bearer Token",

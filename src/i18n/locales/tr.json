@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "Gizli oturumlarda «Her zaman izin ver» kaydedilmez."
+    "incognitoNoAllowAlways": "Gizli oturumlarda «Her zaman izin ver» kaydedilmez.",
+    "resolvedElsewhere": "Onay başka bir cihazda yanıtlandı"
   },
   "auth": {
     "tokenLabel": "Bearer Token",

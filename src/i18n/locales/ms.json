@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "«Sentiasa benarkan» tidak disimpan dalam sesi inkognito."
+    "incognitoNoAllowAlways": "«Sentiasa benarkan» tidak disimpan dalam sesi inkognito.",
+    "resolvedElsewhere": "Kelulusan dikendalikan pada peranti lain"
   },
   "auth": {
     "tokenLabel": "Bearer Token",

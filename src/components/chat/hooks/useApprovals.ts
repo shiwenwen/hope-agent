@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
+import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
@@ -12,8 +14,18 @@ export interface UseApprovalsReturn {
   ) => Promise<void>
 }
 
+/** Resolution sources that represent another interactive surface handling the
+ * prompt — these warrant a "handled elsewhere" toast. Timeout / session-delete /
+ * eviction resolutions dismiss silently (they aren't "another person answered"). */
+const ELSEWHERE_TOAST_SOURCES = new Set(["gui", "http", "im"])
+
 export function useApprovals(currentSessionId: string | null): UseApprovalsReturn {
+  const { t } = useTranslation()
   const [allApprovalRequests, setAllApprovalRequests] = useState<ApprovalRequest[]>([])
+  // Request ids THIS surface just resolved (via handleApprovalResponse). Lets the
+  // approval:resolved listener tell our own action apart from a resolution that
+  // happened on another surface, without needing to know our own surface id.
+  const locallyResolvedRef = useRef<Set<string>>(new Set())
   const approvalRequests = useMemo(
     () =>
       allApprovalRequests.filter((request) => {
@@ -49,14 +61,47 @@ export function useApprovals(currentSessionId: string | null): UseApprovalsRetur
     })
   }, [])
 
+  // G6 (SURFACE-1): an approval resolved on ANY surface broadcasts
+  // `approval:resolved`. Dismiss the matching dialog everywhere; if it was
+  // resolved by another interactive surface (not our own click), surface a
+  // toast so the user understands why the prompt vanished.
+  useEffect(() => {
+    return getTransport().listen("approval:resolved", (raw) => {
+      try {
+        const payload = parsePayload<{
+          requestId?: string
+          request_id?: string
+          source?: string
+        }>(raw)
+        const requestId = payload.requestId ?? payload.request_id
+        if (!requestId) return
+        const wasOurOwn = locallyResolvedRef.current.delete(requestId)
+        let wasPresent = false
+        setAllApprovalRequests((prev) => {
+          wasPresent = prev.some((r) => r.request_id === requestId)
+          return prev.filter((r) => r.request_id !== requestId)
+        })
+        if (!wasOurOwn && wasPresent && ELSEWHERE_TOAST_SOURCES.has(payload.source ?? "")) {
+          toast.info(t("approval.resolvedElsewhere"))
+        }
+      } catch (e) {
+        logger.error("ui", "ChatScreen::approval", "Failed to parse approval resolved", e)
+      }
+    })
+  }, [t])
+
   async function handleApprovalResponse(
     requestId: string,
     response: "allow_once" | "allow_always" | "deny",
   ) {
+    // Mark as ours BEFORE the round-trip so the echoed approval:resolved doesn't
+    // toast "handled elsewhere" for our own action.
+    locallyResolvedRef.current.add(requestId)
     setAllApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))
     try {
       await getTransport().call("respond_to_approval", { requestId, response })
     } catch (e) {
+      locallyResolvedRef.current.delete(requestId)
       logger.error("ui", "ChatScreen::approval", "Failed to respond to approval", e)
     }
   }

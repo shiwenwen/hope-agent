@@ -104,7 +104,8 @@
     },
     "title": "命令执行确认",
     "workingDir": "工作目录",
-    "incognitoNoAllowAlways": "无痕会话不保存「始终允许」。"
+    "incognitoNoAllowAlways": "无痕会话不保存「始终允许」。",
+    "resolvedElsewhere": "审批已由其他端处理"
   },
   "auth": {
     "tokenLabel": "Bearer Token",

@@ -104,7 +104,8 @@
     },
     "title": "Command Approval Required",
     "workingDir": "Working Directory",
-    "incognitoNoAllowAlways": "無痕會話不會儲存「永遠允許」。"
+    "incognitoNoAllowAlways": "無痕會話不會儲存「永遠允許」。",
+    "resolvedElsewhere": "審批已由其他端處理"
   },
   "auth": {
     "tokenLabel": "Bearer Token",
