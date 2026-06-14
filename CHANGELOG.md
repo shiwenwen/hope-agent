@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **智能审批更顺手**：Smart 模式下，本次对话里已经改过的文件再次编辑不再重复弹审批；工作目录内文件的首次写入 / 编辑由模型按「常规改动放行、大范围覆盖或删除等高风险才确认」来判断（或交 judge 模型裁决），工作目录外更保守。保护路径（`~/.ssh`、`.env`）与危险命令（`rm -rf /`、`git push --force`）在任何情况下仍始终需要确认。
+
 ## [0.10.2] - 2026-06-13
 
 ### Added

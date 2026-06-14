@@ -25,6 +25,7 @@ pub mod mode;
 pub(crate) mod pattern_match;
 pub mod protected_paths;
 pub mod rules;
+pub mod session_edits;
 
 pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig};
 pub use mode::{JudgeModelConfig, SessionMode, SmartModeConfig, SmartStrategy};
