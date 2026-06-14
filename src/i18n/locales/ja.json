@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "シークレットセッションでは「常に許可」は保存されません。"
   },
   "auth": {
     "tokenLabel": "Bearer トークン",

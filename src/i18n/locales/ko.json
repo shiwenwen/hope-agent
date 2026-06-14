@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "시크릿 세션에서는 '항상 허용'이 저장되지 않습니다."
   },
   "auth": {
     "tokenLabel": "Bearer 토큰",

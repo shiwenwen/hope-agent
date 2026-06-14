@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Permitir siempre» no se guarda en sesiones de incógnito."
   },
   "auth": {
     "tokenLabel": "Token Bearer",

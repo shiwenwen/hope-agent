@@ -36,6 +36,15 @@ pub struct ApprovalRequest {
     /// (`protected_path` / `dangerous_command`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<ApprovalReasonPayload>,
+    /// When true, the owning session is incognito — the frontend hides the
+    /// AllowAlways button and shows a notice, because a persistent grant would
+    /// outlive the burn-on-close and break the no-trace guarantee. The backend
+    /// independently forces any AllowAlways to in-memory session scope
+    /// ([`crate::permission::allowlist`] `choose_scope`); this is the UX half.
+    /// Epic E (INCOG-6). Skipped on the wire when false to keep normal payloads
+    /// unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub incognito: bool,
 }
 
 /// Reason payload — flat shape so the frontend can switch on `kind` without
@@ -559,6 +568,8 @@ pub(crate) async fn check_and_request_approval(
         cwd: cwd.to_string(),
         session_id: session_id.map(|s| s.to_string()),
         reason,
+        // E5 (INCOG-6): tell the surface to hide AllowAlways for incognito turns.
+        incognito: crate::session::is_session_incognito(session_id),
     };
 
     if let Some(bus) = crate::globals::get_event_bus() {

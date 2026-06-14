@@ -396,6 +396,7 @@ impl ToolExecContext {
             agent_id: self.agent_id.as_deref(),
             default_path: Some(self.default_path()),
             home_dir: self.home_dir.as_deref(),
+            incognito: self.incognito,
         }
     }
 

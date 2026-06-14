@@ -1496,6 +1496,7 @@ mod tests {
                     agent_id: c.agent_id,
                     default_path: c.default_path,
                     home_dir: None,
+                    incognito: false,
                 },
             )
             .expect("persist allow grant");
@@ -1531,6 +1532,7 @@ mod tests {
                     agent_id: c.agent_id,
                     default_path: c.default_path,
                     home_dir: None,
+                    incognito: false,
                 },
             )
             .expect("persist allow grant");

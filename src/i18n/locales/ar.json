@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "لا يتم حفظ «السماح دائمًا» في الجلسات المتخفية."
   },
   "auth": {
     "tokenLabel": "رمز Bearer",

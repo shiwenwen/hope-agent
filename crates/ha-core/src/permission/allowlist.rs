@@ -61,6 +61,10 @@ pub struct GrantContext<'a> {
     pub agent_id: Option<&'a str>,
     pub default_path: Option<&'a str>,
     pub home_dir: Option<&'a str>,
+    /// When the owning session is incognito, [`choose_scope`] is forced to the
+    /// in-memory `Session` scope so an AllowAlways grant never persists to disk
+    /// and is cleared on burn-on-close. Epic E (INCOG-6).
+    pub incognito: bool,
 }
 
 /// The concrete grant that was persisted after an AllowAlways response.
@@ -196,6 +200,16 @@ fn push_unique(rules: &mut Vec<RuleSpec>, rule: RuleSpec) {
 }
 
 fn choose_scope(rule: &RuleSpec, ctx: &GrantContext<'_>) -> AllowScope {
+    // E5 (INCOG-6): incognito sessions must never persist an AllowAlways grant to
+    // disk (project / agent-home / global). Force the in-memory `Session` scope —
+    // it's wiped on burn-on-close (`clear_session_rules`), so "always allow"
+    // lives and dies with the incognito session. The frontend additionally hides
+    // the AllowAlways button; this is the backend backstop for any non-conforming
+    // client that still sends an AllowAlways response. (If `session_id` is
+    // somehow absent, `add_rule` fails the persist and the call is approved once.)
+    if ctx.incognito {
+        return AllowScope::Session;
+    }
     if non_empty(ctx.project_id).is_some() {
         return AllowScope::Project;
     }

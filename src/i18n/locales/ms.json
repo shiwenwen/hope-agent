@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Sentiasa benarkan» tidak disimpan dalam sesi inkognito."
   },
   "auth": {
     "tokenLabel": "Bearer Token",

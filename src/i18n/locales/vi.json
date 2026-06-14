@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Luôn cho phép» không được lưu trong phiên ẩn danh."
   },
   "auth": {
     "tokenLabel": "Bearer Token",

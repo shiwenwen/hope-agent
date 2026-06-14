@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "Always allow isn't saved in incognito sessions."
   },
   "auth": {
     "tokenLabel": "Bearer token",

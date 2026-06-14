@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Разрешать всегда» не сохраняется в режиме инкогнито."
   },
   "auth": {
     "tokenLabel": "Токен Bearer",

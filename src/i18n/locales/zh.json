@@ -103,7 +103,8 @@
       }
     },
     "title": "命令执行确认",
-    "workingDir": "工作目录"
+    "workingDir": "工作目录",
+    "incognitoNoAllowAlways": "无痕会话不保存「始终允许」。"
   },
   "auth": {
     "tokenLabel": "Bearer Token",

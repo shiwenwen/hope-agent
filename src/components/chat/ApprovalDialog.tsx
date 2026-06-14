@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { ShieldAlert, ShieldCheck, FolderOpen, Clock } from "lucide-react"
+import { ShieldAlert, ShieldCheck, FolderOpen, Clock, EyeOff } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 
 export interface ApprovalRequest {
@@ -30,6 +30,12 @@ export interface ApprovalRequest {
     /** Pattern / path / rationale text to display. */
     detail?: string
   }
+  /**
+   * When true the owning session is incognito: the AllowAlways button is hidden
+   * (a persistent grant would outlive the burn-on-close). The backend also
+   * forces any AllowAlways to in-memory session scope. Epic E (INCOG-6).
+   */
+  incognito?: boolean
 }
 
 interface ApprovalDialogProps {
@@ -103,6 +109,9 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
     reason?.kind === "dangerous_command" ||
     reason?.kind === "mac_control_dangerous_action" ||
     reason?.kind === "plan_mode_ask"
+  // E5 (INCOG-6): incognito sessions never persist an AllowAlways grant — hide
+  // the button entirely and explain why below the actions.
+  const incognito = current.incognito === true
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -179,15 +188,25 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           >
             {t("approval.allowOnce")}
           </Button>
-          <Button
-            size="sm"
-            onClick={() => onRespond(current.request_id, "allow_always")}
-            disabled={isStrict}
-            title={isStrict ? t("approval.allowAlwaysDisabled") : undefined}
-          >
-            {t("approval.allowAlways")}
-          </Button>
+          {!incognito && (
+            <Button
+              size="sm"
+              onClick={() => onRespond(current.request_id, "allow_always")}
+              disabled={isStrict}
+              title={isStrict ? t("approval.allowAlwaysDisabled") : undefined}
+            >
+              {t("approval.allowAlways")}
+            </Button>
+          )}
         </div>
+
+        {/* Incognito notice: AllowAlways is unavailable because nothing persists. */}
+        {incognito && (
+          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <EyeOff className="h-3 w-3 shrink-0" />
+            {t("approval.incognitoNoAllowAlways")}
+          </p>
+        )}
       </div>
     </div>
   )

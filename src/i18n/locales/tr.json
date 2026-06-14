@@ -103,7 +103,8 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "Gizli oturumlarda «Her zaman izin ver» kaydedilmez."
   },
   "auth": {
     "tokenLabel": "Bearer Token",
