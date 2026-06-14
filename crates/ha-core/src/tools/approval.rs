@@ -176,6 +176,9 @@ pub enum ApprovalResolutionSource {
     /// Approval dialog timed out and was resolved to **proceed**
     /// (`approval_timeout_action=proceed`, non-strict reason).
     TimeoutProceed,
+    /// Auto-denied because the IM chat that owned the prompt was taken over /
+    /// evicted while the session stayed active (G5 / SURFACE-4).
+    Eviction,
 }
 
 impl ApprovalResolutionSource {
@@ -187,6 +190,7 @@ impl ApprovalResolutionSource {
             Self::SessionDeleted => "session_deleted",
             Self::TimeoutDeny => "timeout_deny",
             Self::TimeoutProceed => "timeout_proceed",
+            Self::Eviction => "eviction",
         }
     }
 }
@@ -312,6 +316,19 @@ pub(crate) async fn session_has_pending_approval(session_id: &str) -> bool {
     pending
         .values()
         .any(|e| e.session_id.as_deref() == Some(session_id))
+}
+
+/// Return the request ids of every pending approval owned by `session_id`.
+/// Used by the IM eviction watcher (G5 / SURFACE-4) to deny each pending
+/// approval when the owning chat is taken over — there is no reverse index, so
+/// this scans the registry (the pending set is tiny in practice).
+pub async fn pending_request_ids_for_session(session_id: &str) -> Vec<String> {
+    let pending = get_pending_approvals().lock().await;
+    pending
+        .iter()
+        .filter(|(_, e)| e.session_id.as_deref() == Some(session_id))
+        .map(|(rid, _)| rid.clone())
+        .collect()
 }
 
 /// Count pending approvals grouped by session id. Approvals registered without

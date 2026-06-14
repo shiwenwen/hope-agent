@@ -108,6 +108,17 @@ pub async fn drop_pending_for_session(session_id: &str) {
     get_text_pending().lock().await.remove(&key);
 }
 
+/// Drop all pending text-reply approval state for a specific (account, chat).
+/// Backstop for the IM eviction watcher (G5 / SURFACE-4): after denying each
+/// pending approval tool-side, clear the chat's `TEXT_PENDING` stack so a stale
+/// text entry can't hijack a later reply in the taken-over chat. Takes the chat
+/// coordinates directly (the evicted attach row is already gone from the DB, so
+/// `drop_pending_for_session` can't resolve it).
+pub async fn drop_pending_for_chat(account_id: &str, chat_id: &str) {
+    let key = (account_id.to_string(), chat_id.to_string());
+    get_text_pending().lock().await.remove(&key);
+}
+
 // ── InlineButton helper ──────────────────────────────────────────
 
 impl InlineButton {
@@ -430,6 +441,20 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                         registry.clone(),
                     )
                     .await;
+                    continue;
+                }
+                // G4 (SURFACE-2): an approval resolved on ANY surface (GUI / HTTP /
+                // IM button / timeout / session-delete / eviction) must clear this
+                // chat's stale text-reply entry, else it lingers in TEXT_PENDING
+                // and a later message gets hijacked as an answer to a dead prompt.
+                "approval:resolved" => {
+                    if let Some(request_id) = event
+                        .payload
+                        .get("requestId")
+                        .and_then(|v| v.as_str())
+                    {
+                        drop_pending_by_request_id(request_id).await;
+                    }
                     continue;
                 }
                 _ => continue,
