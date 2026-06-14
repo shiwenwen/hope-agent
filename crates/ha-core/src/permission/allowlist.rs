@@ -573,6 +573,41 @@ mod tests {
     }
 
     #[test]
+    fn incognito_forces_in_memory_session_scope() {
+        let args = json!({ "path": "src/lib.rs" });
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            clear_caches_for_tests();
+            // A project-attached session would normally persist the grant to the
+            // on-disk Project scope. E5 (INCOG-6): incognito must override to the
+            // in-memory Session scope so the grant is wiped on burn-on-close.
+            let incog = GrantContext {
+                session_id: Some("sess-incognito"),
+                project_id: Some("proj"),
+                agent_id: Some("agent"),
+                default_path: Some("/tmp/work"),
+                incognito: true,
+                ..Default::default()
+            };
+            let grant =
+                add_allow_always_for_call("write", &args, incog).expect("persist incognito grant");
+            assert_eq!(grant.scope, AllowScope::Session);
+
+            // The identical call WITHOUT incognito lands in the persistent
+            // Project scope — proving the override is what redirected it.
+            clear_caches_for_tests();
+            let normal = GrantContext {
+                incognito: false,
+                ..incog
+            };
+            let grant2 =
+                add_allow_always_for_call("write", &args, normal).expect("persist normal grant");
+            assert_eq!(grant2.scope, AllowScope::Project);
+            clear_caches_for_tests();
+        });
+    }
+
+    #[test]
     fn builds_workspace_path_rule_for_relative_write() {
         let ctx = GrantContext {
             project_id: Some("proj"),
