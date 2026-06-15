@@ -135,6 +135,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 - **聊天流双写**：per-call `EventSink`（主路径）+ EventBus `chat:stream_delta`（带 `seq` 去重，重载恢复用）；IM 渠道独立 `channel:stream_delta`
 - **API-Round 分组**：assistant + tool_result 通过 `_oc_round` 元数据成对，压缩切割对齐 round 边界；API 调用前 `prepare_messages_for_api()` 剥离元数据
+- **前台 idle guard 单一入口**：前台 turn 的忙/闲标记（`ChatSessionGuard` → `ACTIVE_CHAT_SESSIONS`，后台任务 / subagent 完成注入靠它「忙时排队、空闲再注入」）在 `run_chat_engine` 入口按 `ChatSource::holds_foreground_idle_guard()`（Desktop / Http / Channel）统一创建；ACP 直跑 `AssistantAgent::chat`、在其 turn 边界自建。`ParentInjection`（注入自身会自取消）/ `Subagent`（独立子会话）排除。**新增对话入口不得再各自手搓 per-shell guard**——Tauri 壳保留一个更早的 guard 仅为「用户发消息即取消在途注入」，靠引用计数与引擎 guard 安全重叠
 
 ### 上下文压缩
 

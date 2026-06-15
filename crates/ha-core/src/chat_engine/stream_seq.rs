@@ -76,6 +76,26 @@ impl ChatSource {
         matches!(self, Self::Desktop | Self::Http | Self::Channel)
     }
 
+    /// Whether a turn from this source is a **foreground turn that background-job
+    /// and sub-agent completion injection must yield to** (the idle gate, R2).
+    ///
+    /// `run_chat_engine` creates a [`crate::subagent::ChatSessionGuard`] for
+    /// these sources at its shared entry, so the busy/idle bookkeeping
+    /// (`ACTIVE_CHAT_SESSIONS` / `SESSION_IDLE_NOTIFY`) holds across **all four
+    /// entry points** — desktop, HTTP, IM channel, cron (cron turns carry
+    /// `Channel`). Before R2 the guard was created only in the Tauri shell, so
+    /// server / IM injection fired against a live turn instead of waiting
+    /// (§5.4). ACP runs `AssistantAgent::chat` directly (not this engine) and
+    /// creates the guard itself at its turn boundary.
+    ///
+    /// `ParentInjection` and `Subagent` are excluded: the former **is** the
+    /// injection (guarding it would self-cancel via `INJECTION_CANCELS`), and
+    /// the latter runs a distinct child session whose injection concerns are
+    /// independent of the parent's idle state.
+    pub fn holds_foreground_idle_guard(&self) -> bool {
+        matches!(self, Self::Desktop | Self::Http | Self::Channel)
+    }
+
     /// Lowercase wire string used as the `messages.source` column value and
     /// anywhere else a stable identifier is needed without paying for a
     /// `Display` allocation. Mirrors the `Serialize` rename + `Display`
@@ -305,6 +325,21 @@ mod tests {
         assert!(ChatSource::Channel.fires_user_lifecycle_hooks());
         assert!(!ChatSource::Subagent.fires_user_lifecycle_hooks());
         assert!(!ChatSource::ParentInjection.fires_user_lifecycle_hooks());
+    }
+
+    #[test]
+    fn foreground_idle_guard_gated_by_source() {
+        // R2: every foreground entry point (desktop / HTTP / IM channel / cron
+        // — cron carries Channel) holds the idle guard so completion injection
+        // yields to a live turn. ParentInjection MUST NOT (it is the injection
+        // itself — guarding would self-cancel); Subagent MUST NOT (distinct
+        // child session). This is the contract that fixed §5.4 (non-desktop
+        // injection racing live turns).
+        assert!(ChatSource::Desktop.holds_foreground_idle_guard());
+        assert!(ChatSource::Http.holds_foreground_idle_guard());
+        assert!(ChatSource::Channel.holds_foreground_idle_guard());
+        assert!(!ChatSource::Subagent.holds_foreground_idle_guard());
+        assert!(!ChatSource::ParentInjection.holds_foreground_idle_guard());
     }
 
     #[test]

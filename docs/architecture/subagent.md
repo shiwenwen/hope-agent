@@ -270,16 +270,20 @@ sequenceDiagram
 
 ## ChatSessionGuard（RAII）
 
-标记会话正在进行用户发起的 `chat()` 调用：
+标记会话正在进行前台用户/cron 发起的 turn（注入靠它判定「忙时排队、空闲再注入」）：
+
+**创建点（R2 — 四入口统一）**：在共享的 `chat_engine::run_chat_engine` 入口按 `ChatSource::holds_foreground_idle_guard()`（`Desktop` / `Http` / `Channel`，cron turn 用 `Channel`）创建，使桌面 / HTTP / IM / cron 自动共享同一 idle 判定；ACP 直跑 `AssistantAgent::chat`（不经引擎），在其 turn 边界自建同一 guard。`ParentInjection`（注入自身——若建 guard 会经 `INJECTION_CANCELS` 自取消）/ `Subagent`（独立子会话）**不创建**。Tauri 壳额外保留一个更早创建的 guard，仅为「用户一发消息即取消在途注入」（早于本 turn preflight），靠下方引用计数与引擎 guard 安全重叠。**此前该 guard 只在 Tauri 壳创建 → 自托管 / IM / ACP 下 `ACTIVE_CHAT_SESSIONS` 恒为 0、注入撞活跃 turn（§5.4）**。
 
 **构造时 (`new`)**：
-1. 将 `session_id` 插入 `ACTIVE_CHAT_SESSIONS`（全局 `HashSet`）
+1. `ACTIVE_CHAT_SESSIONS[session_id]` 引用计数 `+1`（`HashMap<String, usize>`，支持同会话多 guard 重叠）
 2. 检查 `INJECTION_CANCELS`，若该会话有正在进行的注入则设置 cancel flag 为 `true`
 
 **Drop 时**：
-1. 从 `ACTIVE_CHAT_SESSIONS` 移除 `session_id`
-2. `SESSION_IDLE_NOTIFY.notify_waiters()` —— 唤醒所有等待该会话空闲的注入任务
-3. `flush_pending_injections(session_id)` —— 从 `PENDING_INJECTIONS` 队列取出该会话的待重试注入，跳过已 fetch 的，每次只触发一个（串行保证）
+1. `ACTIVE_CHAT_SESSIONS[session_id]` 引用计数 `-1`；归零才移除并视为 idle（按引用释放，旧 stopped turn 不会清掉同会话新 turn）
+2. 归零时 `SESSION_IDLE_NOTIFY.notify_waiters()` —— 唤醒所有等待该会话空闲的注入任务
+3. 归零时 `flush_pending_injections(session_id)` —— 从 `PENDING_INJECTIONS` 队列取出该会话的待重试注入，跳过已 fetch 的，每次只触发一个（串行保证）
+
+> 注入侧的 idle 等待逻辑抽成 `injection.rs::wait_for_session_idle(session_id, max_wait, should_abort)`（返回 `Idle` / `Aborted` / `TimedOut`），便于单测覆盖「忙时 park、fetched 时 abort、idle 时直过」三态。
 
 ## 深度与并发控制
 
@@ -301,7 +305,7 @@ sequenceDiagram
 
 | 名称 | 类型 | 用途 |
 |------|------|------|
-| `ACTIVE_CHAT_SESSIONS` | `LazyLock<Mutex<HashSet<String>>>` | 当前正在用户 chat 的会话集合 |
+| `ACTIVE_CHAT_SESSIONS` | `LazyLock<Mutex<HashMap<String, usize>>>` | 当前有前台 turn 在跑的会话 → 引用计数（支持同会话多 guard 重叠） |
 | `INJECTING_SESSIONS` | `LazyLock<Mutex<HashSet<String>>>` | 当前正在注入的父会话集合（互斥） |
 | `INJECTION_CANCELS` | `LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>>` | 每会话的注入取消 flag |
 | `FETCHED_RUN_IDS` | `LazyLock<Mutex<HashSet<String>>>` | 已被 check/result 读取的 run_id |

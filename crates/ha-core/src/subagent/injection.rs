@@ -198,6 +198,65 @@ fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> b
     !matches!(db.get_session(session_id), Ok(None))
 }
 
+/// Outcome of waiting for a parent session to become idle before injecting.
+enum IdleWait {
+    /// No foreground turn is active — safe to inject now.
+    Idle,
+    /// `should_abort` fired (e.g. the agent already fetched the result via a
+    /// `check`/`result` tool action) — caller treats the injection as handled.
+    Aborted,
+    /// Timed out waiting for the session to go idle — caller abandons the
+    /// attempt (the source row stays for restart replay).
+    TimedOut,
+}
+
+/// Wait until `session_id` has no active foreground chat turn, or until
+/// `should_abort` fires, or `max_wait` elapses.
+///
+/// Foreground turns are tracked in `ACTIVE_CHAT_SESSIONS` by
+/// [`ChatSessionGuard`](super::ChatSessionGuard), created at the shared
+/// `run_chat_engine` entry (R2) so this gate holds across desktop / HTTP / IM /
+/// cron — and at the ACP turn boundary for ACP. The wait is event-driven on
+/// `SESSION_IDLE_NOTIFY` (fired when a guard releases) with a bounded fallback
+/// poll so a missed notification can't park forever. The fallback is clamped to
+/// the time remaining before `max_wait` so the timeout is honored promptly
+/// regardless of the 5s poll cadence.
+async fn wait_for_session_idle(
+    session_id: &str,
+    max_wait: std::time::Duration,
+    should_abort: impl Fn() -> bool,
+) -> IdleWait {
+    let fallback_interval = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    loop {
+        let is_busy = ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(session_id)
+            .copied()
+            .unwrap_or(0)
+            > 0;
+        if !is_busy {
+            return IdleWait::Idle;
+        }
+        if start.elapsed() >= max_wait {
+            return IdleWait::TimedOut;
+        }
+        if should_abort() {
+            return IdleWait::Aborted;
+        }
+        // Wait for notify (instant wake) or the fallback poll (in case notify is
+        // missed). Cap the poll at the remaining budget so timeout is honored
+        // without overshooting by up to a full poll interval.
+        let remaining = max_wait.saturating_sub(start.elapsed());
+        let sleep_dur = fallback_interval.min(remaining.max(std::time::Duration::from_millis(1)));
+        tokio::select! {
+            _ = SESSION_IDLE_NOTIFY.notified() => {}
+            _ = tokio::time::sleep(sleep_dur) => {}
+        }
+    }
+}
+
 /// Backend-driven result injection: wait for idle, then run the parent agent with the push message.
 /// Respects user chat priority: waits if busy, cancels if user sends a new message, skips if
 /// the agent already fetched the result via check/result tool actions.
@@ -282,28 +341,28 @@ pub(crate) async fn inject_and_run_parent(
         session_id: parent_session_id.clone(),
     };
 
-    // 1. Wait for parent session to become idle (event-driven with timeout fallback)
+    // 1. Wait for parent session to become idle (event-driven with timeout
+    // fallback). The idle gate (`ACTIVE_CHAT_SESSIONS`) is now populated by
+    // `ChatSessionGuard` at the shared `run_chat_engine` entry (R2), so this
+    // wait correctly parks behind live turns on every entry point, not just
+    // desktop.
     let announce_timeout = crate::agent_loader::load_agent(&parent_agent_id)
         .ok()
         .and_then(|def| def.config.subagents.announce_timeout_secs)
         .unwrap_or(120)
         .clamp(10, 600);
     let max_wait = std::time::Duration::from_secs(announce_timeout);
-    let fallback_interval = std::time::Duration::from_secs(5);
-    let start = std::time::Instant::now();
-    loop {
-        let is_busy = ACTIVE_CHAT_SESSIONS
+    match wait_for_session_idle(&parent_session_id, max_wait, || {
+        // Re-check if the result was fetched while we were waiting.
+        FETCHED_RUN_IDS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .get(&parent_session_id)
-            .copied()
-            .unwrap_or(0)
-            > 0;
-        if !is_busy {
-            break;
-        }
-
-        if start.elapsed() > max_wait {
+            .contains(&run_id)
+    })
+    .await
+    {
+        IdleWait::Idle => {}
+        IdleWait::TimedOut => {
             app_warn!(
                 "subagent",
                 "inject",
@@ -312,12 +371,7 @@ pub(crate) async fn inject_and_run_parent(
             );
             return InjectionOutcome::Abandoned;
         }
-        // Re-check if result was fetched while we were waiting
-        if FETCHED_RUN_IDS
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains(&run_id)
-        {
+        IdleWait::Aborted => {
             app_info!(
                 "subagent",
                 "inject",
@@ -328,11 +382,6 @@ pub(crate) async fn inject_and_run_parent(
                 cb();
             }
             return InjectionOutcome::Injected;
-        }
-        // Wait for notify (instant wake) or fallback timeout (in case notify is missed)
-        tokio::select! {
-            _ = SESSION_IDLE_NOTIFY.notified() => {}
-            _ = tokio::time::sleep(fallback_interval) => {}
         }
     }
 
@@ -660,5 +709,60 @@ mod tests {
         assert!(msg.contains("<task>read &lt;file&gt; &amp; report</task>"));
         assert!(msg.contains("<result>\nok &lt;done&gt; &amp; safe\n</result>"));
         assert!(!msg.contains("BEGIN_SUBAGENT_RESULT"));
+    }
+
+    // R2 (§5.4): the idle gate must park completion injection behind a live
+    // foreground turn on *every* entry point. These exercise the shared wait
+    // helper against `ChatSessionGuard` (the same guard `run_chat_engine` now
+    // creates for HTTP / IM / cron, and ACP creates at its turn boundary).
+
+    #[tokio::test]
+    async fn wait_for_session_idle_parks_until_guard_released() {
+        let sid = "test-r2-wait-idle-parks";
+        crate::subagent::ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap()
+            .remove(sid);
+
+        // A live foreground turn holds the guard → busy → a bounded wait times
+        // out rather than firing (injection would NOT splice into a live turn).
+        let guard = crate::subagent::ChatSessionGuard::new(sid);
+        let outcome =
+            wait_for_session_idle(sid, std::time::Duration::from_millis(120), || false).await;
+        assert!(matches!(outcome, IdleWait::TimedOut));
+
+        // Releasing the turn makes the session idle → the next wait returns Idle.
+        drop(guard);
+        let outcome =
+            wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
+        assert!(matches!(outcome, IdleWait::Idle));
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_idle_aborts_when_should_abort_fires() {
+        let sid = "test-r2-wait-idle-abort";
+        crate::subagent::ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap()
+            .remove(sid);
+
+        // Busy, but the agent already fetched the result → Aborted (caller
+        // fires on_injected and returns Injected without running a turn).
+        let _guard = crate::subagent::ChatSessionGuard::new(sid);
+        let outcome =
+            wait_for_session_idle(sid, std::time::Duration::from_secs(2), || true).await;
+        assert!(matches!(outcome, IdleWait::Aborted));
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_idle_idle_when_no_turn_active() {
+        let sid = "test-r2-wait-idle-noturn";
+        crate::subagent::ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap()
+            .remove(sid);
+        let outcome =
+            wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
+        assert!(matches!(outcome, IdleWait::Idle));
     }
 }

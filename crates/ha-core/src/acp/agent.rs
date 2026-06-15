@@ -696,6 +696,17 @@ impl AcpAgent {
         let text_owned = text.to_string();
         let attachments_owned = attachments.to_vec();
 
+        // Idle/busy tracking (R2 — §5.4 fix). ACP runs `AssistantAgent::chat`
+        // directly rather than `run_chat_engine`, so it doesn't inherit the
+        // engine's idle guard — create one here for the turn's duration so
+        // background-job / sub-agent completion injection (which always runs
+        // through `run_chat_engine`) yields to a live ACP turn instead of
+        // splicing into it. Dropped at function exit, after the failover loop's
+        // `rt.block_on` turns complete; the guard's `Drop` (idle notify +
+        // pending-injection flush) uses `std::thread::spawn`, so dropping it
+        // outside the local runtime is safe.
+        let _idle_guard = crate::subagent::ChatSessionGuard::new(&session_id_owned);
+
         // Build model chain for failover
         let store = crate::config::cached_config();
         let agent_id = self
