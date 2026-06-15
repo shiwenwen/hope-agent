@@ -334,6 +334,14 @@ pub struct ToolExecContext {
     /// `None` for foreground dispatch (no job row to annotate). Invoked via
     /// [`Self::emit_pid`].
     pub pid_sink: Option<PidSink>,
+    /// Job id whose running output should be teed into a bounded tail buffer
+    /// (`async_jobs::output_tail`, R3 ①) so `job_status` can show a *running*
+    /// job's latest output. Set by
+    /// [`crate::async_jobs::spawn::spawn_explicit_job`] for backgrounded,
+    /// non-incognito jobs only; `None` for foreground dispatch (which returns
+    /// its full output immediately, so there is no running window to tail) and
+    /// for incognito jobs (close-and-burn — no tail buffer).
+    pub output_tail_job_id: Option<String>,
 }
 
 /// Wrapper around the [`ToolExecContext::pid_sink`] callback. A newtype with a

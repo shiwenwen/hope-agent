@@ -183,6 +183,14 @@ pub fn spawn_explicit_job(
             },
         )));
     }
+    // R3 ①: tee a backgrounded `exec`'s running stdout/stderr into a bounded
+    // tail buffer so `job_status(action:status)` can show a *running* job's
+    // latest output (BashOutput parity). `exec` is the only async tool that
+    // streams; incognito jobs leave no tail (close-and-burn, like the spool).
+    if tool_name == crate::tools::TOOL_EXEC && !ctx.incognito {
+        super::output_tail::register(&job_id);
+        ctx.output_tail_job_id = Some(job_id.clone());
+    }
 
     let synthetic = synthetic_started_result(&job_id, tool_name, origin);
     let session_key = ctx.session_id.clone().unwrap_or_default();
@@ -806,6 +814,9 @@ async fn finalize_job(
         }
     };
     super::cancel::remove_job(job_id);
+    // R3: drop the running-output tail ring; the full result is now on disk
+    // (`result_path`) / in the preview. No-op for jobs that never had one.
+    super::output_tail::remove(job_id);
     if !updated {
         return;
     }

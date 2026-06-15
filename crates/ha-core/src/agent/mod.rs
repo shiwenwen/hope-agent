@@ -1725,6 +1725,7 @@ impl AssistantAgent {
             exec_pre_approved: false,
             approval_origin: None,
             pid_sink: None,
+            output_tail_job_id: None,
             session_mode,
             agent_custom_approval_enabled: caps.enable_custom_tool_approval,
             agent_custom_approval_tools: caps.custom_approval_tools.clone(),

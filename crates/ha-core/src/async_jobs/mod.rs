@@ -17,6 +17,7 @@ pub(crate) mod cancel;
 pub(crate) mod db;
 pub(crate) mod error;
 pub(crate) mod injection;
+pub(crate) mod output_tail;
 pub(crate) mod retention;
 pub(crate) mod slots;
 pub(crate) mod spawn;
@@ -66,6 +67,9 @@ pub fn cancel_job(job_id: &str) -> anyhow::Result<Option<AsyncJob>> {
     if slots::remove_queued(job_id).is_some() {
         let _ = cancel::cancel_job(job_id); // defensive token trip
         cancel::remove_job(job_id);
+        // R3: a queued exec job registered a tail ring at spawn but never ran;
+        // drop it here since this path bypasses finalize_job.
+        output_tail::remove(job_id);
         const QUEUED_MSG: &str = "Cancelled while queued, before a slot freed";
         let _ = db.update_terminal(
             job_id,

@@ -188,13 +188,15 @@ fn job_response_value(job: &crate::async_jobs::AsyncJob) -> Value {
             }
             AsyncJobStatus::Running => {
                 insert_running_poll_guidance(map, job);
+                insert_output_tail(map, job);
                 map.insert(
                     "hint".to_string(),
-                    json!("Job is still running. Do not wait or repeatedly call job_status in this chat turn; continue independent work if possible, otherwise stop and rely on the auto-injected task-notification."),
+                    json!("Job is still running. Do not wait or repeatedly call job_status in this chat turn; continue independent work if possible, otherwise stop and rely on the auto-injected task-notification. If `output_tail` is present, it shows the most recent output so far — use it to judge progress vs stuck."),
                 );
             }
             AsyncJobStatus::Cancelling => {
                 insert_running_poll_guidance(map, job);
+                insert_output_tail(map, job);
                 map.insert(
                     "hint".to_string(),
                     json!("Cancellation has been requested; the job is shutting down. Do not repeatedly poll in this chat turn; wait for the terminal task-notification."),
@@ -215,6 +217,17 @@ fn job_response_value(job: &crate::async_jobs::AsyncJob) -> Value {
         }
     }
     payload
+}
+
+/// Attach the running-output tail (R3 ①) for a still-running job, if one was
+/// captured (backgrounded, non-incognito `exec`). Lets the agent peek the latest
+/// output of a long job without waiting — judging "progressing" vs "stuck".
+fn insert_output_tail(map: &mut serde_json::Map<String, Value>, job: &crate::async_jobs::AsyncJob) {
+    if let Some(tail) = crate::async_jobs::output_tail::read(&job.job_id) {
+        if !tail.is_empty() {
+            map.insert("output_tail".to_string(), json!(tail));
+        }
+    }
 }
 
 fn insert_running_poll_guidance(
@@ -404,6 +417,8 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
             of); `wait` — a SHORT (capped at a few seconds) convenience sync for fast jobs, over \
             an explicit `ids` array or all of the session's active jobs, with `mode` all|any; \
             `cancel` — cancel a job by `job_id`; `result` — alias for status. \
+            For a still-running backgrounded `exec`, `status` includes `output_tail` (the most \
+            recent ~8KB of output) so you can judge progressing-vs-stuck WITHOUT waiting. \
             This is NOT how you collect long fan-out: do not poll `status` or hammer `wait` in a \
             loop — end your turn and rely on the auto-injected `<task-notification>` for completion. \
             Read `result_path` only when you need the full output."
@@ -823,5 +838,37 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("unknown action"));
+    }
+
+    #[tokio::test]
+    async fn status_surfaces_output_tail_while_running() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+        async_jobs::output_tail::register(&job_id);
+        async_jobs::output_tail::append(&job_id, b"compiling...\nlinking...\n");
+
+        let out = tool_job_status(&json!({ "job_id": job_id }), None)
+            .await
+            .expect("ok");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["status"], "running");
+        assert!(v["output_tail"].as_str().unwrap().contains("linking..."));
+        async_jobs::output_tail::remove(&job_id);
+    }
+
+    #[tokio::test]
+    async fn status_omits_output_tail_when_none_registered() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+        let out = tool_job_status(&json!({ "job_id": job_id }), None)
+            .await
+            .expect("ok");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["status"], "running");
+        assert!(v.get("output_tail").is_none());
     }
 }

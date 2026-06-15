@@ -445,11 +445,59 @@ impl Drop for ProcessGroupGuard {
     }
 }
 
+/// Like [`tokio::process::Child::wait_with_output`], but tees stdout/stderr
+/// chunks into the running-output tail ring (`async_jobs::output_tail`, R3 ①) as
+/// they arrive, so `job_status` can show a *running* backgrounded exec's latest
+/// output (BashOutput parity). Reads both pipes concurrently with the child wait
+/// (no deadlock when a pipe fills) and still returns the complete `Output` for
+/// the normal result / `result_path` path. Only used when a tail buffer is
+/// registered (backgrounded, non-incognito jobs); foreground exec keeps the
+/// stock `wait_with_output`.
+async fn wait_with_output_teed(
+    mut child: tokio::process::Child,
+    job_id: String,
+) -> std::io::Result<std::process::Output> {
+    use tokio::io::AsyncReadExt;
+
+    async fn drain<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>, job_id: &str) -> Vec<u8> {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let mut chunk = [0u8; 4096];
+            loop {
+                match pipe.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        crate::async_jobs::output_tail::append(job_id, &chunk[..n]);
+                        buf.extend_from_slice(&chunk[..n]);
+                    }
+                }
+            }
+        }
+        buf
+    }
+
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    // Wait for the child AND drain both pipes concurrently (matches the
+    // semantics of `wait_with_output`).
+    let (status, stdout, stderr) = tokio::join!(
+        child.wait(),
+        drain(stdout_pipe, &job_id),
+        drain(stderr_pipe, &job_id),
+    );
+    Ok(std::process::Output {
+        status: status?,
+        stdout,
+        stderr,
+    })
+}
+
 async fn spawn_exec_waiter(
     session_id: String,
     mut cmd: tokio::process::Command,
     timeout_secs: u64,
     max_output: usize,
+    output_tail_job_id: Option<String>,
 ) -> Result<tokio::task::JoinHandle<Result<String>>> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
@@ -497,14 +545,19 @@ async fn spawn_exec_waiter(
         // Guard moved in; it will SIGKILL the process group if the
         // waiter task is dropped (panic / runtime shutdown).
         let guard = guard;
+        // Collect output: tee into the tail ring for backgrounded jobs (R3 ①),
+        // else the stock `wait_with_output` so foreground exec is unchanged.
+        // Boxed so the shared timeout logic below operates on one future type.
+        let collect: std::pin::Pin<
+            Box<dyn std::future::Future<Output = std::io::Result<std::process::Output>> + Send>,
+        > = match output_tail_job_id {
+            Some(jid) => Box::pin(wait_with_output_teed(child, jid)),
+            None => Box::pin(child.wait_with_output()),
+        };
         let result = if timeout_secs == 0 {
-            child.wait_with_output().await.map_err(ExecWaitError::Wait)
+            collect.await.map_err(ExecWaitError::Wait)
         } else {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(timeout_secs),
-                child.wait_with_output(),
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), collect).await
             {
                 Ok(Ok(output)) => Ok(output),
                 Ok(Err(e)) => Err(ExecWaitError::Wait(e)),
@@ -871,8 +924,14 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // ── Normal execution path ──────────────────────────────────
 
-    let mut exec_handle =
-        spawn_exec_waiter(session_id.clone(), cmd, timeout_secs, max_output).await?;
+    let mut exec_handle = spawn_exec_waiter(
+        session_id.clone(),
+        cmd,
+        timeout_secs,
+        max_output,
+        ctx.output_tail_job_id.clone(),
+    )
+    .await?;
 
     // I3: surface the spawned child pid to the owning async-job row (if this
     // exec is running inside a backgrounded job) so a crash/restart can detect
