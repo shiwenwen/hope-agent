@@ -215,6 +215,16 @@ pub fn local_model_jobs_db_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("local_model_jobs.db"))
 }
 
+/// Agent self-scheduled wakeups database path: ~/.hope-agent/wakeups.db
+///
+/// Backs the `schedule_wakeup` tool (R10): one-shot timers that re-enter the
+/// originating session after a delay. Rebuildable/transient — incognito
+/// wakeups are never written here (close-and-burn), and unfired rows are
+/// re-armed on the next Primary startup.
+pub fn wakeups_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("wakeups.db"))
+}
+
 /// Cached Ollama Library search/tag metadata: ~/.hope-agent/local_llm_library_cache.db
 pub fn local_llm_library_cache_db_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("local_llm_library_cache.db"))

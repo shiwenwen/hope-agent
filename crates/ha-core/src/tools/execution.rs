@@ -15,7 +15,7 @@ use super::{
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
-    runtime_cancel, sessions, submit_plan, task,
+    runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
@@ -1619,6 +1619,9 @@ pub async fn execute_tool_with_context(
             }
             super::TOOL_APP_UPDATE => app_update::tool_app_update(args, dispatch_ctx).await,
             TOOL_JOB_STATUS => job_status::tool_job_status(args).await,
+            super::TOOL_SCHEDULE_WAKEUP => {
+                schedule_wakeup::tool_schedule_wakeup(args, dispatch_ctx).await
+            }
             TOOL_RUNTIME_CANCEL => runtime_cancel::tool_runtime_cancel(args).await,
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, dispatch_ctx).await,
             super::TOOL_PEEK_SESSIONS => {

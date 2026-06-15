@@ -78,10 +78,10 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### Subagent / Team / Cron — `subagent.md`, `agent-team.md`, `cron.md`
 
-- Entry: `subagent/injection.rs`, `team/coordinator.rs`, `cron/scheduler.rs`, `cron/executor.rs`, `session/subagent_db.rs`.
-- State: `cron.db` (`cron_jobs` + `cron_run_logs`), `sessions.db` (`subagent_runs`, `teams`/`team_*`), `async_jobs.db`. Config: `subagents.enabled`/`max_spawn_depth`, `team.*`.
-- Grep: `category IN ('subagent','team','cron')`.
-- Gotcha: cron `status='disabled'` ← `consecutive_failures>=5`; non-null `running_at` after restart = orphan (`clear_all_running` should clear it); `cron_run_logs.status='timeout'` = exceeded 300s. `subagent_runs.child_agent_id` prefix `tool_job:` = async-tool injection (not a real subagent), `team:` = team member; stuck `Running` cleaned by `cleanup_orphan_runs`.
+- Entry: `subagent/injection.rs`, `team/coordinator.rs`, `cron/scheduler.rs`, `cron/executor.rs`, `session/subagent_db.rs`, `wakeup/mod.rs` (+`wakeup/db.rs`).
+- State: `cron.db` (`cron_jobs` + `cron_run_logs`), `sessions.db` (`subagent_runs`, `teams`/`team_*`), `async_jobs.db`, `wakeups.db` (agent self-scheduled `schedule_wakeup`). Config: `subagents.enabled`/`max_spawn_depth`, `team.*`.
+- Grep: `category IN ('subagent','team','cron','wakeup')`.
+- Gotcha: cron `status='disabled'` ← `consecutive_failures>=5`; non-null `running_at` after restart = orphan (`clear_all_running` should clear it); `cron_run_logs.status='timeout'` = exceeded 300s. `subagent_runs.child_agent_id` prefix `tool_job:` = async-tool injection (not a real subagent), `team:` = team member, `wakeup` = `schedule_wakeup` fire; stuck `Running` cleaned by `cleanup_orphan_runs`. Wakeup never fires → `wakeups.db` row `fired=0` but no live timer (arming process exited; re-armed Primary-only on next restart) OR parent never went idle (injection `Abandoned`, left for replay); incognito wakeups are in-memory only (no row).
 
 ### File ops / Project / Canvas — `file-operations.md`, `project.md`, `canvas.md`
 

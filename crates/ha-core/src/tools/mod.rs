@@ -34,6 +34,7 @@ mod process;
 pub(crate) mod read;
 pub(crate) mod rejection;
 mod runtime_cancel;
+mod schedule_wakeup;
 mod send_attachment;
 pub(crate) mod skill;
 // NOTE: `skill` is `pub(crate)` only to expose `render_inline` for the
@@ -143,6 +144,7 @@ pub const TOOL_TASK_UPDATE: &str = "task_update";
 pub const TOOL_TASK_LIST: &str = "task_list";
 pub const TOOL_APP_UPDATE: &str = "app_update";
 pub const TOOL_JOB_STATUS: &str = "job_status";
+pub const TOOL_SCHEDULE_WAKEUP: &str = "schedule_wakeup";
 pub const TOOL_RUNTIME_CANCEL: &str = "runtime_cancel";
 pub const TOOL_TEAM: &str = "team";
 pub const TOOL_PEEK_SESSIONS: &str = "peek_sessions";

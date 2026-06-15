@@ -260,6 +260,18 @@ pub fn init_runtime(role: &'static str) {
         ),
     }
 
+    // Agent self-scheduled wakeups (R10). Non-fatal: without it `schedule_wakeup`
+    // arms in-memory-only timers that don't survive a restart.
+    match paths::wakeups_db_path().and_then(|p| crate::wakeup::WakeupDB::open(&p)) {
+        Ok(db) => crate::wakeup::set_wakeup_db(Arc::new(db)),
+        Err(e) => crate::app_warn!(
+            "wakeup",
+            "init",
+            "Failed to open wakeups DB ({}); scheduled wakeups won't survive restart",
+            e
+        ),
+    }
+
     // Failure here is non-fatal — local model setup stays available through
     // the older synchronous commands, but the global task center is disabled.
     match paths::local_model_jobs_db_path()
@@ -1003,6 +1015,11 @@ pub async fn start_background_tasks() {
         });
         crate::local_model_jobs::replay_interrupted_jobs();
 
+        // Re-arm agent self-scheduled wakeups (R10). Primary-only — the rows
+        // are shared, so a Secondary re-arming would double-deliver. Past-due
+        // wakeups fire promptly.
+        crate::wakeup::replay_pending();
+
         // Retention sweep for async_jobs (rows + spool files). Runs once at
         // startup and then once per day. Disabled entirely when both
         // `retention_secs` and `orphan_grace_secs` are `0`.
@@ -1210,6 +1227,9 @@ pub async fn start_minimal_background_tasks() {
             crate::async_jobs::replay_pending_jobs();
         });
         crate::local_model_jobs::replay_interrupted_jobs();
+
+        // Re-arm agent self-scheduled wakeups (R10). Primary-only (shared rows).
+        crate::wakeup::replay_pending();
     }
 
     // MCP init (no watchdog). Tier-agnostic — ACP tool dispatch may hit

@@ -17,7 +17,7 @@
 - **Core::FileSystem** — 文件 / shell：`exec`, `process`, `read`, `write`, `edit`, `ls`, `grep`, `find`, `apply_patch`
 - **Core::Interaction** — 交互：`ask_user_question`, `send_attachment`, `task_create`, `task_update`, `task_list`
 - **Core::SessionAware** — 跨会话（用户决定不可配置）：`sessions_list`, `session_status`, `sessions_history`, `sessions_send`, `peek_sessions`, `agents_list`
-- **Core::Meta** — 框架元工具：`tool_search`（`deferredTools.enabled=true` 且 `toolNames` 非空，或存在 `McpServerConfig.deferredTools=true` 的 server 时注入）, `job_status`（仅 `asyncTools.enabled` 时注入）, `runtime_cancel`, `skill`
+- **Core::Meta** — 框架元工具：`tool_search`（`deferredTools.enabled=true` 且 `toolNames` 非空，或存在 `McpServerConfig.deferredTools=true` 的 server 时注入）, `job_status`（仅 `asyncTools.enabled` 时注入）, `schedule_wakeup`（agent 自我定时唤醒，一次性 N 秒后注 `<wakeup>`+note 回当前会话续跑，复用注入管线；`internal`=不弹审批，`crate::wakeup` / `wakeups.db`；详见 AGENTS「Subagent / Team / Cron」节）, `runtime_cancel`, `skill`
 - **Core::PlanMode** — Plan Mode 触发：`submit_plan`, `update_plan_step`, `amend_plan`（dispatcher 永远返回 Hidden，由 `apply_plan_tools` 按 PlanAgentMode 单独注入）
 
 ### Tier 2: Standard（标准工具）

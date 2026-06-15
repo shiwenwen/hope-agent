@@ -91,7 +91,7 @@ skills/                 内置技能（meta / 编程方法论 vendor / 办公方
 docs/architecture/      子系统设计文档（39 篇，跨 PR 必读单一真相源）
 ```
 
-ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `ask_user/` `async_jobs/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
+ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `knowledge/` `skills/` `tools/` `channel/` `subagent/` `team/` `cron/` `acp/` `dashboard/` `recap/` `awareness/` `config/` `session/` `project/` `plan/` `ask_user/` `async_jobs/` `wakeup/` `failover/` `platform/` `security/` `logging/` `local_llm/`。Vendor skill 来源记录在 `THIRD_PARTY_NOTICES.md`。
 
 ## 技术栈
 
@@ -249,6 +249,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - `subagent(action="spawn_and_wait")` 前台等待 `foreground_timeout`（默认 30s），超时自动转后台
 - Agent Team 模板 GUI 预配 + 模型按需发现；`TeamTemplateMember.description` 注入子 session 身份段
 - Cron `delivery_targets`：final assistant text fan-out 到 IM；IM 会话内未显式传时自动取当前会话，显式 `[]` 关闭
+- **`schedule_wakeup`（自我定时唤醒，`crate::wakeup`）≠ cron**：agent 发起的**一次性**「N 秒后把我叫回**当前会话**续跑」，到点经 `inject_and_run_parent`（复用 idle-gating + 取消 + 重试）注一条 `<wakeup>`+note 起新 parent turn。`wakeups.db` 持久 + 进程本地定时器；clamp `[10s,24h]`、每会话 pending ≤5（结构类③拒绝**不排队**）、`mark_fired` 仅注入落地置位（Abandoned 留 replay）、**replay Primary-only**（共享行，防 Secondary 双投）、incognito 仅内存、会话删/焚经 `cleanup_watcher::purge_for_session` 取消。**不与 cron 复用入口**（cron=用户配置周期 + 可独立会话/fan-out）
 
 ### IM Channel
 

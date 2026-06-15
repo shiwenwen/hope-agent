@@ -120,6 +120,11 @@ async fn cleanup_session(session_id: &str, is_purge: bool) {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
+    // R10: cancel + delete the session's scheduled wakeups (both delete and
+    // burn) — a gone session must not be woken back to life, and the live timer
+    // shouldn't linger. Incognito wakeups are in-memory only; this aborts them.
+    crate::wakeup::purge_for_session(session_id);
+
     // E3/E4 (INCOG-2/5): on incognito burn, scrub the session's on-disk
     // artifacts. Incognito tool results / job spools are skipped at write time,
     // so these are backstops — but they also drop the (redacted) async-job rows
