@@ -386,15 +386,20 @@ pub async fn submit_approval_response(
     let delivered = entry.sender.send(response).is_ok();
     drop(pending);
     emit_pending_interactions_changed(session_id.as_deref());
-    if !delivered {
-        return Err(ApprovalSubmitError::NoLongerActive);
-    }
+    // The entry was removed above, so every surface showing this request must
+    // dismiss — broadcast resolved even when the receiver was already gone
+    // (NoLongerActive). Otherwise a dialog mirrored on another surface (IM / a
+    // second GUI) lingers until an unrelated event. The submitter still gets the
+    // NoLongerActive error below so it knows its click had no effect (PENDING-1).
     emit_approval_resolved(
         request_id,
         session_id.as_deref(),
         approval_decision_str(response),
         source,
     );
+    if !delivered {
+        return Err(ApprovalSubmitError::NoLongerActive);
+    }
     Ok(())
 }
 

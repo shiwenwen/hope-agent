@@ -38,6 +38,23 @@ export interface ApprovalRequest {
   incognito?: boolean
 }
 
+/**
+ * Reason kinds that bar AllowAlways and render the destructive (red) palette.
+ * Single source of truth shared by the dialog header and the ReasonBanner —
+ * mirrors the backend `ApprovalReasonKind::is_strict` strict set, so the two
+ * never disagree (e.g. on `plan_mode_ask`).
+ */
+export function isStrictReasonKind(
+  kind: NonNullable<ApprovalRequest["reason"]>["kind"] | undefined,
+): boolean {
+  return (
+    kind === "protected_path" ||
+    kind === "dangerous_command" ||
+    kind === "mac_control_dangerous_action" ||
+    kind === "plan_mode_ask"
+  )
+}
+
 interface ApprovalDialogProps {
   requests: ApprovalRequest[]
   onRespond: (requestId: string, response: "allow_once" | "allow_always" | "deny") => void
@@ -104,11 +121,7 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
 
   const total = requests.length
   const reason = current.reason
-  const isStrict =
-    reason?.kind === "protected_path" ||
-    reason?.kind === "dangerous_command" ||
-    reason?.kind === "mac_control_dangerous_action" ||
-    reason?.kind === "plan_mode_ask"
+  const isStrict = isStrictReasonKind(reason?.kind)
   // E5 (INCOG-6): incognito sessions never persist an AllowAlways grant — hide
   // the button entirely and explain why below the actions.
   const incognito = current.incognito === true
@@ -303,10 +316,7 @@ function ReasonBanner({
   detail?: string
   t: ReturnType<typeof useTranslation>["t"]
 }) {
-  const isStrict =
-    kind === "protected_path" ||
-    kind === "dangerous_command" ||
-    kind === "mac_control_dangerous_action"
+  const isStrict = isStrictReasonKind(kind)
   const palette = isStrict
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : "border-amber-200/40 bg-amber-50/40 dark:bg-amber-950/10 text-amber-700 dark:text-amber-400"
