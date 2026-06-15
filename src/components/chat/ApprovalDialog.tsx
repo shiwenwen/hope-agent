@@ -40,11 +40,13 @@ export interface ApprovalRequest {
 
 /**
  * Reason kinds that bar AllowAlways and render the destructive (red) palette.
- * Single source of truth shared by the dialog header and the ReasonBanner —
- * mirrors the backend `ApprovalReasonKind::is_strict` strict set, so the two
- * never disagree (e.g. on `plan_mode_ask`).
+ * Single source of truth shared by the dialog header and the ReasonBanner in
+ * this file — mirrors the backend `ApprovalReasonKind::is_strict` strict set, so
+ * the two never disagree (e.g. on `plan_mode_ask`). File-private: keeping it
+ * unexported satisfies react-refresh/only-export-components (a component file
+ * must export only components).
  */
-export function isStrictReasonKind(
+function isStrictReasonKind(
   kind: NonNullable<ApprovalRequest["reason"]>["kind"] | undefined,
 ): boolean {
   return (
