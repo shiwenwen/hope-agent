@@ -130,13 +130,21 @@ impl JobStatus {
 pub struct BackgroundJob {
     pub job_id: String,
     /// What kind of work this job runs. `Tool` for tool jobs; `Subagent` (R6)
-    /// for a background-subagent projection; `Group` (R5) is the remaining seam.
+    /// for a background-subagent projection; `Group` (R5) for a `batch_spawn`
+    /// fan-out's join coordinator (its children are `Subagent` rows sharing the
+    /// group's `job_id` in `group_id`).
     pub kind: JobKind,
     /// For `kind = Subagent` (R6): FK to `subagent_runs.run_id` — the execution
     /// truth source. This row is a one-way scheduling projection (status /
     /// lifecycle only); run content (task / result / error) lives ONLY in
     /// `subagent_runs` and is never copied here. `None` for tool jobs.
     pub subagent_run_id: Option<String>,
+    /// For `kind = Group` children (R5): the `job_id` of the owning `Group`
+    /// row. A `Group` fan-out's child jobs all carry the same `group_id`; the
+    /// join coordinator completes the group once every child with this
+    /// `group_id` is terminal, then fires ONE merged injection instead of N.
+    /// `None` for the group row itself and for un-grouped jobs.
+    pub group_id: Option<String>,
     pub session_id: Option<String>,
     pub agent_id: Option<String>,
     pub tool_name: String,

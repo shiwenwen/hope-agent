@@ -96,6 +96,8 @@ impl HookHandler for AgentHandler {
             skill_name: None,
             origin_source: None,
             origin_channel_kb_context: None,
+            // Internal hook-spawned subagent (skip_parent_injection) — never grouped (R5).
+            group_id: None,
         };
 
         let run_id = match spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await

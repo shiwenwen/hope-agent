@@ -145,7 +145,7 @@ pub fn request_cancel_run(run_id: &str) -> bool {
 // ── Re-exports ──────────────────────────────────────────────────
 
 pub use cancel::SubagentCancelRegistry;
-pub use helpers::{cleanup_orphan_runs, mark_run_fetched};
+pub use helpers::{cleanup_orphan_runs, mark_run_fetched, take_runs_fetched};
 pub use mailbox::{ChatSessionGuard, SUBAGENT_MAILBOX};
 pub use spawn::{spawn_subagent, HOOK_SPAWN_LABEL};
 pub use types::{SpawnParams, SubagentRun, SubagentStatus};

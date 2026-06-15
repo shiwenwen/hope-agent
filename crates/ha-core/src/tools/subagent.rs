@@ -176,6 +176,9 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         // WS8: carry the parent turn's IM origin identity so an IM-origin
         // subagent's KB opt-in is judged against the origin account/chat.
         origin_channel_kb_context: ctx.channel_kb_context.clone(),
+        // A standalone spawn is not part of a Group (R5) — it injects its own
+        // result individually. Only `batch_spawn` sets a group id.
+        group_id: None,
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -400,6 +403,19 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     let session_db = get_session_db()?;
     let cancel_registry = get_cancel_registry()?;
 
+    // R5: fan these children out as a single Group so all results arrive as ONE
+    // merged injection when the batch finishes, instead of N separate billed
+    // turns. Skipped for incognito (no projection survives close-and-burn) and
+    // when the jobs DB is uninitialized — those children fall back to per-child
+    // injection (the pre-R5 behavior). The group is created BEFORE spawning so
+    // each child can carry its `group_id`, then SEALED after the loop so the
+    // join coordinator may complete it once every child settles.
+    let group_id = if crate::session::is_session_incognito(Some(parent_session_id)) {
+        None
+    } else {
+        crate::async_jobs::JobManager::spawn_group(parent_session_id, parent_agent_id)
+    };
+
     let mut results = Vec::new();
     for task_def in tasks {
         let task = task_def
@@ -445,6 +461,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             origin_source: ctx.origin_chat_source.or(ctx.chat_source),
             // WS8: forward the parent turn's IM origin identity (see above).
             origin_channel_kb_context: ctx.channel_kb_context.clone(),
+            // R5: tag each child with the Group so its result joins the merged
+            // injection instead of injecting on its own.
+            group_id: group_id.clone(),
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {
@@ -453,11 +472,32 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         }
     }
 
-    Ok(serde_json::to_string_pretty(&serde_json::json!({
+    // R5: seal the group now that every child has been spawned — the join
+    // coordinator may complete it (and fire the one merged injection) once all
+    // children settle. The seal also runs an immediate completion check for the
+    // case where fast children already finished during the spawn loop.
+    if let Some(ref gid) = group_id {
+        crate::async_jobs::JobManager::seal_group(gid);
+    }
+
+    let mut response = serde_json::json!({
         "status": "batch_spawned",
         "total": results.len(),
         "runs": results,
-    }))?)
+    });
+    // Surface the group id so the model can `job_status(action='status',
+    // job_id=...)` the batch as a whole (N-of-M) and knows results will arrive
+    // as one merged notification when the batch finishes.
+    if let Some(gid) = group_id {
+        response["group_id"] = serde_json::Value::String(gid);
+        response["delivery"] = serde_json::Value::String(
+            "All results will be injected together as one notification when the batch finishes. \
+             You can end your turn; no need to poll."
+                .to_string(),
+        );
+    }
+
+    Ok(serde_json::to_string_pretty(&response)?)
 }
 
 async fn action_wait_all(args: &Value) -> Result<String> {

@@ -43,6 +43,8 @@ pub fn record_running_job(
         kind: super::types::JobKind::Tool,
         // R6: tool jobs never reference a subagent run.
         subagent_run_id: None,
+        // R5: tool jobs are standalone — never part of a Group fan-out.
+        group_id: None,
         session_id: ctx.session_id.clone(),
         agent_id: ctx.agent_id.clone(),
         tool_name: tool_name.to_string(),

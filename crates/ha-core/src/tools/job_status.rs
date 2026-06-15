@@ -226,6 +226,34 @@ fn job_response_value(job: &crate::async_jobs::BackgroundJob, include_output_tai
             }
         }
 
+        // R5: a Group is a fan-out join coordinator — surface N-of-M child
+        // progress and steer the agent toward the single merged injection
+        // (overriding the generic running/terminal hint above). Child results
+        // live in the subagent records, not this row.
+        if job.kind == JobKind::Group {
+            if let Some((total, terminal, completed, failed)) =
+                async_jobs::JobManager::group_progress(&job.job_id)
+            {
+                map.insert("child_count".to_string(), json!(total));
+                map.insert("children_terminal".to_string(), json!(terminal));
+                map.insert("children_completed".to_string(), json!(completed));
+                map.insert("children_failed".to_string(), json!(failed));
+                let hint = if job.status.is_terminal() {
+                    format!(
+                        "Background batch finished ({completed} completed, {failed} failed). The \
+                         merged results are delivered as ONE task-notification — read that, don't poll."
+                    )
+                } else {
+                    format!(
+                        "Background batch in progress ({terminal}/{total} sub-agents finished). All \
+                         results arrive together as ONE task-notification when the batch completes — \
+                         do not poll; end your turn and continue when it arrives."
+                    )
+                };
+                map.insert("hint".to_string(), json!(hint));
+            }
+        }
+
         // R6: a subagent projection carries NO run content (result/error live in
         // the subagent record). Surface the run id and, when terminal, point the
         // agent at the subagent tool to read the actual result.
@@ -576,6 +604,7 @@ mod tests {
             job_id: job_id.to_string(),
             kind: JobKind::Tool,
             subagent_run_id: None,
+            group_id: None,
             session_id: None,
             agent_id: None,
             tool_name: "test_tool".into(),
@@ -784,6 +813,7 @@ mod tests {
             job_id: job_id.to_string(),
             kind: JobKind::Tool,
             subagent_run_id: None,
+            group_id: None,
             session_id: Some(session_id.to_string()),
             agent_id: None,
             tool_name: "test_tool".into(),
@@ -1002,6 +1032,7 @@ mod tests {
             job_id: "job_sa".into(),
             kind: JobKind::Subagent,
             subagent_run_id: Some("run_xyz".into()),
+            group_id: None,
             session_id: Some("s1".into()),
             agent_id: Some("ha-main".into()),
             tool_name: "subagent:researcher".into(),

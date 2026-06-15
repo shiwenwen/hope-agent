@@ -91,6 +91,32 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
         return db.load(job_id);
     }
 
+    // R5: cancelling a `Group` cancels each child subagent run and marks the
+    // group terminal FIRST, so the join coordinator's single-winner CAS
+    // (`claim_group_completion`) loses — a cancelled batch never fires a merged
+    // injection. The children's own terminal sync still flows through
+    // `update_subagent_status` (which maps Killed→Cancelled on their
+    // projections) as usual. The group carries no run content, so a lifecycle
+    // message on its `error` column is fine (unlike a subagent projection).
+    if job.kind == JobKind::Group {
+        if let Ok(children) = db.group_children(job_id) {
+            for child in &children {
+                if let Some(run_id) = &child.subagent_run_id {
+                    crate::subagent::request_cancel_run(run_id);
+                }
+            }
+        }
+        let _ = db.update_terminal(
+            job_id,
+            JobStatus::Cancelled,
+            None,
+            None,
+            Some("Cancelled by user"),
+            chrono::Utc::now().timestamp(),
+        );
+        return db.load(job_id);
+    }
+
     // R7.1: a job still waiting in the in-memory scheduler queue has no runner
     // that will ever settle it — pull it out and finalize `Cancelled` directly.
     // The queue lock serializes this against the scheduler, so `Some` here means

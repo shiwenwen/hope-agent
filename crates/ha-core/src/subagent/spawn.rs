@@ -107,23 +107,33 @@ pub async fn spawn_subagent(
     // `is_session_incognito` helper, which fail-closes a missing/burned parent
     // row to incognito (do NOT project on `Ok(None)`). Best-effort: a projection
     // failure must never block the spawn.
+    //
+    // R5: a `batch_spawn` child carries its owning Group's id in
+    // `params.group_id`. `effective_group_id` is `Some` ONLY when the child is
+    // grouped AND its projection was created — a projection-insert failure
+    // ungroups the child so it falls back to its own per-child injection
+    // (below) rather than stranding its result with no delivery path (the Group
+    // join only tracks children it can see as projections).
+    let mut effective_group_id: Option<String> = None;
     if !params.skip_parent_injection
         && !crate::session::is_session_incognito(Some(&params.parent_session_id))
     {
-        if let Err(e) = crate::async_jobs::JobManager::project_subagent_spawn(
+        match crate::async_jobs::JobManager::project_subagent_spawn(
             &run_id,
             &params.parent_session_id,
             &params.parent_agent_id,
             &params.agent_id,
             SubagentStatus::Spawning,
+            params.group_id.as_deref(),
         ) {
-            crate::app_warn!(
+            Ok(()) => effective_group_id = params.group_id.clone(),
+            Err(e) => crate::app_warn!(
                 "subagent",
                 "spawn",
                 "Failed to project subagent run {} into background_jobs: {}",
                 run_id,
                 e
-            );
+            ),
         }
     }
 
@@ -178,6 +188,9 @@ pub async fn spawn_subagent(
     let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
     let lock_plan_agent_mode = params.lock_plan_agent_mode;
     let skip_parent_injection = params.skip_parent_injection;
+    // R5: a grouped child suppresses its individual completion injection — the
+    // Group fires ONE merged injection when every child settles (see below).
+    let grouped = effective_group_id.is_some();
     let extra_system_context = params.extra_system_context.clone();
     let skill_allowed_tools = params.skill_allowed_tools.clone();
     let reasoning_effort = params.reasoning_effort.clone();
@@ -371,7 +384,11 @@ pub async fn spawn_subagent(
         // Backend-driven result injection: push result to parent agent without relying on frontend.
         // Uses a dedicated OS thread + runtime to avoid the Send cycle:
         // inject_and_run_parent → agent.chat() → action_spawn → spawn_subagent → tokio::spawn
+        // R5: `grouped` children never inject individually — their Group joins
+        // all child results into ONE merged injection (covering every terminal
+        // status, including Killed, which the per-child path below skips).
         if !skip_parent_injection
+            && !grouped
             && matches!(
                 status_for_inject,
                 SubagentStatus::Completed | SubagentStatus::Error | SubagentStatus::Timeout

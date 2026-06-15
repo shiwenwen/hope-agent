@@ -128,6 +128,12 @@ pub struct SpawnParams {
     /// neutral `Subagent` source. The `subagent` tool sets it from the parent
     /// `ToolExecContext`; system-initiated spawns leave it `None`.
     pub origin_channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
+    /// R5 (Group fan-out): when this spawn is one child of a `batch_spawn`
+    /// Group, the owning Group's `job_id`. The child's `background_jobs`
+    /// projection records it, and the child's individual completion injection is
+    /// **suppressed** — the Group fires ONE merged injection when all children
+    /// settle. `None` for a standalone spawn (per-child injection, unchanged).
+    pub group_id: Option<String>,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.

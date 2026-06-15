@@ -67,6 +67,21 @@ pub fn mark_run_fetched(run_id: &str) {
     }
 }
 
+/// R5: remove the given run ids from the fetched set, returning how many were
+/// present. The Group join uses this to detect "the parent already collected
+/// every child result" (via `wait_all` / `check` / `result`) and skip the
+/// redundant merged injection — while also cleaning up marks that the
+/// suppressed per-child injections would otherwise leave behind forever.
+pub fn take_runs_fetched(run_ids: &[String]) -> usize {
+    if run_ids.is_empty() {
+        return 0;
+    }
+    let mut set = super::FETCHED_RUN_IDS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    run_ids.iter().filter(|id| set.remove(*id)).count()
+}
+
 /// RAII guard that removes a session from INJECTING_SESSIONS when dropped.
 pub(crate) struct CleanupGuard {
     pub session_id: String,

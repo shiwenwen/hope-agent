@@ -69,21 +69,21 @@ impl JobsDB {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        // Schema evolution for this rebuildable cache. Newer columns (R6's
-        // `subagent_run_id`, R1's `kind`, the A-7 approval/governance columns)
-        // are referenced by every INSERT/SELECT below; a `background_jobs` table
-        // from a prior version lacks them, and `CREATE TABLE IF NOT EXISTS` would
-        // NOT add them — every spawn would then fail with "no such column".
-        // Project policy is "no migration — drop and rebuild": this DB is a pure
-        // cache (terminal rows are advisory, in-flight rows are marked
-        // interrupted on restart regardless), so on a stale schema we drop the
-        // table and let the CREATE below rebuild the current shape. The probe
-        // targets the newest column (`subagent_run_id`, R6); a failing probe
-        // means the table is either absent (DROP is a no-op) or stale (DROP
-        // clears it); a current table passes and is untouched. Bump the probe
-        // column when adding new ones.
+        // Schema evolution for this rebuildable cache. Newer columns (R5's
+        // `group_id`, R6's `subagent_run_id`, R1's `kind`, the A-7
+        // approval/governance columns) are referenced by every INSERT/SELECT
+        // below; a `background_jobs` table from a prior version lacks them, and
+        // `CREATE TABLE IF NOT EXISTS` would NOT add them — every spawn would
+        // then fail with "no such column". Project policy is "no migration —
+        // drop and rebuild": this DB is a pure cache (terminal rows are
+        // advisory, in-flight rows are marked interrupted on restart
+        // regardless), so on a stale schema we drop the table and let the CREATE
+        // below rebuild the current shape. The probe targets the newest column
+        // (`group_id`, R5); a failing probe means the table is either absent
+        // (DROP is a no-op) or stale (DROP clears it); a current table passes
+        // and is untouched. Bump the probe column when adding new ones.
         if conn
-            .prepare("SELECT subagent_run_id FROM background_jobs LIMIT 0")
+            .prepare("SELECT group_id FROM background_jobs LIMIT 0")
             .is_err()
         {
             conn.execute_batch("DROP TABLE IF EXISTS background_jobs;")?;
@@ -109,7 +109,8 @@ impl JobsDB {
                 pid INTEGER,
                 cancel_requested INTEGER NOT NULL DEFAULT 0,
                 kind TEXT NOT NULL DEFAULT 'tool',
-                subagent_run_id TEXT
+                subagent_run_id TEXT,
+                group_id TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_background_jobs_session_status
@@ -117,7 +118,9 @@ impl JobsDB {
             CREATE INDEX IF NOT EXISTS idx_background_jobs_status_injected
                 ON background_jobs(status, injected);
             CREATE INDEX IF NOT EXISTS idx_background_jobs_subagent_run
-                ON background_jobs(subagent_run_id);",
+                ON background_jobs(subagent_run_id);
+            CREATE INDEX IF NOT EXISTS idx_background_jobs_group
+                ON background_jobs(group_id);",
         )?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -132,8 +135,8 @@ impl JobsDB {
                 args_json, status, result_preview, result_path, error,
                 created_at, completed_at, injected, origin,
                 approval_origin, incognito, pid, cancel_requested, kind,
-                subagent_run_id
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                subagent_run_id, group_id
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
             params![
                 job.job_id,
                 job.session_id,
@@ -155,6 +158,7 @@ impl JobsDB {
                 job.cancel_requested as i32,
                 job.kind.as_str(),
                 job.subagent_run_id,
+                job.group_id,
             ],
         )?;
         Ok(())
@@ -244,6 +248,77 @@ impl JobsDB {
         Ok(rows > 0)
     }
 
+    /// R5: the `group_id` recorded on a `kind='subagent'` projection, keyed by
+    /// its `subagent_run_id`. Lets the status-sync choke point find the owning
+    /// `Group` when a grouped child settles, without threading the id through
+    /// the subagent layer. `Ok(None)` when the run isn't projected or isn't
+    /// grouped. Scoped `kind='subagent'` so a tool job can never masquerade.
+    pub fn group_id_for_subagent_run(&self, subagent_run_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let group_id: Option<Option<String>> = conn
+            .query_row(
+                "SELECT group_id FROM background_jobs
+                    WHERE subagent_run_id = ?1 AND kind = 'subagent'",
+                params![subagent_run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(group_id.flatten())
+    }
+
+    /// R5: all child jobs of a `Group` (rows whose `group_id` is this group's
+    /// `job_id`). The join coordinator reads this to decide whether every child
+    /// is terminal. Does NOT include the group row itself.
+    pub fn group_children(&self, group_id: &str) -> Result<Vec<BackgroundJob>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
+                    args_json, status, result_preview, result_path, error,
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested, kind,
+                    subagent_run_id, group_id
+             FROM background_jobs WHERE group_id=?1",
+        )?;
+        let rows = stmt.query_map(params![group_id], row_to_job)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// R5: mark a `Group` row as sealed — all of its children have been spawned,
+    /// so the join coordinator may complete it once they all settle. Stored in
+    /// `args_json` (`{"sealed":true}`) since the column set carries no dedicated
+    /// flag. Scoped `kind='group'`; idempotent.
+    pub fn mark_group_sealed(&self, group_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let rows = conn.execute(
+            "UPDATE background_jobs SET args_json='{\"sealed\":true}'
+                WHERE job_id=?1 AND kind='group'",
+            params![group_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// R5: atomically claim the right to complete a `Group` (one winner). Flips
+    /// `running`→`completed` only if the row is still non-terminal, so exactly
+    /// one of N concurrently-settling children (or a racing cancel) fires the
+    /// merged injection. Returns whether THIS caller won the claim. Scoped
+    /// `kind='group'`.
+    pub fn claim_group_completion(&self, group_id: &str, completed_at: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let sql = format!(
+            "UPDATE background_jobs
+                SET status='completed', completed_at=?2
+                WHERE job_id=?1 AND kind='group'
+                  AND status NOT IN ({})",
+            JobStatus::TERMINAL_STATUS_SQL_LIST
+        );
+        let rows = conn.execute(&sql, params![group_id, completed_at])?;
+        Ok(rows > 0)
+    }
+
     /// Physically delete a single job row by id. Used to roll back a freshly
     /// inserted row whose enqueue was rejected (queue full) so it never lingers
     /// as a stale `queued` row.
@@ -315,7 +390,7 @@ impl JobsDB {
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin,
                     approval_origin, incognito, pid, cancel_requested, kind,
-                    subagent_run_id
+                    subagent_run_id, group_id
              FROM background_jobs WHERE job_id=?1",
         )?;
         stmt.query_row(params![job_id], row_to_job)
@@ -335,7 +410,7 @@ impl JobsDB {
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin,
                     approval_origin, incognito, pid, cancel_requested, kind,
-                    subagent_run_id
+                    subagent_run_id, group_id
              FROM background_jobs WHERE status IN ('queued','running','cancelling','awaiting_approval')",
         )?;
         let rows = stmt.query_map([], row_to_job)?;
@@ -357,7 +432,7 @@ impl JobsDB {
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin,
                     approval_origin, incognito, pid, cancel_requested, kind,
-                    subagent_run_id
+                    subagent_run_id, group_id
              FROM background_jobs
              WHERE session_id=?1 AND status IN ('queued','running','cancelling','awaiting_approval')",
         )?;
@@ -472,7 +547,7 @@ impl JobsDB {
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin,
                     approval_origin, incognito, pid, cancel_requested, kind,
-                    subagent_run_id
+                    subagent_run_id, group_id
              FROM background_jobs
              WHERE status IN ({})
                AND injected=0",
@@ -511,6 +586,8 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackgroundJob> {
         kind,
         // `subagent_run_id` (index 19, R6) — FK for kind=subagent projections.
         subagent_run_id: row.get(19)?,
+        // `group_id` (index 20, R5) — owning Group's job_id for fan-out children.
+        group_id: row.get(20)?,
         session_id: row.get(1)?,
         agent_id: row.get(2)?,
         tool_name: row.get(3)?,
@@ -540,6 +617,7 @@ mod tests {
             job_id: id.to_string(),
             kind: JobKind::Tool,
             subagent_run_id: None,
+            group_id: None,
             session_id: None,
             agent_id: None,
             tool_name: "exec".into(),
@@ -563,7 +641,8 @@ mod tests {
     /// A `background_jobs` table from a prior schema (here: pre-R1, missing the
     /// `kind` column and the A-7 approval columns) must be rebuilt on open so
     /// the current-shape INSERT/SELECT succeeds — otherwise every spawn fails
-    /// with "no such column" on upgrade. The probe targets `kind` (newest col).
+    /// with "no such column" on upgrade. The probe targets `group_id` (newest
+    /// col, R5), so any pre-R5 table is dropped and rebuilt.
     #[test]
     fn open_rebuilds_table_missing_kind_column() {
         let dir = tempfile::tempdir().unwrap();
@@ -769,5 +848,84 @@ mod tests {
             JobStatus::Running,
             "tool job must be untouched by the subagent sync"
         );
+    }
+
+    // ── R5 Group fan-out ────────────────────────────────────────────────────
+
+    fn group_row(job_id: &str, session: &str) -> BackgroundJob {
+        let mut j = sample_job(job_id);
+        j.kind = JobKind::Group;
+        j.tool_name = "subagent:batch".into();
+        j.args_json = "{\"sealed\":false}".into();
+        j.session_id = Some(session.into());
+        j.injected = true; // the group fires its own merged injection
+        j
+    }
+
+    fn group_child(job_id: &str, run_id: &str, group_id: &str) -> BackgroundJob {
+        let mut j = subagent_projection(job_id, run_id);
+        j.group_id = Some(group_id.to_string());
+        j
+    }
+
+    #[test]
+    fn group_children_and_group_id_lookup_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        db.insert(&group_row("g1", "s1")).unwrap();
+        db.insert(&group_child("c1", "run1", "g1")).unwrap();
+        db.insert(&group_child("c2", "run2", "g1")).unwrap();
+        // A subagent projection in a *different* group must not leak in.
+        db.insert(&group_child("c3", "run3", "other")).unwrap();
+
+        let mut kids: Vec<String> = db
+            .group_children("g1")
+            .unwrap()
+            .into_iter()
+            .map(|j| j.job_id)
+            .collect();
+        kids.sort();
+        assert_eq!(kids, vec!["c1".to_string(), "c2".to_string()]);
+        // group_id is resolvable from a child run id (status-sync choke point).
+        assert_eq!(
+            db.group_id_for_subagent_run("run1").unwrap().as_deref(),
+            Some("g1")
+        );
+        assert_eq!(db.group_id_for_subagent_run("nope").unwrap(), None);
+    }
+
+    #[test]
+    fn claim_group_completion_is_single_winner() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        db.insert(&group_row("g", "s")).unwrap();
+        // Seal flips args_json; status stays running until claimed.
+        assert!(db.mark_group_sealed("g").unwrap());
+        assert_eq!(
+            db.load("g").unwrap().unwrap().args_json,
+            "{\"sealed\":true}"
+        );
+        // Exactly one claim wins; a second (or a post-cancel) loses.
+        assert!(db.claim_group_completion("g", 100).unwrap(), "first wins");
+        assert!(
+            !db.claim_group_completion("g", 200).unwrap(),
+            "second loses — group already terminal"
+        );
+        let g = db.load("g").unwrap().unwrap();
+        assert_eq!(g.status, JobStatus::Completed);
+        assert_eq!(g.completed_at, Some(100));
+    }
+
+    #[test]
+    fn claim_group_completion_loses_after_cancel() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        db.insert(&group_row("g", "s")).unwrap();
+        // A cancel marks the group terminal first → the join claim must lose so
+        // a cancelled batch never fires a merged injection.
+        db.update_terminal("g", JobStatus::Cancelled, None, None, Some("x"), 5)
+            .unwrap();
+        assert!(!db.claim_group_completion("g", 100).unwrap());
+        assert_eq!(db.load("g").unwrap().unwrap().status, JobStatus::Cancelled);
     }
 }
