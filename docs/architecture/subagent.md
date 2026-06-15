@@ -256,6 +256,27 @@ sequenceDiagram
 
 来源：`crates/ha-core/src/async_jobs/manager.rs`（`project_subagent_spawn` / `sync_subagent_projection`）、`crates/ha-core/src/subagent/{spawn.rs,mod.rs}`、`crates/ha-core/src/session/subagent_db.rs`、`crates/ha-core/src/async_jobs/{db.rs,mod.rs}`。
 
+## Group fan-out（R5）
+
+`batch_spawn` 把 N 个后台 subagent 升格为一个 **Group**：一条 `kind=group` 协调行 + N 个 `kind=subagent` 子投影（共享 `group_id` 列 = group 的 `job_id`）。全部子到终态时**合并注入一轮**（一条 `<task-notification>` 汇总所有子结果），而不是每个子各起一轮计费 turn——收口 PRD P2「委派并发后台工作并等齐收集结果」。**join-all-settle**：等所有子到终态（不 fail-fast），一并返回部分成功 + 各自终态，失败不丢弃其余结果。
+
+**与 R6 的关系**：Group 是 R6 单向投影的编排层。子投影仍是 R6 那套（`subagent_runs` 真相源、投影不持正文不反写），只是多带一个 `group_id` 并把个体注入交给 Group 统一发。group 行本身也是纯协调投影，**绝不持有 run 正文**（合并消息构建时才从 `subagent_runs` 读子结果）。
+
+| 关注点 | 实现 |
+|--------|------|
+| **建** | `action_batch_spawn` **先预校验全部 task**（任一缺 `task` 字段整体拒——否则已建的子代理永不 seal → 漏交付，详见红线）→ 非 incognito 且 jobs DB 就绪时 `JobManager::spawn_group`（group 行 `status=Running`、`args_json={"sealed":false}`、`injected=true`）→ 每个子 `SpawnParams.group_id=Some(group)`。子投影建在 `spawn_subagent`（同 R6 gate），携 `group_id` |
+| **抑制个体注入** | grouped 子（`effective_group_id.is_some()`）在 `spawn.rs` 完成处**跳过** `inject_and_run_parent`——Group 统一发。覆盖**全部终态含 Killed**（个体路径只发 Completed/Error/Timeout，Group 更全） |
+| **seal** | spawn 循环结束后 `JobManager::seal_group`：标 `args_json={"sealed":true}` 再跑一次 `try_complete_group`（兜底「spawn 期间快子已全完成」）。`try_complete_group` 未 sealed 直接 no-op，防 spawn 中途某子完成就误判全完成 |
+| **join + 合并注入** | 每个子终态经 `sync_subagent_projection` → `group_id_for_subagent_run` → `try_complete_group`：sealed + 全子终态 → **单赢 CAS** `claim_group_completion`（`Running→Completed` only if 非终态，N 个并发子只一个赢）→ `build_group_push_message`（单 `<subagent-result>` 封套，body 枚举每子 status/result/error + task/label，XML-escape）→ 复用 `inject_and_run_parent`（`child_agent_id="batch"`、`run_id=group_id`、`on_injected=None`），复用既有 `subagent_result` 前端 pill，**零前端/零文案** |
+| **fetched-all 跳过** | 注入前 `take_runs_fetched(run_ids)`：若所有子已被 `wait_all`/`check`/`result` 收走则跳过冗余注入（顺带 drain 抑制注入留下的 FETCHED 泄漏）；部分收走仍发完整 summary |
+| **取消** | `cancel_job` kind=Group **先标 group `Cancelled` 再取消子 run**（顺序 load-bearing：`request_cancel_run` 无 flag 兜底会**同步**标子 Killed → 同线程触发 `try_complete_group`，group 须已终态使 CAS 落败，否则给已取消批次误发合并注入）。`cancel_jobs_for_session` 会话删除同样覆盖 group + 子 |
+| **投影失败回退** | grouped 子若投影插入失败 → `effective_group_id=None` → 该子回退**个体注入**（不丢结果），不依赖永不可见它的 Group join |
+| **重启** | in-flight group + 子（`injected=true`）由 `replay_pending_jobs` 的 `list_running` 标 `Interrupted`，**不进注入 replay 路径**——合并注入不补发，子结果仍在 `subagent_runs` 可查（与 R6 narrow gap 对称） |
+
+`job_status(action='status', job_id=<group>)` 对 group 行返回 N-of-M（`child_count` / `children_terminal` / `children_completed` / `children_failed`）+ 合并交付提示。当前 **Group 只 `batch_spawn` 触发**；单 `spawn` / `spawn_and_wait` 仍走 R6 个体投影 + 个体注入。
+
+来源：`crates/ha-core/src/async_jobs/manager.rs`（`spawn_group` / `seal_group` / `try_complete_group` / `build_group_push_message` / `group_progress`）、`crates/ha-core/src/async_jobs/db.rs`（`group_children` / `group_id_for_subagent_run` / `mark_group_sealed` / `claim_group_completion`）、`crates/ha-core/src/tools/subagent.rs`（`action_batch_spawn`）、`crates/ha-core/src/subagent/spawn.rs`。
+
 ## 取消注册表
 
 `SubagentCancelRegistry` 基于 `HashMap<String, Arc<AtomicBool>>` 的内存注册表（`Mutex` 保护）。
@@ -343,7 +364,7 @@ sequenceDiagram
 | `steer` | `run_id`, `message` | 向运行中的子 Agent 推送引导消息 |
 | `kill` | `run_id` | 取消指定子 Agent |
 | `kill_all` | 无 | 取消当前会话所有活跃子 Agent |
-| `batch_spawn` | `tasks`(数组,最多10个) | 批量调用子 Agent |
+| `batch_spawn` | `tasks`(数组,最多10个) | 批量调用子 Agent，作为一个 **Group**（R5）fan-out——全部完成时**合并注入一轮**，返回 `group_id` |
 | `wait_all` | `run_ids`(数组), `wait_timeout`(可选,默认120s,上限600s) | 等待多个子 Agent 全部完成 |
 
 **权限校验**（`do_spawn` 内部）：
