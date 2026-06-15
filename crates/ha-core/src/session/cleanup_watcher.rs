@@ -33,10 +33,15 @@ pub fn spawn_session_cleanup_watcher() {
             let event = match rx.recv().await {
                 Ok(ev) => ev,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    app_warn!(
+                    // Loud: a dropped session:deleted/purged means that session's
+                    // cleanup never runs — pending approvals stay hung, background
+                    // jobs keep running, and (purge) incognito artifacts aren't
+                    // scrubbed. The fan-out below is spawned off this loop to keep
+                    // this drain fast and make lagging effectively impossible.
+                    app_error!(
                         "session",
                         "cleanup_watcher",
-                        "Lagged {} EventBus events; some session cleanups may be missed",
+                        "Lagged {} EventBus event(s); those session cleanups are missed (approvals left hung / jobs uncancelled / incognito artifacts unscrubbed)",
                         n
                     );
                     continue;
@@ -68,7 +73,15 @@ pub fn spawn_session_cleanup_watcher() {
             // Purge (incognito burn-on-close) additionally scrubs on-disk
             // artifacts that a plain delete leaves to age-based GC.
             let is_purge = event.name == EVENT_SESSION_PURGED;
-            cleanup_session(session_id, is_purge).await;
+            // Run the fan-out OFF the receive loop: cleanup_session does several
+            // DB queries + global-lock scans, and awaiting it inline would let a
+            // burst of deletes back up the broadcast buffer and trigger Lagged
+            // (dropping later cleanups). Each step is best-effort and idempotent
+            // per subsystem, so concurrent runs for distinct sessions are safe.
+            let sid = session_id.to_string();
+            tokio::spawn(async move {
+                cleanup_session(&sid, is_purge).await;
+            });
         }
     });
 }

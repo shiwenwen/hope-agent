@@ -156,16 +156,15 @@ pub(crate) fn build_approval_buttons(
     vec![row]
 }
 
+/// Whether the approval reason bars `Allow Always` (strict). Delegates to the
+/// canonical [`ApprovalReasonKind::is_strict`] instead of re-listing the strict
+/// set here — that keeps the IM AllowAlways gate a single source of truth with
+/// the engine/timeout strict set (`is_strict` mirrors `AskReason::
+/// forbids_allow_always`, guarded by the `reason_kind_is_strict_matches_ask_reason`
+/// drift test), so a future strict reason can never silently slip through on the
+/// IM surface.
 fn reason_forbids_allow_always(reason: Option<&ApprovalReasonPayload>) -> bool {
-    matches!(
-        reason.map(|r| r.kind),
-        Some(
-            ApprovalReasonKind::DangerousCommand
-                | ApprovalReasonKind::ProtectedPath
-                | ApprovalReasonKind::MacControlDangerousAction
-                | ApprovalReasonKind::PlanModeAsk
-        )
-    )
+    reason.map(|r| r.kind.is_strict()).unwrap_or(false)
 }
 
 /// Render the approval reason as a one-line suffix for IM prompts.

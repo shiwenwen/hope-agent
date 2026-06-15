@@ -357,6 +357,14 @@ pub async fn dispatch_with_auto_background(
             }
         };
         rt.block_on(async move {
+            // I4 parity with the explicit path: observe a cross-process cancel
+            // (the DB `cancel_requested` flag set by another process) and trip the
+            // local token. Before detach the row doesn't exist yet so the poll
+            // just reads `false`; once detached it becomes effective. Aborted the
+            // moment the job settles, below.
+            let poll_handle = super::get_async_jobs_db().map(|db| {
+                spawn_cross_process_cancel_watcher(db.clone(), job_id_w.clone(), cancel_w.clone())
+            });
             let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
                 &name_w, &args_w, &ctx_w,
             ));
@@ -384,6 +392,11 @@ pub async fn dispatch_with_auto_background(
                     },
                 }
             };
+
+            // Job settled — stop the cross-process cancel watcher.
+            if let Some(h) = poll_handle {
+                h.abort();
+            }
 
             let mut p = phase_w.lock().unwrap_or_else(|p| p.into_inner());
             let next = match std::mem::replace(&mut *p, Phase::Pending) {
@@ -413,6 +426,13 @@ pub async fn dispatch_with_auto_background(
                 let session_id = ctx_w.session_id.clone();
                 let agent_id = ctx_w.agent_id.clone();
                 let tool_call_id = ctx_w.tool_call_id.clone();
+                // E4 (INCOG-2) parity with `run_job_to_completion`: re-check
+                // incognito at settle, not only at spawn. A session burned/deleted
+                // mid-flight would otherwise keep a stale `false` and spool its
+                // result to disk. `is_session_incognito` is fail-closed on a gone
+                // row, so a now-removed session also skips the spool.
+                let incognito =
+                    ctx_w.incognito || crate::session::is_session_incognito(session_id.as_deref());
                 finalize_job(
                     &db,
                     &job_id_w,
@@ -422,7 +442,7 @@ pub async fn dispatch_with_auto_background(
                     tool_call_id,
                     r,
                     preview_bytes,
-                    ctx_w.incognito,
+                    incognito,
                 )
                 .await;
             }
@@ -543,6 +563,37 @@ enum Phase {
     Consumed,
 }
 
+/// Spawn the I4 cross-process cancel watcher shared by both background paths.
+///
+/// A cancel issued from another process (desktop + headless `server` share
+/// `async_jobs.db`) can't reach this runtime's in-memory [`CancellationToken`],
+/// so [`super::cancel_job`] persists a `cancel_requested` flag instead. This
+/// polls that flag (single-row PK read, 5s) and trips `token` on a hit. It stops
+/// itself the moment the token is cancelled by any source; the caller must
+/// `.abort()` the returned handle once the job settles so it can't outlive the
+/// work. Used by `run_job_to_completion` (explicit) and the
+/// `dispatch_with_auto_background` worker (auto) so both honor a cross-process
+/// cancel identically.
+fn spawn_cross_process_cancel_watcher(
+    db: Arc<AsyncJobsDB>,
+    job_id: String,
+    token: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => return,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                    if db.is_cancel_requested(&job_id).unwrap_or(false) {
+                        token.cancel();
+                        return;
+                    }
+                }
+            }
+        }
+    })
+}
+
 async fn run_job_to_completion(
     db: Arc<AsyncJobsDB>,
     job_id: String,
@@ -558,30 +609,10 @@ async fn run_job_to_completion(
     let tool_call_id = ctx.tool_call_id.clone();
     let incognito = ctx.incognito;
 
-    // I4: cross-process cancel watcher. A cancel issued from another process
-    // (desktop + headless server share async_jobs.db) can't reach this
-    // runtime's in-memory token, so it sets the DB `cancel_requested` flag
-    // instead. Poll it (single-row PK read, 5s) and trip the local token on a
-    // hit; the watcher stops itself the moment the token is cancelled (by any
-    // source) and is aborted once the job settles below.
-    let poll_handle = {
-        let poll_token = cancel_token.clone();
-        let poll_db = db.clone();
-        let poll_job_id = job_id.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = poll_token.cancelled() => return,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-                        if poll_db.is_cancel_requested(&poll_job_id).unwrap_or(false) {
-                            poll_token.cancel();
-                            return;
-                        }
-                    }
-                }
-            }
-        })
-    };
+    // I4: cross-process cancel watcher (shared with the auto-background worker).
+    // Aborted once the job settles below.
+    let poll_handle =
+        spawn_cross_process_cancel_watcher(db.clone(), job_id.clone(), cancel_token.clone());
 
     let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
         &tool_name, &args, &ctx,
