@@ -7,7 +7,7 @@
 //! survive a restart; the live timers themselves are process-local (see
 //! `mod.rs`). Incognito wakeups are never persisted here (close-and-burn).
 //!
-//! Like `async_jobs.db`, this is a rebuildable/transient cache: project policy
+//! Like `background_jobs.db`, this is a rebuildable/transient cache: project policy
 //! is "no migration — drop and rebuild" on a stale schema.
 
 use anyhow::{Context, Result};

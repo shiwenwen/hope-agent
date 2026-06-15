@@ -11,7 +11,7 @@ use super::{
 /// Callback fired exactly once, on the dedicated injection OS-thread, when an
 /// injection reaches its terminal **Injected** state (the parent turn ran and
 /// persisted, the result was already consumed, or it failed terminally). Tool
-/// jobs pass a closure that marks the `async_tool_jobs` row injected; subagent
+/// jobs pass a closure that marks the `background_jobs` row injected; subagent
 /// runs pass `None`. Carried through the re-queue so a deferred injection still
 /// marks its source done when the queued attempt eventually lands.
 pub(crate) type OnInjected = Arc<dyn Fn() + Send + Sync>;

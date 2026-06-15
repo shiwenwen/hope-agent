@@ -25,7 +25,7 @@ fn dispatching_set() -> &'static Mutex<HashSet<String>> {
 /// dispatch is already in flight for this job in the current process,
 /// preventing `list_pending_injection()` + event-driven retries from racing
 /// into a double-injection. Cross-process races (desktop + server hitting
-/// the same `async_jobs.db`) still require a DB-level claim; that's tracked
+/// the same `background_jobs.db`) still require a DB-level claim; that's tracked
 /// separately.
 fn try_claim_dispatch(job_id: &str) -> bool {
     let mut guard = dispatching_set().lock().unwrap_or_else(|p| p.into_inner());
@@ -292,17 +292,15 @@ pub fn build_tool_job_push_message(
     let error_block = error
         .map(|err| format!("<error>{}</error>\n", escape_xml_text(err)))
         .unwrap_or_default();
-    let preview_block = if status == JobStatus::Completed
-        && result_path.is_none()
-        && !clean_preview.is_empty()
-    {
-        format!(
-            "<output-preview>\n{}\n</output-preview>\n",
-            escape_xml_text(&clean_preview)
-        )
-    } else {
-        String::new()
-    };
+    let preview_block =
+        if status == JobStatus::Completed && result_path.is_none() && !clean_preview.is_empty() {
+            format!(
+                "<output-preview>\n{}\n</output-preview>\n",
+                escape_xml_text(&clean_preview)
+            )
+        } else {
+            String::new()
+        };
     let summary = match status {
         JobStatus::Completed => {
             if result_path.is_some() {

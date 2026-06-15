@@ -1500,8 +1500,13 @@ pub async fn execute_tool_with_context(
         // again on the background OS thread, plus the audit origin.
         inner_ctx.exec_pre_approved = exec_pre_approved;
         inner_ctx.approval_origin = tool_approval_origin;
-        let raw =
-            async_jobs::JobManager::dispatch_tool_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
+        let raw = async_jobs::JobManager::dispatch_tool_with_auto_background(
+            name,
+            args,
+            &inner_ctx,
+            auto_bg_secs,
+        )
+        .await?;
         // The inner worker suppresses generic disk persistence so detached jobs
         // can spool their raw output into the async output-file. If the worker
         // finished within the foreground budget, persist large inline output at

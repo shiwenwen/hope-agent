@@ -583,10 +583,7 @@ mod tests {
         q.status = JobStatus::Queued;
         db.insert(&q).unwrap();
         assert!(db.mark_running("q").unwrap(), "queued -> running");
-        assert_eq!(
-            db.load("q").unwrap().unwrap().status,
-            JobStatus::Running
-        );
+        assert_eq!(db.load("q").unwrap().unwrap().status, JobStatus::Running);
         // Already running → not re-promoted (guard WHERE status='queued').
         assert!(!db.mark_running("q").unwrap());
         // A never-queued (running) row cannot be promoted either.
@@ -614,10 +611,7 @@ mod tests {
         assert!(db
             .update_terminal("q", JobStatus::Cancelled, None, None, Some("x"), 1)
             .unwrap());
-        assert_eq!(
-            db.load("q").unwrap().unwrap().status,
-            JobStatus::Cancelled
-        );
+        assert_eq!(db.load("q").unwrap().unwrap().status, JobStatus::Cancelled);
     }
 
     #[test]

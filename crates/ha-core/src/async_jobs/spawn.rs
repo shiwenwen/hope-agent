@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use super::db::JobsDB;
 use super::error::JobError;
 use super::injection;
-use super::types::{BackgroundJob, JobStatus, JobOrigin};
+use super::types::{BackgroundJob, JobOrigin, JobStatus};
 use crate::tools::{ToolExecContext, ASYNC_JOB_TIMEOUT_ARG};
 
 const DEFAULT_PREVIEW_BYTES: usize = 4096;
@@ -680,7 +680,7 @@ enum Phase {
 /// Spawn the I4 cross-process cancel watcher shared by both background paths.
 ///
 /// A cancel issued from another process (desktop + headless `server` share
-/// `async_jobs.db`) can't reach this runtime's in-memory [`CancellationToken`],
+/// `background_jobs.db`) can't reach this runtime's in-memory [`CancellationToken`],
 /// so [`super::cancel_job`] persists a `cancel_requested` flag instead. This
 /// polls that flag (single-row PK read, 5s) and trips `token` on a hit. It stops
 /// itself the moment the token is cancelled by any source; the caller must
@@ -689,7 +689,7 @@ enum Phase {
 /// `dispatch_with_auto_background` worker (auto) so both honor a cross-process
 /// cancel identically.
 fn spawn_cross_process_cancel_watcher(
-    db: Arc<AsyncJobsDB>,
+    db: Arc<JobsDB>,
     job_id: String,
     token: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {

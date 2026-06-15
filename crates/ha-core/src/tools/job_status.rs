@@ -231,7 +231,10 @@ fn job_response_value(job: &crate::async_jobs::BackgroundJob, include_output_tai
 /// Attach the running-output tail (R3 ①) for a still-running job, if one was
 /// captured (backgrounded, non-incognito `exec`). Lets the agent peek the latest
 /// output of a long job without waiting — judging "progressing" vs "stuck".
-fn insert_output_tail(map: &mut serde_json::Map<String, Value>, job: &crate::async_jobs::BackgroundJob) {
+fn insert_output_tail(
+    map: &mut serde_json::Map<String, Value>,
+    job: &crate::async_jobs::BackgroundJob,
+) {
     if let Some(tail) = crate::async_jobs::output_tail::read(&job.job_id) {
         if !tail.is_empty() {
             map.insert("output_tail".to_string(), json!(tail));
