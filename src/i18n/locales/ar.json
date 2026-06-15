@@ -325,6 +325,8 @@
     "copy": "نسخ",
     "cronTaskStarted": "تم تشغيل مهمة مجدولة",
     "cronTrigger": "مهمة مجدولة",
+    "wakeupResumed": "استؤنف للمتابعة",
+    "wakeupTrigger": "تنبيه مجدول",
     "daysAgo": "منذ {{count}} يوم",
     "deleteSessionTitle": "حذف المحادثة",
     "deleteSessionWarning": "سيؤدي هذا الإجراء إلى حذف هذه المحادثة وجميع رسائلها نهائيًا. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟",

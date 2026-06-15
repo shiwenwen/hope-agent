@@ -325,6 +325,8 @@
     "copy": "複制",
     "cronTaskStarted": "定時器觸發了一個任務",
     "cronTrigger": "定時任務",
+    "wakeupResumed": "已喚醒繼續",
+    "wakeupTrigger": "定時喚醒",
     "daysAgo": "{{count}}天前",
     "deleteSessionTitle": "刪除對話",
     "deleteSessionWarning": "此操作將永久刪除該對話及其所有消息記錄，且無法恢複。請確認是否繼續？",

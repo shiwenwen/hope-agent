@@ -325,6 +325,8 @@
     "copy": "Copiar",
     "cronTaskStarted": "Uma tarefa agendada foi acionada",
     "cronTrigger": "Tarefa agendada",
+    "wakeupResumed": "Retomado para continuar",
+    "wakeupTrigger": "Despertar agendado",
     "daysAgo": "{{count}}d atrás",
     "deleteSessionTitle": "Excluir conversa",
     "deleteSessionWarning": "Esta ação excluirá permanentemente esta conversa e todas as suas mensagens. Não é possível desfazer. Tem certeza?",

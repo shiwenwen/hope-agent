@@ -325,6 +325,8 @@
     "copy": "Copy",
     "cronTaskStarted": "A scheduled task was triggered",
     "cronTrigger": "Scheduled Task",
+    "wakeupResumed": "Resumed to continue",
+    "wakeupTrigger": "Scheduled Wakeup",
     "daysAgo": "{{count}}d ago",
     "deleteSessionTitle": "Delete Conversation",
     "deleteSessionWarning": "This will permanently delete this conversation and all its messages. This action cannot be undone. Are you sure?",

@@ -273,16 +273,14 @@ fn fire(id: String, session_id: String, agent_id: String, note: Option<String>, 
                     let persisted = !incognito;
                     Arc::new(move || {
                         if persisted {
-                            if let Some(db) = get_wakeup_db() {
-                                let _ = db.mark_fired(&jid);
-                            }
+                            mark_fired_with_retry(&jid);
                         }
                     })
                 };
                 let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     agent_id,
-                    "wakeup".to_string(),
+                    crate::subagent::injection::WAKEUP_CHILD_AGENT_ID.to_string(),
                     id,
                     push_message,
                     session_db,
@@ -312,6 +310,52 @@ fn release_delivering(id: &str) {
         .remove(id);
 }
 
+/// Mark a wakeup fired with retry — mirrors `async_jobs::injection::
+/// mark_injected_with_retry`. The `fired` column is the ONLY durable guard
+/// against a restart re-arming an already-delivered wakeup (the per-process
+/// DELIVERING / FETCHED sets are empty on a fresh boot), so a silently-swallowed
+/// write failure here would cause a duplicate, billed `<wakeup>` turn after the
+/// next Primary restart. Retry transient SQLite errors; log loudly if all fail.
+fn mark_fired_with_retry(id: &str) {
+    const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
+    let Some(db) = get_wakeup_db() else {
+        app_error!(
+            "wakeup",
+            "fire",
+            "Cannot mark wakeup {} fired: wakeup DB not initialized (may re-fire on restart)",
+            id
+        );
+        return;
+    };
+    let mut last_err: Option<String> = None;
+    for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+        }
+        match db.mark_fired(id) {
+            Ok(_) => return,
+            Err(e) => {
+                last_err = Some(e.to_string());
+                app_warn!(
+                    "wakeup",
+                    "fire",
+                    "mark_fired({}) attempt {} failed: {}",
+                    id,
+                    attempt + 1,
+                    e
+                );
+            }
+        }
+    }
+    app_error!(
+        "wakeup",
+        "fire",
+        "mark_fired({}) failed after all retries ({}); wakeup may re-fire (duplicate turn) on next Primary restart",
+        id,
+        last_err.unwrap_or_default()
+    );
+}
+
 /// Build the injected `<wakeup>` user message carrying the agent's own note.
 pub(crate) fn build_wakeup_message(note: Option<&str>) -> String {
     let note_block = note
@@ -329,7 +373,9 @@ pub(crate) fn build_wakeup_message(note: Option<&str>) -> String {
 }
 
 fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Re-arm unfired wakeups after a restart. **Primary-only** — call sites are

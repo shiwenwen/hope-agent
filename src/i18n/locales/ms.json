@@ -325,6 +325,8 @@
     "copy": "Salin",
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
     "cronTrigger": "Tugasan berjadual",
+    "wakeupResumed": "Disambung untuk teruskan",
+    "wakeupTrigger": "Jaga berjadual",
     "daysAgo": "{{count}} hari lalu",
     "deleteSessionTitle": "Padam Perbualan",
     "deleteSessionWarning": "Tindakan ini akan memadamkan perbualan ini dan semua mesejnya secara kekal. Tindakan ini tidak boleh dibatalkan. Adakah anda pasti?",

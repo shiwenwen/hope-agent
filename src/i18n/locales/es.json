@@ -325,6 +325,8 @@
     "copy": "Copiar",
     "cronTaskStarted": "Se ha activado una tarea programada",
     "cronTrigger": "Tarea programada",
+    "wakeupResumed": "Reanudado para continuar",
+    "wakeupTrigger": "Reactivación programada",
     "daysAgo": "hace {{count}}d",
     "deleteSessionTitle": "Eliminar conversación",
     "deleteSessionWarning": "Esta acción eliminará permanentemente esta conversación y todos sus mensajes. No se puede deshacer. ¿Estás seguro?",

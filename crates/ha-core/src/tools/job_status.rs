@@ -311,6 +311,14 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         })
         .to_string());
     }
+    // Cap the fan-out, but SURFACE what we dropped — silently truncating would
+    // let the model read "absent from still_running" as "finished" for ids it
+    // explicitly asked about. (action_list reports `truncated` the same way.)
+    let dropped: Vec<String> = if ids.len() > MAX_WAIT_TARGETS {
+        ids[MAX_WAIT_TARGETS..].to_vec()
+    } else {
+        Vec::new()
+    };
     let ids: Vec<String> = ids.into_iter().take(MAX_WAIT_TARGETS).collect();
     let wait_any = args.get("mode").and_then(|v| v.as_str()) == Some("any");
 
@@ -323,7 +331,8 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         })
         .collect();
 
-    let effective_timeout = compute_effective_timeout(args.get("timeout_ms").and_then(|v| v.as_u64()));
+    let effective_timeout =
+        compute_effective_timeout(args.get("timeout_ms").and_then(|v| v.as_u64()));
     let deadline = std::time::Instant::now() + effective_timeout;
     let mut backoff = INITIAL_BACKOFF;
 
@@ -347,7 +356,11 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         };
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if done || remaining.is_zero() {
-            let note = if still_running.is_empty() {
+            let note = if !dropped.is_empty() {
+                "Too many ids: only the first 32 were waited on; the rest are in `dropped` \
+                 and were NOT checked. Wait on them in a follow-up, or rely on the auto-injected \
+                 task-notification."
+            } else if still_running.is_empty() {
                 "All target jobs reached a terminal state."
             } else {
                 "Returned before all jobs finished (wait is capped at a few seconds). \
@@ -359,6 +372,8 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
                 "mode": if wait_any { "any" } else { "all" },
                 "settled": settled,
                 "still_running": still_running,
+                "dropped": dropped,
+                "truncated": !dropped.is_empty(),
                 "note": note,
             })
             .to_string());

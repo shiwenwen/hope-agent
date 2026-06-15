@@ -325,6 +325,8 @@
     "copy": "Sao chép",
     "cronTaskStarted": "Một tác vụ định kỳ đã được kích hoạt",
     "cronTrigger": "Tác vụ định kỳ",
+    "wakeupResumed": "Tiếp tục lại",
+    "wakeupTrigger": "Đánh thức theo lịch",
     "daysAgo": "{{count}} ngày trước",
     "deleteSessionTitle": "Xóa cuộc trò chuyện",
     "deleteSessionWarning": "Thao tác này sẽ xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn. Không thể hoàn tác. Bạn có chắc chắn không?",

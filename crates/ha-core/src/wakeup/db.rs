@@ -39,10 +39,7 @@ impl WakeupDB {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         // Rebuildable cache: a stale-schema probe failure means the table is
         // absent (DROP is a no-op) or from an older shape (DROP clears it).
-        if conn
-            .prepare("SELECT fire_at FROM wakeups LIMIT 0")
-            .is_err()
-        {
+        if conn.prepare("SELECT fire_at FROM wakeups LIMIT 0").is_err() {
             conn.execute_batch("DROP TABLE IF EXISTS wakeups;")?;
         }
         conn.execute_batch(
@@ -161,13 +158,19 @@ mod tests {
 
         // Ordered by fire_at ASC.
         let pending = db.list_pending().unwrap();
-        assert_eq!(pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["w2", "w1"]);
+        assert_eq!(
+            pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
+            ["w2", "w1"]
+        );
 
         // mark_fired moves it out of pending and is idempotent.
         assert!(db.mark_fired("w2").unwrap());
         assert!(!db.mark_fired("w2").unwrap());
         let pending = db.list_pending().unwrap();
-        assert_eq!(pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["w1"]);
+        assert_eq!(
+            pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
+            ["w1"]
+        );
     }
 
     #[test]
@@ -179,6 +182,9 @@ mod tests {
 
         assert_eq!(db.delete_for_session("s1").unwrap(), 2);
         let pending = db.list_pending().unwrap();
-        assert_eq!(pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["w3"]);
+        assert_eq!(
+            pending.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
+            ["w3"]
+        );
     }
 }

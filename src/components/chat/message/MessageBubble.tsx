@@ -11,6 +11,7 @@ import {
   Info,
   Network,
   Timer,
+  AlarmClock,
   PlayCircle,
   ChevronDown,
   Code2,
@@ -211,6 +212,42 @@ function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => strin
       </button>
       <AnimatedCollapse open={expanded}>
         <div className="w-full px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/15 text-xs text-foreground/80 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150">
+          {msg.content}
+        </div>
+      </AnimatedCollapse>
+    </div>
+  )
+}
+
+function WakeupTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => string }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="flex flex-col items-center gap-1 max-w-[80%]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-500/8 border border-violet-500/20 text-xs text-violet-400/80 hover:bg-violet-500/15 transition-colors cursor-pointer"
+      >
+        <AlarmClock className="w-3 h-3 shrink-0 text-violet-500" />
+        <span className="font-medium text-violet-500">{t("chat.wakeupTrigger")}</span>
+        <span className="text-violet-400/50">·</span>
+        <span>{t("chat.wakeupResumed")}</span>
+        <svg
+          className={cn(
+            "w-3 h-3 shrink-0 text-violet-500/60 transition-transform duration-200",
+            expanded && "rotate-180",
+          )}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <AnimatedCollapse open={expanded}>
+        <div className="w-full px-3 py-2 rounded-lg bg-violet-500/5 border border-violet-500/15 text-xs text-foreground/80 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150">
           {msg.content}
         </div>
       </AnimatedCollapse>
@@ -531,6 +568,10 @@ function MessageBubbleInner({
 
   if (msg.isCronTrigger) {
     return <CronTriggerBubble msg={msg} t={t} />
+  }
+
+  if (msg.isWakeupTrigger) {
+    return <WakeupTriggerBubble msg={msg} t={t} />
   }
 
   if (msg.isPlanTrigger) {

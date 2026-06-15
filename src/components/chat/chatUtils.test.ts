@@ -62,6 +62,22 @@ describe("parseSessionMessages user attachments", () => {
     expect(parsed[0]).toMatchObject({ isPlanTrigger: true })
   })
 
+  test("parses wakeup_trigger meta as a centered wakeup chip (not a subagent result)", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 81,
+        role: "user",
+        content: "<wakeup>...</wakeup>",
+        attachmentsMeta: JSON.stringify({ wakeup_trigger: {} }),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toBeUndefined()
+    expect(parsed[0]).toMatchObject({ isWakeupTrigger: true })
+    // Must NOT be misclassified as a sub-agent result (the bug this fixed).
+    expect(parsed[0]?.isSubagentResult).toBeFalsy()
+  })
+
   test("restores non-image user attachments as file attachments", () => {
     const parsed = parseSessionMessages([
       sessionMessage({

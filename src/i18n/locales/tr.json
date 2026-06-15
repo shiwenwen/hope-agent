@@ -325,6 +325,8 @@
     "copy": "Kopyala",
     "cronTaskStarted": "Zamanlanmış bir görev tetiklendi",
     "cronTrigger": "Zamanlanmış görev",
+    "wakeupResumed": "Devam etmek için sürdürüldü",
+    "wakeupTrigger": "Zamanlanmış uyandırma",
     "daysAgo": "{{count}} gün önce",
     "deleteSessionTitle": "Sohbeti Sil",
     "deleteSessionWarning": "Bu işlem bu sohbeti ve tüm mesajlarını kalıcı olarak silecektir. Bu işlem geri alınamaz. Emin misiniz?",

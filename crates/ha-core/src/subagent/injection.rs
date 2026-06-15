@@ -198,6 +198,11 @@ fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> b
     !matches!(db.get_session(session_id), Ok(None))
 }
 
+/// `child_agent_id` label used by `crate::wakeup` when reusing this injection
+/// pipeline for a self-scheduled wakeup (R10). `inject_and_run_parent` branches
+/// on it to write a `wakeup_trigger` marker instead of `subagent_result`.
+pub(crate) const WAKEUP_CHILD_AGENT_ID: &str = "wakeup";
+
 /// Outcome of waiting for a parent session to become idle before injecting.
 enum IdleWait {
     /// No foreground turn is active — safe to inject now.
@@ -502,15 +507,22 @@ pub(crate) async fn inject_and_run_parent(
     if !user_msg_already_written {
         let mut user_msg = crate::session::NewMessage::user(&push_message)
             .with_source(crate::chat_engine::ChatSource::ParentInjection);
-        user_msg.attachments_meta = Some(
+        // Tag the injected row so the frontend renders it as the right kind of
+        // system chip. A self-scheduled wakeup (R10) is a *trigger*, not a
+        // sub-agent *result* — stamping `subagent_result` made it render as a
+        // misleading green "completed" pill with the note dropped, so wakeups
+        // get their own `wakeup_trigger` marker (mirrors cron's `cron_trigger`).
+        let meta = if child_agent_id == WAKEUP_CHILD_AGENT_ID {
+            serde_json::json!({ "wakeup_trigger": {} })
+        } else {
             serde_json::json!({
                 "subagent_result": {
                     "run_id": &run_id,
                     "agent_id": &child_agent_id,
                 }
             })
-            .to_string(),
-        );
+        };
+        user_msg.attachments_meta = Some(meta.to_string());
         let _ = session_db.append_message(&parent_session_id, &user_msg);
     }
 
@@ -733,8 +745,7 @@ mod tests {
 
         // Releasing the turn makes the session idle → the next wait returns Idle.
         drop(guard);
-        let outcome =
-            wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
+        let outcome = wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
         assert!(matches!(outcome, IdleWait::Idle));
     }
 
@@ -749,8 +760,7 @@ mod tests {
         // Busy, but the agent already fetched the result → Aborted (caller
         // fires on_injected and returns Injected without running a turn).
         let _guard = crate::subagent::ChatSessionGuard::new(sid);
-        let outcome =
-            wait_for_session_idle(sid, std::time::Duration::from_secs(2), || true).await;
+        let outcome = wait_for_session_idle(sid, std::time::Duration::from_secs(2), || true).await;
         assert!(matches!(outcome, IdleWait::Aborted));
     }
 
@@ -761,8 +771,7 @@ mod tests {
             .lock()
             .unwrap()
             .remove(sid);
-        let outcome =
-            wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
+        let outcome = wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
         assert!(matches!(outcome, IdleWait::Idle));
     }
 }
