@@ -2627,6 +2627,10 @@ impl SessionDB {
             let _ = std::fs::remove_dir_all(att_dir);
         }
         self.cleanup_session_orphan_tables(session_id);
+        // Mirror delete_session_with_reason: drop the Smart-mode "already edited"
+        // trust set so a burned incognito session leaves no in-memory trace
+        // (burn-on-close must not survive in the per-session edit-trust map).
+        crate::permission::session_edits::clear(session_id);
         app_info!(
             "session",
             "purge_incognito",
