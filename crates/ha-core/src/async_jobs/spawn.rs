@@ -340,7 +340,8 @@ fn start_runner(
                     &err_msg,
                 );
                 if let Some(sid) = ctx.session_id.clone() {
-                    injection::dispatch_injection(
+                    // R4: same merge window as the normal finalize path.
+                    injection::enqueue_injection(
                         sid,
                         ctx.agent_id.clone(),
                         job_id_owned.clone(),
@@ -920,7 +921,10 @@ async fn finalize_job(
     if status == JobStatus::Cancelled {
         let _ = db.mark_injected(job_id);
     } else if let Some(sid) = session_id {
-        injection::dispatch_injection(
+        // R4: buffer through the per-session completion merge window so several
+        // jobs finishing close together inject as ONE billed turn. Falls back to
+        // immediate single injection when the window is 0 (disabled).
+        injection::enqueue_injection(
             sid.to_string(),
             agent_id.map(|s| s.to_string()),
             job_id.to_string(),

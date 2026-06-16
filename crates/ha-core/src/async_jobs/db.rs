@@ -444,6 +444,34 @@ impl JobsDB {
         Ok(out)
     }
 
+    /// R4 owner-plane panel: a session's jobs for the background-jobs panel —
+    /// active jobs first (`completed_at IS NULL`), then recent terminal jobs
+    /// newest-first — capped at `limit`. Unlike [`list_active_by_session`] (which
+    /// is active-only for cleanup), this includes terminal rows so the panel can
+    /// show "在跑/最近作业". Cap keeps a long-lived session's history bounded; the
+    /// active set is small (bounded by the concurrency cap) so the cap never
+    /// drops a running job.
+    pub fn list_for_session(&self, session_id: &str, limit: usize) -> Result<Vec<BackgroundJob>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
+                    args_json, status, result_preview, result_path, error,
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested, kind,
+                    subagent_run_id, group_id
+             FROM background_jobs
+             WHERE session_id=?1
+             ORDER BY (completed_at IS NOT NULL), created_at DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![session_id, limit as i64], row_to_job)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Return the set of all `result_path` values currently referenced by the
     /// DB. Used by orphan spool-file cleanup to know which files on disk are
     /// still "owned" by a row.
@@ -694,6 +722,43 @@ mod tests {
             .unwrap();
         assert!(!db.set_pid("j", 9999).unwrap());
         assert!(!db.set_cancel_requested("j").unwrap());
+    }
+
+    #[test]
+    fn list_for_session_orders_active_first_then_recent_terminal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("async_jobs.db")).unwrap();
+        let mk = |id: &str, sid: &str, created: i64, terminal: bool| {
+            let mut j = sample_job(id);
+            j.session_id = Some(sid.to_string());
+            j.created_at = created;
+            if terminal {
+                j.status = JobStatus::Completed;
+                j.completed_at = Some(created + 1);
+            }
+            j
+        };
+        // s1: two active (10, 30) + two terminal (20, 40); s2 must not leak in.
+        db.insert(&mk("a_old", "s1", 10, false)).unwrap();
+        db.insert(&mk("t_old", "s1", 20, true)).unwrap();
+        db.insert(&mk("a_new", "s1", 30, false)).unwrap();
+        db.insert(&mk("t_new", "s1", 40, true)).unwrap();
+        db.insert(&mk("other", "s2", 50, false)).unwrap();
+
+        let ids: Vec<String> = db
+            .list_for_session("s1", 50)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.job_id)
+            .collect();
+        // Active first (newest-first), then terminal (newest-first).
+        assert_eq!(ids, vec!["a_new", "a_old", "t_new", "t_old"]);
+
+        // The cap bounds the result and keeps the highest-priority rows.
+        let capped = db.list_for_session("s1", 2).unwrap();
+        assert_eq!(capped.len(), 2);
+        assert_eq!(capped[0].job_id, "a_new");
+        assert_eq!(capped[1].job_id, "a_old");
     }
 
     #[test]

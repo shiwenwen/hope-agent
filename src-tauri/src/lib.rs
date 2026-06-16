@@ -515,6 +515,8 @@ pub fn run() {
             commands::session::load_session_messages_after_cmd,
             commands::session::load_session_messages_around_cmd,
             commands::session::load_session_artifacts_cmd,
+            commands::background_jobs::list_background_jobs,
+            commands::background_jobs::get_background_job,
             commands::session::load_session_environment_cmd,
             commands::session::get_session_stream_state,
             commands::session::search_sessions_cmd,

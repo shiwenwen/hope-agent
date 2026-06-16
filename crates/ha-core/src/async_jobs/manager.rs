@@ -18,7 +18,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::types::{BackgroundJob, JobKind, JobOrigin, JobStatus};
+use super::types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, JobStatus};
 use crate::subagent::SubagentStatus;
 use crate::tools::ToolExecContext;
 
@@ -72,6 +72,109 @@ impl JobManager {
             Some(db) => db.list_active_by_session(session_id),
             None => Ok(Vec::new()),
         }
+    }
+
+    // ── Owner-plane snapshots (R4 panel) ───────────────────────────────────
+    //
+    // The desktop / HTTP owner plane (host-trusted) reads these to render the
+    // background-jobs panel + header badge. They are deliberately separate from
+    // the model-facing `job_status` JSON: camelCase, display-oriented, no
+    // agent-steering hints. Group child projections are folded out (the panel
+    // shows the `Group` row's N-of-M progress, not its N child rows).
+
+    /// A session's background jobs for the R4 panel — active jobs plus recent
+    /// terminal ones, active-first/newest-first (see [`db::JobsDB::list_for_session`]).
+    /// Empty when the DB is not initialized.
+    pub fn list_session_snapshots(session_id: &str) -> Result<Vec<BackgroundJobSnapshot>> {
+        let Some(db) = super::get_async_jobs_db() else {
+            return Ok(Vec::new());
+        };
+        // Generous cap: the active set is small (bounded by the concurrency cap),
+        // so this never drops a running job — it only bounds terminal history.
+        const PANEL_LIMIT: usize = 50;
+        let jobs = db.list_for_session(session_id, PANEL_LIMIT)?;
+        Ok(jobs
+            .iter()
+            // Fold out Group children — the Group row represents them.
+            .filter(|j| !(j.kind == JobKind::Subagent && j.group_id.is_some()))
+            .map(|j| Self::snapshot_from_job(j, false))
+            .collect())
+    }
+
+    /// A single job snapshot for the R4 panel, including the live running-output
+    /// tail for a backgrounded `exec`. `Ok(None)` when unknown / DB uninitialized.
+    pub fn get_job_snapshot(job_id: &str) -> Result<Option<BackgroundJobSnapshot>> {
+        let Some(db) = super::get_async_jobs_db() else {
+            return Ok(None);
+        };
+        Ok(db.load(job_id)?.map(|j| Self::snapshot_from_job(&j, true)))
+    }
+
+    /// Build the owner-plane snapshot for a row. `include_output_tail` attaches
+    /// the live tail for a still-running job (single-job `get` only — never the
+    /// list roster).
+    fn snapshot_from_job(job: &BackgroundJob, include_output_tail: bool) -> BackgroundJobSnapshot {
+        let (child_count, children_terminal, children_completed, children_failed) =
+            if job.kind == JobKind::Group {
+                match Self::group_progress(&job.job_id) {
+                    Some((total, terminal, completed, failed)) => (
+                        Some(total),
+                        Some(terminal),
+                        Some(completed),
+                        Some(failed),
+                    ),
+                    None => (None, None, None, None),
+                }
+            } else {
+                (None, None, None, None)
+            };
+        let output_tail = if include_output_tail
+            && matches!(job.status, JobStatus::Running | JobStatus::Cancelling)
+        {
+            super::output_tail::read(&job.job_id).filter(|t| !t.is_empty())
+        } else {
+            None
+        };
+        BackgroundJobSnapshot {
+            job_id: job.job_id.clone(),
+            kind: job.kind,
+            status: job.status,
+            tool: job.tool_name.clone(),
+            label: Self::display_label(job),
+            origin: job.origin.clone(),
+            session_id: job.session_id.clone(),
+            created_at: job.created_at,
+            completed_at: job.completed_at,
+            error: job.error.clone(),
+            result_preview: job.result_preview.clone(),
+            child_count,
+            children_terminal,
+            children_completed,
+            children_failed,
+            subagent_run_id: job.subagent_run_id.clone(),
+            output_tail,
+        }
+    }
+
+    /// Concise display label: for a backgrounded `exec`, the command's first line
+    /// (truncated); for any other tool, the tool name. Empty for group / subagent
+    /// kinds — the frontend localizes those ("任务组 N" / the agent name) and the
+    /// projection carries no copyable content anyway.
+    fn display_label(job: &BackgroundJob) -> String {
+        if job.kind != JobKind::Tool {
+            return String::new();
+        }
+        if job.tool_name == "exec" {
+            if let Ok(v) = serde_json::from_str::<Value>(&job.args_json) {
+                if let Some(cmd) = v.get("command").and_then(|c| c.as_str()) {
+                    let head = cmd.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+                    if !head.is_empty() {
+                        return crate::truncate_utf8(head, 120).to_string();
+                    }
+                }
+            }
+        }
+        job.tool_name.clone()
     }
 
     // ── Cancellation / cleanup ─────────────────────────────────────────────

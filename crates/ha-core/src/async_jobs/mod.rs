@@ -42,7 +42,7 @@ pub use db::{JobsDB, PurgeStats};
 // through it. `synthetic_started_result` stays re-exported as a pure formatter.
 pub use manager::JobManager;
 pub use spawn::synthetic_started_result;
-pub use types::{BackgroundJob, JobKind, JobOrigin, JobStatus};
+pub use types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, JobStatus};
 
 static ASYNC_JOBS_DB: OnceLock<Arc<JobsDB>> = OnceLock::new();
 

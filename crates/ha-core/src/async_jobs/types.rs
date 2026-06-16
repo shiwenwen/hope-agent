@@ -179,6 +179,49 @@ pub struct BackgroundJob {
     pub cancel_requested: bool,
 }
 
+/// Owner-plane snapshot of a background job for the R4 frontend panel
+/// (`list_background_jobs` / `get_background_job`). Distinct from the
+/// model-facing `job_status` JSON: this is camelCase, display-oriented, and
+/// carries none of the agent-steering hints. The owner plane (Tauri / HTTP) is
+/// host-trusted, so this is NOT gated by `effective_kb_access`-style scoping —
+/// the session id is the only filter (a session sees its own jobs). Group child
+/// projections are folded into their `Group` row by the builder (the panel shows
+/// the group's N-of-M progress, not its N child rows).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundJobSnapshot {
+    pub job_id: String,
+    pub kind: JobKind,
+    pub status: JobStatus,
+    /// Raw tool name (`exec` / `web_search` / `subagent:<agent>` /
+    /// `subagent:batch`). The frontend localizes the kind; this is the wire id.
+    pub tool: String,
+    /// Short human display label (exec command head, else the tool name). Empty
+    /// for kinds the frontend labels itself (group / subagent) so the UI owns the
+    /// localized wording.
+    pub label: String,
+    pub origin: String,
+    pub session_id: Option<String>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+    /// Terminal error text (`failed` / `timed_out` / `cancelled` / `interrupted`).
+    pub error: Option<String>,
+    /// Inline result preview head (completed tool jobs only).
+    pub result_preview: Option<String>,
+    /// Group (R5) child progress; `None` for non-group kinds.
+    pub child_count: Option<usize>,
+    pub children_terminal: Option<usize>,
+    pub children_completed: Option<usize>,
+    pub children_failed: Option<usize>,
+    /// Subagent (R6) projection's run id (content is fetched via the subagent
+    /// tool — never copied here). `None` for non-subagent kinds.
+    pub subagent_run_id: Option<String>,
+    /// Live running-output tail (backgrounded `exec` only). Populated only by
+    /// `get_background_job` for a still-running job — never in the list roster
+    /// (N × ~8KB tails would balloon it).
+    pub output_tail: Option<String>,
+}
+
 /// Reason a job was created — primarily for telemetry / injection wording.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobOrigin {

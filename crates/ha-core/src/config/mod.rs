@@ -85,6 +85,12 @@ pub struct NotificationConfig {
     /// Include assistant reply previews in chat-completion notifications.
     #[serde(default)]
     pub show_chat_content: bool,
+    /// Fire a desktop notification when a background job (R4: tool / group)
+    /// finishes — gated by [`enabled`](Self::enabled) and only when the window
+    /// is in the background (`notifyIfBackground`). Default: true. The "跑完叫我"
+    /// half of the Background Jobs P1 experience.
+    #[serde(default = "crate::default_true")]
+    pub notify_on_background_job_complete: bool,
 }
 
 impl Default for NotificationConfig {
@@ -92,6 +98,7 @@ impl Default for NotificationConfig {
         Self {
             enabled: true,
             show_chat_content: false,
+            notify_on_background_job_complete: true,
         }
     }
 }
@@ -243,6 +250,17 @@ pub struct AsyncToolsConfig {
     /// are bounded separately by per-turn tool concurrency + the sync budget.)
     #[serde(default = "default_async_max_concurrent_jobs")]
     pub max_concurrent_jobs: usize,
+    /// Completion-injection merge window (R4), in seconds. When multiple
+    /// background jobs in the SAME session finish within this window, their
+    /// completion notifications are merged into ONE injected turn (one
+    /// `<task-notification-batch>` listing every task) instead of N separately
+    /// billed turns — so "encourage backgrounding" doesn't degrade into "spam
+    /// billed turns". The first completion opens the window; everything settling
+    /// before it elapses joins the batch. A `Group` (R5) is the pre-merged
+    /// special case and bypasses this. Default: 3. Set to 0 to disable merging
+    /// (each job injects immediately).
+    #[serde(default = "default_async_completion_merge_window_secs")]
+    pub completion_merge_window_secs: u64,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -262,6 +280,9 @@ fn default_async_orphan_grace_secs() -> u64 {
 }
 fn default_async_job_status_max_wait_secs() -> u64 {
     7200
+}
+fn default_async_completion_merge_window_secs() -> u64 {
+    3
 }
 fn default_async_max_concurrent_jobs() -> usize {
     // Hardware-derived default so the cap doesn't oversubscribe the machine:
@@ -299,6 +320,7 @@ impl Default for AsyncToolsConfig {
             orphan_grace_secs: default_async_orphan_grace_secs(),
             job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
             max_concurrent_jobs: default_async_max_concurrent_jobs(),
+            completion_merge_window_secs: default_async_completion_merge_window_secs(),
         }
     }
 }
@@ -1108,5 +1130,10 @@ mod async_tools_defaults_tests {
             AsyncToolsConfig::default().max_concurrent_jobs,
             default_async_max_concurrent_jobs()
         );
+        assert_eq!(
+            AsyncToolsConfig::default().completion_merge_window_secs,
+            default_async_completion_merge_window_secs()
+        );
+        assert_eq!(default_async_completion_merge_window_secs(), 3);
     }
 }

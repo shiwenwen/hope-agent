@@ -784,6 +784,29 @@ pub async fn get_session_artifacts(
     Ok(Json(artifacts))
 }
 
+/// `GET /api/sessions/:id/background-jobs` — R4 owner-plane: the session's
+/// background jobs (active + recent) for the background-jobs panel. Behind the
+/// same Bearer auth as the other session endpoints; the session id is the only
+/// filter (a session sees its own jobs).
+pub async fn list_session_background_jobs(
+    State(_ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ha_core::async_jobs::BackgroundJobSnapshot>>, AppError> {
+    let jobs = ha_core::async_jobs::JobManager::list_session_snapshots(&id)?;
+    Ok(Json(jobs))
+}
+
+/// `GET /api/background-jobs/:job_id` — R4 owner-plane: snapshot a single job
+/// (includes the running-output tail for a backgrounded `exec`). Behind Bearer
+/// auth; `null` body when the job is unknown.
+pub async fn get_background_job(
+    State(_ctx): State<Arc<AppContext>>,
+    Path(job_id): Path<String>,
+) -> Result<Json<Option<ha_core::async_jobs::BackgroundJobSnapshot>>, AppError> {
+    let job = ha_core::async_jobs::JobManager::get_job_snapshot(&job_id)?;
+    Ok(Json(job))
+}
+
 /// `GET /api/sessions/:id/environment` — read-only workspace environment
 /// snapshot for the UI. Git/filesystem reads are anchored to the session's
 /// `WorkspaceScope`; clients cannot supply an arbitrary path.
