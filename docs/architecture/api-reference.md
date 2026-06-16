@@ -323,6 +323,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `load_session_messages_before_cmd` | `GET /api/sessions/{sessionId}/messages/before` | ✅ |
 | `load_session_messages_after_cmd` | `GET /api/sessions/{sessionId}/messages/after` | ✅ |
 | `load_session_artifacts_cmd` | `GET /api/sessions/{sessionId}/artifacts` | ✅ |
+| `list_background_jobs` | `GET /api/sessions/{sessionId}/background-jobs` | ✅ |
+| `get_background_job` | `GET /api/background-jobs/{jobId}` | ✅ |
 | `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅ |
 | `delete_session_cmd` | `DELETE /api/sessions/{sessionId}` | ✅ |
 | `rename_session_cmd` | `PATCH /api/sessions/{sessionId}` | ✅ |
