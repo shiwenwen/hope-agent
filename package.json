@@ -125,14 +125,5 @@
     "unplugin-icons": "^23.0.1",
     "vite": "^8.0.10",
     "vitest": "^4.1.5"
-  },
-  "pnpm": {
-    "overrides": {
-      "dompurify": "^3.4.1",
-      "lodash-es": "^4.18.1",
-      "postcss": "^8.5.10",
-      "uuid": "^14.0.0",
-      "vite": "^8.0.10"
-    }
   }
 }
