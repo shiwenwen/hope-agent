@@ -884,6 +884,9 @@ pub async fn start_background_tasks() {
     tokio::spawn(async move {
         crate::async_jobs::JobManager::run_scheduler().await;
     });
+    // R8 follow-up: mirror background-subagent inner approvals onto their
+    // projection label (running ⇄ awaiting_approval). Idempotent per process.
+    crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
 
     if primary {
         // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
@@ -1205,6 +1208,9 @@ pub async fn start_minimal_background_tasks() {
     tokio::spawn(async move {
         crate::async_jobs::JobManager::run_scheduler().await;
     });
+    // R8 follow-up: mirror background-subagent inner approvals onto their
+    // projection label (running ⇄ awaiting_approval). Idempotent per process.
+    crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
 
     if primary {
         // One-shot ask_user table cleanup. Primary-only because Secondary

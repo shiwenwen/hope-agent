@@ -337,6 +337,94 @@ impl JobManager {
         }
     }
 
+    /// R8 follow-up: reflect a *background subagent's* INNER tool approval on its
+    /// Background Job projection. A background subagent runs its own turns in a
+    /// child session, so its inner approvals don't pass through the job-thread's
+    /// thread-local approval bridge (that only covers `kind=Tool` jobs run by
+    /// [`super::spawn::run_job_to_completion`]); instead an EventBus watcher calls
+    /// this on `approval_required` (`parked=true`: running → awaiting_approval)
+    /// and `approval:resolved` (`parked=false`: awaiting_approval → running).
+    ///
+    /// **Pure projection — never gates execution.** The inner approval still
+    /// block-and-waits in the child session exactly as before; this only moves
+    /// the projection's *label* so the panel / `job_status` show "等待审批"
+    /// instead of "运行中", mirroring R8's background-`exec` behaviour. No-op
+    /// unless `child_session_id` belongs to an active, *projected* subagent run
+    /// (foreground / internal / incognito runs and every non-subagent approval —
+    /// including R8's background `exec`, whose approval carries its *parent*
+    /// session — fall straight through). The status flips reuse the kind-agnostic
+    /// `mark_awaiting_approval` / `resume_from_awaiting_approval` WHERE-guards, so
+    /// a run that already settled terminal (or a duplicate event) is a safe no-op.
+    pub fn reflect_subagent_inner_approval(child_session_id: &str, parked: bool) {
+        let Some(sdb) = crate::globals::get_session_db() else {
+            return;
+        };
+        let run = match sdb.find_active_run_by_child_session(child_session_id) {
+            Ok(Some(run)) => run,
+            Ok(None) => return, // not a subagent child session, or run already settled
+            Err(e) => {
+                crate::app_warn!(
+                    "async_jobs",
+                    "subagent_projection",
+                    "Failed to resolve subagent run for child session {}: {}",
+                    child_session_id,
+                    e
+                );
+                return;
+            }
+        };
+        let Some(db) = super::get_async_jobs_db() else {
+            return;
+        };
+        let job = match db.get_subagent_projection(&run.run_id) {
+            Ok(Some(job)) => job,
+            Ok(None) => return, // run isn't projected (internal / incognito) → no-op
+            Err(e) => {
+                crate::app_warn!(
+                    "async_jobs",
+                    "subagent_projection",
+                    "Failed to load projection for subagent run {}: {}",
+                    run.run_id,
+                    e
+                );
+                return;
+            }
+        };
+        let flipped = if parked {
+            db.mark_awaiting_approval(&job.job_id)
+        } else {
+            db.resume_from_awaiting_approval(&job.job_id)
+        };
+        match flipped {
+            // Only emit when the status actually changed. `false` ⇒ the row was
+            // already in the target state or has settled terminal (frozen) — no
+            // event, so the panel doesn't flicker awaiting↔running spuriously.
+            Ok(true) => {
+                let status = if parked {
+                    JobStatus::AwaitingApproval
+                } else {
+                    JobStatus::Running
+                };
+                super::events::emit_updated(
+                    &job.job_id,
+                    JobKind::Subagent,
+                    &job.tool_name,
+                    status.as_str(),
+                    job.session_id.as_deref(),
+                );
+            }
+            Ok(false) => {}
+            Err(e) => crate::app_warn!(
+                "async_jobs",
+                "subagent_projection",
+                "Failed to flip projection {} (parked={}): {}",
+                job.job_id,
+                parked,
+                e
+            ),
+        }
+    }
+
     // ── Group fan-out (R5) ─────────────────────────────────────────────────
     //
     // A `batch_spawn` of N background subagents becomes a `Group`: one

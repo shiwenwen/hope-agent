@@ -298,6 +298,29 @@ impl JobsDB {
         Ok(rows > 0)
     }
 
+    /// R8 follow-up: the full `kind='subagent'` projection row for a run. The
+    /// approval-projection watcher uses it to park/resume the projection by
+    /// `job_id` (reusing the kind-agnostic [`Self::mark_awaiting_approval`] /
+    /// [`Self::resume_from_awaiting_approval`]) and to emit `job:updated` with the
+    /// projection's label + parent session. `None` ⇒ the run isn't projected
+    /// (foreground / internal / incognito), so the watcher no-ops. Scoped
+    /// `kind='subagent'` so a tool job can never be returned here.
+    pub fn get_subagent_projection(&self, subagent_run_id: &str) -> Result<Option<BackgroundJob>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
+                    args_json, status, result_preview, result_path, error,
+                    created_at, completed_at, injected, origin,
+                    approval_origin, incognito, pid, cancel_requested, kind,
+                    subagent_run_id, group_id
+             FROM background_jobs WHERE subagent_run_id = ?1 AND kind = 'subagent' LIMIT 1",
+        )?;
+        let row = stmt
+            .query_row(params![subagent_run_id], row_to_job)
+            .optional()?;
+        Ok(row)
+    }
+
     /// R5: the `group_id` recorded on a `kind='subagent'` projection, keyed by
     /// its `subagent_run_id`. Lets the status-sync choke point find the owning
     /// `Group` when a grouped child settles, without threading the id through
@@ -1050,6 +1073,64 @@ mod tests {
             db.load("tool1").unwrap().unwrap().status,
             JobStatus::Running,
             "tool job must be untouched by the subagent sync"
+        );
+    }
+
+    #[test]
+    fn get_subagent_projection_returns_only_subagent_rows() {
+        // R8 follow-up: the approval-projection watcher fetches the projection by
+        // run_id; a tool job sharing the FK must never be returned.
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        db.insert(&subagent_projection("proj_g", "run_g")).unwrap();
+        let mut tool = sample_job("tool_g");
+        tool.subagent_run_id = Some("run_tool".into());
+        db.insert(&tool).unwrap();
+
+        let got = db.get_subagent_projection("run_g").unwrap().unwrap();
+        assert_eq!(got.job_id, "proj_g");
+        assert_eq!(got.kind, JobKind::Subagent);
+        // A tool job's FK is never returned (scoped kind='subagent').
+        assert!(db.get_subagent_projection("run_tool").unwrap().is_none());
+        // Unknown run id → None (unprojected / foreground run).
+        assert!(db.get_subagent_projection("nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn subagent_projection_parks_and_resumes_via_kind_agnostic_flips() {
+        // R8 follow-up: the watcher reuses the kind-agnostic park/resume on a
+        // kind='subagent' projection row, gated by status (running ⇄ awaiting),
+        // and a terminal projection is frozen against a stray resume.
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        db.insert(&subagent_projection("proj_p", "run_p")).unwrap();
+
+        // running → awaiting_approval.
+        assert!(db.mark_awaiting_approval("proj_p").unwrap());
+        assert_eq!(
+            db.get_subagent_projection("run_p").unwrap().unwrap().status,
+            JobStatus::AwaitingApproval
+        );
+        // A second park is a no-op (not running).
+        assert!(!db.mark_awaiting_approval("proj_p").unwrap());
+
+        // awaiting_approval → running.
+        assert!(db.resume_from_awaiting_approval("proj_p").unwrap());
+        assert_eq!(
+            db.get_subagent_projection("run_p").unwrap().unwrap().status,
+            JobStatus::Running
+        );
+        // Resume when not parked is a no-op.
+        assert!(!db.resume_from_awaiting_approval("proj_p").unwrap());
+
+        // Settle terminal, then a stray resume must NOT reopen it.
+        assert!(db
+            .update_subagent_projection_status("run_p", JobStatus::Completed, Some(7))
+            .unwrap());
+        assert!(!db.resume_from_awaiting_approval("proj_p").unwrap());
+        assert_eq!(
+            db.get_subagent_projection("run_p").unwrap().unwrap().status,
+            JobStatus::Completed
         );
     }
 

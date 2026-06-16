@@ -23,8 +23,7 @@ struct Tail {
 
 /// Per-job ring of the most recent output bytes (each capped at its own
 /// registered `cap`).
-static TAILS: LazyLock<Mutex<HashMap<String, Tail>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static TAILS: LazyLock<Mutex<HashMap<String, Tail>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Safe band for the configured running-output tail size (R9): a pathological
 /// config can neither make the ring useless (0 → floored) nor blow up RAM (the

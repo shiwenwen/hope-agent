@@ -51,7 +51,9 @@ const MAX_PENDING_CEILING: usize = 100;
 /// The configured upper bound (seconds) on a self-scheduled wakeup delay (R9),
 /// clamped to `[MIN_DELAY_SECS, MAX_DELAY_CEILING_SECS]`.
 pub fn max_delay_secs() -> i64 {
-    (crate::config::cached_config().async_tools.wakeup_max_delay_secs as i64)
+    (crate::config::cached_config()
+        .async_tools
+        .wakeup_max_delay_secs as i64)
         .clamp(MIN_DELAY_SECS, MAX_DELAY_CEILING_SECS)
 }
 

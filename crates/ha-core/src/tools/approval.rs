@@ -274,6 +274,13 @@ impl std::error::Error for ApprovalSubmitError {}
 /// elsewhere. Payload: `{ requestId, sessionId?, decision, source }`.
 pub const EVENT_APPROVAL_RESOLVED: &str = "approval:resolved";
 
+/// Broadcast when an attended approval is REQUESTED (surfaces the dialog).
+/// Payload is a serialized [`ApprovalRequest`] (`session_id` is snake_case here,
+/// unlike [`EVENT_APPROVAL_RESOLVED`]'s camelCase `sessionId`). The R8-follow-up
+/// subagent approval-projection watcher subscribes to both to flip a background
+/// subagent's projection label running ⇄ awaiting_approval.
+pub const EVENT_APPROVAL_REQUIRED: &str = "approval_required";
+
 fn approval_decision_str(response: ApprovalResponse) -> &'static str {
     match response {
         ApprovalResponse::AllowOnce => "allow_once",
@@ -828,7 +835,7 @@ pub(crate) async fn check_and_request_approval(
                 return Err(ApprovalCheckError::RequestSerialization);
             }
         };
-        bus.emit("approval_required", event_data);
+        bus.emit(EVENT_APPROVAL_REQUIRED, event_data);
         // Notification hook (observation): bridge the permission prompt to user
         // scripts / desktop notifications. Fire-and-forget.
         crate::hooks::fire_notification(

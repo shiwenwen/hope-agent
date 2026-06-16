@@ -21,6 +21,7 @@
 //! primarily flows through auto-injected `<task-notification>` messages.
 
 pub(crate) mod approval_bridge;
+pub(crate) mod approval_projection_watcher;
 pub(crate) mod cancel;
 pub(crate) mod db;
 pub(crate) mod error;

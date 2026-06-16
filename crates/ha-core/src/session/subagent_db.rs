@@ -182,6 +182,35 @@ impl SessionDB {
         Ok(runs)
     }
 
+    /// R8 follow-up: the active (`spawning`/`running`) sub-agent run whose CHILD
+    /// session is `child_session_id`. An inner-tool approval event carries the
+    /// child session that requested it; this maps that back to the run whose
+    /// Background Job projection should reflect `AwaitingApproval`. Each active
+    /// run owns a distinct child session, so the result is 0-or-1; terminal runs
+    /// are excluded (their projection is already settled and must not reopen).
+    pub fn find_active_run_by_child_session(
+        &self,
+        child_session_id: &str,
+    ) -> Result<Option<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
+             FROM subagent_runs
+             WHERE child_session_id = ?1 AND status IN ('spawning', 'running')
+             ORDER BY started_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map(params![child_session_id], Self::row_to_subagent_run)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
     /// List all active (non-terminal) sub-agent runs.
     pub fn list_all_active_subagent_runs(&self) -> Result<Vec<crate::subagent::SubagentRun>> {
         let conn = self
@@ -260,5 +289,76 @@ impl SessionDB {
             input_tokens: input_tokens_val.map(|v| v as u64),
             output_tokens: output_tokens_val.map(|v| v as u64),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionDB;
+    use crate::subagent::{SubagentRun, SubagentStatus};
+
+    fn run(run_id: &str, child_session: &str, status: SubagentStatus) -> SubagentRun {
+        SubagentRun {
+            run_id: run_id.into(),
+            parent_session_id: "parent".into(),
+            parent_agent_id: "ha-main".into(),
+            child_agent_id: "helper".into(),
+            child_session_id: child_session.into(),
+            task: "t".into(),
+            status,
+            result: None,
+            error: None,
+            depth: 1,
+            model_used: None,
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: None,
+            duration_ms: None,
+            label: None,
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+        }
+    }
+
+    #[test]
+    fn find_active_run_by_child_session_matches_only_active_runs() {
+        // R8 follow-up: maps an inner-tool approval's child session → the active
+        // run whose projection should reflect AwaitingApproval. Terminal runs and
+        // other sessions must not match (their projection is already settled).
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        db.insert_subagent_run(&run("run-A", "child-A", SubagentStatus::Running))
+            .unwrap();
+        db.insert_subagent_run(&run("run-S", "child-S", SubagentStatus::Spawning))
+            .unwrap();
+        db.insert_subagent_run(&run("run-done", "child-done", SubagentStatus::Completed))
+            .unwrap();
+
+        assert_eq!(
+            db.find_active_run_by_child_session("child-A")
+                .unwrap()
+                .unwrap()
+                .run_id,
+            "run-A"
+        );
+        // Spawning counts as active (the run can already hit an inner approval).
+        assert_eq!(
+            db.find_active_run_by_child_session("child-S")
+                .unwrap()
+                .unwrap()
+                .run_id,
+            "run-S"
+        );
+        // Terminal run is excluded.
+        assert!(db
+            .find_active_run_by_child_session("child-done")
+            .unwrap()
+            .is_none());
+        // Unknown child session (e.g. a foreground turn / R8 background exec whose
+        // approval carries its parent session) → None.
+        assert!(db
+            .find_active_run_by_child_session("child-nope")
+            .unwrap()
+            .is_none());
     }
 }
