@@ -40,12 +40,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::tools::ToolExecContext;
 
-/// Hard ceiling on the in-memory wait queue. Each queued job pins its
-/// `ToolExecContext` in RAM, so the queue must be bounded; past this a new
-/// background request hard-rejects (the model waits / runs synchronously).
-/// Internal guardrail (not a user knob) — high enough to never bite normal use,
-/// low enough to bound memory under a runaway model.
-const MAX_QUEUED_JOBS: usize = 256;
+/// Safe band for the configurable wait-queue ceiling (R9). Each queued job pins
+/// its `ToolExecContext` in RAM, so the queue MUST stay bounded — the configured
+/// `async_tools.max_queued_jobs` is clamped here so a `0`/huge value can neither
+/// disable the bound nor blow up memory. Default lives in config (256).
+const MAX_QUEUED_JOBS_FLOOR: usize = 1;
+const MAX_QUEUED_JOBS_CEILING: usize = 4096;
 
 /// Everything needed to start a backgrounded job later, parked in the queue
 /// while it waits for a slot. Holds the live ctx (not persistable), so it lives
@@ -187,6 +187,19 @@ fn per_session_cap() -> usize {
         .max_concurrent_jobs_per_session
 }
 
+/// Clamp a configured wait-queue ceiling to the safe band. Pure (testable
+/// without touching the global config cache).
+fn clamp_queued(raw: usize) -> usize {
+    raw.clamp(MAX_QUEUED_JOBS_FLOOR, MAX_QUEUED_JOBS_CEILING)
+}
+
+/// Configurable wait-queue ceiling (R9), clamped to the safe band. `0` does NOT
+/// mean "unlimited" here (the queue pins live ctxs in RAM) — it clamps up to the
+/// floor.
+fn max_queued() -> usize {
+    clamp_queued(crate::config::cached_config().async_tools.max_queued_jobs)
+}
+
 fn lock() -> std::sync::MutexGuard<'static, SlotManager> {
     MANAGER.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -246,7 +259,7 @@ pub fn reserve_forced(session_key: &str) -> SlotReservation {
 /// dropped here; the caller hard-rejects and cleans up its row/token by id).
 pub fn enqueue(job: PreparedJob) -> bool {
     let mut m = lock();
-    if m.queue.len() >= MAX_QUEUED_JOBS {
+    if m.queue.len() >= max_queued() {
         return false;
     }
     m.queue.push_back(job);
@@ -324,6 +337,16 @@ mod tests {
         let per = HashMap::new();
         let q: [&str; 0] = [];
         assert_eq!(pick_fair_index(q.iter().copied(), &per, 0), None);
+    }
+
+    #[test]
+    fn clamp_queued_keeps_the_bound_safe() {
+        // R9: the configured queue ceiling is clamped to a safe band — `0` is NOT
+        // "unlimited" (the queue pins live ctxs in RAM), and an absurd value is
+        // capped to protect memory.
+        assert_eq!(clamp_queued(0), MAX_QUEUED_JOBS_FLOOR);
+        assert_eq!(clamp_queued(256), 256);
+        assert_eq!(clamp_queued(usize::MAX), MAX_QUEUED_JOBS_CEILING);
     }
 
     #[test]

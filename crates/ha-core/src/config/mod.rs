@@ -297,6 +297,38 @@ pub struct AsyncToolsConfig {
     /// (each job injects immediately).
     #[serde(default = "default_async_completion_merge_window_secs")]
     pub completion_merge_window_secs: u64,
+    /// R9: bytes of *running* output retained per backgrounded `exec` job (R3 ①
+    /// tail ring). While a backgrounded `exec` runs, its stdout/stderr is teed
+    /// into a per-job ring of this size so `job_status(action:status)` can show
+    /// the latest output (judge "still working" vs "stuck") without waiting for
+    /// completion. Larger = more visibility, more RAM per running job (the ring
+    /// is bounded by the concurrent-job cap). The cap is snapshotted when the
+    /// job starts; changing this does not resize an already-running job's ring.
+    /// Default: 8192. Clamped at read to `[256, 1048576]` (256B–1MB).
+    #[serde(default = "default_async_output_tail_bytes")]
+    pub output_tail_bytes: usize,
+    /// R9: hard ceiling on the in-memory background-job wait queue (R7.1). When
+    /// every slot (`max_concurrent_jobs` / `max_concurrent_jobs_per_session`) is
+    /// full, further `run_in_background` requests QUEUE here; each queued job
+    /// pins its live `ToolExecContext` in RAM, so the queue MUST stay bounded —
+    /// past this a new background request hard-rejects (the model waits / runs
+    /// synchronously). This is a memory guardrail, not an "unlimited" knob: it is
+    /// clamped at read to `[1, 4096]` (0 does NOT mean unlimited). Default: 256.
+    #[serde(default = "default_async_max_queued_jobs")]
+    pub max_queued_jobs: usize,
+    /// R9: upper bound (seconds) on `schedule_wakeup`'s self-scheduled delay.
+    /// A requested delay is clamped to `[10, wakeup_max_delay_secs]` (the 10s
+    /// floor is a non-configurable busy-poll guard). Guards against zombie timers
+    /// pinning a session indefinitely; longer cadences belong to cron. Clamped at
+    /// read to `[10, 604800]` (10s–7d). Default: 86400 (24h).
+    #[serde(default = "default_wakeup_max_delay_secs")]
+    pub wakeup_max_delay_secs: u64,
+    /// R9: per-session cap on pending `schedule_wakeup` wakeups. Exceeding it is a
+    /// structural reject (it does NOT queue) — guards against an agent
+    /// self-scheduling a flood of billed turns. Clamped at read to `[1, 100]`.
+    /// Default: 5.
+    #[serde(default = "default_wakeup_max_pending_per_session")]
+    pub wakeup_max_pending_per_session: usize,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -319,6 +351,18 @@ fn default_async_job_status_max_wait_secs() -> u64 {
 }
 fn default_async_completion_merge_window_secs() -> u64 {
     3
+}
+fn default_async_output_tail_bytes() -> usize {
+    8 * 1024
+}
+fn default_async_max_queued_jobs() -> usize {
+    256
+}
+fn default_wakeup_max_delay_secs() -> u64 {
+    86_400
+}
+fn default_wakeup_max_pending_per_session() -> usize {
+    5
 }
 fn default_async_max_retry_attempts() -> u32 {
     // 3 total attempts (1 initial + 2 retries) for retry-eligible tools. A
@@ -378,6 +422,10 @@ impl Default for AsyncToolsConfig {
             retry_enabled: false,
             max_retry_attempts: default_async_max_retry_attempts(),
             completion_merge_window_secs: default_async_completion_merge_window_secs(),
+            output_tail_bytes: default_async_output_tail_bytes(),
+            max_queued_jobs: default_async_max_queued_jobs(),
+            wakeup_max_delay_secs: default_wakeup_max_delay_secs(),
+            wakeup_max_pending_per_session: default_wakeup_max_pending_per_session(),
         }
     }
 }
@@ -1205,6 +1253,37 @@ mod async_tools_defaults_tests {
             default_async_max_retry_attempts()
         );
         assert_eq!(default_async_max_retry_attempts(), 3);
+        // R9 knobs: Default impl and serde-default helpers stay in lockstep.
+        assert_eq!(
+            AsyncToolsConfig::default().output_tail_bytes,
+            default_async_output_tail_bytes()
+        );
+        assert_eq!(default_async_output_tail_bytes(), 8 * 1024);
+        assert_eq!(
+            AsyncToolsConfig::default().max_queued_jobs,
+            default_async_max_queued_jobs()
+        );
+        assert_eq!(default_async_max_queued_jobs(), 256);
+        assert_eq!(
+            AsyncToolsConfig::default().wakeup_max_delay_secs,
+            default_wakeup_max_delay_secs()
+        );
+        assert_eq!(default_wakeup_max_delay_secs(), 86_400);
+        assert_eq!(
+            AsyncToolsConfig::default().wakeup_max_pending_per_session,
+            default_wakeup_max_pending_per_session()
+        );
+        assert_eq!(default_wakeup_max_pending_per_session(), 5);
+    }
+
+    #[test]
+    fn r9_knobs_use_defaults_when_absent() {
+        // Old configs (and partial writes) omit the R9 fields; serde fills them.
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert_eq!(cfg.async_tools.output_tail_bytes, 8 * 1024);
+        assert_eq!(cfg.async_tools.max_queued_jobs, 256);
+        assert_eq!(cfg.async_tools.wakeup_max_delay_secs, 86_400);
+        assert_eq!(cfg.async_tools.wakeup_max_pending_per_session, 5);
     }
 
     #[test]

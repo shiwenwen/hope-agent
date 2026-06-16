@@ -91,7 +91,7 @@ impl JobManager {
         };
         // Active-first ordering (see `list_for_session`) drops terminal rows
         // first; only a session with >PANEL_LIMIT simultaneously-active jobs
-        // (running cap + up to MAX_QUEUED_JOBS queued) would lose an active row.
+        // (running cap + the bounded wait queue) would lose an active row.
         const PANEL_LIMIT: usize = 50;
         let jobs = db.list_for_session(session_id, PANEL_LIMIT)?;
         Ok(jobs

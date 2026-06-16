@@ -947,7 +947,7 @@ mod tests {
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
-        async_jobs::output_tail::register(&job_id);
+        async_jobs::output_tail::register(&job_id, 8192);
         async_jobs::output_tail::append(&job_id, b"compiling...\nlinking...\n");
 
         let out = tool_job_status(&json!({ "job_id": job_id }), None)
@@ -993,7 +993,7 @@ mod tests {
         let job_id = fresh_id();
         insert_running_in_session(&job_id, &sid);
         // Even with a populated tail, `list` must not embed it (id roster only).
-        async_jobs::output_tail::register(&job_id);
+        async_jobs::output_tail::register(&job_id, 8192);
         async_jobs::output_tail::append(&job_id, b"lots of build output\n");
 
         let out = tool_job_status(&json!({ "action": "list" }), Some(&sid))

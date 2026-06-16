@@ -35,16 +35,36 @@ use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 pub use db::{Wakeup, WakeupDB};
 
-/// Lower bound on the wakeup delay (seconds). Guards against busy-polling — an
-/// agent that wants "almost immediately" should just keep working this turn.
+/// Lower bound on the wakeup delay (seconds). **Non-configurable safety floor** —
+/// guards against busy-polling; an agent that wants "almost immediately" should
+/// just keep working this turn. The configurable upper bound is
+/// `async_tools.wakeup_max_delay_secs` (R9, read via [`max_delay_secs`]).
 pub const MIN_DELAY_SECS: i64 = 10;
-/// Upper bound on the wakeup delay (seconds, 24h). Guards against zombie timers
-/// pinning a session indefinitely; longer cadences belong to cron.
-pub const MAX_DELAY_SECS: i64 = 86_400;
-/// Per-session cap on pending wakeups (structural reject — exceeding errors,
-/// it does NOT queue). Guards against an agent self-scheduling a flood of
-/// billed turns.
-pub const MAX_PENDING_PER_SESSION: usize = 5;
+/// Hard ceiling (seconds, 7d) on the *configurable* max wakeup delay. The
+/// configured `wakeup_max_delay_secs` is clamped to `[MIN_DELAY_SECS, this]`;
+/// guards against zombie timers pinning a session — longer cadences belong to
+/// cron.
+const MAX_DELAY_CEILING_SECS: i64 = 7 * 86_400;
+/// Hard ceiling on the *configurable* per-session pending cap.
+const MAX_PENDING_CEILING: usize = 100;
+
+/// The configured upper bound (seconds) on a self-scheduled wakeup delay (R9),
+/// clamped to `[MIN_DELAY_SECS, MAX_DELAY_CEILING_SECS]`.
+pub fn max_delay_secs() -> i64 {
+    (crate::config::cached_config().async_tools.wakeup_max_delay_secs as i64)
+        .clamp(MIN_DELAY_SECS, MAX_DELAY_CEILING_SECS)
+}
+
+/// The configured per-session cap on pending wakeups (R9, structural reject —
+/// exceeding errors, it does NOT queue). Clamped to `[1, MAX_PENDING_CEILING]`
+/// (`0` is not "unlimited" — that would let an agent self-schedule a flood of
+/// billed turns).
+pub fn max_pending_per_session() -> usize {
+    crate::config::cached_config()
+        .async_tools
+        .wakeup_max_pending_per_session
+        .clamp(1, MAX_PENDING_CEILING)
+}
 
 static WAKEUP_DB: OnceLock<Arc<WakeupDB>> = OnceLock::new();
 
@@ -98,7 +118,7 @@ pub struct ScheduleOutcome {
 /// Why a schedule request was rejected (structural — never queued).
 #[derive(Debug)]
 pub enum ScheduleError {
-    /// The per-session pending cap (`MAX_PENDING_PER_SESSION`) is reached.
+    /// The per-session pending cap (`max_pending_per_session`) is reached.
     TooManyPending { limit: usize },
 }
 
@@ -117,9 +137,9 @@ impl std::fmt::Display for ScheduleError {
 impl std::error::Error for ScheduleError {}
 
 /// Schedule a one-shot wakeup for `session_id`. `delay_secs` is clamped to
-/// `[MIN_DELAY_SECS, MAX_DELAY_SECS]`. Persists a row unless `incognito`, then
-/// arms a process-local timer. Returns `Err` if the per-session pending cap is
-/// hit (structural reject).
+/// `[MIN_DELAY_SECS, max_delay_secs()]` (R9). Persists a row unless `incognito`,
+/// then arms a process-local timer. Returns `Err` if the per-session pending cap
+/// (`max_pending_per_session()`) is hit (structural reject).
 pub fn schedule(
     session_id: &str,
     agent_id: &str,
@@ -127,13 +147,12 @@ pub fn schedule(
     note: Option<String>,
     incognito: bool,
 ) -> Result<ScheduleOutcome, ScheduleError> {
-    if count_pending_for_session(session_id) >= MAX_PENDING_PER_SESSION {
-        return Err(ScheduleError::TooManyPending {
-            limit: MAX_PENDING_PER_SESSION,
-        });
+    let cap = max_pending_per_session();
+    if count_pending_for_session(session_id) >= cap {
+        return Err(ScheduleError::TooManyPending { limit: cap });
     }
 
-    let delay = delay_secs.clamp(MIN_DELAY_SECS, MAX_DELAY_SECS);
+    let delay = delay_secs.clamp(MIN_DELAY_SECS, max_delay_secs());
     let now = now_secs();
     let fire_at = now.saturating_add(delay);
     let id = format!("wakeup_{}", uuid::Uuid::new_v4().simple());
@@ -401,16 +420,17 @@ pub fn replay_pending() {
     // Respect the per-session cap on re-arm. The in-memory cap (counted over
     // ARMED_TIMERS at schedule time) can drift below the persisted count — an
     // Abandoned firing drops the in-memory timer but leaves the row — letting a
-    // session accumulate more persisted rows than MAX_PENDING_PER_SESSION. Bound
-    // it here: rows are ordered fire_at ASC, so the soonest survive; over-cap
-    // rows are dropped (the cap is the policy).
+    // session accumulate more persisted rows than the cap. Bound it here: rows
+    // are ordered fire_at ASC, so the soonest survive; over-cap rows are dropped
+    // (the configured cap is the policy).
+    let cap = max_pending_per_session();
     let mut per_session: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     let mut armed = 0usize;
     let mut dropped = 0usize;
     for w in pending {
         let c = per_session.entry(w.session_id.clone()).or_insert(0);
-        if *c >= MAX_PENDING_PER_SESSION {
+        if *c >= cap {
             let _ = db.delete(&w.id);
             dropped += 1;
             continue;
@@ -499,11 +519,13 @@ mod tests {
         let out = schedule(sid, "ha-main", 2, Some("note".into()), true).unwrap();
         assert_eq!(out.delay_secs, MIN_DELAY_SECS);
 
-        // Fill to the cap (we already armed 1).
-        for _ in 1..MAX_PENDING_PER_SESSION {
+        // Fill to the configured cap (we already armed 1). Reading the live cap
+        // (not a hardcoded 5) keeps the test correct whatever config is loaded.
+        let cap = max_pending_per_session();
+        for _ in 1..cap {
             schedule(sid, "ha-main", 60, None, true).unwrap();
         }
-        assert_eq!(count_pending_for_session(sid), MAX_PENDING_PER_SESSION);
+        assert_eq!(count_pending_for_session(sid), cap);
 
         // One past the cap is a structural reject (not queued).
         let err = schedule(sid, "ha-main", 60, None, true).unwrap_err();
@@ -522,8 +544,19 @@ mod tests {
     async fn schedule_clamps_oversized_delay_to_max() {
         let sid = "test-wakeup-maxclamp-session";
         purge_for_session(sid);
-        let out = schedule(sid, "ha-main", MAX_DELAY_SECS + 10_000, None, true).unwrap();
-        assert_eq!(out.delay_secs, MAX_DELAY_SECS);
+        let max = max_delay_secs();
+        let out = schedule(sid, "ha-main", max + 10_000, None, true).unwrap();
+        assert_eq!(out.delay_secs, max);
         purge_for_session(sid);
+    }
+
+    #[test]
+    fn configured_bounds_are_clamped_to_safe_bands() {
+        // R9: whatever the loaded config holds, the live bounds stay sane —
+        // delay floored at MIN, ceiled at 7d; pending cap in [1, 100].
+        let max = max_delay_secs();
+        assert!((MIN_DELAY_SECS..=MAX_DELAY_CEILING_SECS).contains(&max));
+        let cap = max_pending_per_session();
+        assert!((1..=MAX_PENDING_CEILING).contains(&cap));
     }
 }

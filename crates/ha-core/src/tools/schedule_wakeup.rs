@@ -71,7 +71,7 @@ pub async fn tool_schedule_wakeup(args: &Value, ctx: &ToolExecContext) -> Result
                  session in ~{}s to continue. (Clamped to [{}, {}]s.)",
                 outcome.delay_secs,
                 wakeup::MIN_DELAY_SECS,
-                wakeup::MAX_DELAY_SECS
+                wakeup::max_delay_secs()
             )
         })
         .to_string()),
@@ -88,7 +88,8 @@ pub fn get_schedule_wakeup_tool() -> super::definitions::ToolDefinition {
             instead of busy-polling with job_status or stalling the turn. At fire time you receive a \
             `<wakeup>` message carrying your `note` and run a fresh turn to continue. This is NOT \
             cron (that's user-configured & periodic); this is one-shot and continues the current \
-            context. `delay_secs` is clamped to [10, 86400]. Cap of 5 pending wakeups per session."
+            context. `delay_secs` is clamped to a configured range (default [10, 86400]s; the 10s \
+            floor is fixed). Limited to a configured number of pending wakeups per session (default 5)."
             .into(),
         tier: super::definitions::ToolTier::Core {
             subclass: super::definitions::CoreSubclass::Meta,

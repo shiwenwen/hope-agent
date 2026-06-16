@@ -500,7 +500,7 @@ impl JobsDB {
     /// is active-only for cleanup), this includes terminal rows so the panel can
     /// show "在跑/最近作业". Active-first ordering means the cap drops TERMINAL rows
     /// first; a session's active set is bounded by the running-concurrency cap
-    /// (`clamp(cores-2,4,16)`) plus the `MAX_QUEUED_JOBS`(256) queue, so only the
+    /// (`clamp(cores-2,4,16)`) plus the bounded wait queue (default 256), so only the
     /// pathological case of >`limit` simultaneously-active jobs in one session
     /// would drop an active row (and slightly under-count the header badge).
     pub fn list_for_session(&self, session_id: &str, limit: usize) -> Result<Vec<BackgroundJob>> {

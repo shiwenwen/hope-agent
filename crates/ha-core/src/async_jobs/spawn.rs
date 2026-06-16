@@ -194,7 +194,7 @@ pub(crate) fn spawn_explicit_job(
     // latest output (BashOutput parity). `exec` is the only async tool that
     // streams; incognito jobs leave no tail (close-and-burn, like the spool).
     if tool_name == crate::tools::TOOL_EXEC && !ctx.incognito {
-        super::output_tail::register(&job_id);
+        super::output_tail::register(&job_id, super::output_tail::configured_bytes());
         ctx.output_tail_job_id = Some(job_id.clone());
     }
 
@@ -521,7 +521,7 @@ pub(crate) async fn dispatch_with_auto_background(
             // R3 ①: register the tail ring now that the runtime is up, before the
             // tool streams (exec only; incognito leaves no tail, like the spool).
             if name_w == crate::tools::TOOL_EXEC && !ctx_w.incognito {
-                super::output_tail::register(&job_id_w);
+                super::output_tail::register(&job_id_w, super::output_tail::configured_bytes());
                 ctx_w.output_tail_job_id = Some(job_id_w.clone());
             }
             // R7.4: same retry path as the explicit runner (Failed-only, eligible
