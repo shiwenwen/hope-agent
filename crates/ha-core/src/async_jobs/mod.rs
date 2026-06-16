@@ -20,6 +20,7 @@
 //! The `job_status` meta tool is a snapshot/status escape hatch; completion
 //! primarily flows through auto-injected `<task-notification>` messages.
 
+pub(crate) mod approval_bridge;
 pub(crate) mod cancel;
 pub(crate) mod db;
 pub(crate) mod error;

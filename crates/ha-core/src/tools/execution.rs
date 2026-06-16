@@ -711,7 +711,16 @@ fn decide_async_path(name: &str, args: &Value, ctx: &ToolExecContext) -> AsyncDe
 /// *before* detaching the call into a background job (B5/B6). It runs only when
 /// all hold:
 ///   - the tool is `exec` (the only tool excluded from the outer engine gate);
-///   - the call will actually background (`async_decision != Sync`);
+///   - the call is **auto-background-eligible** — a plain exec that backgrounds
+///     only if it outlives the foreground budget. For these the approval must
+///     resolve up front so the wait stays out of the `auto_background_secs` /
+///     `max_job_secs` budgets (ASYNC-2). **Explicit `ImmediateBackground`**
+///     (`run_in_background:true` / policy AlwaysBackground) is deliberately
+///     EXCLUDED (R8): its command gate is deferred to the background job thread,
+///     where an attended approval parks the job at `AwaitingApproval` and the
+///     decision resolves asynchronously — the model gets the job id immediately
+///     and a denial settles the job terminal instead of blocking the turn. See
+///     `async_jobs::approval_bridge`.
 ///   - exec was NOT already approved at the outer engine gate this turn
 ///     (`already_approved`) — set by the Plan-Mode-ask path so the reorder
 ///     doesn't re-prompt for the identical command (review#3); and
@@ -725,7 +734,7 @@ fn should_run_exec_reorder_gate(
     ctx: &ToolExecContext,
 ) -> bool {
     name == TOOL_EXEC
-        && !matches!(async_decision, AsyncDecision::Sync)
+        && matches!(async_decision, AsyncDecision::AutoBackgroundEligible)
         && !already_approved
         && ctx.should_run_exec_command_gate()
 }
@@ -1375,20 +1384,25 @@ pub async fn execute_tool_with_context(
 
     // ── exec async approval reorder (B5 / B6) ─────────────────────
     // `exec` is excluded from the outer engine gate above — its command-level
-    // approval normally lives inside `tool_exec`. For an async-eligible exec
-    // call that would otherwise detach, run that gate HERE, *before* handing
-    // off to the spawner, so:
-    //   - the user approves the command before the model ever sees a synthetic
-    //     "started" job id (ASYNC-1) and approval surfaces fire in causal order
-    //     (HOOKS-2); and
-    //   - for the auto-background tier the approval wait is excluded from the
-    //     `auto_background_secs` + `max_job_secs` budgets (ASYNC-2) — those
-    //     timers only start inside the spawner calls below.
-    // On approval, `exec_pre_approved` rides into the spawned context so the
-    // inner gate in `tool_exec` is skipped (one prompt, not two). On deny the
-    // rejection returns WITHOUT spawning — the model gets a STOP, never a
-    // phantom job. Non-exec async tools already ran the engine gate above, so
-    // they reach the spawn branches already approved.
+    // approval normally lives inside `tool_exec`. For an **auto-background-
+    // eligible** exec call that would otherwise detach mid-flight, run that gate
+    // HERE, *before* handing off to the spawner, so the approval wait is excluded
+    // from the `auto_background_secs` + `max_job_secs` budgets (ASYNC-2) — those
+    // timers only start inside the spawner call below. On approval,
+    // `exec_pre_approved` rides into the spawned context so the inner gate in
+    // `tool_exec` is skipped (one prompt, not two); on deny the rejection returns
+    // WITHOUT spawning (the model gets a STOP, never a phantom job).
+    //
+    // R8 carve-out: **explicit `ImmediateBackground`** exec (`run_in_background`
+    // / policy AlwaysBackground) does NOT reorder here — `should_run_exec_
+    // reorder_gate` excludes it. Its command gate runs inside the background job
+    // thread instead, so an attended approval parks the job at `AwaitingApproval`
+    // and resolves asynchronously: the model receives the job id immediately and
+    // a denial settles the job terminal (DeniedByUser→Failed) via injection,
+    // rather than blocking the foreground turn. This deliberately supersedes
+    // ASYNC-1 for the explicit-background path (the acceptance requires a denied
+    // background exec to terminate as a job, not vanish). Non-exec async tools
+    // still ran the engine gate above, so they reach the spawn branches approved.
     if should_run_exec_reorder_gate(name, async_decision, exec_pre_approved, ctx) {
         let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
         let session_cwd = args
@@ -1465,9 +1479,14 @@ pub async fn execute_tool_with_context(
     // a dedicated OS thread via `async_jobs::spawn_explicit_job`.
     if let AsyncDecision::ImmediateBackground(origin) = async_decision {
         let mut spawn_ctx = ctx.clone();
-        // For exec the command gate already ran above; carry the verdict so the
-        // re-dispatch inside the background runtime doesn't prompt again, plus
-        // the audit origin for the job's `approval_origin` column.
+        // R8: for explicit background exec the reorder gate above is SKIPPED, so
+        // `exec_pre_approved` is normally false here — the command gate runs
+        // inside the background runtime, where an attended approval parks the job
+        // at `AwaitingApproval` (see `async_jobs::approval_bridge`). It is only
+        // true when a prior engine prompt this turn already approved the command
+        // (Plan-Mode-ask path), in which case the inner gate is correctly skipped.
+        // `approval_origin` is the spawn-time audit value (a placeholder when the
+        // gate is deferred); the bridge corrects it to the real decision on resume.
         spawn_ctx.exec_pre_approved = exec_pre_approved;
         spawn_ctx.approval_origin = tool_approval_origin;
         let raw = async_jobs::JobManager::spawn_tool(name, args.clone(), spawn_ctx, origin)?;
@@ -2391,12 +2410,14 @@ mod tests {
         // review#3: a Plan-Mode-ask exec that the user already approved at the
         // OUTER engine gate must NOT be re-prompted by the async reorder.
         let ctx = ToolExecContext::default(); // auto_approve=false, exec_pre_approved=false
-        let bg = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
-        // Fresh async exec, not yet approved → reorder runs its gate.
-        assert!(should_run_exec_reorder_gate("exec", bg, false, &ctx));
+        // The reorder runs only for the AUTO-background tier (approval must
+        // resolve before the budget timer starts, ASYNC-2).
+        let auto_bg = AsyncDecision::AutoBackgroundEligible;
+        // Fresh auto-bg exec, not yet approved → reorder runs its gate.
+        assert!(should_run_exec_reorder_gate("exec", auto_bg, false, &ctx));
         // Already approved at the outer plan-ask gate → reorder is suppressed
         // (one prompt, not two).
-        assert!(!should_run_exec_reorder_gate("exec", bg, true, &ctx));
+        assert!(!should_run_exec_reorder_gate("exec", auto_bg, true, &ctx));
         // Sync (non-backgrounding) exec → reorder never runs (inner gate handles it).
         assert!(!should_run_exec_reorder_gate(
             "exec",
@@ -2404,8 +2425,26 @@ mod tests {
             false,
             &ctx
         ));
-        // Non-exec async tool → already gated by the outer engine, no reorder.
-        assert!(!should_run_exec_reorder_gate("web_search", bg, false, &ctx));
+        // Non-exec auto-bg tool → already gated by the outer engine, no reorder.
+        assert!(!should_run_exec_reorder_gate("web_search", auto_bg, false, &ctx));
+    }
+
+    #[test]
+    fn exec_reorder_gate_excludes_immediate_background_for_r8_parking() {
+        // R8: explicit `run_in_background` / policy AlwaysBackground exec does NOT
+        // reorder its approval to the foreground turn. The command gate is
+        // deferred to the background job thread so an attended approval parks the
+        // job at AwaitingApproval and resolves asynchronously (the model gets the
+        // job id immediately; a denial settles the job terminal via injection).
+        let ctx = ToolExecContext::default(); // exec_pre_approved=false
+        let immediate = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
+        assert!(
+            !should_run_exec_reorder_gate("exec", immediate, false, &ctx),
+            "ImmediateBackground exec must defer its approval gate to the job thread (R8)"
+        );
+        // ...unless a prior engine prompt this turn already approved it
+        // (Plan-Mode-ask path) — then there is nothing left to gate, parked or not.
+        assert!(!should_run_exec_reorder_gate("exec", immediate, true, &ctx));
     }
 
     #[test]
@@ -2420,9 +2459,9 @@ mod tests {
             exec_pre_approved: true,
             ..ToolExecContext::default()
         };
-        let bg = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
-        assert!(!should_run_exec_reorder_gate("exec", bg, false, &auto));
-        assert!(!should_run_exec_reorder_gate("exec", bg, false, &pre));
+        let auto_bg = AsyncDecision::AutoBackgroundEligible;
+        assert!(!should_run_exec_reorder_gate("exec", auto_bg, false, &auto));
+        assert!(!should_run_exec_reorder_gate("exec", auto_bg, false, &pre));
     }
 
     #[test]

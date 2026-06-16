@@ -178,7 +178,7 @@ impl JobsDB {
             "UPDATE background_jobs
                 SET status=?1, result_preview=?2, result_path=?3, error=?4, completed_at=?5
                 WHERE job_id=?6
-                  AND status IN ('queued','running','cancelling')",
+                  AND status IN ('queued','running','cancelling','awaiting_approval')",
             params![
                 status.as_str(),
                 result_preview,
@@ -197,8 +197,55 @@ impl JobsDB {
             "UPDATE background_jobs
                 SET status=?1, error=COALESCE(?2, error)
                 WHERE job_id=?3
-                  AND status IN ('running','cancelling')",
+                  AND status IN ('running','cancelling','awaiting_approval')",
             params![JobStatus::Cancelling.as_str(), error, job_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// R8: park a running tool job on a human approval gate. Guarded
+    /// `WHERE status='running'` so it only fires for a job whose dispatch is
+    /// genuinely executing (a queued/terminal/already-parked row is untouched).
+    /// Returns whether a row transitioned. Paired with
+    /// [`Self::resume_from_awaiting_approval`] (approve) or a terminal write
+    /// (deny/cancel/timeout) — both of which the `update_terminal` /
+    /// `mark_running` guards now also accept `awaiting_approval` from.
+    pub fn mark_awaiting_approval(&self, job_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let rows = conn.execute(
+            "UPDATE background_jobs SET status='awaiting_approval'
+                WHERE job_id=?1 AND status='running'",
+            params![job_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// R8: revert a parked job back to `running` once its approval resolves to a
+    /// proceed (the dispatch continues on the same thread). Guarded
+    /// `WHERE status='awaiting_approval'` so a concurrent cancel that already
+    /// moved the row to `cancelling`/terminal is not clobbered back to running.
+    /// Returns whether a row transitioned.
+    pub fn resume_from_awaiting_approval(&self, job_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let rows = conn.execute(
+            "UPDATE background_jobs SET status='running'
+                WHERE job_id=?1 AND status='awaiting_approval'",
+            params![job_id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// R8 (F6 audit): correct a parked job's `approval_origin` once the real
+    /// decision is known (the spawn-time origin was a placeholder because the
+    /// command gate had not run yet — it now runs on the job thread). Only
+    /// touches still-active rows so a settled job's audit trail is frozen.
+    pub fn set_approval_origin(&self, job_id: &str, approval_origin: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let rows = conn.execute(
+            "UPDATE background_jobs SET approval_origin=?2
+                WHERE job_id=?1
+                  AND status IN ('running','cancelling','awaiting_approval')",
+            params![job_id, approval_origin],
         )?;
         Ok(rows > 0)
     }
@@ -778,6 +825,90 @@ mod tests {
         // A never-queued (running) row cannot be promoted either.
         db.insert(&sample_job("r")).unwrap();
         assert!(!db.mark_running("r").unwrap());
+    }
+
+    #[test]
+    fn awaiting_approval_park_resume_and_origin_correction() {
+        // R8: a running job parks on an approval, then resumes to running with
+        // its placeholder approval_origin corrected to the real decision.
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        let mut j = sample_job("p");
+        j.approval_origin = Some("policy_allow".into()); // spawn-time placeholder
+        db.insert(&j).unwrap();
+
+        // running -> awaiting_approval (park), guarded to only fire from running.
+        assert!(db.mark_awaiting_approval("p").unwrap());
+        assert_eq!(
+            db.load("p").unwrap().unwrap().status,
+            JobStatus::AwaitingApproval
+        );
+        // A second park is a no-op (not running anymore).
+        assert!(!db.mark_awaiting_approval("p").unwrap());
+
+        // F6 audit: correct the origin while parked (still an active row).
+        assert!(db.set_approval_origin("p", "user").unwrap());
+
+        // awaiting_approval -> running (resume on approve), guarded to only fire
+        // from awaiting_approval.
+        assert!(db.resume_from_awaiting_approval("p").unwrap());
+        let loaded = db.load("p").unwrap().unwrap();
+        assert_eq!(loaded.status, JobStatus::Running);
+        assert_eq!(loaded.approval_origin.as_deref(), Some("user"));
+        // A second resume is a no-op (already running).
+        assert!(!db.resume_from_awaiting_approval("p").unwrap());
+    }
+
+    #[test]
+    fn awaiting_approval_is_active_cancellable_and_settleable() {
+        // R8: a parked job must be in every "active" filter (replay / cancel /
+        // pid / cross-process cancel) and must be directly cancellable + settleable
+        // even if the resume revert never fired (ordering safety net).
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        let mut j = sample_job("p");
+        j.session_id = Some("s1".into());
+        db.insert(&j).unwrap();
+        assert!(db.mark_awaiting_approval("p").unwrap());
+
+        // Active filters include awaiting_approval.
+        assert!(db.list_running().unwrap().iter().any(|r| r.job_id == "p"));
+        assert!(db
+            .list_active_by_session("s1")
+            .unwrap()
+            .iter()
+            .any(|r| r.job_id == "p"));
+        assert!(db.set_pid("p", 4242).unwrap());
+        assert!(db.set_cancel_requested("p").unwrap());
+
+        // mark_cancelling now transitions from awaiting_approval (immediate cancel
+        // feedback for a parked job).
+        assert!(db.mark_cancelling("p", Some("Cancellation requested")).unwrap());
+        assert_eq!(db.load("p").unwrap().unwrap().status, JobStatus::Cancelling);
+
+        // And the row settles terminal from there.
+        assert!(db
+            .update_terminal("p", JobStatus::Cancelled, None, None, Some("x"), 1)
+            .unwrap());
+        assert_eq!(db.load("p").unwrap().unwrap().status, JobStatus::Cancelled);
+    }
+
+    #[test]
+    fn update_terminal_settles_a_still_parked_row() {
+        // R8 safety net: even if the resume revert never ran, finalize can settle
+        // a row that is still `awaiting_approval` (e.g. deny → DeniedByUser→Failed).
+        let dir = tempfile::tempdir().unwrap();
+        let db = JobsDB::open(&dir.path().join("background_jobs.db")).unwrap();
+        db.insert(&sample_job("p")).unwrap();
+        assert!(db.mark_awaiting_approval("p").unwrap());
+        assert!(db
+            .update_terminal("p", JobStatus::Failed, None, None, Some("denied"), 9)
+            .unwrap());
+        let loaded = db.load("p").unwrap().unwrap();
+        assert_eq!(loaded.status, JobStatus::Failed);
+        // A settled row is frozen — neither park nor origin-correction reopens it.
+        assert!(!db.mark_awaiting_approval("p").unwrap());
+        assert!(!db.set_approval_origin("p", "user").unwrap());
     }
 
     #[test]

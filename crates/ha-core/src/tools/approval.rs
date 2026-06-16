@@ -179,6 +179,10 @@ pub enum ApprovalResolutionSource {
     /// Auto-denied because the IM chat that owned the prompt was taken over /
     /// evicted while the session stayed active (G5 / SURFACE-4).
     Eviction,
+    /// Dismissed because the backgrounded job parked on this approval was
+    /// cancelled (R8) — the job settles `Cancelled` via its own runner; this
+    /// only clears the now-orphaned dialog on every surface.
+    JobCancelled,
 }
 
 impl ApprovalResolutionSource {
@@ -191,6 +195,7 @@ impl ApprovalResolutionSource {
             Self::TimeoutDeny => "timeout_deny",
             Self::TimeoutProceed => "timeout_proceed",
             Self::Eviction => "eviction",
+            Self::JobCancelled => "job_cancelled",
         }
     }
 }
@@ -311,6 +316,128 @@ static PENDING_APPROVALS: OnceLock<TokioMutex<HashMap<String, PendingApprovalEnt
 
 fn get_pending_approvals() -> &'static TokioMutex<HashMap<String, PendingApprovalEntry>> {
     PENDING_APPROVALS.get_or_init(|| TokioMutex::new(HashMap::new()))
+}
+
+// ── R8: background-job approval bridge ────────────────────────────────────
+// A backgrounded tool job runs its dispatch on a dedicated OS thread with a
+// current-thread runtime (`async_jobs::spawn::start_runner`). When that
+// dispatch reaches an *attended* approval gate it blocks on the oneshot below —
+// the job is genuinely parked waiting for a human, not "running". This
+// thread-local lets the job runner observe that park/resume around the wait so
+// it can flip the job row Running ⇄ AwaitingApproval (R8) WITHOUT `tools` taking
+// a dependency on `async_jobs`: the runner installs closures that call back into
+// the job DB. Only set on a job-runner thread (`BackgroundApprovalScope`); a
+// no-op everywhere else (foreground turns, subagent runtimes), so foreground and
+// subagent approvals are unaffected.
+
+/// Park/resume hooks a background-job runner installs for the duration of its
+/// dispatch. See module-level R8 note.
+pub struct BackgroundApprovalBridge {
+    /// Called right before blocking on an attended approval, with the pending
+    /// `request_id` (so a later cancel of the parked job can dismiss the
+    /// orphaned dialog). Flips the owning job Running → AwaitingApproval.
+    pub on_park: Box<dyn Fn(&str)>,
+    /// Called once the wait ends (resolved, timed out, or the future was dropped
+    /// by a cancel — the [`BgResumeGuard`] Drop is the single revert point so a
+    /// cancel that drops the future mid-await still un-parks the row). `origin`
+    /// is `Some` only on a proceed outcome so the runner can correct the job's
+    /// `approval_origin` audit column; `None` on deny / timeout-deny / drop (the
+    /// job settles terminal anyway). Reverts AwaitingApproval → Running.
+    pub on_resume: Box<dyn Fn(Option<ApprovalOrigin>)>,
+}
+
+thread_local! {
+    static BG_APPROVAL_BRIDGE: std::cell::RefCell<Option<BackgroundApprovalBridge>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// RAII installer for the background-approval bridge on the current job-runner
+/// thread. Cleared on drop so a thread can never leak a stale bridge. Held for
+/// the whole `run_job_to_completion` body by the job runner.
+pub struct BackgroundApprovalScope;
+
+impl BackgroundApprovalScope {
+    pub fn new(bridge: BackgroundApprovalBridge) -> Self {
+        BG_APPROVAL_BRIDGE.with(|c| *c.borrow_mut() = Some(bridge));
+        Self
+    }
+}
+
+impl Drop for BackgroundApprovalScope {
+    fn drop(&mut self) {
+        BG_APPROVAL_BRIDGE.with(|c| *c.borrow_mut() = None);
+    }
+}
+
+fn notify_bg_park(request_id: &str) {
+    BG_APPROVAL_BRIDGE.with(|c| {
+        if let Some(b) = c.borrow().as_ref() {
+            (b.on_park)(request_id);
+        }
+    });
+}
+
+fn notify_bg_resume(origin: Option<ApprovalOrigin>) {
+    BG_APPROVAL_BRIDGE.with(|c| {
+        if let Some(b) = c.borrow().as_ref() {
+            (b.on_resume)(origin);
+        }
+    });
+}
+
+/// RAII guard that calls [`notify_bg_resume`] exactly once on drop — covering
+/// the resolved / timeout paths (which set `origin` first) AND the cancel path
+/// (the awaiting future is dropped mid-poll, so no match arm runs; the guard's
+/// Drop still un-parks the job). A no-op when no bridge is installed.
+struct BgResumeGuard {
+    origin: Option<ApprovalOrigin>,
+}
+
+impl BgResumeGuard {
+    fn new() -> Self {
+        Self { origin: None }
+    }
+}
+
+impl Drop for BgResumeGuard {
+    fn drop(&mut self) {
+        notify_bg_resume(self.origin);
+    }
+}
+
+/// R8: dismiss the now-orphaned approval dialog for a backgrounded job that was
+/// cancelled while parked. Called from the job runner's `on_resume` (which fires
+/// when the parked dispatch future is dropped by the cancel) — i.e. AFTER the
+/// `select!` has already chosen the cancel branch, so removing the registry
+/// entry here can never race the dispatch into a spurious "denied" completion.
+///
+/// Removes the pending entry **only if still present**: on an approve / deny /
+/// timeout the entry was already cleared by `submit_approval_response` / the
+/// timeout path, so this is a no-op and emits nothing. It is present only on the
+/// cancel path — there we remove it (clearing the "needs your response" badge),
+/// then broadcast `approval:resolved` so every surface dismisses its dialog and
+/// the IM listener clears its `TEXT_PENDING` entry. Returns whether it dismissed.
+///
+/// Best-effort under `try_lock` (the caller is a sync Drop on the job thread); a
+/// contended lock leaves the inert entry to be GC'd on the next submit/cleanup.
+pub fn dismiss_parked_job_approval(request_id: &str, session_id: Option<&str>) -> bool {
+    let removed = match PENDING_APPROVALS.get() {
+        Some(approvals) => match approvals.try_lock() {
+            Ok(mut pending) => pending.remove(request_id).is_some(),
+            Err(_) => false,
+        },
+        None => false,
+    };
+    if removed {
+        emit_approval_resolved(
+            request_id,
+            session_id,
+            "deny",
+            ApprovalResolutionSource::JobCancelled,
+        );
+        emit_pending_interactions_changed(session_id);
+    }
+    removed
 }
 
 /// True iff an approval is currently registered and awaiting a human decision
@@ -726,6 +853,16 @@ pub(crate) async fn check_and_request_approval(
         return Err(ApprovalCheckError::EventBusUnavailable);
     }
 
+    // R8: if this approval is being awaited inside a background-job runner, the
+    // job is genuinely parked on a human decision — flip its row to
+    // AwaitingApproval for the duration of the wait. `resume_guard`'s Drop is the
+    // single revert point (Running on a proceed outcome carried by `origin`,
+    // else still reverted to Running and the runner settles it terminal): it
+    // fires on resolve, timeout, AND a cancel that drops this future mid-await.
+    // Both are no-ops on a foreground / subagent thread (no bridge installed).
+    notify_bg_park(&request_id);
+    let mut resume_guard = BgResumeGuard::new();
+
     let wait_result = if timeout_secs == 0 {
         rx.await.map_err(|_| "cancelled")
     } else {
@@ -738,6 +875,13 @@ pub(crate) async fn check_and_request_approval(
 
     match wait_result {
         Ok(response) => {
+            // R8: a user grant (allow once/always) is the real audit origin —
+            // hand it to the runner so the job's placeholder `approval_origin`
+            // (set at spawn before the gate ran) is corrected. A Deny leaves
+            // `origin = None`: the job settles terminal, origin is moot.
+            if !matches!(response, ApprovalResponse::Deny) {
+                resume_guard.origin = Some(ApprovalOrigin::User);
+            }
             if let Some(logger) = crate::get_logger() {
                 let response_str = match &response {
                     ApprovalResponse::AllowOnce => "allow_once",
@@ -811,6 +955,9 @@ pub(crate) async fn check_and_request_approval(
             let (decision, resolution_source) = if resolved_deny {
                 ("deny", ApprovalResolutionSource::TimeoutDeny)
             } else {
+                // R8: a non-strict timeout-proceed authorizes a parked job to run
+                // — record the weaker-than-click origin for audit (F6 / TIMEOUT-2).
+                resume_guard.origin = Some(ApprovalOrigin::TimeoutProceed);
                 ("allow_once", ApprovalResolutionSource::TimeoutProceed)
             };
             emit_approval_resolved(&request_id, session_id, decision, resolution_source);
@@ -837,10 +984,62 @@ pub(crate) async fn check_and_request_approval(
     }
 }
 
+/// Test-only drivers for the R8 background-approval bridge. The real driver is
+/// `check_and_request_approval`'s attended wait; these let `async_jobs` tests
+/// exercise the installed bridge (park → resume) without standing up the full
+/// approval flow (event bus + a responder + a pending registry entry).
+#[cfg(test)]
+pub(crate) fn test_drive_bridge_park(request_id: &str) {
+    notify_bg_park(request_id);
+}
+
+#[cfg(test)]
+pub(crate) fn test_drive_bridge_resume(origin: Option<ApprovalOrigin>) {
+    // Mirror the production path: the resume always fires through a guard drop.
+    let mut guard = BgResumeGuard::new();
+    guard.origin = origin;
+    drop(guard);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::permission::AskReason;
+
+    /// R8: the background-approval bridge is a thread-local that only fires while
+    /// a `BackgroundApprovalScope` is installed (a job-runner thread) and is
+    /// cleared on scope drop, so foreground / subagent threads never park a job.
+    #[test]
+    fn background_approval_bridge_thread_local_park_resume_and_clear() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        // No bridge installed → notify is a silent no-op (foreground turns).
+        test_drive_bridge_park("none");
+        test_drive_bridge_resume(None);
+
+        let parked: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        let resumed: Rc<RefCell<Vec<Option<&'static str>>>> = Rc::new(RefCell::new(Vec::new()));
+        {
+            let p = parked.clone();
+            let r = resumed.clone();
+            let _scope = BackgroundApprovalScope::new(BackgroundApprovalBridge {
+                on_park: Box::new(move |rid: &str| p.borrow_mut().push(rid.to_string())),
+                on_resume: Box::new(move |o: Option<ApprovalOrigin>| {
+                    r.borrow_mut().push(o.map(|o| o.as_str()))
+                }),
+            });
+            test_drive_bridge_park("req-1");
+            test_drive_bridge_resume(Some(ApprovalOrigin::User));
+            assert_eq!(parked.borrow().as_slice(), &["req-1".to_string()]);
+            assert_eq!(resumed.borrow().as_slice(), &[Some("user")]);
+        }
+        // Scope dropped → thread-local cleared → further notifies are no-ops.
+        test_drive_bridge_park("after");
+        test_drive_bridge_resume(Some(ApprovalOrigin::User));
+        assert_eq!(parked.borrow().len(), 1, "no park after scope drop");
+        assert_eq!(resumed.borrow().len(), 1, "no resume after scope drop");
+    }
 
     /// F1 (TIMEOUT-1): `ApprovalReasonKind::is_strict()` is a serializable mirror
     /// of the canonical `AskReason::forbids_allow_always()`. Assert they agree for

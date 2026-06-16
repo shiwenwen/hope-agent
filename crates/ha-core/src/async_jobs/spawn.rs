@@ -908,6 +908,19 @@ async fn run_job_to_completion(
     let tool_call_id = ctx.tool_call_id.clone();
     let incognito = ctx.incognito;
 
+    // R8: install the approval bridge for this job-runner thread so an *attended*
+    // approval gate hit during the dispatch (the explicit-background `exec`
+    // command gate, now deferred to here) parks the row at AwaitingApproval for
+    // the duration of the wait and reverts to Running on resolve. No-op unless
+    // the dispatch actually blocks on a human. Held across the whole dispatch;
+    // the RAII scope clears the thread-local at function end.
+    let _approval_scope = super::approval_bridge::install(
+        db.clone(),
+        job_id.clone(),
+        tool_name.clone(),
+        session_id.clone(),
+    );
+
     // I4: cross-process cancel watcher (shared with the auto-background worker).
     // Aborted once the job settles below.
     let poll_handle =
@@ -921,6 +934,9 @@ async fn run_job_to_completion(
     // The job has settled — stop the cross-process cancel watcher (no-op if it
     // already exited because the token was cancelled).
     poll_handle.abort();
+    // R8: terminal cleanup of any parked-approval record (idempotent — `on_resume`
+    // already removed it on the normal path; this covers any stray).
+    super::approval_bridge::forget(&job_id);
 
     // E4 (INCOG-2) hardening: re-evaluate incognito at settle time, not only at
     // spawn. `ctx.incognito` was captured when the job started; a long-running
