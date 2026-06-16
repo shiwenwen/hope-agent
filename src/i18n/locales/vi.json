@@ -1624,7 +1624,12 @@
     "on": "Bật",
     "startupDesc": "Sau khi dịch vụ khởi động lại, đăng một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện IM từng hoạt động trong 72 giờ qua. Tắt thông báo theo tài khoản nằm trong từng tài khoản kênh.",
     "startupToggle": "Thông báo \"đã quay lại\" sau khởi động lại",
-    "title": "Cài đặt thông báo"
+    "title": "Cài đặt thông báo",
+    "backgroundJobComplete": "Tác vụ nền đã hoàn tất",
+    "backgroundJobFailed": "Tác vụ nền thất bại",
+    "backgroundJobFallback": "Một tác vụ nền đã hoàn tất",
+    "backgroundJobToggle": "Thông báo khi tác vụ nền hoàn tất",
+    "backgroundJobDesc": "Hiển thị thông báo trên màn hình khi một tác vụ nền hoàn tất trong lúc cửa sổ ở chế độ nền"
   },
   "onboarding": {
     "channels": {
@@ -4511,7 +4516,9 @@
     "toolSessionToNoteName": "Lưu hội thoại thành ghi chú",
     "toolSessionToNoteDesc": "Chắt lọc cuộc hội thoại thành một ghi chú có cấu trúc.",
     "toolKnowledgeRecallName": "Truy hồi tri thức",
-    "toolKnowledgeRecallDesc": "Tìm kiếm đồng thời bộ nhớ và ghi chú (hai phần xếp hạng riêng)."
+    "toolKnowledgeRecallDesc": "Tìm kiếm đồng thời bộ nhớ và ghi chú (hai phần xếp hạng riêng).",
+    "asyncToolsMergeWindow": "Cửa sổ gộp khi hoàn tất",
+    "asyncToolsMergeWindowDesc": "Khi nhiều tác vụ nền trong cùng một phiên hoàn tất trong cửa sổ này, gộp chúng thành một lượt chèn (tiết kiệm lượt tính phí); đặt 0 để tắt."
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -5234,6 +5241,28 @@
     "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài.",
     "result": {
       "memory": "Bộ nhớ"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tác vụ nền",
+    "openPanel": "Tác vụ nền",
+    "openFull": "Xem tất cả / hủy",
+    "empty": "Không có tác vụ nền",
+    "sectionSession": "Phiên này",
+    "sectionLocalModel": "Mô hình cục bộ",
+    "kindGroup": "Nhóm tác vụ",
+    "kindSubagent": "Tác nhân phụ",
+    "resizePanel": "Thay đổi kích thước bảng tác vụ nền",
+    "status": {
+      "queued": "Đang chờ",
+      "running": "Đang chạy",
+      "cancelling": "Đang hủy",
+      "awaiting_approval": "Chờ phê duyệt",
+      "completed": "Hoàn tất",
+      "failed": "Thất bại",
+      "interrupted": "Bị gián đoạn",
+      "timed_out": "Hết thời gian",
+      "cancelled": "Đã hủy"
     }
   }
 }

@@ -1624,7 +1624,12 @@
     "on": "Activado",
     "startupDesc": "Tras un reinicio del servicio, publica un breve aviso «de vuelta en línea» en los chats de IM que estuvieron activos en las últimas 72 h. El silenciamiento por cuenta vive en cada cuenta de canal.",
     "startupToggle": "Aviso de vuelta en línea tras reinicio",
-    "title": "Ajustes de notificaciones"
+    "title": "Ajustes de notificaciones",
+    "backgroundJobComplete": "Tarea en segundo plano completada",
+    "backgroundJobFailed": "Tarea en segundo plano fallida",
+    "backgroundJobFallback": "Ha finalizado una tarea en segundo plano",
+    "backgroundJobToggle": "Notificar cuando finalicen las tareas en segundo plano",
+    "backgroundJobDesc": "Mostrar una notificación de escritorio cuando finalice una tarea en segundo plano mientras la ventana está en segundo plano"
   },
   "onboarding": {
     "channels": {
@@ -4511,7 +4516,9 @@
     "toolSessionToNoteName": "Sesión a nota",
     "toolSessionToNoteDesc": "Destila la conversación en una nota estructurada.",
     "toolKnowledgeRecallName": "Recuperar conocimiento",
-    "toolKnowledgeRecallDesc": "Busca en memoria y notas a la vez (dos secciones ordenadas)."
+    "toolKnowledgeRecallDesc": "Busca en memoria y notas a la vez (dos secciones ordenadas).",
+    "asyncToolsMergeWindow": "Ventana de fusión al finalizar",
+    "asyncToolsMergeWindowDesc": "Cuando varias tareas en segundo plano de la misma sesión finalizan dentro de esta ventana, se fusionan en un único turno de inyección (ahorra turnos facturados); 0 para desactivar."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",
@@ -5234,6 +5241,28 @@
     "allowExternalWritesHint": "Las bóvedas externas son de solo lectura de forma predeterminada. Actívalo para que el editor y las herramientas de IA puedan escribir en la carpeta vinculada. El mantenimiento en segundo plano nunca escribe en bóvedas externas.",
     "result": {
       "memory": "Memoria"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tareas en segundo plano",
+    "openPanel": "Tareas en segundo plano",
+    "openFull": "Ver todo / cancelar",
+    "empty": "No hay tareas en segundo plano",
+    "sectionSession": "Esta sesión",
+    "sectionLocalModel": "Modelos locales",
+    "kindGroup": "Grupo de tareas",
+    "kindSubagent": "Subagente",
+    "resizePanel": "Cambiar el tamaño del panel de tareas en segundo plano",
+    "status": {
+      "queued": "En cola",
+      "running": "En ejecución",
+      "cancelling": "Cancelando",
+      "awaiting_approval": "Esperando aprobación",
+      "completed": "Completada",
+      "failed": "Fallida",
+      "interrupted": "Interrumpida",
+      "timed_out": "Tiempo agotado",
+      "cancelled": "Cancelada"
     }
   }
 }

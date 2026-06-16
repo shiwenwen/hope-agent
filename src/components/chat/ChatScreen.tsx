@@ -14,6 +14,7 @@ import {
   FolderOpen,
   GitCompare,
   Globe,
+  Layers,
   LayoutDashboard,
   Monitor,
   MousePointer2,
@@ -70,6 +71,8 @@ import { useFilePreview } from "./files/useFilePreview"
 import FilePreviewPanel from "./files/FilePreviewPanel"
 import { FileActionsContext, type FileActionsContextValue } from "./files/fileActionsContext"
 import WorkspacePanel from "./workspace/WorkspacePanel"
+import BackgroundJobsPanel from "./background-jobs/BackgroundJobsPanel"
+import { useBackgroundJobs } from "./background-jobs/useBackgroundJobs"
 import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionState"
 import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
@@ -131,6 +134,7 @@ type ExclusiveRightPanel =
   | "mac-control"
   | "canvas"
   | "team"
+  | "background-jobs"
   | "preview"
 type ExclusiveRightPanelVisibility = Record<ExclusiveRightPanel, boolean>
 
@@ -142,6 +146,7 @@ const EXCLUSIVE_RIGHT_PANEL_ORDER: readonly ExclusiveRightPanel[] = [
   "mac-control",
   "canvas",
   "team",
+  "background-jobs",
   "workspace",
   "preview",
 ]
@@ -155,6 +160,7 @@ const EMPTY_RIGHT_PANEL_VISIBILITY: ExclusiveRightPanelVisibility = {
   "mac-control": false,
   canvas: false,
   team: false,
+  "background-jobs": false,
   preview: false,
 }
 
@@ -167,6 +173,7 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
   "mac-control": MousePointer2,
   canvas: Monitor,
   team: Users,
+  "background-jobs": Layers,
   preview: Eye,
 }
 
@@ -338,6 +345,12 @@ export default function ChatScreen({
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false)
   const workspacePanelDismissedRef = useRef(false)
 
+  // R4 背景任务：会话级在跑/最近作业 + 本地模型任务镜像。徽标常驻头部，面板
+  // 由徽标/工具条按钮打开（不自动弹，避免抢占右侧面板）。订阅在 ChatScreen
+  // 级常驻（见 `session` 定义后的 useBackgroundJobs），喂头部徽标计数 + 面板 +
+  // 工作台区块同一份数据。
+  const [showBackgroundJobsPanel, setShowBackgroundJobsPanel] = useState(false)
+
   // Browser live-mirror panel. Auto-opens on the **first** `browser:frame`
   // push of a session. After the user manually closes it, further frames in
   // the same session never re-pop the panel — `browserPanelDismissedRef`
@@ -431,6 +444,10 @@ export default function ChatScreen({
     onUnreadCountChange,
     onSidebarAggregatesChanged: refreshProjectAggregates,
   })
+
+  // R4: live background-jobs subscription (see show-state above) — drives the
+  // header badge count, the background-jobs panel, and the workspace section.
+  const backgroundJobs = useBackgroundJobs(session.currentSessionId)
 
   const isCronSession = useMemo(
     () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
@@ -1594,6 +1611,7 @@ export default function ChatScreen({
       "mac-control": showMacControlPanel,
       canvas: canvasPanelOpen,
       team: !!activeTeamId && showTeamPanel,
+      "background-jobs": showBackgroundJobsPanel,
       preview: isFilePreviewVisible,
     }),
     [
@@ -1603,6 +1621,7 @@ export default function ChatScreen({
       isDiffPanelVisible,
       isFilePreviewVisible,
       shouldShowPlanPanel,
+      showBackgroundJobsPanel,
       showBrowserPanel,
       showFilesPanel,
       showMacControlPanel,
@@ -1639,6 +1658,8 @@ export default function ChatScreen({
           return t("canvas.panelTitle", "Canvas")
         case "team":
           return t("team.panelTitle", "Team")
+        case "background-jobs":
+          return t("backgroundJobs.panelTitle", "后台任务")
         case "preview":
           return t("filePreview.panelTitle", "Preview")
       }
@@ -2112,6 +2133,11 @@ export default function ChatScreen({
             }
           }}
           workspacePanelOpen={showWorkspacePanel}
+          onToggleBackgroundJobsPanel={() =>
+            setShowBackgroundJobsPanel((prev) => !prev)
+          }
+          backgroundJobsPanelOpen={showBackgroundJobsPanel}
+          backgroundJobsRunningCount={backgroundJobs.runningCount}
           rightPanels={titleBarRightPanels}
           activeRightPanelId={renderedExclusiveRightPanel}
           rightPanelCollapsed={rightPanelCollapsed}
@@ -2475,10 +2501,31 @@ export default function ChatScreen({
                   workspaceTaskExecutionState === "running" ||
                   workspaceTaskExecutionState === "cancelling"
                 }
+                backgroundJobs={backgroundJobs.jobs}
+                onOpenBackgroundJobs={() => setShowBackgroundJobsPanel(true)}
                 onClose={() => {
                   workspacePanelDismissedRef.current = true
                   setShowWorkspacePanel(false)
                 }}
+              />
+            </RightPanelShell>
+          )}
+
+          {/* Background-jobs panel (R4) — session jobs (cancellable) + a
+              read-only mirror of global local-model jobs. */}
+          {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "background-jobs" && (
+            <RightPanelShell
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
+              resizeLabel={t("backgroundJobs.resizePanel", "Resize background jobs panel")}
+              maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
+              collapsed={rightPanelCollapsed}
+              contentKey="background-jobs"
+            >
+              <BackgroundJobsPanel
+                jobs={backgroundJobs.jobs}
+                onClose={() => setShowBackgroundJobsPanel(false)}
               />
             </RightPanelShell>
           )}

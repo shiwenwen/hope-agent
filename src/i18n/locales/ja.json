@@ -1624,7 +1624,12 @@
     "on": "オン",
     "startupDesc": "サービス再起動後、過去 72 時間以内に活発だった IM チャットに短い「復旧しました」通知を送信します。アカウントごとのミュートは各 IM チャネル設定で管理します。",
     "startupToggle": "再起動時の IM 復旧通知",
-    "title": "通知設定"
+    "title": "通知設定",
+    "backgroundJobComplete": "バックグラウンドタスクが完了しました",
+    "backgroundJobFailed": "バックグラウンドタスクが失敗しました",
+    "backgroundJobFallback": "バックグラウンドタスクが終了しました",
+    "backgroundJobToggle": "バックグラウンドタスク完了時に通知",
+    "backgroundJobDesc": "ウィンドウがバックグラウンドにある間にバックグラウンドタスクが完了したら、デスクトップ通知を表示します"
   },
   "onboarding": {
     "channels": {
@@ -4511,7 +4516,9 @@
     "toolSessionToNoteName": "会話をノート化",
     "toolSessionToNoteDesc": "現在の会話を構造化されたノートに抽出します。",
     "toolKnowledgeRecallName": "ナレッジ呼出",
-    "toolKnowledgeRecallDesc": "メモリとノートを同時に検索します（2 段のランク付け結果）。"
+    "toolKnowledgeRecallDesc": "メモリとノートを同時に検索します（2 段のランク付け結果）。",
+    "asyncToolsMergeWindow": "完了マージウィンドウ",
+    "asyncToolsMergeWindowDesc": "同じセッション内の複数のバックグラウンドタスクがこのウィンドウ内に完了した場合、1 回の注入ターンにまとめます（課金ターンを節約）。0 で無効。"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -5234,6 +5241,28 @@
     "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。",
     "result": {
       "memory": "メモリ"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "バックグラウンドタスク",
+    "openPanel": "バックグラウンドタスク",
+    "openFull": "すべて表示 / キャンセル",
+    "empty": "バックグラウンドタスクはありません",
+    "sectionSession": "このセッション",
+    "sectionLocalModel": "ローカルモデル",
+    "kindGroup": "タスクグループ",
+    "kindSubagent": "サブエージェント",
+    "resizePanel": "バックグラウンドタスクパネルのサイズを変更",
+    "status": {
+      "queued": "待機中",
+      "running": "実行中",
+      "cancelling": "キャンセル中",
+      "awaiting_approval": "承認待ち",
+      "completed": "完了",
+      "failed": "失敗",
+      "interrupted": "中断",
+      "timed_out": "タイムアウト",
+      "cancelled": "キャンセル済み"
     }
   }
 }

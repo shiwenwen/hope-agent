@@ -11,6 +11,7 @@ interface AsyncToolsConfig {
   autoBackgroundSecs: number
   maxJobSecs: number
   maxConcurrentJobs: number
+  completionMergeWindowSecs: number
   inlineResultBytes: number
   retentionSecs: number
   orphanGraceSecs: number
@@ -22,6 +23,7 @@ const DEFAULT_CONFIG: AsyncToolsConfig = {
   autoBackgroundSecs: 30,
   maxJobSecs: 0,
   maxConcurrentJobs: 8,
+  completionMergeWindowSecs: 3,
   inlineResultBytes: 4096,
   retentionSecs: 30 * 86400,
   orphanGraceSecs: 24 * 3600,
@@ -82,6 +84,7 @@ export default function AsyncToolsPanel() {
     | "autoBackgroundSecs"
     | "maxJobSecs"
     | "maxConcurrentJobs"
+    | "completionMergeWindowSecs"
     | "inlineResultBytes"
     | "retentionSecs"
     | "orphanGraceSecs"
@@ -165,6 +168,36 @@ export default function AsyncToolsPanel() {
                 value={config.maxJobSecs}
                 onChange={(e) => updateNumber("maxJobSecs", 0)(Number(e.target.value))}
                 onBlur={commitNumber("maxJobSecs", 0)}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.seconds")}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">
+                {t("settings.asyncToolsMergeWindow", "完成合并窗口")}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t(
+                  "settings.asyncToolsMergeWindowDesc",
+                  "同会话多个后台任务在此窗口内完成时合并为一轮注入（省计费 turn）；0 关闭。",
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={config.completionMergeWindowSecs}
+                onChange={(e) =>
+                  updateNumber("completionMergeWindowSecs", 0)(Number(e.target.value))
+                }
+                onBlur={commitNumber("completionMergeWindowSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">

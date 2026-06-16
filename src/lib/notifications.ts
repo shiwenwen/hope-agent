@@ -10,6 +10,8 @@ import { isTauriMode, parsePayload } from "@/lib/transport"
 export interface NotificationConfig {
   enabled: boolean
   showChatContent?: boolean
+  /** R4: fire a desktop notification when a background job finishes (default true). */
+  notifyOnBackgroundJobComplete?: boolean
 }
 
 let cachedConfig: NotificationConfig | null = null

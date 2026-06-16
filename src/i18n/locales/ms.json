@@ -1624,7 +1624,12 @@
     "on": "Hidup",
     "startupDesc": "Selepas perkhidmatan dimulakan semula, terbitkan notis pendek \"kembali dalam talian\" ke sembang IM yang aktif dalam 72 jam yang lalu. Senyapan setiap akaun berada di tetapan akaun saluran masing-masing.",
     "startupToggle": "Notis \"kembali dalam talian\" selepas mula semula",
-    "title": "Tetapan pemberitahuan"
+    "title": "Tetapan pemberitahuan",
+    "backgroundJobComplete": "Tugas latar belakang selesai",
+    "backgroundJobFailed": "Tugas latar belakang gagal",
+    "backgroundJobFallback": "Satu tugas latar belakang telah selesai",
+    "backgroundJobToggle": "Beritahu apabila tugas latar belakang selesai",
+    "backgroundJobDesc": "Tunjukkan pemberitahuan desktop apabila tugas latar belakang selesai semasa tetingkap berada di latar belakang"
   },
   "onboarding": {
     "channels": {
@@ -4511,7 +4516,9 @@
     "toolSessionToNoteName": "Sesi ke Nota",
     "toolSessionToNoteDesc": "Saring perbualan menjadi nota berstruktur.",
     "toolKnowledgeRecallName": "Imbas Kembali Pengetahuan",
-    "toolKnowledgeRecallDesc": "Cari memori dan nota serentak (dua bahagian berperingkat)."
+    "toolKnowledgeRecallDesc": "Cari memori dan nota serentak (dua bahagian berperingkat).",
+    "asyncToolsMergeWindow": "Tetingkap gabungan penyelesaian",
+    "asyncToolsMergeWindowDesc": "Apabila beberapa tugas latar belakang dalam sesi yang sama selesai dalam tetingkap ini, gabungkannya menjadi satu pusingan suntikan (menjimatkan pusingan yang dicaj); 0 untuk lumpuhkan."
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -5234,6 +5241,28 @@
     "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran.",
     "result": {
       "memory": "Memori"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tugas Latar Belakang",
+    "openPanel": "Tugas latar belakang",
+    "openFull": "Lihat semua / batal",
+    "empty": "Tiada tugas latar belakang",
+    "sectionSession": "Sesi ini",
+    "sectionLocalModel": "Model tempatan",
+    "kindGroup": "Kumpulan tugas",
+    "kindSubagent": "Subejen",
+    "resizePanel": "Ubah saiz panel tugas latar belakang",
+    "status": {
+      "queued": "Beratur",
+      "running": "Berjalan",
+      "cancelling": "Membatalkan",
+      "awaiting_approval": "Menunggu kelulusan",
+      "completed": "Selesai",
+      "failed": "Gagal",
+      "interrupted": "Terganggu",
+      "timed_out": "Tamat masa",
+      "cancelled": "Dibatalkan"
     }
   }
 }

@@ -1624,7 +1624,12 @@
     "on": "开启",
     "startupDesc": "服务重启后，向最近 72 小时活跃过的 IM 聊天发送一条「已恢复」提示。账号级开关请在各 IM 渠道的账号设置中调整。",
     "startupToggle": "重启后向 IM 发送已恢复提示",
-    "title": "通知设置"
+    "title": "通知设置",
+    "backgroundJobComplete": "后台任务完成",
+    "backgroundJobFailed": "后台任务失败",
+    "backgroundJobFallback": "一个后台任务已结束",
+    "backgroundJobToggle": "后台任务完成提醒",
+    "backgroundJobDesc": "后台任务跑完且窗口处于后台时弹桌面通知"
   },
   "onboarding": {
     "channels": {
@@ -4519,7 +4524,9 @@
     "toolSessionToNoteName": "对话存为笔记",
     "toolSessionToNoteDesc": "把当前对话提炼成一篇结构化笔记。",
     "toolKnowledgeRecallName": "知识召回",
-    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库(分两段返回)。"
+    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库(分两段返回)。",
+    "asyncToolsMergeWindow": "完成合并窗口",
+    "asyncToolsMergeWindowDesc": "同会话多个后台任务在此窗口内完成时合并为一轮注入（省计费 turn）；0 关闭。"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -5242,6 +5249,28 @@
     "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。",
     "result": {
       "memory": "记忆"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "后台任务",
+    "openPanel": "后台任务",
+    "openFull": "查看全部 / 取消",
+    "empty": "暂无后台任务",
+    "sectionSession": "本会话",
+    "sectionLocalModel": "本地模型",
+    "kindGroup": "任务组",
+    "kindSubagent": "子智能体",
+    "resizePanel": "调整后台任务面板宽度",
+    "status": {
+      "queued": "排队中",
+      "running": "运行中",
+      "cancelling": "取消中",
+      "awaiting_approval": "等待审批",
+      "completed": "已完成",
+      "failed": "失败",
+      "interrupted": "已中断",
+      "timed_out": "已超时",
+      "cancelled": "已取消"
     }
   }
 }

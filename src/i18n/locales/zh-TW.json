@@ -1624,7 +1624,12 @@
     "on": "開啟",
     "startupDesc": "服務重啟後，向最近 72 小時活躍過的 IM 聊天發送一條「已恢復」提示。帳號層級的開關請在各 IM 通道的帳號設定中調整。",
     "startupToggle": "重啟後向 IM 發送已恢復提示",
-    "title": "通知設置"
+    "title": "通知設置",
+    "backgroundJobComplete": "背景任務完成",
+    "backgroundJobFailed": "背景任務失敗",
+    "backgroundJobFallback": "一項背景任務已完成",
+    "backgroundJobToggle": "背景任務完成時通知",
+    "backgroundJobDesc": "當視窗位於背景時，背景任務完成後顯示桌面通知"
   },
   "onboarding": {
     "channels": {
@@ -4511,7 +4516,9 @@
     "toolSessionToNoteName": "對話存為筆記",
     "toolSessionToNoteDesc": "將目前對話提煉成一篇結構化筆記。",
     "toolKnowledgeRecallName": "知識召回",
-    "toolKnowledgeRecallDesc": "同時檢索記憶與筆記兩個庫（分兩段回傳）。"
+    "toolKnowledgeRecallDesc": "同時檢索記憶與筆記兩個庫（分兩段回傳）。",
+    "asyncToolsMergeWindow": "完成合併視窗",
+    "asyncToolsMergeWindowDesc": "當同一工作階段中的多項背景任務在此視窗內完成時，將其合併為一次注入回合（節省計費回合）；設為 0 可停用。"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -5234,6 +5241,28 @@
     "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。",
     "result": {
       "memory": "記憶"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "背景任務",
+    "openPanel": "背景任務",
+    "openFull": "查看全部 / 取消",
+    "empty": "暫無背景任務",
+    "sectionSession": "本工作階段",
+    "sectionLocalModel": "本機模型",
+    "kindGroup": "任務群組",
+    "kindSubagent": "子代理",
+    "resizePanel": "調整背景任務面板大小",
+    "status": {
+      "queued": "排隊中",
+      "running": "執行中",
+      "cancelling": "取消中",
+      "awaiting_approval": "等待核准",
+      "completed": "已完成",
+      "failed": "失敗",
+      "interrupted": "已中斷",
+      "timed_out": "已逾時",
+      "cancelled": "已取消"
     }
   }
 }

@@ -1624,7 +1624,12 @@
     "on": "Açık",
     "startupDesc": "Hizmet yeniden başlatıldıktan sonra son 72 saat içinde aktif olan IM sohbetlerine kısa bir \"yeniden çevrim içi\" bildirimi yayınlar. Hesap başına sessize alma her kanal hesabında bulunur.",
     "startupToggle": "Yeniden başlatma sonrası IM \"yeniden çevrim içi\" bildirimi",
-    "title": "Bildirim ayarları"
+    "title": "Bildirim ayarları",
+    "backgroundJobComplete": "Arka plan görevi tamamlandı",
+    "backgroundJobFailed": "Arka plan görevi başarısız oldu",
+    "backgroundJobFallback": "Bir arka plan görevi tamamlandı",
+    "backgroundJobToggle": "Arka plan görevleri tamamlandığında bildir",
+    "backgroundJobDesc": "Pencere arka plandayken bir arka plan görevi tamamlandığında masaüstü bildirimi göster"
   },
   "onboarding": {
     "channels": {
@@ -4511,7 +4516,9 @@
     "toolSessionToNoteName": "Oturumu Nota Çevir",
     "toolSessionToNoteDesc": "Konuşmayı yapılandırılmış bir nota damıtır.",
     "toolKnowledgeRecallName": "Bilgi Çağırma",
-    "toolKnowledgeRecallDesc": "Belleği ve notları birlikte arar (iki sıralı bölüm)."
+    "toolKnowledgeRecallDesc": "Belleği ve notları birlikte arar (iki sıralı bölüm).",
+    "asyncToolsMergeWindow": "Tamamlanma birleştirme penceresi",
+    "asyncToolsMergeWindowDesc": "Aynı oturumdaki birden fazla arka plan görevi bu pencere içinde tamamlandığında, bunları tek bir enjeksiyon turunda birleştirir (ücretlendirilen turlardan tasarruf sağlar); devre dışı bırakmak için 0."
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -5234,6 +5241,28 @@
     "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz.",
     "result": {
       "memory": "Bellek"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Arka Plan Görevleri",
+    "openPanel": "Arka plan görevleri",
+    "openFull": "Tümünü görüntüle / iptal et",
+    "empty": "Arka plan görevi yok",
+    "sectionSession": "Bu oturum",
+    "sectionLocalModel": "Yerel modeller",
+    "kindGroup": "Görev grubu",
+    "kindSubagent": "Alt aracı",
+    "resizePanel": "Arka plan görevleri panelini yeniden boyutlandır",
+    "status": {
+      "queued": "Sırada",
+      "running": "Çalışıyor",
+      "cancelling": "İptal ediliyor",
+      "awaiting_approval": "Onay bekleniyor",
+      "completed": "Tamamlandı",
+      "failed": "Başarısız",
+      "interrupted": "Kesildi",
+      "timed_out": "Zaman aşımı",
+      "cancelled": "İptal edildi"
     }
   }
 }
