@@ -5,18 +5,13 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **Windows 上发消息不再闪黑窗**：修复 Windows 桌面版每次发送消息（及部分工具 / git / docker / MCP 等操作）时一闪而过的 `cmd` 控制台黑窗——子进程现在统一以无窗口方式启动，不再打断操作或抢走输入框焦点。 (#320)
-
-## [0.10.3] - 2026-06-14
+## [0.10.3] - 2026-06-17
 
 ### Fixed
 
 - **修复 macOS 睡眠 / 锁屏一段时间唤醒后偶发整页崩溃**：唤醒后个别后台事件帧为空，会击穿界面渲染弹出「undefined is not an object」错误页（需点 Try Again 才能恢复）；现已在事件解析入口统一拦截空 / 异常帧，并把这类前端崩溃记入应用日志便于后续自查。 (#319)
-- **修复 Windows 下搜狗拼音无法在对话输入框输入中文**：对话输入框继续保留 CodeMirror 6 与 `@` / `[[ ]]` 内联提及体验，但在 Windows WebView2 上改走 CodeMirror 的 EditContext 输入路径，绕开旧 `contenteditable` 管线与搜狗拼音的兼容性问题；同时 Windows 主窗口恢复原生标题栏与窗口控制按钮。 (#315)
+- **修复 Windows 下搜狗拼音无法在对话输入框输入中文**：对话输入框继续保留 CodeMirror 6 与 `@` / `[[ ]]` 内联提及体验，但在 Windows WebView2 上改走 CodeMirror 的 EditContext 输入路径，绕开旧 `contenteditable` 管线与搜狗拼音的兼容性问题；同时 Windows 主窗口恢复原生标题栏与窗口控制按钮（Docker 自托管构建也已同步应用该输入修复）。 (#322, #323)
+- **Windows 上发消息不再闪黑窗**：修复 Windows 桌面版每次发送消息（及部分工具 / git / docker / MCP 等操作）时一闪而过的 `cmd` 控制台黑窗——子进程现在统一以无窗口方式启动，不再打断操作或抢走输入框焦点。 (#320)
 
 ## [0.10.2] - 2026-06-13
 

@@ -1,6 +1,6 @@
 [package]
 name = "hope-agent"
-version = "0.10.2"
+version = "0.10.3"
 description = "Hope Agent - Personal AI Assistant with deep system integration"
 license.workspace = true
 authors.workspace = true
