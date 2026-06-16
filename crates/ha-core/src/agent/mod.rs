@@ -1722,6 +1722,9 @@ impl AssistantAgent {
             },
             auto_approve_tools: self.auto_approve_tools,
             external_pre_approved: false,
+            exec_pre_approved: false,
+            approval_origin: None,
+            pid_sink: None,
             session_mode,
             agent_custom_approval_enabled: caps.enable_custom_tool_approval,
             agent_custom_approval_tools: caps.custom_approval_tools.clone(),
@@ -1730,6 +1733,9 @@ impl AssistantAgent {
             bypass_async_dispatch: false,
             suppress_global_tool_timeout: false,
             suppress_result_disk_persistence: false,
+            // E3/E4/E5 (INCOG-2/5/6): single source of truth for the turn's
+            // incognito state, read from the same SessionMeta lookup above.
+            incognito: meta.as_ref().map(|m| m.incognito).unwrap_or(false),
             cancellation_token: None,
             metadata_sink: None,
             effective_args_sink: None,

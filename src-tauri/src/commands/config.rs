@@ -743,6 +743,24 @@ pub async fn set_approval_timeout_action(
 }
 
 #[tauri::command]
+pub async fn get_unattended_approval_action(
+) -> Result<ha_core::config::UnattendedApprovalAction, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.permission.unattended_approval_action)
+}
+
+#[tauri::command]
+pub async fn set_unattended_approval_action(
+    action: ha_core::config::UnattendedApprovalAction,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("unattended_approval_action", "settings-ui"), |store| {
+        store.permission.unattended_approval_action = action;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_tool_result_disk_threshold() -> Result<usize, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.tool_result_disk_threshold.unwrap_or(50_000))

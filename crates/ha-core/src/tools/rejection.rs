@@ -37,6 +37,10 @@ pub enum ToolRejection {
     ApprovalTimeout { name: String, timeout_secs: u64 },
     /// 用户在工具执行期间取消整个 turn。
     Cancelled { name: String },
+    /// 审批落在**无人值守**入口(cron / 无客户端 headless / ACP 无 capability /
+    /// subagent 无父 surface),`unattendedApprovalAction=deny` → fail-closed 拒绝。
+    /// `reason` 是人类可读的根因说明(Epic D,DEADLOCK-1..5)。
+    DeniedUnattended { name: String, reason: String },
 }
 
 impl ToolRejection {
@@ -56,7 +60,8 @@ impl ToolRejection {
             Self::DeniedByUser { .. }
             | Self::DeniedByPolicy { .. }
             | Self::ApprovalFailed { .. }
-            | Self::ApprovalTimeout { .. } => {
+            | Self::ApprovalTimeout { .. }
+            | Self::DeniedUnattended { .. } => {
                 "The tool did not execute and no side effects occurred"
             }
         };
@@ -107,6 +112,14 @@ impl ToolRejection {
     pub fn cancelled(name: impl Into<String>) -> Self {
         Self::Cancelled { name: name.into() }
     }
+
+    pub fn denied_unattended(name: impl Into<String>, reason: impl Into<String>) -> anyhow::Error {
+        Self::DeniedUnattended {
+            name: name.into(),
+            reason: reason.into(),
+        }
+        .into()
+    }
 }
 
 impl fmt::Display for ToolRejection {
@@ -129,6 +142,12 @@ impl fmt::Display for ToolRejection {
             Self::Cancelled { name } => {
                 write!(f, "Tool '{name}' execution was cancelled by the user")
             }
+            Self::DeniedUnattended { name, reason } => write!(
+                f,
+                "Tool '{name}' was auto-denied because {reason} — no one could approve it. \
+                 Enable auto-approval (YOLO / per-agent auto-approve), set unattended approvals \
+                 to proceed, or re-run where a human can respond"
+            ),
         }
     }
 }
@@ -201,6 +220,20 @@ mod tests {
             s.contains("may have completed"),
             "cancel result must signal that in-flight side effects may have completed"
         );
+    }
+
+    #[test]
+    fn denied_unattended_explains_root_cause_without_side_effects() {
+        let e = ToolRejection::denied_unattended(
+            "exec",
+            "this is a scheduled cron run with no one watching to approve it",
+        );
+        let s = ToolRejection::render_error(&e);
+        assert!(s.starts_with("Tool error: "));
+        assert!(s.contains("auto-denied because this is a scheduled cron run"));
+        assert!(s.contains("no one could approve"));
+        assert!(s.contains("did not execute and no side effects occurred"));
+        assert!(s.contains("STOP what you are doing and wait"));
     }
 
     #[test]

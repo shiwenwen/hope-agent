@@ -471,6 +471,27 @@ pub async fn set_approval_timeout_action(Json(body): Json<Value>) -> Result<Json
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/unattended-approval-action` -- get unattended approval action.
+pub async fn get_unattended_approval_action() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.permission.unattended_approval_action)))
+}
+
+/// `POST /api/config/unattended-approval-action` -- set unattended approval action.
+pub async fn set_unattended_approval_action(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let action = match body.get("action").and_then(|v| v.as_str()) {
+        Some("proceed") => ha_core::config::UnattendedApprovalAction::Proceed,
+        _ => ha_core::config::UnattendedApprovalAction::Deny,
+    };
+    ha_core::config::mutate_config(("unattended_approval_action", "http"), |store| {
+        store.permission.unattended_approval_action = action;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/tool-result-threshold` -- get disk persistence threshold (bytes).
 pub async fn get_tool_result_disk_threshold() -> Result<Json<Value>, AppError> {
     let store = load_config()?;

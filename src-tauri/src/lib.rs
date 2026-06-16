@@ -453,6 +453,8 @@ pub fn run() {
             commands::config::set_approval_timeout_enabled,
             commands::config::get_approval_timeout_action,
             commands::config::set_approval_timeout_action,
+            commands::config::get_unattended_approval_action,
+            commands::config::set_unattended_approval_action,
             // Tool result disk persistence
             commands::config::get_tool_result_disk_threshold,
             commands::config::set_tool_result_disk_threshold,

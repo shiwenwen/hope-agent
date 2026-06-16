@@ -103,7 +103,9 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "«Permitir siempre» no se guarda en sesiones de incógnito.",
+    "resolvedElsewhere": "Aprobación gestionada en otro dispositivo"
   },
   "auth": {
     "tokenLabel": "Token Bearer",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 = esperar siempre",
       "timeoutSeconds": "Segundos de espera",
       "timeoutTitle": "Tiempo límite del diálogo de aprobación",
+      "unattendedTitle": "Aprobaciones desatendidas",
+      "unattendedDesc": "Qué hacer cuando una herramienta necesita aprobación pero nadie puede responder: una ejecución de cron, un servidor headless sin cliente conectado ni chat de IM, un cliente ACP sin capacidad de permisos, o un subagente sin superficie. 'Bloquear ejecución' (recomendado) falla en cerrado; 'Continuar' ejecuta la herramienta automáticamente, una relajación de seguridad solo para automatización desatendida de confianza.",
       "title": "Permisos",
       "yoloCliActive": "⚠️ La bandera CLI --dangerously-skip-all-approvals está activa y no puede desactivarse desde la GUI.",
       "yoloDesc": "Cuando está activo, todas las herramientas se ejecutan sin aprobación; solo Plan Mode puede seguir bloqueando. Las rutas protegidas / comandos peligrosos registran una advertencia pero se ejecutan.",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "Límite superior para una única llamada job_status(block=true). Solo se aplica cuando la duración máxima por trabajo = 0; de lo contrario prevalece la duración máxima por trabajo.",
     "asyncToolsMaxJob": "Duración máx. de un job",
     "asyncToolsMaxJobDesc": "Límite de tiempo de ejecución de un job en segundo plano. Al superarlo se termina. 0 = sin límite en la capa de jobs async; cada herramienta aún puede aplicar sus propios timeouts.",
+    "asyncToolsMaxConcurrent": "Máx. jobs en segundo plano simultáneos",
+    "asyncToolsMaxConcurrentDesc": "Número máximo de jobs de herramienta run_in_background que pueden ejecutarse a la vez; cada uno ocupa un hilo del SO. Al alcanzar el límite, las nuevas solicitudes en segundo plano se rechazan (se pide al modelo que espere o ejecute de forma síncrona). 0 = sin límite. Predeterminado 8.",
     "asyncToolsOrphanGrace": "Periodo de gracia de spool huérfanos",
     "asyncToolsOrphanGraceDesc": "Los archivos spool no referenciados por una fila de la BD se eliminan tras estas horas. El periodo evita carreras con escrituras en curso.",
     "asyncToolsRetention": "Retención de jobs finalizados",

@@ -11,6 +11,10 @@ pub fn run(step: u32, total: u32) -> Result<()> {
     println!("  By default Hope Agent asks for your approval before running");
     println!("  shell commands, editing files, or calling other sensitive tools.");
     println!();
+    println!("  Disabling approvals is equivalent to YOLO mode: EVERY tool runs");
+    println!("  without asking — including dangerous shell commands and writes to");
+    println!("  protected paths. Only choose this for trusted, headless automation.");
+    println!();
     let enabled = prompt_confirm("Require approvals (recommended)", true)?;
     apply_safety(SafetyStepInput {
         approvals_enabled: enabled,
@@ -18,7 +22,7 @@ pub fn run(step: u32, total: u32) -> Result<()> {
     let msg = if enabled {
         "Tool approvals enabled"
     } else {
-        "Tool approvals disabled — tools will auto-proceed"
+        "Tool approvals disabled — YOLO mode: all tools run without asking"
     };
     print_saved(msg);
     Ok(())

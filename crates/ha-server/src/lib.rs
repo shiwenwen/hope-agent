@@ -842,6 +842,14 @@ fn build_router_with_cors(
             post(routes::config::set_approval_timeout_action),
         )
         .route(
+            "/config/unattended-approval-action",
+            get(routes::config::get_unattended_approval_action),
+        )
+        .route(
+            "/config/unattended-approval-action",
+            post(routes::config::set_unattended_approval_action),
+        )
+        .route(
             "/config/tool-result-threshold",
             get(routes::config::get_tool_result_disk_threshold),
         )
