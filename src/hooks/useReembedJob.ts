@@ -44,6 +44,7 @@ export function useReembedJob({ kind, onCompleted }: UseReembedJobOptions) {
 
     const handleSnapshot = (raw: unknown): LocalModelJobSnapshot | null => {
       const snap = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!snap) return null
       if (snap.kind !== kind) return null
       setJob((current) => {
         const next = (() => {

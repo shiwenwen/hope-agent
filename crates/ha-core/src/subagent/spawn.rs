@@ -367,14 +367,20 @@ pub async fn spawn_subagent(
                     .enable_all()
                     .build()
                 {
-                    Ok(rt) => rt.block_on(inject_and_run_parent(
-                        parent_sid2,
-                        parent_agent_id2,
-                        child_agent_id2,
-                        run_id2,
-                        push_msg,
-                        db2,
-                    )),
+                    Ok(rt) => {
+                        // Subagent runs track completion via FETCHED_RUN_IDS /
+                        // subagent_runs status, not an async-job row — no
+                        // on_injected callback, and the outcome is ignored.
+                        let _ = rt.block_on(inject_and_run_parent(
+                            parent_sid2,
+                            parent_agent_id2,
+                            child_agent_id2,
+                            run_id2,
+                            push_msg,
+                            db2,
+                            None,
+                        ));
+                    }
                     Err(e) => app_error!(
                         "subagent",
                         "inject",

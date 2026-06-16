@@ -61,6 +61,7 @@ import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
+import { logger } from "@/lib/logger"
 import { isTauriMode } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
@@ -500,7 +501,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
           : (list.find((k) => !k.archived)?.id ?? list[0]?.id ?? null),
       )
     } catch (e) {
-      console.error("list_kbs failed", e)
+      logger.error("knowledge", "KnowledgeView::loadKbs", "list_kbs failed", e)
     }
   }, [tx, includeArchived])
 
@@ -510,7 +511,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         const list = await tx.call<Note[]>("list_kb_notes_cmd", { kbId })
         setNotes(list)
       } catch (e) {
-        console.error("list_kb_notes failed", e)
+        logger.error("knowledge", "KnowledgeView::loadNotes", "list_kb_notes failed", e)
         setNotes([])
       }
     },
@@ -522,7 +523,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       try {
         setDirs(await tx.call<string[]>("kb_list_dirs_cmd", { kbId }))
       } catch (e) {
-        console.error("kb_list_dirs failed", e)
+        logger.error("knowledge", "KnowledgeView::loadDirs", "kb_list_dirs failed", e)
         setDirs([])
       }
     },
@@ -535,7 +536,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       try {
         setKbTags(await tx.call<string[]>("kb_list_tags_cmd", { kbId }))
       } catch (e) {
-        console.error("kb_list_tags failed", e)
+        logger.error("knowledge", "KnowledgeView::loadTags", "kb_list_tags failed", e)
         setKbTags([])
       }
     },
@@ -567,7 +568,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setRevealTarget(reveal ? { ...reveal } : null)
         resumeNavRef.current = null // drop any stale parked nav from a prior draft
       } catch (e) {
-        console.error("kb_note_read failed", e)
+        logger.error("knowledge", "KnowledgeView::openNote", "kb_note_read failed", e)
       }
     },
     [tx],
@@ -809,7 +810,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       setTimeout(() => setSaveStatus("idle"), 2000)
       return true
     } catch (e) {
-      console.error("kb_note_save failed", e)
+      logger.error("knowledge", "KnowledgeView::handleSave", "kb_note_save failed", e)
       if (isRemoteWriteBlocked(e))
         toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
       setSaving(false)
@@ -833,7 +834,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       })
       setHits(res)
     } catch (e) {
-      console.error("kb_search failed", e)
+      logger.error("knowledge", "KnowledgeView::runSearch", "kb_search failed", e)
     }
   }, [tx, query, activeKbId])
 
@@ -851,7 +852,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       await loadKbs()
       setActiveKbId(kb.id)
     } catch (e) {
-      console.error("create_kb failed", e)
+      logger.error("knowledge", "KnowledgeView::createKb", "create_kb failed", e)
     } finally {
       setKbBusy(false)
     }
@@ -926,7 +927,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         resume?.()
         return true
       } catch (e) {
-        console.error("create note failed", e)
+        logger.error("knowledge", "KnowledgeView::commitDraft", "create note failed", e)
         if (isRemoteWriteBlocked(e))
           toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
         setSaving(false)
@@ -969,7 +970,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await loadNotes(activeKbId)
         await openNote(activeKbId, p)
       } catch (e) {
-        console.error("create note from link failed", e)
+        logger.error("knowledge", "KnowledgeView::createNoteFromRef", "create note from link failed", e)
         if (isRemoteWriteBlocked(e))
           toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
       }
@@ -1005,7 +1006,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       // Surface spawn failures (e.g. vector search on but no embedding model
       // configured) instead of silently swallowing them — otherwise the click
       // looks dead.
-      console.error("reindex failed", e)
+      logger.error("knowledge", "KnowledgeView::reindex", "reindex failed", e)
       toast.error(String(e))
     }
   }, [tx, activeKbId])
@@ -1089,7 +1090,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         if (outcome.linksRewritten > 0)
           toast.success(t("knowledge.linksRewritten", { count: outcome.linksRewritten }))
       } catch (e) {
-        console.error("rename note failed", e)
+        logger.error("knowledge", "KnowledgeView::renameNote", "rename note failed", e)
         toast.error(
           isRemoteWriteBlocked(e)
             ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
@@ -1112,7 +1113,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         }
         await loadNotes(activeKbId)
       } catch (e) {
-        console.error("delete note failed", e)
+        logger.error("knowledge", "KnowledgeView::deleteNote", "delete note failed", e)
         if (isRemoteWriteBlocked(e))
           toast.error(t("knowledge.remoteWritesDisabled", "Remote file writing is off."))
       } finally {
@@ -1131,7 +1132,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         const abs = await tx.call<string>("kb_file_resolve_cmd", { kbId: activeKbId, path: rel })
         await tx.call("reveal_in_folder", { path: abs })
       } catch (e) {
-        console.error("reveal note failed", e)
+        logger.error("knowledge", "KnowledgeView::revealNote", "reveal note failed", e)
       }
     },
     [tx, activeKbId, isLocal],
@@ -1172,7 +1173,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             : cur,
         )
       } catch (e) {
-        console.error("rename/move folder failed", e)
+        logger.error("knowledge", "KnowledgeView::applyFolderMove", "rename/move folder failed", e)
         toast.error(
           isRemoteWriteBlocked(e)
             ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
@@ -1222,7 +1223,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         setDraftFolder((cur) => (cur === path || cur.startsWith(`${path}/`) ? "" : cur))
         await Promise.all([loadNotes(activeKbId), loadDirs(activeKbId)])
       } catch (e) {
-        console.error("delete folder failed", e)
+        logger.error("knowledge", "KnowledgeView::deleteFolder", "delete folder failed", e)
         toast.error(
           isRemoteWriteBlocked(e)
             ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")
@@ -1265,7 +1266,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       setEditKb(null)
       await loadKbs()
     } catch (e) {
-      console.error("update kb failed", e)
+      logger.error("knowledge", "KnowledgeView::saveEditKb", "update kb failed", e)
     } finally {
       setKbBusy(false)
     }
@@ -1277,7 +1278,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await tx.call("update_kb_cmd", { id: kb.id, patch: { archived: !kb.archived } })
         await loadKbs()
       } catch (e) {
-        console.error("archive kb failed", e)
+        logger.error("knowledge", "KnowledgeView::toggleArchiveKb", "archive kb failed", e)
       }
     },
     [tx, loadKbs],
@@ -1300,7 +1301,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
       setDeleteKb(null)
       await loadKbs()
     } catch (e) {
-      console.error("delete kb failed", e)
+      logger.error("knowledge", "KnowledgeView::deleteKbConfirm", "delete kb failed", e)
     }
   }, [tx, deleteKb, activeKbId, loadKbs])
 
@@ -1414,7 +1415,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         await tx.call("kb_mkdir_cmd", { kbId: activeKbId, path: folder })
         await loadDirs(activeKbId)
       } catch (e) {
-        console.error("mkdir failed", e)
+        logger.error("knowledge", "KnowledgeView::confirmNewFolder", "mkdir failed", e)
         toast.error(
           isRemoteWriteBlocked(e)
             ? t("knowledge.remoteWritesDisabled", "Remote file writing is off.")

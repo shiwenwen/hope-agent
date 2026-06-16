@@ -116,6 +116,7 @@ export function SearxngDockerSection({
 
     const handleProgress = (raw: unknown) => {
       const parsed = parsePayload<{ step?: string; log?: string }>(raw)
+      if (!parsed) return
       if (parsed.step) setDeployStep(parsed.step)
       if (parsed.log) setDeployLogs((prev) => [...prev.slice(-50), parsed.log!])
     }

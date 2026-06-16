@@ -552,6 +552,75 @@ async fn handle_inbound_message(
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
 
+    // 5c. Single-flight gate (I8 / MISC-6). IM inbound previously had NO
+    // per-session turn guard: two rapid messages to the same session ran
+    // `run_chat_engine` concurrently, and the loser lost the
+    // `stream_seq::begin` race deep inside the engine — after the pipeline was
+    // spawned — surfacing as an "active stream" error reply. Acquire the same
+    // `active_turn` guard the GUI/HTTP entry points use so a concurrent turn
+    // (from IM, GUI, or HTTP on this 1:1-attached session) is rejected up
+    // front. We acquire AFTER persisting the user message: every inbound is
+    // captured into history + run through the `UserPromptSubmit` preflight,
+    // and only the *engine run* is single-flighted (a deferred message rides
+    // the next turn's context; there is no auto-dequeue). The guard + cancel
+    // handle are held by RAII for the whole turn including delivery.
+    let cancel = match crate::globals::get_channel_cancels() {
+        Some(reg) => reg.register(&session_id),
+        None => Arc::new(AtomicBool::new(false)),
+    };
+    // RAII removal so the channel cancel handle never leaks on an early bail
+    // (e.g. empty model chain below) — it used to be removed only on the
+    // run_chat_engine-reached path.
+    struct CancelHandleGuard(String);
+    impl Drop for CancelHandleGuard {
+        fn drop(&mut self) {
+            if let Some(reg) = crate::globals::get_channel_cancels() {
+                reg.remove(&self.0);
+            }
+        }
+    }
+    let _cancel_handle_guard = CancelHandleGuard(session_id.clone());
+
+    // The synthetic turn id only keys the single-flight registry entry; the
+    // engine keeps `turn_id: None` (IM streams on the `channel:*` bus, not the
+    // `chat:*` seq-tracked bus, so giving it a tracked turn id would change
+    // stream acceptance/broadcast semantics). The shared `cancel` Arc is reused
+    // by `engine_params` below so a cross-surface cancel (session delete /
+    // GUI stop walking `active_turn`) actually aborts this engine run.
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire(
+        &session_id,
+        crate::chat_engine::stream_seq::ChatSource::Channel,
+        uuid::Uuid::new_v4().to_string(),
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(e) => {
+            app_info!(
+                "channel",
+                "worker",
+                "[{}] inbound for session {} deferred: a turn is already active ({})",
+                channel_id_str,
+                session_id,
+                e
+            );
+            let busy_target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id: &msg.chat_id,
+                thread_id: msg.thread_id.as_deref(),
+                reply_to_message_id: Some(&msg.message_id),
+            };
+            send_text_chunks(
+                &plugin,
+                &busy_target,
+                "⏳ I'm still finishing your previous message; I'll get to this one shortly.",
+                None,
+                &[],
+            )
+            .await;
+            return Ok(());
+        }
+    };
+
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {
         ChatType::Dm => "direct message",
@@ -735,10 +804,9 @@ async fn handle_inbound_message(
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
         reasoning_effort,
-        cancel: match crate::globals::get_channel_cancels() {
-            Some(reg) => reg.register(&session_id),
-            None => Arc::new(AtomicBool::new(false)),
-        },
+        // Shared with the single-flight guard above (registered once in the
+        // channel cancel registry); removal is handled by `_cancel_handle_guard`.
+        cancel: cancel.clone(),
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
@@ -769,9 +837,8 @@ async fn handle_inbound_message(
 
     let result = crate::chat_engine::run_chat_engine(engine_params).await;
 
-    if let Some(reg) = crate::globals::get_channel_cancels() {
-        reg.remove(&session_id);
-    }
+    // (channel cancel handle removal now happens via `_cancel_handle_guard` on
+    // every exit path, including early bails above.)
 
     // Late async tool completions arriving after this drain are deferred to
     // a future turn — a stale attachment from turn N must not leak into N+1.

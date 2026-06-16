@@ -281,13 +281,13 @@ pub async fn install(
 /// start before we restart the service onto it.
 async fn smoke_test(exe: &Path, expected_version: &str) -> Result<()> {
     use std::time::Duration;
-    let output = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::process::Command::new(exe).arg("--version").output(),
-    )
-    .await
-    .context("smoke test `--version` timed out after 5s")?
-    .context("spawn new binary for smoke test")?;
+    let mut cmd = tokio::process::Command::new(exe);
+    cmd.arg("--version");
+    crate::platform::hide_console_tokio(&mut cmd);
+    let output = tokio::time::timeout(Duration::from_secs(5), cmd.output())
+        .await
+        .context("smoke test `--version` timed out after 5s")?
+        .context("spawn new binary for smoke test")?;
 
     if !output.status.success() {
         anyhow::bail!("new binary `--version` exited with {}", output.status);

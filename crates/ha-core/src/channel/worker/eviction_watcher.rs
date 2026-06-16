@@ -89,6 +89,38 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
 
+            // G5 (SURFACE-4): the chat was taken over while its session stayed
+            // active. Any approval prompted on this chat can no longer be answered
+            // here — deny each pending approval (so the blocked tool turn unblocks
+            // and every surface dismisses) and clear the chat's text-reply stack.
+            // Runs BEFORE the `notify_session_eviction` gate below: the cleanup is
+            // unconditional; only the user-facing "taken over" notice is gated.
+            if let Some(session_id) = payload
+                .get(payload_keys::SESSION_ID)
+                .and_then(|v| v.as_str())
+            {
+                let pending =
+                    crate::tools::approval::pending_request_ids_for_session(session_id).await;
+                for request_id in &pending {
+                    let _ = crate::tools::approval::submit_approval_response(
+                        request_id,
+                        crate::tools::approval::ApprovalResponse::Deny,
+                        crate::tools::approval::ApprovalResolutionSource::Eviction,
+                    )
+                    .await;
+                }
+                if !pending.is_empty() {
+                    app_info!(
+                        "channel",
+                        "eviction_watcher",
+                        "denied {} pending approval(s) on evicted chat for session {}",
+                        pending.len(),
+                        session_id
+                    );
+                }
+            }
+            crate::channel::worker::approval::drop_pending_for_chat(account_id, chat_id).await;
+
             let store = crate::config::cached_config();
             let account = match store.channels.find_account(account_id) {
                 Some(c) if c.notify_session_eviction => c.clone(),

@@ -103,7 +103,9 @@
       }
     },
     "title": "Command Approval Required",
-    "workingDir": "Working Directory"
+    "workingDir": "Working Directory",
+    "incognitoNoAllowAlways": "Always allow isn't saved in incognito sessions.",
+    "resolvedElsewhere": "Approval handled on another device"
   },
   "auth": {
     "tokenLabel": "Bearer token",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 = wait forever",
       "timeoutSeconds": "Timeout Seconds",
       "timeoutTitle": "Approval Dialog Timeout",
+      "unattendedTitle": "Unattended Approvals",
+      "unattendedDesc": "What to do when a tool needs approval but no one can answer — a cron run, a headless server with no connected client or IM chat, an ACP client without a permission capability, or a subagent with no surface. 'Block execution' (recommended) fails closed; 'Proceed' auto-runs the tool, a security loosening for trusted unattended automation only.",
       "title": "Permission",
       "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
       "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "Upper bound for a single job_status(block=true) call. Only applied when max job duration = 0; otherwise max job duration takes precedence.",
     "asyncToolsMaxJob": "Max job duration",
     "asyncToolsMaxJobDesc": "Hard limit on how long a background job may run before being killed. 0 = no async-job limit; individual tools may still enforce their own timeouts.",
+    "asyncToolsMaxConcurrent": "Max concurrent background jobs",
+    "asyncToolsMaxConcurrentDesc": "Maximum number of run_in_background tool jobs allowed to run at once; each holds a dedicated OS thread. At the cap, new background requests are refused (the model is asked to wait or run synchronously). 0 = unlimited. Default 8.",
     "asyncToolsOrphanGrace": "Orphan spool grace period",
     "asyncToolsOrphanGraceDesc": "Spool files not referenced by any DB row are cleaned up after this many hours. Grace window prevents races with in-flight writes.",
     "asyncToolsRetention": "Terminal job retention",

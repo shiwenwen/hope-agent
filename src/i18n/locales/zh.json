@@ -103,7 +103,9 @@
       }
     },
     "title": "命令执行确认",
-    "workingDir": "工作目录"
+    "workingDir": "工作目录",
+    "incognitoNoAllowAlways": "无痕会话不保存「始终允许」。",
+    "resolvedElsewhere": "审批已由其他端处理"
   },
   "auth": {
     "tokenLabel": "Bearer Token",
@@ -2501,6 +2503,8 @@
       "timeoutHint": "0 表示无限等待",
       "timeoutSeconds": "超时秒数",
       "timeoutTitle": "审批弹窗超时",
+      "unattendedTitle": "无人值守审批",
+      "unattendedDesc": "当工具需要审批却无人能响应时(定时任务 / 无客户端的 headless 服务且无 IM 会话 / 未声明权限能力的 ACP 客户端 / 无呈现界面的子代理)的处理方式。「阻止执行」(推荐)fail-closed 拒绝;「放行」自动执行工具——属安全放宽,仅用于受信的无人值守自动化。",
       "title": "权限",
       "yoloCliActive": "⚠️ 当前 CLI 启动参数 --dangerously-skip-all-approvals 已激活，无法在 GUI 关闭。",
       "yoloDesc": "开启后所有工具直接执行，仅 Plan 模式仍能拦截。保护路径 / 危险命令命中只落 warn 日志不再弹审批。",
@@ -2526,6 +2530,8 @@
     "asyncToolsJobStatusMaxWaitDesc": "单次 job_status(block=true) 的等待上限。仅当单 job 最大时长 = 0 时生效，其他情况以单 job 最大时长为准",
     "asyncToolsMaxJob": "单 job 最大时长",
     "asyncToolsMaxJobDesc": "后台 job 运行时长上限，超时会被 kill。0 = async job 层不限时；具体工具仍可有自己的内部超时",
+    "asyncToolsMaxConcurrent": "后台 job 最大并发数",
+    "asyncToolsMaxConcurrentDesc": "允许同时运行的 run_in_background 工具 job 上限，每个占用一个独立 OS 线程。达到上限后新的后台请求会被拒绝（提示模型等待或改为同步执行）。0 = 不限。默认 8",
     "asyncToolsOrphanGrace": "孤儿 spool 宽限时长",
     "asyncToolsOrphanGraceDesc": "spool 目录里不在 DB 中的孤儿文件按此宽限期（小时）清理，避免与刚写入但未提交 DB 行的 spool 竞态",
     "asyncToolsRetention": "终态 job 保留天数",

@@ -1085,9 +1085,13 @@ pub async fn respond_to_approval(request_id: String, response: String) -> Result
             )))
         }
     };
-    tools::submit_approval_response(&request_id, approval_response)
-        .await
-        .map_err(Into::into)
+    tools::submit_approval_response(
+        &request_id,
+        approval_response,
+        tools::ApprovalResolutionSource::Gui,
+    )
+    .await
+    .map_err(|e| CmdError::msg(e.to_string()))
 }
 
 // ── System Prompt ────────────────────────────────────────────────

@@ -50,6 +50,18 @@ impl AppError {
             code: Some(code),
         }
     }
+
+    /// 410 Gone — a resource (e.g. a pending approval) existed but is already
+    /// resolved / expired. Distinguishes a stale-but-expected race from a
+    /// server fault, so scripted clients don't treat it as a 500 to retry
+    /// (MISC-18).
+    pub fn gone(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::GONE,
+            message: msg.into(),
+            code: None,
+        }
+    }
 }
 
 impl IntoResponse for AppError {

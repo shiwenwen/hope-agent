@@ -2,6 +2,7 @@ import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
+import { logger } from "@/lib/logger"
 
 // 仅 en 同步内联作为首屏兜底（fallbackLng）；其余 11 种语言按需懒加载，避免把
 // 12 份翻译（~2.8MB）全量打进主 bundle。其余语言见下方 localeLoaders。
@@ -67,7 +68,7 @@ async function loadAndSetLanguage(code: string): Promise<void> {
   } catch (e) {
     // 懒加载 chunk 失败（弱网 / 缺文件 / 半更新）：保持当前语言，记录后静默
     // 返回。所有调用方（含三处 `void`）都不会因此产生 unhandledrejection。
-    console.error(`[i18n] failed to load locale "${code}", keeping current:`, e)
+    logger.error("i18n", "i18n::loadAndSetLanguage", `failed to load locale "${code}", keeping current`, e)
     return
   }
   // 被更晚发起的语言请求取代 → 放弃,不要覆盖更新的偏好。

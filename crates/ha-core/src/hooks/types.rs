@@ -267,6 +267,12 @@ pub enum HookInput {
         tool_input: serde_json::Value,
         tool_response: serde_json::Value,
         tool_use_id: String,
+        /// `Some` only for an async tool job's *terminal* fire (HOOKS-1). Lets a
+        /// hook tell this apart from the `started`-time `PreToolUse` carrying the
+        /// same `tool_use_id` (the synthetic "started" result is returned at
+        /// submission; this fires later when the background work settles).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
     },
     PostToolUseFailure {
         #[serde(flatten)]
@@ -277,6 +283,10 @@ pub enum HookInput {
         error: String,
         is_interrupt: bool,
         duration_ms: u64,
+        /// `Some` only for an async tool job's terminal failure fire (HOOKS-1/4);
+        /// see [`Self::PostToolUse::job_id`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
     },
     PreCompact {
         #[serde(flatten)]
@@ -389,6 +399,14 @@ pub enum HookInput {
         /// The command / tool being approved (matcher target). For `exec` this
         /// is the shell command; for the tool gate, a `tool: <name> <args>` desc.
         command: String,
+        /// The tool_use this approval belongs to, for correlation with
+        /// PreToolUse/PostToolUse. `None` when the call site has no id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+        /// `Some` when the approval gates a backgrounded call, for async-job
+        /// correlation. Currently always `None` (approval runs before detach).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
     },
     PermissionDenied {
         #[serde(flatten)]
@@ -397,6 +415,14 @@ pub enum HookInput {
         command: String,
         /// Why: `user_declined` (the user said no) / `policy` (engine auto-deny).
         reason: String,
+        /// The tool_use this denial belongs to, for correlation. `None` when the
+        /// call site has no id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+        /// `Some` when the denied call would have backgrounded. Currently always
+        /// `None` (approval runs before detach).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
     },
     UserPromptExpansion {
         #[serde(flatten)]
@@ -738,6 +764,7 @@ mod tests {
             tool_input: serde_json::json!({"path": "/a"}),
             tool_response: serde_json::json!("ok"),
             tool_use_id: "call_1".into(),
+            job_id: None,
         };
         let v = serde_json::to_value(&input).unwrap();
         // Common fields are flattened to the top level.

@@ -32,7 +32,8 @@
     "fetch:vcredist": "node scripts/fetch-vcredist.mjs",
     "tauri": "tauri",
     "version": "node scripts/sync-version.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "node scripts/patch-codemirror-edit-context.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.2",

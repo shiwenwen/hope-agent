@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next"
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d"
 
 import { IconTip } from "@/components/ui/tooltip"
+import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type { GraphNodePosition, KnowledgeGraph } from "@/types/knowledge"
 
@@ -93,7 +94,7 @@ export default function KnowledgeGraphView({
         if (alive) setFetched({ kbId, refreshKey, graph: g, layout: layout ?? [] })
       })
       .catch((e) => {
-        console.error("kb_graph fetch failed", e)
+        logger.error("knowledge", "KnowledgeGraphView::fetchGraph", "kb_graph fetch failed", e)
         if (alive) {
           setFetched({
             kbId,
@@ -191,7 +192,7 @@ export default function KnowledgeGraphView({
       }
       getTransport()
         .call("kb_graph_layout_save_cmd", { kbId, positions })
-        .catch((e) => console.error("kb_graph_layout save failed", e))
+        .catch((e) => logger.error("knowledge", "KnowledgeGraphView::persistLayout", "kb_graph_layout save failed", e))
     }, SAVE_DEBOUNCE_MS)
   }, [kbId])
 
@@ -219,7 +220,7 @@ export default function KnowledgeGraphView({
     setFetched((prev) => (prev ? { ...prev, layout: [] } : prev))
     getTransport()
       .call("kb_graph_layout_save_cmd", { kbId, positions: [] })
-      .catch((e) => console.error("kb_graph_layout reset failed", e))
+      .catch((e) => logger.error("knowledge", "KnowledgeGraphView::handleReset", "kb_graph_layout reset failed", e))
   }, [kbId])
 
   const nodePaint = useCallback(

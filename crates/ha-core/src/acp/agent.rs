@@ -133,6 +133,20 @@ impl AcpAgent {
 
         self.initialized = true;
 
+        // Epic D / DEADLOCK-1: ACP has no outbound `session/request_permission`
+        // forwarding yet, so a tool that needs approval can't reach the editor.
+        // The unattended-surface check (permission::approval_surface) fail-closes
+        // those to a clear deny instead of hanging the prompt forever — surface
+        // it up front so the operator knows interactive approvals won't appear in
+        // the editor and can switch that agent to YOLO / auto-approve if it needs
+        // to edit. (`set_acp_permission_capable` stays false until real
+        // forwarding lands.)
+        app_warn!(
+            "acp",
+            "initialize",
+            "ACP mode has no approval-forwarding channel; tools that need approval are auto-denied (fail-closed). Use YOLO / per-agent auto-approve for unattended ACP editing."
+        );
+
         let response = InitializeResponse {
             protocol_version: ACP_PROTOCOL_VERSION.to_string(),
             agent_capabilities: AgentCapabilities {

@@ -70,6 +70,30 @@ pub fn is_desktop() -> bool {
     runtime_role() == Some("desktop")
 }
 
+/// True iff the process started as the ACP stdio bridge (`hope-agent acp`).
+/// ACP runs over stdio for an editor client (Zed etc.); approvals can only
+/// reach a human if that client declared a permission capability (Epic D7).
+/// **Must use this, not `ChatSource`** — ACP turns reuse `ChatSource::Http`
+/// ([`crate::acp`]), so source alone can't distinguish ACP from a real HTTP
+/// client (D1 risk note).
+pub fn is_acp() -> bool {
+    runtime_role() == Some("acp")
+}
+
+/// Whether an interactive, approval-capable client is attached to this
+/// process. Drives the unattended-approval surface check (Epic D): a headless
+/// `server` with no web client and no IM-attached session has no one to answer
+/// an `Ask`. Desktop always counts (the window + OS notification surface always
+/// exist); `server` mode is attended while ≥1 client holds the `/ws/events`
+/// stream — that's the channel `approval_required` broadcasts reach, and its
+/// live count is already maintained by `server_status::events_ws_count`
+/// (no extra wiring). ACP does NOT use this — it gates on the client's declared
+/// permission capability instead.
+pub fn desktop_client_present() -> bool {
+    is_desktop()
+        || crate::server_status::events_ws_counter().load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
 /// Initialize all global singletons (databases, OnceLocks, channel registry,
 /// ACP control plane, orphan cleanup, embedder, welcome log). Idempotent —
 /// the second call is a no-op so dev hot-reload and accidental double-call
@@ -808,6 +832,12 @@ pub async fn start_background_tasks() {
     // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
 
+    // Tier-agnostic: session-lifecycle cleanup fan-out (delete/purge → deny
+    // pending approvals, cancel jobs, drop IM pending, clear rules). NOT inside
+    // spawn_channel_listeners — server / ACP have no channel registry but still
+    // delete sessions.
+    crate::session::cleanup_watcher::spawn_session_cleanup_watcher();
+
     // Tier-agnostic: per-process in-memory hooks registry + hot-reload.
     spawn_hooks_config_listener();
 
@@ -1120,6 +1150,10 @@ pub async fn start_minimal_background_tasks() {
 
     // EventBus listeners — multi-subscriber-safe, tier-agnostic.
     spawn_channel_listeners();
+
+    // Session-lifecycle cleanup fan-out — tier-agnostic, required in
+    // server / ACP too (they delete sessions but have no channel registry).
+    crate::session::cleanup_watcher::spawn_session_cleanup_watcher();
 
     // Hooks registry initial load + hot-reload. Required in server / ACP modes
     // too (this fn is their only background-task entry): without it the global

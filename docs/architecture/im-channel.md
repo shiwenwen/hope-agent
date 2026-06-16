@@ -373,6 +373,9 @@ Worker Dispatcher (worker.rs)
     │       │           └── PassThrough 类 (技能调用/search) → 替换为转换后指令，继续 ↓
     │       └── NO  → 继续 ↓
     ├── 5b. append_message(user_msg) 保存真实对话用户消息
+    ├── 5c. [单飞闸 I8] active_turn::try_acquire(session, Channel, 合成 turn_id, cancel)
+    │       ├── Err（同会话已有活动回合，含被 GUI/HTTP 接管） → 回一句「正在处理上一条」并 return
+    │       └── Ok → 持守 guard 至回合 + 投递结束（RAII）
     ├── 6. chat_engine::run_chat_engine() 共享聊天引擎
     │       ├── 构建 Agent（model chain + failover）
     │       ├── 恢复会话历史 (restore_agent_context)
@@ -387,6 +390,8 @@ Worker Dispatcher (worker.rs)
     ├── 9. chunk_message() 分块（4096 字符限制）
     └── 10. send_message() 逐块发送
 ```
+
+> **入站单飞（I8 / MISC-2 修复）**：dispatcher 用 `MAX_CONCURRENT_INBOUND` semaphore 限**全局**并发，但不串行化**同一会话**——两条快速到达的消息会并发 spawn 两个 `handle_inbound_message`，后到者在引擎深处输给 `stream_seq::begin` 竞争（此时 pipeline 已 spawn），以「active stream」错误回复收场。步骤 5c 接上 GUI/HTTP 同款 `active_turn::try_acquire` 单飞守卫：在持久化用户消息**之后**、引擎启动**之前**加闸，故每条入站照常入库 + 过 `UserPromptSubmit` preflight，仅「引擎回合」被单飞。守卫跨 IM/GUI/HTTP 在同一（1:1 attach）会话上互斥。用**合成 turn_id** 仅作单飞锁、引擎仍 `turn_id: None`（Channel 走 `channel:*` 总线，给它 seq-tracked turn_id 会改变 stream 接受 / 广播语义）；cancel `Arc` 一处创建供 `try_acquire` / `engine_params` / channel 取消注册表共用，使跨端取消能真正中止该引擎回合。被拒的消息已入库、搭下一回合上下文（无自动出队）。
 
 ### 出站流程
 
@@ -1438,6 +1443,16 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 ### 自动审批
 
 `ChannelAccountConfig.auto_approve_tools`（默认 `false`）可在渠道设置中开启。开启后该渠道的所有工具调用通过 `ToolExecContext.auto_approve_tools` 直接跳过审批门控，无需任何交互。
+
+**绕过审计（Epic F / IMYOLO-1）**：auto-approve 跳过引擎门时，若被跳过的调用本会命中 strict 原因（`forbids_allow_always`：危险命令 / 保护路径 / 高危 macOS 控制 / Plan-ask），执行层会跑一次 no-enforce 探测并 `app_warn('permission','auto_approve_bypass')`。**纯审计、不拦截**——auto-approve 是 opt-in 信任，但 strict 调用静默通过应可被排障/审计 grep 到。
+
+### 多端审批一致性（Epic G / SURFACE-1~5 + MISC-11）
+
+一条审批可能同时挂在 IM 与桌面/Web，决议与应答必须跨端一致、来源可信：
+
+- **来源 fail-closed（MISC-11 + SURFACE-3）**：按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源 chat，**缺源（None）直接拒**——别的会话点一下不能批掉你的审批。文本回复 `try_handle_approval_reply` submit 前复用同一 `validate_callback_source_for_session`：审批的 session 若已 handover 改绑别的 chat，旧 chat 的回复被拒 + `send_source_mismatch_notice` 提示去原 chat 应答。Telegram 无-message callback 传 `None` 的合法路径只保留给低风险 ask_user Q&A（approval 一律 fail-closed）。
+- **任一端决议即撤窗（SURFACE-1/2）**：所有决议路径 emit `approval:resolved`，listener 收到后 `drop_pending_by_request_id` 清掉本端 `TEXT_PENDING` 残留(杜绝旧 prompt 劫持后续消息)；前端按 `requestId` 撤窗 + 他端处理 toast。
+- **chat 接管拒决残留（SURFACE-4）**：`eviction_watcher` 在 `notify_session_eviction` 门之前无条件枚举该 session 的 pending 审批逐个 `submit_approval_response(Deny, source=eviction)` + `drop_pending_for_chat` 兜底——被接管的 chat 不再残留可被误应答的审批。
 
 ### Smart 模式判官说明
 

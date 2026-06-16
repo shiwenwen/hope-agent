@@ -231,6 +231,17 @@ pub struct AsyncToolsConfig {
     /// runtime ceiling still mirrors `max_job_secs`. Default: 7200 (2h).
     #[serde(default = "default_async_job_status_max_wait_secs")]
     pub job_status_max_wait_secs: u64,
+    /// Maximum number of explicitly-backgrounded tool jobs
+    /// (`run_in_background: true` / `always-background` policy) that may run
+    /// concurrently. Each background job holds a dedicated OS thread + runtime,
+    /// so an uncapped model could linearly exhaust threads/memory by firing
+    /// many `run_in_background` calls across rounds. When the cap is reached a
+    /// new background request returns an error result telling the model to wait
+    /// (it can poll `job_status`) or run synchronously. Default: 8. Set to 0
+    /// for no limit. (Auto-background transfers of merely-slow sync calls are
+    /// bounded separately by per-turn tool concurrency + the sync budget.)
+    #[serde(default = "default_async_max_concurrent_jobs")]
+    pub max_concurrent_jobs: usize,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -250,6 +261,9 @@ fn default_async_orphan_grace_secs() -> u64 {
 }
 fn default_async_job_status_max_wait_secs() -> u64 {
     7200
+}
+fn default_async_max_concurrent_jobs() -> usize {
+    8
 }
 
 impl AsyncToolsConfig {
@@ -276,11 +290,13 @@ impl Default for AsyncToolsConfig {
             retention_secs: default_async_retention_secs(),
             orphan_grace_secs: default_async_orphan_grace_secs(),
             job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
+            max_concurrent_jobs: default_async_max_concurrent_jobs(),
         }
     }
 }
 
 pub use crate::permission::ApprovalTimeoutAction;
+pub use crate::permission::UnattendedApprovalAction;
 
 // ── Default helpers ─────────────────────────────────────────────
 

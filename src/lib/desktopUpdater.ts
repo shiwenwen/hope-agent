@@ -1,5 +1,6 @@
 import { isTauriMode } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 
 export type DesktopUpdateEvent =
   | { event: "Started"; data: { contentLength: number } }
@@ -71,7 +72,7 @@ export async function checkForDesktopUpdate(): Promise<DesktopUpdate | null> {
   if (!import.meta.env.PROD) {
     // Dev builds always report "up to date" — the running binary isn't a
     // .app/.exe the updater can replace, so a real check is meaningless.
-    console.info("[updater] dev mode — skipping real check, reporting up-to-date")
+    logger.info("updater", "desktopUpdater::checkForDesktopUpdate", "dev mode — skipping real check, reporting up-to-date")
     return null
   }
   const { check } = await import("@tauri-apps/plugin-updater")
@@ -160,7 +161,7 @@ export function silentDownload(update: DesktopUpdate): Promise<void> {
       _notify()
     })
     .catch((err) => {
-      console.error("[updater] silent download failed", err)
+      logger.error("updater", "desktopUpdater::silentDownload", "silent download failed", err)
       _downloadStatus = "idle"
       _notify()
     })
@@ -222,7 +223,7 @@ export function requestManualCheck(): void {
     try {
       fn()
     } catch (err) {
-      console.error("[updater] manual-check listener threw", err)
+      logger.error("updater", "desktopUpdater::requestManualCheck", "manual-check listener threw", err)
     }
   })
 }
@@ -234,7 +235,7 @@ export function subscribeManualCheckRequests(listener: () => void): () => void {
     try {
       listener()
     } catch (err) {
-      console.error("[updater] manual-check listener threw on flush", err)
+      logger.error("updater", "desktopUpdater::subscribeManualCheckRequests", "manual-check listener threw on flush", err)
     }
   }
   return () => {

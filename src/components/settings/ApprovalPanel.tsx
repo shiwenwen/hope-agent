@@ -3,6 +3,7 @@ import GlobalYoloSection from "./approval-panel/GlobalYoloSection"
 import PatternListEditor from "./approval-panel/PatternListEditor"
 import SmartModeSection from "./approval-panel/SmartModeSection"
 import ApprovalTimeoutSection from "./approval-panel/ApprovalTimeoutSection"
+import UnattendedApprovalSection from "./approval-panel/UnattendedApprovalSection"
 
 /**
  * "权限" / "Approval" settings panel — central home for the permission v2
@@ -53,6 +54,8 @@ export default function ApprovalPanel() {
         <SmartModeSection />
 
         <ApprovalTimeoutSection />
+
+        <UnattendedApprovalSection />
       </div>
     </div>
   )

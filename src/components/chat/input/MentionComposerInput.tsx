@@ -267,6 +267,15 @@ function mentionDecorations(getConfig: () => MentionConfig) {
       }
 
       update(update: ViewUpdate) {
+        // Never rebuild decorations mid-IME-composition. Swapping the decoration
+        // set (and its atomic ranges) forces CM6 to redraw the line holding the
+        // active composition, which aborts third-party IMEs (e.g. Sogou Pinyin)
+        // on Chromium/WebView2. Keep existing chips aligned by mapping them
+        // through the change; do a full rebuild once composition ends.
+        if (update.view.composing) {
+          if (update.docChanged) this.decorations = this.decorations.map(update.changes)
+          return
+        }
         if (update.docChanged || update.viewportChanged || update.transactions.length > 0) {
           this.decorations = build(update.view)
         }
@@ -303,6 +312,9 @@ function adjacentMentionDeletion(
 function atomicDeleteExtension(getConfig: () => MentionConfig) {
   return EditorView.domEventHandlers({
     keydown(event, view) {
+      // Never intercept deletes during an IME composition. preventDefault() +
+      // dispatch here would abort the composition for third-party Windows IMEs.
+      if (event.isComposing || event.keyCode === 229) return false
       if (
         (event.key !== "Backspace" && event.key !== "Delete") ||
         event.altKey ||
@@ -332,6 +344,43 @@ function atomicDeleteExtension(getConfig: () => MentionConfig) {
     },
   })
 }
+
+const CODEMIRROR_EDIT_CONTEXT_FLAG = "__HOPE_AGENT_CODEMIRROR_EDIT_CONTEXT"
+
+type CodeMirrorEditContextWindow = Window & {
+  __HOPE_AGENT_CODEMIRROR_EDIT_CONTEXT?: boolean
+}
+
+function shouldForceCodeMirrorEditContext(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false
+  if (!("EditContext" in window)) return false
+  const ua = navigator.userAgent
+  if (!/\bWindows NT\b/.test(ua)) return false
+  const version = ua.match(/\b(?:Chrome|Chromium|Edg)\/(\d+)/)?.[1]
+  return version ? Number(version) >= 126 : false
+}
+
+function withCodeMirrorEditContext<T>(enabled: boolean, create: () => T): T {
+  if (!enabled) return create()
+  const target = window as unknown as CodeMirrorEditContextWindow
+  const previous = target[CODEMIRROR_EDIT_CONTEXT_FLAG]
+  target[CODEMIRROR_EDIT_CONTEXT_FLAG] = true
+  try {
+    return create()
+  } finally {
+    if (previous === undefined) {
+      delete target[CODEMIRROR_EDIT_CONTEXT_FLAG]
+    } else {
+      target[CODEMIRROR_EDIT_CONTEXT_FLAG] = previous
+    }
+  }
+}
+
+// CodeMirror ships an EditContext input path, but gates it to Android. The
+// postinstall patch in scripts/patch-codemirror-edit-context.mjs adds this
+// scoped opt-in so the Windows chat composer can bypass Chrome/WebView2's
+// legacy contenteditable IME path without changing the editor surface.
+const FORCE_CODEMIRROR_EDIT_CONTEXT = shouldForceCodeMirrorEditContext()
 
 const baseTheme = EditorView.theme({
   "&": {
@@ -475,10 +524,11 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     }, [pendingFileAction, pendingFilePrimary, runPendingFileAction])
 
     useLayoutEffect(() => {
-      if (!hostRef.current || viewRef.current) return
+      const parent = hostRef.current
+      if (!parent || viewRef.current) return
 
-      const view = new EditorView({
-        parent: hostRef.current,
+      const view = withCodeMirrorEditContext(FORCE_CODEMIRROR_EDIT_CONTEXT, () => new EditorView({
+        parent,
         state: EditorState.create({
           doc: valueRef.current,
           extensions: [
@@ -509,7 +559,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
             }),
           ],
         }),
-      })
+      }))
 
       viewRef.current = view
       return () => {
@@ -523,6 +573,11 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     useLayoutEffect(() => {
       const view = viewRef.current
       if (!view) return
+      // Never reconcile the external value while an IME composition is active.
+      // Dispatching a doc-replacing transaction mid-composition aborts the
+      // composition. CM6 fires its own docChanged on compositionend, after which
+      // value/doc reconverge and any genuinely-needed sync runs later.
+      if (view.composing) return
       const current = view.state.doc.toString()
       if (value === current) return
 

@@ -502,8 +502,10 @@ pub async fn install_skill_dependency(skill_name: &str, spec_index: usize) -> Re
 }
 
 async fn run_install_command(program: &str, args: &[&str]) -> Result<String> {
-    let output = tokio::process::Command::new(program)
-        .args(args)
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args);
+    crate::platform::hide_console_tokio(&mut cmd);
+    let output = cmd
         .output()
         .await
         .map_err(|e| anyhow!("Failed to run {} {}: {}", program, args.join(" "), e))?;

@@ -8,6 +8,12 @@ pub enum AsyncJobStatus {
     /// Cancellation has been requested and the running future has been
     /// signalled, but the runner has not yet finalized the row.
     Cancelling,
+    /// Registered (row written) but execution is blocked waiting for a human
+    /// approval decision. NOT terminal and not yet consuming wall-clock budget
+    /// — distinguishes "running" from "waiting on a human" for
+    /// job_status / dashboard / replay (a backgrounded exec parked on its
+    /// command-level approval gate sits here, not in `Running`).
+    AwaitingApproval,
     Completed,
     Failed,
     /// Job was running when the application restarted; the process state
@@ -30,6 +36,7 @@ impl AsyncJobStatus {
         match self {
             Self::Running => "running",
             Self::Cancelling => "cancelling",
+            Self::AwaitingApproval => "awaiting_approval",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Interrupted => "interrupted",
@@ -42,6 +49,7 @@ impl AsyncJobStatus {
         match s {
             "running" => Some(Self::Running),
             "cancelling" => Some(Self::Cancelling),
+            "awaiting_approval" => Some(Self::AwaitingApproval),
             "completed" => Some(Self::Completed),
             "failed" => Some(Self::Failed),
             "interrupted" => Some(Self::Interrupted),
@@ -52,7 +60,22 @@ impl AsyncJobStatus {
     }
 
     pub fn is_terminal(self) -> bool {
-        !matches!(self, Self::Running | Self::Cancelling)
+        !matches!(
+            self,
+            Self::Running | Self::Cancelling | Self::AwaitingApproval
+        )
+    }
+
+    /// `(is_error, is_interrupt)` for the terminal PostToolUse hook fire (H4/H6).
+    /// `Completed` → success; `Cancelled` / `Interrupted` → interrupted failure;
+    /// everything else (`Failed` / `TimedOut`, plus non-terminal states that
+    /// should never reach the fire site) → a plain (non-interrupt) failure.
+    pub fn terminal_hook_flags(self) -> (bool, bool) {
+        match self {
+            Self::Completed => (false, false),
+            Self::Cancelled | Self::Interrupted => (true, true),
+            _ => (true, false),
+        }
     }
 }
 
@@ -78,6 +101,20 @@ pub struct AsyncJob {
     /// `explicit` for `run_in_background: true`,
     /// `policy_forced` for agent `always-background`.
     pub origin: String,
+    /// How this job's execution was authorized (snake_case: `user` /
+    /// `timeout_proceed` / `yolo` / `auto_approve` / `external_pre_approved`).
+    /// `None` for jobs that never hit an approval gate. Column lands in A-7;
+    /// real values written by B4 / F6 (TIMEOUT-2 audit).
+    pub approval_origin: Option<String>,
+    /// Whether the owning session is incognito — incognito jobs skip on-disk
+    /// args/output persistence. Column lands in A-7; set by E4.
+    pub incognito: bool,
+    /// OS process id of the spawned child (exec), for restart orphan cleanup.
+    /// Column lands in A-7; set by I3.
+    pub pid: Option<i64>,
+    /// Cross-process cancel flag — set via DB so another process's runner can
+    /// observe cancellation. Column lands in A-7; set by I4.
+    pub cancel_requested: bool,
 }
 
 /// Reason a job was created — primarily for telemetry / injection wording.
@@ -107,6 +144,7 @@ mod tests {
         for s in [
             AsyncJobStatus::Running,
             AsyncJobStatus::Cancelling,
+            AsyncJobStatus::AwaitingApproval,
             AsyncJobStatus::Completed,
             AsyncJobStatus::Failed,
             AsyncJobStatus::Interrupted,
@@ -124,9 +162,34 @@ mod tests {
     }
 
     #[test]
+    fn terminal_hook_flags_map_status_to_error_and_interrupt() {
+        // (is_error, is_interrupt)
+        assert_eq!(
+            AsyncJobStatus::Completed.terminal_hook_flags(),
+            (false, false)
+        );
+        assert_eq!(AsyncJobStatus::Failed.terminal_hook_flags(), (true, false));
+        assert_eq!(
+            AsyncJobStatus::TimedOut.terminal_hook_flags(),
+            (true, false)
+        );
+        assert_eq!(
+            AsyncJobStatus::Cancelled.terminal_hook_flags(),
+            (true, true),
+            "cancellation is an interrupted failure"
+        );
+        assert_eq!(
+            AsyncJobStatus::Interrupted.terminal_hook_flags(),
+            (true, true),
+            "restart interruption is an interrupted failure"
+        );
+    }
+
+    #[test]
     fn is_terminal_marks_only_running_as_non_terminal() {
         assert!(!AsyncJobStatus::Running.is_terminal());
         assert!(!AsyncJobStatus::Cancelling.is_terminal());
+        assert!(!AsyncJobStatus::AwaitingApproval.is_terminal());
         for s in [
             AsyncJobStatus::Completed,
             AsyncJobStatus::Failed,

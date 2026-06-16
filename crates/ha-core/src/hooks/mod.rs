@@ -359,13 +359,15 @@ pub(crate) async fn rewake_inject(session_id: &str, stderr: &str) {
         session_id,
         stderr.len()
     );
-    crate::subagent::injection::inject_and_run_parent(
+    // Hook rewake has no async-job row to settle; ignore the outcome.
+    let _ = crate::subagent::injection::inject_and_run_parent(
         session_id.to_string(),
         agent_id.clone(),
         agent_id,
         format!("hook-rewake-{}", uuid::Uuid::new_v4()),
         push,
         db,
+        None,
     )
     .await;
 }
@@ -765,24 +767,110 @@ pub fn fire_file_changed(session_id: Option<&str>, path: &str, action: &str) {
 }
 
 /// Fire a `PermissionRequest` observation hook (a tool approval prompt was
-/// raised). `command` is the matcher target (the command / tool being gated).
-pub fn fire_permission_request(session_id: Option<&str>, command: &str) {
+/// raised). `command` is the matcher target (the command / tool being gated);
+/// `tool_use_id` correlates it with the PreToolUse/PostToolUse for the same
+/// call. `job_id` stays `None` — approval always runs before a call detaches
+/// (B5), so there is never a live job id at this point.
+pub fn fire_permission_request(session_id: Option<&str>, command: &str, tool_use_id: Option<&str>) {
     let input = HookInput::PermissionRequest {
         common: observation_common("PermissionRequest", session_id.unwrap_or("")),
         command: command.to_string(),
+        tool_use_id: tool_use_id.map(str::to_string),
+        job_id: None,
     };
     fire_and_forget(HookEvent::PermissionRequest, input);
 }
 
 /// Fire a `PermissionDenied` observation hook (a tool was denied). `reason` is
 /// `user_declined` (the user said no to a prompt) or `policy` (engine auto-deny).
-pub fn fire_permission_denied(session_id: Option<&str>, command: &str, reason: &str) {
+/// `tool_use_id` correlates the denial with its call; `job_id` stays `None`
+/// (approval runs before detach, B5).
+pub fn fire_permission_denied(
+    session_id: Option<&str>,
+    command: &str,
+    reason: &str,
+    tool_use_id: Option<&str>,
+) {
     let input = HookInput::PermissionDenied {
         common: observation_common("PermissionDenied", session_id.unwrap_or("")),
         command: command.to_string(),
         reason: reason.to_string(),
+        tool_use_id: tool_use_id.map(str::to_string),
+        job_id: None,
     };
     fire_and_forget(HookEvent::PermissionDenied, input);
+}
+
+/// Fire the terminal `PostToolUse` / `PostToolUseFailure` hook for a finished
+/// async tool job (HOOKS-1/4). Sync tools fire PostToolUse from the streaming
+/// loop, but a backgrounded job settles off-turn — without this it is invisible
+/// to PostToolUse hooks, including cancellation/interruption (HOOKS-4).
+///
+/// `job_id` is filled so a hook can tell this terminal fire apart from the
+/// `started`-time `PreToolUse` carrying the same `tool_use_id`. `tool_input` is
+/// `Null` — the finalize site only has the job id, not the original args (the
+/// model only ever saw the synthetic "started" result); matchers key on
+/// `tool_name`.
+///
+/// **Always** dispatches on the process-lived fire-and-forget runtime, never the
+/// ambient one: `finalize_job` runs inside a current-thread runtime that drops
+/// the instant the job's OS thread exits, which would silently kill a task
+/// spawned on it. Pure fire-and-forget — never blocks finalize, never affects
+/// the job outcome.
+#[allow(clippy::too_many_arguments)]
+pub fn fire_async_job_terminal(
+    session_id: Option<&str>,
+    agent_id: Option<&str>,
+    tool_name: &str,
+    tool_use_id: Option<&str>,
+    job_id: &str,
+    is_error: bool,
+    is_interrupt: bool,
+    result_or_error: &str,
+) {
+    let event = if is_error {
+        HookEvent::PostToolUseFailure
+    } else {
+        HookEvent::PostToolUse
+    };
+    let sid = session_id.unwrap_or("");
+    let wd = (!sid.is_empty())
+        .then(|| crate::session::effective_session_working_dir(Some(sid)))
+        .flatten();
+    if !scopes::any_handlers_for(event, wd.as_deref().map(std::path::Path::new)) {
+        return;
+    }
+    let mut common = observation_common(event.as_str(), sid);
+    common.agent_id = agent_id.map(str::to_string);
+    let tool_use_id = tool_use_id.unwrap_or_default().to_string();
+    let job_id = Some(job_id.to_string());
+    let input = if is_error {
+        HookInput::PostToolUseFailure {
+            common,
+            tool_name: tool_name.to_string(),
+            tool_input: serde_json::Value::Null,
+            tool_use_id,
+            error: result_or_error.to_string(),
+            is_interrupt,
+            // Not tracked at the finalize site.
+            duration_ms: 0,
+            job_id,
+        }
+    } else {
+        HookInput::PostToolUse {
+            common,
+            tool_name: tool_name.to_string(),
+            tool_input: serde_json::Value::Null,
+            tool_response: serde_json::Value::String(result_or_error.to_string()),
+            tool_use_id,
+            job_id,
+        }
+    };
+    if let Some(rt) = fire_and_forget_runtime() {
+        rt.spawn(async move {
+            HookDispatcher::dispatch(event, input).await;
+        });
+    }
 }
 
 /// Fire a `UserPromptExpansion` observation hook (a slash command ran).
@@ -902,6 +990,7 @@ mod tests {
             tool_input: serde_json::json!({}),
             tool_response: serde_json::json!("ok"),
             tool_use_id: "c1".into(),
+            job_id: None,
         }
     }
 

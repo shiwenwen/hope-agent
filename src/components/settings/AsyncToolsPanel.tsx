@@ -10,6 +10,7 @@ interface AsyncToolsConfig {
   enabled: boolean
   autoBackgroundSecs: number
   maxJobSecs: number
+  maxConcurrentJobs: number
   inlineResultBytes: number
   retentionSecs: number
   orphanGraceSecs: number
@@ -20,6 +21,7 @@ const DEFAULT_CONFIG: AsyncToolsConfig = {
   enabled: true,
   autoBackgroundSecs: 30,
   maxJobSecs: 0,
+  maxConcurrentJobs: 8,
   inlineResultBytes: 4096,
   retentionSecs: 30 * 86400,
   orphanGraceSecs: 24 * 3600,
@@ -79,6 +81,7 @@ export default function AsyncToolsPanel() {
   type NumericKey =
     | "autoBackgroundSecs"
     | "maxJobSecs"
+    | "maxConcurrentJobs"
     | "inlineResultBytes"
     | "retentionSecs"
     | "orphanGraceSecs"
@@ -167,6 +170,30 @@ export default function AsyncToolsPanel() {
               <span className="text-xs text-muted-foreground whitespace-nowrap">
                 {t("settings.seconds")}
               </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">
+                {t("settings.asyncToolsMaxConcurrent")}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.asyncToolsMaxConcurrentDesc")}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={config.maxConcurrentJobs}
+                onChange={(e) =>
+                  updateNumber("maxConcurrentJobs", 0)(Number(e.target.value))
+                }
+                onBlur={commitNumber("maxConcurrentJobs", 0)}
+                className="w-24 h-8 text-sm text-right"
+              />
             </div>
           </div>
 

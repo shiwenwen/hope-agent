@@ -647,10 +647,13 @@ pub struct DockerStatus {
 
 pub async fn check_sandbox_available() -> DockerStatus {
     // Check if docker CLI exists
-    let cli_installed = Command::new("docker")
+    let mut docker_cmd = Command::new("docker");
+    docker_cmd
         .args(["--version"])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    crate::platform::hide_console_tokio(&mut docker_cmd);
+    let cli_installed = docker_cmd
         .status()
         .await
         .map(|s| s.success())
