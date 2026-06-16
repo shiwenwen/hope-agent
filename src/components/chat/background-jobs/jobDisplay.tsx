@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { Bot, Layers, Loader2, Terminal } from "lucide-react"
+import { Bot, Clock, Layers, Loader2, Terminal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {
@@ -51,7 +51,10 @@ export function BackgroundJobKindIcon({
 export function BackgroundJobStatusChip({ status }: { status: BackgroundJobStatus }) {
   const { t } = useTranslation()
   const tone = STATUS_TONE[status] ?? "muted"
-  const active = status === "running" || status === "cancelling"
+  const spinning = status === "running" || status === "cancelling"
+  // R8: a parked job is waiting on a human decision, not running — a static
+  // clock (not the spinner) tells "needs your approval" apart from "in flight".
+  const awaiting = status === "awaiting_approval"
   return (
     <span
       className={cn(
@@ -59,7 +62,8 @@ export function BackgroundJobStatusChip({ status }: { status: BackgroundJobStatu
         TONE_CLASS[tone],
       )}
     >
-      {active && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+      {spinning && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+      {awaiting && <Clock className="h-2.5 w-2.5" />}
       {t(`backgroundJobs.status.${status}`, status)}
     </span>
   )
