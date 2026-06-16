@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "Giới hạn thời gian chạy tối đa của job nền. Quá hạn sẽ bị kết thúc. 0 = không giới hạn ở tầng async job; từng công cụ vẫn có thể áp dụng timeout riêng.",
     "asyncToolsMaxConcurrent": "Số job nền tối đa chạy đồng thời",
     "asyncToolsMaxConcurrentDesc": "Số lượng tối đa job công cụ run_in_background được chạy cùng lúc; mỗi job chiếm một luồng OS riêng. 0 = không giới hạn.",
+    "asyncToolsMaxConcurrentPerSession": "Giới hạn đồng thời mỗi phiên",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Số tác vụ nền tối đa mà một phiên (hoặc cuộc trò chuyện IM) có thể chạy cùng lúc; các yêu cầu vượt mức sẽ xếp hàng ngay cả khi nhóm chung còn chỗ, để một phiên không chiếm hết mọi vị trí. 0 = không giới hạn mỗi phiên.",
     "asyncToolsOrphanGrace": "Khoảng ân hạn spool mồ côi",
     "asyncToolsOrphanGraceDesc": "File spool không có bản ghi DB tham chiếu sẽ được dọn sau số giờ này. Thời gian ân hạn tránh xung đột với ghi đang diễn ra.",
     "asyncToolsRetention": "Lưu trữ job đã kết thúc",

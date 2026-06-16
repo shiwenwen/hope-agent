@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "背景 job 執行時長上限，超時會被 kill。0 = async job 層不限時；具體工具仍可有自己的內部逾時",
     "asyncToolsMaxConcurrent": "背景 job 最大並發數",
     "asyncToolsMaxConcurrentDesc": "允許同時執行的 run_in_background 工具 job 上限，每個佔用一個獨立 OS 執行緒。0 = 不限。",
+    "asyncToolsMaxConcurrentPerSession": "每工作階段並行上限",
+    "asyncToolsMaxConcurrentPerSessionDesc": "單個工作階段（或 IM 群組）最多同時執行的背景任務數；超出的請求即使全域仍有空位也會排隊，避免單一工作階段佔滿所有名額。0 = 不限。",
     "asyncToolsOrphanGrace": "孤兒 spool 寬限時長",
     "asyncToolsOrphanGraceDesc": "DB 中無引用的 spool 檔案按此寬限期（小時）清理，避免與剛寫入但尚未提交 DB 行的 spool 競態",
     "asyncToolsRetention": "終態 job 保留天數",

@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "백그라운드 작업의 최대 실행 시간. 초과 시 강제 종료됩니다. 0 = async job 계층에서는 제한 없음. 개별 도구는 자체 타임아웃을 적용할 수 있습니다.",
     "asyncToolsMaxConcurrent": "백그라운드 작업 최대 동시 실행 수",
     "asyncToolsMaxConcurrentDesc": "동시에 실행할 수 있는 run_in_background 도구 작업의 상한. 각 작업은 전용 OS 스레드를 차지합니다. 0 = 무제한.",
+    "asyncToolsMaxConcurrentPerSession": "세션당 동시 실행 한도",
+    "asyncToolsMaxConcurrentPerSessionDesc": "하나의 세션(또는 IM 채팅)이 동시에 실행할 수 있는 백그라운드 작업의 최대 수입니다. 초과 요청은 전역 풀에 여유가 있어도 대기열에 들어가므로 한 세션이 모든 슬롯을 차지하지 못합니다. 0 = 제한 없음.",
     "asyncToolsOrphanGrace": "고아 spool 유예 시간",
     "asyncToolsOrphanGraceDesc": "DB 레코드로 참조되지 않는 spool 파일은 이 시간(시간) 이후에 정리됩니다. 유예 기간으로 쓰기 중인 파일과의 경합을 방지합니다.",
     "asyncToolsRetention": "종결 작업 보존(일)",

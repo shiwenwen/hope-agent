@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "バックグラウンドジョブの最大実行時間。超過すると強制終了されます。0 = async job 層では無制限。個別のツールは独自のタイムアウトを適用する場合があります。",
     "asyncToolsMaxConcurrent": "バックグラウンドジョブの最大同時実行数",
     "asyncToolsMaxConcurrentDesc": "同時に実行できる run_in_background ツールジョブの上限。各ジョブは専用の OS スレッドを占有します。0 = 無制限。",
+    "asyncToolsMaxConcurrentPerSession": "セッションごとの同時実行上限",
+    "asyncToolsMaxConcurrentPerSessionDesc": "1つのセッション（またはIMチャット）が同時に実行できるバックグラウンドジョブの最大数。超過分はグローバルプールに空きがあってもキューに入り、1つのセッションが全スロットを占有しないようにします。0 = 制限なし。",
     "asyncToolsOrphanGrace": "孤立 spool の猶予時間",
     "asyncToolsOrphanGraceDesc": "DB 行から参照されない spool ファイルはこの時間（時間）後に削除されます。猶予期間により書き込み中との競合を防ぎます。",
     "asyncToolsRetention": "終了ジョブの保持日数",

@@ -475,7 +475,21 @@ pub(crate) async fn dispatch_with_auto_background(
     let preview_bytes = preview_byte_budget();
     let max_secs = effective_max_job_secs(args);
 
+    // R7.1: a job that auto-detaches must count against the concurrency pool for
+    // the rest of its life (so later `try_reserve` sees the slot occupied). The
+    // job is already running on the worker thread by the time we know it
+    // detached, so we can only *count* it (forced reservation), not queue it. The
+    // reservation lives in this slot, shared with the worker; the worker holds a
+    // clone of the Arc, so it releases exactly when the worker thread ends — on
+    // every terminal path. Stays `None` (harmless) unless we actually detach.
+    let autobg_slot: Arc<Mutex<Option<super::slots::SlotReservation>>> = Arc::new(Mutex::new(None));
+    let autobg_slot_w = autobg_slot.clone();
+
     std::thread::spawn(move || {
+        // Hold the worker's Arc clone for the whole thread lifetime; dropping it
+        // here (after `block_on` returns) releases any forced reservation set by
+        // the detach path below.
+        let _autobg_slot = autobg_slot_w;
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -679,6 +693,17 @@ pub(crate) async fn dispatch_with_auto_background(
                             ));
                         }
                         *p = Phase::DetachedRunning;
+                        // R7.1: now a real background job still running on its
+                        // worker thread — count it against the pool (forced; it's
+                        // already live, so it can't be queued/refused, only
+                        // accounted). Set under the phase lock so the worker can't
+                        // settle + drop its Arc before this is stored. Released
+                        // when the worker thread ends (holds the other Arc clone).
+                        {
+                            let session_key = ctx.session_id.clone().unwrap_or_default();
+                            *autobg_slot.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(super::slots::reserve_forced(&session_key));
+                        }
                         drop(p);
                         // R3: it is now a real background job — announce it.
                         super::events::emit_created(

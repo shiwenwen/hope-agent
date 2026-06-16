@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "后台 job 运行时长上限，超时会被 kill。0 = async job 层不限时；具体工具仍可有自己的内部超时",
     "asyncToolsMaxConcurrent": "后台 job 最大并发数",
     "asyncToolsMaxConcurrentDesc": "允许同时运行的 run_in_background 工具 job 上限，每个占用一个独立 OS 线程。0 = 不限。",
+    "asyncToolsMaxConcurrentPerSession": "每会话并发上限",
+    "asyncToolsMaxConcurrentPerSessionDesc": "单个会话（或 IM 群聊）最多同时运行的后台任务数；超出的请求即使全局仍有空位也会排队，避免单个会话占满所有槽位。0 = 不限。",
     "asyncToolsOrphanGrace": "孤儿 spool 宽限时长",
     "asyncToolsOrphanGraceDesc": "spool 目录里不在 DB 中的孤儿文件按此宽限期（小时）清理，避免与刚写入但未提交 DB 行的 spool 竞态",
     "asyncToolsRetention": "终态 job 保留天数",

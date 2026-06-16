@@ -11,6 +11,7 @@ interface AsyncToolsConfig {
   autoBackgroundSecs: number
   maxJobSecs: number
   maxConcurrentJobs: number
+  maxConcurrentJobsPerSession: number
   completionMergeWindowSecs: number
   inlineResultBytes: number
   retentionSecs: number
@@ -23,6 +24,7 @@ const DEFAULT_CONFIG: AsyncToolsConfig = {
   autoBackgroundSecs: 30,
   maxJobSecs: 0,
   maxConcurrentJobs: 8,
+  maxConcurrentJobsPerSession: 6,
   completionMergeWindowSecs: 3,
   inlineResultBytes: 4096,
   retentionSecs: 30 * 86400,
@@ -84,6 +86,7 @@ export default function AsyncToolsPanel() {
     | "autoBackgroundSecs"
     | "maxJobSecs"
     | "maxConcurrentJobs"
+    | "maxConcurrentJobsPerSession"
     | "completionMergeWindowSecs"
     | "inlineResultBytes"
     | "retentionSecs"
@@ -225,6 +228,33 @@ export default function AsyncToolsPanel() {
                   updateNumber("maxConcurrentJobs", 0)(Number(e.target.value))
                 }
                 onBlur={commitNumber("maxConcurrentJobs", 0)}
+                className="w-24 h-8 text-sm text-right"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">
+                {t("settings.asyncToolsMaxConcurrentPerSession", "每会话并发上限")}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t(
+                  "settings.asyncToolsMaxConcurrentPerSessionDesc",
+                  "单个会话（或 IM 群聊）最多同时运行的后台任务数；超出的请求即使全局仍有空位也会排队，避免单个会话占满所有槽位。0 表示不限制。",
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={config.maxConcurrentJobsPerSession}
+                onChange={(e) =>
+                  updateNumber("maxConcurrentJobsPerSession", 0)(Number(e.target.value))
+                }
+                onBlur={commitNumber("maxConcurrentJobsPerSession", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
             </div>

@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "Arka plan işinin çalışabileceği süre sınırı. Aşılırsa sonlandırılır. 0 = async job katmanında sınır yok; tek tek araçlar kendi zaman aşımlarını uygulayabilir.",
     "asyncToolsMaxConcurrent": "Maks. eşzamanlı arka plan işi",
     "asyncToolsMaxConcurrentDesc": "Aynı anda çalışabilecek run_in_background araç işlerinin üst sınırı; her biri ayrı bir OS iş parçacığı tutar. 0 = sınırsız.",
+    "asyncToolsMaxConcurrentPerSession": "Oturum başına eşzamanlılık sınırı",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Tek bir oturumun (veya IM sohbetinin) aynı anda çalıştırabileceği en fazla arka plan işi sayısı; küresel havuzda yer olsa bile fazla istekler kuyruğa alınır, böylece tek bir oturum tüm yuvaları kapatamaz. 0 = oturum başına sınır yok.",
     "asyncToolsOrphanGrace": "Yetim spool bekleme süresi",
     "asyncToolsOrphanGraceDesc": "Veritabanında referansı olmayan spool dosyaları bu saatler sonra temizlenir. Bekleme süresi, uçuş halindeki yazmalarla yarışı önler.",
     "asyncToolsRetention": "Sonlanmış iş saklama",

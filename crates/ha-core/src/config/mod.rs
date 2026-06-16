@@ -250,6 +250,16 @@ pub struct AsyncToolsConfig {
     /// are bounded separately by per-turn tool concurrency + the sync budget.)
     #[serde(default = "default_async_max_concurrent_jobs")]
     pub max_concurrent_jobs: usize,
+    /// Per-session share of the background-job pool (R7.1 fairness tier). A
+    /// single session (or IM chat) may hold at most this many concurrent tool
+    /// jobs; further `run_in_background` calls from the same session QUEUE even
+    /// when the global pool (`max_concurrent_jobs`) still has room, so one busy
+    /// session can't monopolize every slot and starve the others. The scheduler
+    /// promotes queued jobs per-session round-robin, skipping any session already
+    /// at this cap. Auto-backgrounded jobs count against it too. Default: 6. Set
+    /// to 0 for no per-session limit (only the global cap applies).
+    #[serde(default = "default_async_max_concurrent_jobs_per_session")]
+    pub max_concurrent_jobs_per_session: usize,
     /// Completion-injection merge window (R4), in seconds. When multiple
     /// background jobs in the SAME session finish within this window, their
     /// completion notifications are merged into ONE injected turn (one
@@ -283,6 +293,13 @@ fn default_async_job_status_max_wait_secs() -> u64 {
 }
 fn default_async_completion_merge_window_secs() -> u64 {
     3
+}
+fn default_async_max_concurrent_jobs_per_session() -> usize {
+    // Per-session fairness share (R7.1). Sized below the typical global default
+    // so a single session leaves room for others, while still letting a focused
+    // session fan out a handful of background tools. A user-set `0` means no
+    // per-session limit (handled in the slot acquire path, not here).
+    6
 }
 fn default_async_max_concurrent_jobs() -> usize {
     // Hardware-derived default so the cap doesn't oversubscribe the machine:
@@ -320,6 +337,7 @@ impl Default for AsyncToolsConfig {
             orphan_grace_secs: default_async_orphan_grace_secs(),
             job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
             max_concurrent_jobs: default_async_max_concurrent_jobs(),
+            max_concurrent_jobs_per_session: default_async_max_concurrent_jobs_per_session(),
             completion_merge_window_secs: default_async_completion_merge_window_secs(),
         }
     }
@@ -1135,5 +1153,30 @@ mod async_tools_defaults_tests {
             default_async_completion_merge_window_secs()
         );
         assert_eq!(default_async_completion_merge_window_secs(), 3);
+        assert_eq!(
+            AsyncToolsConfig::default().max_concurrent_jobs_per_session,
+            default_async_max_concurrent_jobs_per_session()
+        );
+        assert_eq!(default_async_max_concurrent_jobs_per_session(), 6);
+    }
+
+    #[test]
+    fn per_session_cap_zero_unlimited_survives_deserialization() {
+        // A user-set 0 (= no per-session limit) must NOT be overwritten by the default.
+        let json = serde_json::json!({
+            "providers": [],
+            "asyncTools": { "maxConcurrentJobsPerSession": 0 }
+        });
+        let cfg: AppConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.async_tools.max_concurrent_jobs_per_session, 0);
+    }
+
+    #[test]
+    fn per_session_cap_uses_default_when_field_absent() {
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert_eq!(
+            cfg.async_tools.max_concurrent_jobs_per_session,
+            default_async_max_concurrent_jobs_per_session()
+        );
     }
 }

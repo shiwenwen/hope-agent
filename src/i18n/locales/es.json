@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "Límite de tiempo de ejecución de un job en segundo plano. Al superarlo se termina. 0 = sin límite en la capa de jobs async; cada herramienta aún puede aplicar sus propios timeouts.",
     "asyncToolsMaxConcurrent": "Máx. jobs en segundo plano simultáneos",
     "asyncToolsMaxConcurrentDesc": "Número máximo de jobs de herramienta run_in_background que pueden ejecutarse a la vez; cada uno ocupa un hilo del SO. 0 = sin límite.",
+    "asyncToolsMaxConcurrentPerSession": "Límite de concurrencia por sesión",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Número máximo de tareas en segundo plano que una sesión (o chat de IM) puede ejecutar a la vez; las solicitudes adicionales se ponen en cola aunque el grupo global tenga espacio, para que una sola sesión no ocupe todas las ranuras. 0 = sin límite por sesión.",
     "asyncToolsOrphanGrace": "Periodo de gracia de spool huérfanos",
     "asyncToolsOrphanGraceDesc": "Los archivos spool no referenciados por una fila de la BD se eliminan tras estas horas. El periodo evita carreras con escrituras en curso.",
     "asyncToolsRetention": "Retención de jobs finalizados",

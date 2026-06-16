@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "Had masa pelaksanaan kerja latar. Jika melebihi, ia dihentikan. 0 = tiada had pada lapisan kerja async; alat individu masih boleh mengenakan tamat masa sendiri.",
     "asyncToolsMaxConcurrent": "Maks. kerja latar serentak",
     "asyncToolsMaxConcurrentDesc": "Bilangan maksimum kerja alat run_in_background yang boleh berjalan serentak; setiap satu menggunakan satu utas OS khusus. 0 = tiada had.",
+    "asyncToolsMaxConcurrentPerSession": "Had keserentakan setiap sesi",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Bilangan maksimum kerja latar yang boleh dijalankan oleh satu sesi (atau sembang IM) pada satu masa; permintaan tambahan akan beratur walaupun kumpulan global masih ada ruang, supaya satu sesi tidak menguasai semua slot. 0 = tiada had setiap sesi.",
     "asyncToolsOrphanGrace": "Tempoh ihsan spool yatim",
     "asyncToolsOrphanGraceDesc": "Fail spool tanpa rujukan DB dibersihkan selepas jam ini. Tempoh ihsan mengelak perlumbaan dengan penulisan sedang berjalan.",
     "asyncToolsRetention": "Pengekalan kerja terminal",

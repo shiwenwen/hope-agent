@@ -2539,6 +2539,8 @@
     "asyncToolsMaxJobDesc": "Hard limit on how long a background job may run before being killed. 0 = no async-job limit; individual tools may still enforce their own timeouts.",
     "asyncToolsMaxConcurrent": "Max concurrent background jobs",
     "asyncToolsMaxConcurrentDesc": "Maximum number of run_in_background tool jobs allowed to run at once; each holds a dedicated OS thread. 0 = unlimited.",
+    "asyncToolsMaxConcurrentPerSession": "Per-session concurrency limit",
+    "asyncToolsMaxConcurrentPerSessionDesc": "The most background jobs one session (or IM chat) may run at once; further requests queue even when the global pool has room, so a single session can't take every slot. 0 = no per-session limit.",
     "asyncToolsOrphanGrace": "Orphan spool grace period",
     "asyncToolsOrphanGraceDesc": "Spool files not referenced by any DB row are cleaned up after this many hours. Grace window prevents races with in-flight writes.",
     "asyncToolsRetention": "Terminal job retention",
