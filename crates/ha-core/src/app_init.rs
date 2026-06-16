@@ -884,6 +884,11 @@ pub async fn start_background_tasks() {
     tokio::spawn(async move {
         crate::async_jobs::JobManager::run_scheduler().await;
     });
+    // R7.2: subagent reject→queue scheduler — promotes parked (`Queued`) spawns
+    // as running children settle. Idempotent per process (mirrors run_scheduler).
+    tokio::spawn(async move {
+        crate::subagent::queue::run_subagent_scheduler().await;
+    });
     // R8 follow-up: mirror background-subagent inner approvals onto their
     // projection label (running ⇄ awaiting_approval). Idempotent per process.
     crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
@@ -1207,6 +1212,11 @@ pub async fn start_minimal_background_tasks() {
     // R7.1 background-job scheduler (tier-agnostic: process-local queue, idempotent).
     tokio::spawn(async move {
         crate::async_jobs::JobManager::run_scheduler().await;
+    });
+    // R7.2: subagent reject→queue scheduler — promotes parked (`Queued`) spawns
+    // as running children settle. Idempotent per process (mirrors run_scheduler).
+    tokio::spawn(async move {
+        crate::subagent::queue::run_subagent_scheduler().await;
     });
     // R8 follow-up: mirror background-subagent inner approvals onto their
     // projection label (running ⇄ awaiting_approval). Idempotent per process.

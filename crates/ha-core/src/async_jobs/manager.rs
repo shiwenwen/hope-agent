@@ -235,10 +235,12 @@ impl JobManager {
     // projection carries status / lifecycle ONLY — never run content.
 
     /// Map a subagent run's status onto the unified job status for its
-    /// projection. `Spawning`/`Running` → `Running` (active); terminal states map
-    /// 1:1 (`Error`→`Failed`, `Timeout`→`TimedOut`, `Killed`→`Cancelled`).
+    /// projection. `Queued` → `Queued` (R7.2, parked for a slot); `Spawning`/
+    /// `Running` → `Running` (active); terminal states map 1:1 (`Error`→`Failed`,
+    /// `Timeout`→`TimedOut`, `Killed`→`Cancelled`).
     fn subagent_status_as_job(status: SubagentStatus) -> JobStatus {
         match status {
+            SubagentStatus::Queued => JobStatus::Queued,
             SubagentStatus::Spawning | SubagentStatus::Running => JobStatus::Running,
             SubagentStatus::Completed => JobStatus::Completed,
             SubagentStatus::Error => JobStatus::Failed,

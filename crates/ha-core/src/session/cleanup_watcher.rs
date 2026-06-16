@@ -125,6 +125,16 @@ async fn cleanup_session(session_id: &str, is_purge: bool) {
     // shouldn't linger. Incognito wakeups are in-memory only; this aborts them.
     crate::wakeup::purge_for_session(session_id);
 
+    // R7.2: drop any parked (`Queued`) subagent spawns for this session. Projected
+    // ones were already cancelled+dequeued by `cancel_for_session` above; this
+    // catches incognito/unprojected parked spawns (the in-memory entry is the only
+    // place their sensitive `SpawnParams` live — dropping it is the burn) and
+    // stamps each row terminal so the scheduler can never promote it into a gone
+    // session.
+    for run_id in crate::subagent::queue::purge_for_session(session_id) {
+        crate::subagent::request_cancel_run(&run_id);
+    }
+
     // E3/E4 (INCOG-2/5): on incognito burn, scrub the session's on-disk
     // artifacts. Incognito tool results / job spools are skipped at write time,
     // so these are backstops — but they also drop the (redacted) async-job rows

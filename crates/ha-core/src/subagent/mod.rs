@@ -2,6 +2,7 @@ mod cancel;
 mod helpers;
 pub(crate) mod injection;
 mod mailbox;
+pub(crate) mod queue;
 mod spawn;
 mod types;
 
@@ -118,12 +119,17 @@ static SESSION_IDLE_NOTIFY: std::sync::LazyLock<tokio::sync::Notify> =
 /// active, stamps it `Killed` directly so a caller is never left with an
 /// un-cancellable row. Returns true if a cancel was signalled or stamped.
 pub fn request_cancel_run(run_id: &str) -> bool {
+    // R7.2: a still-PARKED run (Queued, never launched) has no in-process cancel
+    // flag — drop its queue entry first (releases the pinned SpawnParams) so the
+    // scheduler can't promote it, then fall through to stamp it Killed below.
+    queue::remove_for_run(run_id);
     if let Some(registry) = crate::get_subagent_cancels() {
         if registry.cancel(run_id) {
             return true;
         }
     }
-    // No in-process flag — fall back to stamping terminal if still active.
+    // No in-process flag (run already settled, or it was only parked) — fall back
+    // to stamping terminal if still active (covers the just-dequeued Queued run).
     if let Some(db) = crate::get_session_db() {
         if let Ok(Some(run)) = db.get_subagent_run(run_id) {
             if !run.status.is_terminal() {

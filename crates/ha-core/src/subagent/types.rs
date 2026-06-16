@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SubagentStatus {
+    /// R7.2 reject→queue unification: parked because the parent session is at its
+    /// per-session subagent concurrency limit. NOT a slot holder and NOT terminal
+    /// — promoted to `Spawning` by the subagent scheduler when a slot frees.
+    /// Deliberately excluded from the `count_active_subagent_runs` active set so a
+    /// queued run can't inflate the count and deadlock its own promotion.
+    Queued,
     Spawning,
     Running,
     Completed,
@@ -17,6 +23,7 @@ pub enum SubagentStatus {
 impl SubagentStatus {
     pub fn as_str(&self) -> &str {
         match self {
+            Self::Queued => "queued",
             Self::Spawning => "spawning",
             Self::Running => "running",
             Self::Completed => "completed",
@@ -28,6 +35,7 @@ impl SubagentStatus {
 
     pub fn from_str(s: &str) -> Self {
         match s {
+            "queued" => Self::Queued,
             "spawning" => Self::Spawning,
             "running" => Self::Running,
             "completed" => Self::Completed,
@@ -147,6 +155,24 @@ pub struct ParentAgentStreamEvent {
     pub push_message: Option<String>, // only for "started"
     pub delta: Option<String>,        // raw JSON delta string, only for "delta"
     pub error: Option<String>,        // only for "error"
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::SubagentStatus;
+
+    #[test]
+    fn queued_round_trips_and_is_non_terminal() {
+        // R7.2: the parked status must serialize stably (it's persisted to the
+        // `subagent_runs.status` TEXT column and read back) and must NOT be
+        // terminal — a terminal Queued would freeze the projection and the
+        // active-count exclusion would be meaningless.
+        assert_eq!(SubagentStatus::Queued.as_str(), "queued");
+        assert_eq!(SubagentStatus::from_str("queued"), SubagentStatus::Queued);
+        assert!(!SubagentStatus::Queued.is_terminal());
+        // Unknown still falls back to Error (unchanged).
+        assert_eq!(SubagentStatus::from_str("bogus"), SubagentStatus::Error);
+    }
 }
 
 /// Event payload emitted to the frontend via Tauri events.

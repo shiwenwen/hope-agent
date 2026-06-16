@@ -63,7 +63,13 @@ impl SessionDB {
           // for ALL transition paths (run lifecycle + the three kill fallbacks).
           // Best-effort + no-op when the run was never projected (foreground /
           // internal / incognito) — and it NEVER writes run content back.
+        let became_terminal = status.is_terminal();
         crate::async_jobs::JobManager::sync_subagent_projection(run_id, status);
+        // R7.2: a terminal status may have freed a per-session concurrency slot —
+        // wake the subagent scheduler to promote any parked (`Queued`) spawn.
+        if became_terminal {
+            crate::subagent::queue::wake_subagent_scheduler();
+        }
         Ok(())
     }
 
@@ -248,6 +254,9 @@ impl SessionDB {
     }
 
     /// Mark all non-terminal sub-agent runs as error (orphan cleanup on startup).
+    /// Includes `queued` (R7.2): a parked run's in-memory queue entry is lost on
+    /// restart, so the row must settle (mirrors the tool-job `Queued→Interrupted`
+    /// recovery) rather than linger forever as a phantom queued run.
     pub fn cleanup_orphan_subagent_runs(&self) -> Result<usize> {
         let conn = self
             .conn
@@ -256,7 +265,7 @@ impl SessionDB {
         let now = chrono::Utc::now().to_rfc3339();
         let affected = conn.execute(
             "UPDATE subagent_runs SET status = 'error', error = 'Orphaned: app restarted before completion', finished_at = ?1
-             WHERE status IN ('spawning', 'running')",
+             WHERE status IN ('queued', 'spawning', 'running')",
             params![now],
         )?;
         Ok(affected)
