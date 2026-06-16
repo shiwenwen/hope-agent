@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "Had keserentakan setiap sesi",
     "asyncToolsMaxConcurrentPerSessionDesc": "Bilangan maksimum kerja latar yang boleh dijalankan oleh satu sesi (atau sembang IM) pada satu masa; permintaan tambahan akan beratur walaupun kumpulan global masih ada ruang, supaya satu sesi tidak menguasai semua slot. 0 = tiada had setiap sesi.",
     "asyncToolsRetryEnabled": "Cuba semula automatik apabila gagal",
-    "asyncToolsRetryEnabledDesc": "Mencuba semula secara automatik (dengan jeda menaik) tugas latar yang gagal akibat ralat sementara (cth. gangguan rangkaian). Hanya terpakai untuk alat tanpa kesan sampingan dan boleh dijalankan semula (seperti carian web); exec, penjanaan imej dan alat lain yang berkesan sampingan / dikenakan bayaran tidak sekali-kali dicuba semula secara automatik.",
+    "asyncToolsRetryEnabledDesc": "Mencuba semula secara automatik (dengan jeda) tugas latar yang gagal. Hanya terpakai untuk alat rangkaian yang selamat dijalankan semula (seperti carian web). Cubaan semula menjalankan semula alat itu, yang boleh menyebabkan panggilan tambahan pada penyedia berbayar (cth. carian web), jadi ia dimatikan secara lalai dan dihidupkan oleh pengguna. exec, penjanaan imej dan alat lain yang berkesan sampingan / tak deterministik, serta tugas yang dibatalkan / tamat masa, tidak sekali-kali dicuba semula.",
     "asyncToolsMaxRetryAttempts": "Cubaan maksimum",
     "asyncToolsMaxRetryAttemptsDesc": "Jumlah cubaan termasuk larian pertama (1 = tiada cuba semula). Jeda antara cubaan meningkat secara eksponen dari 500ms.",
     "asyncToolsOrphanGrace": "Tempoh ihsan spool yatim",

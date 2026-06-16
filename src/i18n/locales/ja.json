@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "セッションごとの同時実行上限",
     "asyncToolsMaxConcurrentPerSessionDesc": "1つのセッション（またはIMチャット）が同時に実行できるバックグラウンドジョブの最大数。超過分はグローバルプールに空きがあってもキューに入り、1つのセッションが全スロットを占有しないようにします。0 = 制限なし。",
     "asyncToolsRetryEnabled": "失敗時に自動リトライ",
-    "asyncToolsRetryEnabledDesc": "ネットワークの一時的な不調などで失敗したバックグラウンドジョブをバックオフ付きで自動的に再試行します。副作用がなく再実行可能なツール（ウェブ検索など）にのみ適用され、exec や画像生成など副作用・課金を伴うツールは自動再試行されません。",
+    "asyncToolsRetryEnabledDesc": "失敗したバックグラウンドジョブをバックオフ付きで自動再試行します。再実行しても安全なネットワークツール（ウェブ検索など）にのみ適用されます。再試行はツールを再実行するため、ウェブ検索などの有料プロバイダーでは追加の呼び出しが発生する可能性があり、既定では無効でオプトインです。exec、画像生成など副作用・非決定的なツール、およびキャンセル／タイムアウトしたジョブは再試行されません。",
     "asyncToolsMaxRetryAttempts": "最大試行回数",
     "asyncToolsMaxRetryAttemptsDesc": "初回実行を含む合計試行回数（1 = リトライなし）。試行間隔は 500ms から指数的に増加します。",
     "asyncToolsOrphanGrace": "孤立 spool の猶予時間",

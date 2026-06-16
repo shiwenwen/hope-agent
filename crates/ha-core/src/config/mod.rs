@@ -206,11 +206,16 @@ pub struct AsyncToolsConfig {
     /// to disable auto-backgrounding.
     #[serde(default = "default_async_auto_background_secs")]
     pub auto_background_secs: u64,
-    /// Maximum time (seconds) a backgrounded job may run before being killed.
-    /// Default: 0 (no async-job limit); individual tools may still enforce
-    /// their own timeouts when the model sets one (for example `exec.timeout`).
-    /// Per-call `job_timeout_secs` can set a timeout when this is 0, or tighten
-    /// the configured limit when this is positive.
+    /// Maximum time (seconds) a single backgrounded job *attempt* may run before
+    /// being killed. Default: 0 (no async-job limit); individual tools may still
+    /// enforce their own timeouts when the model sets one (for example
+    /// `exec.timeout`). Per-call `job_timeout_secs` can set a timeout when this
+    /// is 0, or tighten the configured limit when this is positive.
+    /// **R7.4 note:** this is a PER-ATTEMPT budget — a retry-eligible job that
+    /// fails (not times out) and retries gets a fresh budget per attempt, so a
+    /// retried job's total wall-clock can reach `max_job_secs × max_retry_attempts`
+    /// plus backoffs. A timeout itself is never retried, so the budget still
+    /// bounds any single execution.
     #[serde(default = "default_async_max_job_secs")]
     pub max_job_secs: u64,
     /// Number of result bytes to keep as the SQLite preview. Full completed
@@ -263,18 +268,22 @@ pub struct AsyncToolsConfig {
     /// (only the global cap applies).
     #[serde(default = "default_async_max_concurrent_jobs_per_session")]
     pub max_concurrent_jobs_per_session: usize,
-    /// R7.4 retry: auto-retry a *backgrounded* job that fails or times out, with
-    /// exponential backoff. **Safe by default** — only side-effect-free, network-
-    /// transient tools (`web_search` / `web_fetch`) are ever retried; `exec`
-    /// (could repeat a half-applied side effect) and `image_generate` (re-bills,
-    /// non-deterministic) are NEVER retried regardless of this switch (eligibility
-    /// is a code-level safety decision, not a knob). User cancels are never
-    /// retried. Master on/off. Default: true.
-    #[serde(default = "crate::default_true")]
+    /// R7.4 retry: auto-retry a *backgrounded* job that fails with a transient
+    /// error, with exponential backoff. **Opt-in (default `false`).** Only
+    /// idempotent, re-runnable tools (`web_search` / `web_fetch`) are ever
+    /// retried; `exec` (could repeat a half-applied side effect) and
+    /// `image_generate` (re-runs to a different, re-billed image) are NEVER
+    /// retried regardless of this switch (eligibility is a code-level allowlist,
+    /// not a knob). User cancels / policy denials / timeouts are never retried.
+    /// Default is off because an eligible tool still re-RUNS — and `web_search`
+    /// is often a *paid* provider, so retrying a deterministic failure (e.g. a
+    /// 400 bad query) would re-bill; the user opts in to that trade-off. Per-tool
+    /// retry-eligibility is in `async_jobs::retry::is_retry_eligible`.
+    #[serde(default)]
     pub retry_enabled: bool,
     /// R7.4: total attempts for a retry-eligible backgrounded job (1 = no retry;
-    /// the initial try counts). Backoff between attempts is exponential from a
-    /// fixed 500ms base. Default: 3.
+    /// the initial try counts), hard-capped at 10. Backoff between attempts is
+    /// exponential from a fixed 500ms base. Default: 3.
     #[serde(default = "default_async_max_retry_attempts")]
     pub max_retry_attempts: u32,
     /// Completion-injection merge window (R4), in seconds. When multiple
@@ -366,7 +375,7 @@ impl Default for AsyncToolsConfig {
             job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
             max_concurrent_jobs: default_async_max_concurrent_jobs(),
             max_concurrent_jobs_per_session: default_async_max_concurrent_jobs_per_session(),
-            retry_enabled: true,
+            retry_enabled: false,
             max_retry_attempts: default_async_max_retry_attempts(),
             completion_merge_window_secs: default_async_completion_merge_window_secs(),
         }
@@ -1187,7 +1196,10 @@ mod async_tools_defaults_tests {
             AsyncToolsConfig::default().max_concurrent_jobs_per_session,
             default_async_max_concurrent_jobs_per_session()
         );
-        assert!(AsyncToolsConfig::default().retry_enabled);
+        assert!(
+            !AsyncToolsConfig::default().retry_enabled,
+            "retry is opt-in (default off): eligible tools re-run and may re-bill"
+        );
         assert_eq!(
             AsyncToolsConfig::default().max_retry_attempts,
             default_async_max_retry_attempts()
@@ -1198,7 +1210,7 @@ mod async_tools_defaults_tests {
     #[test]
     fn retry_fields_use_defaults_when_absent() {
         let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
-        assert!(cfg.async_tools.retry_enabled);
+        assert!(!cfg.async_tools.retry_enabled, "default off");
         assert_eq!(cfg.async_tools.max_retry_attempts, 3);
     }
 

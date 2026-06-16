@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "Per-session concurrency limit",
     "asyncToolsMaxConcurrentPerSessionDesc": "The most background jobs one session (or IM chat) may run at once; further requests queue even when the global pool has room, so a single session can't take every slot. 0 = no per-session limit.",
     "asyncToolsRetryEnabled": "Auto-retry on failure",
-    "asyncToolsRetryEnabledDesc": "Auto-retry a background job with backoff when it fails on a transient error (e.g. a network blip). Applies only to side-effect-free, re-runnable tools (like web search); exec, image generation and other side-effecting / billed tools are never auto-retried.",
+    "asyncToolsRetryEnabledDesc": "Auto-retry a failed background job with backoff. Applies only to safe-to-rerun network tools (like web search). Retrying re-runs the tool, which can incur extra calls on paid providers (e.g. web search) — so it's off by default and you opt in. exec, image generation and other side-effecting / non-deterministic tools, and cancelled / timed-out jobs, are never retried.",
     "asyncToolsMaxRetryAttempts": "Max attempts",
     "asyncToolsMaxRetryAttemptsDesc": "Total attempts including the first run (1 = no retry). Backoff between attempts grows exponentially from 500ms.",
     "asyncToolsOrphanGrace": "Orphan spool grace period",

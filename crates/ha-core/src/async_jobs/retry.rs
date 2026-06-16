@@ -1,13 +1,23 @@
 //! R7.4 retry policy for backgrounded tool jobs.
 //!
-//! A backgrounded job that *fails* or *times out* may be retried with
-//! exponential backoff — but **safely by default**: only side-effect-free,
-//! network-transient tools are ever retried. The eligibility set is a
-//! CODE-LEVEL safety decision (not a user knob), because a blind re-run of a
-//! side-effecting tool (`exec`) could repeat a half-applied effect, and a
-//! re-run of a cost-heavy non-deterministic tool (`image_generate`) re-bills
-//! for a different result. User-initiated cancels and policy denials are never
-//! retried.
+//! A backgrounded job that fails may be retried with exponential backoff — but
+//! **conservatively, and OPT-IN by default** (`async_tools.retry_enabled`
+//! defaults to `false`). Two safety rails:
+//!
+//! 1. **Eligibility is a CODE-LEVEL allowlist** ([`is_retry_eligible`]), not a
+//!    user knob — only *idempotent, re-runnable* tools (`web_search` /
+//!    `web_fetch`) qualify. `exec` is excluded (a shell command may have applied
+//!    a partial side effect before failing — a blind re-run could repeat it);
+//!    `image_generate` is excluded (re-running yields a *different*
+//!    non-deterministic image, so a retry isn't "the same operation").
+//! 2. **Default off.** Even an eligible tool re-RUNS on retry, and the eligible
+//!    network tools are often backed by *paid* providers (e.g. `web_search` via
+//!    Brave / Tavily / Google). The job layer can't reliably tell a transient
+//!    failure (429 / 5xx — worth retrying) from a deterministic one (400 bad
+//!    query — a wasted re-bill), so retry is opt-in to avoid surprise charges.
+//!
+//! Only `JobError::Failed` is ever retried (a clean dispatch error). Cancels,
+//! policy denials, and timeouts never retry (see [`decide`]).
 //!
 //! This module is the pure decision layer: [`decide`] takes the tool name, the
 //! attempt number, the terminal [`JobError`], and the resolved [`RetryConfig`],
@@ -25,6 +35,12 @@ const BASE_BACKOFF_MS: u64 = 500;
 /// Cap on the backoff shift so `1 << n` can never overflow / explode for a
 /// pathological `max_retry_attempts`.
 const MAX_BACKOFF_SHIFT: u32 = 6; // 500ms * 2^6 = 32s ceiling
+
+/// Hard upper bound on total attempts, regardless of the configured
+/// `max_retry_attempts`. A retrying job pins a concurrency slot for its whole
+/// multi-attempt lifetime, so an absurd config value can't be allowed to retry
+/// a persistently-failing (and possibly paid) tool hundreds of times.
+const MAX_ATTEMPTS_CAP: u32 = 10;
 
 /// Resolved retry knobs (snapshot of `async_tools.{retry_enabled,max_retry_attempts}`).
 #[derive(Debug, Clone, Copy)]
@@ -54,18 +70,28 @@ pub enum RetryDecision {
     Retry { backoff_ms: u64 },
 }
 
-/// Tools whose failures are typically transient (network) AND whose
-/// re-execution is side-effect-free, so a backgrounded job may auto-retry them.
+/// Tools that are *idempotent / safe to re-run* — re-executing the same call
+/// neither corrupts external state nor produces a logically different operation,
+/// so a backgrounded job MAY auto-retry them (when retry is enabled).
 ///
 /// Deliberately NOT here (never auto-retried, by design):
 /// - `exec` — a shell command may have applied a partial side effect before
-///   failing; a blind re-run could repeat it.
-/// - `image_generate` — re-bills and returns a different (non-deterministic)
-///   image; retrying is a cost decision the model/user should make explicitly.
+///   failing; a blind re-run could repeat it (not idempotent).
+/// - `image_generate` — re-running returns a *different* non-deterministic image
+///   and re-bills; the retry isn't "the same operation that failed".
 ///
-/// Only async-capable tools ever reach the job path; today that's `web_search`
-/// among the eligible set (`web_fetch` is listed for forward-compatibility but
-/// is not async-capable yet, so it never becomes a background job).
+/// NOTE on cost: an eligible tool still re-RUNS, and `web_search` is often a
+/// *paid* per-query provider — that cost is the reason retry defaults OFF (see
+/// the module doc), not a reason to drop eligibility (re-running a search is
+/// state-safe; the user opts into the small re-bill). Only async-capable tools
+/// ever reach the job path; today that's `web_search` among the eligible set
+/// (`web_fetch` is listed for forward-compatibility but is not async-capable
+/// yet, so it never becomes a background job).
+///
+/// **Adding a tool here:** it MUST be idempotent AND must not register an
+/// `output_tail` ring (only `exec` does today) — a retried tail tool would
+/// re-stream into the once-registered ring. [`super::spawn::run_tool_with_retry`]
+/// `debug_assert`s the latter.
 pub fn is_retry_eligible(tool_name: &str) -> bool {
     matches!(
         tool_name,
@@ -100,7 +126,11 @@ pub fn decide(tool_name: &str, attempt: u32, error: &JobError, cfg: &RetryConfig
     if !cfg.enabled || cfg.max_attempts <= 1 || !is_retry_eligible(tool_name) {
         return RetryDecision::Stop;
     }
-    if attempt >= cfg.max_attempts {
+    // Clamp the configured attempt count to a sane ceiling (a retrying job holds
+    // a concurrency slot for its whole multi-attempt life — an absurd value
+    // mustn't be honored verbatim).
+    let max_attempts = cfg.max_attempts.min(MAX_ATTEMPTS_CAP);
+    if attempt >= max_attempts {
         return RetryDecision::Stop;
     }
     // attempt is 1-based; the 1st failure backs off 500ms, 2nd 1s, …
@@ -198,12 +228,31 @@ mod tests {
 
     #[test]
     fn backoff_is_shift_capped() {
-        // A pathological attempt count must not overflow the shift.
-        let c = cfg(true, 100);
-        if let RetryDecision::Retry { backoff_ms } = decide("web_search", 50, &failed(), &c) {
-            assert_eq!(backoff_ms, 500 * (1u64 << MAX_BACKOFF_SHIFT));
-        } else {
-            panic!("expected a retry");
-        }
+        // A high attempt index must not overflow the shift; backoff saturates at
+        // the 2^6 ceiling. attempt 9 is the last retrying attempt under the
+        // MAX_ATTEMPTS_CAP (10), and (9-1).min(6) = 6 → 500ms * 2^6.
+        let c = cfg(true, MAX_ATTEMPTS_CAP);
+        assert_eq!(
+            decide("web_search", 9, &failed(), &c),
+            RetryDecision::Retry {
+                backoff_ms: 500 * (1u64 << MAX_BACKOFF_SHIFT)
+            }
+        );
+    }
+
+    #[test]
+    fn max_attempts_is_clamped_to_cap() {
+        // An absurd configured value must not retry past the hard cap.
+        let c = cfg(true, 4_000_000_000);
+        assert_eq!(
+            decide("web_search", MAX_ATTEMPTS_CAP, &failed(), &c),
+            RetryDecision::Stop,
+            "attempt == cap must stop even when config asks for billions"
+        );
+        // ...but it still retries up to the cap.
+        assert!(matches!(
+            decide("web_search", MAX_ATTEMPTS_CAP - 1, &failed(), &c),
+            RetryDecision::Retry { .. }
+        ));
     }
 }

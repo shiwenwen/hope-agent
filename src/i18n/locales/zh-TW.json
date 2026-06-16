@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "每工作階段並行上限",
     "asyncToolsMaxConcurrentPerSessionDesc": "單個工作階段（或 IM 群組）最多同時執行的背景任務數；超出的請求即使全域仍有空位也會排隊，避免單一工作階段佔滿所有名額。0 = 不限。",
     "asyncToolsRetryEnabled": "失敗自動重試",
-    "asyncToolsRetryEnabledDesc": "背景任務因網路抖動等瞬時錯誤失敗時自動退避重試。僅對無副作用、可重入的工具（如聯網搜尋）生效；exec、影像生成等有副作用 / 計費的工具永不自動重試。",
+    "asyncToolsRetryEnabledDesc": "失敗時自動退避重試背景任務，僅對可安全重跑的聯網工具（如聯網搜尋）生效。重試會重新呼叫該工具，聯網搜尋等計費供應商可能因此產生額外呼叫，故預設關閉、按需開啟。exec、影像生成等有副作用 / 非確定性工具，以及被取消 / 逾時的任務，永不重試。",
     "asyncToolsMaxRetryAttempts": "最大嘗試次數",
     "asyncToolsMaxRetryAttemptsDesc": "含首次執行的總嘗試次數（1 = 不重試）。重試間隔按 500ms 起指數退避。",
     "asyncToolsOrphanGrace": "孤兒 spool 寬限時長",

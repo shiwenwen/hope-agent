@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "Giới hạn đồng thời mỗi phiên",
     "asyncToolsMaxConcurrentPerSessionDesc": "Số tác vụ nền tối đa mà một phiên (hoặc cuộc trò chuyện IM) có thể chạy cùng lúc; các yêu cầu vượt mức sẽ xếp hàng ngay cả khi nhóm chung còn chỗ, để một phiên không chiếm hết mọi vị trí. 0 = không giới hạn mỗi phiên.",
     "asyncToolsRetryEnabled": "Tự động thử lại khi thất bại",
-    "asyncToolsRetryEnabledDesc": "Tự động thử lại (có khoảng chờ tăng dần) một tác vụ nền khi nó thất bại do lỗi tạm thời (ví dụ trục trặc mạng). Chỉ áp dụng cho các công cụ không có tác dụng phụ và chạy lại được (như tìm kiếm web); exec, tạo ảnh và các công cụ có tác dụng phụ / tính phí khác không bao giờ tự động thử lại.",
+    "asyncToolsRetryEnabledDesc": "Tự động thử lại (có khoảng chờ) một tác vụ nền thất bại. Chỉ áp dụng cho các công cụ mạng an toàn để chạy lại (như tìm kiếm web). Việc thử lại sẽ chạy lại công cụ, có thể phát sinh lệnh gọi bổ sung ở các nhà cung cấp tính phí (ví dụ tìm kiếm web), nên mặc định tắt và do người dùng bật. exec, tạo ảnh và các công cụ có tác dụng phụ / không tất định khác, cùng các tác vụ bị hủy / hết thời gian, không bao giờ được thử lại.",
     "asyncToolsMaxRetryAttempts": "Số lần thử tối đa",
     "asyncToolsMaxRetryAttemptsDesc": "Tổng số lần thử gồm cả lần chạy đầu (1 = không thử lại). Khoảng chờ giữa các lần thử tăng theo cấp số nhân từ 500ms.",
     "asyncToolsOrphanGrace": "Khoảng ân hạn spool mồ côi",

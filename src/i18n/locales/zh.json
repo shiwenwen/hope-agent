@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "每会话并发上限",
     "asyncToolsMaxConcurrentPerSessionDesc": "单个会话（或 IM 群聊）最多同时运行的后台任务数；超出的请求即使全局仍有空位也会排队，避免单个会话占满所有槽位。0 = 不限。",
     "asyncToolsRetryEnabled": "失败自动重试",
-    "asyncToolsRetryEnabledDesc": "后台任务因网络抖动等瞬时错误失败时自动退避重试。仅对无副作用、可重入的工具（如联网搜索）生效；exec、图像生成等有副作用 / 计费的工具永不自动重试。",
+    "asyncToolsRetryEnabledDesc": "失败时自动退避重试后台任务，仅对可安全重跑的联网工具（如联网搜索）生效。重试会重新调用该工具，联网搜索等计费供应商可能因此产生额外调用，故默认关闭、按需开启。exec、图像生成等有副作用 / 非确定性工具，以及被取消 / 超时的任务，永不重试。",
     "asyncToolsMaxRetryAttempts": "最大尝试次数",
     "asyncToolsMaxRetryAttemptsDesc": "含首次执行的总尝试次数（1 = 不重试）。重试间隔按 500ms 起指数退避。",
     "asyncToolsOrphanGrace": "孤儿 spool 宽限时长",

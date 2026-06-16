@@ -828,6 +828,14 @@ async fn run_tool_with_retry(
     max_secs: u64,
     cancel_token: &CancellationToken,
 ) -> Result<String, JobError> {
+    // Retry-eligible tools must never be tail-streaming tools: the `output_tail`
+    // ring is registered ONCE before this loop, so a retried tail tool would
+    // re-stream into a stale ring. `exec` (the only tail tool) is not eligible;
+    // this guards the invariant if the allowlist ever drifts.
+    debug_assert!(
+        !(super::retry::is_retry_eligible(tool_name) && ctx.output_tail_job_id.is_some()),
+        "retry-eligible tool '{tool_name}' must not register an output_tail ring",
+    );
     let retry_cfg = super::retry::RetryConfig::current();
     let mut attempt: u32 = 1;
     loop {
@@ -835,24 +843,53 @@ async fn run_tool_with_retry(
             Ok(out) => return Ok(out),
             Err(e) => e,
         };
-        match super::retry::decide(tool_name, attempt, &err, &retry_cfg) {
-            super::retry::RetryDecision::Stop => return Err(err),
-            super::retry::RetryDecision::Retry { backoff_ms } => {
-                app_warn!(
-                    "async_jobs",
-                    "retry",
-                    "Background tool '{}' attempt {} failed transiently; retrying in {}ms",
-                    tool_name,
-                    attempt,
-                    backoff_ms
-                );
-                tokio::select! {
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)) => {}
-                    _ = cancel_token.cancelled() => return Err(JobError::Cancelled),
-                }
-                attempt += 1;
-            }
+        // Cancel wins any tie: if the token is already cancelled (e.g. the
+        // dispatch arm of run_tool_once's select happened to win over a
+        // simultaneously-ready cancel), settle Cancelled now — don't log a
+        // spurious "retrying" line for a job that's actually being cancelled.
+        if cancel_token.is_cancelled() {
+            return Err(JobError::Cancelled);
         }
+        let backoff_ms = match super::retry::decide(tool_name, attempt, &err, &retry_cfg) {
+            super::retry::RetryDecision::Stop => {
+                // On a retried-then-exhausted failure, annotate the terminal
+                // error so the injected `<task-notification>` + persisted row
+                // reflect that it was retried (audit parity with the rest of the
+                // subsystem). `attempt` is the count of attempts actually made.
+                return Err(annotate_retry_attempts(err, attempt));
+            }
+            super::retry::RetryDecision::Retry { backoff_ms } => backoff_ms,
+        };
+        // Cancellable backoff. Log AFTER the wait so the "retrying" line is
+        // emitted only when we actually proceed to re-dispatch (a cancel during
+        // the wait settles Cancelled without a misleading retry log).
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)) => {}
+            _ = cancel_token.cancelled() => return Err(JobError::Cancelled),
+        }
+        app_warn!(
+            "async_jobs",
+            "retry",
+            "Background tool '{}' attempt {} failed transiently; retrying (attempt {})",
+            tool_name,
+            attempt,
+            attempt + 1
+        );
+        attempt += 1;
+    }
+}
+
+/// Append a "(failed after N attempts)" marker to a retried job's terminal error
+/// so a retried-then-failed job is distinguishable from a single failure in the
+/// injected notification and the persisted `error` column. No-op for `attempt
+/// <= 1` (never retried) and for non-`Failed` terminals (cancels/timeouts/denials
+/// are returned verbatim — they're never reached with `attempt > 1`).
+fn annotate_retry_attempts(err: JobError, attempt: u32) -> JobError {
+    match err {
+        JobError::Failed { message } if attempt > 1 => JobError::Failed {
+            message: format!("{message} (failed after {attempt} attempts)"),
+        },
+        other => other,
     }
 }
 

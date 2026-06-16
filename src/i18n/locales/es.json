@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "Límite de concurrencia por sesión",
     "asyncToolsMaxConcurrentPerSessionDesc": "Número máximo de tareas en segundo plano que una sesión (o chat de IM) puede ejecutar a la vez; las solicitudes adicionales se ponen en cola aunque el grupo global tenga espacio, para que una sola sesión no ocupe todas las ranuras. 0 = sin límite por sesión.",
     "asyncToolsRetryEnabled": "Reintento automático al fallar",
-    "asyncToolsRetryEnabledDesc": "Reintenta automáticamente con espera una tarea en segundo plano que falla por un error transitorio (p. ej. un fallo de red). Solo se aplica a herramientas sin efectos secundarios y reejecutables (como la búsqueda web); exec, generación de imágenes y otras herramientas con efectos secundarios / facturadas nunca se reintentan automáticamente.",
+    "asyncToolsRetryEnabledDesc": "Reintenta automáticamente con espera una tarea en segundo plano fallida. Solo se aplica a herramientas de red seguras de reejecutar (como la búsqueda web). El reintento vuelve a ejecutar la herramienta, lo que puede generar llamadas adicionales en proveedores de pago (p. ej. la búsqueda web), por eso está desactivado por defecto y se activa manualmente. exec, generación de imágenes y otras herramientas con efectos secundarios / no deterministas, y las tareas canceladas / con tiempo agotado, nunca se reintentan.",
     "asyncToolsMaxRetryAttempts": "Intentos máximos",
     "asyncToolsMaxRetryAttemptsDesc": "Intentos totales incluyendo la primera ejecución (1 = sin reintento). La espera entre intentos crece exponencialmente desde 500ms.",
     "asyncToolsOrphanGrace": "Periodo de gracia de spool huérfanos",

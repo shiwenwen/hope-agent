@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "Oturum başına eşzamanlılık sınırı",
     "asyncToolsMaxConcurrentPerSessionDesc": "Tek bir oturumun (veya IM sohbetinin) aynı anda çalıştırabileceği en fazla arka plan işi sayısı; küresel havuzda yer olsa bile fazla istekler kuyruğa alınır, böylece tek bir oturum tüm yuvaları kapatamaz. 0 = oturum başına sınır yok.",
     "asyncToolsRetryEnabled": "Başarısızlıkta otomatik yeniden deneme",
-    "asyncToolsRetryEnabledDesc": "Geçici bir hata (ör. bir ağ kesintisi) nedeniyle başarısız olan bir arka plan işini geri çekilmeyle otomatik olarak yeniden dener. Yalnızca yan etkisiz, yeniden çalıştırılabilir araçlara (web araması gibi) uygulanır; exec, görüntü üretimi ve yan etkili / ücretli diğer araçlar asla otomatik yeniden denenmez.",
+    "asyncToolsRetryEnabledDesc": "Başarısız bir arka plan işini geri çekilmeyle otomatik olarak yeniden dener. Yalnızca yeniden çalıştırılması güvenli ağ araçlarına (web araması gibi) uygulanır. Yeniden deneme aracı tekrar çalıştırır; bu, ücretli sağlayıcılarda (ör. web araması) ek çağrılara yol açabileceğinden varsayılan olarak kapalıdır ve kullanıcı tarafından açılır. exec, görüntü üretimi ve yan etkili / belirlenimci olmayan diğer araçlar ile iptal edilen / zaman aşımına uğrayan işler asla yeniden denenmez.",
     "asyncToolsMaxRetryAttempts": "Maksimum deneme",
     "asyncToolsMaxRetryAttemptsDesc": "İlk çalıştırma dahil toplam deneme sayısı (1 = yeniden deneme yok). Denemeler arası bekleme 500ms'den üstel olarak artar.",
     "asyncToolsOrphanGrace": "Yetim spool bekleme süresi",

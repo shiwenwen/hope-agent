@@ -27,7 +27,7 @@ const DEFAULT_CONFIG: AsyncToolsConfig = {
   maxJobSecs: 0,
   maxConcurrentJobs: 8,
   maxConcurrentJobsPerSession: 6,
-  retryEnabled: true,
+  retryEnabled: false,
   maxRetryAttempts: 3,
   completionMergeWindowSecs: 3,
   inlineResultBytes: 4096,
@@ -307,6 +307,7 @@ export default function AsyncToolsPanel() {
               <Input
                 type="number"
                 min={1}
+                max={10}
                 step={1}
                 value={config.maxRetryAttempts}
                 onChange={(e) =>

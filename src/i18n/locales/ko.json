@@ -2542,7 +2542,7 @@
     "asyncToolsMaxConcurrentPerSession": "세션당 동시 실행 한도",
     "asyncToolsMaxConcurrentPerSessionDesc": "하나의 세션(또는 IM 채팅)이 동시에 실행할 수 있는 백그라운드 작업의 최대 수입니다. 초과 요청은 전역 풀에 여유가 있어도 대기열에 들어가므로 한 세션이 모든 슬롯을 차지하지 못합니다. 0 = 제한 없음.",
     "asyncToolsRetryEnabled": "실패 시 자동 재시도",
-    "asyncToolsRetryEnabledDesc": "네트워크 일시 장애 등 일시적 오류로 실패한 백그라운드 작업을 백오프와 함께 자동 재시도합니다. 부작용이 없고 재실행 가능한 도구(웹 검색 등)에만 적용되며, exec·이미지 생성 등 부작용/과금 도구는 자동 재시도하지 않습니다.",
+    "asyncToolsRetryEnabledDesc": "실패한 백그라운드 작업을 백오프와 함께 자동 재시도합니다. 다시 실행해도 안전한 네트워크 도구(웹 검색 등)에만 적용됩니다. 재시도는 도구를 다시 실행하므로 웹 검색 등 유료 제공자에서 추가 호출이 발생할 수 있어 기본적으로 꺼져 있으며 사용자가 켭니다. exec·이미지 생성 등 부작용/비결정적 도구와 취소·시간 초과된 작업은 재시도하지 않습니다.",
     "asyncToolsMaxRetryAttempts": "최대 시도 횟수",
     "asyncToolsMaxRetryAttemptsDesc": "첫 실행을 포함한 총 시도 횟수(1 = 재시도 없음). 시도 간 대기 시간은 500ms부터 지수적으로 증가합니다.",
     "asyncToolsOrphanGrace": "고아 spool 유예 시간",
