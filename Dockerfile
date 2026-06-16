@@ -50,6 +50,10 @@ COPY src ./src
 COPY public ./public
 COPY scripts ./scripts
 
+# Docker installs dependencies with --ignore-scripts, so apply the
+# CodeMirror EditContext patch explicitly before bundling the web UI.
+RUN node scripts/patch-codemirror-edit-context.mjs
+
 RUN pnpm build && \
     # Sanity check — the rust stage assumes /work/dist/index.html exists
     # and is the REAL build output, not `crates/ha-server/build.rs`'s
