@@ -89,13 +89,24 @@ pub(super) fn default_shell_command(cmdline: &str) -> Command {
     // `raw_arg` to avoid std's automatic quoting rewriting the user payload.
     let mut cmd = Command::new("cmd");
     cmd.raw_arg("/C").raw_arg(cmdline);
+    // Never flash a `cmd` console window for shell-exec / tool commands.
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
 
 pub(super) fn default_shell_command_tokio(cmdline: &str) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("cmd");
     cmd.raw_arg("/C").raw_arg(cmdline);
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
+}
+
+pub(super) fn hide_console(cmd: &mut Command) {
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+pub(super) fn hide_console_tokio(cmd: &mut tokio::process::Command) {
+    cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
 pub(super) fn find_chrome_executable() -> Option<PathBuf> {
@@ -130,6 +141,7 @@ pub(super) async fn chrome_already_running() -> bool {
         let filter = format!("IMAGENAME eq {name}");
         let output = match tokio::process::Command::new("tasklist")
             .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
             .kill_on_drop(true)
             .output()
             .await

@@ -260,6 +260,15 @@ pub(super) fn default_shell_command_tokio(cmdline: &str) -> tokio::process::Comm
     cmd
 }
 
+// No console windows exist on Unix, so hiding one is a no-op. The `&mut`
+// signature mirrors the Windows impl (which mutates `creation_flags`) so
+// callers stay platform-agnostic.
+#[allow(clippy::needless_pass_by_ref_mut)]
+pub(super) fn hide_console(_cmd: &mut Command) {}
+
+#[allow(clippy::needless_pass_by_ref_mut)]
+pub(super) fn hide_console_tokio(_cmd: &mut tokio::process::Command) {}
+
 pub(super) fn find_chrome_executable() -> Option<PathBuf> {
     // macOS-specific .app bundles first; if present, prefer Chrome over
     // Chromium (matches the user's likely daily browser).

@@ -20,12 +20,12 @@ pub fn build_health_status(
 
 /// Check if a binary is executable by running `<binary> --version`.
 pub async fn probe_binary(binary_path: &str) -> AcpHealthStatus {
-    match tokio::process::Command::new(binary_path)
-        .arg("--version")
+    let mut cmd = tokio::process::Command::new(binary_path);
+    cmd.arg("--version")
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
+        .stderr(std::process::Stdio::piped());
+    crate::platform::hide_console_tokio(&mut cmd);
+    match cmd.spawn() {
         Ok(child) => {
             match tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output())
                 .await

@@ -6,10 +6,19 @@ use super::{app_log, info, CONTAINER_NAME, DEFAULT_HOST_PORT, SEARXNG_DIR_NAME};
 
 // ── Internal helpers ─────────────────────────────────────────────
 
+/// A `docker` command that never flashes a console window on Windows
+/// (`CREATE_NO_WINDOW`); a no-op wrapper elsewhere. All docker invocations
+/// in this module go through it.
+pub(super) fn docker_command() -> Command {
+    let mut cmd = Command::new("docker");
+    crate::platform::hide_console_tokio(&mut cmd);
+    cmd
+}
+
 /// Returns (cli_installed, daemon_running).
 pub(super) async fn docker_status() -> (bool, bool) {
     // Check if docker CLI exists
-    let version = Command::new("docker")
+    let version = docker_command()
         .args(["--version"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -20,7 +29,7 @@ pub(super) async fn docker_status() -> (bool, bool) {
         return (false, false);
     }
     // Check if daemon is running
-    let info = Command::new("docker")
+    let info = docker_command()
         .args(["info"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -38,7 +47,7 @@ pub(super) async fn docker_available() -> bool {
 
 /// Returns (exists, running).
 pub(super) async fn inspect_container() -> (bool, bool) {
-    let out = Command::new("docker")
+    let out = docker_command()
         .args(["inspect", "--format", "{{.State.Running}}", CONTAINER_NAME])
         .output()
         .await;
@@ -53,7 +62,7 @@ pub(super) async fn inspect_container() -> (bool, bool) {
 
 /// Parse the host port from docker inspect.
 pub(super) async fn inspect_port() -> Option<u16> {
-    let out = Command::new("docker")
+    let out = docker_command()
         .args([
             "inspect",
             "--format",
@@ -174,7 +183,7 @@ async fn load_existing_secret_key(settings_path: &std::path::Path) -> Option<Str
 
 /// Fetch recent container logs for diagnostics.
 pub(super) async fn fetch_container_logs(tail: u32) -> String {
-    let out = Command::new("docker")
+    let out = docker_command()
         .args(["logs", "--tail", &tail.to_string(), CONTAINER_NAME])
         .output()
         .await;

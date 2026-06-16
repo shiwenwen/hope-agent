@@ -19,19 +19,20 @@ impl ManagedProcess {
     /// Spawn a child process with the given command and args.
     /// stdout and stderr are captured and forwarded as lines.
     pub fn spawn(program: &str, args: &[&str]) -> Result<Self> {
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .with_context(|| {
-                format!(
-                    "Failed to spawn '{}'. Is it installed and in your PATH?",
-                    program
-                )
-            })?;
+            .kill_on_drop(true);
+        crate::platform::hide_console_tokio(&mut command);
+        let mut child = command.spawn().with_context(|| {
+            format!(
+                "Failed to spawn '{}'. Is it installed and in your PATH?",
+                program
+            )
+        })?;
 
         let stdout = child
             .stdout

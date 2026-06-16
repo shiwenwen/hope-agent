@@ -210,12 +210,13 @@ async fn usable_ollama_binary() -> Option<PathBuf> {
 async fn ollama_binary_responds(path: &Path) -> bool {
     use std::process::Stdio;
 
-    let status = tokio::process::Command::new(path)
-        .arg("--version")
+    let mut cmd = tokio::process::Command::new(path);
+    cmd.arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+        .stderr(Stdio::null());
+    crate::platform::hide_console_tokio(&mut cmd);
+    let status = cmd.status();
 
     matches!(
         tokio::time::timeout(Duration::from_secs(OLLAMA_BINARY_CHECK_TIMEOUT_SECS), status).await,
