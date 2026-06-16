@@ -2410,8 +2410,8 @@ mod tests {
         // review#3: a Plan-Mode-ask exec that the user already approved at the
         // OUTER engine gate must NOT be re-prompted by the async reorder.
         let ctx = ToolExecContext::default(); // auto_approve=false, exec_pre_approved=false
-        // The reorder runs only for the AUTO-background tier (approval must
-        // resolve before the budget timer starts, ASYNC-2).
+                                              // The reorder runs only for the AUTO-background tier (approval must
+                                              // resolve before the budget timer starts, ASYNC-2).
         let auto_bg = AsyncDecision::AutoBackgroundEligible;
         // Fresh auto-bg exec, not yet approved → reorder runs its gate.
         assert!(should_run_exec_reorder_gate("exec", auto_bg, false, &ctx));
@@ -2426,7 +2426,12 @@ mod tests {
             &ctx
         ));
         // Non-exec auto-bg tool → already gated by the outer engine, no reorder.
-        assert!(!should_run_exec_reorder_gate("web_search", auto_bg, false, &ctx));
+        assert!(!should_run_exec_reorder_gate(
+            "web_search",
+            auto_bg,
+            false,
+            &ctx
+        ));
     }
 
     #[test]

@@ -207,9 +207,12 @@ impl JobsDB {
     /// `WHERE status='running'` so it only fires for a job whose dispatch is
     /// genuinely executing (a queued/terminal/already-parked row is untouched).
     /// Returns whether a row transitioned. Paired with
-    /// [`Self::resume_from_awaiting_approval`] (approve) or a terminal write
-    /// (deny/cancel/timeout) — both of which the `update_terminal` /
-    /// `mark_running` guards now also accept `awaiting_approval` from.
+    /// [`Self::resume_from_awaiting_approval`] (approve / timeout-proceed) or a
+    /// terminal write (deny/cancel/timeout) — the `update_terminal` and
+    /// `mark_cancelling` guards now also accept `awaiting_approval`, so a parked
+    /// row can settle terminal (or to `cancelling`) without a prior revert to
+    /// running. (`mark_running` is unchanged — `queued`→`running` only — and is
+    /// NOT a resume path.)
     pub fn mark_awaiting_approval(&self, job_id: &str) -> Result<bool> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let rows = conn.execute(
@@ -883,7 +886,9 @@ mod tests {
 
         // mark_cancelling now transitions from awaiting_approval (immediate cancel
         // feedback for a parked job).
-        assert!(db.mark_cancelling("p", Some("Cancellation requested")).unwrap());
+        assert!(db
+            .mark_cancelling("p", Some("Cancellation requested"))
+            .unwrap());
         assert_eq!(db.load("p").unwrap().unwrap().status, JobStatus::Cancelling);
 
         // And the row settles terminal from there.

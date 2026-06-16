@@ -799,19 +799,38 @@ async fn run_tool_once(
             },
         }
     } else {
-        let timer = tokio::time::sleep(std::time::Duration::from_secs(max_secs));
+        let budget = std::time::Duration::from_secs(max_secs);
+        let started = std::time::Instant::now();
+        let timer = tokio::time::sleep(budget);
         tokio::pin!(timer);
-        tokio::select! {
-            inner = &mut dispatch => inner.map_err(JobError::from_dispatch_error),
-            _ = &mut timer => {
-                cancel_token.cancel();
-                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                Err(JobError::TimedOut { max_secs })
-            },
-            _ = cancel_token.cancelled() => {
-                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                Err(JobError::Cancelled)
-            },
+        loop {
+            tokio::select! {
+                inner = &mut dispatch => return inner.map_err(JobError::from_dispatch_error),
+                _ = &mut timer => {
+                    // R8 (ASYNC-2): exclude time the job spent parked on a human
+                    // approval from its execution budget. While the job is
+                    // CURRENTLY parked the extension keeps growing, so the deadline
+                    // moves out and the timeout never fires mid-approval; once
+                    // resumed the extension is fixed and the full `max_secs` of
+                    // execution budget remains. The extension is 0 on threads with
+                    // no approval bridge (auto-bg / a job that never parks), so this
+                    // behaves exactly like the old one-shot timer there.
+                    let effective =
+                        started + budget + super::approval_bridge::parked_budget_extension();
+                    let now = std::time::Instant::now();
+                    if now < effective {
+                        timer.as_mut().reset(tokio::time::Instant::now() + (effective - now));
+                        continue;
+                    }
+                    cancel_token.cancel();
+                    let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                    return Err(JobError::TimedOut { max_secs });
+                },
+                _ = cancel_token.cancelled() => {
+                    let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                    return Err(JobError::Cancelled);
+                },
+            }
         }
     }
 }
@@ -913,7 +932,9 @@ async fn run_job_to_completion(
     // command gate, now deferred to here) parks the row at AwaitingApproval for
     // the duration of the wait and reverts to Running on resolve. No-op unless
     // the dispatch actually blocks on a human. Held across the whole dispatch;
-    // the RAII scope clears the thread-local at function end.
+    // the RAII scope clears the thread-local at function end. Reset the park
+    // accounting first so the budget timer's exclusion starts from a clean slate.
+    super::approval_bridge::reset_park_timing();
     let _approval_scope = super::approval_bridge::install(
         db.clone(),
         job_id.clone(),

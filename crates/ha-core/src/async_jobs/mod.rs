@@ -195,6 +195,20 @@ pub(crate) fn cancel_job(job_id: &str) -> anyhow::Result<Option<BackgroundJob>> 
     }
     let signalled = cancel::cancel_job(job_id);
 
+    // R8: if this job is parked on a human approval, dismiss that dialog NOW
+    // (drops the pending sender → the parked `rx.await` wakes so the dispatch
+    // winds down within the cancel grace instead of dead-waiting the full 5s,
+    // and closes the window where an Allow click during the grace would run the
+    // just-cancelled command). The command gate sees the dropped sender as a
+    // cancellation, so it never approves; the job still settles Cancelled via the
+    // token trip above. `on_resume` would also dismiss when the future finally
+    // drops, but that is up to 5s later — and never fires at all for a
+    // cross-process cancel that only sets the DB flag, so do it here too.
+    // remove-if-present + emit-if-removed makes a later/duplicate dismiss a no-op.
+    if let Some(request_id) = approval_bridge::parked_request_id(job_id) {
+        crate::tools::approval::dismiss_parked_job_approval(&request_id, job.session_id.as_deref());
+    }
+
     if !db.mark_cancelling(job_id, Some("Cancellation requested"))? {
         // Not running/cancelling (still `queued` in the spawn window, or it just
         // settled). The cancel flag set above cancels it once it runs; nothing
