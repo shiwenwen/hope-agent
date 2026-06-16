@@ -48,13 +48,21 @@ const MAX_DELAY_CEILING_SECS: i64 = 7 * 86_400;
 /// Hard ceiling on the *configurable* per-session pending cap.
 const MAX_PENDING_CEILING: usize = 100;
 
+/// Clamp a configured wakeup delay (seconds) to the safe band. Pure + clamps in
+/// `u64` space BEFORE the `i64` cast, so a value above `i64::MAX` can't wrap
+/// negative and collapse to the floor (it pins to the ceiling, as intended).
+fn clamp_wakeup_delay(raw: u64) -> i64 {
+    raw.clamp(MIN_DELAY_SECS as u64, MAX_DELAY_CEILING_SECS as u64) as i64
+}
+
 /// The configured upper bound (seconds) on a self-scheduled wakeup delay (R9),
 /// clamped to `[MIN_DELAY_SECS, MAX_DELAY_CEILING_SECS]`.
 pub fn max_delay_secs() -> i64 {
-    (crate::config::cached_config()
-        .async_tools
-        .wakeup_max_delay_secs as i64)
-        .clamp(MIN_DELAY_SECS, MAX_DELAY_CEILING_SECS)
+    clamp_wakeup_delay(
+        crate::config::cached_config()
+            .async_tools
+            .wakeup_max_delay_secs,
+    )
 }
 
 /// The configured per-session cap on pending wakeups (R9, structural reject —
@@ -560,5 +568,23 @@ mod tests {
         assert!((MIN_DELAY_SECS..=MAX_DELAY_CEILING_SECS).contains(&max));
         let cap = max_pending_per_session();
         assert!((1..=MAX_PENDING_CEILING).contains(&cap));
+    }
+
+    #[test]
+    fn clamp_wakeup_delay_pins_huge_values_to_ceiling_not_floor() {
+        // Review fix: clamp in u64 space before the i64 cast. A value above
+        // i64::MAX must pin to the 7d ceiling (the user wants "very long"), NOT
+        // wrap negative and collapse to the 10s floor.
+        assert_eq!(clamp_wakeup_delay(0), MIN_DELAY_SECS);
+        assert_eq!(clamp_wakeup_delay(3600), 3600);
+        assert_eq!(
+            clamp_wakeup_delay(MAX_DELAY_CEILING_SECS as u64),
+            MAX_DELAY_CEILING_SECS
+        );
+        assert_eq!(clamp_wakeup_delay(u64::MAX), MAX_DELAY_CEILING_SECS);
+        assert_eq!(
+            clamp_wakeup_delay(i64::MAX as u64 + 1),
+            MAX_DELAY_CEILING_SECS
+        );
     }
 }
