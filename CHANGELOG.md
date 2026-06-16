@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **修复 macOS 睡眠 / 锁屏一段时间唤醒后偶发整页崩溃**：唤醒后个别后台事件帧为空，会击穿界面渲染弹出「undefined is not an object」错误页（需点 Try Again 才能恢复）；现已在事件解析入口统一拦截空 / 异常帧，并把这类前端崩溃记入应用日志便于后续自查。 (#319)
+- **修复 Windows 下搜狗拼音无法在对话输入框输入中文**：对话输入框继续保留 CodeMirror 6 与 `@` / `[[ ]]` 内联提及体验，但在 Windows WebView2 上改走 CodeMirror 的 EditContext 输入路径，绕开旧 `contenteditable` 管线与搜狗拼音的兼容性问题；同时 Windows 主窗口恢复原生标题栏与窗口控制按钮。 (#315)
 
 ## [0.10.2] - 2026-06-13
 
