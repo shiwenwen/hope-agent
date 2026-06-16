@@ -90,6 +90,9 @@ impl StdioAcpRuntime {
             }
         }
 
+        // Never flash a console window when launching the ACP backend on Windows.
+        crate::platform::hide_console_tokio(&mut cmd);
+
         let child = cmd.spawn().map_err(|e| {
             anyhow::anyhow!(
                 "Failed to spawn ACP backend '{}' ({}): {}",
@@ -194,10 +197,10 @@ impl AcpRuntime for StdioAcpRuntime {
     }
 
     async fn get_version(&self) -> anyhow::Result<String> {
-        let output = tokio::process::Command::new(&self.binary_path)
-            .arg("--version")
-            .output()
-            .await?;
+        let mut cmd = tokio::process::Command::new(&self.binary_path);
+        cmd.arg("--version");
+        crate::platform::hide_console_tokio(&mut cmd);
+        let output = cmd.output().await?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(text)
     }

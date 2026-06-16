@@ -22,8 +22,10 @@
 | `pdfium_library_candidates() -> &'static [&'static str]` | macOS 返回 Homebrew / `/usr/local` dylib 候选；其他 Unix 返回常见 `.so` 候选 | 返回 `pdfium.dll` |
 | `system_permissions_*` | macOS 走 TCC / framework 原生检查与授权触发；非 macOS 返回 unsupported / NotApplicable | 返回 unsupported / NotApplicable |
 | `service::{install_service, uninstall_service, service_status, stop_server}` | macOS 写 LaunchAgent plist 并通过 `launchctl` 管理；Linux 写 user systemd unit 并通过 `systemctl --user` 管理；`stop_server` 读 `server.pid` 后发 SIGTERM | 通过 Task Scheduler 创建/删除/查询 per-user 登录任务；`stop_server` 读 `server.pid` 后走 `send_graceful_stop` |
-| `default_shell_command(cmdline) -> std::process::Command` | `Command::new("sh").arg("-c").arg(cmdline)` | `Command::new("cmd").raw_arg("/C").raw_arg(cmdline)` —— `raw_arg` 跳过 std 自动加引号，保留 `/C` 后续整段命令的原始语义 |
-| `default_shell_command_tokio(cmdline)` | 同上 std 版，返回 `tokio::process::Command` | 同上 std 版，返回 `tokio::process::Command` |
+| `default_shell_command(cmdline) -> std::process::Command` | `Command::new("sh").arg("-c").arg(cmdline)` | `Command::new("cmd").raw_arg("/C").raw_arg(cmdline)` —— `raw_arg` 跳过 std 自动加引号，保留 `/C` 后续整段命令的原始语义；并 `creation_flags(CREATE_NO_WINDOW)` 防控制台闪窗 |
+| `default_shell_command_tokio(cmdline)` | 同上 std 版，返回 `tokio::process::Command` | 同上 std 版，返回 `tokio::process::Command`（同样带 `CREATE_NO_WINDOW`） |
+| `hide_console(&mut std::process::Command)` | no-op（Unix 无控制台窗口概念） | `creation_flags(CREATE_NO_WINDOW=0x0800_0000)`——抑制 spawn 控制台子进程时一闪而过的 `cmd`/`conhost` 窗口，管道输出不受影响 |
+| `hide_console_tokio(&mut tokio::process::Command)` | no-op | 同上，`tokio::process::Command` 版（异步 spawn 站点） |
 | `os_version_string() -> String` | macOS 优先 `sw_vers -productVersion` → `"macOS 14.2.1"` 形态；其他 Unix 走 `sysinfo::System::long_os_version()` 兜底；都失败时 `"unknown"` | `sysinfo::long_os_version()` + `kernel_version()` 拼成 `"Windows 11 (26100)"` 形态；都缺失时 `"Windows (unknown build)"` |
 | `write_secure_file(path, bytes) -> io::Result<()>` | `OpenOptions::create_new + mode(0o600) + write_all + sync_all` → `fs::set_permissions(0o600)`（防 umask 干扰）→ `rename(tmp, path)`，原子 + 0600 + fsync | 同样 temp file → `sync_all`；rename 前 `if path.exists() { remove_file }`（Windows rename 目标存在会失败）；NTFS DACL 继承自 `~/.hope-agent/` 目录（用户 profile 下默认仅 owner + SYSTEM/Administrators 可读） |
 | `try_acquire_exclusive_lock(path) -> io::Result<Option<File>>` | `flock(LOCK_EX \| LOCK_NB)` 在 `O_CLOEXEC` 打开的文件上加非阻塞独占锁，`fork` 子进程不继承锁 fd；返回 `Ok(None)` 表示已被其他进程持有 | `OpenOptions::share_mode(0)`（`FILE_SHARE_NONE`）走内核独占打开 + `FILE_FLAG_NO_INHERIT_HANDLE`，`Err(io::ErrorKind::PermissionDenied)` 自动映射为 `Ok(None)` 表示锁已被占 |
@@ -51,6 +53,24 @@
 
 **Windows ACL 当前依赖继承**：`~/.hope-agent/` 在用户 profile 下，默认 DACL 已经把"普通用户"挡在外面，但**没有显式 strip 继承的 ACE**。注释里明确点出"hardening to an explicit DACL is a future pass"——威胁建模需要时再加，签名不变向后兼容。
 
+### 隐藏控制台窗口（Windows `CREATE_NO_WINDOW`）
+
+Windows 上用 `std::process::Command` / `tokio::process::Command` spawn 一个**控制台子系统**程序（`git` / `docker` / `node` / `cmd` / `hostname` …）时，即使把 stdout/stderr 重定向走，系统仍会为该子进程**短暂闪出一个 `cmd`/`conhost` 控制台窗口**——在每轮对话都会跑 git/hostname 探测的桌面 GUI 上，表现为"发消息时黑窗一闪而过、还抢输入焦点"。`creation_flags(CREATE_NO_WINDOW)` 让子进程不分配控制台窗口，但保留管道，所以捕获输出照常。
+
+约定：**任何在 Windows 上可能创建进程、且在正常使用路径上会跑的 `Command`，都必须经 `hide_console` / `hide_console_tokio`**（或本就带 flag 的 `run_hidden` / `default_shell_command*`）。`hide_console` 对**找不到程序而返回 `Err` 的调用是零成本 no-op**，所以判定标准取**就低不就高**——只要程序名**有可能**在某些 Windows 环境解析出真进程，就加。
+
+**真正无需加**的只有两类：
+
+1. 被 `#[cfg(unix)]` / `#[cfg(target_os="macos")]` 等非 Windows cfg 包住、根本不在 Windows 编译的站点（如 unix 专属的 `sh` / `pgrep` / `scutil` / `sw_vers` / `launchctl`）
+2. 程序名是 **macOS/Linux 独有、Windows 上任何常见环境都不会有**的 binary（`scutil` / `osascript` / `gsettings` / `defaults` …，`Command::new` 找不到直接 `Err`）
+
+> ⚠️ 不要把 `uname` / `date` / `hostname` 当成"Windows 上不存在"——**Git-for-Windows / MSYS2 / Cygwin / scoop coreutils 都带 `uname.exe` / `date.exe` / `hostname.exe`**（`hostname` 更是 System32 自带）。默认原生 PATH 通常解析不到 `uname` / `date`（落到 fallback），但只要应用从 Git Bash 启动或 PATH 上有 `Git\usr\bin`/MSYS2 就会真 spawn 闪窗。这类"可能解析"的站点（[`system_prompt/helpers.rs`](../../crates/ha-core/src/system_prompt/helpers.rs) 的 `hostname` / `uname` / `date`，每轮系统提示构建都跑）一律加 `hide_console`——加了没坏处，不加就是 Windows 上的偶发闪窗。
+
+**例外（有意不加）**：
+
+- [`guardian.rs`](../../crates/ha-core/src/guardian.rs) 重启自身 binary——前台 `hope-agent server start` 时子进程需要继承父控制台输出，加 flag 会吞掉用户期望看到的日志；桌面 GUI 是 `windows_subsystem=windows` 本就无控制台，与闪窗 bug 无关
+- [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) 的 PTY 路径走 `portable-pty` 的 ConPTY，伪控制台不弹可见窗口，且 `CommandBuilder` 不暴露 `creation_flags` 钩子
+
 ### 系统代理缓存
 
 `detect_system_proxy` 两端都用 `OnceLock<Option<String>>` 进程级缓存。理由：`provider/proxy.rs` / `docker/proxy.rs` 等 caller 每次构建 reqwest client 都会调一次，winreg / `scutil` / `gsettings` / `kreadconfig` 都不应该在 hot path 上重复探测。
@@ -73,6 +93,7 @@
 | `system_permissions_*` | [`permissions.rs`](../../crates/ha-core/src/permissions.rs) v2 系统权限目录的 OS 原生检查 / 请求入口 |
 | `service::{install_service, uninstall_service, service_status, stop_server}` | [`service_install.rs`](../../crates/ha-core/src/service_install.rs) 保持历史 public API，CLI / updater / Tauri 继续从该 wrapper 进入系统服务管理 |
 | `default_shell_command_tokio` | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) 工具 shell 命令执行 |
+| `hide_console` / `hide_console_tokio` | 所有在 Windows 会真实建进程的 `Command`：git 探测（[`filesystem/git.rs`](../../crates/ha-core/src/filesystem/git.rs) / [`session/environment.rs`](../../crates/ha-core/src/session/environment.rs) / [`plan/git.rs`](../../crates/ha-core/src/plan/git.rs)）、`hostname`（[`system_prompt/helpers.rs`](../../crates/ha-core/src/system_prompt/helpers.rs)）、docker（[`docker/`](../../crates/ha-core/src/docker/) 经 `docker_command()` 统一）、MCP stdio（[`mcp/transport.rs`](../../crates/ha-core/src/mcp/transport.rs)）、ACP backend（[`acp_control/`](../../crates/ha-core/src/acp_control/)）、IM sidecar（[`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs)）、Chrome（[`browser/spawn.rs`](../../crates/ha-core/src/browser/spawn.rs)）、`gh`、ollama / skill 安装 / hooks shell / 自升级冷烟自检 等 |
 | `os_version_string` | [`agent/errors.rs`](../../crates/ha-core/src/agent/errors.rs) 错误报告 / 诊断；`self_diagnosis` 日志 |
 | `write_secure_file` | [`mcp/credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) MCP OAuth token 凭据 0600 原子落盘（**当前唯一调用方**）。注意：主 LLM OAuth `oauth.rs::save_token()` 当前直接用 `std::fs::write` 写 `~/.hope-agent/credentials/auth.json`，**未走** `write_secure_file`——见下文「已知缺口」 |
 | `try_acquire_exclusive_lock` | `runtime_lock.rs` 全局单实例守门：桌面 / `hope-agent server` / `hope-agent acp` 三种运行模式启动时拿同一把锁，防止启动恢复 / "global only-one" 后台循环跑两份 |

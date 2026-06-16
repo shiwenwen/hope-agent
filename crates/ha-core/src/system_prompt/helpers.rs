@@ -2,9 +2,13 @@
 
 /// Get OS version string via `uname -r`.
 pub(super) fn os_version() -> String {
-    std::process::Command::new("uname")
-        .arg("-r")
-        .output()
+    // `uname` is normally Unix-only, but Git-for-Windows / MSYS2 ship a
+    // `uname.exe` that can land on a Windows PATH — hide the console so it
+    // never flashes when it does resolve.
+    let mut cmd = std::process::Command::new("uname");
+    cmd.arg("-r");
+    crate::platform::hide_console(&mut cmd);
+    cmd.output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
@@ -13,8 +17,9 @@ pub(super) fn os_version() -> String {
 
 /// Get machine hostname.
 pub(super) fn hostname() -> String {
-    std::process::Command::new("hostname")
-        .output()
+    let mut cmd = std::process::Command::new("hostname");
+    crate::platform::hide_console(&mut cmd);
+    cmd.output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
@@ -39,9 +44,12 @@ pub(super) fn find_git_root(start: &str) -> Option<String> {
 /// stays identical throughout the day. Agents can use `exec date` for
 /// the precise time when needed.
 pub(super) fn current_date() -> String {
-    std::process::Command::new("date")
-        .arg("+%Y-%m-%d %Z")
-        .output()
+    // Same as `uname`: a `date.exe` from Git-for-Windows / MSYS2 can resolve
+    // on Windows, so suppress its console window too.
+    let mut cmd = std::process::Command::new("date");
+    cmd.arg("+%Y-%m-%d %Z");
+    crate::platform::hide_console(&mut cmd);
+    cmd.output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())

@@ -261,11 +261,10 @@ fn classify_sync_state(
 }
 
 fn run_git(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .ok()?;
+    let mut cmd = Command::new("git");
+    cmd.current_dir(root).args(args);
+    crate::platform::hide_console(&mut cmd);
+    let output = cmd.output().ok()?;
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {

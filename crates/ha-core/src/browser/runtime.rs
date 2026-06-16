@@ -324,9 +324,10 @@ fn chmod_executable(binary: &Path) -> Result<()> {
 }
 
 async fn smoke_test_binary(binary: &Path) -> Result<()> {
-    let output = tokio::process::Command::new(binary)
-        .arg("--version")
-        .kill_on_drop(true)
+    let mut cmd = tokio::process::Command::new(binary);
+    cmd.arg("--version").kill_on_drop(true);
+    crate::platform::hide_console_tokio(&mut cmd);
+    let output = cmd
         .output()
         .await
         .map_err(|e| anyhow!("smoke test (Chromium --version) failed to spawn: {}", e))?;
