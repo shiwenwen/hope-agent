@@ -1,9 +1,11 @@
 # 子 Agent 系统架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-06-17
 
 ## 概述
 
 子 Agent 系统允许主 Agent 异步调用子 Agent 执行独立任务。子 Agent 运行在隔离会话中，完成后结果自动注入父会话触发父 Agent 继续对话。系统支持多级嵌套（默认最大深度 3，Agent 可覆盖至 5）、并发限制（单会话默认 8 个，可按 Agent 经 `subagents.maxConcurrent` 配置，clamp 1–50）、实时引导（Steer Mailbox）、取消机制、以及前台等待自动转后台的 `spawn_and_wait` 模式。
+
+命中单会话并发上限时**不再拒绝而是排队**（R7.2，新增 `Queued` 状态 + 进程级调度器在槽位空出时按会话提升；结构类上限——深度 / Agent 不存在 / batch 大小 / 权限——仍硬拒，排队解决不了），见「[并发排队（R7.2）](#并发排队r72)」。后台 subagent 命中内层审批点时，会把它在统一后台任务表里的投影置为 **AwaitingApproval**（R8 follow-up），见「[Background Job 投影（R6）](#background-job-投影r6)」末「内层审批投影」行。
 
 注入机制采用事件驱动设计：通过 `SESSION_IDLE_NOTIFY`（tokio::Notify）等待父会话空闲，结合 `ChatSessionGuard` RAII 守卫实现用户消息优先级高于自动注入的语义，被取消的注入任务进入 `PENDING_INJECTIONS` 队列在父会话空闲后串行重试。
 
@@ -13,7 +15,8 @@
 |------|------|
 | `subagent/mod.rs` | 模块入口、常量定义（深度/并发/超时/截断）、7 个全局静态量、re-exports |
 | `subagent/types.rs` | SubagentRun、SpawnParams、SubagentStatus、SubagentEvent、ParentAgentStreamEvent |
-| `subagent/spawn.rs` | `spawn_subagent()` 入口 + `execute_subagent()` 后台执行逻辑 |
+| `subagent/spawn.rs` | `spawn_subagent()` 入口（validate → enqueue \| `launch_subagent_run()`）+ `execute_subagent()` 后台执行逻辑 |
+| `subagent/queue.rs` | （R7.2）并发上限排队：`PendingSubagentSpawn` 队列 + per-session 提升调度器 `run_subagent_scheduler()` |
 | `subagent/injection.rs` | `inject_and_run_parent()` 结果注入 + `PendingInjection` 队列 + `flush_pending_injections()` |
 | `subagent/cancel.rs` | `SubagentCancelRegistry`（AtomicBool cancel flag 注册表） |
 | `subagent/mailbox.rs` | `SubagentMailbox`（per-run 消息队列）+ `ChatSessionGuard`（RAII 守卫） |
@@ -22,16 +25,18 @@
 
 ## 数据模型
 
-### SubagentStatus（六态枚举）
+### SubagentStatus（七态枚举）
 
 ```
-Spawning → Running → Completed
-                   → Error
-                   → Timeout
-                   → Killed
+Queued → Spawning → Running → Completed
+                            → Error
+                            → Timeout
+                            → Killed
 ```
 
-终态判定：`Completed | Error | Timeout | Killed` 均为 `is_terminal() = true`。
+`Queued`（R7.2）：命中单会话并发上限时入队等待，**非终态、不持槽位**（被 `count_active_subagent_runs` 的 `IN ('spawning','running')` 排除——否则排队项会撑高自己的活跃计数、永不提升，死锁）；调度器在槽位空出时把它提升为 `Spawning` 并真正发射。
+
+终态判定：`Completed | Error | Timeout | Killed` 均为 `is_terminal() = true`（`Queued` / `Spawning` / `Running` 非终态）。
 
 ### SubagentRun（SQLite 持久化记录）
 
@@ -43,7 +48,7 @@ Spawning → Running → Completed
 | `child_agent_id` | `String` | 子 Agent ID（如 `"ha-main"`） |
 | `child_session_id` | `String` | 隔离子会话 ID（通过 `create_session_with_parent` 创建，关联父会话） |
 | `task` | `String` | 任务描述原文 |
-| `status` | `SubagentStatus` | 六态状态枚举 |
+| `status` | `SubagentStatus` | 七态状态枚举（含 `Queued`，R7.2） |
 | `result` | `Option<String>` | 执行结果文本（截断至 `MAX_RESULT_CHARS = 10,000` 字符） |
 | `error` | `Option<String>` | 错误信息 |
 | `depth` | `u32` | 嵌套深度（从 1 开始，每级 +1） |
@@ -110,16 +115,22 @@ Spawning → Running → Completed
 ```mermaid
 flowchart TD
     A[spawn_subagent 调用] --> B{深度校验<br/>depth > max_depth_for_agent?}
-    B -->|超限| B1[返回错误<br/>DEFAULT_MAX_DEPTH=3<br/>Agent 可覆盖 1-5]
-    B -->|通过| C{并发校验<br/>active_count >= max?}
-    C -->|超限| C1[返回错误<br/>按 Agent max_concurrent（默认 8）]
-    C -->|通过| D{Agent 校验<br/>load_agent 存在?}
-    D -->|不存在| D1[返回错误]
-    D -->|存在| E[生成 run_id UUID]
+    B -->|超限| B1[返回错误（结构类硬拒）<br/>DEFAULT_MAX_DEPTH=3<br/>Agent 可覆盖 1-5]
+    B -->|通过| D{Agent 校验<br/>load_agent 存在?}
+    D -->|不存在| D1[返回错误（结构类硬拒）]
+    D -->|存在| C{并发校验<br/>active_count >= max?<br/>按 Agent max_concurrent（默认 8）}
+    C -->|未超限| E1[initial_status = Spawning]
+    C -->|超限 · 队列未满| EQ[initial_status = Queued<br/>R7.2 资源类排队]
+    C -->|超限 · 队列已满| C1[返回错误<br/>MAX_QUEUED_SUBAGENTS=256]
+    E1 --> E[生成 run_id UUID]
+    EQ --> E
     E --> F[create_session_with_parent<br/>创建隔离子会话]
-    F --> G[INSERT SubagentRun<br/>status = Spawning]
-    G --> H[注册 cancel flag<br/>SubagentCancelRegistry]
-    H --> I[注册 mailbox slot<br/>SUBAGENT_MAILBOX]
+    F --> G[INSERT SubagentRun<br/>status = initial_status<br/>+ project_subagent_spawn 投影]
+    G --> SQ{should_queue?}
+    SQ -->|是| QQ[queue::enqueue<br/>返回 run_id（待调度器提升）]
+    SQ -->|否| H[launch_subagent_run]
+    H --> H2[注册 cancel flag<br/>SubagentCancelRegistry]
+    H2 --> I[注册 mailbox slot<br/>SUBAGENT_MAILBOX]
     I --> J[emit SubagentEvent<br/>event_type = spawned]
     J --> K[tokio::spawn 后台任务]
     K --> L[返回 run_id]
@@ -248,13 +259,14 @@ sequenceDiagram
 
 | 关注点 | 实现 |
 |--------|------|
-| **建** | `spawn_subagent` 插入 run 行后，gate `!skip_parent_injection`（排除 plan / team / hook 内部 spawn）`&& !parent_incognito`（关闭即焚不留痕）→ `JobManager::project_subagent_spawn`。投影 `args_json="{}"`、result/error 恒 `None`、`injected=true` |
-| **同步** | 单一 choke point `SessionDB::update_subagent_status` 末尾 → `JobManager::sync_subagent_projection`（先释放 SessionDB 锁再跨库）。覆盖 run 生命周期（Spawning→Running→终态）+ 三处 kill fallback。映射 `Spawning/Running→Running`、`Error→Failed`、`Timeout→TimedOut`、`Killed→Cancelled`。`update_subagent_projection_status` scoped `kind='subagent'`、terminal 冻结（`status NOT IN (终态)`）防 late/duplicate sync 重开 |
+| **建** | `spawn_subagent` 插入 run 行后，gate `!skip_parent_injection`（排除 plan / team / hook 内部 spawn）`&& !parent_incognito`（关闭即焚不留痕）→ `JobManager::project_subagent_spawn`。投影 `args_json="{}"`、result/error 恒 `None`、`injected=true`，status 镜像 run 的 `initial_status`（R7.2 起可为 `Queued`） |
+| **同步** | 单一 choke point `SessionDB::update_subagent_status` 末尾 → `JobManager::sync_subagent_projection`（先释放 SessionDB 锁再跨库）。覆盖 run 生命周期（Spawning→Running→终态）+ 三处 kill fallback。映射 `Queued→Queued`（R7.2）、`Spawning/Running→Running`、`Error→Failed`、`Timeout→TimedOut`、`Killed→Cancelled`。`update_subagent_projection_status` scoped `kind='subagent'`、terminal 冻结（`status NOT IN (终态)`）防 late/duplicate sync 重开 |
 | **注入隔离** | 投影 `injected=true` → 永不进工具 job 的 `list_pending_injection` / replay 注入路径；subagent 自有 `inject_and_run_parent`，**无双注入** |
 | **取消** | `async_jobs::cancel_job` 对 `kind=Subagent` 分支路由到 `subagent::request_cancel_run`（注册表 cancel + DB-`Killed` 兜底，与 `kill` 工具同源），**不跑工具 job 的 hook/注入**；run 终态经同步落到投影 Cancelled。`cancel_jobs_for_session`（会话删除）因此也会取消其后台 subagent（此前缺口） |
-| **重启** | `cleanup_orphan_subagent_runs` 走 raw SQL 绕过同步 choke point，故投影由 `replay_pending_jobs` 的 `list_running` 标 `Interrupted` 兜底（与 run 的 `Error` 终态属轻微 cosmetic 分歧，投影只是视图） |
+| **重启** | `cleanup_orphan_subagent_runs`（R7.2 起 sweep `status IN ('queued','spawning','running')`，含排队但未发射的 run——内存队列重启即失）走 raw SQL 绕过同步 choke point，故投影由 `replay_pending_jobs` 的 `list_running` 标 `Interrupted` 兜底（与 run 的 `Error` 终态属轻微 cosmetic 分歧，投影只是视图） |
+| **内层审批投影（R8 follow-up）** | 后台 subagent 在隔离子会话内命中审批点时，`async_jobs::approval_projection_watcher` 订阅 EventBus 的 `approval_required` / `approval:resolved`（事件名不对称：required 下划线、resolved 冒号），按 child_session_id 经 `find_active_run_by_child_session` 找到 run + 投影，调 `JobManager::reflect_subagent_inner_approval` 把投影置 `AwaitingApproval` / 复位（复用 R8 kind-agnostic 的 park/resume，status-WHERE 守卫、仅 true 时 emit `job:updated`）。**只动投影视图、不碰 `subagent_runs` 真相源**；`AwaitingApproval` 非终态，run 真正落终态时由同步 choke point 覆盖 |
 
-来源：`crates/ha-core/src/async_jobs/manager.rs`（`project_subagent_spawn` / `sync_subagent_projection`）、`crates/ha-core/src/subagent/{spawn.rs,mod.rs}`、`crates/ha-core/src/session/subagent_db.rs`、`crates/ha-core/src/async_jobs/{db.rs,mod.rs}`。
+来源：`crates/ha-core/src/async_jobs/manager.rs`（`project_subagent_spawn` / `sync_subagent_projection` / `reflect_subagent_inner_approval`）、`crates/ha-core/src/async_jobs/approval_projection_watcher.rs`、`crates/ha-core/src/subagent/{spawn.rs,queue.rs,mod.rs}`、`crates/ha-core/src/session/subagent_db.rs`、`crates/ha-core/src/async_jobs/{db.rs,mod.rs}`。
 
 ## Group fan-out（R5）
 
@@ -276,6 +288,35 @@ sequenceDiagram
 `job_status(action='status', job_id=<group>)` 对 group 行返回 N-of-M（`child_count` / `children_terminal` / `children_completed` / `children_failed`）+ 合并交付提示。当前 **Group 只 `batch_spawn` 触发**；单 `spawn` / `spawn_and_wait` 仍走 R6 个体投影 + 个体注入。
 
 来源：`crates/ha-core/src/async_jobs/manager.rs`（`spawn_group` / `seal_group` / `try_complete_group` / `build_group_push_message` / `group_progress`）、`crates/ha-core/src/async_jobs/db.rs`（`group_children` / `group_id_for_subagent_run` / `mark_group_sealed` / `claim_group_completion`）、`crates/ha-core/src/tools/subagent.rs`（`action_batch_spawn`）、`crates/ha-core/src/subagent/spawn.rs`。
+
+## 并发排队（R7.2）
+
+命中**单会话并发上限**（`count_active_subagent_runs >= max_concurrent_for_agent`，默认 8、clamp 1–50）时，spawn **不再返回 `Err`**，而是把 run 落为 `Queued` 入队、由进程级调度器在槽位空出时提升——与 R7.1 的后台**工具** job reject→queue 行为对齐（一个**资源类**上限应该等待、而非拒绝）。**结构类**上限——深度、Agent 不存在、batch 大小、单会话 session 上限、capability——仍**硬拒**（等待也变不合法，由 `subagent::spawn::structural_limit_tests` 守）。
+
+### 为什么是独立队列，而非复用 R7.1 的 `SlotManager`
+
+R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live `ToolExecContext`、`run_job_to_completion` 硬编 `tools::execute_tool_with_context`；泛化它喂 subagent 要给 `PreparedJob` 套 trait-object / enum + dispatch trait，**动到刚落地的 R1–R8 工具热路径**（爆炸半径大）。subagent 的限额模型也不同：per-parent-session 的 DB 计数（无全局池），经 `tokio::spawn` 跑 `run_chat_engine`（非 R7.1 的「独立线程 + current-thread runtime」）。按既有「per-kind 双域拆分、不做投机式 per-kind struct」决策，一条**焦点 subagent 队列**更干净、隔离。
+
+### 组件
+
+| 组件 | 实现 |
+|------|------|
+| **队列态** | `subagent/queue.rs`：`static QUEUE: Mutex<VecDeque<PendingSubagentSpawn>>`（`PendingSubagentSpawn{params, run_id, child_session_id, effective_group_id}` 在内存钉住 live `SpawnParams`，含附件）+ `SCHED_NOTIFY: Notify`；上限 `MAX_QUEUED_SUBAGENTS = 256`，满则 `enqueue` 返 false → 调用方硬拒（界定内存）|
+| **spawn 拆分** | `spawn_subagent` = 结构校验（depth / agent-exists）→ 并发决策 `should_queue = active_count >= max_concurrent`（+ 队列满硬拒）→ `initial_status = if should_queue { Queued } else { Spawning }` → 物化（子会话 + run 行 + 投影，均带 `initial_status`）→ `if should_queue { queue::enqueue(...); return run_id }` 否则 `launch_subagent_run(...)`。发射尾（注册 cancel/mailbox + emit spawned + `SubagentStart` hook + `tokio::spawn`）抽成 `pub(crate) launch_subagent_run`，under-limit 路径与提升器共用 |
+| **调度器** | `run_subagent_scheduler()`（进程级、`AtomicBool` 幂等，镜像 `async_jobs::spawn::run_scheduler`）：`select!` 等 `SCHED_NOTIFY` + 5s 兜底 tick；per-session 取最旧 `Queued`、按各自会话的 `max_concurrent_for_agent` + 实时 `count_active_subagent_runs` 决定能否提升；提升前**重查仍为 `Queued`**（输给并发 cancel）→ `update_subagent_status(Queued→Spawning)` → `launch_subagent_run`。在 `app_init` 两条后台任务路径里随工具调度器一起 spawn |
+| **唤醒** | 终态 choke point：`SessionDB::update_subagent_status` 在状态转**终态**后调 `queue::wake_subagent_scheduler()`（该会话可能空出槽位）；5s tick 兜底配置上调 / 漏唤醒 |
+
+### 生命周期边界
+
+- **取消排队中的 run**：`request_cancel_run` **先** `queue::remove_for_run(run_id)`（丢掉钉住的 `SpawnParams`），再由既有兜底标 `Killed` + 同步投影；提升必须输给并发 cancel（提升器重查 `Queued`）
+- **重启**：`cleanup_orphan_subagent_runs` 的 sweep 含 `'queued'` → 排队行转 Orphaned（内存队列已失），投影同步到终态
+- **会话删除 / 无痕焚毁**：与取消活跃 run 同一路径调 `queue::purge_for_session(sid)`——注意 `list_active_subagent_runs` **排除** `Queued`，不 purge 就会漏掉排队 run；无痕会话的敏感 `SpawnParams` 只活在队列项里，丢弃即焚
+- **R5 Group**：零特例——排队的 grouped 子拿到 `kind=subagent` 投影（`Queued` 非终态）带 `group_id`，`try_complete_group` 因此**正确等待**它；提升后跑完结算再由 `sync_subagent_projection` 复查 group（优于此前「超额 batch 子直接 error 出 group」）
+- **`spawn_and_wait`**：尚未起跑的排队 run 在 `foreground_timeout` 内不会 `Completed` → 转后台（既有行为），`session_has_pending_approval` 检查不受影响
+
+**死锁防护**：`Queued` 被活跃计数排除（槽位会真正空出）+ per-session 上限 + run 总会到终态（超时 / 取消）→ 提升永远有进展。
+
+来源：`crates/ha-core/src/subagent/queue.rs`、`crates/ha-core/src/subagent/spawn.rs`（validate / `launch_subagent_run`）、`crates/ha-core/src/subagent/mod.rs`（`request_cancel_run` dequeue）、`crates/ha-core/src/session/subagent_db.rs`（终态唤醒 + orphan sweep）、`crates/ha-core/src/app_init.rs`、`crates/ha-core/src/session/cleanup_watcher.rs`。
 
 ## 取消注册表
 
@@ -327,7 +368,8 @@ sequenceDiagram
 | 常量 | 值 | 说明 |
 |------|------|------|
 | `DEFAULT_MAX_DEPTH` | 3 | 默认最大嵌套深度 |
-| `DEFAULT_MAX_CONCURRENT_PER_SESSION` | 8 | 单会话并发子 Agent 默认/兜底上限（实际按 Agent `subagents.maxConcurrent` 配置，clamp 1–50，经 `max_concurrent_for_agent` 解析）|
+| `DEFAULT_MAX_CONCURRENT_PER_SESSION` | 8 | 单会话并发子 Agent 默认/兜底上限（实际按 Agent `subagents.maxConcurrent` 配置，clamp 1–50，经 `max_concurrent_for_agent` 解析）。**R7.2 起命中此上限改排队**（`Queued`）而非拒绝，见「[并发排队（R7.2）](#并发排队r72)」|
+| `MAX_QUEUED_SUBAGENTS` | 256 | （R7.2）`subagent/queue.rs` 内存等待队列上限；满则该 spawn 硬拒（界定内存）|
 | `DEFAULT_TIMEOUT_SECS` | 300 | 子 Agent 默认执行超时（5 分钟） |
 | `MAX_RESULT_CHARS` | 10,000 | DB 中结果文本最大字符数 |
 
@@ -377,7 +419,8 @@ sequenceDiagram
 |------|------|
 | `crates/ha-core/src/subagent/mod.rs` | 模块入口、常量（DEFAULT_MAX_DEPTH/DEFAULT_MAX_CONCURRENT_PER_SESSION 等）、7 个全局 LazyLock 静态量、re-exports |
 | `crates/ha-core/src/subagent/types.rs` | SubagentRun / SpawnParams / SubagentStatus / SubagentEvent / ParentAgentStreamEvent 定义 |
-| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验+调用入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
+| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验 +（排队 \| `launch_subagent_run()`）入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
+| `crates/ha-core/src/subagent/queue.rs` | （R7.2）`PendingSubagentSpawn` 等待队列 + per-session 提升调度器（`enqueue` / `remove_for_run` / `purge_for_session` / `run_subagent_scheduler` / `promote`）|
 | `crates/ha-core/src/subagent/injection.rs` | `inject_and_run_parent()` 等待空闲+恢复历史+流式注入、`PendingInjection` 队列、`flush_pending_injections()` 串行重试、`build_subagent_push_message()` 格式化 |
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
 | `crates/ha-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII：ACTIVE_CHAT_SESSIONS + INJECTION_CANCELS + flush） |

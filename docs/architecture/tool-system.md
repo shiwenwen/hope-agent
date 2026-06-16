@@ -643,7 +643,7 @@ sequenceDiagram
 
 ### 并发上限与排队（max_concurrent_jobs，I2 / MISC-5 / R7.1）
 
-显式后台路径（`run_in_background: true` / `always-background` 策略）每个 job 占一条独立 OS 线程 + current-thread runtime。无上限时模型可跨回合连发 `run_in_background` 线性堆叠耗尽线程 / 内存（YOLO / `auto_approve_tools` 下更无人工闸）。`async_jobs::slots` 的 `SlotManager` 用进程级 per-session 计数 + 有界等待队列封顶：`spawn_explicit_job` 先 `try_reserve(session)`——有空位即起 runner（`SlotReservation` 随 runner 线程生命周期持有，drop 时减计数 + 唤醒调度器，所有退出路径都释放）。达 `asyncTools.maxConcurrentJobs`（默认硬件推导 `clamp(逻辑核数 - 2, 4, 16)`，`0` = 不限，每次实时读配置）时新 job **入队**（status `Queued`），由**每进程调度任务**（`run_scheduler`，tier-agnostic + 幂等：队列是进程本地内存态、只调度本进程队列）在槽位空出时按 **per-session 轮转**（`pick_fair_index`：选当前在跑数最少的会话，平局取最旧）提升——而非拒绝；仅当等待队列本身也满（`MAX_QUEUED_JOBS = 256`，每个排队 job 在内存持有 live ctx）才返回可操作错误结果（提示模型等待 / 查 `job_status` / 改同步执行）。排队 job 的 ctx 不可持久化，故重启不可恢复——与 `running` 一样由 replay 标 `Interrupted`。**范围**：只闸显式后台路径；auto-background detach 的 worker 在 detach 决策前已 spawn、不计入这套配额，改由每回合工具并发 + 同步预算天然约束。
+显式后台路径（`run_in_background: true` / `always-background` 策略）每个 job 占一条独立 OS 线程 + current-thread runtime。无上限时模型可跨回合连发 `run_in_background` 线性堆叠耗尽线程 / 内存（YOLO / `auto_approve_tools` 下更无人工闸）。`async_jobs::slots` 的 `SlotManager` 用进程级 per-session 计数 + 有界等待队列封顶：`spawn_explicit_job` 先 `try_reserve(session)`——有空位即起 runner（`SlotReservation` 随 runner 线程生命周期持有，drop 时减计数 + 唤醒调度器，所有退出路径都释放）。达 `asyncTools.maxConcurrentJobs`（默认硬件推导 `clamp(逻辑核数 - 2, 4, 16)`，`0` = 不限，每次实时读配置）时新 job **入队**（status `Queued`），由**每进程调度任务**（`run_scheduler`，tier-agnostic + 幂等：队列是进程本地内存态、只调度本进程队列）在槽位空出时按 **per-session 轮转**（`pick_fair_index`：选当前在跑数最少的会话，平局取最旧）提升——而非拒绝；仅当等待队列本身也满（`asyncTools.maxQueuedJobs`，默认 256、读时 `clamp_queued` 钳到 `[1, 4096]`，R9 配置化；每个排队 job 在内存持有 live ctx）才返回可操作错误结果（提示模型等待 / 查 `job_status` / 改同步执行）。排队 job 的 ctx 不可持久化，故重启不可恢复——与 `running` 一样由 replay 标 `Interrupted`。**范围**：只闸显式后台路径；auto-background detach 的 worker 在 detach 决策前已 spawn、不计入这套配额，改由每回合工具并发 + 同步预算天然约束。
 
 ### Retention / Orphan 清扫
 
@@ -667,11 +667,15 @@ sequenceDiagram
 | `enabled` | `true` | 总开关，关闭后所有 async-capable 工具退化为纯同步执行，`job_status` 工具也不注入 |
 | `autoBackgroundSecs` | `30` | Tier 3 同步预算。`0` 关闭自动后台化，仅保留 Tier 1/2 |
 | `maxJobSecs` | `0`（不限时） | 后台 job 的用户硬上限；超时 → status=`timed_out` 并注入失败消息。`0` = async job 层默认不限时；具体工具仍可有自己的内部超时（如正数 `exec.timeout`；`exec.timeout=0` 也表示不限）。当全局为 `0` 时，模型单次 `job_timeout_secs > 0` 可为本次 job 设置外层超时；当全局为正数时，`job_timeout_secs` 只能收紧这个上限，不能放宽 |
-| `maxConcurrentJobs` | 硬件推导 `clamp(逻辑核数-2,4,16)`（`0` = 不限） | 显式后台路径（`run_in_background` / `always-background`）并发上限，见上「并发上限与排队」节。达上限时新作业**排队**（`Queued`），每进程调度器 per-session 轮转提升；队列（256）也满才拒绝。只闸显式路径（per-process cap），auto-background 不计入 |
+| `maxConcurrentJobs` | 硬件推导 `clamp(逻辑核数-2,4,16)`（`0` = 不限） | 显式后台路径（`run_in_background` / `always-background`）并发上限，见上「并发上限与排队」节。达上限时新作业**排队**（`Queued`），每进程调度器 per-session 轮转提升；等待队列（`maxQueuedJobs`，默认 256）也满才拒绝。只闸显式路径（per-process cap），auto-background 不计入 |
 | `inlineResultBytes` | `4096` | 注入消息内联 preview 上限；超过时 spool 到磁盘并注入路径引用 |
 | `retentionSecs` | `30 * SECS_PER_DAY`（30 天） | 终态行 + spool 文件 TTL；超期由 daily background loop 清扫。`0` = 永不清理（长跑实例累积风险，仅极端调试用） |
 | `orphanGraceSecs` | `24 * SECS_PER_HOUR`（24h） | 孤儿 spool 文件 TTL：`~/.hope-agent/background_jobs/` 下名字未被任何 DB 行引用、且 mtime 超过这个 grace 的文件被删（grace 防与新写入 race）。`0` 关闭孤儿清扫 |
 | `jobStatusMaxWaitSecs` | `7200`（2h） | 隐藏 `job_status(block=true)` 兼容路径的运行时上限。`max_job_secs > 0` 时由 `max_job_secs` 取代（`job_status_ceiling_secs()` 解析）；工具实现还会额外套 10s UI-safety cap，模型可见 schema 不暴露阻塞等待 |
+| `outputTailBytes` | `8192`（8KB） | （R9）后台 `exec` **运行时**保留的输出尾环大小（R3 ① tail），供 `job_status(action:status)` 看最新输出判「在跑 / 卡住」、不必等完成。job 启动时快照该值（改值不 resize 已跑 job）；越大越可见、每个在跑 job 占更多 RAM（受并发上限约束）。读时 `configured_bytes()` 钳到 `[256, 1048576]`（256B–1MB）|
+| `maxQueuedJobs` | `256` | （R9）后台 job 内存等待队列（R7.1）硬上限；槽位（`maxConcurrentJobs` / per-session）全满时新 `run_in_background` 入队于此，每个排队 job 钉住 live `ToolExecContext` 故必须有界，超过则硬拒（模型等待 / 同步执行）。读时 `clamp_queued` 钳到 `[1, 4096]`——`0` **不**表示无限，是内存护栏 |
+| `wakeupMaxDelaySecs` | `86400`（24h） | （R9）`schedule_wakeup` 自调度延迟上限（秒）；请求延迟 clamp 到 `[10, wakeupMaxDelaySecs]`（10s 下限是不可配的忙轮询护栏）。防僵尸定时器无限占用会话，更长节律应走 cron。读时钳到 `[10, 604800]`（10s–7d）|
+| `wakeupMaxPendingPerSession` | `5` | （R9）每会话待触发 `schedule_wakeup` 上限；超过是**结构类拒绝**（不排队），防 agent 自调度大量计费回合。读时钳到 `[1, 100]` |
 
 `AgentConfig.capabilities.async_tool_policy`（`agent.json`）：
 
