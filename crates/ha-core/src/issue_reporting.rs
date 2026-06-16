@@ -665,6 +665,7 @@ async fn run_gh(args: Vec<String>, stdin: Option<String>) -> Result<std::process
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::platform::hide_console_tokio(&mut cmd);
     let mut child = cmd.spawn().context("failed to spawn gh CLI")?;
     if let Some(input) = stdin {
         let mut child_stdin = child.stdin.take().context("failed to open gh stdin")?;

@@ -88,6 +88,8 @@ impl CommandHandler {
         for (k, v) in env.as_vars() {
             cmd.env(k, v);
         }
+        // On Windows the default shell is `powershell` — never flash its console.
+        crate::platform::hide_console_tokio(&mut cmd);
         cmd
     }
 }

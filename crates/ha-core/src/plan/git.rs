@@ -6,13 +6,22 @@ use super::store::store;
 // Creates a lightweight git checkpoint before plan execution starts,
 // allowing rollback if execution fails.
 
+/// A `git` command that never flashes a console window on Windows
+/// (`CREATE_NO_WINDOW`); a no-op wrapper elsewhere. Every git invocation in
+/// this module goes through it so a new call site can't silently regress the
+/// console-flash fix.
+fn git_command() -> std::process::Command {
+    let mut cmd = std::process::Command::new("git");
+    crate::platform::hide_console(&mut cmd);
+    cmd
+}
+
 /// Detect the git repository root directory by running `git rev-parse --show-toplevel`.
 /// Returns None if not inside a git repository.
 fn git_repo_root() -> Option<std::path::PathBuf> {
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
+    let mut cmd = git_command();
+    cmd.args(["rev-parse", "--show-toplevel"]);
+    let output = cmd.output().ok()?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if path.is_empty() {
@@ -29,14 +38,12 @@ fn git_repo_root() -> Option<std::path::PathBuf> {
 /// commit). Cheap probe — `rev-parse --verify --quiet` on a missing ref
 /// returns in a few ms without touching the object database.
 fn ref_exists(git_root: &std::path::Path, rev: &str) -> bool {
-    std::process::Command::new("git")
-        .current_dir(git_root)
+    let mut cmd = git_command();
+    cmd.current_dir(git_root)
         .args(["rev-parse", "--verify", "--quiet", rev])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .stderr(std::process::Stdio::null());
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Create a git checkpoint (branch) at the current HEAD for the working directory.
@@ -67,12 +74,12 @@ pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
         return None;
     }
 
-    let result = std::process::Command::new("git")
-        .current_dir(&git_root)
+    let mut cmd = git_command();
+    cmd.current_dir(&git_root)
         .args(["branch", &branch_name, "HEAD"])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+        .stderr(std::process::Stdio::null());
+    let result = cmd.status();
 
     match result {
         Ok(s) if s.success() => {
@@ -134,19 +141,22 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
     }
 
     // Get current HEAD for logging
-    let head_before = std::process::Command::new("git")
+    let mut head_cmd = git_command();
+    head_cmd
         .current_dir(&git_root)
-        .args(["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"]);
+    let head_before = head_cmd
         .output()
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
 
     // Reset to checkpoint
-    let result = std::process::Command::new("git")
+    let mut reset_cmd = git_command();
+    reset_cmd
         .current_dir(&git_root)
-        .args(["reset", "--hard", checkpoint_ref])
-        .output()?;
+        .args(["reset", "--hard", checkpoint_ref]);
+    let result = reset_cmd.output()?;
 
     if result.status.success() {
         let msg = format!(
@@ -156,12 +166,13 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
         app_info!("plan", "checkpoint", "{}", msg);
 
         // Clean up: delete the checkpoint branch
-        let _ = std::process::Command::new("git")
+        let mut del_cmd = git_command();
+        del_cmd
             .current_dir(&git_root)
             .args(["branch", "-D", checkpoint_ref])
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+            .stderr(std::process::Stdio::null());
+        let _ = del_cmd.status();
 
         Ok(msg)
     } else {
@@ -172,21 +183,14 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
 
 /// Clean up a checkpoint branch (e.g., after successful execution).
 pub fn cleanup_checkpoint(checkpoint_ref: &str) {
-    let git_cmd = if let Some(git_root) = git_repo_root() {
-        std::process::Command::new("git")
-            .current_dir(git_root)
-            .args(["branch", "-D", checkpoint_ref])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-    } else {
-        std::process::Command::new("git")
-            .args(["branch", "-D", checkpoint_ref])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-    };
-    let _ = git_cmd;
+    let mut cmd = git_command();
+    if let Some(git_root) = git_repo_root() {
+        cmd.current_dir(git_root);
+    }
+    cmd.args(["branch", "-D", checkpoint_ref])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let _ = cmd.status();
     app_info!(
         "plan",
         "checkpoint",

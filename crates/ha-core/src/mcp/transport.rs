@@ -113,6 +113,9 @@ fn build_stdio_command(cfg: &McpServerConfig) -> McpResult<Command> {
             cmd.current_dir(dir);
         }
     }
+    // Stdio MCP servers (node/npx/python/uvx…) are real console processes on
+    // Windows — suppress the console window so connecting one never flashes.
+    crate::platform::hide_console_tokio(&mut cmd);
     Ok(cmd)
 }
 

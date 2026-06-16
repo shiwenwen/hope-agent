@@ -48,10 +48,11 @@ pub fn git_info(root: &Path) -> Option<GitInfo> {
 
 /// Cheap probe: is `dir` inside a git work tree?
 pub fn is_inside_work_tree(dir: &Path) -> bool {
-    Command::new("git")
-        .current_dir(dir)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir)
+        .args(["rev-parse", "--is-inside-work-tree"]);
+    crate::platform::hide_console(&mut cmd);
+    cmd.output()
         .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
         .unwrap_or(false)
 }
@@ -76,11 +77,10 @@ pub fn is_worktree_of(base: &Path, target_canon: &Path) -> bool {
 }
 
 fn run_git(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .ok()?;
+    let mut cmd = Command::new("git");
+    cmd.current_dir(root).args(args);
+    crate::platform::hide_console(&mut cmd);
+    let output = cmd.output().ok()?;
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {

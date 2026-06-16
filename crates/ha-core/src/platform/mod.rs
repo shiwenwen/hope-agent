@@ -129,6 +129,23 @@ pub fn default_shell_command_tokio(cmdline: &str) -> tokio::process::Command {
     imp::default_shell_command_tokio(cmdline)
 }
 
+/// Suppress the transient console window that Windows would otherwise flash
+/// when spawning a console subprocess. No-op on Unix.
+///
+/// Apply this to every `std::process::Command` whose program exists on
+/// Windows and that runs during normal operation — git probes, docker, ACP
+/// backends, etc. — so the user never sees a `cmd`/`conhost` window blink.
+/// On Windows it sets the `CREATE_NO_WINDOW` (0x0800_0000) creation flag;
+/// output pipes still work, only the visible console is suppressed.
+pub fn hide_console(cmd: &mut Command) {
+    imp::hide_console(cmd);
+}
+
+/// `tokio::process::Command` variant of [`hide_console`], for async spawn sites.
+pub fn hide_console_tokio(cmd: &mut tokio::process::Command) {
+    imp::hide_console_tokio(cmd);
+}
+
 /// Return a short, human-readable OS version string for diagnostic /
 /// error reporting (e.g. `"macOS 14.2.1"`, `"Windows 11 (26100)"`,
 /// `"Linux 6.8.0"`). Never fails — returns `"unknown"` as a last resort.

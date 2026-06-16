@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Windows 上发消息不再闪黑窗**：修复 Windows 桌面版每次发送消息（及部分工具 / git / docker / MCP 等操作）时一闪而过的 `cmd` 控制台黑窗——子进程现在统一以无窗口方式启动，不再打断操作或抢走输入框焦点。 (#320)
+
 ## [0.10.3] - 2026-06-14
 
 ### Fixed

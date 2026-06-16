@@ -84,6 +84,9 @@ pub fn resolve_chrome_executable(override_path: Option<&str>) -> Result<String> 
 /// can be unit-tested without actually starting a child process.
 pub fn build_chrome_argv(spec: &LaunchSpec<'_>, exec: &str) -> Command {
     let mut cmd = Command::new(exec);
+    // Suppress the transient console window on Windows; Chrome's own window
+    // (headed) or nothing (headless) is unaffected.
+    crate::platform::hide_console(&mut cmd);
     cmd.arg(format!("--remote-debugging-port={}", spec.port));
     cmd.arg("--remote-debugging-address=127.0.0.1");
 
