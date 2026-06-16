@@ -20,8 +20,6 @@ pub async fn list_background_jobs(
 /// Snapshot a single background job — includes the live running-output tail for
 /// a backgrounded `exec`. `Ok(None)` when the job is unknown.
 #[tauri::command]
-pub async fn get_background_job(
-    job_id: String,
-) -> Result<Option<BackgroundJobSnapshot>, CmdError> {
+pub async fn get_background_job(job_id: String) -> Result<Option<BackgroundJobSnapshot>, CmdError> {
     JobManager::get_job_snapshot(&job_id).map_err(Into::into)
 }

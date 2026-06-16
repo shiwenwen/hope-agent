@@ -316,6 +316,19 @@ pub(crate) fn purge_jobs_for_session(session_id: &str) -> u64 {
             session_id
         );
     }
+    // R4: also drop any completions buffered in the merge window for this session
+    // — their PendingJobInjection holds tool name / preview / error in RAM and
+    // would otherwise linger until the timer fires (incognito burn-on-close).
+    let unbuffered = injection::remove_buffered_for_session(session_id);
+    if unbuffered > 0 {
+        app_info!(
+            "async_jobs",
+            "cleanup",
+            "dropped {} buffered injection(s) from merge window for burned session {}",
+            unbuffered,
+            session_id
+        );
+    }
     match db.purge_jobs_for_session(session_id) {
         Ok(stats) => {
             if stats.rows_deleted > 0 || stats.spool_files_deleted > 0 {

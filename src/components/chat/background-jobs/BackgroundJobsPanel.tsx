@@ -8,6 +8,7 @@ import { getTransport } from "@/lib/transport-provider"
 import {
   type BackgroundJobSnapshot,
   type BackgroundJobStatus,
+  backgroundJobLabel,
   isBackgroundJobCancellable,
 } from "@/types/background-jobs"
 import {
@@ -16,11 +17,7 @@ import {
   phaseTranslationKey,
 } from "@/types/local-model-jobs"
 import { useLocalModelJobsMirror } from "./useLocalModelJobsMirror"
-import {
-  BackgroundJobStatusChip,
-  backgroundJobKindIcon,
-  backgroundJobLabel,
-} from "./jobDisplay"
+import { BackgroundJobKindIcon, BackgroundJobStatusChip } from "./jobDisplay"
 
 function SectionHeader({
   icon: Icon,
@@ -54,7 +51,6 @@ function BackgroundJobRow({
   onCancel: (jobId: string) => void
 }) {
   const { t } = useTranslation()
-  const Icon = backgroundJobKindIcon(job.kind)
   const label = backgroundJobLabel(job, t)
   const showGroupProgress =
     job.kind === "group" && job.childCount != null && job.childCount > 0
@@ -66,7 +62,10 @@ function BackgroundJobRow({
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5">
       <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <BackgroundJobKindIcon
+          kind={job.kind}
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+        />
         <IconTip label={label}>
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
             {label}
@@ -159,19 +158,38 @@ export default function BackgroundJobsPanel({
   const localModelJobs = useLocalModelJobsMirror()
   const [pendingCancel, setPendingCancel] = useState<Set<string>>(new Set())
 
-  const handleCancel = useCallback((jobId: string) => {
-    setPendingCancel((prev) => new Set(prev).add(jobId))
-    getTransport()
-      .call("cancel_runtime_task", { kind: "async_job", id: jobId })
-      .catch(() => {
-        /* refetch via job event reconciles the real state */
-      })
+  const clearPending = useCallback((jobId: string) => {
+    setPendingCancel((prev) => {
+      if (!prev.has(jobId)) return prev
+      const next = new Set(prev)
+      next.delete(jobId)
+      return next
+    })
   }, [])
 
-  // Hide the cancel affordance optimistically once a cancel is in flight; the
-  // job-event refetch flips the real status to `cancelling` shortly after.
+  const handleCancel = useCallback(
+    (jobId: string) => {
+      setPendingCancel((prev) => new Set(prev).add(jobId))
+      getTransport()
+        .call<{ accepted?: boolean }>("cancel_runtime_task", { kind: "async_job", id: jobId })
+        .then((res) => {
+          // Backend declined (job already gone / not found / DB unavailable): no
+          // `job:*` event will arrive to reconcile, so revert the optimistic
+          // override and re-expose the cancel button instead of getting stuck.
+          if (res?.accepted === false) clearPending(jobId)
+        })
+        .catch(() => clearPending(jobId))
+    },
+    [clearPending],
+  )
+
+  // Optimistically show "cancelling" for any cancellable job whose cancel is in
+  // flight (covers running / queued / awaiting_approval — the full cancellable
+  // set). The override is gated on `isBackgroundJobCancellable`, so once a refetch
+  // flips the job terminal a lingering id is inert (no stale "cancelling" pin) —
+  // and `accepted === false` already self-heals via `clearPending`.
   const visibleJobs = jobs.map((j) =>
-    pendingCancel.has(j.jobId) && j.status === "running"
+    pendingCancel.has(j.jobId) && isBackgroundJobCancellable(j)
       ? ({ ...j, status: "cancelling" as BackgroundJobStatus })
       : j,
   )

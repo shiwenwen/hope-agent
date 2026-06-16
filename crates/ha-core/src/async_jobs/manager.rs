@@ -89,8 +89,9 @@ impl JobManager {
         let Some(db) = super::get_async_jobs_db() else {
             return Ok(Vec::new());
         };
-        // Generous cap: the active set is small (bounded by the concurrency cap),
-        // so this never drops a running job — it only bounds terminal history.
+        // Active-first ordering (see `list_for_session`) drops terminal rows
+        // first; only a session with >PANEL_LIMIT simultaneously-active jobs
+        // (running cap + up to MAX_QUEUED_JOBS queued) would lose an active row.
         const PANEL_LIMIT: usize = 50;
         let jobs = db.list_for_session(session_id, PANEL_LIMIT)?;
         Ok(jobs
@@ -117,12 +118,9 @@ impl JobManager {
         let (child_count, children_terminal, children_completed, children_failed) =
             if job.kind == JobKind::Group {
                 match Self::group_progress(&job.job_id) {
-                    Some((total, terminal, completed, failed)) => (
-                        Some(total),
-                        Some(terminal),
-                        Some(completed),
-                        Some(failed),
-                    ),
+                    Some((total, terminal, completed, failed)) => {
+                        (Some(total), Some(terminal), Some(completed), Some(failed))
+                    }
                     None => (None, None, None, None),
                 }
             } else {
@@ -146,7 +144,15 @@ impl JobManager {
             created_at: job.created_at,
             completed_at: job.completed_at,
             error: job.error.clone(),
-            result_preview: job.result_preview.clone(),
+            // Incognito jobs keep an inline preview in the DB row (persist_result
+            // skips only the disk spool) — redact it from the owner-plane snapshot
+            // so the bare-id `get_background_job` can't surface incognito output
+            // (parity with `output_tail` None + args_json redaction for incognito).
+            result_preview: if job.incognito {
+                None
+            } else {
+                job.result_preview.clone()
+            },
             child_count,
             children_terminal,
             children_completed,
@@ -167,7 +173,11 @@ impl JobManager {
         if job.tool_name == "exec" {
             if let Ok(v) = serde_json::from_str::<Value>(&job.args_json) {
                 if let Some(cmd) = v.get("command").and_then(|c| c.as_str()) {
-                    let head = cmd.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+                    let head = cmd
+                        .lines()
+                        .find(|l| !l.trim().is_empty())
+                        .unwrap_or("")
+                        .trim();
                     if !head.is_empty() {
                         return crate::truncate_utf8(head, 120).to_string();
                     }

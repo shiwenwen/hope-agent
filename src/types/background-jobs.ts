@@ -3,6 +3,8 @@
 // plane (Tauri / HTTP) returns these for the panel + header badge; they are
 // distinct from the model-facing `job_status` JSON.
 
+import type { TFunction } from "i18next"
+
 export type BackgroundJobKind = "tool" | "subagent" | "group"
 
 export type BackgroundJobStatus =
@@ -58,4 +60,12 @@ export function isBackgroundJobTerminal(job: BackgroundJobSnapshot): boolean {
 /** Statuses a user can cancel from the panel (active + not already cancelling). */
 export function isBackgroundJobCancellable(job: BackgroundJobSnapshot): boolean {
   return isBackgroundJobActive(job) && job.status !== "cancelling"
+}
+
+/** Human display label: exec command head / tool name; localized for group/subagent. */
+export function backgroundJobLabel(job: BackgroundJobSnapshot, t: TFunction): string {
+  if (job.label) return job.label
+  if (job.kind === "group") return t("backgroundJobs.kindGroup", "任务组")
+  if (job.kind === "subagent") return t("backgroundJobs.kindSubagent", "子智能体")
+  return job.tool
 }

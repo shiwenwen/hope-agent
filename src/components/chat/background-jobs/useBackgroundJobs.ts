@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import {
@@ -23,46 +23,50 @@ export interface UseBackgroundJobsResult {
  * plus `subagent_event` (subagent jobs ride the subagent stream, R6; only 2
  * events per run, never per-token). The events are minimal (id/status), so a
  * full refetch is simpler and always-correct vs. incremental merge.
+ *
+ * State is tagged with the session it belongs to so a session switch shows an
+ * empty list immediately (derived) without a setState-in-effect reset, and a
+ * late response for the old session is ignored. `refetch` bumps a tick that
+ * re-seeds + re-subscribes (rare; manual use only).
  */
 export function useBackgroundJobs(
   sessionId: string | null | undefined,
 ): UseBackgroundJobsResult {
-  const [jobs, setJobs] = useState<BackgroundJobSnapshot[]>([])
-  const aliveRef = useRef(true)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const sessionRef = useRef(sessionId)
-  sessionRef.current = sessionId
+  const sid = sessionId ?? null
+  const [state, setState] = useState<{
+    sid: string | null
+    jobs: BackgroundJobSnapshot[]
+  }>({ sid: null, jobs: [] })
+  const [refetchTick, setRefetchTick] = useState(0)
 
-  const fetchNow = useCallback(() => {
-    const sid = sessionRef.current
-    if (!sid) {
-      setJobs([])
-      return
-    }
-    getTransport()
-      .call<BackgroundJobSnapshot[]>("list_background_jobs", { sessionId: sid })
-      .then((rows) => {
-        // Drop a response that arrived after the session switched.
-        if (aliveRef.current && sessionRef.current === sid) setJobs(rows ?? [])
-      })
-      .catch(() => {
-        /* transient read failure — keep the last good snapshot */
-      })
-  }, [])
-
-  const scheduleRefetch = useCallback(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(fetchNow, REFETCH_DEBOUNCE_MS)
-  }, [fetchNow])
+  const refetch = useCallback(() => setRefetchTick((t) => t + 1), [])
 
   useEffect(() => {
-    aliveRef.current = true
-    setJobs([])
+    if (!sid) return
+
+    let alive = true
+    let debounce: ReturnType<typeof setTimeout> | null = null
+
+    const fetchNow = () => {
+      getTransport()
+        .call<BackgroundJobSnapshot[]>("list_background_jobs", { sessionId: sid })
+        .then((rows) => {
+          if (alive) setState({ sid, jobs: rows ?? [] })
+        })
+        .catch(() => {
+          /* transient read failure — keep the last good snapshot */
+        })
+    }
+    const scheduleRefetch = () => {
+      if (debounce) clearTimeout(debounce)
+      debounce = setTimeout(fetchNow, REFETCH_DEBOUNCE_MS)
+    }
+
     fetchNow()
 
     const transport = getTransport()
     const matchesSession = (raw: unknown) =>
-      (raw as { session_id?: string })?.session_id === sessionId
+      (raw as { session_id?: string })?.session_id === sid
     const offs = [
       transport.listen("job:created", (raw) => {
         if (matchesSession(raw)) scheduleRefetch()
@@ -77,22 +81,28 @@ export function useBackgroundJobs(
         if (matchesSession(raw)) scheduleRefetch()
       }),
       transport.listen("subagent_event", (raw) => {
-        if ((raw as { parentSessionId?: string })?.parentSessionId === sessionId)
+        if ((raw as { parentSessionId?: string })?.parentSessionId === sid)
           scheduleRefetch()
       }),
     ]
 
     return () => {
-      aliveRef.current = false
-      if (debounceRef.current) clearTimeout(debounceRef.current)
+      alive = false
+      if (debounce) clearTimeout(debounce)
       for (const off of offs) off()
     }
-  }, [sessionId, fetchNow, scheduleRefetch])
+  }, [sid, refetchTick])
 
+  // Derived: only show jobs that belong to the current session (a stale snapshot
+  // from the previous session reads as empty until the new fetch lands).
+  const jobs = useMemo(
+    () => (state.sid === sid ? state.jobs : []),
+    [state, sid],
+  )
   const runningCount = useMemo(
     () => jobs.filter(isBackgroundJobActive).length,
     [jobs],
   )
 
-  return { jobs, runningCount, refetch: fetchNow }
+  return { jobs, runningCount, refetch }
 }

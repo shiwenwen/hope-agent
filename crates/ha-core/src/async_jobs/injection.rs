@@ -93,23 +93,7 @@ pub fn enqueue_injection(
     let window_secs = crate::config::cached_config()
         .async_tools
         .completion_merge_window_secs;
-    if window_secs == 0 {
-        // Merging disabled — preserve the legacy immediate-injection behavior.
-        dispatch_injection(
-            session_id,
-            parent_agent_id,
-            job_id,
-            tool_name,
-            tool_call_id,
-            status,
-            result_preview,
-            result_path,
-            error,
-        );
-        return;
-    }
-
-    let pending = PendingJobInjection {
+    let mut pending = Some(PendingJobInjection {
         parent_agent_id,
         job_id,
         tool_name,
@@ -118,14 +102,46 @@ pub fn enqueue_injection(
         result_preview,
         result_path,
         error,
-    };
+    });
+
+    // Decide under the buffer lock. If a window is already OPEN for this session,
+    // always join it — even if `window_secs` was meanwhile flipped to 0 — so a
+    // mid-window config change can't split/reorder a batch (an immediate dispatch
+    // would race the buffered ones). Otherwise honor the current config: 0 =
+    // inject immediately (legacy), >0 = open a new window + arm one timer.
     let start_timer = {
         let mut buffers = merge_buffers().lock().unwrap_or_else(|p| p.into_inner());
-        let entry = buffers.entry(session_id.clone()).or_default();
-        let was_empty = entry.is_empty();
-        entry.push(pending);
-        was_empty
+        match buffers.get_mut(&session_id) {
+            Some(entry) => {
+                entry.push(pending.take().expect("pending present"));
+                false
+            }
+            None if window_secs == 0 => false, // immediate dispatch below
+            None => {
+                buffers.insert(
+                    session_id.clone(),
+                    vec![pending.take().expect("pending present")],
+                );
+                true
+            }
+        }
     };
+
+    if let Some(p) = pending {
+        // window_secs == 0 and no open window → legacy immediate injection.
+        dispatch_injection(
+            session_id,
+            p.parent_agent_id,
+            p.job_id,
+            p.tool_name,
+            p.tool_call_id,
+            p.status,
+            p.result_preview,
+            p.result_path,
+            p.error,
+        );
+        return;
+    }
     if start_timer {
         let sid = session_id;
         std::thread::spawn(move || {
@@ -133,6 +149,16 @@ pub fn enqueue_injection(
             flush_merge_buffer(&sid);
         });
     }
+}
+
+/// Drop any buffered (un-flushed) completions for a session — used by incognito
+/// burn (`purge_jobs_for_session`) so a burned session's `PendingJobInjection`
+/// (tool name / result preview / error) can't linger in RAM past the burn
+/// (mirrors `slots::remove_queued_for_session`). Any timer thread still fires but
+/// finds the entry gone and no-ops. Returns the number dropped.
+pub fn remove_buffered_for_session(session_id: &str) -> usize {
+    let mut buffers = merge_buffers().lock().unwrap_or_else(|p| p.into_inner());
+    buffers.remove(session_id).map(|v| v.len()).unwrap_or(0)
 }
 
 /// Drain a session's merge buffer and inject: a single job goes through the
@@ -717,7 +743,9 @@ mod tests {
             pending("job-c", JobStatus::Completed),
         ];
         let msg = build_merged_push_message(&jobs);
-        assert!(msg.starts_with("<task-notification-batch count=\"3\" completed=\"2\" failed=\"1\">"));
+        assert!(
+            msg.starts_with("<task-notification-batch count=\"3\" completed=\"2\" failed=\"1\">")
+        );
         assert!(msg.trim_end().ends_with("</task-notification-batch>"));
         // Every task-id is present so the LLM can correlate each background job.
         for id in ["job-a", "job-b", "job-c"] {

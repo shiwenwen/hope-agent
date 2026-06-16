@@ -57,9 +57,10 @@ import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import {
   type BackgroundJobSnapshot,
+  backgroundJobLabel,
   isBackgroundJobActive,
 } from "@/types/background-jobs"
-import { BackgroundJobStatusChip, backgroundJobLabel } from "../background-jobs/jobDisplay"
+import { BackgroundJobStatusChip } from "../background-jobs/jobDisplay"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
 import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "../chatUtils"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"

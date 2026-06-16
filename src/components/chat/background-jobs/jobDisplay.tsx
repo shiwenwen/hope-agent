@@ -1,6 +1,5 @@
-import type { TFunction } from "i18next"
 import { useTranslation } from "react-i18next"
-import { Bot, Layers, Loader2, Terminal, type LucideIcon } from "lucide-react"
+import { Bot, Layers, Loader2, Terminal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {
@@ -8,9 +7,11 @@ import type {
   BackgroundJobStatus,
 } from "@/types/background-jobs"
 
-// Shared display helpers for the R4 background-jobs surfaces (the dedicated
-// panel + the simplified workspace section) so labels / chips / icons stay
-// identical between them.
+// Shared presentational components for the R4 background-jobs surfaces (the
+// dedicated panel + the simplified workspace section) so the status chip / kind
+// icon stay identical between them. Pure-function helpers (label derivation)
+// live in `@/types/background-jobs` to keep this a components-only module
+// (react-refresh requirement).
 
 const STATUS_TONE: Record<
   BackgroundJobStatus,
@@ -35,23 +36,16 @@ const TONE_CLASS: Record<string, string> = {
   info: "border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-300",
 }
 
-/** Human display label: exec command head / tool name; localized for group/subagent. */
-export function backgroundJobLabel(job: BackgroundJobSnapshot, t: TFunction): string {
-  if (job.label) return job.label
-  if (job.kind === "group") return t("backgroundJobs.kindGroup", "任务组")
-  if (job.kind === "subagent") return t("backgroundJobs.kindSubagent", "子智能体")
-  return job.tool
-}
-
-export function backgroundJobKindIcon(kind: BackgroundJobSnapshot["kind"]): LucideIcon {
-  switch (kind) {
-    case "group":
-      return Layers
-    case "subagent":
-      return Bot
-    default:
-      return Terminal
-  }
+export function BackgroundJobKindIcon({
+  kind,
+  className,
+}: {
+  kind: BackgroundJobSnapshot["kind"]
+  className?: string
+}) {
+  if (kind === "group") return <Layers className={className} />
+  if (kind === "subagent") return <Bot className={className} />
+  return <Terminal className={className} />
 }
 
 export function BackgroundJobStatusChip({ status }: { status: BackgroundJobStatus }) {

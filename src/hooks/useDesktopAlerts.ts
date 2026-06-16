@@ -180,13 +180,19 @@ export function useDesktopAlerts() {
       const status = ev?.status ?? ""
       if (!NOTIFIABLE_JOB_STATUSES.has(status)) return null
       const tx = tRef.current
-      const tool = truncate(ev?.tool ?? "")
       const failed = status !== "completed"
+      // A Group's `tool` is the internal id "subagent:batch" — show a friendly
+      // localized label instead; tool jobs surface their real tool name.
+      const body =
+        ev?.kind === "group"
+          ? tx("backgroundJobs.kindGroup", "任务组")
+          : truncate(ev?.tool ?? "") ||
+            tx("notification.backgroundJobFallback", "一个后台任务已结束")
       return {
         title: failed
           ? tx("notification.backgroundJobFailed", "后台任务失败")
           : tx("notification.backgroundJobComplete", "后台任务完成"),
-        body: tool || tx("notification.backgroundJobFallback", "一个后台任务已结束"),
+        body,
       }
     })
 

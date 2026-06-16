@@ -448,9 +448,11 @@ impl JobsDB {
     /// active jobs first (`completed_at IS NULL`), then recent terminal jobs
     /// newest-first — capped at `limit`. Unlike [`list_active_by_session`] (which
     /// is active-only for cleanup), this includes terminal rows so the panel can
-    /// show "在跑/最近作业". Cap keeps a long-lived session's history bounded; the
-    /// active set is small (bounded by the concurrency cap) so the cap never
-    /// drops a running job.
+    /// show "在跑/最近作业". Active-first ordering means the cap drops TERMINAL rows
+    /// first; a session's active set is bounded by the running-concurrency cap
+    /// (`clamp(cores-2,4,16)`) plus the `MAX_QUEUED_JOBS`(256) queue, so only the
+    /// pathological case of >`limit` simultaneously-active jobs in one session
+    /// would drop an active row (and slightly under-count the header badge).
     pub fn list_for_session(&self, session_id: &str, limit: usize) -> Result<Vec<BackgroundJob>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
