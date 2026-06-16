@@ -392,8 +392,11 @@ pub(crate) async fn run_scheduler() {
     loop {
         // Wake on slot-free / enqueue, with a periodic fallback so queued jobs
         // still promote after an event that didn't notify us — e.g. the user
-        // RAISES `max_concurrent_jobs` while the queue is full (no completion to
-        // wake us), or any theoretically-missed notify.
+        // RAISES `max_concurrent_jobs` OR `max_concurrent_jobs_per_session` while
+        // the queue is full (config changes fire no completion/Drop to wake us, so
+        // a newly-eligible job waits up to one tick), or any theoretically-missed
+        // notify. `try_take_next` re-reads both caps live, so the next tick honors
+        // the raised value.
         tokio::select! {
             _ = super::slots::scheduler_notified() => {}
             _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
@@ -699,6 +702,14 @@ pub(crate) async fn dispatch_with_auto_background(
                         // accounted). Set under the phase lock so the worker can't
                         // settle + drop its Arc before this is stored. Released
                         // when the worker thread ends (holds the other Arc clone).
+                        // NOTE (pre-existing orphan window, orthogonal to R7.1): a
+                        // session deleted in the sub-ms gap before the row insert
+                        // above can be missed by `cancel_for_session` (it finds
+                        // jobs via the DB row, not the token), so this worker may
+                        // run orphaned to natural completion. The forced
+                        // reservation tracks that live thread correctly and
+                        // releases when it ends — no leak, just an uncancelled
+                        // orphan (a cancellation-subsystem gap, not a quota one).
                         {
                             let session_key = ctx.session_id.clone().unwrap_or_default();
                             *autobg_slot.lock().unwrap_or_else(|e| e.into_inner()) =

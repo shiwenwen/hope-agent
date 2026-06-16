@@ -14,14 +14,19 @@
 //! path), or [`reserve_forced`] (an already-running auto-backgrounded job that
 //! detached and must be counted retroactively). Its `Drop` decrements the counts
 //! and wakes the scheduler, so a freed slot immediately pulls the next queued
-//! job. `max_concurrent_jobs == 0` means unlimited (no cap, no queueing).
+//! job. `max_concurrent_jobs == 0` removes the *global* cap; the per-session cap
+//! below still applies (a session past it still queues). Both caps `== 0` ⇒ truly
+//! unlimited (no cap, no queueing).
 //!
 //! Fairness has two tiers (R7.1):
 //! - **Hard per-session cap** (`max_concurrent_jobs_per_session`, 0 = unlimited):
 //!   a session may hold at most this many concurrent slots. A reservation for a
 //!   session already at its cap is refused even when the global pool has room, so
 //!   its extra jobs QUEUE — one busy session (or IM chat) can't fill every global
-//!   slot and starve the others. Auto-backgrounded jobs count against it too.
+//!   slot and starve the others. Auto-backgrounded jobs are *counted* against
+//!   both caps (so they push subsequent reservations toward queueing) but, being
+//!   already-running threads, are never *refused* — a burst of auto-detaches can
+//!   transiently exceed either cap (see [`reserve_forced`]).
 //! - **Round-robin promotion** ([`pick_fair_index`]): among queued jobs whose
 //!   session is still BELOW its per-session cap, promote the one whose session
 //!   currently has the FEWEST running jobs (ties → oldest). A session sitting at
@@ -125,7 +130,8 @@ impl SlotManager {
     /// Increment the counts unconditionally (no cap gate). Used by
     /// [`reserve_forced`] for an auto-backgrounded job that already detached and
     /// is running — it can't be queued or refused, only accounted for so fresh
-    /// reservations see the pool as fuller. May briefly push `total` past the cap.
+    /// reservations see the pool as fuller. May briefly push `total` AND the
+    /// session's count past their respective caps (a live thread can't be undone).
     fn reserve_forced_inner(&mut self, session_key: &str) {
         self.total += 1;
         *self.per_session.entry(session_key.to_string()).or_insert(0) += 1;
@@ -225,8 +231,10 @@ pub fn try_reserve(session_key: &str) -> Option<SlotReservation> {
 /// Reserve a slot for an auto-backgrounded job that already detached and is
 /// running on its own thread. The job can't be queued or refused (it's live), so
 /// this counts it unconditionally — even if that briefly pushes the pool past the
-/// global cap — so subsequent [`try_reserve`] calls see the slot as occupied.
-/// Held by the runner thread; `Drop` releases it when the job ends.
+/// global OR the per-session cap — so subsequent [`try_reserve`] calls see the
+/// slot as occupied. Held by the runner thread; `Drop` releases it when the job
+/// ends. (Consequence: the per-session cap bounds *admission* of new background
+/// jobs, not the count of already-running auto-detached ones.)
 pub fn reserve_forced(session_key: &str) -> SlotReservation {
     lock().reserve_forced_inner(session_key);
     SlotReservation {

@@ -256,8 +256,11 @@ pub struct AsyncToolsConfig {
     /// when the global pool (`max_concurrent_jobs`) still has room, so one busy
     /// session can't monopolize every slot and starve the others. The scheduler
     /// promotes queued jobs per-session round-robin, skipping any session already
-    /// at this cap. Auto-backgrounded jobs count against it too. Default: 6. Set
-    /// to 0 for no per-session limit (only the global cap applies).
+    /// at this cap. Auto-backgrounded jobs are *counted* against it too (but an
+    /// already-running job that auto-detaches is counted, not refused — it can
+    /// briefly exceed this cap). Default: hardware-derived (~3/4 of the global
+    /// cap, always below it, band [3,12]). Set to 0 for no per-session limit
+    /// (only the global cap applies).
     #[serde(default = "default_async_max_concurrent_jobs_per_session")]
     pub max_concurrent_jobs_per_session: usize,
     /// Completion-injection merge window (R4), in seconds. When multiple
@@ -295,11 +298,16 @@ fn default_async_completion_merge_window_secs() -> u64 {
     3
 }
 fn default_async_max_concurrent_jobs_per_session() -> usize {
-    // Per-session fairness share (R7.1). Sized below the typical global default
-    // so a single session leaves room for others, while still letting a focused
-    // session fan out a handful of background tools. A user-set `0` means no
-    // per-session limit (handled in the slot acquire path, not here).
-    6
+    // Per-session fairness share (R7.1), **derived from the global default** so it
+    // ALWAYS leaves headroom for other sessions on every hardware tier. A fixed
+    // value can't: the global cap is itself hardware-derived (`clamp(cores-2,4,16)`,
+    // band [4,16]), so a fixed `6` would be >= the global cap on common ≤8-logical-
+    // core machines (8-thread laptop → global 6) and silently no-op — a single
+    // session fills the whole global pool before its per-session cap ever bites.
+    // ~3/4 of the global cap (band [3,12], always strictly below it) lets one
+    // focused session use most of the pool while still reserving slots for others.
+    // A user-set `0` means no per-session limit (handled in the slot acquire path).
+    (default_async_max_concurrent_jobs() * 3 / 4).max(2)
 }
 fn default_async_max_concurrent_jobs() -> usize {
     // Hardware-derived default so the cap doesn't oversubscribe the machine:
@@ -1157,7 +1165,28 @@ mod async_tools_defaults_tests {
             AsyncToolsConfig::default().max_concurrent_jobs_per_session,
             default_async_max_concurrent_jobs_per_session()
         );
-        assert_eq!(default_async_max_concurrent_jobs_per_session(), 6);
+    }
+
+    #[test]
+    fn per_session_default_always_leaves_global_headroom() {
+        // R7.1 review fix: the per-session default must stay STRICTLY below the
+        // global default on every hardware tier, or the fairness tier no-ops
+        // (a single session fills the whole global pool first). It is derived as
+        // ~3/4 of the global cap (band [3,12]), floored at 2.
+        let global = default_async_max_concurrent_jobs();
+        let per_session = default_async_max_concurrent_jobs_per_session();
+        assert!(
+            per_session < global,
+            "per-session default {per_session} must be below global default {global} or the cap never bites"
+        );
+        assert!(
+            per_session >= 2,
+            "per-session default {per_session} below floor 2"
+        );
+        assert!(
+            (3..=12).contains(&per_session),
+            "per-session default {per_session} out of expected band [3,12]"
+        );
     }
 
     #[test]
