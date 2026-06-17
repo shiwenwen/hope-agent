@@ -31,5 +31,8 @@ tool_comparison.md
 # Private research
 docs/research/
 
+# Local requirements / PRD drafts
+docs/requirements/
+
 # Local assistant state
 .claude/
