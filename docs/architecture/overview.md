@@ -60,6 +60,7 @@ graph TD
         ChatEngine --> Agent["Agent (4 种 API)"]
         ChatEngine --> Tools["Tools (~50 个)"]
         ChatEngine --> Memory["Memory"]
+        ChatEngine --> Knowledge["Knowledge (知识空间)"]
         ChatEngine --> PlanMode["Plan Mode"]
         ChatEngine --> Project["Project / Working Dir"]
         EventBus["EventBus<br/>(broadcast)"]
@@ -141,10 +142,12 @@ graph LR
 
     ChatEngine --> SessionDB["Session DB<br/>(消息持久化 + FTS5)"]
     ChatEngine --> Memory["Memory<br/>(记忆注入 + 自动提取)"]
+    ChatEngine --> Knowledge["Knowledge<br/>(知识空间双链笔记)"]
+    Knowledge --> KbIndex["knowledge/index.db<br/>(chunk FTS+vec 缓存)"]
     ChatEngine --> SystemPrompt["System Prompt<br/>(13 段组装)"]
     ChatEngine --> ProjectCtx["Project / Working Dir"]
     ChatEngine --> Awareness["Behavior Awareness"]
-    ChatEngine --> PlanMode["Plan Mode (六态 FSM)"]
+    ChatEngine --> PlanMode["Plan Mode (5 态 FSM)"]
     PlanMode --> Subagent["Subagent (spawn + inject)"]
     Subagent --> Team["Agent Team"]
 
@@ -164,14 +167,25 @@ graph LR
 
 侧边栏将「会话」和「项目」并列为一等节点，项目是会话分组容器并承载持久化的项目级上下文：
 
-- **三层文件注入**：项目目录清单恒注入；< 4KB 小文件按 8KB 预算内联；其余通过 `project_read_file` 工具按需读取（强制限制在 `project_extracted_dir` 内）
+- **项目文件 = 工作目录真实文件**：上传文件直接落项目工作目录（无 `project_files` 表 / 无文本提取注入 / 无 `project_read_file` 工具）；模型靠 `# Working Directory` 段的顶层文件清单 + `read` 工具按需感知
 - **记忆优先级**：Project > Agent > Global，预算紧张时项目记忆最先保留；属项目的会话默认把自动提取的记忆写入 Project scope
 - **默认工作目录**：`Project.working_dir` 是该项目下会话的默认工作目录；运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，**lazy resolve**——改项目工作目录立即对未单独设置的已有会话生效。合并入口 `session::helpers::effective_session_working_dir`，被 system prompt、`exec` / `read` / `write` 的相对路径解析共同消费
 - **IM 路由（无反向认领，Phase A1）**：项目不再认领 channel-account；IM 入站消息默认归 `project_id = NULL`，要归项目从 IM chat 内 `/project <id>` 显式触发，channel worker 调 `set_session_project` 直接改现有 session 不创建新行。Agent 解析按"显式 → 项目 → topic → group → tg-channel → channel-account → AppConfig → 默认"7 级链 (`agent::resolver::resolve_default_agent_id_full`)
 - **`/project [name]` 斜杠命令**：无参列项目选择器，有参直接进入对应项目新会话
-- **删除级联**：unassign 会话 → 删项目行 + `project_files`（FK）→ `rm -rf projects/{id}/` → 删项目记忆（跨 `memory.db` 单独执行）
+- **删除级联**：unassign 会话 → 删项目行 → `rm -rf projects/{id}/`（含默认 workspace；用户显式选的外部目录不删）→ 删项目记忆（跨 `memory.db` 单独执行）
 
 详见 [Project 系统](project.md)。
+
+## 知识空间（Knowledge Base）
+
+侧边栏一级导航「知识空间」，是与聊天、Project 平级的**第四种知识容器**——本地优先、AI 原生的双链笔记子系统。笔记是真实 `.md` 文件（唯一真相源），`~/.hope-agent/knowledge/index.db` 只是 chunk 级 FTS5 + 向量的可重建缓存（删了能从 `.md` 全量重建）；KB 注册表与访问绑定落 `sessions.db`（真相源，D9）。
+
+- **AI 原生读写**：agent 经 `note_*` 工具对知识库有完整 CRUD / 链接 / 图谱 / 检索 / 自主维护能力，并能把碎片记忆提炼成结构化笔记——区别于 Obsidian / Logseq「AI 是插件」的形态
+- **默认 deny + 显式 attach**：访问唯一经 `effective_kb_access`（source-aware + 调用链 cap），incognito 零访问、IM 默认禁用（账号级 opt-in）；owner 管理平面与 agent 工具平面物理隔离（D10）
+- **本地优先可移植**：可绑定现成 Obsidian / Logseq vault（默认只读，opt-in 放开写）+ `notify` watcher 实时同步；与两者文件级 + 公共语法子集非破坏性共存
+- **检索独立旗舰**：chunk FTS + 向量 RRF + MMR，独立 store、独立 embedding selector，**绝不折进 `recall_memory`**（D7）
+
+详见 [知识空间（Knowledge Base）](knowledge-base.md)。
 
 ## 本地模型加载
 
@@ -183,6 +197,7 @@ graph LR
 |--------|------|------|
 | sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Subagent/ACP/Team 运行记录 |
 | memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
+| knowledge/index.db | `~/.hope-agent/knowledge/index.db` | 知识空间 chunk 索引（FTS5 + vec0），可重建缓存；笔记 `.md` 真相在 `knowledge/{id}/notes/` 或外部 vault，registry 在 sessions.db |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
 | cron.db | `~/.hope-agent/cron.db` | 定时任务 + 执行日志 |
 | async_jobs.db | `~/.hope-agent/async_jobs.db` | 异步工具任务（exec / web_search / image_generate 后台化） |
@@ -192,7 +207,7 @@ graph LR
 | canvas/canvas.db | `~/.hope-agent/canvas/canvas.db` | Canvas 画布数据 |
 | config.json | `~/.hope-agent/config.json` | Provider 配置、模型链、全局设置 |
 | agent.json | `~/.hope-agent/agents/{id}/agent.json` | 每 Agent 独立配置 |
-| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（含 extracted_dir、project_files、记忆） |
+| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（默认 workspace；真实文件。项目记忆在 memory.db，不在此） |
 | credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
 所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。配置读写**强制走** `cached_config()` / `mutate_config()`，禁止重新引入 `Mutex<AppConfig>` 或 load+save 手动克隆模式（详见 [配置系统](config-system.md)）。
@@ -223,12 +238,13 @@ graph LR
 | 会话 & 消息持久化 | [Session 系统](session.md) |
 | 项目容器 & 默认工作目录 | [Project 系统](project.md) |
 | 记忆检索 & 提取 | [记忆系统](memory.md) |
+| 知识空间双链笔记 & 检索 | [知识空间（Knowledge Base）](knowledge-base.md) |
 
 ### Agent 能力
 
 | 模块 | 文档 |
 |------|------|
-| Plan 六态状态机 | [Plan Mode](plan-mode.md) |
+| Plan 5 态状态机 | [Plan Mode](plan-mode.md) |
 | Ask User 结构化问答 | [Ask User](ask-user.md) |
 | 技能发现 & 隔离 | [技能系统](skill-system.md) |
 | 子 Agent 系统 | [Subagent](subagent.md) |

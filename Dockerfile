@@ -50,6 +50,10 @@ COPY src ./src
 COPY public ./public
 COPY scripts ./scripts
 
+# Docker installs dependencies with --ignore-scripts, so apply the
+# CodeMirror EditContext patch explicitly before bundling the web UI.
+RUN node scripts/patch-codemirror-edit-context.mjs
+
 RUN pnpm build && \
     # Sanity check — the rust stage assumes /work/dist/index.html exists
     # and is the REAL build output, not `crates/ha-server/build.rs`'s
@@ -76,6 +80,7 @@ RUN apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=60 update && \
         pkg-config \
         protobuf-compiler \
         libclang-dev \
+        mold \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
@@ -110,6 +115,7 @@ COPY --from=web /work/dist ./dist
 # `hope-agent` on the copy so the in-container command stays unchanged.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/work/target \
+    RUSTFLAGS="-C link-arg=-fuse-ld=mold" \
     cargo build --release --locked -p ha-server --bin hope-agent-server && \
     cp /work/target/release/hope-agent-server /usr/local/bin/hope-agent
 

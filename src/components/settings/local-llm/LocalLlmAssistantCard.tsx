@@ -261,6 +261,7 @@ export default function LocalLlmAssistantCard({
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return
       setCurrentJob((current) => {
         if (current?.jobId !== job.jobId) return current
         setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
@@ -273,6 +274,7 @@ export default function LocalLlmAssistantCard({
 
     const handleLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      if (!entry) return
       setCurrentJob((current) => {
         if (current?.jobId !== entry.jobId) return current
         appendDialogLog(entry.message, entry.createdAt)

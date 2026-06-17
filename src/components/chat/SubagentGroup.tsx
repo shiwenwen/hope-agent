@@ -14,13 +14,9 @@ import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import SubagentRunDetails from "./SubagentRunDetails"
-import {
-  loadAgents,
-  statusConfig,
-  TERMINAL_STATUSES,
-  FAILED_STATUSES,
-} from "./subagentShared"
+import { loadAgents, statusConfig, TERMINAL_STATUSES, FAILED_STATUSES } from "./subagentShared"
 
 export interface SubagentGroupRun {
   runId: string
@@ -230,12 +226,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
       </button>
 
       {/* Expanded rows */}
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          expanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={expanded} unmountOnExit={false}>
         <div className="border-t border-border/60">
           {runs.map((run) => (
             <SubagentRow
@@ -248,7 +239,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
             />
           ))}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }
@@ -298,12 +289,7 @@ function SubagentRow({
 
   return (
     <div className="text-[11px]">
-      <div
-        className={cn(
-          "flex items-center transition-colors",
-          "hover:bg-secondary/60",
-        )}
-      >
+      <div className={cn("flex items-center transition-colors", "hover:bg-secondary/60")}>
         <button
           type="button"
           className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1 text-left disabled:cursor-default"
@@ -324,9 +310,7 @@ function SubagentRow({
             <Users className="h-3 w-3 shrink-0 text-muted-foreground/50" />
           )}
           <IconTip label={nameTooltip || friendlyName}>
-            <span className="font-medium text-foreground truncate max-w-[40%]">
-              {friendlyName}
-            </span>
+            <span className="font-medium text-foreground truncate max-w-[40%]">{friendlyName}</span>
           </IconTip>
           <IconTip label={run.runId}>
             <span className="text-muted-foreground/60 font-mono text-[10px] shrink-0 hidden md:inline">
@@ -387,12 +371,7 @@ function SubagentRow({
         </div>
       </div>
 
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          expanded ? "max-h-[760px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={expanded} unmountOnExit={false}>
         <div className="space-y-2 px-2.5 pb-2 pt-0.5 max-h-[760px] overflow-y-auto">
           <SubagentRunDetails
             runId={run.runId}
@@ -415,7 +394,7 @@ function SubagentRow({
             </div>
           )}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }

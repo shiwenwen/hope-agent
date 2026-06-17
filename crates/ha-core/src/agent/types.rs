@@ -182,10 +182,27 @@ pub struct AssistantAgent {
     pub(crate) incognito_cached: std::sync::atomic::AtomicBool,
     /// Sub-agent nesting depth (0 = top-level)
     pub(super) subagent_depth: u32,
+    /// Turn source for knowledge-base access scoping (design D10). Set per-turn
+    /// by `configure_agent`; flows into `ToolExecContext.chat_source`.
+    pub(super) chat_source: Option<crate::knowledge::KbAccessSource>,
+    /// Origin of the whole call chain for KB access (design D10). Set per-turn
+    /// by `configure_agent`; flows into `ToolExecContext.origin_chat_source`.
+    /// Equals `chat_source` for top-level turns; a subagent carries its parent
+    /// turn's origin so IM-origin chains can't launder access via `Subagent`.
+    pub(super) origin_chat_source: Option<crate::knowledge::KbAccessSource>,
+    /// IM identity of the lineage origin for the WS8 KB-access opt-in gate. Set
+    /// per-turn by `configure_agent`; flows into `ToolExecContext.channel_kb_context`.
+    /// `Some` only for IM-origin lineages (top-level IM turn or IM-origin subagent).
+    pub(super) channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
     /// Run ID for steer mailbox (set only when running as a sub-agent)
     pub(super) steer_run_id: Option<String>,
     /// Tools denied for this agent (used for depth-based tool policy)
     pub(super) denied_tools: Vec<String>,
+    /// Optional tool-visibility scope for this turn (see [`crate::tools::ToolScope`]).
+    /// `Some(Knowledge)` trims the schema + system-prompt tool hints to the
+    /// knowledge-space white-list. Orthogonal to `denied_tools` and chat source;
+    /// purely narrows visibility, never widens KB access.
+    pub(super) tool_scope: Option<crate::tools::ToolScope>,
     /// Active skill's allowed tools: when non-empty, only these tools are sent to the LLM.
     /// Set when a skill with `allowed-tools` frontmatter is activated.
     pub(super) skill_allowed_tools: Vec<String>,
@@ -278,6 +295,27 @@ pub struct AssistantAgent {
     /// `None` means: nothing to inject this turn (empty shortlist, LLM said
     /// NONE, timeout, or feature disabled).
     pub(crate) active_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Read bridge ③ per-agent runtime state (passive related-notes cache).
+    pub(crate) related_notes_state: std::sync::Arc<super::related_notes::RelatedNotesState>,
+    /// Latest passive related-notes suffix (note titles from the accessible KBs),
+    /// injected as another independent block. Rebuilt every user turn by
+    /// `refresh_related_notes_suffix`. `None` = nothing to inject (disabled,
+    /// incognito, no accessible KB, or no hits).
+    pub(crate) related_notes_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Per-turn memo of the resolved effective KB access map. `resolve_kb_access`
+    /// is hit up to ~5× per turn (passive recall + the no-KB tool-schema gate +
+    /// the `# Knowledge Bases` system-prompt section, the last built twice and
+    /// again on plan-mode resync); its inputs (session / source / origin /
+    /// channel / incognito / project / attach rows) only change at a turn
+    /// boundary, so the resolution (a couple of SQLite round-trips) is memoized
+    /// for the turn. Cleared in `reset_chat_flags` (turn start) and
+    /// `set_session_id` (cached-agent rebind). `Arc` so consumers share one
+    /// allocation; `KbAccess` is `Copy`. **Schema/prompt/recall only — never
+    /// gate tool EXECUTION off this** (the execution boundary `note.rs::access_map`
+    /// stays live so a mid-turn revoke still blocks real reads/writes).
+    pub(crate) kb_access_cache: std::sync::Mutex<
+        Option<std::sync::Arc<std::collections::HashMap<String, crate::knowledge::KbAccess>>>,
+    >,
     /// Optional `ProviderConfig` reference, injected via
     /// [`AssistantAgent::with_failover_context`]. When present **and**
     /// `session_id` is set, side_query / DedicatedModelProvider routes
@@ -299,7 +337,7 @@ pub(super) struct CacheSafeParams {
 }
 
 /// Provider format tag for CacheSafeParams, derived from LlmProvider variant.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ProviderFormat {
     Anthropic,
     OpenAIChat,

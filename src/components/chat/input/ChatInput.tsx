@@ -2,8 +2,7 @@ import { Fragment, useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { AnimatedCollapse } from "@/components/ui/animated-presence"
-import { Textarea } from "@/components/ui/textarea"
+import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -15,12 +14,14 @@ import {
   ClipboardList,
   Pencil,
   Trash2,
-  MoreHorizontal,
   BetweenHorizontalStart,
+  ChevronDown,
+  ChevronUp,
   X,
   Plus,
   FolderPlus,
   Quote,
+  Undo2,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type {
@@ -29,34 +30,30 @@ import type {
   ChatTurnStatus,
   SessionMode,
   PendingFileQuote,
+  PendingSendPreview,
 } from "@/types/chat"
+import type { KbDraftAttachment } from "@/types/knowledge"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
 import SlashCommandMenu from "../slash-commands/SlashCommandMenu"
 import { useFileMention } from "../file-mention/useFileMention"
 import FileMentionMenu from "../file-mention/FileMentionMenu"
-import MentionMirrorOverlay from "../file-mention/MentionMirrorOverlay"
+import { useNoteMention } from "../note-mention/useNoteMention"
+import NoteMentionMenu from "../note-mention/NoteMentionMenu"
 import UrlPreviewCard from "../UrlPreviewCard"
 import type { CommandResult } from "../slash-commands/types"
-import {
-  AttachFileButton,
-  AttachFilesMenuItem,
-  AttachImageButton,
-  AttachmentPreview,
-} from "./AttachmentBar"
+import { AttachFilesButton, AttachFilesMenuItem, AttachmentPreview } from "./AttachmentBar"
 import ModelPicker from "./ModelPicker"
-import PermissionModeSwitcher, {
-  type PermissionModeChangeOptions,
-} from "./PermissionModeSwitcher"
-import TemperatureSlider from "./TemperatureSlider"
+import PermissionModeSwitcher, { type PermissionModeChangeOptions } from "./PermissionModeSwitcher"
 import AwarenessToggle from "./AwarenessToggle"
+import KnowledgePicker from "./KnowledgePicker"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
 import { VoiceRecordButton } from "./VoiceRecordButton"
 import { useVoiceInput } from "./useVoiceInput"
 import { RecordingBar } from "./RecordingBar"
 import { getNextPermissionMode } from "./permissionModes"
-import WorkspaceStatusBar from "@/components/chat/workspace/WorkspaceStatusBar"
+import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
 import { resolveWorkspaceTaskExecutionState } from "@/components/chat/workspace/taskExecutionState"
 import {
   shouldShowTaskProgressPanel,
@@ -67,9 +64,14 @@ import {
   CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
   CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX,
+  CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
   getChatInputOverflowActionIds,
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
+import MentionComposerInput from "./MentionComposerInput"
+import type { ComposerInputHandle } from "./composerInputHandle"
+import type { ContextUsageInfo } from "../chatUtils"
+import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
 
 interface ChatInputProps {
@@ -90,8 +92,13 @@ interface ChatInputProps {
   /** Click a staged quote chip to reveal that file in the file browser. */
   onJumpToQuote?: (q: PendingFileQuote) => void
   pendingMessage?: string | null
+  pendingSends?: PendingSendPreview[]
   onCancelPending?: () => void
   onDiscardPending?: () => void
+  onEditPending?: (id: string) => void
+  onDiscardPendingItem?: (id: string) => void
+  onForceInsertPending?: (id: string) => void
+  onCancelForceInsertPending?: (id: string) => void
   onStop?: () => void
   // Slash command support
   currentSessionId?: string | null
@@ -105,6 +112,17 @@ interface ChatInputProps {
   onSessionTemperatureChange?: (temp: number | null) => void
   // Incognito
   incognitoEnabled?: boolean
+  // Knowledge space attach (project context for project-scoped attaches)
+  projectId?: string | null
+  // Draft KB attaches staged before a session exists (composer draft mode)
+  draftKbAttachments?: KbDraftAttachment[]
+  onDraftKbAttachChange?: (next: KbDraftAttachment[]) => void
+  /** Enable the `[[note]]` picker + the `@` menu's knowledge-notes section.
+   *  Off by default so files-only surfaces (QuickChat) keep their behavior. */
+  enableNoteMention?: boolean
+  /** Enable the `@` menu's built-in **skills** section (`@skill:<name>` →
+   *  office / browser / mac control). Off by default; the main chat opts in. */
+  enableSkillMention?: boolean
   // Working directory
   workingDir?: string | null
   /** True when `workingDir` is inherited from the parent project rather than
@@ -124,8 +142,44 @@ interface ChatInputProps {
   executionState?: ChatTurnStatus | null
   /** 打开右侧工作台面板（状态条点击）。 */
   onOpenWorkspace?: () => void
+  /** True when the right-side workspace panel is expanded and showing task detail. */
+  workspacePanelVisible?: boolean
   /** Larger centered presentation for a brand-new empty conversation. */
   hero?: boolean
+  /** Context-window fullness, rendered as a thin bar fused into the dock's
+   *  bottom border (green → amber → red). Null hides the bar. */
+  contextUsage?: ContextUsageInfo | null
+}
+
+/**
+ * Thin context-usage bar fused into the input dock's bottom border. The filled
+ * width tracks how full the context window is; color ramps green → yellow → red
+ * via the shared `contextUsageBarClass` (dependency-free leaf module, so the
+ * input dock stays clear of chatUtils' heavier runtime chain). Sits in the
+ * toolbar's `pb-2` padding zone (no buttons there), so its hover target never
+ * steals clicks. Clipped to the dock's rounded bottom corners.
+ */
+function ContextUsageBottomBar({ usage }: { usage: ContextUsageInfo }) {
+  const { t } = useTranslation()
+  const fill = contextUsageBarClass(usage.pct)
+  const width = Math.min(usage.pct, 100)
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="absolute inset-x-0 bottom-0 z-10 flex h-2 items-end">
+          <div className="h-[2px] w-full overflow-hidden rounded-b-input-dock">
+            <div
+              className={cn("h-full transition-[width] duration-500", fill)}
+              style={{ width: `${width}%` }}
+            />
+          </div>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {t("chat.statusContext")} · {usage.usedK}k/{usage.ctxK}k ({usage.pct}%)
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 export default function ChatInput({
@@ -145,8 +199,13 @@ export default function ChatInput({
   onRemoveQuote,
   onJumpToQuote,
   pendingMessage,
+  pendingSends,
   onCancelPending,
   onDiscardPending,
+  onEditPending,
+  onDiscardPendingItem,
+  onForceInsertPending,
+  onCancelForceInsertPending,
   onStop,
   currentSessionId,
   currentAgentId = DEFAULT_AGENT_ID,
@@ -156,6 +215,11 @@ export default function ChatInput({
   sessionTemperature,
   onSessionTemperatureChange,
   incognitoEnabled = false,
+  projectId,
+  draftKbAttachments,
+  onDraftKbAttachChange,
+  enableNoteMention = false,
+  enableSkillMention = false,
   workingDir,
   workingDirInherited = false,
   workingDirSaving = false,
@@ -167,14 +231,22 @@ export default function ChatInput({
   taskProgressSnapshot,
   executionState,
   onOpenWorkspace,
+  workspacePanelVisible = false,
   hero = false,
+  contextUsage,
 }: ChatInputProps) {
   const { t } = useTranslation()
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const inputHandleRef = useRef<ComposerInputHandle>(null)
   const inputShellRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
   const [toolbarCompact, setToolbarCompact] = useState(false)
+  // Narrower tier than `toolbarCompact`: Knowledge + Plan stay inline until the
+  // toolbar is genuinely cramped, then collapse into the "+" menu too.
+  const [toolbarTight, setToolbarTight] = useState(false)
   const [toolbarStacked, setToolbarStacked] = useState(false)
+  const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
+  const [pendingExpanded, setPendingExpanded] = useState(false)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -217,8 +289,9 @@ export default function ChatInput({
     sessionId: currentSessionId ?? null,
     agentId: currentAgentId,
   }
-  const slash = useSlashCommands(input, onInputChange, slashActions)
+  const slash = useSlashCommands(input, onInputChange, slashActions, inputHandleRef)
   const voice = useVoiceInput()
+  const normalToolbarOpen = voice.state !== "recording" && voice.state !== "transcribing"
   // Read the latest `input` when transcription resolves — the user can keep
   // typing during the STT round-trip, and capturing `input` in the closure
   // would overwrite anything typed in the meantime.
@@ -230,16 +303,20 @@ export default function ChatInput({
   /**
    * Caret anchor captured at `voice.start()` time. While recording, the
    * transcript (streaming partial OR batch final) is spliced INTO the
-   * textarea at this position rather than appended to the end. Cleared
+   * composer at this position rather than appended to the end. Cleared
    * after stop / cancel.
    */
   const voiceAnchorRef = useRef<{ prefix: string; suffix: string } | null>(null)
 
   const startVoice = useCallback(async () => {
-    const ta = textareaRef.current
+    const inputHandle = inputHandleRef.current
     const current = inputRef.current
-    const selStart = ta?.selectionStart ?? current.length
-    const selEnd = ta?.selectionEnd ?? current.length
+    const selection = inputHandle?.getSelectionRange() ?? {
+      start: current.length,
+      end: current.length,
+    }
+    const selStart = selection.start
+    const selEnd = selection.end
     voiceAnchorRef.current = {
       prefix: current.slice(0, selStart),
       suffix: current.slice(selEnd),
@@ -261,13 +338,13 @@ export default function ChatInput({
     const suffix = anchor?.suffix ?? ""
     onInputChange(prefix + text + suffix)
     // Restore caret to the end of the inserted transcript on the next
-    // tick (after React commits the new value to the textarea).
+    // tick (after React commits the new value to the composer).
     const caret = prefix.length + text.length
     requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(caret, caret)
+      const inputHandle = inputHandleRef.current
+      if (!inputHandle) return
+      inputHandle.focus()
+      inputHandle.setSelectionRange(caret, caret)
     })
   }, [voice, onInputChange])
 
@@ -275,7 +352,7 @@ export default function ChatInput({
     const anchor = voiceAnchorRef.current
     voiceAnchorRef.current = null
     voice.cancel()
-    // Strip any streaming partial that already landed in the textarea.
+    // Strip any streaming partial that already landed in the composer.
     if (anchor) onInputChange(anchor.prefix + anchor.suffix)
   }, [voice, onInputChange])
 
@@ -371,26 +448,35 @@ export default function ChatInput({
     }
   }, [])
 
-  // File mention `@` popper — only meaningful when a working dir is set.
-  const mention = useFileMention(input, onInputChange, textareaRef, workingDir ?? null)
-  const [mirrorScrollTop, setMirrorScrollTop] = useState(0)
-
+  // File mention `@` popper — files (working dir) + knowledge notes when enabled.
+  const mention = useFileMention(
+    input,
+    onInputChange,
+    inputHandleRef,
+    workingDir ?? null,
+    enableNoteMention
+      ? {
+          sessionId: currentSessionId ?? null,
+          projectId: projectId ?? null,
+          draftKbAttachments: draftKbAttachments ?? [],
+        }
+      : undefined,
+    enableSkillMention,
+  )
+  // `[[note]]` picker — knowledge-space notes reachable from this chat.
+  const noteMention = useNoteMention(
+    input,
+    onInputChange,
+    inputHandleRef,
+    currentSessionId ?? null,
+    projectId ?? null,
+    draftKbAttachments ?? [],
+    enableNoteMention,
+  )
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
   const hasSendableContent =
     input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
-
-  // Auto-resize textarea based on content
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = "auto"
-    textarea.style.height = `${textarea.scrollHeight}px`
-  }, [])
-
-  useEffect(() => {
-    adjustTextareaHeight()
-  }, [input, adjustTextareaHeight])
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance has to follow the input container
@@ -401,6 +487,7 @@ export default function ChatInput({
 
     const update = (width = el.getBoundingClientRect().width) => {
       setToolbarCompact(width <= CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
+      setToolbarTight(width <= CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX)
       setToolbarStacked(width <= CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX)
     }
 
@@ -423,6 +510,50 @@ export default function ChatInput({
     if (showOverflowMenu && !toolbarCompact) setShowOverflowMenu(false)
   }, [showOverflowMenu, toolbarCompact])
 
+  useEffect(() => {
+    setToolbarMinHeight(null)
+  }, [toolbarCompact, toolbarStacked])
+
+  useEffect(() => {
+    if (!normalToolbarOpen || typeof window === "undefined") {
+      setToolbarMinHeight(null)
+      return
+    }
+
+    const el = toolbarRef.current
+    if (!el) return
+
+    let raf: number | null = null
+    const update = () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(() => {
+        raf = null
+        const next = Math.ceil(el.scrollHeight || el.getBoundingClientRect().height)
+        setToolbarMinHeight((prev) => {
+          if (prev === null || next > prev) return next
+          return prev
+        })
+      })
+    }
+
+    update()
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update)
+      return () => {
+        if (raf !== null) window.cancelAnimationFrame(raf)
+        window.removeEventListener("resize", update)
+      }
+    }
+
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [normalToolbarOpen, toolbarCompact, toolbarStacked])
+
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       const items = e.clipboardData?.items
@@ -443,19 +574,15 @@ export default function ChatInput({
     [onAttachFiles],
   )
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    // Slash menu first (owns header `/...` slot), then mention popper, then
-    // local chat shortcuts.
+    // Slash menu first (owns header `/...` slot), then `[[note]]` picker, then
+    // `@` file mention, then send. Each handler self-guards on its own open
+    // state, so only the active popper consumes the key.
     if (slash.handleKeyDown(e)) return
+    if (noteMention.handleKeyDown(e)) return
     if (mention.handleKeyDown(e)) return
-    if (
-      e.key === "Tab" &&
-      e.shiftKey &&
-      !e.ctrlKey &&
-      !e.altKey &&
-      !e.metaKey
-    ) {
+    if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
       onPermissionModeChange(getNextPermissionMode(permissionMode))
       return
@@ -487,14 +614,76 @@ export default function ChatInput({
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
 
+  // Shared by the inline Plan toggle and its "+" overflow-menu counterpart.
+  const handlePlanToggle = () => {
+    if (planState === "off" || planState === "completed") {
+      onEnterPlanMode?.()
+    } else if (planState === "planning") {
+      onExitPlanMode?.()
+    } else {
+      onTogglePlanPanel?.()
+    }
+  }
+
   const toggleSlashCommandMenu = () => {
     slash.setOpen(!slash.isOpen)
   }
 
   const taskExecutionState = resolveWorkspaceTaskExecutionState(executionState, loading)
-  // 状态条是否会渲染（WorkspaceStatusBar 内部同款判断）——决定其下方 Plan
-  // Banner 是否需要补顶部圆角。
-  const hasVisibleTaskBar = shouldShowTaskProgressPanel(taskProgressSnapshot)
+  const visibleTaskProgressSnapshot = shouldShowTaskProgressPanel(taskProgressSnapshot)
+    ? taskProgressSnapshot
+    : null
+  // 任务进度 UI 是否会渲染——决定其下方 Plan Banner 是否需要补顶部圆角。
+  const hasVisibleTaskProgress = !!visibleTaskProgressSnapshot
+  const pendingQueueItems: PendingSendPreview[] =
+    pendingSends && pendingSends.length > 0
+      ? pendingSends
+      : pendingMessage
+        ? [
+            {
+              id: "__legacy__",
+              text: pendingMessage,
+              mode: "queue",
+              status: "queued",
+              canForceInsert: false,
+              attachmentCount: 0,
+              quoteCount: 0,
+            },
+          ]
+        : []
+  const pendingVisibleItems = pendingExpanded ? pendingQueueItems : pendingQueueItems.slice(0, 2)
+  const hasPendingQueue = loading && pendingQueueItems.length > 0
+
+  const pendingStatusLabel = (item: PendingSendPreview) => {
+    switch (item.status) {
+      case "waiting_tool_boundary":
+        return t("chat.pendingWaitingToolBoundary", "等待工具完成点")
+      case "inserted":
+        return t("chat.pendingInserted", "已插入")
+      case "fallback_after_reply":
+        return t("chat.pendingFallbackAfterReply", "回复后发送")
+      case "queued":
+      default:
+        return t("chat.pendingQueuedShort", "排队中")
+    }
+  }
+
+  const pendingStatusTip = (item: PendingSendPreview) => {
+    switch (item.status) {
+      case "waiting_tool_boundary":
+        return t(
+          "chat.pendingWaitingToolBoundaryTip",
+          "等待最近一次工具调用完成；如果本轮不再调用工具，将改为回复结束后发送。",
+        )
+      case "fallback_after_reply":
+        return t("chat.pendingFallbackAfterReplyTip", "未遇到工具完成点，将在当前回复结束后发送。")
+      case "inserted":
+        return t("chat.pendingInsertedTip", "已在本轮工具完成后插入给模型。")
+      case "queued":
+      default:
+        return t("chat.pendingQueuedTip", "已加入待发送队列，将在当前回复结束后发送。")
+    }
+  }
 
   const renderInlineAddControls = () => (
     <>
@@ -506,8 +695,7 @@ export default function ChatInput({
           onChange={onWorkingDirChange}
         />
       )}
-      <AttachImageButton onAttachFiles={onAttachFiles} />
-      <AttachFileButton onAttachFiles={onAttachFiles} />
+      <AttachFilesButton onAttachFiles={onAttachFiles} />
       <IconTip label={t("slashCommands.buttonTip")}>
         <Button
           variant="ghost"
@@ -563,11 +751,43 @@ export default function ChatInput({
     }
   }
 
+  // Add-style actions (working dir / attach / slash) always live here once the
+  // toolbar is compact. Knowledge + Plan only join the menu at the narrower
+  // `toolbarTight` tier — above it they stay inline.
   const renderOverflowMenuItems = () => (
     <>
       {getChatInputOverflowActionIds().map((actionId) => (
         <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
       ))}
+      {toolbarTight && (
+        <>
+          <KnowledgePicker
+            variant="menu"
+            sessionId={currentSessionId ?? null}
+            projectId={projectId ?? null}
+            disabled={incognitoEnabled}
+            draftAttachments={draftKbAttachments}
+            onDraftAttachChange={onDraftKbAttachChange}
+          />
+          <button
+            type="button"
+            aria-label={planToggleTip}
+            className={cn(
+              overflowMenuItemClass,
+              planState === "planning" && "text-blue-600",
+              planState === "review" && "text-purple-600",
+              planState === "executing" && "text-green-600",
+            )}
+            onClick={() => {
+              setShowOverflowMenu(false)
+              handlePlanToggle()
+            }}
+          >
+            <ClipboardList className="h-4 w-4 shrink-0" />
+            <span className="truncate">{planToggleLabel}</span>
+          </button>
+        </>
+      )}
     </>
   )
 
@@ -576,27 +796,41 @@ export default function ChatInput({
       <div
         ref={inputShellRef}
         className={cn(
-          "relative min-w-0 overflow-hidden rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
+          "relative min-w-0 overflow-visible rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",
         )}
       >
         {/* Slash Command Menu */}
-        {slash.isOpen && (
-          <SlashCommandMenu
-            commands={slash.expandedCmd ? [] : slash.filteredCommands}
-            selectedIndex={slash.selectedIndex}
-            onSelect={slash.executeCommand}
-            expandedCmd={slash.expandedCmd}
-            filteredOptions={slash.filteredOptions}
-            selectedOptionIndex={slash.selectedOptionIndex}
-            onSelectOption={slash.executeOption}
-          />
-        )}
+        <SlashCommandMenu
+          open={slash.isOpen}
+          commands={slash.expandedCmd ? [] : slash.filteredCommands}
+          selectedIndex={slash.selectedIndex}
+          onSelect={slash.executeCommand}
+          expandedCmd={slash.expandedCmd}
+          filteredOptions={slash.filteredOptions}
+          selectedOptionIndex={slash.selectedOptionIndex}
+          onSelectOption={slash.executeOption}
+        />
+
+        {/* Note Mention Menu (`[[` popper) */}
+        <NoteMentionMenu
+          isOpen={noteMention.isOpen && !slash.isOpen}
+          entries={noteMention.entries}
+          selectedIndex={noteMention.selectedIndex}
+          loading={noteMention.loading}
+          onSelect={noteMention.applyEntry}
+          onHover={noteMention.setSelectedIndex}
+        />
 
         {/* File Mention Menu (`@` popper) */}
         <FileMentionMenu
-          isOpen={mention.isOpen && !slash.isOpen}
+          isOpen={mention.isOpen && !slash.isOpen && !noteMention.isOpen}
           entries={mention.entries}
+          noteEntries={mention.noteEntries}
+          notesLoading={mention.notesLoading}
+          noteCapable={mention.noteCapable}
+          skillEntries={mention.skillEntries}
+          skillCapable={mention.skillCapable}
           selectedIndex={mention.selectedIndex}
           mode={mention.mode}
           dirPath={mention.dirPath}
@@ -604,15 +838,22 @@ export default function ChatInput({
           loading={mention.loading}
           error={mention.error}
           truncated={mention.truncated}
+          hasFileQuery={mention.hasFileQuery}
           onSelect={mention.applyEntry}
+          onSelectNote={mention.applyNote}
+          onSelectSkill={mention.applySkill}
           onHover={mention.setSelectedIndex}
         />
 
-        <WorkspaceStatusBar
-          snapshot={taskProgressSnapshot}
-          executionState={taskExecutionState}
-          onOpen={onOpenWorkspace ?? (() => {})}
-        />
+        {visibleTaskProgressSnapshot && (
+          <TaskProgressPanel
+            snapshot={visibleTaskProgressSnapshot}
+            executionState={taskExecutionState}
+            variant="embedded"
+            onOpenWorkspace={onOpenWorkspace}
+            workspaceOpen={workspacePanelVisible}
+          />
+        )}
 
         {/* Attached files preview (rendered above textarea) */}
         <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
@@ -623,25 +864,37 @@ export default function ChatInput({
             {pendingQuotes?.map((q, index) => {
               const lines =
                 q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
+              // Code-point-safe truncation so the preview can't split a surrogate
+              // pair (emoji / astral CJK) and render a � at the cut.
+              const cps = Array.from(q.content)
+              const preview = cps.length > 400 ? `${cps.slice(0, 400).join("")}…` : q.content
               return (
                 <span
                   key={`${q.path}:${lines}:${index}`}
                   className="inline-flex max-w-[260px] items-center gap-0.5 rounded-md border border-border/60 bg-secondary/40 py-0.5 pl-1 pr-1 text-xs text-foreground/80"
                 >
-                  <IconTip label={t("fileBrowser.jumpToFile", "Show in file browser")}>
-                    <button
-                      type="button"
-                      onClick={() => onJumpToQuote?.(q)}
-                      disabled={!onJumpToQuote}
-                      className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-background/70 disabled:pointer-events-none"
-                    >
-                      <Quote className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <span className="truncate">
-                        {q.name}
-                        <span className="ml-1 text-muted-foreground">L{lines}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => onJumpToQuote?.(q)}
+                        disabled={!onJumpToQuote}
+                        className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-background/70 disabled:pointer-events-none"
+                      >
+                        <Quote className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate">
+                          {q.name}
+                          <span className="ml-1 text-muted-foreground">L{lines}</span>
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    {/* Hover preview of the quoted text (click jumps to it). */}
+                    <TooltipContent side="top" className="max-w-[340px]">
+                      <span className="block max-h-40 overflow-hidden whitespace-pre-wrap text-xs">
+                        {preview}
                       </span>
-                    </button>
-                  </IconTip>
+                    </TooltipContent>
+                  </Tooltip>
                   {onRemoveQuote && (
                     <button
                       type="button"
@@ -657,49 +910,118 @@ export default function ChatInput({
           </div>
         </AnimatedCollapse>
 
-        {/* Pending message card */}
-        <AnimatedCollapse open={loading && !!pendingMessage}>
+        {/* Pending send queue */}
+        <AnimatedCollapse open={hasPendingQueue}>
           <div className="px-3 pt-2.5 pb-0 animate-in fade-in-0 slide-in-from-top-1 duration-200">
-            <div className="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
-              <BetweenHorizontalStart className="h-4 w-4 text-amber-500 shrink-0" />
-              <span className="flex-1 text-sm text-foreground/90 truncate">{pendingMessage}</span>
-              <IconTip label={t("chat.pendingDelete")}>
-                <button
-                  className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  onClick={onDiscardPending}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="min-w-[140px] bg-surface-floating/95 backdrop-blur-xl border border-border-soft rounded-floating shadow-floating p-1.5 z-50 animate-in fade-in-0 zoom-in-95 duration-150"
-                    sideOffset={6}
-                    align="end"
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/8 px-2.5 py-2">
+              <div className="mb-1.5 flex items-center gap-2">
+                <BetweenHorizontalStart className="h-4 w-4 shrink-0 text-amber-500" />
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/80">
+                  {t("chat.pendingQueueTitle", "待发送")} · {pendingQueueItems.length}
+                </span>
+                {pendingQueueItems.length > 2 && (
+                  <IconTip
+                    label={
+                      pendingExpanded ? t("common.collapse", "收起") : t("common.expand", "展开")
+                    }
                   >
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground/80 rounded-md cursor-pointer transition-colors hover:bg-secondary/60 hover:text-foreground outline-none"
-                      onSelect={onCancelPending}
+                    <button
+                      type="button"
+                      onClick={() => setPendingExpanded((v) => !v)}
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                      {t("chat.pendingEdit")}
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground/80 rounded-md cursor-pointer transition-colors hover:bg-secondary/60 hover:text-foreground outline-none"
-                      onSelect={onDiscardPending}
+                      {pendingExpanded ? (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </IconTip>
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {pendingVisibleItems.map((item) => {
+                  const edit = () =>
+                    item.id === "__legacy__" ? onCancelPending?.() : onEditPending?.(item.id)
+                  const discard = () =>
+                    item.id === "__legacy__"
+                      ? onDiscardPending?.()
+                      : onDiscardPendingItem?.(item.id)
+                  const readonly = item.status === "inserted"
+                  const canCancelForce =
+                    item.mode === "force_insert" && item.status === "waiting_tool_boundary"
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex min-w-0 items-center gap-1.5 rounded-md bg-background/45 px-2 py-1.5"
                     >
-                      <X className="h-3.5 w-3.5" />
-                      {t("chat.pendingDiscard")}
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+                      <IconTip label={pendingStatusTip(item)}>
+                        <span className="shrink-0 rounded-sm bg-amber-500/12 px-1.5 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                          {pendingStatusLabel(item)}
+                        </span>
+                      </IconTip>
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                        {item.text}
+                        {(item.attachmentCount > 0 || item.quoteCount > 0) && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            +{item.attachmentCount + item.quoteCount}
+                          </span>
+                        )}
+                      </span>
+                      {canCancelForce ? (
+                        <IconTip label={t("chat.pendingCancelForceInsert", "取消插入本轮")}>
+                          <button
+                            type="button"
+                            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            onClick={() => onCancelForceInsertPending?.(item.id)}
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      ) : (
+                        item.canForceInsert && (
+                          <IconTip
+                            label={t(
+                              "chat.pendingForceInsertTip",
+                              "会等正在执行的工具完成后插入给模型，不会打断当前工具。",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              onClick={() => onForceInsertPending?.(item.id)}
+                            >
+                              <BetweenHorizontalStart className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                        )
+                      )}
+                      {!readonly && (
+                        <>
+                          <IconTip label={t("chat.pendingEdit")}>
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              onClick={edit}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                          <IconTip label={t("chat.pendingDelete")}>
+                            <button
+                              type="button"
+                              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              onClick={discard}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </IconTip>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </AnimatedCollapse>
@@ -707,7 +1029,7 @@ export default function ChatInput({
         {/* Plan Mode Banner */}
         <AnimatedCollapse open={planState === "planning"}>
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskBar && attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
+            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskProgress && attachedFiles.length === 0 && !hasPendingQueue ? " rounded-t-2xl" : ""}`}
           >
             <ClipboardList className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1">{t("planMode.restricted")}</span>
@@ -720,41 +1042,32 @@ export default function ChatInput({
           </div>
         </AnimatedCollapse>
 
-        {/* Textarea + mention chip mirror — `@` mentions get a chip backdrop
-            from the overlay; the textarea renders the actual characters on
-            top so caret/selection stay native. */}
+        {/* Tokenized composer: raw `input` stays plain text, selected mentions
+            render as atomic chips inside the editable surface. */}
         <div className="relative">
-          <MentionMirrorOverlay
-            value={input}
-            scrollTop={mirrorScrollTop}
-            enabled={!!workingDir}
-            onRemoveMention={mention.removeMention}
-          />
-          <Textarea
-            ref={textareaRef}
+          <MentionComposerInput
+            ref={inputHandleRef}
             placeholder={
               planState === "planning"
                 ? t("planMode.placeholder")
-                : loading && pendingMessage
+                : hasPendingQueue
                   ? t("chat.pendingQueued")
                   : t("chat.askAnything")
             }
             value={input}
-            onChange={(e) => onInputChange(e.target.value)}
+            onChange={onInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            onSelect={() => mention.recheckTrigger()}
-            onClick={() => mention.recheckTrigger()}
-            onScroll={(e) => setMirrorScrollTop(e.currentTarget.scrollTop)}
-            rows={hero ? 2 : 1}
-            // Lock input while recording — the waveform bar replaces
-            // direct typing, and the anchor-splice depends on the prefix
-            // / suffix captured at start time remaining stable.
+            onSelectionChange={() => {
+              mention.recheckTrigger()
+              noteMention.recheckTrigger()
+            }}
+            workingDir={workingDir ?? null}
+            fileEnabled={!!workingDir}
+            noteEnabled={enableNoteMention}
+            skillEnabled={enableSkillMention}
+            hero={hero}
             readOnly={voice.state === "recording" || voice.state === "transcribing"}
-            className={cn(
-              "relative border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm leading-[1.5] text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[42px] max-h-[40vh] overflow-y-auto break-words",
-              hero && "min-h-[72px] pt-4 pb-2",
-            )}
           />
         </div>
 
@@ -778,169 +1091,194 @@ export default function ChatInput({
             is in flight, since the normal toolbar buttons are
             unreachable during recording anyway. */}
         <AnimatedCollapse open={voice.state === "recording" || voice.state === "transcribing"}>
-          <RecordingBar
-            transcribing={voice.state === "transcribing"}
-            durationMs={voice.durationMs}
-            levels={voice.levels}
-            onCancel={handleVoiceCancel}
-            onStop={() => void handleVoiceStop()}
-          />
+          <AnimatedPresenceBox
+            open={voice.state === "recording" || voice.state === "transcribing"}
+            className="will-change-[opacity,transform]"
+            enterClassName="translate-y-0 opacity-100"
+            exitClassName="translate-y-1 opacity-0 pointer-events-none"
+          >
+            <RecordingBar
+              transcribing={voice.state === "transcribing"}
+              durationMs={voice.durationMs}
+              levels={voice.levels}
+              onCancel={handleVoiceCancel}
+              onStop={() => void handleVoiceStop()}
+            />
+          </AnimatedPresenceBox>
         </AnimatedCollapse>
-        <AnimatedCollapse
-          open={voice.state !== "recording" && voice.state !== "transcribing"}
-          overflow="visible-when-open"
-        >
         <div
-          className={cn(
-            "flex gap-2 px-2 pb-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
-            toolbarStacked ? "flex-col items-stretch" : "items-end justify-between",
-          )}
+          style={
+            normalToolbarOpen && toolbarMinHeight !== null
+              ? { minHeight: toolbarMinHeight }
+              : undefined
+          }
         >
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
-              {renderInlineAddControls()}
-            </div>
+          <AnimatedCollapse open={normalToolbarOpen} overflow="visible-when-open">
+            <div
+              ref={toolbarRef}
+              className={cn(
+                "grid gap-2 px-2 pb-2",
+                toolbarStacked
+                  ? "grid-cols-1 items-stretch"
+                  : "grid-cols-[minmax(0,1fr)_auto] items-end",
+              )}
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-1">
+                <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
+                  {renderInlineAddControls()}
+                </div>
 
-            <div className={toolbarCompact ? "block" : CHAT_INPUT_OVERFLOW_MENU_CLASS}>
-              <DropdownMenu.Root open={showOverflowMenu} onOpenChange={setShowOverflowMenu}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenu.Trigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("chat.moreActions")}
-                        className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0 data-[state=open]:bg-transparent"
+                <div className={toolbarCompact ? "block" : CHAT_INPUT_OVERFLOW_MENU_CLASS}>
+                  <DropdownMenu.Root open={showOverflowMenu} onOpenChange={setShowOverflowMenu}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenu.Trigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("chat.moreActions")}
+                            className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0 data-[state=open]:bg-transparent"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenu.Trigger>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("chat.moreActions")}</TooltipContent>
+                    </Tooltip>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        className="z-50 min-w-[180px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
+                        side="top"
+                        align="start"
+                        sideOffset={8}
                       >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenu.Trigger>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("chat.moreActions")}</TooltipContent>
-                </Tooltip>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="z-50 min-w-[180px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
-                    side="top"
-                    align="start"
-                    sideOffset={8}
-                  >
-                    <div className="flex flex-col gap-0.5">{renderOverflowMenuItems()}</div>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </div>
+                        <div className="flex flex-col gap-0.5">{renderOverflowMenuItems()}</div>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
 
-            {/* Model Selector + Think Mode */}
-            <ModelPicker
-              availableModels={availableModels}
-              activeModel={activeModel}
-              reasoningEffort={reasoningEffort}
-              onModelChange={onModelChange}
-              onEffortChange={onEffortChange}
-              currentModelInfo={currentModelInfo}
-            />
+                {/* Model / Think / Temperature */}
+                <ModelPicker
+                  availableModels={availableModels}
+                  activeModel={activeModel}
+                  reasoningEffort={reasoningEffort}
+                  onModelChange={onModelChange}
+                  onEffortChange={onEffortChange}
+                  currentModelInfo={currentModelInfo}
+                  sessionTemperature={sessionTemperature}
+                  onSessionTemperatureChange={onSessionTemperatureChange}
+                />
 
-            {/* Temperature Control */}
-            <TemperatureSlider
-              sessionTemperature={sessionTemperature}
-              onSessionTemperatureChange={onSessionTemperatureChange}
-            />
+                <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
-            <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
+                {/* Knowledge Space attach + Plan toggle — primary actions, kept
+                    inline down to the narrow `toolbarTight` tier (then they join
+                    the "+" overflow menu, see renderOverflowMenuItems). */}
+                {!toolbarTight && (
+                  <KnowledgePicker
+                    sessionId={currentSessionId ?? null}
+                    projectId={projectId ?? null}
+                    disabled={incognitoEnabled}
+                    draftAttachments={draftKbAttachments}
+                    onDraftAttachChange={onDraftKbAttachChange}
+                  />
+                )}
 
-            {/* Plan Mode Toggle */}
-            <IconTip label={planToggleTip}>
-              <button
-                aria-label={planToggleTip}
-                onClick={() => {
-                  if (planState === "off" || planState === "completed") {
-                    onEnterPlanMode?.()
-                  } else if (planState === "planning") {
-                    onExitPlanMode?.()
-                  } else {
-                    onTogglePlanPanel?.()
-                  }
-                }}
+                {!toolbarTight && (
+                  <IconTip label={planToggleTip}>
+                    <button
+                      aria-label={planToggleTip}
+                      onClick={handlePlanToggle}
+                      className={cn(
+                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                        planState === "planning"
+                          ? "text-blue-600 bg-blue-500/10"
+                          : planState === "review"
+                            ? "text-purple-600 bg-purple-500/10"
+                            : planState === "executing"
+                              ? "text-green-600 bg-green-500/10"
+                              : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <ClipboardList className="h-4 w-4 shrink-0" />
+                      <span>{planToggleLabel}</span>
+                    </button>
+                  </IconTip>
+                )}
+
+                {/* Tool Permission Mode */}
+                <PermissionModeSwitcher
+                  permissionMode={permissionMode}
+                  onPermissionModeChange={handlePermissionModeChange}
+                />
+              </div>
+
+              {/* Send & Stop — kept in its own column so toolbar wrapping never
+              orphans the send button onto a half-empty row. */}
+              <div
                 className={cn(
-                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                  planState === "planning"
-                    ? "text-blue-600 bg-blue-500/10"
-                    : planState === "review"
-                      ? "text-purple-600 bg-purple-500/10"
-                      : planState === "executing"
-                        ? "text-green-600 bg-green-500/10"
-                        : "text-muted-foreground hover:text-foreground",
+                  "flex min-h-8 items-center justify-end gap-1 shrink-0 self-end",
+                  toolbarStacked && "w-full",
+                  !toolbarStacked && "min-w-[76px]",
                 )}
               >
-                <ClipboardList className="h-4 w-4 shrink-0" />
-                <span>{planToggleLabel}</span>
-              </button>
-            </IconTip>
+                <VoiceRecordButton
+                  state={voice.state}
+                  durationMs={voice.durationMs}
+                  audioLevel={voice.audioLevel}
+                  disabled={false}
+                  onStart={() => void startVoice()}
+                  onStop={() => void handleVoiceStop()}
+                  onCancel={handleVoiceCancel}
+                />
+                {voice.errorMessage && (
+                  <span
+                    className="text-xs text-destructive truncate max-w-[180px]"
+                    role="status"
+                    onAnimationEnd={voice.clearError}
+                  >
+                    {voice.errorMessage}
+                  </span>
+                )}
+                {loading && (
+                  <div className="animate-in fade-in-0 zoom-in-90 duration-150">
+                    <IconTip label={t("chat.stopReply")}>
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="h-8 w-8 rounded-full shrink-0"
+                        onClick={onStop}
+                        aria-label={t("chat.stopReply")}
+                      >
+                        <Square className="h-4 w-4 fill-white stroke-white" />
+                      </Button>
+                    </IconTip>
+                  </div>
+                )}
 
-            {/* Tool Permission Mode */}
-            <PermissionModeSwitcher
-              permissionMode={permissionMode}
-              onPermissionModeChange={handlePermissionModeChange}
-            />
-          </div>
-
-          {/* Send & Stop — kept in its own column so toolbar wrapping never
-              orphans the send button onto a half-empty row. */}
-          <div
-            className={cn(
-              "flex items-center gap-1 shrink-0",
-              toolbarStacked && "ml-auto",
-            )}
-          >
-            <VoiceRecordButton
-              state={voice.state}
-              durationMs={voice.durationMs}
-              audioLevel={voice.audioLevel}
-              disabled={loading && !!pendingMessage}
-              onStart={() => void startVoice()}
-              onStop={() => void handleVoiceStop()}
-              onCancel={handleVoiceCancel}
-            />
-            {voice.errorMessage && (
-              <span
-                className="text-xs text-destructive truncate max-w-[180px]"
-                role="status"
-                onAnimationEnd={voice.clearError}
-              >
-                {voice.errorMessage}
-              </span>
-            )}
-            {loading && (
-              <div className="animate-in fade-in-0 zoom-in-90 duration-150">
-                <IconTip label={t("chat.stopReply")}>
+                <IconTip
+                  label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
+                >
                   <Button
                     size="icon"
-                    variant="destructive"
                     className="h-8 w-8 rounded-full shrink-0"
-                    onClick={onStop}
-                    aria-label={t("chat.stopReply")}
+                    onClick={onSend}
+                    disabled={!hasSendableContent}
+                    aria-label={
+                      loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")
+                    }
                   >
-                    <Square className="h-4 w-4 fill-white stroke-white" />
+                    <Send className="h-4 w-4" />
                   </Button>
                 </IconTip>
               </div>
-            )}
-
-            <IconTip label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}>
-              <Button
-                size="icon"
-                className="h-8 w-8 rounded-full shrink-0"
-                onClick={onSend}
-                disabled={!hasSendableContent || (loading && !!pendingMessage)}
-                aria-label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </IconTip>
-          </div>
+            </div>
+          </AnimatedCollapse>
         </div>
-        </AnimatedCollapse>
+
+        {/* Context-usage hairline fused into the dock's bottom border. */}
+        {contextUsage ? <ContextUsageBottomBar usage={contextUsage} /> : null}
       </div>
     </div>
   )

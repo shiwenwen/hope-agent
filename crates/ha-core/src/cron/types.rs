@@ -75,6 +75,9 @@ pub struct CronJob {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    /// Optional Project context to attach each isolated cron run session to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub status: CronJobStatus,
@@ -142,6 +145,9 @@ pub struct CronRunLog {
 pub struct NewCronJob {
     pub name: String,
     pub description: Option<String>,
+    /// Optional Project context to attach each isolated cron run session to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub max_failures: Option<u32>,
@@ -158,6 +164,8 @@ pub struct NewCronJob {
 pub struct CalendarEvent {
     pub job_id: String,
     pub job_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub scheduled_at: String,
     pub status: CronJobStatus,
     pub run_log: Option<CronRunLog>,

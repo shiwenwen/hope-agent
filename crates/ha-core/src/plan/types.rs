@@ -36,7 +36,7 @@ impl PlanModeState {
 
     /// Whether `self → next` is a legal Plan Mode state transition.
     ///
-    /// Keeps the six-state machine well-formed so concurrent writers can't
+    /// Keeps the five-state machine well-formed so concurrent writers can't
     /// flip `Completed → Executing` and re-run already-done steps, or skip
     /// straight to `Executing` without going through a `Review` checkpoint.
     /// Same-state "transitions" (e.g. re-asserting `Planning` after a

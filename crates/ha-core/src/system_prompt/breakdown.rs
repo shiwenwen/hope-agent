@@ -63,6 +63,7 @@ pub fn compute_breakdown(
         None,
         false,
         None,
+        None,
         crate::permission::SessionMode::Default,
     );
     let empty_budget = crate::memory::MemoryBudgetConfig::default();
@@ -78,6 +79,7 @@ pub fn compute_breakdown(
         None,
         None,
         false,
+        None,
         None,
         crate::permission::SessionMode::Default,
     );

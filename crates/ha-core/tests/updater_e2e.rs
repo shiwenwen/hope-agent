@@ -16,7 +16,7 @@
 
 use ha_core::updater::manifest::{self, ArchiveKind};
 use std::fs;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -87,6 +87,55 @@ async fn fetch_manifest_surfaces_parse_error_clearly() {
         msg.contains("parse manifest JSON"),
         "expected parse error context, got: {msg}"
     );
+}
+
+#[tokio::test]
+async fn download_to_writes_full_body_on_200() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/bin"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(b"AAABBB".to_vec(), "application/octet-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("archive.bin");
+    let url = format!("{}/bin", server.uri());
+    let n = ha_core::updater::download::download_to(&url, &dest, "test_job", "archive")
+        .await
+        .unwrap();
+    assert_eq!(n, 6);
+    assert_eq!(fs::read(&dest).unwrap(), b"AAABBB");
+}
+
+#[tokio::test]
+async fn download_to_resumes_from_partial_with_range() {
+    // A prior aborted attempt left "AAA" on disk; the resume request must send
+    // `Range: bytes=3-`, get a 206 with the remaining bytes, and append them.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/bin"))
+        .and(header("range", "bytes=3-"))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("content-range", "bytes 3-5/6")
+                .set_body_raw(b"BBB".to_vec(), "application/octet-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("archive.bin");
+    fs::write(&dest, b"AAA").unwrap();
+
+    let url = format!("{}/bin", server.uri());
+    let n = ha_core::updater::download::download_to(&url, &dest, "test_job", "archive")
+        .await
+        .unwrap();
+    assert_eq!(n, 6, "resume should report full size");
+    assert_eq!(fs::read(&dest).unwrap(), b"AAABBB");
 }
 
 #[test]

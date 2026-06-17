@@ -14,6 +14,7 @@ pub mod dashboard;
 pub mod docker;
 pub mod dreaming;
 pub mod filesystem;
+pub mod knowledge;
 pub mod local_embedding;
 pub mod local_llm;
 pub mod local_model_alerts;

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { ChatAttachment } from "@/lib/transport"
+import type { KbDraftAttachment } from "@/types/knowledge"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import {
@@ -14,6 +15,7 @@ import type {
   Message,
   MessageAttachment,
   PendingFileQuote,
+  PendingSendPreview,
   ActiveModel,
   AgentSummaryForSidebar,
   SessionMode,
@@ -115,10 +117,24 @@ interface SendOptions {
 }
 
 interface PendingSend {
+  id: string
+  createdAt: number
   text: string
+  mode: "queue" | "force_insert"
+  status: "queued" | "waiting_tool_boundary" | "inserted" | "fallback_after_reply"
   options?: SendOptions
   attachedFiles?: File[]
   quotes?: PendingFileQuote[]
+}
+
+interface QueueTurnUserMessageResult {
+  queued: boolean
+  requestId: string
+  reason?: string
+}
+
+interface CancelQueuedTurnUserMessageResult {
+  cancelled: boolean
 }
 
 interface InputDraft {
@@ -178,6 +194,34 @@ export interface UseChatStreamOptions {
    * on the auto-create branch.
    */
   draftWorkingDir?: string | null
+  /**
+   * KB attaches staged before the session existed (composer draft mode). Like
+   * draftWorkingDir, they ride on the `chat` command payload (`kbAttachments`)
+   * as a send-time snapshot and the backend applies them on the auto-create
+   * branch via `apply_draft_attachments` — sent only when no `sessionId` is set
+   * yet and not incognito.
+   */
+  draftKbAttachments?: KbDraftAttachment[]
+  /**
+   * Knowledge-space sidebar chat: the note open when the conversation started.
+   * Sent only on the auto-create send so the backend promotes the new session
+   * into a KB chat thread anchored to it (history / default-load key).
+   */
+  draftKbAnchorNote?: string | null
+  /**
+   * Tool-visibility scope forwarded to the `chat` command. The knowledge-space
+   * sidebar passes `"knowledge"` to trim the injected tool set; omitted for the
+   * main / quick chat (full tools).
+   */
+  toolScope?: "knowledge"
+  /**
+   * Per-turn extra attachments merged at send time, AFTER the visible composer
+   * quotes/files. The knowledge panel uses this to inject the currently-open
+   * note as an invisible `quote` so the assistant always sees "the document I'm
+   * looking at" without the user manually quoting it. Returns `[]` for callers
+   * that don't need it.
+   */
+  getExtraAttachments?: () => ChatAttachment[]
 }
 
 export interface UseChatStreamReturn {
@@ -189,6 +233,11 @@ export interface UseChatStreamReturn {
   setPendingQuotes: React.Dispatch<React.SetStateAction<PendingFileQuote[]>>
   pendingMessage: string | null
   setPendingMessage: React.Dispatch<React.SetStateAction<string | null>>
+  pendingSends: PendingSendPreview[]
+  editPendingSend: (id: string) => void
+  discardPendingSend: (id: string) => void
+  forceInsertPendingSend: (id: string) => Promise<void>
+  cancelForceInsertPendingSend: (id: string) => Promise<void>
   approvalRequests: ApprovalRequest[]
   showCodexAuthExpired: boolean
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
@@ -236,7 +285,16 @@ export function useChatStream({
   reasoningEffort,
   incognitoEnabled = false,
   draftWorkingDir = null,
+  draftKbAttachments = [],
+  draftKbAnchorNote = null,
+  toolScope,
+  getExtraAttachments,
 }: UseChatStreamOptions): UseChatStreamReturn {
+  // Latest draft attaches, snapshotted into the startChat payload at send time
+  // (mirrors how draftWorkingDir is baked into the create call) so a later
+  // New Chat / session switch can't redirect them onto the wrong session.
+  const draftKbAttachmentsRef = useRef(draftKbAttachments)
+  draftKbAttachmentsRef.current = draftKbAttachments
   const { t } = useTranslation()
   const [input, setInputState] = useState("")
   const [attachedFiles, setAttachedFilesState] = useState<File[]>([])
@@ -312,33 +370,75 @@ export function useChatStream({
     setAttachedFilesState(nextDraft.attachedFiles)
   }, [currentSessionId, saveInputDraft])
 
-  // Pending send queued while a response is streaming. Stores the LLM-bound
+  // Pending sends queued while a response is streaming. Stores the LLM-bound
   // `text` plus the original `options` (displayText / planMode / isPlanTrigger)
-  // so the replay path can resend with the exact same metadata — otherwise a
-  // queued plan-mode approve would lose its `isPlanTrigger` flag and render
-  // as a plain user bubble.
-  const [pendingSend, setPendingSendState] = useState<PendingSend | null>(null)
-  const pendingSendRef = useRef<PendingSend | null>(null)
+  // so replay preserves metadata. User-typed sends can additionally request
+  // insertion at the next safe tool boundary.
+  const [pendingSendsState, setPendingSendsState] = useState<PendingSend[]>([])
+  const pendingSendsRef = useRef<PendingSend[]>([])
+  const updatePendingSends = useCallback((updater: React.SetStateAction<PendingSend[]>) => {
+    setPendingSendsState((prev) => {
+      const next =
+        typeof updater === "function"
+          ? (updater as (p: PendingSend[]) => PendingSend[])(prev)
+          : updater
+      pendingSendsRef.current = next
+      return next
+    })
+  }, [])
+  const pendingDisplayText = useCallback(
+    (pending: PendingSend): string =>
+      pending.options?.displayText?.trim() ||
+      pending.text ||
+      (pending.attachedFiles?.length ? t("chat.attachPhotosAndFiles") : ""),
+    [t],
+  )
+  const pendingInputText = useCallback(
+    (pending: PendingSend): string => pending.options?.displayText?.trim() || pending.text,
+    [],
+  )
+  const canForceInsertPending = useCallback(
+    (pending: PendingSend): boolean =>
+      !pending.options &&
+      pending.status === "queued" &&
+      pending.mode !== "force_insert",
+    [],
+  )
   // External views: keep the original `pendingMessage: string | null` API for
-  // ChatScreen / ChatInput, derived from the user-facing displayed text.
-  const pendingMessage = pendingSend
-    ? pendingSend.options?.displayText?.trim() ||
-      pendingSend.text ||
-      (pendingSend.attachedFiles?.length ? t("chat.attachPhotosAndFiles") : "")
-    : null
+  // ChatScreen / QuickChat, derived from the first queued item.
+  const pendingMessage = pendingSendsState[0] ? pendingDisplayText(pendingSendsState[0]) : null
+  const pendingSends: PendingSendPreview[] = pendingSendsState.map((pending) => ({
+    id: pending.id,
+    text: pendingDisplayText(pending),
+    mode: pending.mode,
+    status: pending.status,
+    canForceInsert: canForceInsertPending(pending),
+    attachmentCount: pending.attachedFiles?.length ?? 0,
+    quoteCount: pending.quotes?.length ?? 0,
+  }))
   const setPendingMessage = useCallback<
     React.Dispatch<React.SetStateAction<string | null>>
   >((value) => {
-    setPendingSendState((prev) => {
+    updatePendingSends((prev) => {
+      const first = prev[0]
       const next =
         typeof value === "function"
           ? (value as (p: string | null) => string | null)(
-              prev ? prev.options?.displayText?.trim() || prev.text : null,
+              first ? pendingDisplayText(first) : null,
             )
           : value
-      return next === null ? null : { text: next }
+      if (next === null) return prev.slice(1)
+      return [
+        {
+          id: generateClientId(),
+          createdAt: Date.now(),
+          text: next,
+          mode: "queue",
+          status: "queued",
+        },
+      ]
     })
-  }, [])
+  }, [pendingDisplayText, updatePendingSends])
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
   const permissionModeRef = useRef<SessionMode>("default")
@@ -456,8 +556,8 @@ export function useChatStream({
 
   // Keep refs in sync
   useEffect(() => {
-    pendingSendRef.current = pendingSend
-  }, [pendingSend])
+    pendingSendsRef.current = pendingSendsState
+  }, [pendingSendsState])
   useEffect(() => {
     permissionModeRef.current = permissionMode
   }, [permissionMode])
@@ -559,6 +659,89 @@ export function useChatStream({
     [],
   )
 
+  const quoteLineLabel = useCallback((q: PendingFileQuote) =>
+    q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`,
+  [])
+
+  const buildChatAttachments = useCallback(
+    async (
+      text: string,
+      filesToSend: File[],
+      quotesToSend: PendingFileQuote[],
+      targetSessionId: string | null,
+    ): Promise<ChatAttachment[]> => {
+      const attachments: ChatAttachment[] = []
+
+      const sessionWorkingDir =
+        sessions.find((s) => s.id === targetSessionId)?.workingDir ?? null
+      const resolvedWorkingDir = targetSessionId ? sessionWorkingDir : draftWorkingDir
+      const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
+      for (const m of mentionAttachments) {
+        attachments.push(m)
+      }
+
+      const planAttachments = await expandPlanMentionsToAttachments(text)
+      for (const p of planAttachments) {
+        attachments.push(p)
+      }
+
+      for (const file of filesToSend) {
+        try {
+          const mimeType = file.type || "application/octet-stream"
+          const arrayBuffer = await file.arrayBuffer()
+
+          if (mimeType.startsWith("image/")) {
+            const bytes = new Uint8Array(arrayBuffer)
+            let binary = ""
+            const chunkSize = 8192
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+            }
+            attachments.push({
+              name: file.name,
+              mime_type: mimeType,
+              source: "upload",
+              data: btoa(binary),
+            })
+          } else {
+            const data = getTransport().prepareFileData(arrayBuffer, mimeType)
+            const filePath = await getTransport().call<string>("save_attachment", {
+              sessionId: targetSessionId,
+              fileName: file.name,
+              mimeType,
+              data,
+            })
+            attachments.push({
+              name: file.name,
+              mime_type: mimeType,
+              source: "upload",
+              file_path: filePath,
+            })
+          }
+        } catch (err) {
+          logger.error("ui", "ChatScreen::attachment", "Failed to process attachment", {
+            fileName: file.name,
+            error: err,
+          })
+        }
+      }
+
+      for (const q of quotesToSend) {
+        attachments.push({
+          name: q.name,
+          mime_type: "text/plain",
+          source: "quote",
+          data: q.content,
+          file_path: q.path,
+          quote_lines: quoteLineLabel(q),
+        })
+      }
+
+      return attachments
+    },
+    [draftWorkingDir, quoteLineLabel, sessions],
+  )
+
   /**
    * Send a message. If `directText` is provided, use it directly instead of the input box.
    * This avoids flashing text in the input (used by Plan Mode approve).
@@ -577,12 +760,19 @@ export function useChatStream({
     if (loading) {
       const queuedFiles = directText ? [] : [...attachedFiles]
       const queuedQuotes = directText ? [] : [...pendingQuotes]
-      setPendingSendState({
-        text: rawText.trim(),
-        options,
-        ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
-        ...(queuedQuotes.length > 0 && { quotes: queuedQuotes }),
-      })
+      updatePendingSends((prev) => [
+        ...prev,
+        {
+          id: generateClientId(),
+          createdAt: Date.now(),
+          text: rawText.trim(),
+          mode: "queue",
+          status: "queued",
+          options,
+          ...(queuedFiles.length > 0 && { attachedFiles: queuedFiles }),
+          ...(queuedQuotes.length > 0 && { quotes: queuedQuotes }),
+        },
+      ])
       if (!directText) {
         setInput("")
         setAttachedFiles([])
@@ -597,8 +787,6 @@ export function useChatStream({
     const filesToSend = directText ? [] : [...attachedFiles]
     const quotesToSend = directText ? [] : [...pendingQuotes]
     const displayed = options?.displayText?.trim() || text
-    const quoteLineLabel = (q: PendingFileQuote) =>
-      q.startLine === q.endLine ? `${q.startLine}` : `${q.startLine}-${q.endLine}`
     const optimisticQuoteAttachments: MessageAttachment[] = quotesToSend.map((q) => ({
       name: q.name,
       mimeType: "text/plain",
@@ -641,79 +829,15 @@ export function useChatStream({
     })
     setLoading(true)
 
-    // Process attached files: images → base64 data, non-images → save to disk via Rust
-    const attachments: ChatAttachment[] = []
-
-    // Expand `@path` mentions into file_path attachments. Working dir resolves
-    // from the current session (committed) or the draft picker (new chat).
-    const sessionWorkingDir =
-      sessions.find((s) => s.id === currentSessionId)?.workingDir ?? null
-    const resolvedWorkingDir = currentSessionId ? sessionWorkingDir : draftWorkingDir
-    const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
-    for (const m of mentionAttachments) {
-      attachments.push(m)
-    }
-    // `@plan:<short>:v<n>` tokens resolve through the backend so we can
-    // address plan files outside the working dir without weakening the
-    // file-mention rules.
-    const planAttachments = await expandPlanMentionsToAttachments(text)
-    for (const p of planAttachments) {
-      attachments.push(p)
-    }
-
-    for (const file of filesToSend) {
-      try {
-        const mimeType = file.type || "application/octet-stream"
-        const arrayBuffer = await file.arrayBuffer()
-
-        if (mimeType.startsWith("image/")) {
-          const bytes = new Uint8Array(arrayBuffer)
-          let binary = ""
-          const chunkSize = 8192
-          for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-          }
-          attachments.push({
-            name: file.name,
-            mime_type: mimeType,
-            source: "upload",
-            data: btoa(binary),
-          })
-        } else {
-          const data = getTransport().prepareFileData(arrayBuffer, mimeType)
-          const filePath = await getTransport().call<string>("save_attachment", {
-            sessionId: currentSessionId,
-            fileName: file.name,
-            mimeType,
-            data,
-          })
-          attachments.push({
-            name: file.name,
-            mime_type: mimeType,
-            source: "upload",
-            file_path: filePath,
-          })
-        }
-      } catch (err) {
-        logger.error("ui", "ChatScreen::attachment", "Failed to process attachment", {
-          fileName: file.name,
-          error: err,
-        })
-      }
-    }
-
-    // File-browser "quote to chat" references → quote attachments. The model
-    // sees them as <file_reference> (built backend-side in content.rs); the
-    // user only ever sees a friendly quote card.
-    for (const q of quotesToSend) {
-      attachments.push({
-        name: q.name,
-        mime_type: "text/plain",
-        source: "quote",
-        data: q.content,
-        file_path: q.path,
-        quote_lines: quoteLineLabel(q),
-      })
+    const attachments = await buildChatAttachments(
+      text,
+      filesToSend,
+      quotesToSend,
+      currentSessionId,
+    )
+    // Per-turn invisible context (knowledge panel: the currently-open note).
+    if (getExtraAttachments) {
+      for (const extra of getExtraAttachments()) attachments.push(extra)
     }
 
     // Empty assistant placeholder we'll stream into. `_clientId` was generated
@@ -808,6 +932,24 @@ export function useChatStream({
         const sid = targetSid()
         if (shouldDropStreamEvent(event, sid)) return
 
+        if (event.type === "queued_user_message_inserted") {
+          const requestId = typeof event.request_id === "string" ? event.request_id : null
+          if (requestId) {
+            updatePendingSends((prev) =>
+              prev.map((item) =>
+                item.id === requestId
+                  ? { ...item, mode: "force_insert", status: "inserted" }
+                  : item,
+              ),
+            )
+          }
+        } else if (event.type === "queued_user_message_blocked") {
+          const requestId = typeof event.request_id === "string" ? event.request_id : null
+          if (requestId) {
+            updatePendingSends((prev) => prev.filter((item) => item.id !== requestId))
+          }
+        }
+
         handleStreamEvent(event, sid, {
           updateSessionMessages,
           deltaBuffersRef,
@@ -886,6 +1028,19 @@ export function useChatStream({
           isPlanTrigger: options?.isPlanTrigger,
           planComment: options?.planComment,
           workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
+          // Send-time snapshot: only on the auto-create send, never incognito.
+          kbAttachments:
+            currentSessionId || incognitoEnabled
+              ? undefined
+              : draftKbAttachmentsRef.current.map((a) => ({
+                  kbId: a.kbId,
+                  access: a.access,
+                })),
+          ...(toolScope ? { toolScope } : {}),
+          // Anchor only matters on the auto-create send; mirrors kbAttachments.
+          ...(toolScope && !currentSessionId && draftKbAnchorNote
+            ? { kbAnchorNote: draftKbAnchorNote }
+            : {}),
         },
         onEvent,
       )
@@ -1044,10 +1199,15 @@ export function useChatStream({
       }
       await reloadSessions()
 
-      // Handle pending message after loading finishes
-      const queued = pendingSendRef.current
+      // Handle pending messages after loading finishes. Replays one FIFO item
+      // per completed turn; the rest stay queued for subsequent turns.
+      const queued = pendingSendsRef.current.find((item) => item.status !== "inserted")
+      updatePendingSends((prev) =>
+        queued
+          ? prev.filter((item) => item.status !== "inserted" && item.id !== queued.id)
+          : prev.filter((item) => item.status !== "inserted"),
+      )
       if (queued) {
-        setPendingSendState(null)
         // Restore staged quotes so they ride along with the replayed message
         // (user-draft path) instead of being silently dropped.
         if (queued.quotes?.length) setPendingQuotes(queued.quotes)
@@ -1061,8 +1221,9 @@ export function useChatStream({
           autoSendRef.current = true
         } else {
           // User-typed drafts and non-auto-sent programmatic sends are
-          // restored for editing / confirmation using the user-facing text.
-          setInput(queued.options?.displayText?.trim() || queued.text)
+          // restored for editing / confirmation without turning attachment-only
+          // placeholders into real prompts.
+          setInput(pendingInputText(queued))
           setAttachedFiles(queued.attachedFiles ?? [])
           if (autoSendPendingRef.current) {
             autoSendRef.current = true
@@ -1091,6 +1252,154 @@ export function useChatStream({
     }
   }, [attachedFiles, input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const editPendingSend = useCallback(
+    (id: string) => {
+      const item = pendingSendsRef.current.find((pending) => pending.id === id)
+      if (!item) return
+      if (item.mode === "force_insert" && item.status === "waiting_tool_boundary") {
+        const sid = currentSessionIdRef.current
+        const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
+        if (sid && turnId) {
+          void getTransport()
+            .call<CancelQueuedTurnUserMessageResult>("cancel_queued_turn_user_message", {
+              sessionId: sid,
+              turnId,
+              requestId: id,
+            })
+            .catch(() => {})
+        }
+      }
+      updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
+      setInput(pendingInputText(item))
+      setAttachedFiles(item.attachedFiles ?? [])
+      setPendingQuotes(item.quotes ?? [])
+    },
+    [currentSessionIdRef, pendingInputText, setInput, updatePendingSends],
+  )
+
+  const discardPendingSend = useCallback(
+    (id: string) => {
+      const item = pendingSendsRef.current.find((pending) => pending.id === id)
+      if (item?.mode === "force_insert" && item.status === "waiting_tool_boundary") {
+        const sid = currentSessionIdRef.current
+        const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
+        if (sid && turnId) {
+          void getTransport()
+            .call<CancelQueuedTurnUserMessageResult>("cancel_queued_turn_user_message", {
+              sessionId: sid,
+              turnId,
+              requestId: id,
+            })
+            .catch(() => {})
+        }
+      }
+      updatePendingSends((prev) => prev.filter((pending) => pending.id !== id))
+    },
+    [currentSessionIdRef, updatePendingSends],
+  )
+
+  const forceInsertPendingSend = useCallback(
+    async (id: string) => {
+      const item = pendingSendsRef.current.find((pending) => pending.id === id)
+      if (!item || !canForceInsertPending(item)) return
+      const sid = currentSessionIdRef.current ?? currentSessionId
+      const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
+      if (!sid || !turnId) {
+        updatePendingSends((prev) =>
+          prev.map((pending) =>
+            pending.id === id ? { ...pending, status: "fallback_after_reply" } : pending,
+          ),
+        )
+        return
+      }
+
+      updatePendingSends((prev) =>
+        prev.map((pending) =>
+          pending.id === id
+            ? { ...pending, mode: "force_insert", status: "waiting_tool_boundary" }
+            : pending,
+        ),
+      )
+
+      try {
+        const attachments = await buildChatAttachments(
+          item.text,
+          item.attachedFiles ?? [],
+          item.quotes ?? [],
+          sid,
+        )
+        const latest = pendingSendsRef.current.find((pending) => pending.id === id)
+        if (
+          !latest ||
+          latest.mode !== "force_insert" ||
+          latest.status !== "waiting_tool_boundary"
+        ) {
+          return
+        }
+        const result = await getTransport().call<QueueTurnUserMessageResult>(
+          "queue_turn_user_message",
+          {
+            requestId: id,
+            sessionId: sid,
+            turnId,
+            message: item.text,
+            attachments,
+            displayText: item.options?.displayText,
+            isPlanTrigger: item.options?.isPlanTrigger,
+            planComment: item.options?.planComment,
+          },
+        )
+        if (!result.queued) {
+          updatePendingSends((prev) =>
+            prev.map((pending) =>
+              pending.id === id
+                ? { ...pending, mode: "queue", status: "fallback_after_reply" }
+                : pending,
+            ),
+          )
+        }
+      } catch (e) {
+        logger.warn("chat", "useChatStream::forceInsert", "Failed to queue turn insertion", e)
+        updatePendingSends((prev) =>
+          prev.map((pending) =>
+            pending.id === id
+              ? { ...pending, mode: "queue", status: "fallback_after_reply" }
+              : pending,
+          ),
+        )
+      }
+    },
+    [
+      buildChatAttachments,
+      canForceInsertPending,
+      currentSessionId,
+      currentSessionIdRef,
+      updatePendingSends,
+    ],
+  )
+
+  const cancelForceInsertPendingSend = useCallback(
+    async (id: string) => {
+      const sid = currentSessionIdRef.current ?? currentSessionId
+      const turnId = sid ? activeTurnBySessionRef.current.get(sid) : null
+      if (sid && turnId) {
+        await getTransport()
+          .call<CancelQueuedTurnUserMessageResult>("cancel_queued_turn_user_message", {
+            sessionId: sid,
+            turnId,
+            requestId: id,
+          })
+          .catch(() => undefined)
+      }
+      updatePendingSends((prev) =>
+        prev.map((pending) =>
+          pending.id === id ? { ...pending, mode: "queue", status: "queued" } : pending,
+        ),
+      )
+    },
+    [currentSessionId, currentSessionIdRef, updatePendingSends],
+  )
+
   return {
     input,
     setInput,
@@ -1100,6 +1409,11 @@ export function useChatStream({
     setPendingQuotes,
     pendingMessage,
     setPendingMessage,
+    pendingSends,
+    editPendingSend,
+    discardPendingSend,
+    forceInsertPendingSend,
+    cancelForceInsertPendingSend,
     approvalRequests,
     showCodexAuthExpired,
     setShowCodexAuthExpired,

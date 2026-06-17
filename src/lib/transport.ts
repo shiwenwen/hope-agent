@@ -50,6 +50,14 @@ export interface ChatStartArgs {
    *  render PlanCommentBubble instead of the markdown displayText. */
   planComment?: { selectedText: string; comment: string };
   workingDir?: string | null;
+  /** Composer-staged KB attaches. The backend applies them on the auto-create
+   *  branch (mirrors workingDir), before the first turn runs, so the first
+   *  message already sees the access. Ignored for existing-session sends. */
+  kbAttachments?: { kbId: string; access: string }[];
+  /** Tool-visibility scope. `"knowledge"` trims the injected tool set to the
+   *  knowledge-space white-list (note read/write + recall + framework basics);
+   *  set by the knowledge-space sidebar chat. Omit for normal chats. */
+  toolScope?: "knowledge";
   // Tauri's invoke serializes extra unknown fields without complaint, and
   // HTTP's POST body is plain JSON — keep this open so HTTP impl can
   // pass-through without an unsafe `as Record<string, unknown>` cast.
@@ -602,7 +610,22 @@ export type PickLocalImageFn = () => Promise<PickedImage | null>;
  * but older backend paths that explicitly `serde_json::to_string(...)` before
  * emitting still arrive as a JSON string. This helper handles both shapes so
  * call sites don't need to repeat the `typeof raw === "string"` check.
+ *
+ * Returns `null` for any payload that isn't a decodable object (`undefined` /
+ * `null` / a non-object primitive / an unparseable string). Every call site in
+ * this app expects an object shape, so a malformed or empty frame must surface
+ * as `null` rather than poison downstream `payload.x` access. This guard is the
+ * root-cause fix for crashes like "undefined is not an object (evaluating
+ * 't.jobId')" seen when the macOS WebView flushes a stray event after wake.
  */
-export function parsePayload<T>(raw: unknown): T {
-  return (typeof raw === "string" ? JSON.parse(raw) : raw) as T;
+export function parsePayload<T>(raw: unknown): T | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return value !== null && typeof value === "object" ? (value as T) : null;
 }

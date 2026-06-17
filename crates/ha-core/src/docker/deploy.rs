@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use std::sync::atomic::Ordering;
-use tokio::process::Command;
 
 use super::{
     helpers::*, DeployProgress, DeployProgressSnapshot, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS,
@@ -81,7 +80,7 @@ where
     log(&format!("docker pull {}", IMAGE));
     {
         use tokio::io::{AsyncBufReadExt, BufReader};
-        let mut child = Command::new("docker")
+        let mut child = docker_command()
             .args(["pull", IMAGE])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -121,7 +120,7 @@ where
     // 3. Remove stale container if exists
     step("removing_old");
     log(&format!("docker rm -f {}", CONTAINER_NAME));
-    let rm_out = Command::new("docker")
+    let rm_out = docker_command()
         .args(["rm", "-f", CONTAINER_NAME])
         .output()
         .await;
@@ -177,7 +176,7 @@ where
         "docker run -d --name {} -p {}:8080 ...",
         CONTAINER_NAME, port
     ));
-    let run = Command::new("docker")
+    let run = docker_command()
         .args(&args)
         .output()
         .await

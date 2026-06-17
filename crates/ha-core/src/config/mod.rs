@@ -231,6 +231,17 @@ pub struct AsyncToolsConfig {
     /// runtime ceiling still mirrors `max_job_secs`. Default: 7200 (2h).
     #[serde(default = "default_async_job_status_max_wait_secs")]
     pub job_status_max_wait_secs: u64,
+    /// Maximum number of explicitly-backgrounded tool jobs
+    /// (`run_in_background: true` / `always-background` policy) that may run
+    /// concurrently. Each background job holds a dedicated OS thread + runtime,
+    /// so an uncapped model could linearly exhaust threads/memory by firing
+    /// many `run_in_background` calls across rounds. When the cap is reached a
+    /// new background request returns an error result telling the model to wait
+    /// (it can poll `job_status`) or run synchronously. Default: 8. Set to 0
+    /// for no limit. (Auto-background transfers of merely-slow sync calls are
+    /// bounded separately by per-turn tool concurrency + the sync budget.)
+    #[serde(default = "default_async_max_concurrent_jobs")]
+    pub max_concurrent_jobs: usize,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -250,6 +261,9 @@ fn default_async_orphan_grace_secs() -> u64 {
 }
 fn default_async_job_status_max_wait_secs() -> u64 {
     7200
+}
+fn default_async_max_concurrent_jobs() -> usize {
+    8
 }
 
 impl AsyncToolsConfig {
@@ -276,11 +290,13 @@ impl Default for AsyncToolsConfig {
             retention_secs: default_async_retention_secs(),
             orphan_grace_secs: default_async_orphan_grace_secs(),
             job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
+            max_concurrent_jobs: default_async_max_concurrent_jobs(),
         }
     }
 }
 
 pub use crate::permission::ApprovalTimeoutAction;
+pub use crate::permission::UnattendedApprovalAction;
 
 // ── Default helpers ─────────────────────────────────────────────
 
@@ -354,6 +370,11 @@ pub struct RecapConfig {
     /// `None` inherits the global default agent.
     #[serde(default)]
     pub analysis_agent: Option<String>,
+    /// Output language for generated reports. `None` or "auto" follows the
+    /// global UI language (`AppConfig.language`, which itself may be "auto" →
+    /// system locale). A specific locale code (e.g. "zh", "en") overrides it.
+    #[serde(default)]
+    pub language: Option<String>,
     /// Default time window (days) when no prior report exists.
     #[serde(default = "default_recap_default_range_days")]
     pub default_range_days: u32,
@@ -372,6 +393,7 @@ impl Default for RecapConfig {
     fn default() -> Self {
         Self {
             analysis_agent: None,
+            language: None,
             default_range_days: default_recap_default_range_days(),
             max_sessions_per_report: default_recap_max_sessions_per_report(),
             facet_concurrency: default_recap_facet_concurrency(),
@@ -500,8 +522,11 @@ pub struct AppConfig {
     /// Disabled skill names
     #[serde(default)]
     pub disabled_skills: Vec<String>,
-    /// Whether to check skill runtime requirements (bins/env/os) before injecting.
-    /// Default true. When false, all skills are injected regardless of environment.
+    /// Whether to check skill runtime requirements before injecting. Default
+    /// true. Hard blockers (currently unsupported OS) hide the skill; missing
+    /// installable/configurable dependencies remain visible and are diagnosed
+    /// at activation time. When false, all skills are injected regardless of
+    /// environment.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
     /// Kill switch for `paths:` conditional skill activation. Default true.
@@ -515,7 +540,34 @@ pub struct AppConfig {
     pub embedding_models: Vec<crate::memory::EmbeddingModelConfig>,
     /// Active memory vector-search embedding selection.
     #[serde(default)]
-    pub memory_embedding: crate::memory::MemoryEmbeddingSelection,
+    pub memory_embedding: crate::memory::EmbeddingSelection,
+    /// Active knowledge-base vector-search embedding selection. Independent of
+    /// `memory_embedding` (knowledge has its own enable / model / signature /
+    /// reembed lifecycle) but draws from the same shared `embedding_models`
+    /// library — see D7.
+    #[serde(default)]
+    pub knowledge_embedding: crate::memory::EmbeddingSelection,
+    /// Knowledge note chunking parameters (D12, advanced). Changing them
+    /// triggers a full reindex (re-chunk + re-embed) of every KB. GUI-only
+    /// (dedicated owner commands, not `update_settings`) like `knowledge_embedding`.
+    #[serde(default)]
+    pub knowledge_chunk: crate::knowledge::ChunkConfig,
+    /// Knowledge hybrid `note_search` ranking parameters (fusion weights / RRF-k /
+    /// MMR-λ / candidate pool). Pure query-time, no reindex — a normal MEDIUM
+    /// setting (GUI + `update_settings`), unlike `knowledge_chunk`.
+    #[serde(default)]
+    pub knowledge_search: crate::knowledge::KnowledgeSearchConfig,
+    /// Knowledge Layer-2 autonomous maintenance (WS6): scheduling + per-task
+    /// toggles + auto-approve for the proposal review queue. Disabled by default.
+    #[serde(default)]
+    pub knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig,
+    /// Read bridge ③ — passive related-notes prompt (Phase 3, D7): each user turn
+    /// surface the top accessible-KB note titles as an independent untrusted cache
+    /// block. Opt-in, disabled by default (access is already per-session gated, so
+    /// a single global toggle suffices). MEDIUM risk (context/cost), writable via
+    /// `update_settings`.
+    #[serde(default)]
+    pub knowledge_passive_recall: crate::knowledge::PassiveRecallConfig,
     /// Deprecated legacy embedding config. Kept as a deserialization sink only;
     /// user-facing embedding config lives in `embedding_models` +
     /// `memory_embedding`.
@@ -619,6 +671,12 @@ pub struct AppConfig {
     /// Whether UI background effects (stars, weather) are enabled
     #[serde(default = "crate::default_true")]
     pub ui_effects_enabled: bool,
+    /// Prevent the host from idle-sleeping while the app runs (user setting,
+    /// default off). When on, the primary process holds an OS sleep assertion
+    /// (macOS `caffeinate -i` / Linux logind inhibitor / Windows
+    /// `ES_SYSTEM_REQUIRED`); the display may still turn off independently.
+    #[serde(default)]
+    pub prevent_sleep: bool,
     /// Sidebar visual density: "compact" (default) | "detailed"
     #[serde(default = "default_sidebar_ui_mode")]
     pub sidebar_ui_mode: String,
@@ -691,6 +749,12 @@ pub struct AppConfig {
     /// parallel sessions.
     #[serde(default)]
     pub awareness: crate::awareness::AwarenessConfig,
+
+    /// Knowledge-space "sprite / inspiration mode": a proactive, transient
+    /// writing companion that reacts to the note being edited. Disabled by
+    /// default (makes proactive LLM calls).
+    #[serde(default)]
+    pub sprite: crate::sprite::SpriteConfig,
 
     /// Offline memory consolidation ("Dreaming", Phase B3).
     /// Controls when cycles run (idle / cron / manual) and how aggressively
@@ -767,6 +831,13 @@ pub struct AppConfig {
     /// unaffected.
     #[serde(default)]
     pub hooks_allow_project_scope: bool,
+
+    /// Auto-update behavior: background check cadence, silent download, and
+    /// user notification. Shared single source of truth for both the desktop
+    /// (`@tauri-apps/plugin-updater`) and headless (`updater::auto_check`)
+    /// paths. See `crate::updater::AutoUpdateConfig`.
+    #[serde(default)]
+    pub auto_update: crate::updater::AutoUpdateConfig,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -811,7 +882,12 @@ impl Default for AppConfig {
             skill_env_check: true,
             conditional_skills_enabled: true,
             embedding_models: Vec::new(),
-            memory_embedding: crate::memory::MemoryEmbeddingSelection::default(),
+            memory_embedding: crate::memory::EmbeddingSelection::default(),
+            knowledge_embedding: crate::memory::EmbeddingSelection::default(),
+            knowledge_chunk: crate::knowledge::ChunkConfig::default(),
+            knowledge_search: crate::knowledge::KnowledgeSearchConfig::default(),
+            knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig::default(),
+            knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),
@@ -842,6 +918,7 @@ impl Default for AppConfig {
             theme: default_theme(),
             language: default_language(),
             ui_effects_enabled: true,
+            prevent_sleep: false,
             sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
@@ -859,6 +936,7 @@ impl Default for AppConfig {
             recap: RecapConfig::default(),
             async_tools: AsyncToolsConfig::default(),
             awareness: crate::awareness::AwarenessConfig::default(),
+            sprite: crate::sprite::SpriteConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),
@@ -872,6 +950,7 @@ impl Default for AppConfig {
             hooks: crate::hooks::HooksConfig::default(),
             disable_all_hooks: false,
             hooks_allow_project_scope: false,
+            auto_update: crate::updater::AutoUpdateConfig::default(),
         }
     }
 }

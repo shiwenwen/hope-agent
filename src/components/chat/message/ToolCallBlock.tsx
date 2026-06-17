@@ -43,10 +43,17 @@ import { parseMcpToolName } from "@/lib/mcp"
 import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
+import { KnowledgeResultCard } from "@/components/chat/message/KnowledgeResultCard"
+
+/** Tools whose results render via {@link KnowledgeResultCard} (grouped by KB). */
+function isKnowledgeResultTool(name: string): boolean {
+  return name === "note_search" || name === "knowledge_recall" || name === "note_similar"
+}
 import { getExecutionToolLabel, getToolExecutionState } from "./executionStatus"
 
 /** Map tool name → Lucide icon component */
@@ -59,7 +66,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   process: Cpu,
   grep: Search,
   find: FileSearch,
-  apply_patch: FileCode,
+  apply_patch: FilePen,
   web_search: Globe,
   web_fetch: Globe,
   save_memory: Brain,
@@ -100,7 +107,9 @@ function getSkillName(name: string, args: string): string | null {
       const parts = path.replace(/\\/g, "/").split("/")
       return parts.length >= 2 ? parts[parts.length - 2] : "skill"
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null
 }
 
@@ -122,9 +131,7 @@ function getDisplayArgs(name: string, args: string): string {
       case "edit":
         return parsed.path || args
       case "find":
-        return parsed.pattern
-          ? `${parsed.path || "."} → ${parsed.pattern}`
-          : parsed.path || args
+        return parsed.pattern ? `${parsed.path || "."} → ${parsed.pattern}` : parsed.path || args
       case "grep":
         return parsed.pattern
           ? `"${parsed.pattern}"${parsed.path ? ` in ${parsed.path}` : ""}`
@@ -298,11 +305,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
 
   const skillName = getSkillName(tool.name, tool.arguments)
   const isMcpTool = parseMcpToolName(tool.name) !== null
-  const Icon = skillName
-    ? FileCode
-    : isMcpTool
-      ? Plug
-      : TOOL_ICONS[tool.name] || Wrench
+  const Icon = skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
 
@@ -348,10 +351,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
   )
 
   const askUserOutcome = useMemo(
-    () =>
-      tool.name === "ask_user_question"
-        ? parseAskUserAnswers(tool.result)
-        : null,
+    () => (tool.name === "ask_user_question" ? parseAskUserAnswers(tool.result) : null),
     [tool.name, tool.result],
   )
 
@@ -371,13 +371,17 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
           const res = JSON.parse(tool.result)
           projectId = res.project_id || null
           if (res.title) title = res.title
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       } else {
         projectId = args.project_id || null
       }
       if (!projectId) return null
       return { projectId, title, contentType }
-    } catch { return null }
+    } catch {
+      return null
+    }
   }, [tool.name, tool.arguments, tool.result])
 
   const handleOpenCanvas = useCallback(async () => {
@@ -482,13 +486,9 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
       {askUserOutcome && !isRunning && (
         <div className="ml-5 mt-1.5 mb-1 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 space-y-1.5 text-xs">
           {askUserOutcome.cancelled ? (
-            <div className="text-muted-foreground italic">
-              {t("tools.ask_user.cancelled")}
-            </div>
+            <div className="text-muted-foreground italic">{t("tools.ask_user.cancelled")}</div>
           ) : askUserOutcome.answers.length === 0 ? (
-            <div className="text-muted-foreground italic">
-              {t("tools.ask_user.no_answers")}
-            </div>
+            <div className="text-muted-foreground italic">{t("tools.ask_user.no_answers")}</div>
           ) : (
             askUserOutcome.answers.map((a, i) => {
               const parts: string[] = [...a.selected]
@@ -548,34 +548,29 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
         </div>
       )}
       {/* Raw tool call */}
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          showRaw ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={showRaw} unmountOnExit={false}>
         <div className="ml-5 mt-0.5 mb-1">
           <pre className="whitespace-pre-wrap text-muted-foreground/70 bg-muted/50 rounded-md p-2.5 max-h-64 overflow-y-auto text-[11px] leading-relaxed border border-border/30 font-mono select-all">
             {formatRawCall(tool)}
           </pre>
         </div>
-      </div>
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          expanded && (tool.name === "exec" || tool.result) ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0",
-        )}
+      </AnimatedCollapse>
+      <AnimatedCollapse
+        open={expanded && (tool.name === "exec" || !!tool.result)}
+        unmountOnExit={false}
       >
         <div className="ml-5 mt-0.5 mb-1">
           {tool.name === "exec" ? (
             <ExecToolResultCard tool={tool} isRunning={isRunning} />
+          ) : isKnowledgeResultTool(tool.name) && tool.result ? (
+            <KnowledgeResultCard toolName={tool.name} result={tool.result} />
           ) : (
             <pre className="whitespace-pre-wrap text-muted-foreground/80 bg-secondary/40 rounded-md p-2.5 max-h-64 overflow-y-auto text-[11px] leading-relaxed border border-border/50">
               {tool.result}
             </pre>
           )}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }

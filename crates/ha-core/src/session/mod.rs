@@ -1,7 +1,9 @@
 mod acp_db;
 mod artifacts;
-mod db;
+pub(crate) mod cleanup_watcher;
+pub(crate) mod db;
 mod environment;
+pub(crate) mod events;
 pub mod export;
 mod helpers;
 mod pending;
@@ -31,6 +33,7 @@ pub use tasks::{
 };
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
-    build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, MessageRole,
-    NewMessage, SessionMessage, SessionMeta, ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
+    build_chat_user_attachments_meta, build_tool_media_items_attachments_meta, ChannelSessionInfo,
+    MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+    ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS,
 };

@@ -172,6 +172,10 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         skill_allowed_tools: Vec::new(),
         reasoning_effort: None,
         skill_name: None,
+        origin_source: ctx.origin_chat_source.or(ctx.chat_source),
+        // WS8: carry the parent turn's IM origin identity so an IM-origin
+        // subagent's KB opt-in is judged against the origin account/chat.
+        origin_channel_kb_context: ctx.channel_kb_context.clone(),
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -438,6 +442,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             skill_allowed_tools: Vec::new(),
             reasoning_effort: None,
             skill_name: None,
+            origin_source: ctx.origin_chat_source.or(ctx.chat_source),
+            // WS8: forward the parent turn's IM origin identity (see above).
+            origin_channel_kb_context: ctx.channel_kb_context.clone(),
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {
@@ -602,16 +609,40 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
         }
 
         if std::time::Instant::now() >= deadline {
-            // Timeout — auto-background; the spawn task continues and injection handles it
+            // D6 (DEADLOCK-5): distinguish "still working" from "paused waiting on
+            // a tool approval". A pending child approval only persists where it can
+            // actually be answered (unattended surfaces fail-close instead) — so if
+            // one exists, tell the parent the child is blocked on the user, instead
+            // of implying it's making background progress. (Checks the direct child
+            // session; a deeper nested descendant's approval isn't probed here.)
+            let awaiting_approval =
+                crate::tools::approval::session_has_pending_approval(&run.child_session_id).await;
+            let (status, message) = if awaiting_approval {
+                (
+                    "awaiting_approval",
+                    format!(
+                        "Sub-agent is paused waiting for a tool approval and did not finish within \
+                         {}s. It will stay blocked until the approval is answered (or it times out / \
+                         is denied). Approve it to let it continue; its result is injected when it \
+                         completes.",
+                        fg_timeout
+                    ),
+                )
+            } else {
+                (
+                    "backgrounded",
+                    format!(
+                        "Sub-agent did not complete within {}s. Automatically backgrounded. \
+                         Result will be injected into the conversation when complete.",
+                        fg_timeout
+                    ),
+                )
+            };
             return Ok(serde_json::to_string_pretty(&serde_json::json!({
-                "status": "backgrounded",
+                "status": status,
                 "mode": "background",
                 "run_id": run_id,
-                "message": format!(
-                    "Sub-agent did not complete within {}s. Automatically backgrounded. \
-                     Result will be injected into the conversation when complete.",
-                    fg_timeout
-                ),
+                "message": message,
             }))?);
         }
 

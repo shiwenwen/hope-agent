@@ -255,7 +255,7 @@ export default function UpdateHistoryPanel() {
             className="gap-1.5"
             onClick={() => openExternal(HOPE_AGENT_URLS.releases)}
           >
-            {t("about.releases")}
+            {t("about.updateHistoryViewOnGitHub")}
             <ExternalLink className="h-3.5 w-3.5" />
           </Button>
         </div>

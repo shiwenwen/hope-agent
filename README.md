@@ -59,7 +59,7 @@
 
 <table>
 <tr><td width="220"><b>🖥️ 桌面原生 GUI</b></td><td>macOS / Linux / Windows 三端原生应用，下载即用。12 种界面语言（简/繁中、英、日、韩、西、葡、俄、阿、土、越、马），深色主题与精心调校的字体排版。</td></tr>
-<tr><td><b>🧙 傻瓜式 Provider 配置</b></td><td>39 个内置 Provider 模板，覆盖 206 个预设模型。Anthropic / OpenAI / Gemini / Codex / OpenRouter / DeepSeek / Kimi / Qwen / 豆包 / GLM / MiniMax / xAI / Mistral / Cerebras / DeepInfra / 腾讯混元 / Ollama 一站式覆盖；同一 Provider 支持多 API Key 自动轮换，遇到限流或额度用尽无缝切换下一把钥匙。</td></tr>
+<tr><td><b>🧙 傻瓜式 Provider 配置</b></td><td>44 个内置 Provider 模板，覆盖 335 个预设模型。Anthropic / OpenAI / Gemini / Codex / GitHub Copilot / OpenRouter / DeepSeek / Kimi / Qwen / 豆包 / GLM / MiniMax / xAI / Mistral / Cerebras / DeepInfra / Novita / 腾讯混元 / Ollama 一站式覆盖；同一 Provider 支持多 API Key 自动轮换，遇到限流或额度用尽无缝切换下一把钥匙。</td></tr>
 <tr><td><b>🦙 本地小模型一键安装</b></td><td><b>不用账号、不用 API Key、不用终端</b>——设置 → 模型页面按硬件挑一个能跑得动的 Qwen3.6 / Gemma 4 尺寸，一键完成 <a href="https://ollama.com">Ollama</a> 安装、模型下载、Provider 注册与切换。同一流程也覆盖本地 Embedding 模型。</td></tr>
 <tr><td><b>💬 12 个 IM 渠道一站接入</b></td><td>Telegram、Discord、Slack、飞书、Google Chat、LINE、QQ Bot、Signal、iMessage、IRC、WeChat、WhatsApp。图片 / 语音 / 文件入站自动转多模态上下文；工具审批直接在聊天窗按按钮决定；每个群聊 / 账号可绑定独立 Agent 和权限策略。</td></tr>
 <tr><td><b>🤝 对话随手交接，跨端不掉线</b></td><td>同一份会话能在桌面、浏览器、IM 之间**随手交接**——出门前在电脑上聊到一半，地铁里掏出手机用 Telegram 接着说，回家打开桌面应用它已经把外面 IM 期间的聊天捋好了。同一份记忆 / 工具状态 / Plan / 工作目录跟着走，另一端不用重新介绍上下文。<code>/handover</code> 把当前桌面会话推到指定 IM 聊天，<code>/session &lt;id&gt;</code> 在 IM 端反向接管；桌面正在跑的对话还会**流式镜像到 IM**，模型边写边在 Telegram / 飞书 / Slack 里打字。</td></tr>
@@ -70,7 +70,8 @@
 ### 🧠 记忆与学习
 
 <table>
-<tr><td width="220"><b>🧠 跨会话持久记忆</b></td><td>SQLite + FTS5 全文检索 + 向量语义检索三位一体。记忆可按全局 / 项目 / Agent 三层 scope 组织；system prompt 注入按联合预算分配，不会因为某一层过长挤掉其他层。</td></tr>
+<tr><td width="220"><b>🧠 知识空间 · 你的第二大脑</b></td><td><b>本地优先、AI 原生的个人知识库</b>——你手写 / 编辑 Markdown 笔记，AI 作为第一公民和你读写同一批 <code>.md</code> 文件：跨笔记检索、织成双链知识网络、把碎片想法提炼成原子笔记。可绑定已有的 Obsidian 库（默认只读，确认后可写），支持 wikilink / frontmatter / 块引用 / 图谱视图 / 大纲，内置混合检索（全文 + 向量）。右侧内嵌 AI 对话面板结合当前文档随手问答与改写；开启「精灵模式」后，你写着写着停下来，它会主动冒出写作建议或灵感。笔记原子化写盘，外部改动实时同步。</td></tr>
+<tr><td><b>🧠 跨会话持久记忆</b></td><td>SQLite + FTS5 全文检索 + 向量语义检索三位一体。记忆可按全局 / 项目 / Agent 三层 scope 组织；system prompt 注入按联合预算分配，不会因为某一层过长挤掉其他层。</td></tr>
 <tr><td><b>🕶 无痕对话</b></td><td>会话级开关，首条消息就能无痕。开启后当前对话不注入任何记忆或跨会话感知，也不自动收集记忆；只有你明确说“记住这个”或“回忆一下”时，才会主动调用记忆工具。</td></tr>
 <tr><td><b>💤 离线"做梦"整理</b></td><td>空闲时自动跑一遍"过去这两天最有价值的记忆是哪些"，把入选条目 pin 住并写成 markdown 日记，可在设置 → Dream Diary 回看。每天工作完帮你把今天学到的知识沉淀下来，下次对话用得上。</td></tr>
 <tr><td><b>🔍 主动召回 + 反省画像</b></td><td>每轮对话开始前，按你刚打的那句话主动捞出最相关的记忆注入 prompt（Active Memory）；另外反省式地从历史对话里提炼沟通风格 / 工作习惯 / 长期偏好，单独以"用户画像"段落进 prompt，越用越懂你。</td></tr>
@@ -273,8 +274,8 @@ pnpm tauri build       # 打生产包
 <tr>
   <td width="140"><b>📦 模型 Provider</b></td>
   <td>
-    <b>39 个模板 · 206 个预设模型</b><br/>
-    <b>国际</b> · Anthropic · OpenAI · Codex · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Perplexity · xAI Grok · Mistral · Cohere<br/>
+    <b>44 个模板 · 335 个预设模型</b><br/>
+    <b>国际</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>国内</b> · DeepSeek · Moonshot (Kimi) · 通义千问 (Qwen) · 豆包 (火山引擎) · 智谱 GLM · MiniMax · 小米 MiMo<br/>
     <b>本地</b> · Ollama · 任意 OpenAI 兼容端点
   </td>

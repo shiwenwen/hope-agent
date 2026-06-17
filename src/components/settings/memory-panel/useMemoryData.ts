@@ -49,6 +49,12 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   const [batchLoading, setBatchLoading] = useState(false)
 
   // ── Reembed job tracking ──
+  // TODO(dedup): this subscription + dismissReembedJob duplicate the shared
+  // `useReembedJob` hook (../useReembedJob), which KnowledgePanel already uses.
+  // Migrate to useReembedJob({ kind: "memory_reembed", onCompleted:
+  // reloadEmbeddingConfig }) when next touching this hook — kept inline for now
+  // to avoid churn on the stable memory panel.
+  //
   // We watch the global LocalModelJobs stream filtered to `memory_reembed`
   // jobs so the embedding settings page can render a single status card
   // that survives navigation, refreshes, and even app restarts (interrupted
@@ -91,6 +97,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
     const handleSnapshot = (raw: unknown): LocalModelJobSnapshot | null => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (!job) return null
       if (job.kind !== "memory_reembed") return null
       setReembedJob((current) => {
         // Pick the snapshot we want to track: a new spawn replaces a terminal

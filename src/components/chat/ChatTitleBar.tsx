@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react"
-import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useAppVersion } from "@/lib/appMeta"
 import { basename } from "@/lib/path"
 import { IconTip } from "@/components/ui/tooltip"
+import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Copy,
   BarChart3,
@@ -29,7 +29,14 @@ import {
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDisplay"
-import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
+import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "./chatUtils"
+import {
+  compactContextNow,
+  compactResultMessage,
+  computeCacheStats,
+  resolveCurrentModel,
+  runViewContext,
+} from "./sessionStatus"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./input/IncognitoToggle"
 import { logger } from "@/lib/logger"
@@ -242,11 +249,7 @@ export default function ChatTitleBar({
     sessionIdCopiedTimer.current = setTimeout(() => setSessionIdCopied(false), 1500)
   }, [currentSessionId])
 
-  const currentModel = activeModel
-    ? availableModels.find(
-        (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId,
-      )
-    : null
+  const currentModel = resolveCurrentModel(activeModel, availableModels)
   const activeRightPanel =
     rightPanels.find((panel) => panel.id === activeRightPanelId) ?? rightPanels[0] ?? null
   const rightPanelToggleLabel = rightPanelCollapsed
@@ -277,92 +280,91 @@ export default function ChatTitleBar({
       </span>
     </IconTip>
   ) : null
-  const rightPanelControls =
-    hasRightPanelControls ? (
-      <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
-        {onToggleFilesPanel && (
-          <IconTip label={t("fileBrowser.open", "Show files")}>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-                filesPanelOpen && "text-foreground",
-              )}
-              aria-label={t("fileBrowser.open", "Show files")}
-              aria-pressed={filesPanelOpen}
-              onClick={onToggleFilesPanel}
-            >
-              <FolderOpen className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {onToggleWorkspacePanel && (
-          <IconTip label={t("workspace.openPanel", "Open workspace")}>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
-                workspacePanelOpen && "text-foreground",
-              )}
-              aria-label={t("workspace.openPanel", "Open workspace")}
-              aria-pressed={workspacePanelOpen}
-              onClick={onToggleWorkspacePanel}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-            </button>
-          </IconTip>
-        )}
-        {rightPanels.length > 1 && activeRightPanel && (
-          <div
-            className="flex h-7 max-w-[184px] items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/40 p-0.5"
-            role="tablist"
-            aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
+  const rightPanelControls = hasRightPanelControls ? (
+    <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
+      {onToggleFilesPanel && (
+        <IconTip label={t("fileBrowser.open", "Show files")}>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+              filesPanelOpen && "text-foreground",
+            )}
+            aria-label={t("fileBrowser.open", "Show files")}
+            aria-pressed={filesPanelOpen}
+            onClick={onToggleFilesPanel}
           >
-            {rightPanels.map((panel) => {
-              const PanelIcon = panel.icon
-              const active = panel.id === activeRightPanel.id
-              return (
-                <IconTip key={panel.id} label={panel.label}>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    aria-label={panel.label}
-                    className={cn(
-                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-background/80 hover:text-foreground",
-                      active && "bg-background text-foreground shadow-sm ring-1 ring-border/60",
-                    )}
-                    onClick={() => onSelectRightPanel?.(panel.id)}
-                  >
-                    <PanelIcon className="h-3.5 w-3.5" />
-                  </button>
-                </IconTip>
-              )
-            })}
-          </div>
-        )}
-        {onToggleRightPanelCollapsed && (
-          <IconTip label={rightPanelToggleLabel}>
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary/70 hover:text-foreground",
-                rightPanelCollapsed ? "text-muted-foreground" : "text-foreground",
-              )}
-              aria-label={rightPanelToggleLabel}
-              aria-expanded={!rightPanelCollapsed}
-              onClick={onToggleRightPanelCollapsed}
-            >
-              {rightPanelCollapsed ? (
-                <PanelRightDashed className="h-4 w-4" />
-              ) : (
-                <PanelRight className="h-4 w-4" />
-              )}
-            </button>
-          </IconTip>
-        )}
-      </div>
-    ) : null
+            <FolderOpen className="h-4 w-4" />
+          </button>
+        </IconTip>
+      )}
+      {onToggleWorkspacePanel && (
+        <IconTip label={t("workspace.openPanel", "Open workspace")}>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+              workspacePanelOpen && "text-foreground",
+            )}
+            aria-label={t("workspace.openPanel", "Open workspace")}
+            aria-pressed={workspacePanelOpen}
+            onClick={onToggleWorkspacePanel}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+          </button>
+        </IconTip>
+      )}
+      {rightPanels.length > 1 && activeRightPanel && (
+        <div
+          className="flex h-7 max-w-[184px] items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary/40 p-0.5"
+          role="tablist"
+          aria-label={t("chat.rightPanel.switch", "切换右侧面板")}
+        >
+          {rightPanels.map((panel) => {
+            const PanelIcon = panel.icon
+            const active = panel.id === activeRightPanel.id
+            return (
+              <IconTip key={panel.id} label={panel.label}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={panel.label}
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-background/80 hover:text-foreground",
+                    active && "bg-background text-foreground shadow-sm ring-1 ring-border/60",
+                  )}
+                  onClick={() => onSelectRightPanel?.(panel.id)}
+                >
+                  <PanelIcon className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            )
+          })}
+        </div>
+      )}
+      {onToggleRightPanelCollapsed && (
+        <IconTip label={rightPanelToggleLabel}>
+          <button
+            type="button"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary/70 hover:text-foreground",
+              rightPanelCollapsed ? "text-muted-foreground" : "text-foreground",
+            )}
+            aria-label={rightPanelToggleLabel}
+            aria-expanded={!rightPanelCollapsed}
+            onClick={onToggleRightPanelCollapsed}
+          >
+            {rightPanelCollapsed ? (
+              <PanelRightDashed className="h-4 w-4" />
+            ) : (
+              <PanelRight className="h-4 w-4" />
+            )}
+          </button>
+        </IconTip>
+      )}
+    </div>
+  ) : null
 
   return (
     <div
@@ -494,21 +496,10 @@ export default function ChatTitleBar({
                 )}
                 disabled={compacting || loading}
                 onClick={async () => {
+                  if (!currentSessionId) return
                   setCompacting(true)
                   try {
-                    const result = await getTransport().call<{
-                      tierApplied: number
-                      tokensBefore: number
-                      tokensAfter: number
-                      messagesAffected: number
-                    }>("compact_context_now", {
-                      sessionId: currentSessionId,
-                    })
-                    const saved = result.tokensBefore - result.tokensAfter
-                    const msg =
-                      result.messagesAffected > 0
-                        ? t("chat.compactDone", { saved, affected: result.messagesAffected })
-                        : t("chat.compactNoChange")
+                    const msg = compactResultMessage(t, await compactContextNow(currentSessionId))
                     if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
                     setCompactToast({ success: true, message: msg })
                     compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
@@ -559,13 +550,12 @@ export default function ChatTitleBar({
               <BarChart3 className="h-4 w-4" />
             </button>
           </IconTip>
-          <div
-            className={cn(
-              "absolute top-full right-0 mt-1.5 z-50 min-w-[260px] rounded-xl border border-border bg-popover p-3.5 shadow-xl transition-all duration-200 origin-top-right",
-              showStatus
-                ? "opacity-100 scale-100 pointer-events-auto"
-                : "opacity-0 scale-95 pointer-events-none",
-            )}
+          <FloatingMenu
+            open={showStatus}
+            positionClassName="top-full right-0 mt-1.5"
+            originClassName="origin-top-right"
+            className="ha-menu-from-top min-w-[260px] rounded-xl border-border bg-popover p-3.5 shadow-xl"
+            onEscapeKeyDown={() => setShowStatus(false)}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="space-y-2 text-xs">
@@ -578,7 +568,7 @@ export default function ChatTitleBar({
               {/* Model + Auth */}
               {(() => {
                 const modelLabel = currentModel
-                  ? `${currentModel.providerName}/${currentModel.modelId}`
+                  ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
                   : activeModel?.modelId || "—"
                 const apiType = currentModel?.apiType || "—"
                 const authLabel = apiType === "codex" ? "oauth" : "api-key"
@@ -602,19 +592,12 @@ export default function ChatTitleBar({
               {/* Context window usage. See `getContextUsageTokens` for the
                *  cumulative-vs-last-round rule. */}
               {(() => {
-                if (!currentModel) return null
-                const ctxK = Math.round(currentModel.contextWindow / 1000)
-                const lastAssistantWithUsage = [...messages]
-                  .reverse()
-                  .find((msg) => msg.role === "assistant" && getContextUsageTokens(msg.usage))
-                const usedTokens = getContextUsageTokens(lastAssistantWithUsage?.usage) ?? 0
-                const usedK = Math.round(usedTokens / 1000)
-                const pct =
-                  currentModel.contextWindow > 0
-                    ? Math.round((usedTokens / currentModel.contextWindow) * 100)
-                    : 0
-                const barColor =
-                  pct < 50 ? "bg-green-500/70" : pct < 80 ? "bg-yellow-500/70" : "bg-red-500/70"
+                const usage = currentModel
+                  ? computeContextUsage(messages, currentModel.contextWindow)
+                  : null
+                if (!usage) return null
+                const { usedTokens, usedK, ctxK, pct } = usage
+                const barColor = contextUsageBarClass(pct)
                 return (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
@@ -634,26 +617,12 @@ export default function ChatTitleBar({
                         className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
                         disabled={compacting || loading}
                         onClick={async () => {
+                          if (!currentSessionId) return
                           setCompacting(true)
                           try {
-                            const result = await getTransport().call<{
-                              tierApplied: number
-                              tokensBefore: number
-                              tokensAfter: number
-                              messagesAffected: number
-                            }>("compact_context_now", {
-                              sessionId: currentSessionId,
-                            })
-                            const saved = result.tokensBefore - result.tokensAfter
-                            const msg =
-                              result.messagesAffected > 0
-                                ? t("chat.compactDone", {
-                                    saved,
-                                    affected: result.messagesAffected,
-                                  })
-                                : t("chat.compactNoChange")
+                            const result = await compactContextNow(currentSessionId)
                             if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                            setCompactToast({ success: true, message: msg })
+                            setCompactToast({ success: true, message: compactResultMessage(t, result) })
                             compactToastTimer.current = setTimeout(
                               () => setCompactToast(null),
                               3000,
@@ -681,16 +650,10 @@ export default function ChatTitleBar({
                     <button
                       className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors flex items-center justify-center gap-1"
                       onClick={async () => {
+                        if (!currentSessionId) return
                         try {
-                          const result = await getTransport().call<
-                            import("@/components/chat/slash-commands/types").CommandResult
-                          >("execute_slash_command", {
-                            sessionId: currentSessionId,
-                            agentId: currentAgentId,
-                            commandText: "/context",
-                          })
+                          const result = await runViewContext(currentSessionId, currentAgentId)
                           setShowStatus(false)
-                          result._slashCommandText = "/context"
                           onCommandAction?.(result)
                         } catch (e) {
                           logger.error("ui", "ChatTitleBar::viewContext", "View context failed", e)
@@ -705,15 +668,9 @@ export default function ChatTitleBar({
               })()}
               {/* Cache info (Anthropic) */}
               {(() => {
-                const lastAssistantWithUsage = [...messages]
-                  .reverse()
-                  .find((msg) => msg.role === "assistant" && msg.usage)
-                const u = lastAssistantWithUsage?.usage
-                if (!u || (u.cacheCreationInputTokens == null && u.cacheReadInputTokens == null))
-                  return null
-                const created = u.cacheCreationInputTokens || 0
-                const read = u.cacheReadInputTokens || 0
-                const lastInput = u.lastInputTokens
+                const cache = computeCacheStats(messages)
+                if (!cache) return null
+                const { created, read, lastInput } = cache
                 return (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between gap-2">
@@ -848,7 +805,7 @@ export default function ChatTitleBar({
                 </>
               )}
             </div>
-          </div>
+          </FloatingMenu>
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (
@@ -879,9 +836,7 @@ export default function ChatTitleBar({
           open={exportOpen}
           onOpenChange={setExportOpen}
           sessionId={currentSessionId}
-          sessionTitle={
-            sessions.find((s) => s.id === currentSessionId)?.title ?? null
-          }
+          sessionTitle={sessions.find((s) => s.id === currentSessionId)?.title ?? null}
         />
       )}
     </div>

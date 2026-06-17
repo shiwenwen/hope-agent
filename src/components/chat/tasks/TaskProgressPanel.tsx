@@ -1,8 +1,9 @@
-import { useState } from "react"
-import { AlertCircle, ChevronRight, CirclePause, ListChecks, Trash2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { AlertCircle, ChevronRight, CirclePause, ListChecks, PanelRight, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import type { Task, TaskStatus } from "@/types/chat"
@@ -18,6 +19,8 @@ interface TaskProgressPanelProps {
   defaultExpanded?: boolean
   variant?: "card" | "embedded"
   executionState?: "idle" | "running" | "cancelling" | "interrupted" | "failed"
+  onOpenWorkspace?: () => void
+  workspaceOpen?: boolean
 }
 
 // Cycle: pending → in_progress → completed → pending. Mirrors how a user
@@ -34,12 +37,22 @@ export default function TaskProgressPanel({
   defaultExpanded = true,
   variant = "card",
   executionState = "idle",
+  onOpenWorkspace,
+  workspaceOpen = false,
 }: TaskProgressPanelProps) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, setExpanded] = useState(() => defaultExpanded && !workspaceOpen)
+  const previousWorkspaceOpenRef = useRef(workspaceOpen)
   // Per-row in-flight set so a slow RPC on task A doesn't disable the
   // controls on tasks B/C/D — matters most on HTTP transport latency.
   const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
+
+  useEffect(() => {
+    if (workspaceOpen && !previousWorkspaceOpenRef.current) {
+      setExpanded(false)
+    }
+    previousWorkspaceOpenRef.current = workspaceOpen
+  }, [workspaceOpen])
 
   async function withBusy(id: number, op: () => Promise<unknown>, label: string) {
     if (busyIds.has(id)) return
@@ -47,7 +60,7 @@ export default function TaskProgressPanel({
     try {
       await op()
     } catch (err) {
-      console.warn(`[TaskProgressPanel] ${label} failed`, err)
+      logger.warn("chat", "TaskProgressPanel::withBusy", `${label} failed`, err)
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev)
@@ -96,30 +109,47 @@ export default function TaskProgressPanel({
         "overflow-hidden animate-in fade-in-0 slide-in-from-bottom-1 duration-200",
         variant === "embedded"
           ? "rounded-t-2xl border-b border-border/70 bg-white dark:bg-card"
-          : "rounded-2xl border border-border/80 bg-card/95 shadow-sm",
+          : "rounded-2xl border border-border/80 bg-surface-floating shadow-sm",
         className,
       )}
     >
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-label={`${taskLabel} ${progressLabel}`}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-secondary/45"
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <ListChecks className="h-4 w-4 shrink-0 text-blue-500" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-          {taskLabel}
-          <span className="px-1.5 font-normal text-muted-foreground">·</span>
-          <span className="font-normal text-muted-foreground">{progressLabel}</span>
-        </span>
-        <ChevronRight
-          className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
-            expanded && "rotate-90",
-          )}
-        />
-      </button>
+      <div className="flex w-full items-center gap-1 px-3 py-2 transition-colors hover:bg-secondary/45">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${taskLabel} ${progressLabel}`}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <ListChecks className="h-4 w-4 shrink-0 text-blue-500" />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            {taskLabel}
+            <span className="px-1.5 font-normal text-muted-foreground">·</span>
+            <span className="font-normal text-muted-foreground">{progressLabel}</span>
+          </span>
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+              expanded && "rotate-90",
+            )}
+          />
+        </button>
+        {onOpenWorkspace && (
+          <IconTip label={String(t("workspace.openPanel", { defaultValue: "打开工作台" }))}>
+            <button
+              type="button"
+              aria-label={String(t("workspace.openPanel", { defaultValue: "打开工作台" }))}
+              className={cn(
+                "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
+                workspaceOpen && "bg-secondary text-foreground",
+              )}
+              onClick={onOpenWorkspace}
+            >
+              <PanelRight className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
+      </div>
 
       <AnimatedCollapse open={expanded}>
         <div className="border-t border-border/60 px-3 py-2">

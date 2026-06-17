@@ -104,6 +104,60 @@ export function getContextUsageTokens(usage?: MessageUsage): number | undefined 
   return usage?.lastInputTokens ?? usage?.inputTokens
 }
 
+export interface ContextUsageInfo {
+  /** Tokens the model saw on its most recent call (the latest assistant turn). */
+  usedTokens: number
+  /** The active model's context window, in tokens. */
+  contextWindow: number
+  /** `usedTokens` rounded to thousands, for `{usedK}k/{ctxK}k` displays. */
+  usedK: number
+  ctxK: number
+  /** Fullness 0–100 (rounded; may exceed 100 in rare over-window cases). */
+  pct: number
+}
+
+/**
+ * How full the context window is, derived from the most recent assistant turn
+ * that carries usage. Iterates from the end (no array copy) — see
+ * `getContextUsageTokens` for the cumulative-vs-last-round rule. Returns null
+ * when the model's window is unknown, so call sites can skip the UI entirely.
+ *
+ * Single source of truth shared by the status popover, the workspace session
+ * card, and the input-dock bottom bar so all three never drift.
+ */
+export function computeContextUsage(
+  messages: Message[],
+  contextWindow: number | null | undefined,
+): ContextUsageInfo | null {
+  if (!contextWindow || contextWindow <= 0) return null
+  let usedTokens = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role !== "assistant") continue
+    const tok = getContextUsageTokens(m.usage)
+    if (tok) {
+      usedTokens = tok
+      break
+    }
+  }
+  return {
+    usedTokens,
+    contextWindow,
+    usedK: Math.round(usedTokens / 1000),
+    ctxK: Math.round(contextWindow / 1000),
+    pct: Math.round((usedTokens / contextWindow) * 100),
+  }
+}
+
+// Pure color/level helpers live in a dependency-free leaf module so the input
+// dock can import them without chatUtils' runtime chain; re-exported here for
+// the popover / workspace card that already pull chatUtils at runtime.
+export {
+  type ContextUsageLevel,
+  contextUsageLevel,
+  contextUsageBarClass,
+} from "./contextUsageColor"
+
 /** Format message timestamp to HH:mm */
 export function formatMessageTime(timestamp?: string): string {
   if (!timestamp) return ""
@@ -129,14 +183,23 @@ export function formatMessageTime(timestamp?: string): string {
   }
 }
 
-/** Format duration in ms to human-readable string */
+/**
+ * Format a duration (ms) with second / minute / hour rollover — the single
+ * source of truth for all elapsed-time displays (tool steps, thinking blocks,
+ * processed-group totals, message total). Sub-minute shows one decimal second
+ * (`0.1s`, `5.3s`); from a minute up, whole units (`1m 30s`, `2h 5m`).
+ */
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = Math.round(seconds % 60)
-  return `${minutes}m ${remainingSeconds}s`
+  const totalSeconds = Math.max(0, ms) / 1000
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  if (totalMinutes < 60) {
+    const seconds = Math.round(totalSeconds % 60)
+    return `${totalMinutes}m ${seconds}s`
+  }
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${hours}h ${minutes}m`
 }
 
 export type MessageFileAttachment =

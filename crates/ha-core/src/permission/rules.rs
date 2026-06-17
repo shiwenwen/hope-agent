@@ -230,6 +230,43 @@ pub fn resolve_path_with_default(path: &Path, default_path: Option<&Path>) -> Pa
     }
 }
 
+/// The file path(s) a `write` / `edit` / `apply_patch` call will modify — the
+/// edit TARGETS, not the `cwd` that [`extract_path_arg`] returns for
+/// `apply_patch`. Raw form (tilde-expanded, lexically normalized, possibly
+/// relative); resolve against the tool default before comparing. Internal
+/// helper for [`resolved_edit_target_paths`].
+fn edit_target_paths(tool: &str, args: &serde_json::Value) -> Vec<PathBuf> {
+    match tool {
+        // Reuse the canonical path-arg extractor so the `path`/`file_path`
+        // precedence stays identical to the protected-path gate — otherwise the
+        // gate and the Smart session-edit bypass could disagree on which file is
+        // being written.
+        "write" | "edit" => extract_path_arg(tool, args)
+            .map(|p| vec![normalize_lexical(&p)])
+            .unwrap_or_default(),
+        "apply_patch" => args
+            .get("input")
+            .and_then(|v| v.as_str())
+            .map(paths_in_patch_directives)
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// [`edit_target_paths`] resolved to absolute form against `default_path`, so
+/// the Smart-mode auto-allow check and the execution-layer session-edit
+/// recorder compare exactly the same canonical paths.
+pub fn resolved_edit_target_paths(
+    tool: &str,
+    args: &serde_json::Value,
+    default_path: Option<&Path>,
+) -> Vec<PathBuf> {
+    edit_target_paths(tool, args)
+        .iter()
+        .map(|p| resolve_path_with_default(p, default_path))
+        .collect()
+}
+
 /// Pull each `*** Add File: ` / `*** Delete File: ` / `*** Update File: ` /
 /// `*** Move to: ` directive target out of an `apply_patch` body.
 pub fn paths_in_patch_directives(patch: &str) -> Vec<PathBuf> {

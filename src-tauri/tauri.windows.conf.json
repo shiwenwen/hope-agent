@@ -1,8 +1,27 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "Hope Agent",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 840,
+        "minHeight": 480,
+        "resizable": true,
+        "fullscreen": false,
+        "transparent": false,
+        "decorations": true,
+        "dragDropEnabled": false
+      }
+    ]
+  },
   "bundle": {
     "targets": ["nsis"],
-    "resources": ["resources/vc_redist.x64.exe"],
+    "resources": {
+      "resources/vc_redist.x64.exe": "resources/vc_redist.x64.exe",
+      "../skills": "skills"
+    },
     "windows": {
       "nsis": {
         "installerHooks": "./windows/installer-hooks.nsh"

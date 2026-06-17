@@ -16,6 +16,7 @@ use futures_util::future::join_all;
 use serde_json::json;
 
 use super::api_types::FunctionCallItem;
+use super::content::build_user_content_for_provider;
 use super::events::{
     emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_call_args_rewritten,
     emit_tool_result, emit_usage, extract_media_items,
@@ -164,6 +165,9 @@ async fn fire_post_tool_use_hook(
             // Phase 1.1: interrupt vs error not distinguished at this site.
             is_interrupt: false,
             duration_ms: elapsed_ms,
+            // Synchronous (foreground) settle — async-job terminals fill this
+            // via `fire_async_job_terminal`.
+            job_id: None,
         }
     } else {
         let tool_response = serde_json::from_str(clean_result)
@@ -174,6 +178,7 @@ async fn fire_post_tool_use_hook(
             tool_input,
             tool_response,
             tool_use_id: call_id.to_string(),
+            job_id: None,
         }
     };
     let outcome = HookDispatcher::dispatch(event, input).await;
@@ -184,6 +189,171 @@ async fn fire_post_tool_use_hook(
         clean_result.push_str(&extra);
         clean_result.push_str("\n</hook-context>");
     }
+}
+
+async fn drain_queued_turn_user_messages<F>(
+    agent: &AssistantAgent,
+    adapter: &dyn StreamingChatAdapter,
+    messages: &mut Vec<serde_json::Value>,
+    on_delta: &F,
+) where
+    F: Fn(&str) + Send + Sync,
+{
+    let Some(session_id) = agent.session_id.as_deref() else {
+        return;
+    };
+    let Some(active) = crate::chat_engine::active_turn::current(session_id) else {
+        return;
+    };
+    if !matches!(
+        active.source,
+        crate::chat_engine::stream_seq::ChatSource::Desktop
+            | crate::chat_engine::stream_seq::ChatSource::Http
+    ) {
+        return;
+    }
+
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+    let queued = crate::chat_engine::turn_injection::drain(session_id, &active.turn_id);
+    if queued.is_empty() {
+        return;
+    }
+
+    for mut item in queued {
+        if active.cancel.load(Ordering::SeqCst) {
+            break;
+        }
+        let raw_prompt =
+            crate::util::non_empty_trim_or(item.display_text.as_deref(), &item.message);
+        let effective_prompt = match crate::agent::preflight::user_prompt_preflight(
+            crate::agent::preflight::PreflightArgs {
+                session_id,
+                agent_id: Some(&agent.agent_id),
+                raw_prompt,
+            },
+        )
+        .await
+        {
+            crate::agent::preflight::PreflightOutcome::Proceed { effective_prompt } => {
+                if let Some(extra) = crate::hooks::take_user_prompt_context(session_id) {
+                    agent.push_pending_hook_context(extra);
+                }
+                effective_prompt
+            }
+            crate::agent::preflight::PreflightOutcome::Block { reason } => {
+                let notice = if reason.trim().is_empty() {
+                    "🚫 Prompt blocked by a UserPromptSubmit hook.".to_string()
+                } else {
+                    format!("🚫 {reason}")
+                };
+                let _ = db.append_message(
+                    session_id,
+                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                );
+                if let Ok(event) = serde_json::to_string(&json!({
+                    "type": "queued_user_message_blocked",
+                    "request_id": item.request_id,
+                    "session_id": item.session_id,
+                    "turn_id": item.turn_id,
+                    "reason": notice,
+                })) {
+                    on_delta(&event);
+                }
+                continue;
+            }
+        };
+
+        let attachment_meta = match crate::attachments::persist_chat_user_attachments_meta(
+            session_id,
+            &mut item.attachments,
+        ) {
+            Ok(meta) => meta,
+            Err(err) => {
+                let notice = format!("🚫 Failed to insert queued message attachments: {err}");
+                let _ = db.append_message(
+                    session_id,
+                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                );
+                if let Ok(event) = serde_json::to_string(&json!({
+                    "type": "queued_user_message_blocked",
+                    "request_id": item.request_id,
+                    "session_id": item.session_id,
+                    "turn_id": item.turn_id,
+                    "reason": notice,
+                })) {
+                    on_delta(&event);
+                }
+                continue;
+            }
+        };
+        let attachments_meta = crate::session::build_chat_user_attachments_meta(
+            item.is_plan_trigger,
+            item.plan_comment.as_ref(),
+            attachment_meta,
+        );
+        let mut user_msg =
+            crate::session::NewMessage::user(&effective_prompt).with_source(item.source);
+        user_msg.attachments_meta = attachments_meta.clone();
+        let message_id = match db.append_message(session_id, &user_msg) {
+            Ok(id) => id,
+            Err(err) => {
+                let notice = format!("🚫 Failed to insert queued message: {err}");
+                let _ = db.append_message(
+                    session_id,
+                    &crate::session::NewMessage::event(&notice).with_source(item.source),
+                );
+                if let Ok(event) = serde_json::to_string(&json!({
+                    "type": "queued_user_message_blocked",
+                    "request_id": item.request_id,
+                    "session_id": item.session_id,
+                    "turn_id": item.turn_id,
+                    "reason": notice,
+                })) {
+                    on_delta(&event);
+                }
+                continue;
+            }
+        };
+
+        let user_content = build_user_content_for_provider(
+            adapter.provider_format(),
+            &item.message,
+            &item.attachments,
+        );
+        AssistantAgent::push_user_message(messages, user_content);
+
+        if let Ok(event) = serde_json::to_string(&json!({
+            "type": "queued_user_message_inserted",
+            "request_id": item.request_id,
+            "session_id": item.session_id,
+            "turn_id": item.turn_id,
+            "message_id": message_id,
+            "content": effective_prompt,
+            "attachments_meta": attachments_meta,
+            "is_plan_trigger": item.is_plan_trigger,
+            "plan_comment": item.plan_comment,
+        })) {
+            on_delta(&event);
+        }
+    }
+}
+
+/// Pull the `job_id` out of a synthetic `{"status":"started","job_id":...}`
+/// background-tool result, if that's what the string is. Returns `None` for
+/// any non-JSON / non-started payload (safe fallback — nothing to cancel).
+/// Used by the turn-cancel grace window to reap a job that a just-approved
+/// background tool spawned (MISC-2).
+fn extract_started_job_id(tool_result: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(tool_result.trim()).ok()?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("started") {
+        return None;
+    }
+    v.get("job_id")
+        .and_then(|j| j.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 /// Execute a tool with cancel-flag racing. Returns `(result_string,
@@ -233,7 +403,30 @@ async fn execute_tool_with_cancel(
             }
         } => {
             cancellation_token.cancel();
-            let _ = tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+            // Grace window: let the dispatch wind down. If the user approved a
+            // background-capable tool (exec / web_search / …) inside this
+            // window, the dispatch returns a synthetic `{job_id,status:"started"}`
+            // and has ALREADY detached a runner with its own fresh cancel token —
+            // the turn cancel never reaches it, so the job would run on as an
+            // orphan while the model is told "cancelled" (MISC-2). Capture that
+            // result and cancel the freshly-spawned job so the verdict stays
+            // truthful. (Sync inline tools that don't finish in time are dropped
+            // here as before; their exec process group is reaped by
+            // `ProcessGroupGuard::drop`.)
+            if let Ok(Ok(grace_result)) =
+                tokio::time::timeout(TOOL_CANCEL_CLEANUP_GRACE, &mut dispatch).await
+            {
+                if let Some(job_id) = extract_started_job_id(&grace_result) {
+                    app_info!(
+                        "async_jobs",
+                        "cancel",
+                        "Reaping job {} spawned by tool '{}' inside the turn-cancel grace window",
+                        job_id,
+                        name
+                    );
+                    let _ = crate::async_jobs::cancel_job(&job_id);
+                }
+            }
             tools::ToolRejection::cancelled(name).to_tool_result()
         }
     };
@@ -319,6 +512,7 @@ impl AssistantAgent {
         tokio::join!(
             self.refresh_awareness_suffix(message),
             self.refresh_active_memory_suffix(message),
+            self.refresh_related_notes_suffix(message),
         );
 
         let client =
@@ -455,6 +649,7 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            let related_notes_suffix = self.current_related_notes_suffix();
             // Two-step: cheap existence probe first (one SQL row, no Vec
             // alloc), then list+format only when there's actually an active
             // task. Skips a full task list deserialize on every round of
@@ -481,6 +676,7 @@ impl AssistantAgent {
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
                 history_for_api: &api_messages,
@@ -759,6 +955,8 @@ impl AssistantAgent {
             // Responses function_call+function_call_output items).
             adapter.append_round_to_history(&mut messages, round, &outcome, &executed);
 
+            drain_queued_turn_user_messages(self, adapter, &mut messages, on_delta).await;
+
             self.check_manual_memory_save(&outcome.tool_calls);
 
             // Tier 1 quick check: truncate any oversized tool results added
@@ -862,5 +1060,37 @@ impl AssistantAgent {
             Some(collected_thinking)
         };
         Ok((collected_text, thinking_result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_started_job_id;
+    use crate::async_jobs::{synthetic_started_result, JobOrigin};
+
+    #[test]
+    fn extract_started_job_id_reads_synthetic_started_payload() {
+        let body = synthetic_started_result("job_abc", "exec", JobOrigin::Explicit);
+        assert_eq!(extract_started_job_id(&body).as_deref(), Some("job_abc"));
+
+        let auto = synthetic_started_result("job_xyz", "web_search", JobOrigin::AutoBackgrounded);
+        assert_eq!(extract_started_job_id(&auto).as_deref(), Some("job_xyz"));
+    }
+
+    #[test]
+    fn extract_started_job_id_ignores_non_started_and_non_json() {
+        // Plain tool output — not JSON.
+        assert_eq!(extract_started_job_id("command finished, exit 0"), None);
+        // JSON, but a completed/terminal result, not a backgrounded "started".
+        assert_eq!(
+            extract_started_job_id(r#"{"status":"completed","job_id":"j1"}"#),
+            None
+        );
+        // Started but no job id (defensive — nothing to cancel).
+        assert_eq!(extract_started_job_id(r#"{"status":"started"}"#), None);
+        assert_eq!(
+            extract_started_job_id(r#"{"status":"started","job_id":""}"#),
+            None
+        );
     }
 }

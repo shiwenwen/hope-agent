@@ -172,6 +172,26 @@ pub async fn save_notification_config(
 }
 
 #[tauri::command]
+pub async fn get_auto_update_config() -> Result<ha_core::updater::AutoUpdateConfig, CmdError> {
+    let store = ha_core::config::cached_config();
+    Ok(store.auto_update.clone())
+}
+
+#[tauri::command]
+pub async fn set_auto_update_config(
+    config: ha_core::updater::AutoUpdateConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("auto_update", "settings-ui"), |store| {
+        store.auto_update = config;
+        // Clamp the interval to the supported range on write so the stored
+        // value matches what the loops actually use.
+        store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_startup_notification_config(
 ) -> Result<ha_core::config::StartupNotificationConfig, CmdError> {
     let store = ha_core::config::cached_config();
@@ -545,6 +565,23 @@ pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_prevent_sleep_enabled() -> Result<bool, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.prevent_sleep)
+}
+
+#[tauri::command]
+pub async fn set_prevent_sleep_enabled(enabled: bool) -> Result<(), CmdError> {
+    // The OS sleep assertion is driven by the `config:changed` listener in
+    // ha-core (`spawn_keep_awake_listener`); this only persists the toggle.
+    ha_core::config::mutate_config(("prevent_sleep", "settings-ui"), |store| {
+        store.prevent_sleep = enabled;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_sidebar_display_mode() -> Result<String, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(ha_core::config::normalize_sidebar_ui_mode(
@@ -700,6 +737,24 @@ pub async fn set_approval_timeout_action(
 ) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("approval_timeout_action", "settings-ui"), |store| {
         store.permission.approval_timeout_action = action;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_unattended_approval_action(
+) -> Result<ha_core::config::UnattendedApprovalAction, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.permission.unattended_approval_action)
+}
+
+#[tauri::command]
+pub async fn set_unattended_approval_action(
+    action: ha_core::config::UnattendedApprovalAction,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("unattended_approval_action", "settings-ui"), |store| {
+        store.permission.unattended_approval_action = action;
         Ok(())
     })
     .map_err(Into::into)

@@ -68,7 +68,8 @@ export function joinAbs(base: string, sub: string): string {
   return `${stripTrailingSlash(base)}/${sub.replace(/^\/+/, "")}`;
 }
 
-/** A segment produced by the mirror parser; used to lay out the chip overlay. */
+/** A segment produced by the mention parser; used to lay out composer chips. */
 export type MentionSegment =
   | { kind: "text"; text: string }
-  | { kind: "mention"; raw: string; relPath: string };
+  | { kind: "mention"; raw: string; relPath: string }
+  | { kind: "note"; raw: string };

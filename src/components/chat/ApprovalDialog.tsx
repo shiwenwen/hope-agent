@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { ShieldAlert, ShieldCheck, FolderOpen, Clock } from "lucide-react"
+import { ShieldAlert, ShieldCheck, FolderOpen, Clock, EyeOff } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 
 export interface ApprovalRequest {
@@ -30,6 +30,31 @@ export interface ApprovalRequest {
     /** Pattern / path / rationale text to display. */
     detail?: string
   }
+  /**
+   * When true the owning session is incognito: the AllowAlways button is hidden
+   * (a persistent grant would outlive the burn-on-close). The backend also
+   * forces any AllowAlways to in-memory session scope. Epic E (INCOG-6).
+   */
+  incognito?: boolean
+}
+
+/**
+ * Reason kinds that bar AllowAlways and render the destructive (red) palette.
+ * Single source of truth shared by the dialog header and the ReasonBanner in
+ * this file — mirrors the backend `ApprovalReasonKind::is_strict` strict set, so
+ * the two never disagree (e.g. on `plan_mode_ask`). File-private: keeping it
+ * unexported satisfies react-refresh/only-export-components (a component file
+ * must export only components).
+ */
+function isStrictReasonKind(
+  kind: NonNullable<ApprovalRequest["reason"]>["kind"] | undefined,
+): boolean {
+  return (
+    kind === "protected_path" ||
+    kind === "dangerous_command" ||
+    kind === "mac_control_dangerous_action" ||
+    kind === "plan_mode_ask"
+  )
 }
 
 interface ApprovalDialogProps {
@@ -98,11 +123,10 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
 
   const total = requests.length
   const reason = current.reason
-  const isStrict =
-    reason?.kind === "protected_path" ||
-    reason?.kind === "dangerous_command" ||
-    reason?.kind === "mac_control_dangerous_action" ||
-    reason?.kind === "plan_mode_ask"
+  const isStrict = isStrictReasonKind(reason?.kind)
+  // E5 (INCOG-6): incognito sessions never persist an AllowAlways grant — hide
+  // the button entirely and explain why below the actions.
+  const incognito = current.incognito === true
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -179,15 +203,25 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           >
             {t("approval.allowOnce")}
           </Button>
-          <Button
-            size="sm"
-            onClick={() => onRespond(current.request_id, "allow_always")}
-            disabled={isStrict}
-            title={isStrict ? t("approval.allowAlwaysDisabled") : undefined}
-          >
-            {t("approval.allowAlways")}
-          </Button>
+          {!incognito && (
+            <Button
+              size="sm"
+              onClick={() => onRespond(current.request_id, "allow_always")}
+              disabled={isStrict}
+              title={isStrict ? t("approval.allowAlwaysDisabled") : undefined}
+            >
+              {t("approval.allowAlways")}
+            </Button>
+          )}
         </div>
+
+        {/* Incognito notice: AllowAlways is unavailable because nothing persists. */}
+        {incognito && (
+          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <EyeOff className="h-3 w-3 shrink-0" />
+            {t("approval.incognitoNoAllowAlways")}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -284,10 +318,7 @@ function ReasonBanner({
   detail?: string
   t: ReturnType<typeof useTranslation>["t"]
 }) {
-  const isStrict =
-    kind === "protected_path" ||
-    kind === "dangerous_command" ||
-    kind === "mac_control_dangerous_action"
+  const isStrict = isStrictReasonKind(kind)
   const palette = isStrict
     ? "border-destructive/40 bg-destructive/10 text-destructive"
     : "border-amber-200/40 bg-amber-50/40 dark:bg-amber-950/10 text-amber-700 dark:text-amber-400"

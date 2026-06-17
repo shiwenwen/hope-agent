@@ -15,6 +15,13 @@ pub async fn list_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppError> 
     Ok(Json(core::list_skills()))
 }
 
+/// `GET /api/skills/mentionable` — curated, fixed allowlist of built-in skills
+/// offered by the composer's `@skill` menu, filtered to what's invocable on
+/// this host. Registered before `/api/skills/{name}` (static wins over param).
+pub async fn list_mentionable_skills() -> Result<Json<Vec<skills::MentionableSkill>>, AppError> {
+    Ok(Json(skills::list_mentionable_skills()))
+}
+
 /// `GET /api/skills/{name}`
 pub async fn get_skill_detail(
     Path(name): Path<String>,

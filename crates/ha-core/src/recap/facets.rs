@@ -133,6 +133,7 @@ pub async fn extract_facets_for_candidates<F>(
     cache: &Arc<RecapDb>,
     agent: &AssistantAgent,
     analysis_model: &str,
+    locale: &str,
     candidates: Vec<CandidateSession>,
     concurrency: u8,
     progress: F,
@@ -150,30 +151,36 @@ where
     });
 
     let analysis_model_arc: Arc<str> = Arc::from(analysis_model);
+    let locale_arc: Arc<str> = Arc::from(locale);
 
     let stream = stream::iter(candidates).map(|cand| {
         let session_db = session_db.clone();
         let cache = cache.clone();
         let analysis_model = analysis_model_arc.clone();
+        let locale = locale_arc.clone();
         let cancel = cancel.clone();
         async move {
             if cancel.is_cancelled() {
                 anyhow::bail!("cancelled");
             }
             // Cache hit: return immediately without an LLM call.
-            if let Ok(Some(facet)) =
-                cache.get_cached_facet(&cand.session_id, &cand.last_message_ts, &analysis_model)
-            {
+            if let Ok(Some(facet)) = cache.get_cached_facet(
+                &cand.session_id,
+                &cand.last_message_ts,
+                &analysis_model,
+                &locale,
+            ) {
                 return Ok(facet);
             }
             let messages = session_db.load_session_messages(&cand.session_id)?;
             let transcript = serialize_transcript(&messages);
-            let facet = extract_one(agent, &cand.session_id, &transcript).await?;
+            let facet = extract_one(agent, &cand.session_id, &transcript, &locale).await?;
             if let Err(e) = cache.save_facet(
                 &facet,
                 &cand.last_message_ts,
                 cand.message_count,
                 &analysis_model,
+                &locale,
             ) {
                 app_debug!("recap", "facets", "cache save failed: {}", e);
             }
@@ -219,16 +226,17 @@ pub async fn extract_one(
     agent: &AssistantAgent,
     session_id: &str,
     transcript: &str,
+    locale: &str,
 ) -> Result<SessionFacet> {
     let chunks = chunk_transcript(transcript);
     if chunks.len() == 1 {
-        let json = run_facet_call(agent, &chunks[0]).await?;
+        let json = run_facet_call(agent, &chunks[0], locale).await?;
         return parse_or_default(&json, session_id);
     }
     // Long transcript: extract per chunk, then merge.
     let mut chunk_jsons = Vec::with_capacity(chunks.len());
     for chunk in &chunks {
-        match run_facet_call(agent, chunk).await {
+        match run_facet_call(agent, chunk, locale).await {
             Ok(j) => chunk_jsons.push(j),
             Err(e) => app_debug!("recap", "facets", "chunk extraction failed: {}", e),
         }
@@ -237,7 +245,7 @@ pub async fn extract_one(
         anyhow::bail!("all chunks failed");
     }
     let merge_input = chunk_jsons.join("\n---\n");
-    let merged = run_merge_call(agent, &merge_input).await?;
+    let merged = run_merge_call(agent, &merge_input, locale).await?;
     parse_or_default(&merged, session_id)
 }
 
@@ -317,7 +325,7 @@ pub fn serialize_transcript(messages: &[SessionMessage]) -> String {
     buf
 }
 
-async fn run_facet_call(agent: &AssistantAgent, transcript: &str) -> Result<String> {
+async fn run_facet_call(agent: &AssistantAgent, transcript: &str, locale: &str) -> Result<String> {
     let prompt = format!(
         "You are an analyst extracting structured facets from an AI-assistant chat session.\n\
         Read the transcript below and return a single JSON object with this exact shape:\n\
@@ -337,22 +345,26 @@ async fn run_facet_call(agent: &AssistantAgent, transcript: &str) -> Result<Stri
           \"briefSummary\": string,\n\
           \"userInstructions\": [string]       // recurring style/process instructions\n\
         }}\n\
-        Output ONLY the JSON object — no commentary, no code fences.\n\n\
-        TRANSCRIPT:\n{}",
-        transcript
+        Output ONLY the JSON object — no commentary, no code fences.\n\
+        {directive}\n\
+        TRANSCRIPT:\n{transcript}",
+        directive = super::i18n::facet_language_directive(locale),
+        transcript = transcript,
     );
     let res = agent.side_query(&prompt, FACET_MAX_TOKENS).await?;
     Ok(res.text)
 }
 
-async fn run_merge_call(agent: &AssistantAgent, partials: &str) -> Result<String> {
+async fn run_merge_call(agent: &AssistantAgent, partials: &str, locale: &str) -> Result<String> {
     let prompt = format!(
         "You will receive several JSON objects — each is a partial facet extraction\n\
          from a chunk of one chat session. Merge them into a single facet JSON\n\
          using the same shape, prioritising signals from the FIRST and LAST chunk for goal/outcome.\n\
-         Output ONLY the merged JSON, no commentary.\n\n\
-         PARTIALS:\n{}",
-        partials
+         Output ONLY the merged JSON, no commentary.\n\
+         {directive}\n\
+         PARTIALS:\n{partials}",
+        directive = super::i18n::facet_language_directive(locale),
+        partials = partials,
     );
     let res = agent.side_query(&prompt, FACET_MAX_TOKENS).await?;
     Ok(res.text)

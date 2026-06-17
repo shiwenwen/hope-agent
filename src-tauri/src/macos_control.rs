@@ -2375,10 +2375,14 @@ mod imp {
         loop {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Text(e)) => {
-                    text.push_str(
-                        &e.unescape()
-                            .map_err(|e| format!("Unable to unescape plist text: {e}"))?,
-                    );
+                    // quick-xml 0.39：decode()（字符编码）+ escape::unescape()（XML
+                    // 实体）组合等价于旧的 BytesText::unescape()。
+                    let decoded = e
+                        .decode()
+                        .map_err(|e| format!("Unable to decode plist text: {e}"))?;
+                    let unescaped = quick_xml::escape::unescape(&decoded)
+                        .map_err(|e| format!("Unable to unescape plist text: {e}"))?;
+                    text.push_str(&unescaped);
                 }
                 Ok(Event::End(e)) if e.local_name().as_ref() == end => return Ok(text),
                 Ok(Event::Eof) => return Err("plist text ended unexpectedly.".to_string()),

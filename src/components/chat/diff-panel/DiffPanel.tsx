@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { GitCompare, X, Columns2, Rows3 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import type { FileChangeMetadata } from "@/types/chat"
@@ -65,7 +66,7 @@ export function DiffPanel({
 
   return (
     <div className={wrapperClasses}>
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex items-center gap-2 px-3 py-2">
         <GitCompare className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="text-sm font-medium truncate">
           {t("diffPanel.title", "文件改动")}
@@ -159,7 +160,7 @@ export function DiffPanel({
               </div>
             )}
           </div>
-          <div className="flex-1 overflow-auto">
+          <div className={cn("flex-1 overflow-auto", PANEL_SCROLL_FADE)}>
             {layout === "unified" ? (
               <UnifiedDiffView change={change} />
             ) : (

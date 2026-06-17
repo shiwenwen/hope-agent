@@ -5,6 +5,7 @@ pub mod commands;
 mod discovery;
 pub mod fork_helper;
 mod frontmatter;
+pub mod mention;
 mod prompt;
 mod requirements;
 mod slash;
@@ -20,6 +21,9 @@ pub use activation::{
 pub use commands::{PresetCandidate, PresetSkillSource};
 pub use discovery::*;
 pub use fork_helper::{extract_fork_result, spawn_skill_fork, MAX_RESULT_CHARS};
+pub use mention::{
+    list_mentionable_skills, resolve_inline_skill_mentions, MentionableSkill, AT_MENTIONABLE_SKILLS,
+};
 pub use prompt::*;
 pub use requirements::*;
 pub use slash::*;
@@ -42,4 +46,17 @@ pub struct SkillsConfig {
     /// exposes the flag.
     #[serde(default)]
     pub allow_remote_install: bool,
+}
+
+/// Wrap SKILL.md content with runtime package metadata so bundled resources can
+/// be used without guessing where the skill lives on disk.
+pub fn build_skill_context_payload(skill: &types::SkillEntry, content: &str) -> String {
+    format!(
+        "[SYSTEM: Skill package metadata]\n\
+         - Skill name: `{}`\n\
+         - Skill directory: `{}`\n\
+         - Resolve bundled scripts, references, and assets relative to that directory.\n\
+         [/SYSTEM]\n\n{}",
+        skill.name, skill.base_dir, content
+    )
 }

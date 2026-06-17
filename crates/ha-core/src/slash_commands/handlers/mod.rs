@@ -126,6 +126,7 @@ pub async fn dispatch(
         // `reasoning` is a silent alias for `reason` (only `reason` is in the
         // registry / slash menu).
         "reason" | "reasoning" => utility::handle_reason(session_id, args).await,
+        "kb" => utility::handle_kb(session_id, args).await,
 
         _ => {
             // Check if it matches a user-invocable skill command
@@ -166,6 +167,9 @@ async fn handle_skill_command(
     agent_id: &str,
 ) -> Option<Result<CommandResult, String>> {
     let store = crate::config::cached_config();
+    let env_check =
+        crate::skills::skill_env_check_enabled_for_agent(Some(agent_id), store.skill_env_check);
+    let skill_env = store.skill_env.clone();
     let skills =
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
@@ -180,6 +184,19 @@ async fn handle_skill_command(
         .map(|r| r.skill.clone())?;
 
     use crate::slash_commands::types::CommandAction;
+
+    if env_check {
+        let detail = crate::skills::check_requirements_detail(
+            &matched.requires,
+            skill_env.get(&matched.name),
+        );
+        if !detail.eligible {
+            return Some(Ok(CommandResult {
+                content: crate::skills::format_requirements_diagnostic(&matched, &detail),
+                action: Some(CommandAction::DisplayOnly),
+            }));
+        }
+    }
 
     // ── Fork mode: dispatch skill to sub-agent ──
     if matched.context_mode.as_deref() == Some("fork") {

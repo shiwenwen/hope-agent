@@ -95,15 +95,25 @@ pub fn classify_exe_path(exe: &Path) -> InstallSource {
 
     #[cfg(target_os = "macos")]
     {
-        // brew cask installs land at
-        // `<prefix>/Caskroom/hope-agent/.../Hope Agent.app/Contents/MacOS/hope-agent`,
-        // which also matches the `.app/` substring used to detect a raw
-        // DMG drop. Check brew first so cask installs route to the
-        // package manager rather than the (signing-sensitive) Tauri path.
+        // A brew cask can run from one of two places and the path alone
+        // can't always tell it apart from a hand-dragged DMG:
+        //   1. Some casks run straight out of the Caskroom staging dir
+        //      (`<prefix>/Caskroom/hope-agent/.../Hope Agent.app/...`) — the
+        //      path match below catches those.
+        //   2. The DEFAULT `app` stanza MOVES the bundle to `/Applications`,
+        //      so the running exe is `/Applications/Hope Agent.app/...` —
+        //      byte-for-byte identical to a raw DMG drop. brew only records
+        //      the install under `<prefix>/Caskroom/hope-agent/`, so we probe
+        //      the filesystem for that marker before falling back to Tauri.
+        // Getting this wrong sends cask users down the Tauri self-replace
+        // path, which desyncs brew's Caskroom records from /Applications.
         if let Some(prefix) = brew_prefix_from_path(&s) {
             return InstallSource::Brew { prefix };
         }
         if s.contains("/Applications/Hope Agent.app/") || s.contains("/Hope Agent.app/") {
+            if let Some(prefix) = brew_caskroom_owner() {
+                return InstallSource::Brew { prefix };
+            }
             return InstallSource::TauriBundle;
         }
     }
@@ -166,6 +176,27 @@ fn brew_prefix_from_path(exe_str: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Probe the filesystem for a Homebrew Caskroom entry, used when the running
+/// app lives in `/Applications` (default `app` stanza) and so can't be told
+/// from a raw DMG drop by path alone. brew keeps the install record at
+/// `<prefix>/Caskroom/hope-agent/` even after moving the bundle out, so the
+/// directory's presence is a reliable cask marker.
+#[cfg(target_os = "macos")]
+fn brew_caskroom_owner() -> Option<PathBuf> {
+    caskroom_owner_in(&["/opt/homebrew", "/usr/local"], |p| p.is_dir())
+}
+
+/// Pure core of [`brew_caskroom_owner`] — the prefix list and the existence
+/// check are injected so the resolution order can be unit-tested without a
+/// real Homebrew install on the runner.
+#[cfg(target_os = "macos")]
+fn caskroom_owner_in(prefixes: &[&str], exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    prefixes.iter().find_map(|prefix| {
+        let caskroom = PathBuf::from(prefix).join("Caskroom/hope-agent");
+        exists(&caskroom).then(|| PathBuf::from(prefix))
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -231,6 +262,25 @@ mod tests {
             InstallSource::Brew { prefix } => assert_eq!(prefix, PathBuf::from("/usr/local")),
             other => panic!("expected Brew, got {other:?}"),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn caskroom_probe_detects_applications_cask_install() {
+        // Default `app` stanza moves the bundle to /Applications, so the only
+        // signal left that it's a cask is the Caskroom marker directory.
+        let got = caskroom_owner_in(&["/opt/homebrew", "/usr/local"], |p| {
+            p == Path::new("/opt/homebrew/Caskroom/hope-agent")
+        });
+        assert_eq!(got, Some(PathBuf::from("/opt/homebrew")));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn caskroom_probe_returns_none_for_hand_dragged_dmg() {
+        // No Caskroom marker anywhere ⇒ a raw DMG drop, leave it as TauriBundle.
+        let got = caskroom_owner_in(&["/opt/homebrew", "/usr/local"], |_| false);
+        assert_eq!(got, None);
     }
 
     #[cfg(target_os = "linux")]

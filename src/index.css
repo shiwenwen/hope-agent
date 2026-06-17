@@ -45,8 +45,16 @@
   --color-user-bubble: hsl(220 14% 94%);
 }
 
+/* Knowledge-space editor: current-line (cursor) highlight. Kept very faint so it
+   doesn't read as a heavy band — especially on the white light theme; the dark
+   theme can carry a touch more. Consumed by NoteEditor's CM6 `.cm-activeLine`. */
+:root {
+  --cm-active-line: rgba(0, 0, 0, 0.015);
+}
+
 /* Dark theme overrides */
 .dark {
+  --cm-active-line: rgba(255, 255, 255, 0.05);
   --color-background: hsl(220 13% 12%);
   --color-foreground: hsl(210 20% 90%);
   --color-card: hsl(220 13% 15%);
@@ -212,6 +220,60 @@
   animation: fade-slide-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes ha-menu-popover-enter {
+  from {
+    opacity: 0;
+    filter: blur(1px);
+    transform: translate3d(var(--ha-menu-enter-x, 0px), var(--ha-menu-enter-y, 6px), 0)
+      scale(var(--ha-menu-enter-scale, 0.96));
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ha-menu-popover-exit {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    filter: blur(1px);
+    transform: translate3d(
+        var(--ha-menu-exit-x, var(--ha-menu-enter-x, 0px)),
+        var(--ha-menu-exit-y, var(--ha-menu-enter-y, 6px)),
+        0
+      )
+      scale(var(--ha-menu-exit-scale, 0.97));
+  }
+}
+
+.ha-menu-popover-enter {
+  animation: ha-menu-popover-enter var(--ha-presence-enter-duration, 220ms)
+    var(--ha-presence-enter-easing, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.ha-menu-popover-exit {
+  animation: ha-menu-popover-exit var(--ha-presence-exit-duration, 180ms)
+    var(--ha-presence-exit-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
+}
+
+.ha-menu-from-top {
+  --ha-menu-enter-y: -6px;
+  --ha-menu-exit-y: -6px;
+}
+
+.ha-menu-from-left {
+  --ha-menu-enter-x: -6px;
+  --ha-menu-enter-y: 0px;
+  --ha-menu-exit-x: -6px;
+  --ha-menu-exit-y: 0px;
+}
+
 /* Pulse highlight for the message that matched a history search result */
 @keyframes message-hit-pulse {
   0% {
@@ -266,12 +328,7 @@
 }
 
 @utility animate-text-shimmer {
-  background: linear-gradient(
-    90deg,
-    currentColor 40%,
-    hsl(270 60% 82%) 50%,
-    currentColor 60%
-  );
+  background: linear-gradient(90deg, currentColor 40%, hsl(270 60% 82%) 50%, currentColor 60%);
   background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -310,6 +367,18 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  .message-hit-pulse {
+    animation: none !important;
+    background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent);
+  }
+
+  .animate-text-shimmer {
+    animation: none !important;
+    background: none !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
 }
 
 /* Markdown images: clickable zoom */
@@ -336,8 +405,7 @@
   border-radius: 0.25rem;
   margin-inline: -0.08em;
   padding-inline: 0.08em;
-  background:
-    linear-gradient(
+  background: linear-gradient(
       color-mix(in srgb, hsl(210 100% 50%) 12%, transparent),
       color-mix(in srgb, hsl(210 100% 50%) 12%, transparent)
     )
@@ -434,8 +502,7 @@
 
 .dark .markdown-content [data-streamdown="link"] {
   color: hsl(199 100% 72%);
-  background:
-    linear-gradient(
+  background: linear-gradient(
       color-mix(in srgb, hsl(199 100% 72%) 16%, transparent),
       color-mix(in srgb, hsl(199 100% 72%) 16%, transparent)
     )
@@ -517,7 +584,9 @@
   margin-left: 0;
 }
 
-.markdown-content [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+.markdown-content
+  [data-streamdown="code-block"]
+  > div:has(> [data-streamdown="code-block-actions"]) {
   position: absolute;
   top: 0.25rem;
   right: 0.375rem;
@@ -804,7 +873,9 @@ pre.hope-shiki-view {
   font-weight: 600;
 }
 
-.markdown-content [data-streamdown="mermaid-block"] > div:has(> [data-streamdown="mermaid-block-actions"]) {
+.markdown-content
+  [data-streamdown="mermaid-block"]
+  > div:has(> [data-streamdown="mermaid-block-actions"]) {
   position: absolute;
   top: 0.25rem;
   right: 0.375rem;
@@ -860,41 +931,82 @@ pre.hope-shiki-view {
 
 /* Three twinkle speeds with staggered phases + slow irregular drift */
 .starry-twinkle-1 {
-  animation: star-twinkle 4s ease-in-out infinite, star-drift-1 40s ease-in-out infinite;
+  animation:
+    star-twinkle 4s ease-in-out infinite,
+    star-drift-1 40s ease-in-out infinite;
 }
 .starry-twinkle-2 {
-  animation: star-twinkle 6s ease-in-out 1.5s infinite, star-drift-2 55s ease-in-out infinite;
+  animation:
+    star-twinkle 6s ease-in-out 1.5s infinite,
+    star-drift-2 55s ease-in-out infinite;
 }
 .starry-twinkle-3 {
-  animation: star-twinkle 8s ease-in-out 3s infinite, star-drift-3 45s ease-in-out infinite;
+  animation:
+    star-twinkle 8s ease-in-out 3s infinite,
+    star-drift-3 45s ease-in-out infinite;
 }
 
 @keyframes star-twinkle {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Slow irregular drift — each layer moves a different path */
 @keyframes star-drift-1 {
-  0%   { transform: translate(0, 0); }
-  25%  { transform: translate(-25px, 18px); }
-  50%  { transform: translate(15px, 30px); }
-  75%  { transform: translate(22px, -12px); }
-  100% { transform: translate(0, 0); }
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-25px, 18px);
+  }
+  50% {
+    transform: translate(15px, 30px);
+  }
+  75% {
+    transform: translate(22px, -12px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
 }
 @keyframes star-drift-2 {
-  0%   { transform: translate(0, 0); }
-  20%  { transform: translate(20px, 25px); }
-  45%  { transform: translate(-18px, 14px); }
-  70%  { transform: translate(-28px, -20px); }
-  100% { transform: translate(0, 0); }
+  0% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(20px, 25px);
+  }
+  45% {
+    transform: translate(-18px, 14px);
+  }
+  70% {
+    transform: translate(-28px, -20px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
 }
 @keyframes star-drift-3 {
-  0%   { transform: translate(0, 0); }
-  30%  { transform: translate(18px, -22px); }
-  60%  { transform: translate(-22px, -14px); }
-  85%  { transform: translate(12px, 25px); }
-  100% { transform: translate(0, 0); }
+  0% {
+    transform: translate(0, 0);
+  }
+  30% {
+    transform: translate(18px, -22px);
+  }
+  60% {
+    transform: translate(-22px, -14px);
+  }
+  85% {
+    transform: translate(12px, 25px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
 }
 
 /* Shooting star */
@@ -960,8 +1072,12 @@ pre.hope-shiki-view {
 }
 
 @keyframes weather-cloud-move {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(calc(100vw + 600px)); }
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(100vw + 600px));
+  }
 }
 
 /* ── Fog overlay ── */
@@ -986,8 +1102,12 @@ pre.hope-shiki-view {
   );
 }
 @keyframes weather-fog-breathe {
-  0% { opacity: 0.6; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* ── Wind streaks ── */
@@ -1003,6 +1123,10 @@ pre.hope-shiki-view {
   background: linear-gradient(90deg, transparent, rgba(150, 170, 210, 0.2), transparent);
 }
 @keyframes weather-wind-blow {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(calc(100vw + 600px)); }
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(100vw + 600px));
+  }
 }

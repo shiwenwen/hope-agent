@@ -10,8 +10,8 @@ use super::issue_report;
 use super::send_attachment;
 use super::skill;
 use super::{
-    acp_spawn, browser, cron, mac_control, memory, notification, settings, subagent, team, weather,
-    web_fetch, web_search,
+    acp_spawn, browser, cron, mac_control, memory, note, notification, settings, subagent, team,
+    weather, web_fetch, web_search,
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
@@ -29,6 +29,14 @@ use super::{
     TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
     TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
     TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+};
+use super::{
+    TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
+    TOOL_NOTE_BROKEN_LINKS, TOOL_NOTE_BY_TAG, TOOL_NOTE_CREATE, TOOL_NOTE_DELETE,
+    TOOL_NOTE_DISTILL, TOOL_NOTE_GRAPH, TOOL_NOTE_LINK, TOOL_NOTE_MOC, TOOL_NOTE_MOVE,
+    TOOL_NOTE_ORPHANS, TOOL_NOTE_PATCH, TOOL_NOTE_READ, TOOL_NOTE_RELATED, TOOL_NOTE_RENAME,
+    TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS,
+    TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_SESSION_TO_NOTE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -98,6 +106,23 @@ pub(super) async fn resolve_tool_permission(
         smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
     };
     crate::permission::engine::resolve_async(&resolve_ctx).await
+}
+
+/// Record the target path(s) of a `write` / `edit` / `apply_patch` call into
+/// the session-edit tracker so Smart mode won't re-prompt on later edits to the
+/// same file. No-op for non-edit tools (empty target list) and sessionless
+/// calls. Paths use the same canonical resolution as the permission engine.
+fn record_smart_session_edits(name: &str, args: &Value, ctx: &ToolExecContext) {
+    let Some(session_id) = ctx.session_id.as_deref() else {
+        return;
+    };
+    for path in crate::permission::rules::resolved_edit_target_paths(
+        name,
+        args,
+        Some(std::path::Path::new(ctx.default_path())),
+    ) {
+        crate::permission::session_edits::record(session_id, &path);
+    }
 }
 
 /// Load the user-configured tool timeout from config.json. Returns `None`
@@ -203,6 +228,27 @@ pub struct ToolExecContext {
     /// approval gates including command-level" and is set only by IM
     /// auto-approve accounts or slash-skill execution.
     pub external_pre_approved: bool,
+    /// Set ONLY by the async approval-reorder path
+    /// ([`execute_tool_with_context`]) after it has already run `exec`'s
+    /// command-level gate ([`exec::resolve_exec_command_approval`]) and the
+    /// user approved — *before* detaching the call into a background job. The
+    /// spawned re-dispatch reads this via [`Self::should_run_exec_command_gate`]
+    /// to skip the inner gate, so the command is approved exactly once and the
+    /// model never sees a synthetic "started" job id ahead of the prompt
+    /// (ASYNC-1 / HOOKS-2).
+    ///
+    /// Physically separate from [`Self::external_pre_approved`], which silences
+    /// only the *engine* gate and must NEVER suppress the command-level audit.
+    /// This flag may suppress the command gate precisely because it is set only
+    /// once that gate has already passed for this exact call.
+    pub exec_pre_approved: bool,
+    /// How a backgrounded call was authorized, for the async-job
+    /// `approval_origin` audit column (TIMEOUT-2). Set by the exec async
+    /// approval-reorder alongside [`Self::exec_pre_approved`] and read by
+    /// [`crate::async_jobs::spawn::record_running_job`]. `None` for synchronous
+    /// dispatch and for jobs that skipped the gate (auto-approve / external
+    /// pre-approved — wired separately by F6).
+    pub approval_origin: Option<approval::ApprovalOrigin>,
     /// Per-session permission mode (Default / Smart / Yolo). Resolved from the
     /// `sessions.permission_mode` column at agent build time. The engine
     /// consumes this together with `global_yolo` to decide approval behavior.
@@ -214,6 +260,20 @@ pub struct ToolExecContext {
     pub agent_custom_approval_tools: Vec<String>,
     /// Project id (if any) for AllowAlways scope resolution.
     pub project_id: Option<String>,
+    /// Turn source for knowledge-base access scoping (design D10). `None` =
+    /// unknown (treated as owner/GUI). Set by the chat engine; IM turns set
+    /// `Im` so KB access is denied even on project-attached sessions (Phase 1).
+    pub chat_source: Option<crate::knowledge::KbAccessSource>,
+    /// Call-chain origin for KB access scoping (design D10). `None` = same as
+    /// `chat_source` (top-level turn). A subagent carries its parent turn's
+    /// origin so an IM-origin chain can't reacquire KB access through the
+    /// neutral `Subagent` source. Consumed by `effective_kb_access`.
+    pub origin_chat_source: Option<crate::knowledge::KbAccessSource>,
+    /// IM identity of the lineage origin, for the WS8 KB-access opt-in gate.
+    /// `Some` only when the lineage contains an IM hop (top-level IM turn or an
+    /// IM-origin subagent, which carries the origin's identity). `None` for
+    /// GUI/HTTP/cron. Consumed by `effective_kb_access` via `KnowledgeAccessContext`.
+    pub channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
     /// Per-agent async tool backgrounding policy (mirrors AgentConfig.capabilities.async_tool_policy).
     pub async_tool_policy: AsyncToolPolicy,
     /// Internal flag set by the async-job spawner when re-dispatching an
@@ -231,6 +291,14 @@ pub struct ToolExecContext {
     /// preview layer must not wrap the output first and turn the async
     /// output-file into a pointer to a second file.
     pub suppress_result_disk_persistence: bool,
+    /// Whether the owning session is incognito (`sessions.incognito`). Resolved
+    /// once per ctx build from the session row. Incognito sessions must leave no
+    /// disk trace, so this gates large-tool-result spooling
+    /// ([`maybe_persist_large_tool_result`]) and async-job persistence
+    /// ([`crate::async_jobs::spawn::record_running_job`] /
+    /// `persist_result`), and forces AllowAlways grants to in-memory session
+    /// scope ([`Self::allowlist_grant_context`]). Epic E (INCOG-2/5/6).
+    pub incognito: bool,
     /// Best-effort cancellation signal for the currently executing tool.
     /// The chat turn, async-job timeout, or runtime_cancel path can trip this
     /// token; resource-owning tools such as `exec` use it to clean up process
@@ -259,6 +327,25 @@ pub struct ToolExecContext {
     /// doesn't care; the regular non-orchestrator callers of
     /// `execute_tool_with_context` leave it `None`).
     pub effective_args_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
+    /// Callback to record the OS pid of a tool's spawned child process (e.g.
+    /// `exec`'s shell child) into the owning async-job row, so a crash/restart
+    /// can detect and terminate orphaned process trees (I3). Set by
+    /// [`crate::async_jobs::spawn::spawn_explicit_job`] for backgrounded jobs;
+    /// `None` for foreground dispatch (no job row to annotate). Invoked via
+    /// [`Self::emit_pid`].
+    pub pid_sink: Option<PidSink>,
+}
+
+/// Wrapper around the [`ToolExecContext::pid_sink`] callback. A newtype with a
+/// hand-written `Debug` because `ToolExecContext` derives `Debug` and a bare
+/// `Arc<dyn Fn>` is not `Debug`.
+#[derive(Clone)]
+pub struct PidSink(pub Arc<dyn Fn(u32) + Send + Sync>);
+
+impl std::fmt::Debug for PidSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PidSink(..)")
+    }
 }
 
 impl ToolExecContext {
@@ -274,18 +361,23 @@ impl ToolExecContext {
     }
 
     /// True when `exec` must run its command-level audit (dangerous-commands
-    /// + edit-commands + AllowAlways prefix). Only `auto_approve_tools`
-    /// bypasses this — `external_pre_approved` deliberately does NOT,
-    /// because the outer engine gate excludes `TOOL_EXEC` and this audit is
-    /// `exec`'s only safeguard against dangerous patterns when the call is
+    /// + edit-commands + AllowAlways prefix). Two flags bypass it:
+    ///   - `auto_approve_tools` — "skip ALL approval" (IM auto-approve /
+    ///     slash-skill execution); and
+    ///   - `exec_pre_approved` — the async approval-reorder already ran this
+    ///     exact gate and the user approved, before detaching.
+    ///
+    /// `external_pre_approved` deliberately does NOT bypass it: it silences
+    /// only the engine gate (which excludes `TOOL_EXEC` anyway), and this audit
+    /// is `exec`'s only safeguard against dangerous patterns when the call is
     /// re-dispatched through the async-job spawner / auto-bg helper.
     ///
-    /// Changing this read site without also updating
-    /// [`Self::auto_approve_tools`] / [`Self::external_pre_approved`] doc
-    /// is a security regression.
+    /// Changing this read site without also updating the
+    /// [`Self::auto_approve_tools`] / [`Self::external_pre_approved`] /
+    /// [`Self::exec_pre_approved`] docs is a security regression.
     #[inline]
     pub fn should_run_exec_command_gate(&self) -> bool {
-        !self.auto_approve_tools
+        !self.auto_approve_tools && !self.exec_pre_approved
     }
 
     /// Returns the default path for path-aware tools: session working dir,
@@ -304,6 +396,7 @@ impl ToolExecContext {
             agent_id: self.agent_id.as_deref(),
             default_path: Some(self.default_path()),
             home_dir: self.home_dir.as_deref(),
+            incognito: self.incognito,
         }
     }
 
@@ -487,6 +580,16 @@ impl ToolExecContext {
         }
     }
 
+    /// Record a spawned child-process pid into the owning async-job row for
+    /// restart orphan cleanup (I3). No-op unless a [`PidSink`] is wired (only
+    /// backgrounded jobs set one). Synchronous + cheap (a single guarded DB
+    /// UPDATE behind the closure).
+    pub fn emit_pid(&self, pid: u32) {
+        if let Some(sink) = &self.pid_sink {
+            (sink.0)(pid);
+        }
+    }
+
     /// Push the effective (post-`PreToolUse` rewrite) tool arguments into the
     /// per-dispatch sink. Called once at most, only when `updatedInput`
     /// shadowed the model's args. No-op when no sink is wired up.
@@ -594,6 +697,29 @@ fn decide_async_path(name: &str, args: &Value, ctx: &ToolExecContext) -> AsyncDe
         return AsyncDecision::AutoBackgroundEligible;
     }
     AsyncDecision::Sync
+}
+
+/// Whether the exec async approval-reorder should run `exec`'s command gate
+/// *before* detaching the call into a background job (B5/B6). It runs only when
+/// all hold:
+///   - the tool is `exec` (the only tool excluded from the outer engine gate);
+///   - the call will actually background (`async_decision != Sync`);
+///   - exec was NOT already approved at the outer engine gate this turn
+///     (`already_approved`) — set by the Plan-Mode-ask path so the reorder
+///     doesn't re-prompt for the identical command (review#3); and
+///   - the command gate isn't globally bypassed
+///     (`ctx.should_run_exec_command_gate()` = `!auto_approve_tools &&
+///     !exec_pre_approved` on the ctx).
+fn should_run_exec_reorder_gate(
+    name: &str,
+    async_decision: AsyncDecision,
+    already_approved: bool,
+    ctx: &ToolExecContext,
+) -> bool {
+    name == TOOL_EXEC
+        && !matches!(async_decision, AsyncDecision::Sync)
+        && !already_approved
+        && ctx.should_run_exec_command_gate()
 }
 
 /// Check if a read tool call targets a SKILL.md file (pre-authorized by skill system).
@@ -856,7 +982,7 @@ async fn run_tool_approval(
     ctx: &ToolExecContext,
     reason_payload: Option<approval::ApprovalReasonPayload>,
     allow_always_forbidden: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<approval::ApprovalOrigin> {
     let desc = format!("tool: {} {}", name, {
         let s = args.to_string();
         if s.len() > 200 {
@@ -876,7 +1002,7 @@ async fn run_tool_approval(
     {
         Ok(approval::ApprovalResponse::AllowOnce) => {
             app_info!("tool", "approval", "Tool '{}' approved (once)", name);
-            Ok(())
+            Ok(approval::ApprovalOrigin::User)
         }
         Ok(approval::ApprovalResponse::AllowAlways) => {
             if allow_always_forbidden {
@@ -911,12 +1037,36 @@ async fn run_tool_approval(
                     ),
                 }
             }
-            Ok(())
+            Ok(approval::ApprovalOrigin::User)
         }
         Ok(approval::ApprovalResponse::Deny) => {
             Err(super::rejection::ToolRejection::denied_by_user(name))
         }
-        Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
+        Err(approval::ApprovalCheckError::TimedOut {
+            timeout_secs,
+            strict,
+        }) => {
+            // F2 (TIMEOUT-1): a strict reason (protected path / dangerous command
+            // / mac-dangerous / plan-ask) must NEVER auto-proceed unattended —
+            // force a deny even when `approval_timeout_action=proceed`.
+            if strict
+                && matches!(
+                    approval::approval_timeout_action(),
+                    crate::config::ApprovalTimeoutAction::Proceed
+                )
+            {
+                app_warn!(
+                    "permission",
+                    "strict_timeout_deny",
+                    "Tool '{}' approval timed out after {}s; reason is strict — forcing deny despite approval_timeout_action=proceed",
+                    name,
+                    timeout_secs
+                );
+                return Err(super::rejection::ToolRejection::approval_timeout(
+                    name,
+                    timeout_secs,
+                ));
+            }
             match approval::approval_timeout_action() {
                 crate::config::ApprovalTimeoutAction::Deny => {
                     app_warn!(
@@ -939,9 +1089,32 @@ async fn run_tool_approval(
                         name,
                         timeout_secs
                     );
-                    Ok(())
+                    // F6: weaker-than-click authorization for the audit column.
+                    Ok(approval::ApprovalOrigin::TimeoutProceed)
                 }
             }
+        }
+        Err(approval::ApprovalCheckError::Unattended { reason }) => {
+            // Surface check already logged + fired the denied hook. Fail-closed
+            // with the structured root cause instead of a generic "check failed".
+            Err(super::rejection::ToolRejection::denied_unattended(
+                name,
+                reason.explain(),
+            ))
+        }
+        Err(approval::ApprovalCheckError::UnattendedProceed { reason }) => {
+            // Non-strict reason on an unattended surface with
+            // `unattendedApprovalAction=proceed`. Auto-proceed, but record the
+            // weaker-than-click origin (a strict reason never reaches here — it
+            // is force-denied as `Unattended` above).
+            app_warn!(
+                "tool",
+                "approval",
+                "Tool '{}' auto-proceeded on unattended surface ({})",
+                name,
+                reason.explain()
+            );
+            Ok(approval::ApprovalOrigin::UnattendedProceed)
         }
         Err(e) => {
             app_warn!(
@@ -1069,6 +1242,36 @@ pub async fn execute_tool_with_context(
     // auto-approve accounts and skill-triggered slash commands.
     let effective_auto_approve = ctx.local_auto_approve() || mcp_tool_auto_approves(name).await;
     let needs_engine = needs_permission_engine(name, args, ctx, effective_auto_approve);
+
+    // F7 (IMYOLO-1 / DELETE-2): an IM auto-approve account / slash-skill skips the
+    // engine gate entirely (`auto_approve_tools` → `needs_engine=false`). That
+    // convenience stays opt-in, but a *strict* call slipping through silently
+    // (dangerous command / protected path / mac-dangerous / plan-ask) must be
+    // auditable. Probe the engine WITHOUT enforcing — only when the bypass is
+    // specifically `auto_approve_tools` (NOT `external_pre_approved` async
+    // re-entry, already gated at the outer dispatch; NOT MCP trust). Audit only:
+    // the call still proceeds.
+    if ctx.auto_approve_tools && !ctx.external_pre_approved && !needs_engine {
+        if let crate::permission::Decision::Ask { reason } =
+            resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await
+        {
+            if reason.forbids_allow_always() {
+                app_warn!(
+                    "permission",
+                    "auto_approve_bypass",
+                    "Tool '{}' auto-approved (IM/skill), bypassing a STRICT approval ({:?}) — audit only, proceeding",
+                    name,
+                    reason
+                );
+            }
+        }
+    }
+    // exec async approval-reorder state (B5/B6). Declared here — above the
+    // engine gate — so the Plan-Mode-ask path below can record that exec was
+    // already approved at the outer gate and suppress the reorder's second
+    // prompt (review#3: plan-ask + async-eligible exec double-prompted).
+    let mut exec_pre_approved = false;
+    let mut tool_approval_origin: Option<approval::ApprovalOrigin> = None;
     if needs_engine {
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
@@ -1078,14 +1281,20 @@ pub async fn execute_tool_with_context(
                 // returned `ask`/`defer` still wants human confirmation — force
                 // the prompt (no reason banner) so its request can't fail open.
                 if pre_force_prompt {
-                    run_tool_approval(name, args, ctx, None, false).await?;
+                    tool_approval_origin =
+                        Some(run_tool_approval(name, args, ctx, None, false).await?);
                 }
             }
             crate::permission::Decision::Deny { reason } => {
                 // PermissionDenied hook (observation): engine policy auto-denied
                 // this tool (no user prompt — that decline path fires from the
                 // approval layer instead).
-                crate::hooks::fire_permission_denied(ctx.session_id.as_deref(), name, "policy");
+                crate::hooks::fire_permission_denied(
+                    ctx.session_id.as_deref(),
+                    name,
+                    "policy",
+                    ctx.tool_call_id.as_deref(),
+                );
                 return Err(super::rejection::ToolRejection::denied_by_policy(
                     name, reason,
                 ));
@@ -1115,15 +1324,36 @@ pub async fn execute_tool_with_context(
                     // the hooks approval refactor.
                     let mac_control_focus_anchor =
                         capture_mac_control_approval_focus_anchor(name).await;
-                    run_tool_approval(
-                        name,
-                        args,
-                        ctx,
-                        Some(approval::ApprovalReasonPayload::from(&reason)),
-                        forbidden,
-                    )
-                    .await?;
+                    // F6: the prompt outcome IS the audit origin (User on approve,
+                    // TimeoutProceed on a non-strict timeout-proceed).
+                    tool_approval_origin = Some(
+                        run_tool_approval(
+                            name,
+                            args,
+                            ctx,
+                            Some(approval::ApprovalReasonPayload::from(&reason)),
+                            forbidden,
+                        )
+                        .await?,
+                    );
                     restore_mac_control_approval_focus_anchor(mac_control_focus_anchor).await;
+                    // review#3: `exec` reaches the outer engine gate ONLY via
+                    // Plan-Mode `ask_tools` (it is otherwise excluded). The user
+                    // just approved that PlanModeAsk prompt; the async
+                    // approval-reorder below would re-run the SAME engine →
+                    // PlanModeAsk again → a redundant SECOND prompt for the
+                    // identical command. Record the approval so the reorder (and
+                    // the backgrounded inner gate) skip it — one prompt, not two.
+                    // Gated on PlanModeAsk specifically so a future non-plan
+                    // route to the engine can't accidentally bypass exec's
+                    // command-level dangerous/protected audit.
+                    if name == TOOL_EXEC
+                        && matches!(reason, crate::permission::AskReason::PlanModeAsk)
+                    {
+                        // Origin already captured from the prompt above; just mark
+                        // the reorder gate as satisfied so exec isn't re-prompted.
+                        exec_pre_approved = true;
+                    }
                 }
             }
         }
@@ -1132,7 +1362,52 @@ pub async fn execute_tool_with_context(
         // PreToolUse hook explicitly asked for confirmation — honor it rather
         // than letting the request through silently. SKILL.md reads are exempt
         // so skill bootstrap never blocks on a prompt.
-        run_tool_approval(name, args, ctx, None, false).await?;
+        tool_approval_origin = Some(run_tool_approval(name, args, ctx, None, false).await?);
+    }
+
+    // ── exec async approval reorder (B5 / B6) ─────────────────────
+    // `exec` is excluded from the outer engine gate above — its command-level
+    // approval normally lives inside `tool_exec`. For an async-eligible exec
+    // call that would otherwise detach, run that gate HERE, *before* handing
+    // off to the spawner, so:
+    //   - the user approves the command before the model ever sees a synthetic
+    //     "started" job id (ASYNC-1) and approval surfaces fire in causal order
+    //     (HOOKS-2); and
+    //   - for the auto-background tier the approval wait is excluded from the
+    //     `auto_background_secs` + `max_job_secs` budgets (ASYNC-2) — those
+    //     timers only start inside the spawner calls below.
+    // On approval, `exec_pre_approved` rides into the spawned context so the
+    // inner gate in `tool_exec` is skipped (one prompt, not two). On deny the
+    // rejection returns WITHOUT spawning — the model gets a STOP, never a
+    // phantom job. Non-exec async tools already ran the engine gate above, so
+    // they reach the spawn branches already approved.
+    if should_run_exec_reorder_gate(name, async_decision, exec_pre_approved, ctx) {
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let session_cwd = args
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(|raw| ctx.resolve_path(raw))
+            .unwrap_or_else(|| ctx.default_cwd());
+        let origin = exec::resolve_exec_command_approval(command, args, ctx, &session_cwd).await?;
+        exec_pre_approved = true;
+        tool_approval_origin = Some(origin);
+    }
+
+    // F6 (TIMEOUT-2): every backgrounded job's `approval_origin` column records
+    // HOW it was authorized. The engine gate / exec reorder set it for prompted,
+    // exec, and policy-allowed-with-force-prompt calls; fill the remaining bypass
+    // cases so no spawned job carries a null origin — async re-entry
+    // (external_pre_approved), IM/skill auto-approve (effective_auto_approve), or
+    // a silent engine Allow (policy/yolo). Only the async spawn branches below
+    // consume this; sync execution ignores it.
+    if tool_approval_origin.is_none() {
+        tool_approval_origin = Some(if ctx.external_pre_approved {
+            approval::ApprovalOrigin::ExternalPreApproved
+        } else if effective_auto_approve {
+            approval::ApprovalOrigin::AutoApprove
+        } else {
+            exec::policy_allow_origin(ctx)
+        });
     }
 
     // Log tool execution start
@@ -1181,7 +1456,13 @@ pub async fn execute_tool_with_context(
     // job_id is returned to the LLM as the tool result; the real work runs on
     // a dedicated OS thread via `async_jobs::spawn_explicit_job`.
     if let AsyncDecision::ImmediateBackground(origin) = async_decision {
-        let raw = async_jobs::spawn_explicit_job(name, args.clone(), ctx.clone(), origin)?;
+        let mut spawn_ctx = ctx.clone();
+        // For exec the command gate already ran above; carry the verdict so the
+        // re-dispatch inside the background runtime doesn't prompt again, plus
+        // the audit origin for the job's `approval_origin` column.
+        spawn_ctx.exec_pre_approved = exec_pre_approved;
+        spawn_ctx.approval_origin = tool_approval_origin;
+        let raw = async_jobs::spawn_explicit_job(name, args.clone(), spawn_ctx, origin)?;
         // Skip the disk-persist tail since the synthetic JSON is small and
         // mirrors the same shape `job_status` returns later.
         return Ok(raw);
@@ -1206,6 +1487,11 @@ pub async fn execute_tool_with_context(
         // bypass `exec`'s command-level dangerous/edit audit and let any
         // shell command run silently as long as it's async-eligible.
         inner_ctx.external_pre_approved = true;
+        // For exec the command gate already ran above (before the budget timer
+        // starts); carry the verdict so the inner re-dispatch doesn't prompt
+        // again on the background OS thread, plus the audit origin.
+        inner_ctx.exec_pre_approved = exec_pre_approved;
+        inner_ctx.approval_origin = tool_approval_origin;
         let raw =
             async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
         // The inner worker suppresses generic disk persistence so detached jobs
@@ -1277,6 +1563,31 @@ pub async fn execute_tool_with_context(
             TOOL_TEAM => team::tool_team(args, dispatch_ctx).await,
             TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, dispatch_ctx).await,
             TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
+            // Knowledge base (note_*) tools.
+            TOOL_NOTE_CREATE => note::tool_note_create(args, dispatch_ctx).await,
+            TOOL_NOTE_READ => note::tool_note_read(args, dispatch_ctx).await,
+            TOOL_NOTE_UPDATE => note::tool_note_update(args, dispatch_ctx).await,
+            TOOL_NOTE_PATCH => note::tool_note_patch(args, dispatch_ctx).await,
+            TOOL_NOTE_APPEND => note::tool_note_append(args, dispatch_ctx).await,
+            TOOL_NOTE_DELETE => note::tool_note_delete(args, dispatch_ctx).await,
+            TOOL_NOTE_SEARCH => note::tool_note_search(args, dispatch_ctx).await,
+            TOOL_NOTE_LINK => note::tool_note_link(args, dispatch_ctx).await,
+            TOOL_NOTE_BACKLINKS => note::tool_note_backlinks(args, dispatch_ctx).await,
+            TOOL_NOTE_BY_TAG => note::tool_note_by_tag(args, dispatch_ctx).await,
+            TOOL_NOTE_TAGS => note::tool_note_tags(args, dispatch_ctx).await,
+            TOOL_NOTE_RENAME | TOOL_NOTE_MOVE => note::tool_note_rename(args, dispatch_ctx).await,
+            TOOL_NOTE_SET_FRONTMATTER => note::tool_note_set_frontmatter(args, dispatch_ctx).await,
+            TOOL_NOTE_ASSIGN_BLOCK => note::tool_note_assign_block(args, dispatch_ctx).await,
+            TOOL_NOTE_BROKEN_LINKS => note::tool_note_broken_links(args, dispatch_ctx).await,
+            TOOL_NOTE_ORPHANS => note::tool_note_orphans(args, dispatch_ctx).await,
+            TOOL_NOTE_GRAPH => note::tool_note_graph(args, dispatch_ctx).await,
+            TOOL_NOTE_SIMILAR => note::tool_note_similar(args, dispatch_ctx).await,
+            TOOL_NOTE_RELATED => note::tool_note_related(args, dispatch_ctx).await,
+            TOOL_NOTE_SUGGEST_LINKS => note::tool_note_suggest_links(args, dispatch_ctx).await,
+            TOOL_NOTE_DISTILL => note::tool_note_distill(args, dispatch_ctx).await,
+            TOOL_NOTE_MOC => note::tool_note_moc(args, dispatch_ctx).await,
+            TOOL_KNOWLEDGE_RECALL => note::tool_knowledge_recall(args, dispatch_ctx).await,
+            TOOL_SESSION_TO_NOTE => note::tool_session_to_note(args, dispatch_ctx).await,
             TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
             TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,
             TOOL_SESSION_STATUS => sessions::tool_session_status(args).await,
@@ -1492,7 +1803,19 @@ pub async fn execute_tool_with_context(
     }
 
     match result {
-        Ok(output) => maybe_persist_large_tool_result(name, output, ctx),
+        Ok(output) => {
+            // Smart mode only: remember a file the agent SUCCESSFULLY edited so
+            // re-edits in this session skip the prompt. Gated on success (a
+            // failed write/edit/apply_patch returns Err and is excluded) and on
+            // Smart mode (Default/YOLO/auto-approve edits must NOT leak forward
+            // into Smart's trusted set — only edits actually vetted under Smart
+            // count). Plan-mode-blocked edits returned Err before dispatch, so
+            // they never reach here either.
+            if ctx.session_mode == crate::permission::SessionMode::Smart {
+                record_smart_session_edits(name, args, ctx);
+            }
+            maybe_persist_large_tool_result(name, output, ctx)
+        }
         other => other,
     }
 }
@@ -1505,7 +1828,12 @@ fn maybe_persist_large_tool_result(
     output: String,
     ctx: &ToolExecContext,
 ) -> anyhow::Result<String> {
-    if ctx.suppress_result_disk_persistence || !should_persist_large_result(&output) {
+    // E3 (INCOG-5): incognito sessions never spill tool output to disk — keep it
+    // inline (in-memory) so the burn-on-close leaves no `tool_results/` trace.
+    if ctx.suppress_result_disk_persistence
+        || ctx.incognito
+        || !should_persist_large_result(&output)
+    {
         return Ok(output);
     }
     if crate::tools::image_markers::has_valid_image_markers(&output) {
@@ -1704,6 +2032,37 @@ fn maybe_activate_conditional_skills(name: &str, args: &Value, ctx: &ToolExecCon
     }
 }
 
+/// Recursively delete a session's large-tool-result spill directory
+/// (`~/.hope-agent/tool_results/<session_id>/`). Called by the session cleanup
+/// watcher on **purge** (incognito burn-on-close) as a backstop — incognito
+/// sessions never write here in the first place (E3 keeps results inline), but
+/// this clears anything written before the incognito flag was visible or by a
+/// prior build. Best-effort: a missing dir or a remove error is logged, never
+/// propagated. Epic E (INCOG-5).
+pub fn purge_tool_results_for_session(session_id: &str) {
+    if session_id.is_empty() {
+        return;
+    }
+    let dir = match crate::paths::root_dir() {
+        Ok(root) => root.join("tool_results").join(session_id),
+        Err(_) => return,
+    };
+    if !dir.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            app_warn!(
+                "tool",
+                "purge_tool_results",
+                "failed to purge tool_results dir for session {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
+}
+
 fn persist_large_result(
     content: &str,
     session_id: Option<&str>,
@@ -1729,7 +2088,8 @@ fn persist_large_result(
 mod tests {
     use super::{
         build_persisted_large_result_preview, mcp_server_auto_approves_config,
-        needs_permission_engine, tool_timeout, ToolExecContext,
+        needs_permission_engine, should_run_exec_reorder_gate, tool_timeout, AsyncDecision,
+        JobOrigin, ToolExecContext,
     };
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
@@ -1898,6 +2258,7 @@ mod tests {
     fn external_pre_approved_skips_engine_for_non_exec() {
         let ctx = ToolExecContext {
             external_pre_approved: true,
+            exec_pre_approved: false,
             ..ToolExecContext::default()
         };
         assert!(ctx.local_auto_approve());
@@ -1916,6 +2277,7 @@ mod tests {
         // must still run inside `exec::tool_exec`.
         let ctx = ToolExecContext {
             external_pre_approved: true,
+            exec_pre_approved: false,
             auto_approve_tools: false,
             ..ToolExecContext::default()
         };
@@ -1948,6 +2310,7 @@ mod tests {
         // already decided this tool must always ask.
         let ctx = ToolExecContext {
             external_pre_approved: true,
+            exec_pre_approved: false,
             plan_mode_allowed_tools: vec!["exec".to_string()],
             plan_mode_ask_tools: vec!["exec".to_string()],
             ..ToolExecContext::default()
@@ -1986,6 +2349,7 @@ mod tests {
         let inner_ctx = ToolExecContext {
             bypass_async_dispatch: true,
             external_pre_approved: true,
+            exec_pre_approved: false,
             // auto_approve_tools intentionally NOT touched
             ..ToolExecContext::default()
         };
@@ -2002,6 +2366,64 @@ mod tests {
             &inner_ctx,
             inner_ctx.local_auto_approve()
         ));
+    }
+
+    #[test]
+    fn exec_reorder_gate_skips_when_already_approved_at_outer_gate() {
+        // review#3: a Plan-Mode-ask exec that the user already approved at the
+        // OUTER engine gate must NOT be re-prompted by the async reorder.
+        let ctx = ToolExecContext::default(); // auto_approve=false, exec_pre_approved=false
+        let bg = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
+        // Fresh async exec, not yet approved → reorder runs its gate.
+        assert!(should_run_exec_reorder_gate("exec", bg, false, &ctx));
+        // Already approved at the outer plan-ask gate → reorder is suppressed
+        // (one prompt, not two).
+        assert!(!should_run_exec_reorder_gate("exec", bg, true, &ctx));
+        // Sync (non-backgrounding) exec → reorder never runs (inner gate handles it).
+        assert!(!should_run_exec_reorder_gate(
+            "exec",
+            AsyncDecision::Sync,
+            false,
+            &ctx
+        ));
+        // Non-exec async tool → already gated by the outer engine, no reorder.
+        assert!(!should_run_exec_reorder_gate("web_search", bg, false, &ctx));
+    }
+
+    #[test]
+    fn exec_reorder_gate_respects_global_command_gate_bypass() {
+        // auto_approve_tools / exec_pre_approved on the ctx globally bypass the
+        // command gate → the reorder must not prompt either.
+        let auto = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        let pre = ToolExecContext {
+            exec_pre_approved: true,
+            ..ToolExecContext::default()
+        };
+        let bg = AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
+        assert!(!should_run_exec_reorder_gate("exec", bg, false, &auto));
+        assert!(!should_run_exec_reorder_gate("exec", bg, false, &pre));
+    }
+
+    #[test]
+    fn exec_pre_approved_bypasses_exec_command_gate() {
+        // B2: the async approval-reorder sets `exec_pre_approved=true` only
+        // AFTER it already ran the command gate at the outer dispatch, so the
+        // background re-dispatch must skip the inner gate — one prompt, not
+        // two. Physically distinct from `external_pre_approved`, which must
+        // NEVER pierce the command gate (see the regression above).
+        let ctx = ToolExecContext {
+            exec_pre_approved: true,
+            external_pre_approved: true,
+            auto_approve_tools: false,
+            ..ToolExecContext::default()
+        };
+        assert!(
+            !ctx.should_run_exec_command_gate(),
+            "exec_pre_approved (set post-approval by the reorder) must bypass the inner gate"
+        );
     }
 
     /// `ToolExecContext::emit_effective_args` is the bridge the streaming

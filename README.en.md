@@ -59,7 +59,7 @@ We want an AI assistant that just **opens and works**: download an installer, in
 
 <table>
 <tr><td width="220"><b>🖥️ Native desktop GUI</b></td><td>Native macOS / Linux / Windows app, ready to run out of the installer. Ships in 12 UI languages (Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, Portuguese, Russian, Arabic, Turkish, Vietnamese, Malay) with a polished dark theme and carefully tuned typography.</td></tr>
-<tr><td><b>🧙 Zero-config providers</b></td><td>39 built-in provider templates covering 206 preset models. Anthropic, OpenAI, Gemini, Codex, OpenRouter, DeepSeek, Kimi, Qwen, Doubao, GLM, MiniMax, xAI, Mistral, Cerebras, DeepInfra, Tencent Hunyuan, Ollama — all in. Each provider supports multi-key rotation, so rate limits and quota exhaustion fail over seamlessly to the next key.</td></tr>
+<tr><td><b>🧙 Zero-config providers</b></td><td>44 built-in provider templates covering 335 preset models. Anthropic, OpenAI, Gemini, Codex, GitHub Copilot, OpenRouter, DeepSeek, Kimi, Qwen, Doubao, GLM, MiniMax, xAI, Mistral, Cerebras, DeepInfra, Novita, Tencent Hunyuan, Ollama — all in. Each provider supports multi-key rotation, so rate limits and quota exhaustion fail over seamlessly to the next key.</td></tr>
 <tr><td><b>🦙 One-click local models</b></td><td><b>No account, no API key, no terminal</b> — Settings → Model picks a Qwen3.6 / Gemma 4 size that fits your hardware, then handles <a href="https://ollama.com">Ollama</a> install, model pull, provider registration, and active-model switch in one click. Same flow covers local embedding models too.</td></tr>
 <tr><td><b>💬 One app, every chat</b></td><td>12 IM channels: Telegram, Discord, Slack, Feishu, Google Chat, LINE, QQ Bot, Signal, iMessage, IRC, WeChat, WhatsApp. Inbound images / voice / files become multimodal context automatically; tool approvals are one tap in the chat window; every group / account can bind a distinct Agent with its own policies.</td></tr>
 <tr><td><b>🤝 Hand off across devices, never miss a beat</b></td><td>The same conversation hands off seamlessly between your desktop, browser, and IM — leave a thread half-finished on your laptop, pick it up on Telegram on the metro, come home and the desktop already has the IM portion folded in. The same memory, tool state, Plan, and working directory follow along — no need to re-explain context. <code>/handover</code> pushes the current desktop session to a specific IM chat; <code>/session &lt;id&gt;</code> takes over from inside IM. The desktop conversation also <b>live-mirrors into IM</b>, typing into Telegram / Feishu / Slack as the model writes.</td></tr>
@@ -70,7 +70,8 @@ We want an AI assistant that just **opens and works**: download an installer, in
 ### 🧠 Memory & learning
 
 <table>
-<tr><td width="220"><b>🧠 Persistent memory across sessions</b></td><td>SQLite + FTS5 + vector search, three-in-one. Memories are scoped by Global / Project / Agent; system prompt injection follows a joint budget so no one layer crowds out another.</td></tr>
+<tr><td width="220"><b>🧠 Knowledge Space · Your Second Brain</b></td><td><b>A local-first, AI-native personal knowledge base</b>—you hand-write / edit Markdown notes and the AI is a first-class citizen reading and writing the same <code>.md</code> files: searching across notes, weaving a bidirectional-link graph, distilling scattered ideas into atomic notes. Bind an existing Obsidian vault (read-only by default, writable once you opt in), with wikilinks / frontmatter / block refs / graph view / outline and built-in hybrid retrieval (full-text + vector). An embedded AI chat panel answers and rewrites against the current note; turn on "Sprite mode" and it proactively surfaces writing suggestions when you pause. Notes are written atomically; external edits sync live.</td></tr>
+<tr><td><b>🧠 Persistent memory across sessions</b></td><td>SQLite + FTS5 + vector search, three-in-one. Memories are scoped by Global / Project / Agent; system prompt injection follows a joint budget so no one layer crowds out another.</td></tr>
 <tr><td><b>🕶 Incognito chat</b></td><td>A per-session switch that can apply from the very first message. When enabled, the current chat gets no passive memory or cross-session awareness injection and does not auto-collect memory; memory tools are only used when you explicitly ask it to remember or recall something.</td></tr>
 <tr><td><b>💤 Offline "dreaming"</b></td><td>When idle, Hope Agent automatically reviews "what was worth remembering over the past couple of days," pins the selections, and writes them into a markdown diary viewable under Settings → Dream Diary. Every day's work gets quietly consolidated for next time.</td></tr>
 <tr><td><b>🔍 Active recall + reflective profile</b></td><td>Before each turn starts, the most relevant memories for your input are pulled into the prompt (Active Memory). A separate reflective pass distills your communication style, work habits, and long-term preferences into a dedicated "User Profile" section — it gets better at knowing you over time.</td></tr>
@@ -273,8 +274,8 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 <tr>
   <td width="140"><b>📦 Model providers</b></td>
   <td>
-    <b>39 templates · 206 preset models</b><br/>
-    <b>International</b> · Anthropic · OpenAI · Codex · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Perplexity · xAI Grok · Mistral · Cohere<br/>
+    <b>44 templates · 335 preset models</b><br/>
+    <b>International</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>China</b> · DeepSeek · Moonshot (Kimi) · Qwen · Doubao (Volcengine) · Z.AI (GLM) · MiniMax · Xiaomi MiMo<br/>
     <b>Local</b> · Ollama · any OpenAI-compatible endpoint
   </td>

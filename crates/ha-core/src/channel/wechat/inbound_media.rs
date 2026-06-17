@@ -7,16 +7,17 @@
 //! 1. [`stream_to_disk`] writes the ciphertext to
 //!    `inbound-temp/<ts>-<msg>.enc` chunk by chunk (cap + cleanup
 //!    enforced by the shared helper).
-//! 2. A `spawn_blocking` task drives OpenSSL `Crypter::update` /
-//!    `Crypter::finalize` over a 16 KiB read buffer, writing the
-//!    plaintext to `inbound-temp/<ts>-<msg>.<ext>` block by block.
+//! 2. A `spawn_blocking` task decrypts the `.enc` file with the pure-Rust
+//!    `aes` block cipher over a 16 KiB read buffer, writing the plaintext
+//!    to `inbound-temp/<ts>-<msg>.<ext>` block by block.
 //! 3. The intermediate `.enc` file is removed unconditionally.
 //!
-//! Peak RSS is bounded by the read / write buffers (~16 KiB each) plus
-//! OpenSSL's internal block_size scratch — independent of file size.
-//! ECB blocks are independently invertible, so streaming decrypt is
-//! correct; PKCS#7 unpadding is handled by `Crypter::finalize` at the
-//! tail.
+//! Peak RSS is bounded by the read / write buffers (~16 KiB each) plus a
+//! one-block carry — independent of file size. ECB blocks are
+//! independently invertible, so streaming decrypt is correct; the final
+//! block is retained until EOF so PKCS#7 unpadding only touches the
+//! genuine last block. Byte-compatible with the former
+//! `openssl::symm::Crypter` + `pad(true)` path.
 
 use serde::{Deserialize, Serialize};
 
@@ -168,9 +169,14 @@ fn resolve_download_url(media: &CdnMedia, cdn_base_url: &str) -> Option<String> 
 }
 
 /// Streaming AES-128-ECB decrypt from `enc_path` into `plain_path`,
-/// running inside a `spawn_blocking` so OpenSSL's synchronous Crypter
+/// running inside a `spawn_blocking` so the synchronous block cipher
 /// doesn't stall the tokio reactor. Returns the plaintext byte count
 /// on success.
+///
+/// ECB blocks are independently invertible, so we decrypt block by block
+/// over a fixed read buffer and retain the trailing block in `carry`
+/// until EOF — PKCS#7 unpadding then touches only the genuine last block.
+/// Byte-compatible with the former `openssl` `Crypter` + `pad(true)` path.
 async fn streaming_decrypt(
     enc_path: std::path::PathBuf,
     plain_path: std::path::PathBuf,
@@ -178,13 +184,13 @@ async fn streaming_decrypt(
 ) -> anyhow::Result<u64> {
     use anyhow::Context;
     tokio::task::spawn_blocking(move || -> anyhow::Result<u64> {
-        use openssl::symm::{Cipher, Crypter, Mode};
+        use aes::cipher::generic_array::GenericArray;
+        use aes::cipher::{BlockDecrypt, KeyInit};
+        use anyhow::bail;
         use std::io::{BufReader, BufWriter, Read, Write};
 
-        let cipher = Cipher::aes_128_ecb();
-        let mut crypter = Crypter::new(cipher, Mode::Decrypt, &raw_key, None)
-            .context("OpenSSL Crypter::new failed")?;
-        crypter.pad(true); // PKCS#7
+        let cipher = aes::Aes128::new_from_slice(&raw_key)
+            .context("WeChat AES key must be exactly 16 bytes")?;
 
         let enc_file = std::fs::File::open(&enc_path)
             .with_context(|| format!("Failed to open ciphertext at {:?}", enc_path))?;
@@ -194,8 +200,10 @@ async fn streaming_decrypt(
         let mut writer = BufWriter::with_capacity(16 * 1024, plain_file);
 
         let mut in_buf = [0u8; 16 * 1024];
-        // OpenSSL requires output buffer to fit input + one cipher block.
-        let mut out_buf = vec![0u8; in_buf.len() + cipher.block_size()];
+        // Undecrypted ciphertext carried across reads. We always retain at
+        // least the final block here until EOF so PKCS#7 unpadding only
+        // touches the genuine last block.
+        let mut carry: Vec<u8> = Vec::with_capacity(16 * 1024 + 16);
         let mut total: u64 = 0;
 
         loop {
@@ -203,21 +211,48 @@ async fn streaming_decrypt(
             if n == 0 {
                 break;
             }
-            let written = crypter
-                .update(&in_buf[..n], &mut out_buf)
-                .context("Crypter::update failed")?;
-            writer
-                .write_all(&out_buf[..written])
-                .context("Writing plaintext chunk")?;
-            total += written as u64;
+            carry.extend_from_slice(&in_buf[..n]);
+
+            // Decrypt every complete block except the trailing one (a
+            // possible padded final block). A partial remainder means more
+            // data must follow, so then every complete block is non-final.
+            let full_blocks = carry.len() / 16;
+            let flush_blocks = if carry.len() % 16 == 0 {
+                full_blocks.saturating_sub(1)
+            } else {
+                full_blocks
+            };
+            if flush_blocks > 0 {
+                let cut = flush_blocks * 16;
+                for chunk in carry[..cut].chunks_exact(16) {
+                    let mut block = GenericArray::clone_from_slice(chunk);
+                    cipher.decrypt_block(&mut block);
+                    writer
+                        .write_all(&block)
+                        .context("Writing plaintext chunk")?;
+                }
+                total += cut as u64;
+                carry.drain(..cut);
+            }
         }
-        let written = crypter
-            .finalize(&mut out_buf)
-            .context("Crypter::finalize failed (likely truncated ciphertext or bad key)")?;
-        writer
-            .write_all(&out_buf[..written])
-            .context("Writing plaintext tail")?;
-        total += written as u64;
+
+        // The ciphertext is a multiple of the 16-byte block size, so at EOF
+        // exactly one block must remain — the PKCS#7 padded final block.
+        if carry.len() != 16 {
+            bail!(
+                "Truncated or misaligned WeChat ciphertext ({} trailing bytes, expected 16)",
+                carry.len()
+            );
+        }
+        let mut block = GenericArray::clone_from_slice(&carry);
+        cipher.decrypt_block(&mut block);
+        let pad = block[15] as usize;
+        if pad == 0 || pad > 16 || block[16 - pad..].iter().any(|&b| b as usize != pad) {
+            bail!("Invalid PKCS#7 padding (likely truncated ciphertext or bad key)");
+        }
+        let plain = &block[..16 - pad];
+        writer.write_all(plain).context("Writing plaintext tail")?;
+        total += plain.len() as u64;
         writer.flush().context("Flushing plaintext writer")?;
 
         Ok(total)
@@ -549,33 +584,35 @@ mod tests {
         assert!(extract_spec(&item).is_none());
     }
 
-    /// Round-trip: encrypt an in-mem buffer with the legacy one-shot
-    /// `openssl::symm::encrypt`, write it to a tempfile, decrypt it
-    /// with the new streaming `Crypter` path, and verify the recovered
-    /// plaintext matches. Covers the AES-128-ECB + PKCS#7 contract that
-    /// commit 14 swaps from one-shot decrypt to incremental Crypter.
+    /// Round-trip: encrypt with the pure-Rust `aes128_ecb_encrypt_pkcs7`,
+    /// write to a tempfile, decrypt with the streaming block path, and verify
+    /// the recovered plaintext. Covers the AES-128-ECB + PKCS#7 contract plus
+    /// the carry/flush path across multiple 16 KiB read buffers.
     #[tokio::test]
     async fn streaming_decrypt_round_trips_with_pkcs7_padding() {
-        use openssl::symm::{encrypt, Cipher};
+        use crate::channel::wechat::media::aes128_ecb_encrypt_pkcs7;
 
-        let key = vec![0x42u8; 16];
-        // 17 bytes — forces PKCS#7 to pad to 32 (two cipher blocks),
-        // covering the unpad path on finalize().
-        let plaintext: Vec<u8> = (0..17u8).collect();
-        let ciphertext = encrypt(Cipher::aes_128_ecb(), &key, None, &plaintext).expect("encrypt");
+        let key = [0x42u8; 16];
+        // Cover: unaligned single chunk (17 → 32B exercises unpad), exact
+        // block multiples (16/32B → full pad block), and payloads larger than
+        // the 16 KiB read buffer (exercises carry retention across reads).
+        for len in [1usize, 15, 16, 17, 32, 16 * 1024, 40_000] {
+            let plaintext: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let ciphertext = aes128_ecb_encrypt_pkcs7(&key, &plaintext);
 
-        let dir = tempfile::tempdir().expect("tempdir");
-        let enc_path = dir.path().join("c.enc");
-        let plain_path = dir.path().join("p.bin");
-        tokio::fs::write(&enc_path, &ciphertext)
-            .await
-            .expect("write ciphertext");
+            let dir = tempfile::tempdir().expect("tempdir");
+            let enc_path = dir.path().join("c.enc");
+            let plain_path = dir.path().join("p.bin");
+            tokio::fs::write(&enc_path, &ciphertext)
+                .await
+                .expect("write ciphertext");
 
-        let n = streaming_decrypt(enc_path.clone(), plain_path.clone(), key.clone())
-            .await
-            .expect("decrypt");
-        assert_eq!(n as usize, plaintext.len());
-        let recovered = tokio::fs::read(&plain_path).await.expect("read plaintext");
-        assert_eq!(recovered, plaintext);
+            let n = streaming_decrypt(enc_path.clone(), plain_path.clone(), key.to_vec())
+                .await
+                .expect("decrypt");
+            assert_eq!(n as usize, plaintext.len(), "len={}", len);
+            let recovered = tokio::fs::read(&plain_path).await.expect("read plaintext");
+            assert_eq!(recovered, plaintext, "len={}", len);
+        }
     }
 }

@@ -5,6 +5,24 @@
     <!-- Microphone access for the voice-input feature. NSMicrophoneUsageDescription lives in Info.plist; this entitlement permits the sandbox to expose the device. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Camera access for visual-input workflows. Required under Hardened Runtime: the Info.plist usage string alone is not enough — without this the process is killed on first camera use. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <!-- Location for local-weather / location-aware workflows (CLLocationManager). -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+    <!-- Contacts access (CNContactStore). -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    <!-- Calendar AND Reminders access — both go through EventKit, which shares the calendars resource entitlement. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    <!-- Photos library access (PHPhotoLibrary). -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
+    <!-- Send Apple Events to other apps for automation (osascript probes, mac_control). NSAppleEventsUsageDescription lives in Info.plist; under Hardened Runtime the entitlement is also required. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
     <!-- Network client (already required for any LLM API call). -->
     <key>com.apple.security.network.client</key>
     <true/>

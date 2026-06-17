@@ -21,6 +21,22 @@ fn main() {
         );
     }
 
+    // Top-level `hope-agent --version` / `-V`: print and exit before any
+    // subcommand dispatch or GUI launch. The bare multi-formfactor binary
+    // shipped via the self-contained updater is invoked as `<exe> --version`
+    // (no subcommand) by `updater::self_contained::smoke_test` and by the
+    // `app_update` version contract — without this it would fall through to the
+    // GUI launch path and the smoke test would time out, spuriously rolling
+    // back a good headless update. Subcommand-scoped `acp --version` /
+    // `server --version` keep their own handlers (matched below first).
+    if matches!(
+        args.get(1).map(String::as_str),
+        Some("--version") | Some("-V")
+    ) {
+        println!("hope-agent {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     // ACP subcommand: `hope-agent acp` — runs the ACP stdio server
     if args.len() >= 2 && args[1] == "acp" {
         run_acp_server(&args[2..]);

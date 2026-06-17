@@ -1,6 +1,6 @@
 import type React from "react"
 import type { ContentBlock, FallbackEvent, MediaItem, Message, ToolMetadata } from "@/types/chat"
-import { mergeUsageFromEvent } from "../chatUtils"
+import { mergeUsageFromEvent, parseUserAttachmentsMeta } from "../chatUtils"
 import { hasToolError } from "../message/executionStatus"
 
 /** Extract a structured tool_metadata payload from a stream event when present. */
@@ -308,6 +308,50 @@ export function handleStreamEvent(
     return true
   }
 
+  if (event.type === "queued_user_message_inserted") {
+    flushPendingStreamDeltas(sid, deps, true)
+    const requestId = stringField(event, "request_id")
+    const content = stringField(event, "content")
+    const messageIdRaw = event.message_id
+    const dbId =
+      typeof messageIdRaw === "number" && Number.isFinite(messageIdRaw)
+        ? messageIdRaw
+        : undefined
+    const attachmentsMeta =
+      typeof event.attachments_meta === "string" ? event.attachments_meta : null
+    const attachments = parseUserAttachmentsMeta(attachmentsMeta)
+    updateSessionMessages(sid, (prev) => {
+      if (dbId != null && prev.some((msg) => msg.role === "user" && msg.dbId === dbId)) {
+        return prev
+      }
+      const now = new Date().toISOString()
+      const userMessage: Message = {
+        role: "user",
+        content,
+        timestamp: now,
+        ...(dbId != null ? { dbId } : {}),
+        ...(attachments ? { attachments } : {}),
+        ...(event.is_plan_trigger === true ? { isPlanTrigger: true } : {}),
+        ...(event.plan_comment && typeof event.plan_comment === "object"
+          ? {
+              planComment: event.plan_comment as {
+                selectedText: string
+                comment: string
+              },
+            }
+          : {}),
+      }
+      const assistantPlaceholder: Message = {
+        role: "assistant",
+        content: "",
+        timestamp: now,
+        _clientId: requestId ? `queued-assistant:${requestId}` : `queued-assistant:${now}`,
+      }
+      return [...prev, userMessage, assistantPlaceholder]
+    })
+    return true
+  }
+
   // Flush pending thinking/text buffer before tool_call to preserve display order
   if (event.type === "tool_call") {
     flushPendingStreamDeltas(sid, deps, true)
@@ -318,6 +362,7 @@ export function handleStreamEvent(
     event.type === "thinking_auto_disabled" ||
     event.type === "profile_rotation" ||
     event.type === "context_compacted" ||
+    event.type === "queued_user_message_blocked" ||
     event.type === "round_limit_reached"
   ) {
     // Mirror the backend persister for Tier 0/1 noise, but keep Tier 3/4

@@ -446,7 +446,7 @@ pub async fn embedding_model_config_test(
 }
 
 #[tauri::command]
-pub async fn memory_embedding_get() -> Result<memory::MemoryEmbeddingState, CmdError> {
+pub async fn memory_embedding_get() -> Result<memory::EmbeddingSelectionState, CmdError> {
     Ok(memory::get_memory_embedding_state())
 }
 
@@ -454,7 +454,7 @@ pub async fn memory_embedding_get() -> Result<memory::MemoryEmbeddingState, CmdE
 pub async fn memory_embedding_set_default(
     model_config_id: String,
     mode: memory::ReembedMode,
-) -> Result<memory::MemoryEmbeddingSetDefaultResult, CmdError> {
+) -> Result<memory::EmbeddingSetDefaultResult, CmdError> {
     memory::set_memory_embedding_default(&model_config_id, mode, "settings-ui", None)
         .map_err(Into::into)
 }
@@ -474,7 +474,7 @@ pub async fn memory_reembed_start(
 }
 
 #[tauri::command]
-pub async fn memory_embedding_disable() -> Result<memory::MemoryEmbeddingState, CmdError> {
+pub async fn memory_embedding_disable() -> Result<memory::EmbeddingSelectionState, CmdError> {
     memory::disable_memory_embedding("settings-ui").map_err(Into::into)
 }
 

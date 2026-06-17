@@ -1,6 +1,8 @@
+import { useContext } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import FileCard from "@/components/chat/message/FileCard"
+import { MediaHoistContext } from "@/components/chat/message/mediaHoistContext"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 
@@ -19,9 +21,12 @@ interface Props {
  */
 export default function ToolMediaPreview({ tool, className }: Props) {
   const { openLightbox } = useLightbox()
+  // Suppressed when an ancestor (ProcessedBlockGroup) has hoisted media out to
+  // render it once below the collapsed group — avoids double-rendering.
+  const hoisted = useContext(MediaHoistContext)
   const hasMediaItems = !!tool.mediaItems?.length
   const hasLegacyUrls = !hasMediaItems && !!tool.mediaUrls?.length
-  if (!hasMediaItems && !hasLegacyUrls) return null
+  if (hoisted || (!hasMediaItems && !hasLegacyUrls)) return null
 
   return (
     <div className={cn("mt-1.5 mb-1 flex flex-wrap gap-2", className)}>

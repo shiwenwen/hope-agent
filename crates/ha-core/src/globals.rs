@@ -3,6 +3,7 @@ use crate::agent::AssistantAgent;
 use crate::channel;
 use crate::cron;
 use crate::event_bus::EventBus;
+use crate::knowledge::KnowledgeRegistry;
 use crate::logging::{AppLogger, LogDB};
 use crate::memory;
 use crate::oauth::TokenData;
@@ -28,6 +29,9 @@ pub static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> =
 pub static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
 pub static SESSION_DB: std::sync::OnceLock<Arc<SessionDB>> = std::sync::OnceLock::new();
 pub static PROJECT_DB: std::sync::OnceLock<Arc<ProjectDB>> = std::sync::OnceLock::new();
+/// Knowledge base registry (knowledge_bases + session/project attach tables).
+/// Truth source lives in `sessions.db`; shares the `SessionDB` connection.
+pub static KNOWLEDGE_DB: std::sync::OnceLock<Arc<KnowledgeRegistry>> = std::sync::OnceLock::new();
 pub static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> =
     std::sync::OnceLock::new();
 pub static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> =
@@ -106,6 +110,11 @@ pub fn get_project_db() -> Option<&'static Arc<ProjectDB>> {
     PROJECT_DB.get()
 }
 
+/// Get stored KnowledgeRegistry for knowledge-base CRUD + access bindings
+pub fn get_knowledge_db() -> Option<&'static Arc<KnowledgeRegistry>> {
+    KNOWLEDGE_DB.get()
+}
+
 /// Get stored SubagentCancelRegistry for sub-agent cancellation
 pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelRegistry>> {
     SUBAGENT_CANCELS.get()
@@ -181,6 +190,12 @@ require_accessor!(
     Arc<ProjectDB>,
     "Project DB"
 );
+require_accessor!(
+    require_knowledge_db,
+    get_knowledge_db,
+    Arc<KnowledgeRegistry>,
+    "Knowledge DB"
+);
 require_accessor!(require_cron_db, get_cron_db, Arc<cron::CronDB>, "Cron DB");
 require_accessor!(require_log_db, get_log_db, Arc<LogDB>, "Log DB");
 require_accessor!(
@@ -231,6 +246,7 @@ pub struct AppState {
     pub current_agent_id: Mutex<String>,
     pub session_db: Arc<SessionDB>,
     pub project_db: Arc<ProjectDB>,
+    pub knowledge_db: Arc<KnowledgeRegistry>,
     /// Desktop chat turn cancel. IM-channel cancels live in [`CHANNEL_CANCELS`].
     pub chat_cancel: Arc<AtomicBool>,
     pub log_db: Arc<LogDB>,

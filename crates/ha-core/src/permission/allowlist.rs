@@ -61,6 +61,10 @@ pub struct GrantContext<'a> {
     pub agent_id: Option<&'a str>,
     pub default_path: Option<&'a str>,
     pub home_dir: Option<&'a str>,
+    /// When the owning session is incognito, [`choose_scope`] is forced to the
+    /// in-memory `Session` scope so an AllowAlways grant never persists to disk
+    /// and is cleared on burn-on-close. Epic E (INCOG-6).
+    pub incognito: bool,
 }
 
 /// The concrete grant that was persisted after an AllowAlways response.
@@ -196,6 +200,16 @@ fn push_unique(rules: &mut Vec<RuleSpec>, rule: RuleSpec) {
 }
 
 fn choose_scope(rule: &RuleSpec, ctx: &GrantContext<'_>) -> AllowScope {
+    // E5 (INCOG-6): incognito sessions must never persist an AllowAlways grant to
+    // disk (project / agent-home / global). Force the in-memory `Session` scope —
+    // it's wiped on burn-on-close (`clear_session_rules`), so "always allow"
+    // lives and dies with the incognito session. The frontend additionally hides
+    // the AllowAlways button; this is the backend backstop for any non-conforming
+    // client that still sends an AllowAlways response. (If `session_id` is
+    // somehow absent, `add_rule` fails the persist and the call is approved once.)
+    if ctx.incognito {
+        return AllowScope::Session;
+    }
     if non_empty(ctx.project_id).is_some() {
         return AllowScope::Project;
     }
@@ -500,6 +514,18 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     })
 }
 
+/// Remove all cached permission rules for a session. Called by the session
+/// cleanup watcher on delete / purge so a deleted session's in-memory
+/// AllowAlways rules don't linger for the process lifetime (INCOG-7).
+pub fn clear_session_rules(session_id: &str) {
+    if let Some(cache) = SESSION_RULES.get() {
+        cache
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn clear_caches_for_tests() {
     if let Some(cache) = SESSION_RULES.get() {
@@ -544,6 +570,41 @@ mod tests {
                 .to_string();
             assert_eq!(scope.as_str(), via_serde);
         }
+    }
+
+    #[test]
+    fn incognito_forces_in_memory_session_scope() {
+        let args = json!({ "path": "src/lib.rs" });
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", tmp.path())], || {
+            clear_caches_for_tests();
+            // A project-attached session would normally persist the grant to the
+            // on-disk Project scope. E5 (INCOG-6): incognito must override to the
+            // in-memory Session scope so the grant is wiped on burn-on-close.
+            let incog = GrantContext {
+                session_id: Some("sess-incognito"),
+                project_id: Some("proj"),
+                agent_id: Some("agent"),
+                default_path: Some("/tmp/work"),
+                incognito: true,
+                ..Default::default()
+            };
+            let grant =
+                add_allow_always_for_call("write", &args, incog).expect("persist incognito grant");
+            assert_eq!(grant.scope, AllowScope::Session);
+
+            // The identical call WITHOUT incognito lands in the persistent
+            // Project scope — proving the override is what redirected it.
+            clear_caches_for_tests();
+            let normal = GrantContext {
+                incognito: false,
+                ..incog
+            };
+            let grant2 =
+                add_allow_always_for_call("write", &args, normal).expect("persist normal grant");
+            assert_eq!(grant2.scope, AllowScope::Project);
+            clear_caches_for_tests();
+        });
     }
 
     #[test]

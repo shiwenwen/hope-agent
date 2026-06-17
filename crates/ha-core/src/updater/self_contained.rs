@@ -80,13 +80,29 @@ pub fn emit_phase(job_id: &str, phase: Phase) {
     }
 }
 
-pub async fn install(
+/// Verified, extracted-but-not-yet-swapped artifact ready for the swap step.
+struct StagedBuild {
+    /// Path to the extracted new binary inside the staging dir.
+    extracted: PathBuf,
+    /// Bytes of the downloaded archive (0 if a verified archive was reused).
+    archive_bytes: u64,
+    /// Resolved target version (frontmatter-stripped).
+    to_version: String,
+    /// Version of the currently-running binary.
+    from_version: String,
+}
+
+/// Download → verify → extract the new build into staging, **without** touching
+/// the live binary. Reuses an already-downloaded archive when it still passes
+/// signature verification (the silent pre-download path stages here first, so
+/// the later install is a no-network swap). Shared by [`install`] and
+/// [`stage_only`].
+async fn download_and_extract(
     job_id: &str,
     target_version: Option<&str>,
     preloaded_manifest: Option<Manifest>,
-) -> Result<InstallOutcome> {
+) -> Result<StagedBuild> {
     emit_phase(job_id, Phase::Checking);
-    let current_exe = std::env::current_exe().context("resolve current_exe")?;
     let from_version = crate::app_init::app_version().to_string();
 
     let manifest = match preloaded_manifest {
@@ -111,30 +127,92 @@ pub async fn install(
         )
     })?;
 
+    // Drop staging dirs for other versions before we (re)stage this one.
+    super::staging::prune(Some(&to_version));
+
     let staging = crate::paths::updater_staging_dir(&to_version)?;
     fs::create_dir_all(&staging)
         .with_context(|| format!("create staging dir {}", staging.display()))?;
 
-    emit_phase(job_id, Phase::Downloading);
     let archive_path = staging.join(archive_filename(entry));
-    let archive_bytes = download::download_to(&entry.url, &archive_path, job_id, "archive").await?;
 
-    emit_phase(job_id, Phase::Verifying);
-    // Read once into a local buffer to feed the verifier — minisign-verify
-    // needs the whole payload. Skipping this and re-deriving from the
-    // streaming download would require buffering in `download_to`, which
-    // would conflict with the disk-spool path used by extraction below.
-    let archive_buf = fs::read(&archive_path).with_context(|| {
-        format!(
-            "read archive {} for signature verify",
+    // Reuse a previously-staged archive iff it still verifies — this is what
+    // makes the silent pre-download pay off (install becomes download-free).
+    let mut archive_bytes = 0u64;
+    let reused = archive_path.is_file()
+        && match fs::read(&archive_path) {
+            Ok(buf) => signature::verify_bytes(&buf, &entry.signature).is_ok(),
+            Err(_) => false,
+        };
+    if reused {
+        app_info!(
+            "self_update",
+            "stage",
+            "reusing verified staged archive for {} ({})",
+            to_version,
             archive_path.display()
-        )
-    })?;
-    signature::verify_bytes(&archive_buf, &entry.signature)?;
-    drop(archive_buf);
+        );
+        emit_phase(job_id, Phase::Verifying);
+    } else {
+        emit_phase(job_id, Phase::Downloading);
+        archive_bytes = download::download_to(&entry.url, &archive_path, job_id, "archive").await?;
+
+        emit_phase(job_id, Phase::Verifying);
+        // Read once into a local buffer to feed the verifier — minisign-verify
+        // needs the whole payload.
+        let archive_buf = fs::read(&archive_path).with_context(|| {
+            format!(
+                "read archive {} for signature verify",
+                archive_path.display()
+            )
+        })?;
+        let verify = signature::verify_bytes(&archive_buf, &entry.signature);
+        drop(archive_buf);
+        if let Err(e) = verify {
+            // A bad signature means a corrupt / tampered download — never keep
+            // it around to be "reused" next time.
+            let _ = fs::remove_file(&archive_path);
+            return Err(e);
+        }
+    }
 
     emit_phase(job_id, Phase::Staging);
     let extracted = extract_binary(&archive_path, &entry.archive, &entry.binary_path, &staging)?;
+
+    Ok(StagedBuild {
+        extracted,
+        archive_bytes,
+        to_version,
+        from_version,
+    })
+}
+
+/// Pre-download + verify + extract the new build into staging without swapping.
+/// Used by the headless auto-update loop's silent-download step so the eventual
+/// install is instant. Returns the resolved target version.
+pub async fn stage_only(
+    job_id: &str,
+    target_version: Option<&str>,
+    preloaded_manifest: Option<Manifest>,
+) -> Result<String> {
+    let staged = download_and_extract(job_id, target_version, preloaded_manifest).await?;
+    emit_phase(job_id, Phase::Done);
+    Ok(staged.to_version)
+}
+
+pub async fn install(
+    job_id: &str,
+    target_version: Option<&str>,
+    preloaded_manifest: Option<Manifest>,
+) -> Result<InstallOutcome> {
+    let StagedBuild {
+        extracted,
+        archive_bytes,
+        to_version,
+        from_version,
+    } = download_and_extract(job_id, target_version, preloaded_manifest).await?;
+
+    let current_exe = std::env::current_exe().context("resolve current_exe")?;
 
     emit_phase(job_id, Phase::Backing);
     backup::store(&current_exe, &from_version)?;
@@ -148,6 +226,31 @@ pub async fn install(
         )
     })?;
 
+    // Smoke-test the freshly-swapped binary before we hand control to it via a
+    // service restart. A binary that can't even print its version (wrong arch,
+    // truncated, missing shared lib) would otherwise leave the service dead
+    // with no working image. On failure, roll the backup back into place.
+    emit_phase(job_id, Phase::Verifying);
+    if let Err(e) = smoke_test(&current_exe, &to_version).await {
+        app_error!(
+            "self_update",
+            "install",
+            "new binary failed smoke test: {e}; rolling back"
+        );
+        if let Some(backup_path) = backup::most_recent() {
+            if let Err(re) = crate::platform::atomic_replace_binary(&current_exe, &backup_path) {
+                anyhow::bail!(
+                    "new binary failed smoke test ({e}) AND rollback failed ({re}) — \
+                     manual recovery required: restore {} from {}",
+                    current_exe.display(),
+                    backup_path.display()
+                );
+            }
+            anyhow::bail!("new binary failed smoke test ({e}); rolled back to previous version");
+        }
+        anyhow::bail!("new binary failed smoke test ({e}); no backup available to roll back");
+    }
+
     emit_phase(job_id, Phase::Restarting);
     // NOTE: do NOT call `stop_if_running` here — `restart_service`
     // already does atomic kill+restart on every platform
@@ -160,6 +263,8 @@ pub async fn install(
     let restart = service_control::restart_service().ok();
 
     backup::prune();
+    // The swap consumed the staged build; drop it so it isn't "reused" later.
+    super::staging::prune(None);
     emit_phase(job_id, Phase::Done);
 
     Ok(InstallOutcome {
@@ -169,6 +274,72 @@ pub async fn install(
         binary_swapped: true,
         service_restart: restart,
     })
+}
+
+/// Run `<exe> --version` with a hard timeout and confirm it reports
+/// `expected_version`. The whole point is to catch a binary that won't even
+/// start before we restart the service onto it.
+async fn smoke_test(exe: &Path, expected_version: &str) -> Result<()> {
+    use std::time::Duration;
+    let mut cmd = tokio::process::Command::new(exe);
+    cmd.arg("--version");
+    crate::platform::hide_console_tokio(&mut cmd);
+    let output = tokio::time::timeout(Duration::from_secs(5), cmd.output())
+        .await
+        .context("smoke test `--version` timed out after 5s")?
+        .context("spawn new binary for smoke test")?;
+
+    if !output.status.success() {
+        anyhow::bail!("new binary `--version` exited with {}", output.status);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Match on the `major.minor.patch` core, not a raw substring: a substring
+    // check both false-passes ("0.8.1" ⊂ "0.8.10") and false-fails (manifest
+    // "0.8.1+build5" vs binary "0.8.1"). Compare cores so build / pre-release
+    // suffixes on either side don't trigger a spurious rollback.
+    let want = semver_core(expected_version);
+    let matched = if want.is_empty() {
+        // Expected version isn't a clean N.N.N — fall back to a substring check
+        // rather than matching every empty-core token.
+        let needle = expected_version.trim().trim_start_matches('v');
+        !needle.is_empty() && (stdout.contains(needle) || stderr.contains(needle))
+    } else {
+        stdout
+            .split_whitespace()
+            .chain(stderr.split_whitespace())
+            .any(|tok| semver_core(tok) == want)
+    };
+    if matched {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "new binary version output {:?} does not report expected version {} (core {})",
+            stdout.trim(),
+            expected_version,
+            want
+        )
+    }
+}
+
+/// Leading `major.minor.patch` of a version-ish token, with a `v` prefix and
+/// any `+build` / `-prerelease` suffix stripped. Returns `""` for tokens that
+/// don't start with a numeric core (so non-version words never match).
+fn semver_core(s: &str) -> String {
+    let s = s.trim().trim_start_matches('v');
+    let core = s.split(['+', '-']).next().unwrap_or(s);
+    // Require the shape N.N.N (all-numeric components) so a stray word like
+    // "hope-agent" or "build" can't be mistaken for a version.
+    let comps: Vec<&str> = core.split('.').collect();
+    if comps.len() == 3
+        && comps
+            .iter()
+            .all(|c| !c.is_empty() && c.bytes().all(|b| b.is_ascii_digit()))
+    {
+        core.to_string()
+    } else {
+        String::new()
+    }
 }
 
 pub fn rollback(job_id: &str) -> Result<InstallOutcome> {
@@ -319,5 +490,29 @@ mod tests {
             "hope-agent"
         );
         assert_eq!(binary_basename("hope-agent.exe"), "hope-agent.exe");
+    }
+
+    #[test]
+    fn semver_core_strips_prefix_and_suffixes() {
+        assert_eq!(semver_core("0.8.1"), "0.8.1");
+        assert_eq!(semver_core("v0.8.1"), "0.8.1");
+        assert_eq!(semver_core("0.8.1+build5"), "0.8.1");
+        assert_eq!(semver_core("0.8.1-rc1"), "0.8.1");
+        assert_eq!(semver_core(" 0.8.1 "), "0.8.1");
+    }
+
+    #[test]
+    fn semver_core_distinguishes_patch_lengths() {
+        // The bug a raw substring check would miss: 0.8.1 must NOT equal 0.8.10.
+        assert_ne!(semver_core("0.8.1"), semver_core("0.8.10"));
+        assert_eq!(semver_core("0.8.10"), "0.8.10");
+    }
+
+    #[test]
+    fn semver_core_rejects_non_version_tokens() {
+        assert_eq!(semver_core("hope-agent"), "");
+        assert_eq!(semver_core("0.8"), "");
+        assert_eq!(semver_core("0.8.x"), "");
+        assert_eq!(semver_core(""), "");
     }
 }

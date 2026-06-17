@@ -374,6 +374,15 @@ export function useChatSession({
       const previousMeta = sessionsRef.current.find((s) => s.id === sessionIdToLeave)
       if (!previousMeta?.incognito) return
       evictSessionLocal(sessionIdToLeave)
+      // E6 (INCOG-1 / DELETE-5): best-effort cancel any in-flight turn BEFORE the
+      // burn so it stops streaming against a session that's about to vanish. The
+      // backend cleanup watcher also live-cancels on `session:purged` (double
+      // insurance) — this is just the faster client-side nudge. `turnId: null`
+      // tells the backend to cancel whatever turn is active for the session.
+      // Fire-and-forget; a no-op when nothing is running.
+      void getTransport()
+        .call("stop_chat", { sessionId: sessionIdToLeave, turnId: null })
+        .catch(() => {})
       void getTransport()
         .call("purge_session_if_incognito", { sessionId: sessionIdToLeave })
         .catch((err) => {

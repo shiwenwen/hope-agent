@@ -45,8 +45,11 @@ pub async fn spawn_skill_fork(
         )
     };
 
-    let skill_content = std::fs::read_to_string(&skill.file_path)
+    let raw_skill_content = std::fs::read_to_string(&skill.file_path)
         .unwrap_or_else(|_| format!("Skill: {}\n{}", skill.name, skill.description));
+    let substituted_skill_content = raw_skill_content.replace("$ARGUMENTS", args);
+    let skill_content =
+        crate::skills::build_skill_context_payload(skill, &substituted_skill_content);
 
     let session_db = crate::globals::get_session_db()
         .ok_or_else(|| anyhow!("Session DB not initialized"))?
@@ -94,6 +97,8 @@ pub async fn spawn_skill_fork(
         skill_allowed_tools: skill.allowed_tools.clone(),
         reasoning_effort: skill.effort.clone(),
         skill_name: Some(skill.name.clone()),
+        origin_source: None,
+        origin_channel_kb_context: None,
     };
 
     subagent::spawn_subagent(params, session_db, cancel_registry)

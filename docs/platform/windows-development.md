@@ -36,7 +36,7 @@ Release 产物由 [`.github/workflows/release.yml`](../../.github/workflows/rele
    ```
 3. **Node.js 20+**（安装时勾选 "Add to PATH"）
 4. **WebView2 Runtime**（Win11 自带；Win10 需[手动装 Evergreen Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)）
-5. **NASM**（可选但强烈推荐）——`openssl-src` 编译 vendored OpenSSL 时需要
+5. **NASM**（可选但推荐）——`ring`（经 jsonwebtoken / rustls 间接引入）汇编其 Windows MSVC 加密原语时需要。Windows 已不再编译 vendored OpenSSL（AES/MD5 改用纯 Rust `aes` + `md-5`，TLS 走 SChannel），所以无需 Strawberry Perl
    ```powershell
    choco install nasm
    # 或从 https://www.nasm.us/ 下载后把安装目录加进 PATH
@@ -50,7 +50,7 @@ git clone https://github.com/shiwenwen/hope-agent.git
 cd hope-agent
 
 pnpm install
-cargo check --workspace    # 建议先跑一次，第一次编译 vendored openssl 会慢 2-3 分钟
+cargo check --workspace    # 建议先跑一次，首次编译依赖较多会慢几分钟
 
 # 开发模式（前端热重载 + Tauri 窗口）
 pnpm tauri dev
@@ -69,7 +69,6 @@ pnpm tauri dev
   # 管理员 PowerShell
   Add-MpPreference -ExclusionPath "$(Resolve-Path .\target)"
   ```
-- **`openssl-src` 编译失败 `perl: command not found`**：Strawberry Perl 没装。GitHub Actions `windows-latest` 自带，本地需自己装（`choco install strawberryperl`）。
 - **`Cannot find wix toolset`**：`.msi` 打包需要 WiX Toolset。Tauri CLI 会自动下载，但网络受限时可能失败。可手动装 WiX 3.14 + 设 `WIX` 环境变量。
 
 ## 运行 Server 模式

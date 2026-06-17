@@ -10,8 +10,8 @@
 
 use crate::commands::CmdError;
 use ha_core::filesystem::{
-    self, ExtractedContent, FileTextContent, GitInfo, RenameResult, UploadResult, WorkspaceListing,
-    WorkspaceScope, WriteResult,
+    self, ExtractedContent, FileSearchResponse, FileTextContent, GitInfo, RenameResult,
+    UploadResult, WorkspaceListing, WorkspaceScope, WriteResult,
 };
 
 /// Run a blocking filesystem closure off the async runtime, mapping
@@ -83,6 +83,20 @@ pub async fn project_fs_extract(
     blocking(move || {
         let s = WorkspaceScope::resolve(&scope, &scope_id)?;
         filesystem::project_fs_extract(&s, &path)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn project_fs_search(
+    scope: String,
+    scope_id: String,
+    q: String,
+    limit: Option<usize>,
+) -> Result<FileSearchResponse, CmdError> {
+    blocking(move || {
+        let s = WorkspaceScope::resolve(&scope, &scope_id)?;
+        filesystem::search_files(&s.root().to_string_lossy(), &q, limit)
     })
     .await
 }

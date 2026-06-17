@@ -5,6 +5,7 @@ import { parsePayload } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { cn } from "@/lib/utils"
 import {
   Brain,
@@ -37,6 +38,7 @@ import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoT
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import HandoverDialog from "@/components/chat/HandoverDialog"
 import MessageList from "@/components/chat/MessageList"
+import { ChatWelcomeHero } from "@/components/chat/ChatWelcomeHero"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
 import BrowserPanel from "@/components/chat/BrowserPanel"
@@ -60,6 +62,8 @@ import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
+import { computeContextUsage } from "./chatUtils"
+import { resolveCurrentModel } from "./sessionStatus"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
@@ -69,6 +73,7 @@ import WorkspacePanel from "./workspace/WorkspacePanel"
 import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionState"
 import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
+import { messagesHaveKnowledgeActivity } from "./workspace/useSessionKnowledge"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
@@ -91,6 +96,15 @@ import {
 } from "./sidebar/types"
 import { generateClientId } from "./chatScrollKeys"
 import type { Project, ProjectMeta } from "@/types/project"
+import type { KbDraftAttachment } from "@/types/knowledge"
+
+/** A token to append to the chat composer on next render. `attachKbId` (set by the
+ *  KnowledgeView "reference in chat" action) is auto-attached read-only so the
+ *  `[[note]]` injection isn't dropped by `effective_kb_access` at send time. */
+export interface ChatInsert {
+  token: string
+  attachKbId?: string
+}
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -100,8 +114,10 @@ interface ChatScreenProps {
   onUnreadCountChange?: (count: number) => void
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
-  /** Free-form text to append to the chat input on next render (e.g. `@plan:abcd:v0`). */
-  pendingChatInsert?: string
+  onCurrentProjectChange?: (projectId: string | null) => void
+  /** Token to append to the chat input on next render (e.g. `@plan:abcd:v0` or a
+   *  `[[note]]` ref). */
+  pendingChatInsert?: ChatInsert
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
 }
@@ -156,6 +172,7 @@ const EXCLUSIVE_RIGHT_PANEL_ICONS: Record<ExclusiveRightPanel, LucideIcon> = {
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520
 const CHAT_MAIN_MIN_INTERACTIVE_WIDTH = 420
+const CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH = 320
 const RIGHT_PANEL_AUTO_COLLAPSE_MIN_WIDTH = 360
 const RIGHT_PANEL_AUTO_COLLAPSE_MAX_WIDTH = 640
 const SIDEBAR_AUTO_COLLAPSE_GUTTER = 180
@@ -179,27 +196,6 @@ function clampResponsiveRightPanelWidth(width: number): number {
   )
 }
 
-function useViewportMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    typeof window === "undefined" ? false : window.matchMedia(query).matches,
-  )
-
-  useEffect(() => {
-    if (typeof window === "undefined") return
-
-    const media = window.matchMedia(query)
-    const handleChange = () => setMatches(media.matches)
-    handleChange()
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", handleChange)
-      return () => media.removeEventListener("change", handleChange)
-    }
-    media.addListener(handleChange)
-    return () => media.removeListener(handleChange)
-  }, [query])
-
-  return matches
-}
 
 function isSessionMode(value: unknown): value is SessionMode {
   return value === "default" || value === "smart" || value === "yolo"
@@ -229,6 +225,7 @@ export default function ChatScreen({
   onUnreadCountChange,
   onOpenDashboardTab,
   sessionsRefreshTrigger,
+  onCurrentProjectChange,
   pendingChatInsert,
   onChatInsertConsumed,
 }: ChatScreenProps) {
@@ -266,6 +263,7 @@ export default function ChatScreen({
     return window.localStorage.getItem("hope.chatSidebarCollapsed") === "true"
   })
   const autoCollapsedSidebarRef = useRef(false)
+  const manualSidebarExpandedOverrideRef = useRef(false)
   const userSidebarCollapsedPreferenceRef = useRef(sidebarCollapsed)
 
   useEffect(() => {
@@ -281,6 +279,7 @@ export default function ChatScreen({
 
   const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
     autoCollapsedSidebarRef.current = false
+    manualSidebarExpandedOverrideRef.current = !collapsed
     userSidebarCollapsedPreferenceRef.current = collapsed
     setSidebarCollapsed(collapsed)
   }, [])
@@ -326,6 +325,13 @@ export default function ChatScreen({
   // Right side file-preview panel (Markdown links / attachments / workspace
   // files → in-app preview). Opened via `onPreviewFile` from the message tree.
   const filePreview = useFilePreview()
+  // Fullscreen toggle for the right-side preview panel (its RightPanelShell is
+  // owned here, unlike files/canvas which own their own). Reset whenever the
+  // preview isn't actively shown so it never reopens stuck-maximized.
+  const [filePreviewMaximized, setFilePreviewMaximized] = useState(false)
+  useEffect(() => {
+    if (!filePreview.showPanel || !filePreview.target) setFilePreviewMaximized(false)
+  }, [filePreview.showPanel, filePreview.target])
 
   // Workspace 面板：聚合任务进度 / 碰到的文件 / 引用来源。首次有内容时自动
   // 展开一次，用户关闭后本会话不再自动弹（dismissedRef 跟踪，仿 browser 面板）。
@@ -380,6 +386,10 @@ export default function ChatScreen({
   // `currentSessionId` transition effect below.
   const [draftWorkingDir, setDraftWorkingDir] = useState<string | null>(null)
   const [workingDirSaving, setWorkingDirSaving] = useState(false)
+  // KB attaches staged before a session exists. Replayed onto the new session by
+  // useChatStream when `session_created` lands, then cleared via the
+  // `currentSessionId` transition effect below (mirrors draftWorkingDir).
+  const [draftKbAttachments, setDraftKbAttachments] = useState<KbDraftAttachment[]>([])
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
@@ -477,10 +487,26 @@ export default function ChatScreen({
   const handleStartNewChat = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
       setDraftIncognito(opts?.incognito ?? false)
+      setDraftKbAttachments([])
       await handleNewChat(agentId)
     },
     [handleNewChat],
   )
+
+  const handleStartNewChatFromCurrentContext = useCallback(async () => {
+    const projectId = currentSessionMeta?.projectId
+    if (projectId) {
+      setDraftIncognito(false)
+      await handleNewChatInProject(projectId, currentAgentId, false)
+      return
+    }
+    await handleStartNewChat(currentAgentId)
+  }, [
+    currentAgentId,
+    currentSessionMeta?.projectId,
+    handleNewChatInProject,
+    handleStartNewChat,
+  ])
 
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
@@ -645,6 +671,9 @@ export default function ChatScreen({
         : null,
     [projects, currentSessionMeta?.projectId],
   )
+  useEffect(() => {
+    onCurrentProjectChange?.(currentSessionMeta?.projectId ?? null)
+  }, [currentSessionMeta?.projectId, onCurrentProjectChange])
   const projectWorkingDir = useMemo(
     () => currentProject?.workingDir ?? null,
     [currentProject],
@@ -752,6 +781,9 @@ export default function ChatScreen({
     (enabled: boolean) => {
       if (session.currentSessionId) return
       setDraftIncognito(enabled)
+      // Incognito = zero KB (D10). Drop any staged attaches so they can't ride
+      // into the new incognito session or strand the now-disabled picker badge.
+      if (enabled) setDraftKbAttachments([])
     },
     [session.currentSessionId],
   )
@@ -800,6 +832,17 @@ export default function ChatScreen({
     }
   }, [session.currentSessionId, draftWorkingDir])
 
+  // Drop staged KB attaches once a session exists. On a new-chat first send the
+  // attaches were already baked into the `chat` command payload (`kbAttachments`)
+  // and applied by the backend on the auto-create branch, so clearing here is
+  // pure local cleanup. On switching to an existing session (no send), this just
+  // discards the unsent draft — symmetric with draftWorkingDir.
+  useEffect(() => {
+    if (session.currentSessionId && draftKbAttachments.length > 0) {
+      setDraftKbAttachments([])
+    }
+  }, [session.currentSessionId, draftKbAttachments])
+
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
   useEffect(() => {
     if (sessionsRefreshTrigger) {
@@ -829,12 +872,13 @@ export default function ChatScreen({
       const modKey = e.metaKey || e.ctrlKey
       if (!modKey || e.altKey) return
       if (e.key.toLowerCase() !== "f") return
-      // Don't hijack the shortcut if the user is editing inside an
-      // unrelated contenteditable (e.g. a markdown canvas field). Free
-      // inputs (ChatInput textarea etc.) are fine to preempt since there
-      // is no browser find-in-page equivalent for chat history anyway.
+      // Don't hijack the shortcut while editing inside a genuine document
+      // editor (knowledge note / markdown canvas) where Cmd+F means
+      // find-in-document. The chat composer is itself a contenteditable
+      // (CM6) but has no find-in-page equivalent for chat history, so let
+      // the shortcut through there.
       const target = e.target as HTMLElement | null
-      if (target?.isContentEditable) return
+      if (target?.isContentEditable && !target.closest("[data-chat-composer]")) return
 
       if (e.shiftKey) {
         e.preventDefault()
@@ -849,30 +893,33 @@ export default function ChatScreen({
     return () => window.removeEventListener("keydown", handler)
   }, [currentSessionId, openSessionSearch, focusGlobalSearch])
 
-  // Cmd/Ctrl+N: start a fresh draft chat with the current agent, matching the
-  // sidebar New Chat button and tray "new-session" behavior.
+  // Cmd/Ctrl+N: start a fresh chat with the current agent. When the active
+  // session belongs to a Project, keep the new session in that Project too.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey
       if (!modKey || e.altKey || e.shiftKey || e.repeat) return
       if (e.key.toLowerCase() !== "n") return
 
+      // The chat composer is a contenteditable (CM6) but Cmd+N has no
+      // document-local meaning there, so only bail inside other editors
+      // (knowledge note / markdown canvas).
       const target = e.target as HTMLElement | null
-      if (target?.isContentEditable) return
+      if (target?.isContentEditable && !target.closest("[data-chat-composer]")) return
 
       e.preventDefault()
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatFromCurrentContext()
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [handleStartNewChat, currentAgentId])
+  }, [handleStartNewChatFromCurrentContext])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     return getTransport().listen("new-session", () => {
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatFromCurrentContext()
     })
-  }, [handleStartNewChat, currentAgentId])
+  }, [handleStartNewChatFromCurrentContext])
 
   // Listen for tray "focus-session" event — emitted when the user clicks an
   // in-progress regular conversation entry inside the system tray dropdown.
@@ -1002,6 +1049,7 @@ export default function ChatScreen({
     reasoningEffort,
     incognitoEnabled,
     draftWorkingDir,
+    draftKbAttachments,
   })
 
   useEffect(() => {
@@ -1045,14 +1093,45 @@ export default function ChatScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.currentSessionId, session.sessions, stream.setPermissionMode])
 
-  // Consume a `@plan:xxx` (or any free-form text) injection from the global
-  // Plans view: append once with a leading space, then notify App so the slot
-  // clears. Runs after `stream` is initialized so `setInput` is available.
+  // Consume a token injection from a global view: `@plan:xxx` from Plans, or a
+  // `[[note]]` ref from Knowledge. Append once with a leading space, then notify
+  // App so the slot clears. A KB ref also auto-attaches its KB (read-only) so the
+  // injection isn't dropped by `effective_kb_access` at send time. Incognito
+  // sessions get zero KB access (D10) — skip the attach, never the insert.
   useEffect(() => {
     if (!pendingChatInsert) return
-    const sep = stream.input && !stream.input.endsWith(" ") ? " " : ""
-    stream.setInput(`${stream.input}${sep}${pendingChatInsert} `)
-    onChatInsertConsumed?.()
+    const { token, attachKbId } = pendingChatInsert
+    const run = async () => {
+      if (attachKbId && !incognitoEnabled) {
+        try {
+          if (session.currentSessionId) {
+            await getTransport().call("attach_session_kb_cmd", {
+              sessionId: session.currentSessionId,
+              kbId: attachKbId,
+              access: "read",
+            })
+          } else {
+            // New chat: stage the attach; it's baked into the `chat` payload on
+            // first send (symmetric with draftWorkingDir / KnowledgePicker).
+            setDraftKbAttachments((prev) =>
+              prev.some((a) => a.kbId === attachKbId)
+                ? prev
+                : [...prev, { kbId: attachKbId, access: "read" }],
+            )
+          }
+        } catch (e) {
+          // Non-fatal: the token is still inserted; the user can attach manually.
+          logger.warn("ui", "ChatScreen::referenceInChat", "auto-attach KB failed", e)
+        }
+      }
+      // Functional updater (not the captured `stream.input`): the `attach` await
+      // above is a transport round-trip during which the user may keep typing —
+      // reading a stale snapshot here would drop those keystrokes. The updater
+      // also composes correctly if two refs are inserted back-to-back.
+      stream.setInput((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${token} `)
+      onChatInsertConsumed?.()
+    }
+    void run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingChatInsert])
 
@@ -1080,6 +1159,13 @@ export default function ChatScreen({
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
   const taskProgressSnapshot = useTaskProgressSnapshot(session.currentSessionId, session.messages)
+  // Context-window fullness for the input-dock bottom bar. Derived from the
+  // active model's window + the latest assistant usage (shared helper, same
+  // numbers as the status popover / workspace session card).
+  const contextUsage = useMemo(() => {
+    const model = resolveCurrentModel(activeModel, availableModels)
+    return model ? computeContextUsage(session.messages, model.contextWindow) : null
+  }, [activeModel, availableModels, session.messages])
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -1496,6 +1582,7 @@ export default function ChatScreen({
   const [activeExclusiveRightPanel, setActiveExclusiveRightPanel] =
     useState<ExclusiveRightPanel | null>(null)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
+  const [manualRightPanelExpandedOverride, setManualRightPanelExpandedOverride] = useState(false)
   const autoCollapsedRightPanelRef = useRef(false)
   const rightPanelVisibility = useMemo<ExclusiveRightPanelVisibility>(
     () => ({
@@ -1571,6 +1658,14 @@ export default function ChatScreen({
     if (!EXCLUSIVE_RIGHT_PANEL_ORDER.includes(panelId as ExclusiveRightPanel)) return
     setActiveExclusiveRightPanel(panelId as ExclusiveRightPanel)
     autoCollapsedRightPanelRef.current = false
+    setManualRightPanelExpandedOverride(true)
+    setRightPanelCollapsed(false)
+  }, [])
+
+  const showRightPanelByUser = useCallback((panel: ExclusiveRightPanel) => {
+    setActiveExclusiveRightPanel(panel)
+    autoCollapsedRightPanelRef.current = false
+    setManualRightPanelExpandedOverride(true)
     setRightPanelCollapsed(false)
   }, [])
 
@@ -1586,6 +1681,7 @@ export default function ChatScreen({
   // Reveal a quoted file in the browser: open the files panel + signal target.
   const handleQuoteJump = useCallback((q: QuotePayload) => {
     setShowFilesPanel(true)
+    showRightPanelByUser("files")
     revealQuoteNonce.current += 1
     setRevealFile({
       path: q.path,
@@ -1594,20 +1690,19 @@ export default function ChatScreen({
       endLine: q.endLine,
       nonce: revealQuoteNonce.current,
     })
-  }, [])
+  }, [showRightPanelByUser])
 
   // 打开并激活 Workspace 面板（状态条点击 / 重新打开）。
   const openWorkspacePanel = useCallback(() => {
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
-    setActiveExclusiveRightPanel("workspace")
-    autoCollapsedRightPanelRef.current = false
-    setRightPanelCollapsed(false)
-  }, [])
+    showRightPanelByUser("workspace")
+  }, [showRightPanelByUser])
 
   useEffect(() => {
     if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
       autoCollapsedRightPanelRef.current = false
+      setManualRightPanelExpandedOverride(false)
       setRightPanelCollapsed(false)
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
@@ -1632,8 +1727,20 @@ export default function ChatScreen({
   const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
 
   useEffect(() => {
+    if (shouldAutoExpandRightPanel && manualRightPanelExpandedOverride) {
+      setManualRightPanelExpandedOverride(false)
+    }
+
+    if (shouldAutoExpandSidebar) {
+      manualSidebarExpandedOverrideRef.current = false
+    }
+
     if (hasOpenExclusiveRightPanel) {
-      if (shouldAutoCollapseRightPanel && !rightPanelCollapsed) {
+      if (
+        shouldAutoCollapseRightPanel &&
+        !rightPanelCollapsed &&
+        !manualRightPanelExpandedOverride
+      ) {
         autoCollapsedRightPanelRef.current = true
         setRightPanelCollapsed(true)
       } else if (
@@ -1646,12 +1753,16 @@ export default function ChatScreen({
       }
     } else {
       autoCollapsedRightPanelRef.current = false
+      if (manualRightPanelExpandedOverride) {
+        setManualRightPanelExpandedOverride(false)
+      }
     }
 
     if (
       shouldAutoCollapseSidebar &&
       !sidebarCollapsed &&
-      !userSidebarCollapsedPreferenceRef.current
+      !userSidebarCollapsedPreferenceRef.current &&
+      !manualSidebarExpandedOverrideRef.current
     ) {
       autoCollapsedSidebarRef.current = true
       setSidebarCollapsed(true)
@@ -1666,6 +1777,7 @@ export default function ChatScreen({
     }
   }, [
     hasOpenExclusiveRightPanel,
+    manualRightPanelExpandedOverride,
     rightPanelCollapsed,
     sidebarCollapsed,
     shouldAutoCollapseRightPanel,
@@ -1680,23 +1792,43 @@ export default function ChatScreen({
   const previousRightPanelVisibilityRef = useRef<ExclusiveRightPanelVisibility>(
     EMPTY_RIGHT_PANEL_VISIBILITY,
   )
+  // Monotonic open-nonces capture a user re-opening an ALREADY-visible panel
+  // (clicking a file while preview is open / re-opening a diff): there's no
+  // visibility rising edge to latch onto (showPanel stayed true), so the nonce's
+  // rising edge force-claims the active slot.
+  const previousPreviewOpenNonceRef = useRef(filePreview.openNonce)
+  const previousDiffOpenNonceRef = useRef(diffPanel.openNonce)
   useLayoutEffect(() => {
     const previous = previousRightPanelVisibilityRef.current
     const newlyOpened =
       EXCLUSIVE_RIGHT_PANEL_ORDER.find(
         (panel) => rightPanelVisibility[panel] && !previous[panel],
       ) ?? null
+    let forced: ExclusiveRightPanel | null = null
+    if (filePreview.openNonce !== previousPreviewOpenNonceRef.current) {
+      forced = "preview"
+    } else if (diffPanel.openNonce !== previousDiffOpenNonceRef.current) {
+      forced = "diff"
+    }
+    previousPreviewOpenNonceRef.current = filePreview.openNonce
+    previousDiffOpenNonceRef.current = diffPanel.openNonce
     const stillActive =
       activeExclusiveRightPanel && rightPanelVisibility[activeExclusiveRightPanel]
         ? activeExclusiveRightPanel
         : null
-    const active = newlyOpened ?? stillActive ?? openExclusiveRightPanels[0] ?? null
+    const active = forced ?? newlyOpened ?? stillActive ?? openExclusiveRightPanels[0] ?? null
 
     previousRightPanelVisibilityRef.current = rightPanelVisibility
     if (activeExclusiveRightPanel !== active) {
       setActiveExclusiveRightPanel(active)
     }
-  }, [activeExclusiveRightPanel, openExclusiveRightPanels, rightPanelVisibility])
+  }, [
+    activeExclusiveRightPanel,
+    openExclusiveRightPanels,
+    rightPanelVisibility,
+    filePreview.openNonce,
+    diffPanel.openNonce,
+  ])
 
   // Reset dismissal flags (and any open panel state) on session switch so each
   // session gets a fresh chance to auto-open live mirror panels. Bind the stable
@@ -1752,7 +1884,8 @@ export default function ChatScreen({
   const hasWorkspaceContent =
     (taskProgressSnapshot?.total ?? 0) > 0 ||
     messagesHaveFileActivity(session.messages) ||
-    messagesHaveUrlActivity(session.messages)
+    messagesHaveUrlActivity(session.messages) ||
+    messagesHaveKnowledgeActivity(session.messages)
   // 依赖里带 currentSessionId：切到「已有内容」的旧会话时 hasWorkspaceContent 不发生
   // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
   // dismissedRef)，否则旧会话切回来面板不会自动展开。
@@ -1768,6 +1901,23 @@ export default function ChatScreen({
     session.loading,
   )
 
+  const handleToggleFilesPanel = useCallback(() => {
+    if (showFilesPanel) {
+      setShowFilesPanel(false)
+      return
+    }
+    setShowFilesPanel(true)
+    showRightPanelByUser("files")
+  }, [showFilesPanel, showRightPanelByUser])
+
+  const rightPanelReservedMainWidth =
+    manualRightPanelExpandedOverride && !rightPanelCollapsed
+      ? CHAT_MAIN_COMPACT_MIN_INTERACTIVE_WIDTH
+      : CHAT_MAIN_MIN_INTERACTIVE_WIDTH
+  const chatMainMinWidth = `min(100%, ${rightPanelReservedMainWidth}px)`
+  const workspacePanelVisibleInRightPanel =
+    showWorkspacePanel && renderedExclusiveRightPanel === "workspace" && !rightPanelCollapsed
+
   const emptySessionInputHero =
     session.messages.length === 0 &&
     !session.loading &&
@@ -1775,6 +1925,11 @@ export default function ChatScreen({
     !planMode.planCardInfo &&
     !planMode.planSubagentRunning &&
     !searchBarOpen
+  // The hero greeting (logo + slogan) is rendered above the centered composer
+  // only when that composer is actually mounted (cron / subagent sessions have
+  // no input box). When true, MessageList must suppress its own empty greeting
+  // so the two don't overlap.
+  const heroComposerActive = emptySessionInputHero && !isCronSession && !isSubagentSession
 
   return (
     <>
@@ -1946,9 +2101,7 @@ export default function ChatScreen({
           incognitoEnabled={incognitoEnabled}
           incognitoDisabledReason={incognitoDisabledReason}
           onIncognitoChange={handleIncognitoChange}
-          onToggleFilesPanel={
-            effectiveWorkingDir ? () => setShowFilesPanel((p) => !p) : undefined
-          }
+          onToggleFilesPanel={effectiveWorkingDir ? handleToggleFilesPanel : undefined}
           filesPanelOpen={showFilesPanel}
           onToggleWorkspacePanel={() => {
             if (showWorkspacePanel) {
@@ -1966,8 +2119,10 @@ export default function ChatScreen({
           onToggleRightPanelCollapsed={
             hasOpenExclusiveRightPanel
               ? () => {
+                  const nextCollapsed = !rightPanelCollapsed
                   autoCollapsedRightPanelRef.current = false
-                  setRightPanelCollapsed((collapsed) => !collapsed)
+                  setManualRightPanelExpandedOverride(!nextCollapsed)
+                  setRightPanelCollapsed(nextCollapsed)
                 }
               : undefined
           }
@@ -1976,7 +2131,7 @@ export default function ChatScreen({
         <div className="flex-1 flex min-h-0 overflow-hidden">
           <div
             className="relative flex-1 flex flex-col min-w-0"
-            style={{ minWidth: `min(100%, ${CHAT_MAIN_MIN_INTERACTIVE_WIDTH}px)` }}
+            style={{ minWidth: chatMainMinWidth }}
           >
             {activeTeamId && !showTeamPanel && (
               <div className="px-3 py-1 border-b border-border">
@@ -1996,144 +2151,166 @@ export default function ChatScreen({
             <CrashRecoveryBanner />
 
             <FileActionsContext.Provider value={fileActionsValue}>
-            <MessageList
-              messages={session.messages}
-              loading={session.loading}
-              executionState={
-                session.currentSessionId
-                  ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
-                  : null
-              }
-              agents={session.agents}
-              hasMore={session.hasMore}
-              loadingMore={session.loadingMore}
-              onLoadMore={session.handleLoadMore}
-              hasMoreAfter={session.hasMoreAfter}
-              loadingMoreAfter={session.loadingMoreAfter}
-              onLoadMoreAfter={session.handleLoadMoreAfter}
-              onResetToLatest={session.resetToLatest}
-              sessionId={session.currentSessionId}
-              incognito={incognitoEnabled}
-              pendingScrollIntent={session.pendingScrollIntent}
-              onScrollTargetHandled={session.clearPendingScrollIntent}
-              pendingQuestionGroup={planMode.pendingQuestionGroup}
-              onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
-              planCardData={planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null}
-              planState={planMode.planState}
-              onOpenPlanPanel={planMode.openPlanPanel}
-              onApprovePlan={handlePlanApprove}
-              onExitPlan={planMode.exitPlanMode}
-              planSubagentRunning={planMode.planSubagentRunning}
-              onSwitchModel={handleMessageSwitchModel}
-              onViewSystemPrompt={loadSystemPrompt}
-              onOpenDashboardTab={onOpenDashboardTab}
-              onSwitchSession={(sid) => {
-                void session.handleSwitchSession(sid)
-              }}
-              onOpenDiff={diffPanel.openDiff}
-              onResume={(message) => {
-                void stream.handleSend(message)
-              }}
-              displayMode={displayMode}
-            />
-            </FileActionsContext.Provider>
+              <MessageList
+                messages={session.messages}
+                loading={session.loading}
+                executionState={
+                  session.currentSessionId
+                    ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
+                    : null
+                }
+                agents={session.agents}
+                hasMore={session.hasMore}
+                loadingMore={session.loadingMore}
+                onLoadMore={session.handleLoadMore}
+                hasMoreAfter={session.hasMoreAfter}
+                loadingMoreAfter={session.loadingMoreAfter}
+                onLoadMoreAfter={session.handleLoadMoreAfter}
+                onResetToLatest={session.resetToLatest}
+                sessionId={session.currentSessionId}
+                incognito={incognitoEnabled}
+                heroComposer={heroComposerActive}
+                pendingScrollIntent={session.pendingScrollIntent}
+                onScrollTargetHandled={session.clearPendingScrollIntent}
+                pendingQuestionGroup={planMode.pendingQuestionGroup}
+                onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
+                planCardData={planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null}
+                planState={planMode.planState}
+                onOpenPlanPanel={planMode.openPlanPanel}
+                onApprovePlan={handlePlanApprove}
+                onExitPlan={planMode.exitPlanMode}
+                planSubagentRunning={planMode.planSubagentRunning}
+                onSwitchModel={handleMessageSwitchModel}
+                onViewSystemPrompt={loadSystemPrompt}
+                onOpenDashboardTab={onOpenDashboardTab}
+                onSwitchSession={(sid) => {
+                  void session.handleSwitchSession(sid)
+                }}
+                onOpenDiff={diffPanel.openDiff}
+                onResume={(message) => {
+                  void stream.handleSend(message)
+                }}
+                displayMode={displayMode}
+              />
 
-            {/* Memory extraction toast — absolute-positioned above ChatInput
-             * so it doesn't shrink the MessageList scroll container when it
-             * appears/disappears. */}
-            {!isCronSession && !isSubagentSession && (
-              <div
-                className={cn(
-                  "relative",
-                  emptySessionInputHero &&
-                    "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
-                )}
-              >
-                {memoryToast && (
-                  <div
-                    className={cn(
-                      "absolute bottom-full mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
-                      emptySessionInputHero
-                        ? "inset-x-5 mx-auto max-w-[920px] sm:inset-x-8"
-                        : "left-0 right-0 mx-4",
-                    )}
-                  >
-                    <Brain className="h-3.5 w-3.5 shrink-0" />
-                    <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
-                    <button
-                      onClick={() => setMemoryToast(null)}
-                      className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+              {/* Memory extraction toast — absolute-positioned above ChatInput
+               * so it doesn't shrink the MessageList scroll container when it
+               * appears/disappears. */}
+              {!isCronSession && !isSubagentSession && (
+                <div
+                  className={cn(
+                    "relative",
+                    emptySessionInputHero &&
+                      "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
+                  )}
+                >
+                  {memoryToast && (
+                    <div
+                      className={cn(
+                        "absolute bottom-full mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
+                        emptySessionInputHero
+                          ? "inset-x-5 mx-auto max-w-[920px] sm:inset-x-8"
+                          : "left-0 right-0 mx-4",
+                      )}
                     >
-                      ×
-                    </button>
-                  </div>
-                )}
+                      <Brain className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {t("settings.memoryExtractedToast", { count: memoryToast.count })}
+                      </span>
+                      <button
+                        onClick={() => setMemoryToast(null)}
+                        className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
 
-                <div className={cn(emptySessionInputHero && "w-full max-w-[920px]")}>
-                  <ChatInput
-                    input={stream.input}
-                    onInputChange={stream.setInput}
-                    onSend={() => stream.handleSend()}
-                    loading={session.loading}
-                    availableModels={availableModels}
-                    activeModel={activeModel}
-                    reasoningEffort={reasoningEffort}
-                    onModelChange={handleManualModelChange}
-                    onEffortChange={handleSessionEffortChange}
-                    attachedFiles={stream.attachedFiles}
-                    onAttachFiles={(files) =>
-                      stream.setAttachedFiles((prev) => [...prev, ...files])
-                    }
-                    onRemoveFile={(index) =>
-                      stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
-                    }
-                    pendingQuotes={stream.pendingQuotes}
-                    onRemoveQuote={(index) => {
-                      stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
-                      setRevealFile(null) // dropping a quote clears its reveal highlight
-                    }}
-                    onJumpToQuote={handleQuoteJump}
-                    pendingMessage={stream.pendingMessage}
-                    onCancelPending={() => {
-                      stream.setInput(stream.pendingMessage || "")
-                      stream.setPendingMessage(null)
-                    }}
-                    onDiscardPending={() => {
-                      stream.setPendingMessage(null)
-                    }}
-                    onStop={stream.handleStop}
-                    currentSessionId={session.currentSessionId}
-                    currentAgentId={session.currentAgentId}
-                    onCommandAction={handleCommandAction}
-                    permissionMode={stream.permissionMode}
-                    onPermissionModeChange={stream.setPermissionMode}
-                    sessionTemperature={sessionTemperature}
-                    onSessionTemperatureChange={setSessionTemperature}
-                    incognitoEnabled={incognitoEnabled}
-                    workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
-                    workingDirInherited={
-                      session.currentSessionId ? workingDirSource === "project" : false
-                    }
-                    workingDirSaving={workingDirSaving}
-                    onWorkingDirChange={
-                      currentSessionMeta?.projectId ? undefined : handleWorkingDirChange
-                    }
-                    planState={planMode.planState}
-                    onEnterPlanMode={planMode.enterPlanMode}
-                    onExitPlanMode={planMode.exitPlanMode}
-                    onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
-                    taskProgressSnapshot={taskProgressSnapshot}
-                    onOpenWorkspace={openWorkspacePanel}
-                    executionState={
-                      session.currentSessionId
-                        ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
-                        : null
-                    }
-                    hero={emptySessionInputHero}
-                  />
+                  <div
+                    className={cn(emptySessionInputHero && "flex w-full max-w-[920px] flex-col")}
+                  >
+                    {heroComposerActive && (
+                      <div className="mb-5 sm:mb-6">
+                        <ChatWelcomeHero incognito={incognitoEnabled} />
+                      </div>
+                    )}
+                    <ChatInput
+                      input={stream.input}
+                      onInputChange={stream.setInput}
+                      onSend={() => stream.handleSend()}
+                      loading={session.loading}
+                      availableModels={availableModels}
+                      activeModel={activeModel}
+                      reasoningEffort={reasoningEffort}
+                      onModelChange={handleManualModelChange}
+                      onEffortChange={handleSessionEffortChange}
+                      attachedFiles={stream.attachedFiles}
+                      onAttachFiles={(files) =>
+                        stream.setAttachedFiles((prev) => [...prev, ...files])
+                      }
+                      onRemoveFile={(index) =>
+                        stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+                      }
+                      pendingQuotes={stream.pendingQuotes}
+                      onRemoveQuote={(index) => {
+                        stream.setPendingQuotes((prev) => prev.filter((_, i) => i !== index))
+                        setRevealFile(null) // dropping a quote clears its reveal highlight
+                      }}
+                      onJumpToQuote={handleQuoteJump}
+                      pendingMessage={stream.pendingMessage}
+                      pendingSends={stream.pendingSends}
+                      onCancelPending={() => {
+                        stream.setInput(stream.pendingMessage || "")
+                        stream.setPendingMessage(null)
+                      }}
+                      onDiscardPending={() => {
+                        stream.setPendingMessage(null)
+                      }}
+                      onEditPending={stream.editPendingSend}
+                      onDiscardPendingItem={stream.discardPendingSend}
+                      onForceInsertPending={stream.forceInsertPendingSend}
+                      onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
+                      onStop={stream.handleStop}
+                      currentSessionId={session.currentSessionId}
+                      currentAgentId={session.currentAgentId}
+                      onCommandAction={handleCommandAction}
+                      permissionMode={stream.permissionMode}
+                      onPermissionModeChange={stream.setPermissionMode}
+                      sessionTemperature={sessionTemperature}
+                      onSessionTemperatureChange={setSessionTemperature}
+                      incognitoEnabled={incognitoEnabled}
+                      projectId={currentSessionMeta?.projectId ?? null}
+                      draftKbAttachments={draftKbAttachments}
+                      onDraftKbAttachChange={setDraftKbAttachments}
+                      enableNoteMention
+                      enableSkillMention
+                      workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
+                      workingDirInherited={
+                        session.currentSessionId ? workingDirSource === "project" : false
+                      }
+                      workingDirSaving={workingDirSaving}
+                      onWorkingDirChange={
+                        currentSessionMeta?.projectId ? undefined : handleWorkingDirChange
+                      }
+                      planState={planMode.planState}
+                      onEnterPlanMode={planMode.enterPlanMode}
+                      onExitPlanMode={planMode.exitPlanMode}
+                      onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                      taskProgressSnapshot={taskProgressSnapshot}
+                      onOpenWorkspace={openWorkspacePanel}
+                      workspacePanelVisible={workspacePanelVisibleInRightPanel}
+                      executionState={
+                        session.currentSessionId
+                          ? (stream.executionStateBySession.get(session.currentSessionId) ?? null)
+                          : null
+                      }
+                      hero={emptySessionInputHero}
+                      contextUsage={contextUsage}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </FileActionsContext.Provider>
           </div>
 
           {/* Diff panel (right side, selected from the title-bar panel switcher) */}
@@ -2143,6 +2320,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("diffPanel.resizePanel", "Resize diff panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="diff"
             >
@@ -2163,6 +2341,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("planMode.resizePanel", "Resize plan panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="plan"
             >
@@ -2194,6 +2373,7 @@ export default function ChatScreen({
             collapsed={rightPanelCollapsed}
             panelWidth={rightPanelWidth}
             onPanelWidthChange={setRightPanelWidth}
+            reservedMainWidth={rightPanelReservedMainWidth}
             onQuote={handleFileQuote}
             revealFile={revealFile}
             onClose={() => setShowFilesPanel(false)}
@@ -2206,6 +2386,7 @@ export default function ChatScreen({
             currentSessionId={currentSessionId}
             onOpenChange={setCanvasPanelOpen}
             collapsed={rightPanelCollapsed}
+            reservedMainWidth={rightPanelReservedMainWidth}
             visible={
               shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
             }
@@ -2218,6 +2399,7 @@ export default function ChatScreen({
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
+              reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 browserPanelDismissedRef.current = true
                 setShowBrowserPanel(false)
@@ -2233,6 +2415,7 @@ export default function ChatScreen({
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
+              reservedMainWidth={rightPanelReservedMainWidth}
               onClose={() => {
                 macControlPanelDismissedRef.current = true
                 setShowMacControlPanel(false)
@@ -2249,6 +2432,7 @@ export default function ChatScreen({
                 panelWidth={rightPanelWidth}
                 onPanelWidthChange={setRightPanelWidth}
                 collapsed={rightPanelCollapsed}
+                reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => setShowTeamPanel(false)}
                 onSwitchSession={session.handleSwitchSession}
               />
@@ -2261,6 +2445,7 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("workspace.resizePanel", "Resize workspace panel")}
               maxWidth={860}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="workspace"
             >
@@ -2278,6 +2463,13 @@ export default function ChatScreen({
                 permissionMode={stream.permissionMode}
                 planState={planMode.planState}
                 activeModel={activeModel}
+                agentName={session.agentName}
+                reasoningEffort={reasoningEffort}
+                availableModels={availableModels}
+                currentAgentId={session.currentAgentId}
+                onCommandAction={handleCommandAction}
+                onViewSystemPrompt={loadSystemPrompt}
+                systemPromptLoading={systemPromptLoading}
                 incognito={incognitoEnabled}
                 turnActive={
                   workspaceTaskExecutionState === "running" ||
@@ -2300,13 +2492,20 @@ export default function ChatScreen({
               onWidthChange={setRightPanelWidth}
               resizeLabel={t("filePreview.resizePanel", "Resize preview panel")}
               maxWidth={860}
+              maximized={filePreviewMaximized}
+              reservedMainWidth={rightPanelReservedMainWidth}
               collapsed={rightPanelCollapsed}
               contentKey="preview"
             >
               <FilePreviewPanel
                 target={filePreview.target}
                 sessionId={session.currentSessionId}
-                onClose={filePreview.closePreview}
+                maximized={filePreviewMaximized}
+                onToggleMaximize={() => setFilePreviewMaximized((v) => !v)}
+                onClose={() => {
+                  setFilePreviewMaximized(false)
+                  filePreview.closePreview()
+                }}
               />
             </RightPanelShell>
           )}

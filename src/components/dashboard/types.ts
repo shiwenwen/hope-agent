@@ -1,4 +1,5 @@
 import { formatBytes as formatBytesRaw } from "@/lib/format"
+import { logger } from "@/lib/logger"
 
 export interface DashboardFilter {
   startDate: string | null
@@ -209,6 +210,7 @@ export interface CronJob {
   id: string
   name: string
   description: string | null
+  projectId?: string | null
   schedule: CronSchedule
   status: string
   nextRunAt: string | null
@@ -356,8 +358,10 @@ export function chartNumber(value: unknown): number {
       const key = value.length === 0 ? "empty" : typeof value[0]
       if (!chartNumberArrayWarned.has(key)) {
         chartNumberArrayWarned.add(key)
-        console.warn(
-          "[dashboard] chartNumber received an array — only first element is used. " +
+        logger.warn(
+          "dashboard",
+          "types::chartNumber",
+          "chartNumber received an array — only first element is used. " +
             "Stacked tooltips need a dedicated formatter.",
           value,
         )

@@ -37,6 +37,12 @@ pub(crate) struct RoundRequest<'a> {
     /// Active Memory recall sentence (Phase B1) — third independent cache
     /// breakpoint. Same rationale as `awareness_suffix`.
     pub active_memory_suffix: Option<&'a str>,
+    /// Passive related-notes block (read bridge ③, Phase 3). Note titles from the
+    /// accessible KBs. Appended as a plain system block WITHOUT `cache_control` on
+    /// Anthropic (the 4 breakpoints are already taken — prefix, awareness,
+    /// active_memory, last tool); it changes per user message so caching would
+    /// rarely hit anyway. Untrusted (never instructions).
+    pub related_notes_suffix: Option<&'a str>,
     /// Per-round task tracker reminder. Appended as the last system block
     /// (without `cache_control` on Anthropic to stay under the 4-breakpoint
     /// cap). Lifecycle differs from awareness/active_memory: cheap pure-DB

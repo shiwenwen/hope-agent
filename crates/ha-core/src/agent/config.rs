@@ -106,10 +106,16 @@ pub fn is_valid_codex_model(id: &str) -> bool {
     get_codex_models().iter().any(|m| m.id == id)
 }
 
+/// Default Codex model id selected at login / onboarding when the user hasn't
+/// picked one. Single source of truth — must match the first entry of
+/// [`get_codex_models`]. All auth paths (server / desktop / CLI) reference this
+/// instead of hard-coding a model id, so bumping the default is a one-line change.
+pub const DEFAULT_CODEX_MODEL_ID: &str = "gpt-5.5";
+
 pub fn get_codex_models() -> Vec<CodexModel> {
     vec![
         CodexModel {
-            id: "gpt-5.5".into(),
+            id: DEFAULT_CODEX_MODEL_ID.into(),
             name: "GPT-5.5".into(),
         },
         CodexModel {
@@ -407,6 +413,7 @@ pub fn build_system_prompt_with_session(
             .as_ref()
             .map(|m| m.permission_mode)
             .unwrap_or_default();
+        let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
         return crate::system_prompt::build(
             &definition,
             Some(model),
@@ -420,6 +427,7 @@ pub fn build_system_prompt_with_session(
             session_id,
             incognito,
             session_working_dir.as_deref(),
+            channel_info,
             permission_mode,
         );
     }

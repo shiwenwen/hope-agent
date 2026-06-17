@@ -14,9 +14,11 @@ import {
   XCircle,
   Clock,
   ExternalLink,
+  FolderOpen,
 } from "lucide-react"
 import type { CronJob, CronRunLog } from "./CronJobForm.types"
 import { statusColor, formatSchedule } from "./cronHelpers"
+import type { ProjectMeta } from "@/types/project"
 
 interface CronJobDetailProps {
   jobId: string
@@ -38,6 +40,7 @@ export default function CronJobDetail({
   const { t } = useTranslation()
   const [job, setJob] = useState<CronJob | null>(null)
   const [logs, setLogs] = useState<CronRunLog[]>([])
+  const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
 
@@ -49,6 +52,14 @@ export default function CronJobDetail({
       ])
       setJob(j)
       setLogs(l)
+      if (j?.projectId) {
+        const list = await getTransport().call<ProjectMeta[]>("list_projects_cmd", {
+          includeArchived: true,
+        })
+        setProjects(Array.isArray(list) ? list : [])
+      } else {
+        setProjects([])
+      }
     } catch {
       // ignore
     } finally {
@@ -99,6 +110,7 @@ export default function CronJobDetail({
   if (!job) {
     return <div className="p-6 text-center text-muted-foreground">{t("cron.jobNotFound")}</div>
   }
+  const project = job.projectId ? projects.find((p) => p.id === job.projectId) : null
 
   return (
     <div className="flex flex-col h-full">
@@ -175,6 +187,19 @@ export default function CronJobDetail({
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t("cron.lastRun")}</span>
           <span>{job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "-"}</span>
+        </div>
+        <div className="flex justify-between gap-3">
+          <span className="text-muted-foreground">{t("cron.project")}</span>
+          <span className="flex min-w-0 items-center gap-1 text-right">
+            <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="truncate">
+              {job.projectId
+                ? project
+                  ? `${project.emoji ? `${project.emoji} ` : ""}${project.name}`
+                  : t("cron.missingProject")
+                : t("cron.noProject")}
+            </span>
+          </span>
         </div>
         {job.runningAt && (
           <div className="flex justify-between">

@@ -1,30 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDown, Ghost } from "lucide-react"
-import alphaLogoUrl from "@/assets/alpha-logo.png"
+import { ArrowDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import { isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
+import { ChatWelcomeHero } from "./ChatWelcomeHero"
+import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
-import {
-  findMessageRowByKey,
-  getLatestUserTurnKey,
-  getMessageRowKey,
-} from "./chatScrollKeys"
+import { findMessageRowByKey, getLatestUserTurnKey, getMessageRowKey } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
-import type {
-  ChatDisplayMode,
-  ChatTurnStatus,
-  Message,
-  AgentSummaryForSidebar,
-} from "@/types/chat"
+import type { ChatDisplayMode, ChatTurnStatus, Message, AgentSummaryForSidebar } from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
@@ -46,6 +38,12 @@ interface MessageListProps {
   onResetToLatest?: () => void | Promise<void>
   sessionId?: string | null
   incognito?: boolean
+  /**
+   * When true, `ChatScreen` is rendering the empty-session greeting itself,
+   * stacked above the centered hero composer — so MessageList must NOT also
+   * render its own empty greeting (the two would overlap). See {@link ChatWelcomeHero}.
+   */
+  heroComposer?: boolean
   /** Search-jump target + literal substrings to inline-highlight inside
    *  the matched bubble. `null` between jumps. The terms are painted via
    *  the CSS Custom Highlight API in `lib/inlineHighlight.ts`. */
@@ -84,6 +82,11 @@ const COMPACT_USER_ANCHOR_LEAD_PX = 32
 const COMPACT_USER_ANCHOR_EXIT_MS = 200
 const ASK_USER_FOLLOW_FRAMES = 16
 
+function preferredScrollBehavior(): ScrollBehavior {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "smooth"
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+}
+
 function shouldPassExecutionStateToBubble(
   isLast: boolean,
   loading: boolean,
@@ -108,6 +111,7 @@ export default function MessageList({
   onResetToLatest,
   sessionId,
   incognito = false,
+  heroComposer = false,
   pendingScrollIntent,
   onScrollTargetHandled,
   pendingQuestionGroup,
@@ -163,14 +167,10 @@ export default function MessageList({
   // Reset on session swap via the prop-derived state pattern below.
   const [displayedStart, setDisplayedStart] = useState(0)
   const [displayedStartSession, setDisplayedStartSession] = useState(sessionKey)
-  const [displayedStartMessagesLength, setDisplayedStartMessagesLength] = useState(
-    messages.length,
-  )
+  const [displayedStartMessagesLength, setDisplayedStartMessagesLength] = useState(messages.length)
   // Tracks the previous `messages[0]` so a length change can be classified
   // as prepend (Load More) vs append (streaming) vs reload (cap-rebuild).
-  const [prevFirstMessage, setPrevFirstMessage] = useState<Message | null>(
-    messages[0] ?? null,
-  )
+  const [prevFirstMessage, setPrevFirstMessage] = useState<Message | null>(messages[0] ?? null)
   if (displayedStartSession !== sessionKey) {
     setDisplayedStartSession(sessionKey)
     setDisplayedStartMessagesLength(messages.length)
@@ -311,10 +311,7 @@ export default function MessageList({
       return
     }
 
-    const timer = setTimeout(
-      () => setCompactUserAnchorMounted(false),
-      COMPACT_USER_ANCHOR_EXIT_MS,
-    )
+    const timer = setTimeout(() => setCompactUserAnchorMounted(false), COMPACT_USER_ANCHOR_EXIT_MS)
     return () => clearTimeout(timer)
   }, [compactUserAnchorVisible])
 
@@ -510,9 +507,7 @@ export default function MessageList({
         const totalLen = messagesRef.current.length
         const renderedCount = totalLen - displayedStartRef.current
         if (at && renderedCount > MAX_DOM_MESSAGES) {
-          setDisplayedStart((prev) =>
-            Math.min(Math.max(0, totalLen - 1), prev + UNLOAD_BATCH),
-          )
+          setDisplayedStart((prev) => Math.min(Math.max(0, totalLen - 1), prev + UNLOAD_BATCH))
         }
 
         // Near top: restore local older messages first; fall through to remote
@@ -539,14 +534,7 @@ export default function MessageList({
         updateCompactUserAnchor()
       })
     }
-    const arrowKeys = new Set([
-      "ArrowUp",
-      "ArrowDown",
-      "PageUp",
-      "PageDown",
-      "Home",
-      "End",
-    ])
+    const arrowKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"])
     const lockOnIntent = () => {
       // Skip locking when already at bottom: scrolling down from bottom is
       // a no-op (scrollTop pinned at max), so no `scroll` event fires to
@@ -643,14 +631,10 @@ export default function MessageList({
     if (!el) return
 
     const tryScroll = (attemptsLeft: number): void => {
-      const target = el.querySelector<HTMLElement>(
-        `[data-message-id="${targetId}"]`,
-      )
+      const target = el.querySelector<HTMLElement>(`[data-message-id="${targetId}"]`)
       if (!target) {
         if (attemptsLeft > 0) {
-          scrollRetryRafRef.current = requestAnimationFrame(() =>
-            tryScroll(attemptsLeft - 1),
-          )
+          scrollRetryRafRef.current = requestAnimationFrame(() => tryScroll(attemptsLeft - 1))
           return
         }
         // Give up after a few frames — typically the target dbId is not in
@@ -671,7 +655,7 @@ export default function MessageList({
         return
       }
       handledScrollTargetRef.current = targetId
-      target.scrollIntoView({ block: "center" })
+      target.scrollIntoView({ block: "center", behavior: preferredScrollBehavior() })
       setHighlightMessageId(targetId)
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       // Inline-highlight via CSS Custom Highlight API — doesn't mutate the
@@ -738,7 +722,7 @@ export default function MessageList({
       void onResetToLatest()
       return
     }
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+    el.scrollTo({ top: el.scrollHeight, behavior: preferredScrollBehavior() })
   }, [hasMoreAfter, onResetToLatest])
 
   const handleCompactUserAnchorClick = useCallback(() => {
@@ -751,7 +735,7 @@ export default function MessageList({
     userScrollLockRef.current = true
     atBottomRef.current = false
     setAtBottom(false)
-    target.scrollIntoView({ block: "start", behavior: "smooth" })
+    target.scrollIntoView({ block: "start", behavior: preferredScrollBehavior() })
 
     if (compactUserAnchor.dbId != null) {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
@@ -815,149 +799,126 @@ export default function MessageList({
         )}
       >
         <div ref={contentRef}>
-        {hasMore && displayedStart === 0 && (
-          <div className="pt-6">
-            <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
-          </div>
-        )}
-
-        {items.map((item) => {
-          const { msg, originalIndex } = item
-          const rowKey = getMessageRowKey(msg, originalIndex)
-          const isLast = originalIndex === messages.length - 1
-          // Only the last bubble cares about the `loading` prop (drives
-          // streaming-bubble class, dots placeholder, MarkdownRenderer
-          // streaming hint). Pass false to all others so global loading
-          // flips don't re-render the entire list — that's the source of
-          // the post-stream "flicker" (markdown / shiki / katex subtree
-          // rebuilds when each bubble's loading prop changes).
-          const bubbleLoading = isLast ? loading : false
-          const bubbleExecutionState = shouldPassExecutionStateToBubble(
-            isLast,
-            bubbleLoading,
-            executionState,
-          )
-            ? executionState
-            : null
-          return (
-            <div
-              key={rowKey}
-              data-message-key={rowKey}
-              data-message-id={msg.dbId ?? undefined}
-              className={cn(
-                "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
-                msg.dbId === highlightMessageId && "message-hit-pulse",
-                isTimelineMode
-                  ? isCenteredSystemMessage(msg)
-                    ? "justify-items-center pb-4"
-                    : isUserAlignedMessage(msg) && !msg.fromAgentId
-                      ? "justify-items-end pb-4"
-                      : msg.role === "assistant"
-                        ? "justify-items-stretch pb-0"
-                        : "justify-items-start pb-4"
-                  : cn(
-                      "pb-4",
-                      isCenteredSystemMessage(msg)
-                        ? "justify-items-center"
-                        : isUserAlignedMessage(msg) && !msg.fromAgentId
-                          ? "justify-items-end"
-                          : "justify-items-start",
-                    ),
-                isLast &&
-                  originalIndex >= animationBaseline &&
-                  "animate-fade-slide-in",
-              )}
-            >
-              <MessageBubble
-                msg={msg}
-                index={originalIndex}
-                isLast={isLast}
-                loading={bubbleLoading}
-                executionState={bubbleExecutionState}
-                agents={agents}
-                isHovered={hoveredMsgIndex === originalIndex}
-                onHover={setHoveredMsgIndex}
-                onContextMenu={handleContextMenu}
-                isCopied={copiedIndex === originalIndex}
-                onCopy={handleCopyMessage}
-                sessionId={sessionId}
-                onOpenPlanPanel={onOpenPlanPanel}
-                onSwitchSession={onSwitchSession}
-                onSwitchModel={onSwitchModel}
-                onViewSystemPrompt={onViewSystemPrompt}
-                onOpenDashboardTab={onOpenDashboardTab}
-                onOpenDiff={onOpenDiff}
-                onResume={onResume}
-                displayMode={displayMode}
-              />
+          {hasMore && displayedStart === 0 && (
+            <div className="pt-6">
+              <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
             </div>
-          )
-        })}
+          )}
 
-        {hasMoreAfter && (
-          <div className="pt-2 pb-1">
-            <LoadMoreRow
-              loadingMore={loadingMoreAfter}
-              onLoadMore={onLoadMoreAfter}
-            />
-          </div>
-        )}
-
-        <AnimatedCollapse open={hasFooterContent} durationMs={220}>
-          <div className="flex flex-col gap-4 pt-2 pb-6">
-            {pendingQuestionGroup && (
-              <div className="w-full">
-                <AskUserQuestionBlock
-                  key={pendingQuestionGroup.requestId}
-                  group={pendingQuestionGroup}
-                  onSubmitted={onQuestionSubmitted}
+          {items.map((item) => {
+            const { msg, originalIndex } = item
+            const rowKey = getMessageRowKey(msg, originalIndex)
+            const isLast = originalIndex === messages.length - 1
+            // Only the last bubble cares about the `loading` prop (drives
+            // streaming-bubble class, dots placeholder, MarkdownRenderer
+            // streaming hint). Pass false to all others so global loading
+            // flips don't re-render the entire list — that's the source of
+            // the post-stream "flicker" (markdown / shiki / katex subtree
+            // rebuilds when each bubble's loading prop changes).
+            const bubbleLoading = isLast ? loading : false
+            const bubbleExecutionState = shouldPassExecutionStateToBubble(
+              isLast,
+              bubbleLoading,
+              executionState,
+            )
+              ? executionState
+              : null
+            return (
+              <div
+                key={rowKey}
+                data-message-key={rowKey}
+                data-message-id={msg.dbId ?? undefined}
+                className={cn(
+                  "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
+                  msg.dbId === highlightMessageId && "message-hit-pulse",
+                  isTimelineMode
+                    ? isCenteredSystemMessage(msg)
+                      ? "justify-items-center pb-4"
+                      : isUserAlignedMessage(msg) && !msg.fromAgentId
+                        ? "justify-items-end pb-4"
+                        : msg.role === "assistant"
+                          ? "justify-items-stretch pb-0"
+                          : "justify-items-start pb-4"
+                    : cn(
+                        "pb-4",
+                        isCenteredSystemMessage(msg)
+                          ? "justify-items-center"
+                          : isUserAlignedMessage(msg) && !msg.fromAgentId
+                            ? "justify-items-end"
+                            : "justify-items-start",
+                      ),
+                  isLast && originalIndex >= animationBaseline && "animate-fade-slide-in",
+                )}
+              >
+                <MessageBubble
+                  msg={msg}
+                  index={originalIndex}
+                  isLast={isLast}
+                  loading={bubbleLoading}
+                  executionState={bubbleExecutionState}
+                  agents={agents}
+                  isHovered={hoveredMsgIndex === originalIndex}
+                  onHover={setHoveredMsgIndex}
+                  onContextMenu={handleContextMenu}
+                  isCopied={copiedIndex === originalIndex}
+                  onCopy={handleCopyMessage}
+                  sessionId={sessionId}
+                  onOpenPlanPanel={onOpenPlanPanel}
+                  onSwitchSession={onSwitchSession}
+                  onSwitchModel={onSwitchModel}
+                  onViewSystemPrompt={onViewSystemPrompt}
+                  onOpenDashboardTab={onOpenDashboardTab}
+                  onOpenDiff={onOpenDiff}
+                  onResume={onResume}
+                  displayMode={displayMode}
                 />
               </div>
-            )}
-            {planCardVisible && planCardData && (
-              <div className="flex justify-start">
-                <div className="max-w-[85%] w-full">
-                  <PlanCardBlock
-                    data={planCardData}
-                    planState={planState ?? "off"}
-                    onOpenPanel={onOpenPlanPanel}
-                    onApprove={onApprovePlan}
-                    onExit={onExitPlan}
+            )
+          })}
+
+          {hasMoreAfter && (
+            <div className="pt-2 pb-1">
+              <LoadMoreRow loadingMore={loadingMoreAfter} onLoadMore={onLoadMoreAfter} />
+            </div>
+          )}
+
+          <AnimatedCollapse open={hasFooterContent} durationMs={220}>
+            <div className="flex flex-col gap-4 pt-2 pb-6">
+              {pendingQuestionGroup && (
+                <div className="w-full">
+                  <AskUserQuestionBlock
+                    key={pendingQuestionGroup.requestId}
+                    group={pendingQuestionGroup}
+                    onSubmitted={onQuestionSubmitted}
                   />
                 </div>
-              </div>
-            )}
-            {planSubagentRunning && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
-                <span>{t("planMode.planningInProgress")}</span>
-              </div>
-            )}
-            {showEmpty && (
-              <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
-                {incognito ? (
-                  <div className="max-w-[360px] px-4 text-center text-muted-foreground">
-                    <Ghost className="mx-auto mb-3 h-6 w-6" />
-                    <div className="text-sm font-semibold text-foreground/70">
-                      {t("chat.incognitoEmptyTitle")}
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed">{t("chat.incognitoEmptyBody")}</p>
-                  </div>
-                ) : (
-                  <div className="px-4 text-center">
-                    <img
-                      src={alphaLogoUrl}
-                      alt=""
-                      className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-95"
-                      draggable={false}
+              )}
+              {planCardVisible && planCardData && (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] w-full">
+                    <PlanCardBlock
+                      data={planCardData}
+                      planState={planState ?? "off"}
+                      onOpenPanel={onOpenPlanPanel}
+                      onApprove={onApprovePlan}
+                      onExit={onExitPlan}
                     />
-                    <p className="text-sm text-muted-foreground">{t("chat.howCanIHelp")}</p>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-        </AnimatedCollapse>
+                </div>
+              )}
+              {planSubagentRunning && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
+                  <span>{t("planMode.planningInProgress")}</span>
+                </div>
+              )}
+              {showEmpty && !heroComposer && (
+                <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
+                  <ChatWelcomeHero incognito={incognito} />
+                </div>
+              )}
+            </div>
+          </AnimatedCollapse>
         </div>
       </div>
 
@@ -979,7 +940,7 @@ export default function MessageList({
             )}
           >
             <span className="min-w-0 flex-1 truncate">
-              {compactUserAnchor.text}
+              <SkillMentionText text={compactUserAnchor.text} />
             </span>
           </button>
         </div>
@@ -991,14 +952,14 @@ export default function MessageList({
         enterClassName="translate-y-0 scale-100 opacity-100"
         exitClassName="translate-y-2 scale-95 opacity-0 pointer-events-none"
       >
-          <button
-            type="button"
-            onClick={handleJumpToLatest}
-            className="pointer-events-auto inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
-            aria-label={t("chat.scrollToBottom")}
-          >
-            <ArrowDown className="h-4 w-4" />
-          </button>
+        <button
+          type="button"
+          onClick={handleJumpToLatest}
+          className="pointer-events-auto inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+          aria-label={t("chat.scrollToBottom")}
+        >
+          <ArrowDown className="h-4 w-4" />
+        </button>
       </AnimatedPresenceBox>
 
       {contextMenu && (

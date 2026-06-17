@@ -108,7 +108,6 @@ export default function ProjectSection(props: ProjectSectionProps) {
     expanded,
     setExpanded,
     onAddProject,
-    displayMode,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
@@ -159,12 +158,13 @@ export default function ProjectSection(props: ProjectSectionProps) {
   }, [sessions])
 
   return (
-    <div className={cn("px-3 pb-1", displayMode === "compact" ? "pt-2" : "pt-3")}>
+    <div className="contents">
       <SidebarSectionHeader
         title={t("project.projects")}
         count={visibleProjects.length > 0 ? visibleProjects.length : undefined}
         expanded={expanded}
         onToggle={() => setExpanded(!expanded)}
+        className="sticky top-8 z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3"
         action={
           <IconTip label={t("project.newProject")}>
             <button
@@ -178,7 +178,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
       />
 
       {expanded && (
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 px-3 pb-1 pt-1">
           {visibleProjects.length === 0 && (
             <button
               onClick={onAddProject}

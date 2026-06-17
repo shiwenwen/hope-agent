@@ -1,5 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+import { logger } from "@/lib/logger"
 
 interface ErrorBoundaryState {
   hasError: boolean
@@ -21,7 +22,14 @@ class ErrorBoundaryInner extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("[ErrorBoundary]", error, info.componentStack)
+    // Surface React render crashes into the unified backend log
+    // (`~/.hope-agent/logs.db`) so they're self-diagnosable — the bare
+    // `console.error` only reached the renderer devtools and was lost.
+    // `logger.error` still mirrors to console for dev convenience.
+    logger.error("ui", "ErrorBoundary::componentDidCatch", error.message, {
+      stack: error.stack,
+      componentStack: info.componentStack,
+    })
   }
 
   handleReset = () => {

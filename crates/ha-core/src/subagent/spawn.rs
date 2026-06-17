@@ -152,6 +152,12 @@ pub async fn spawn_subagent(
     let skill_allowed_tools = params.skill_allowed_tools.clone();
     let reasoning_effort = params.reasoning_effort.clone();
     let skill_name_for_events = params.skill_name.clone();
+    // Parent turn's KB-access origin (D10) — forwarded to the child engine so an
+    // IM-origin chain can't reacquire KB access via the neutral Subagent source.
+    let origin_source = params.origin_source;
+    // Parent turn's IM origin identity (WS8) — forwarded so the child's KB opt-in
+    // is judged against the account/chat that started the chain.
+    let origin_channel_kb_context = params.origin_channel_kb_context.clone();
 
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -207,6 +213,8 @@ pub async fn spawn_subagent(
                 extra_system_context_exec,
                 skill_allowed_tools_exec,
                 reasoning_effort_exec,
+                origin_source,
+                origin_channel_kb_context,
             ),
         ));
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
@@ -359,14 +367,20 @@ pub async fn spawn_subagent(
                     .enable_all()
                     .build()
                 {
-                    Ok(rt) => rt.block_on(inject_and_run_parent(
-                        parent_sid2,
-                        parent_agent_id2,
-                        child_agent_id2,
-                        run_id2,
-                        push_msg,
-                        db2,
-                    )),
+                    Ok(rt) => {
+                        // Subagent runs track completion via FETCHED_RUN_IDS /
+                        // subagent_runs status, not an async-job row — no
+                        // on_injected callback, and the outcome is ignored.
+                        let _ = rt.block_on(inject_and_run_parent(
+                            parent_sid2,
+                            parent_agent_id2,
+                            child_agent_id2,
+                            run_id2,
+                            push_msg,
+                            db2,
+                            None,
+                        ));
+                    }
                     Err(e) => app_error!(
                         "subagent",
                         "inject",
@@ -405,6 +419,8 @@ fn execute_subagent(
     extra_system_context_override: Option<String>,
     skill_allowed_tools: Vec<String>,
     reasoning_effort: Option<String>,
+    origin_source: Option<crate::knowledge::KbAccessSource>,
+    origin_channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
         use crate::provider;
@@ -545,6 +561,7 @@ fn execute_subagent(
             plan_context_override,
             skill_allowed_tools,
             denied_tools: denied,
+            tool_scope: None,
             subagent_depth: depth,
             steer_run_id: Some(run_id),
             auto_approve_tools: false,
@@ -553,6 +570,8 @@ fn execute_subagent(
             abort_on_cancel: true,
             persist_final_error_event: false,
             source: crate::chat_engine::stream_seq::ChatSource::Subagent,
+            origin_source,
+            channel_kb_context: origin_channel_kb_context,
             event_sink: Arc::new(crate::chat_engine::NoopEventSink),
         })
         .await

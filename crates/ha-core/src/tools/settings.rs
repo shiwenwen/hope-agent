@@ -45,6 +45,7 @@ fn risk_level(category: &str) -> &'static str {
         | "theme"
         | "language"
         | "ui_effects"
+        | "prevent_sleep"
         | "sidebar_ui"
         | "notification"
         | "startup_notification"
@@ -85,11 +86,21 @@ fn risk_level(category: &str) -> &'static str {
         | "recall_summary"
         | "tool_call_narration"
         | "teams"
-        | "im_auto_transcribe" => "medium",
+        | "im_auto_transcribe"
+        | "knowledge_passive_recall"
+        | "knowledge_search"
+        | "sprite" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
-        | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem" => "high",
+        | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem"
+        // Autonomous maintenance can write to the user's notes (auto_approve =
+        // approval policy) — treat as HIGH so the skill confirms before changes.
+        | "knowledge_maintenance"
+        // Unattended-approval action can flip surface-less approvals to auto-run
+        // (proceed) — a security loosening; HIGH so the skill confirms first.
+        | "unattended_approval"
+        | "auto_update" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         // `channels` and `mcp_servers` are categorized "low" for read because
@@ -111,6 +122,13 @@ fn risk_level(category: &str) -> &'static str {
 /// Human-readable note about side effects (e.g. "requires app restart").
 fn side_effect_note(category: &str) -> Option<&'static str> {
     match category {
+        "auto_update" => Some(
+            "Controls background update checks + silent pre-download for BOTH desktop and headless. \
+             Enabling checkEnabled reaches out to the release server on a timer; autoDownload \
+             pre-fetches + verifies the new binary; the actual install / restart always stays \
+             behind the user-confirmed `app_update install` (headless) or the GUI restart choice \
+             (desktop). checkIntervalHours is clamped to [1, 168]."
+        ),
         "server" => Some("Changes take effect on next app restart."),
         "shortcuts" => Some("Global shortcut re-registration happens immediately; conflicts may silently fail."),
         "embedding" => {
@@ -170,6 +188,15 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "dreaming" => Some(
             "Dreaming runs offline LLM consolidation cycles. Disabling stops idle / cron triggers entirely; promotion thresholds gate which candidates get pinned into long-term memory."
+        ),
+        "knowledge_maintenance" => Some(
+            "Layer-2 autonomous maintenance scans knowledge bases and queues note-maintenance proposals (auto-link, dedup merge, tagging, MOC, memory→note, …) for review. Changes take effect on the next cycle. ⚠️ `enabled` lets background cycles run; `autoApprove` makes approved-free writes to the user's notes happen automatically (skipping the review queue) — confirm with the user before enabling either."
+        ),
+        "knowledge_search" => Some(
+            "Knowledge hybrid `note_search` ranking. note_search runs keyword (BM25) + semantic (vector) search over note chunks, fuses them with RRF, then re-ranks for diversity with MMR. Pure query-time (no reindex). `textWeight`/`vectorWeight` = fusion balance (ratio matters; raise textWeight for code/jargon, vectorWeight for meaning); `rrfK` = fusion smoothing (lower trusts each method's top hit more); `mmrLambda` = relevance↔diversity (1.0 pure relevance, lower trims near-duplicates); `candidateMultiplier` = candidate pool before MMR (×limit). Defaults (0.4/0.6/60/0.7/3) suit most libraries; send those to restore defaults."
+        ),
+        "sprite" => Some(
+            "Knowledge-space sprite / inspiration mode: a proactive companion that, while the user works on a note, makes a bounded LLM call and may surface a transient suggestion bubble. ⚠️ `enabled` makes proactive (unprompted) LLM calls — has a cost. `proactive` (default true) biases it toward speaking vs. staying quiet. `triggers.*` toggle the occasions it may fire (editIdle / noteOpen / conversation / periodic / paste); `idleEditSecs` + `minChangeChars` gate edit-idle, `periodicSecs` the periodic streak, `pasteMinChars` the paste trigger. `cooldownSecs` / `maxPerSessionPerHour` throttle overall frequency; `senses.*` toggle which context (doc / edit / conversation / memory / awareness) is fused in."
         ),
         "stt_providers" => Some(
             "Read-only via this tool. STT provider configs carry API keys (apiKey / authProfiles[*].apiKey) plus provider-specific secrets in `extra` (Volcengine app_id / access_key, iFlytek app_id, Azure region key, etc.). The response from get_settings redacts every secret-bearing field — writes must go through Settings → Speech-to-Text so credentials stay out of conversation logs."
@@ -405,6 +432,7 @@ fn read_category(category: &str) -> Result<Value> {
         "language" => Ok(json!({ "language": cfg.language })),
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
+        "prevent_sleep" => Ok(json!({ "preventSleep": cfg.prevent_sleep })),
         "sidebar_ui" => Ok(json!({
             "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode)
         })),
@@ -421,8 +449,12 @@ fn read_category(category: &str) -> Result<Value> {
         "session_title" => Ok(serde_json::to_value(&cfg.session_title)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
         "startup_notification" => Ok(serde_json::to_value(&cfg.startup_notification)?),
+        "auto_update" => Ok(serde_json::to_value(&cfg.auto_update)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
+        "unattended_approval" => Ok(json!({
+            "unattendedApprovalAction": cfg.permission.unattended_approval_action,
+        })),
         "approval" => Ok(json!({
             "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
@@ -487,6 +519,10 @@ fn read_category(category: &str) -> Result<Value> {
         "filesystem" => Ok(serde_json::to_value(&cfg.filesystem)?),
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
+        "knowledge_maintenance" => Ok(serde_json::to_value(&cfg.knowledge_maintenance)?),
+        "knowledge_passive_recall" => Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?),
+        "knowledge_search" => Ok(serde_json::to_value(&cfg.knowledge_search)?),
+        "sprite" => Ok(serde_json::to_value(&cfg.sprite)?),
         "mcp_global" => Ok(serde_json::to_value(&cfg.mcp_global)?),
         "mcp_servers" => Ok(redact_mcp_servers_value(serde_json::to_value(
             &cfg.mcp_servers,
@@ -549,6 +585,7 @@ fn get_all_overview() -> Result<String> {
         "theme": cfg.theme,
         "language": cfg.language,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
+        "preventSleep": cfg.prevent_sleep,
         "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode),
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
@@ -628,7 +665,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "sidebar_ui", "notification", "startup_notification",
+            "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "notification", "startup_notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
@@ -639,12 +676,12 @@ fn get_all_overview() -> Result<String> {
             "deferred_tools", "async_tools", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
-            "teams", "im_auto_transcribe"
+            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
             "acp_control", "skill_env", "security", "security.ssrf",
-            "smart_mode", "mcp_global"
+            "smart_mode", "mcp_global", "knowledge_maintenance", "unattended_approval", "auto_update"
         ],
         "read_only": [
             "active_model", "fallback_models", "channels", "mcp_servers",
@@ -816,6 +853,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.ui_effects_enabled = v;
             }
         }
+        "prevent_sleep" => {
+            if let Some(v) = values.get("preventSleep").and_then(|v| v.as_bool()) {
+                store.prevent_sleep = v;
+            }
+        }
         "sidebar_ui" => {
             if let Some(v) = values.get("sidebarUiMode").and_then(|v| v.as_str()) {
                 store.sidebar_ui_mode = config::normalize_sidebar_ui_mode(v);
@@ -852,6 +894,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.permission.approval_timeout_action = serde_json::from_value(v.clone())?;
             }
         }
+        "unattended_approval" => {
+            if let Some(v) = values.get("unattendedApprovalAction") {
+                store.permission.unattended_approval_action = serde_json::from_value(v.clone())?;
+            }
+        }
         "proxy" => merge_field(&mut store.proxy, values)?,
         "web_search" => merge_field(&mut store.web_search, values)?,
         "web_fetch" => merge_field(&mut store.web_fetch, values)?,
@@ -865,6 +912,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "session_title" => merge_field(&mut store.session_title, values)?,
         "notification" => merge_field(&mut store.notification, values)?,
         "startup_notification" => merge_field(&mut store.startup_notification, values)?,
+        "auto_update" => {
+            merge_field(&mut store.auto_update, values)?;
+            // Keep the persisted interval inside the supported range.
+            store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
+        }
         "image_generate" => merge_field(&mut store.image_generate, values)?,
         "canvas" => merge_field(&mut store.canvas, values)?,
         "image" => merge_field(&mut store.image, values)?,
@@ -986,6 +1038,27 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "filesystem" => merge_field(&mut store.filesystem, values)?,
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,
+        "knowledge_maintenance" => {
+            merge_field(&mut store.knowledge_maintenance, values)?;
+            // Clamp so a skill write can't persist out-of-range values (the GUI path
+            // clamps in `service::set_maintenance_config`).
+            store.knowledge_maintenance = store.knowledge_maintenance.clamped();
+        }
+        "knowledge_passive_recall" => {
+            merge_field(&mut store.knowledge_passive_recall, values)?;
+            // Clamp (mirrors `service::set_passive_recall_config`).
+            store.knowledge_passive_recall = store.knowledge_passive_recall.clamped();
+        }
+        "knowledge_search" => {
+            merge_field(&mut store.knowledge_search, values)?;
+            // Clamp (mirrors `service::set_search_config`).
+            store.knowledge_search = store.knowledge_search.clamped();
+        }
+        "sprite" => {
+            merge_field(&mut store.sprite, values)?;
+            // Clamp so a skill write can't hammer the LLM (mirrors `sprite::set_config`).
+            store.sprite = store.sprite.clamped();
+        }
         "mcp_global" => merge_field(&mut store.mcp_global, values)?,
         "local_llm_auto_maintenance" => {
             // Only the `enabled` toggle is writable through the skill —
@@ -1255,6 +1328,7 @@ mod tests {
             "security.ssrf",
             "smart_mode",
             "mcp_global",
+            "knowledge_maintenance",
         ] {
             assert_eq!(risk_level(cat), "high", "{cat} should be high risk");
         }
@@ -1262,7 +1336,7 @@ mod tests {
 
     #[test]
     fn risk_level_medium_includes_new_categories() {
-        for cat in ["multimodal", "dreaming"] {
+        for cat in ["multimodal", "dreaming", "sprite", "knowledge_search"] {
             assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
         }
     }
@@ -1524,6 +1598,7 @@ mod tests {
             "channels",
             "multimodal",
             "dreaming",
+            "knowledge_maintenance",
         ] {
             assert!(
                 side_effect_note(cat).is_some(),

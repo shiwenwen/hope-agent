@@ -212,6 +212,196 @@ fn build_router_with_cors(
             "/projects/{id}/memories",
             get(routes::projects::list_project_memories),
         )
+        // ── Knowledge Base ──
+        .route(
+            "/knowledge",
+            get(routes::knowledge::list_kbs).post(routes::knowledge::create_kb),
+        )
+        .route("/knowledge/search", get(routes::knowledge::kb_search))
+        .route("/knowledge/attach", post(routes::knowledge::attach_kb))
+        .route("/knowledge/detach", post(routes::knowledge::detach_kb))
+        .route(
+            "/knowledge/attachments",
+            get(routes::knowledge::list_session_kbs),
+        )
+        .route(
+            "/knowledge/project-attachments",
+            get(routes::knowledge::list_project_kbs),
+        )
+        .route(
+            "/knowledge/{kb_id}",
+            get(routes::knowledge::get_kb)
+                .patch(routes::knowledge::update_kb)
+                .delete(routes::knowledge::delete_kb),
+        )
+        .route(
+            "/knowledge/{kb_id}/reindex",
+            post(routes::knowledge::reindex_kb),
+        )
+        .route(
+            "/knowledge/{kb_id}/notes",
+            get(routes::knowledge::list_kb_notes),
+        )
+        .route(
+            "/knowledge/{kb_id}/note",
+            get(routes::knowledge::kb_note_read)
+                .put(routes::knowledge::kb_note_save)
+                .delete(routes::knowledge::kb_note_delete),
+        )
+        .route(
+            "/knowledge/{kb_id}/note/rename",
+            post(routes::knowledge::kb_note_rename),
+        )
+        .route(
+            "/knowledge/{kb_id}/note/reindex",
+            post(routes::knowledge::reindex_note),
+        )
+        .route(
+            "/knowledge/{kb_id}/dir/reindex",
+            post(routes::knowledge::reindex_dir),
+        )
+        .route(
+            "/knowledge/{kb_id}/dirs",
+            get(routes::knowledge::kb_list_dirs),
+        )
+        .route(
+            "/knowledge/{kb_id}/tags",
+            get(routes::knowledge::kb_list_tags),
+        )
+        .route(
+            "/knowledge/referenceable-notes",
+            post(routes::knowledge::list_referenceable_notes),
+        )
+        .route(
+            "/knowledge/embedding",
+            get(routes::knowledge::knowledge_embedding_get),
+        )
+        .route(
+            "/knowledge/embedding/set-default",
+            post(routes::knowledge::knowledge_embedding_set_default),
+        )
+        .route(
+            "/knowledge/embedding/disable",
+            post(routes::knowledge::knowledge_embedding_disable),
+        )
+        .route(
+            "/knowledge/embedding/rebuild",
+            post(routes::knowledge::knowledge_embedding_rebuild),
+        )
+        .route(
+            "/knowledge/chunk",
+            get(routes::knowledge::knowledge_chunk_get)
+                .post(routes::knowledge::knowledge_chunk_set),
+        )
+        .route(
+            "/knowledge/search-config",
+            get(routes::knowledge::knowledge_search_config_get)
+                .post(routes::knowledge::knowledge_search_config_set),
+        )
+        .route(
+            "/knowledge/ai/rewrite",
+            post(routes::knowledge::kb_ai_rewrite),
+        )
+        .route(
+            "/knowledge/rewrite/log",
+            post(routes::knowledge::kb_rewrite_log),
+        )
+        .route(
+            "/knowledge/maintenance/run",
+            post(routes::knowledge::kb_maintenance_run),
+        )
+        .route(
+            "/knowledge/maintenance/status",
+            get(routes::knowledge::kb_maintenance_status),
+        )
+        .route(
+            "/knowledge/maintenance/proposals/{id}/approve",
+            post(routes::knowledge::kb_maintenance_approve),
+        )
+        .route(
+            "/knowledge/maintenance/proposals/{id}/reject",
+            post(routes::knowledge::kb_maintenance_reject),
+        )
+        .route(
+            "/knowledge/{kb_id}/maintenance/proposals",
+            get(routes::knowledge::kb_maintenance_list),
+        )
+        .route(
+            "/knowledge/{kb_id}/maintenance/pending-count",
+            get(routes::knowledge::kb_maintenance_pending_count),
+        )
+        .route(
+            "/knowledge/{kb_id}/maintenance/reject-all",
+            post(routes::knowledge::kb_maintenance_reject_all),
+        )
+        .route(
+            "/knowledge/maintenance/config",
+            get(routes::knowledge::kb_maintenance_config_get)
+                .post(routes::knowledge::kb_maintenance_config_set),
+        )
+        .route(
+            "/knowledge/passive-recall/config",
+            get(routes::knowledge::kb_passive_recall_config_get)
+                .post(routes::knowledge::kb_passive_recall_config_set),
+        )
+        .route(
+            "/knowledge/sprite/observe",
+            post(routes::knowledge::kb_sprite_observe),
+        )
+        .route(
+            "/knowledge/sprite/config",
+            get(routes::knowledge::sprite_config_get).post(routes::knowledge::sprite_config_set),
+        )
+        .route(
+            "/knowledge/{kb_id}/dir",
+            post(routes::knowledge::kb_mkdir).delete(routes::knowledge::kb_delete_dir),
+        )
+        .route(
+            "/knowledge/{kb_id}/dir/rename",
+            post(routes::knowledge::kb_rename_dir),
+        )
+        .route(
+            "/knowledge/{kb_id}/backlinks",
+            get(routes::knowledge::kb_backlinks),
+        )
+        .route(
+            "/knowledge/{kb_id}/broken-links",
+            get(routes::knowledge::kb_broken_links),
+        )
+        .route(
+            "/knowledge/{kb_id}/orphans",
+            get(routes::knowledge::kb_orphans),
+        )
+        .route("/knowledge/{kb_id}/graph", get(routes::knowledge::kb_graph))
+        .route(
+            "/knowledge/{kb_id}/graph/layout",
+            get(routes::knowledge::kb_graph_layout_get)
+                .post(routes::knowledge::kb_graph_layout_save),
+        )
+        .route(
+            "/knowledge/{kb_id}/chat/thread",
+            get(routes::knowledge::kb_chat_thread_get),
+        )
+        .route(
+            "/knowledge/{kb_id}/chat/threads",
+            get(routes::knowledge::kb_chat_threads_list),
+        )
+        .route(
+            "/knowledge/{kb_id}/note/resolve",
+            get(routes::knowledge::kb_note_read_ref),
+        )
+        .route(
+            "/knowledge/{kb_id}/files/read",
+            get(routes::knowledge::kb_file_read),
+        )
+        .route(
+            "/knowledge/{kb_id}/files/extract",
+            get(routes::knowledge::kb_file_extract),
+        )
+        .route(
+            "/knowledge/{kb_id}/files/raw",
+            get(routes::knowledge::kb_file_raw),
+        )
         .route(
             "/sessions/{id}/messages/around",
             get(routes::sessions::get_session_messages_around),
@@ -242,6 +432,14 @@ fn build_router_with_cors(
         )
         // Chat
         .route("/chat", post(routes::chat::chat))
+        .route(
+            "/chat/turn-message",
+            post(routes::chat::queue_turn_user_message),
+        )
+        .route(
+            "/chat/turn-message/cancel",
+            post(routes::chat::cancel_queued_turn_user_message),
+        )
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
             "/sessions/{sessionId}/tasks",
@@ -608,6 +806,14 @@ fn build_router_with_cors(
             put(routes::config::save_notification_config),
         )
         .route(
+            "/config/auto-update",
+            get(routes::config::get_auto_update_config),
+        )
+        .route(
+            "/config/auto-update",
+            put(routes::config::set_auto_update_config),
+        )
+        .route(
             "/config/startup-notification",
             get(routes::config::get_startup_notification_config),
         )
@@ -646,6 +852,14 @@ fn build_router_with_cors(
         .route(
             "/config/approval-timeout-action",
             post(routes::config::set_approval_timeout_action),
+        )
+        .route(
+            "/config/unattended-approval-action",
+            get(routes::config::get_unattended_approval_action),
+        )
+        .route(
+            "/config/unattended-approval-action",
+            post(routes::config::set_unattended_approval_action),
         )
         .route(
             "/config/tool-result-threshold",
@@ -819,6 +1033,14 @@ fn build_router_with_cors(
         .route(
             "/config/ui-effects",
             post(routes::config::set_ui_effects_enabled),
+        )
+        .route(
+            "/config/prevent-sleep",
+            get(routes::config::get_prevent_sleep_enabled),
+        )
+        .route(
+            "/config/prevent-sleep",
+            post(routes::config::set_prevent_sleep_enabled),
         )
         .route(
             "/config/sidebar-display-mode",
@@ -1073,6 +1295,10 @@ fn build_router_with_cors(
         .route("/logs/export", post(routes::logging::export_logs))
         // Skills
         .route("/skills", get(routes::skills::list_skills))
+        .route(
+            "/skills/mentionable",
+            get(routes::skills::list_mentionable_skills),
+        )
         .route(
             "/skills/env-check",
             get(routes::skills::get_skill_env_check),
@@ -1541,6 +1767,7 @@ fn build_router_with_cors(
         .route("/fs/list", get(routes::project_fs::fs_list))
         .route("/fs/read", get(routes::project_fs::fs_read))
         .route("/fs/extract", get(routes::project_fs::fs_extract))
+        .route("/fs/search", get(routes::project_fs::fs_search))
         .route("/fs/raw", get(routes::project_fs::fs_raw))
         .route("/fs/git", get(routes::project_fs::fs_git_info))
         // Raise the body cap above axum's 2MB default so saving a file as large

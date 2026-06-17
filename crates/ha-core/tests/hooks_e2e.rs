@@ -36,6 +36,7 @@ fn post_tool_use(tool: &str, call_id: &str) -> HookInput {
         tool_input: serde_json::json!({ "path": "x" }),
         tool_response: serde_json::json!("ok"),
         tool_use_id: call_id.into(),
+        job_id: None,
     }
 }
 

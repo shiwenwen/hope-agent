@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { ChevronRight, BrainCircuit } from "lucide-react"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { getAutoExpandThinking, getCachedAutoExpandThinking } from "../thinkingCache"
+import { formatDuration } from "../chatUtils"
 import InterruptedMark from "./InterruptedMark"
 
 interface ThinkingBlockProps {
@@ -16,7 +18,12 @@ interface ThinkingBlockProps {
   interrupted?: boolean
 }
 
-export default function ThinkingBlock({ content, isStreaming, durationMs, interrupted }: ThinkingBlockProps) {
+export default function ThinkingBlock({
+  content,
+  isStreaming,
+  durationMs,
+  interrupted,
+}: ThinkingBlockProps) {
   const { t } = useTranslation()
   const [autoExpand, setAutoExpand] = useState(getCachedAutoExpandThinking() ?? true)
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
@@ -24,17 +31,6 @@ export default function ThinkingBlock({ content, isStreaming, durationMs, interr
   const contentRef = useRef<HTMLDivElement>(null)
   const startedAtRef = useRef<number | null>(null)
   const isOpen = manualOpen ?? (isStreaming ? autoExpand : false)
-
-  const formatElapsed = useMemo(
-    () => (ms: number) => {
-      if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-      const totalSeconds = Math.floor(ms / 1000)
-      const minutes = Math.floor(totalSeconds / 60)
-      const seconds = totalSeconds % 60
-      return `${minutes}m ${seconds}s`
-    },
-    [],
-  )
 
   // Load auto-expand setting
   useEffect(() => {
@@ -92,26 +88,27 @@ export default function ThinkingBlock({ content, isStreaming, durationMs, interr
         <BrainCircuit
           className={cn("h-3.5 w-3.5", isStreaming && "animate-pulse text-purple-400")}
         />
-        <span className={cn(isStreaming && "animate-text-shimmer")}>{t(isStreaming ? "thinking.streaming" : "thinking.done")}</span>
+        <span className={cn(isStreaming && "animate-text-shimmer")}>
+          {t(isStreaming ? "thinking.streaming" : "thinking.done")}
+        </span>
         {(isStreaming || elapsedMs > 0 || (durationMs != null && durationMs > 0)) && (
-          <span className="text-[10px] text-muted-foreground/70">{t("thinking.elapsed", { time: formatElapsed(elapsedMs > 0 ? elapsedMs : (durationMs || 0)) })}</span>
+          <span className="text-[10px] text-muted-foreground/70">
+            {t("thinking.elapsed", {
+              time: formatDuration(elapsedMs > 0 ? elapsedMs : durationMs || 0),
+            })}
+          </span>
         )}
         {isStreaming && <span className="text-[10px] text-purple-400 animate-pulse">···</span>}
       </button>
 
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-300 ease-in-out",
-          isOpen ? "max-h-[360px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={isOpen} unmountOnExit={false}>
         <div
           ref={contentRef}
           className="ml-1 pl-3 border-l-2 border-purple-400/30 text-xs text-muted-foreground/80 leading-relaxed max-h-[320px] overflow-y-auto pr-2"
         >
           <MarkdownRenderer content={content} isStreaming={isStreaming} />
         </div>
-      </div>
+      </AnimatedCollapse>
       {interrupted ? <InterruptedMark className="ml-6" /> : null}
     </div>
   )

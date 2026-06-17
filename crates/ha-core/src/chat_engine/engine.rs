@@ -60,11 +60,16 @@ fn turn_accepts_stream_event(
     let Some(turn_id) = turn_id else {
         return true;
     };
-    if let Some(active) = super::active_turn::current(session_id) {
-        return active.turn_id == turn_id
-            && !active.cancel.load(std::sync::atomic::Ordering::SeqCst);
+    // Hot path: `is_accepting` reads the registry without cloning the
+    // 3-String + Arc snapshot that `current` allocates per call.
+    match super::active_turn::is_accepting(session_id, turn_id) {
+        Some(accepting) => accepting,
+        // No entry for *this* turn. Preserve the original semantics: if some
+        // other turn is live for this session, reject without a DB probe;
+        // only a fully-absent entry falls back to the terminal-state probe.
+        None if super::active_turn::has_entry(session_id) => false,
+        None => terminal_turn_state(db, Some(turn_id)).is_none(),
     }
-    terminal_turn_state(db, Some(turn_id)).is_none()
 }
 
 /// Successful chat round payload returned by the executor closure.
@@ -156,6 +161,9 @@ impl StreamLifecycle {
         if let Some(ref stream_id) = self.stream_id {
             let released = stream_seq::end_if_stream(&self.session_id, stream_id);
             if !released {
+                if let Some(ref turn_id) = self.turn_id {
+                    super::turn_injection::clear_turn(&self.session_id, turn_id);
+                }
                 self.finished = true;
                 return;
             }
@@ -169,6 +177,9 @@ impl StreamLifecycle {
                     self.terminal_error.as_deref(),
                 );
             }
+        }
+        if let Some(ref turn_id) = self.turn_id {
+            super::turn_injection::clear_turn(&self.session_id, turn_id);
         }
         self.finished = true;
     }
@@ -227,6 +238,21 @@ fn emit_stream_event(
     if !turn_accepts_stream_event(db, session_id, turn_id) {
         return false;
     }
+    emit_stream_event_unchecked(event_sink, session_id, source, turn_id, event);
+    true
+}
+
+/// Emit a stream event when the caller has *already* confirmed the turn
+/// accepts events this tick. The per-token streaming hot loop calls this after
+/// its own `turn_accepts_stream_event` guard, avoiding a second registry lock
+/// + snapshot clone per token.
+fn emit_stream_event_unchecked(
+    event_sink: &std::sync::Arc<dyn EventSink>,
+    session_id: &str,
+    source: stream_seq::ChatSource,
+    turn_id: Option<&str>,
+    event: &str,
+) {
     let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
         event.to_string()
@@ -240,7 +266,6 @@ fn emit_stream_event(
     // mirror is the primary consumer). The primary `event_sink`
     // above is intentionally not registered, so each consumer fires once.
     sink_registry::sink_registry().emit(session_id, &payload);
-    true
 }
 
 // ── Core Chat Engine ────────────────────────────────────────────────
@@ -270,6 +295,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         plan_context_override,
         skill_allowed_tools,
         denied_tools,
+        tool_scope,
         subagent_depth,
         steer_run_id,
         auto_approve_tools,
@@ -278,8 +304,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         abort_on_cancel,
         persist_final_error_event,
         source,
+        origin_source,
+        channel_kb_context,
         event_sink,
     } = params;
+
+    // Effective KB-access origin for this turn (design D10): top-level turns
+    // have origin == source; a subagent carries its parent turn's origin so an
+    // IM-origin chain can't reacquire KB access via the neutral Subagent source.
+    let kb_origin = origin_source.unwrap_or_else(|| kb_access_source(source));
 
     // Wrap attachments in Arc<[T]> so the failover-executor closure's per-
     // retry capture is a pointer bump instead of a deep clone of base64
@@ -393,6 +426,43 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             Some(e) => format!("{e}\n\n{extra}"),
             None => extra,
         });
+    }
+
+    // Knowledge read bridge channel ① (D7): deterministically inject notes the
+    // user referenced inline with `[[ ]]`, scoped by `effective_kb_access` (D10)
+    // and wrapped as untrusted external data (#7). Skipped for incognito inside
+    // the resolver (zero KB access).
+    if let Some(extra) = crate::knowledge::inject::resolve_inline_injections(
+        &message,
+        &session_id,
+        kb_access_source(source),
+        kb_origin,
+        channel_kb_context.clone(),
+    ) {
+        extra_system_context = Some(match extra_system_context.take() {
+            Some(e) => format!("{e}\n\n{extra}"),
+            None => extra,
+        });
+    }
+
+    // Built-in skill activation via the composer's `@skill` mention. Mirrors the
+    // note bridge above: deterministic, user-controlled, injected into this
+    // turn's system context. The fixed allowlist (office trio + browser + mac
+    // control) and the OS gate are enforced inside the resolver, so arbitrary
+    // skill names in the message can't ride here — they stay as plain text.
+    //
+    // Gate on `fires_user_lifecycle_hooks()` (Desktop / HTTP / IM): only a real
+    // user turn carries a composer `@skill` gesture. Internal Subagent /
+    // ParentInjection runs are excluded so a sub-agent's untrusted output
+    // containing a `[@…](#skill:…)` token can't self-activate a built-in skill
+    // into the parent's system context.
+    if source.fires_user_lifecycle_hooks() {
+        if let Some(extra) = crate::skills::resolve_inline_skill_mentions(&message) {
+            extra_system_context = Some(match extra_system_context.take() {
+                Some(e) => format!("{e}\n\n{extra}"),
+                None => extra,
+            });
+        }
     }
 
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
@@ -592,6 +662,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let compact_config_ref = &compact_config;
             let agent_id_ref = &agent_id;
             let session_id_ref = &session_id;
+            let channel_kb_context_ref = &channel_kb_context;
             let extra_system_context_ref = &extra_system_context;
             let skill_allowed_tools_ref = &skill_allowed_tools;
             let plan_resolved_ref = &plan_resolved;
@@ -631,6 +702,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let denied_tools_owned = denied_tools.clone();
                     let steer_run_id_owned = steer_run_id.clone();
                     let plan_resolved_owned = plan_resolved_ref.clone();
+                    let channel_kb_context_owned = channel_kb_context_ref.clone();
                     let message_owned = message_ref.clone();
                     // Arc<[Attachment]> clone is a pointer bump regardless
                     // of attachment size. See param destructure for the wrap.
@@ -671,12 +743,16 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             extra_ctx_owned.as_deref(),
                             &skill_tools_owned,
                             &denied_tools_owned,
+                            tool_scope,
                             subagent_depth,
                             steer_run_id_owned,
                             plan_resolved_owned,
                             plan_context_locked,
                             auto_approve_tools,
                             follow_global_reasoning_effort,
+                            source,
+                            kb_origin,
+                            channel_kb_context_owned,
                         );
                         restore_agent_context(&db_owned, &session_id_owned, &agent);
 
@@ -709,8 +785,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                         .store(false, std::sync::atomic::Ordering::SeqCst);
                                 }
                                 persist_cb(delta);
-                                emit_stream_event(
-                                    &db_owned,
+                                // Guard already checked above this tick — skip
+                                // the redundant turn_accepts lock + snapshot.
+                                emit_stream_event_unchecked(
                                     &event_sink_for_cb,
                                     &session_for_cb,
                                     source_for_cb,
@@ -1177,12 +1254,16 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         extra_system_context.as_deref(),
                         &skill_allowed_tools,
                         &denied_tools,
+                        tool_scope,
                         subagent_depth,
                         steer_run_id.clone(),
                         plan_resolved.clone(),
                         plan_context_locked,
                         auto_approve_tools,
                         follow_global_reasoning_effort,
+                        source,
+                        kb_origin,
+                        channel_kb_context.clone(),
                     );
                     restore_agent_context(&db, &session_id, &compact_agent);
 
@@ -1504,6 +1585,21 @@ fn collect_partial_meta_from_runtime(
     meta
 }
 
+/// Map the chat-engine turn source to a knowledge-base access source (design
+/// D10). IM (`Channel`) turns are denied KB access in Phase 1 even on a
+/// project-attached session; `ParentInjection` is treated conservatively.
+fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAccessSource {
+    use crate::knowledge::KbAccessSource;
+    use stream_seq::ChatSource;
+    match source {
+        ChatSource::Desktop => KbAccessSource::Gui,
+        ChatSource::Http => KbAccessSource::Http,
+        ChatSource::Channel => KbAccessSource::Im,
+        ChatSource::Subagent => KbAccessSource::Subagent,
+        ChatSource::ParentInjection => KbAccessSource::Other,
+    }
+}
+
 /// Apply common agent configuration. Extracted to avoid duplication between
 /// initial agent setup and profile-rotation rebuild.
 ///
@@ -1519,15 +1615,22 @@ fn configure_agent(
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
     denied_tools: &[String],
+    tool_scope: Option<crate::tools::ToolScope>,
     subagent_depth: u32,
     steer_run_id: Option<String>,
     plan_resolved: crate::agent::PlanResolvedContext,
     plan_locked: bool,
     auto_approve_tools: bool,
     follow_global_reasoning_effort: bool,
+    source: stream_seq::ChatSource,
+    kb_origin: crate::knowledge::KbAccessSource,
+    channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 ) {
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);
+    agent.set_chat_source(kb_access_source(source));
+    agent.set_origin_chat_source(kb_origin);
+    agent.set_channel_kb_context(channel_kb_context);
     agent.set_temperature(temperature);
     if let Some(ctx) = extra_system_context {
         agent.set_extra_system_context(ctx.to_string());
@@ -1538,6 +1641,7 @@ fn configure_agent(
     if !denied_tools.is_empty() {
         agent.set_denied_tools(denied_tools.to_vec());
     }
+    agent.set_tool_scope(tool_scope);
     agent.set_subagent_depth(subagent_depth);
     if let Some(run_id) = steer_run_id {
         agent.set_steer_run_id(run_id);
@@ -1705,6 +1809,7 @@ mod stream_lifecycle_tests {
             plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
             skill_allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
+            tool_scope: None,
             subagent_depth: 0,
             steer_run_id: None,
             auto_approve_tools: false,
@@ -1713,6 +1818,8 @@ mod stream_lifecycle_tests {
             abort_on_cancel: false,
             persist_final_error_event: true,
             source: stream_seq::ChatSource::Desktop,
+            origin_source: None,
+            channel_kb_context: None,
             event_sink: Arc::new(NoopEventSink),
         }
     }

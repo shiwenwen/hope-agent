@@ -46,6 +46,7 @@ function toCanvasInfo(
 interface CanvasPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  reservedMainWidth?: number
   currentSessionId?: string | null
   onOpenChange?: (open: boolean) => void
   visible?: boolean
@@ -57,6 +58,7 @@ export const CLOSE_CANVAS_PANEL_EVENT = "hope-agent:close-canvas"
 export default function CanvasPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  reservedMainWidth,
   currentSessionId = null,
   onOpenChange,
   visible = true,
@@ -176,6 +178,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_show", (raw) => {
         try {
           const data = parsePayload<CanvasShowPayload>(raw)
+          if (!data) return
           // Drop events from other sessions (e.g. cron / IM / subagent tool
           // calls). Older payloads without sessionId still pass through.
           if (data.sessionId && data.sessionId !== currentSessionIdRef.current) {
@@ -206,6 +209,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_reload", (raw) => {
         try {
           const data = parsePayload<{ projectId: string }>(raw)
+          if (!data) return
           // If it's the current canvas, refresh
           setCanvas((prev) => {
             if (prev && prev.projectId === data.projectId) {
@@ -233,6 +237,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_deleted", (raw) => {
         try {
           const data = parsePayload<{ projectId: string }>(raw)
+          if (!data) return
           setCanvas((prev) => {
             if (prev && prev.projectId === data.projectId) {
               return null
@@ -250,6 +255,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_snapshot_request", (raw) => {
         try {
           const data = parsePayload<{ requestId: string }>(raw)
+          if (!data) return
           handleSnapshotRequest(data.requestId)
         } catch {
           /* ignore */
@@ -262,6 +268,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_eval_request", (raw) => {
         try {
           const data = parsePayload<{ requestId: string; code: string }>(raw)
+          if (!data) return
           handleEvalRequest(data.requestId, data.code)
         } catch {
           /* ignore */
@@ -405,12 +412,13 @@ export default function CanvasPanel({
         width={panelWidth}
         onWidthChange={onPanelWidthChange}
         resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
+        reservedMainWidth={reservedMainWidth}
         collapsed={collapsed}
         contentKey="canvas-detached"
       >
         {/* Title Bar */}
         <div
-          className="flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel/95 px-4 shrink-0"
+          className="flex h-11 items-center gap-2 bg-surface-panel/95 px-4 shrink-0"
           data-tauri-drag-region
         >
           <span className="text-sm font-medium truncate flex-1">{canvas.title}</span>
@@ -446,13 +454,14 @@ export default function CanvasPanel({
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("canvas.resizePanel", "Resize canvas panel")}
       maximized={maximized}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey="canvas"
     >
       {/* Title Bar */}
       <div
         className={cn(
-          "flex h-11 items-center gap-2 border-b border-border-soft bg-surface-panel px-4 shrink-0",
+          "flex h-11 items-center gap-2 bg-surface-panel px-4 shrink-0",
           maximized && "h-[72px] items-end pb-2 pt-7",
         )}
         data-tauri-drag-region
@@ -508,7 +517,9 @@ export default function CanvasPanel({
         </div>
       </div>
 
-      {/* iframe preview */}
+      {/* iframe preview — no scroll-fade mask: the iframe scrolls internally,
+          so a mask on this non-scrolling wrapper would permanently dim the live
+          canvas's top/bottom edge. */}
       <div className="flex-1 overflow-hidden bg-white dark:bg-surface-app">
         <iframe
           ref={iframeRef}

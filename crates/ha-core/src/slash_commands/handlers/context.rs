@@ -261,7 +261,12 @@ fn format_row(label: &str, tokens: u32, total: u32) -> String {
     } else {
         format!("{}", tokens)
     };
-    format!("• **{:<18}** {:>7} ({:>3}%)", label, k, pct)
+    // Markdown list item — `-` so consecutive rows render one-per-line as a
+    // real list, and `**label**` with NO padding inside the markers so bold
+    // actually parses (fixed-width column padding broke it: `**label   **`
+    // has a trailing space before `**`, which Markdown won't bold, and the
+    // alignment collapses in HTML anyway).
+    format!("- **{}**: {} ({}%)", label, k, pct)
 }
 
 fn format_duration(secs: u64) -> String {

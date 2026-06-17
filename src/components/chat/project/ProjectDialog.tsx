@@ -49,6 +49,7 @@ import { formatBytes } from "@/lib/format"
 import { isTauriMode } from "@/lib/transport"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
+import ProjectKnowledgeSection from "./ProjectKnowledgeSection"
 
 import type {
   CreateProjectInput,
@@ -511,6 +512,10 @@ export default function ProjectDialog({
                   )}
                 </div>
               </div>
+
+              {mode === "edit" && initialProject?.id && (
+                <ProjectKnowledgeSection projectId={initialProject.id} />
+              )}
 
               <div className="space-y-1.5">
                 <Label htmlFor="project-instructions" className="flex items-center gap-2">

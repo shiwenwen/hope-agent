@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use openssl::hash::{hash, MessageDigest};
-use openssl::symm::{encrypt, Cipher};
 use reqwest::header::{HeaderValue, CONTENT_TYPE};
 use serde_json::json;
 use tokio::fs;
@@ -149,7 +147,7 @@ async fn upload_media_to_wechat(
     }
     let plaintext_size = plaintext.len();
     let ciphertext_size = aes_ecb_padded_size(plaintext_size);
-    let raw_md5 = hex_lower(hash(MessageDigest::md5(), &plaintext)?.as_ref());
+    let raw_md5 = md5_hex(&plaintext);
     let aes_key = rand::random::<[u8; 16]>();
     let aes_key_hex = hex_lower(&aes_key);
     let filekey = Uuid::new_v4().simple().to_string();
@@ -170,8 +168,7 @@ async fn upload_media_to_wechat(
         }))
         .await?;
 
-    let ciphertext = encrypt(Cipher::aes_128_ecb(), &aes_key, None, &plaintext)
-        .context("Failed to AES-encrypt WeChat media")?;
+    let ciphertext = aes128_ecb_encrypt_pkcs7(&aes_key, &plaintext);
     let upload_url = upload_response
         .upload_full_url
         .filter(|value| !value.trim().is_empty())
@@ -426,6 +423,32 @@ fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{:02x}", byte)).collect()
 }
 
+/// MD5 of `data` as lowercase hex (WeChat's `rawfilemd5` upload field).
+/// Pure-Rust `md-5`, byte-identical to the former `openssl` MD5.
+fn md5_hex(data: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    hex_lower(Md5::digest(data).as_slice())
+}
+
+/// AES-128-ECB encrypt with PKCS#7 padding — byte-compatible with the
+/// former `openssl::symm::encrypt(Cipher::aes_128_ecb(), key, None, data)`.
+/// ECB has no IV; PKCS#7 always appends a whole padding block when the
+/// input is already block-aligned (so a 16-byte input yields 32 bytes).
+pub(super) fn aes128_ecb_encrypt_pkcs7(key: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
+    use aes::cipher::generic_array::GenericArray;
+    use aes::cipher::{BlockEncrypt, KeyInit};
+
+    let cipher = aes::Aes128::new(GenericArray::from_slice(key));
+    let pad = 16 - (plaintext.len() % 16); // 1..=16
+    let mut buf = Vec::with_capacity(plaintext.len() + pad);
+    buf.extend_from_slice(plaintext);
+    buf.resize(plaintext.len() + pad, pad as u8);
+    for chunk in buf.chunks_exact_mut(16) {
+        cipher.encrypt_block(GenericArray::from_mut_slice(chunk));
+    }
+    buf
+}
+
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>> {
     if hex.len() % 2 != 0 {
         return Err(anyhow::anyhow!("Invalid hex length"));
@@ -450,5 +473,52 @@ fn combine_text(primary: Option<&str>, secondary: Option<&str>) -> Option<String
         (Some(a), _) => Some(a.to_string()),
         (_, Some(b)) => Some(b.to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FIPS-197 AES-128 single-block known-answer vector. Guards that the
+    /// pure-Rust `aes` primitive matches the spec (hence the former OpenSSL
+    /// output) byte-for-byte after dropping the openssl dependency.
+    #[test]
+    fn aes128_block_matches_fips197_vector() {
+        use aes::cipher::generic_array::GenericArray;
+        use aes::cipher::{BlockEncrypt, KeyInit};
+
+        let key: [u8; 16] = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f,
+        ];
+        let mut block = GenericArray::clone_from_slice(&[
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+            0xee, 0xff,
+        ]);
+        aes::Aes128::new(GenericArray::from_slice(&key)).encrypt_block(&mut block);
+        assert_eq!(
+            hex_lower(block.as_slice()),
+            "69c4e0d86a7b0430d8cdb78070b4c55a"
+        );
+    }
+
+    /// PKCS#7 always appends a full block on block-aligned input, matching
+    /// OpenSSL and the `aes_ecb_padded_size` size predictor.
+    #[test]
+    fn pkcs7_padded_len_matches_predictor() {
+        let key = [0x22u8; 16];
+        for len in [0usize, 1, 15, 16, 17, 31, 32, 100] {
+            let ct = aes128_ecb_encrypt_pkcs7(&key, &vec![7u8; len]);
+            assert_eq!(ct.len(), aes_ecb_padded_size(len), "len={}", len);
+        }
+        // 16-byte aligned input → 32-byte ciphertext (full pad block).
+        assert_eq!(aes128_ecb_encrypt_pkcs7(&key, &[0u8; 16]).len(), 32);
+    }
+
+    /// RFC 1321 well-known vector: md5("abc").
+    #[test]
+    fn md5_hex_matches_known_vector() {
+        assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
     }
 }

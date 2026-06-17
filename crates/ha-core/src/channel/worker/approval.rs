@@ -15,7 +15,8 @@ use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{InlineButton, ReplyPayload};
 use crate::tools::approval::{
-    submit_approval_response, ApprovalReasonKind, ApprovalReasonPayload, ApprovalResponse,
+    submit_approval_response, ApprovalReasonKind, ApprovalReasonPayload, ApprovalResolutionSource,
+    ApprovalResponse,
 };
 use crate::ttl_cache::TtlCache;
 
@@ -79,6 +80,45 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
     }
 }
 
+/// Drop all pending text-reply approval state for a whole session. Called by
+/// the session cleanup watcher on delete / purge: resolves the session →
+/// (account, chat) IM conversation and clears that chat's `TEXT_PENDING` stack,
+/// so a deleted session leaves no stale IM approval entries that could hijack a
+/// later reply (SURFACE-2 / INCOG-4). No-op when the session has no attached IM
+/// conversation.
+pub async fn drop_pending_for_session(session_id: &str) {
+    let Some(channel_db) = crate::globals::get_channel_db() else {
+        return;
+    };
+    let conv = match channel_db.get_conversation_by_session(session_id) {
+        Ok(Some(c)) => c,
+        Ok(None) => return,
+        Err(e) => {
+            app_warn!(
+                "channel",
+                "approval",
+                "drop_pending_for_session lookup failed for {}: {}",
+                session_id,
+                e
+            );
+            return;
+        }
+    };
+    let key = (conv.account_id, conv.chat_id);
+    get_text_pending().lock().await.remove(&key);
+}
+
+/// Drop all pending text-reply approval state for a specific (account, chat).
+/// Backstop for the IM eviction watcher (G5 / SURFACE-4): after denying each
+/// pending approval tool-side, clear the chat's `TEXT_PENDING` stack so a stale
+/// text entry can't hijack a later reply in the taken-over chat. Takes the chat
+/// coordinates directly (the evicted attach row is already gone from the DB, so
+/// `drop_pending_for_session` can't resolve it).
+pub async fn drop_pending_for_chat(account_id: &str, chat_id: &str) {
+    let key = (account_id.to_string(), chat_id.to_string());
+    get_text_pending().lock().await.remove(&key);
+}
+
 // ── InlineButton helper ──────────────────────────────────────────
 
 impl InlineButton {
@@ -116,16 +156,15 @@ pub(crate) fn build_approval_buttons(
     vec![row]
 }
 
+/// Whether the approval reason bars `Allow Always` (strict). Delegates to the
+/// canonical [`ApprovalReasonKind::is_strict`] instead of re-listing the strict
+/// set here — that keeps the IM AllowAlways gate a single source of truth with
+/// the engine/timeout strict set (`is_strict` mirrors `AskReason::
+/// forbids_allow_always`, guarded by the `reason_kind_is_strict_matches_ask_reason`
+/// drift test), so a future strict reason can never silently slip through on the
+/// IM surface.
 fn reason_forbids_allow_always(reason: Option<&ApprovalReasonPayload>) -> bool {
-    matches!(
-        reason.map(|r| r.kind),
-        Some(
-            ApprovalReasonKind::DangerousCommand
-                | ApprovalReasonKind::ProtectedPath
-                | ApprovalReasonKind::MacControlDangerousAction
-                | ApprovalReasonKind::PlanModeAsk
-        )
-    )
+    reason.is_some_and(|r| r.kind.is_strict())
 }
 
 /// Render the approval reason as a one-line suffix for IM prompts.
@@ -401,6 +440,18 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                         registry.clone(),
                     )
                     .await;
+                    continue;
+                }
+                // G4 (SURFACE-2): an approval resolved on ANY surface (GUI / HTTP /
+                // IM button / timeout / session-delete / eviction) must clear this
+                // chat's stale text-reply entry, else it lingers in TEXT_PENDING
+                // and a later message gets hijacked as an answer to a dead prompt.
+                "approval:resolved" => {
+                    if let Some(request_id) =
+                        event.payload.get("requestId").and_then(|v| v.as_str())
+                    {
+                        drop_pending_by_request_id(request_id).await;
+                    }
                     continue;
                 }
                 _ => continue,
@@ -708,7 +759,54 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
     };
     let request_id = entry.request_id;
 
-    match submit_approval_response(&request_id, parsed.response).await {
+    // G3 (SURFACE-3): mirror the button path's session<->chat check. The
+    // TEXT_PENDING entry is keyed by (account, chat), but the pending approval's
+    // session may have been re-attached to a DIFFERENT chat since the prompt was
+    // sent (1:1 handover/takeover). Verify the replying conversation still owns
+    // the approval's session before submitting; on mismatch, notify + consume
+    // (don't leak the reply to the LLM, don't resolve from the wrong chat).
+    match crate::tools::approval::pending_approval_session_id(&request_id).await {
+        Ok(Some(session_id)) => {
+            let reply_source = super::ask_user::InteractiveCallbackSource::new(
+                msg.channel_id.clone(),
+                msg.account_id.clone(),
+                msg.chat_id.clone(),
+                msg.thread_id.as_deref(),
+            );
+            if let Err(e) = super::ask_user::validate_callback_source_for_session(
+                &session_id,
+                Some(&reply_source),
+                "text_reply",
+            ) {
+                app_warn!(
+                    "channel",
+                    "approval",
+                    "Text approval reply source mismatch for {}: {}",
+                    request_id,
+                    e
+                );
+                send_source_mismatch_notice(msg, &request_id).await;
+                return true;
+            }
+        }
+        // No session id recorded — can't validate. Fall through to submit;
+        // submit_approval_response itself returns NotPending if it's already gone.
+        Ok(None) => {}
+        Err(e) => {
+            app_warn!(
+                "channel",
+                "approval",
+                "Text approval reply session lookup failed for {}: {}",
+                request_id,
+                e
+            );
+            send_source_mismatch_notice(msg, &request_id).await;
+            return true;
+        }
+    }
+
+    match submit_approval_response(&request_id, parsed.response, ApprovalResolutionSource::Im).await
+    {
         Ok(()) => true,
         Err(e) => {
             // Approval already expired (5-min timeout) — don't consume the message
@@ -766,6 +864,40 @@ async fn send_suffix_mismatch_notice(
             "channel",
             "approval",
             "Failed to send suffix-mismatch notice: {}",
+            e
+        );
+    }
+}
+
+/// G3 (SURFACE-3): tell the user their text reply came from a different
+/// conversation than the one the approval was sent to (the approval's session
+/// has since been attached elsewhere). The approval is left pending; the user
+/// must answer it from the chat where the prompt currently lives.
+async fn send_source_mismatch_notice(msg: &crate::channel::types::MsgContext, request_id: &str) {
+    let store = crate::config::cached_config();
+    let Some(account_config) = store.channels.find_account(&msg.account_id).cloned() else {
+        return;
+    };
+    let registry = match crate::globals::get_channel_registry() {
+        Some(r) => r,
+        None => return,
+    };
+    let tag = id_tag(request_id);
+    let payload = ReplyPayload {
+        text: Some(format!(
+            "ℹ️ Approval `#{tag}` belongs to a different conversation now and can't be answered from here. Reply in the chat where the approval prompt currently appears."
+        )),
+        thread_id: msg.thread_id.clone(),
+        ..ReplyPayload::text("")
+    };
+    if let Err(e) = registry
+        .send_reply(&account_config, &msg.chat_id, &payload)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "approval",
+            "Failed to send source-mismatch notice: {}",
             e
         );
     }
@@ -882,18 +1014,30 @@ pub async fn handle_approval_callback_with_source(
         _ => return Err(anyhow::anyhow!("Unknown approval action: {}", action)),
     };
 
-    if callback_source.is_some() {
-        let session_id = crate::tools::approval::pending_approval_session_id(request_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Pending approval {} has no session id", request_id))?;
-        super::ask_user::validate_callback_source_for_session(
-            &session_id,
-            callback_source.as_ref(),
+    // G2 (MISC-11): an approval callback MUST carry a verifiable source so we can
+    // confirm it came from the chat that received the prompt — otherwise a click
+    // from a different conversation could resolve someone else's approval.
+    // Fail-closed: look up the session and validate ALWAYS; a missing source
+    // (`None`) can't be validated, so refuse. Safe for approvals — we just sent
+    // the prompt message, so a real button click always carries it (Telegram's
+    // no-message-callback edge only affects >48h-old / inline buttons, never a
+    // live 5-min approval prompt). The shared `validate_callback_source_for_session`
+    // keeps its permissive `None → Ok` for the *ask_user* path (Telegram
+    // no-message Q&A answers are lower-risk and out of MISC-11 scope); approvals
+    // gate here instead so that change can't regress ask_user.
+    let session_id = crate::tools::approval::pending_approval_session_id(request_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Pending approval {} has no session id", request_id))?;
+    let Some(source_ref) = callback_source.as_ref() else {
+        return Err(anyhow::anyhow!(
+            "Approval callback from {} has no source to validate against session {}; refusing (MISC-11 fail-closed)",
             source,
-        )?;
-    }
+            session_id
+        ));
+    };
+    super::ask_user::validate_callback_source_for_session(&session_id, Some(source_ref), source)?;
 
-    submit_approval_response(request_id, response).await?;
+    submit_approval_response(request_id, response, ApprovalResolutionSource::Im).await?;
     Ok(label)
 }
 
@@ -1313,6 +1457,43 @@ mod tests {
 
         let mut pending = get_text_pending().lock().await;
         pending.remove(&key_b);
+    }
+
+    #[tokio::test]
+    async fn drop_pending_for_chat_clears_only_target_chat() {
+        // G5 (SURFACE-4): eviction clears the taken-over chat's text stack only.
+        let evicted = ("acct-evict".to_string(), "chat-evicted".to_string());
+        let other = ("acct-evict".to_string(), "chat-other".to_string());
+        {
+            let mut pending = get_text_pending().lock().await;
+            pending
+                .entry(evicted.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "evicted-req".to_string(),
+                    forbids_allow_always: false,
+                });
+            pending
+                .entry(other.clone())
+                .or_default()
+                .push(PendingTextApproval {
+                    request_id: "other-req".to_string(),
+                    forbids_allow_always: false,
+                });
+        }
+
+        drop_pending_for_chat("acct-evict", "chat-evicted").await;
+
+        let mut pending = get_text_pending().lock().await;
+        assert!(
+            pending.get(&evicted).is_none(),
+            "evicted chat's text stack should be cleared",
+        );
+        assert!(
+            pending.get(&other).is_some(),
+            "other chat must be untouched",
+        );
+        pending.remove(&other);
     }
 
     #[test]

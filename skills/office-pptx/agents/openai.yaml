@@ -1,0 +1,5 @@
+interface:
+  display_name: "Office PPTX"
+  short_description: "Create, append, audit, and render PowerPoint decks"
+  brand_color: "#D97706"
+  default_prompt: "Use $office-pptx to create or extend an editable PowerPoint deck with proof-object slides, layout audit, and render verification."

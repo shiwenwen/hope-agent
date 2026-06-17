@@ -14,6 +14,9 @@ interface FilePreviewPanelProps {
   /** Session id — required to authorize path/media reads in HTTP mode. */
   sessionId?: string | null
   onClose: () => void
+  /** Fullscreen toggle — mirrors the files / canvas panels' maximize affordance. */
+  maximized?: boolean
+  onToggleMaximize?: () => void
 }
 
 /**
@@ -22,7 +25,13 @@ interface FilePreviewPanelProps {
  * {@link PreviewTarget} into a {@link PreviewSource} and hands it to the shared
  * {@link FilePreviewPane} (reused from the project file browser).
  */
-export default function FilePreviewPanel({ target, sessionId, onClose }: FilePreviewPanelProps) {
+export default function FilePreviewPanel({
+  target,
+  sessionId,
+  onClose,
+  maximized,
+  onToggleMaximize,
+}: FilePreviewPanelProps) {
   const source = useMemo<PreviewSource | null>(() => {
     if (!target) return null
     return target.kind === "media"
@@ -30,5 +39,13 @@ export default function FilePreviewPanel({ target, sessionId, onClose }: FilePre
       : pathPreviewSource(target.path, target.name, sessionId, target.mime)
   }, [target, sessionId])
 
-  return <FilePreviewPane source={source} onClose={onClose} className="h-full min-h-0" />
+  return (
+    <FilePreviewPane
+      source={source}
+      onClose={onClose}
+      className="h-full min-h-0"
+      maximized={maximized}
+      onToggleMaximize={onToggleMaximize}
+    />
+  )
 }

@@ -522,6 +522,10 @@ pub struct ChatEngineParams {
     pub skill_allowed_tools: Vec<String>,
     /// Tools denied by the caller's execution policy.
     pub denied_tools: Vec<String>,
+    /// Optional tool-visibility scope (see [`crate::tools::ToolScope`]). The
+    /// knowledge-space sidebar chat passes `Some(Knowledge)` to trim the tool
+    /// set to the note/recall white-list. `None` for every other caller.
+    pub tool_scope: Option<crate::tools::ToolScope>,
     /// Current sub-agent nesting depth for tool schema filtering and child spawns.
     pub subagent_depth: u32,
     /// Sub-agent run id whose steer mailbox should be drained each tool round.
@@ -542,6 +546,17 @@ pub struct ChatEngineParams {
     /// Which caller opened this stream. Drives the `activeChatCounts`
     /// breakdown surfaced in `/api/server/status`.
     pub source: ChatSource,
+    /// Origin of the whole call chain for KB access (design D10). `None` =
+    /// top-level (origin == `source`). A subagent sets this to its parent
+    /// turn's effective origin so an IM-originated chain can't reacquire KB
+    /// access through the neutral `Subagent` source. See `effective_kb_access`.
+    pub origin_source: Option<crate::knowledge::KbAccessSource>,
+    /// IM identity of the lineage origin for the WS8 KB-access opt-in gate.
+    /// `Some` only for IM-origin turns: a top-level IM turn sets this turn's
+    /// identity; a subagent carries its parent turn's origin identity unchanged
+    /// so the opt-in is judged against the account/chat that started the chain.
+    /// `None` for GUI / HTTP / cron / parent-injection.
+    pub channel_kb_context: Option<crate::knowledge::ChannelKbContext>,
 
     // Output
     pub event_sink: Arc<dyn EventSink>,

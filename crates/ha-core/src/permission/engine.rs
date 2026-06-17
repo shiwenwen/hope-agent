@@ -268,7 +268,38 @@ fn resolve_smart_mode(ctx: &ResolveContext<'_>) -> Decision {
             return Decision::Allow;
         }
     }
+    // Deterministic loosening (independent of strategy): a re-edit of a file
+    // already touched earlier in this session — the user consented to it once,
+    // so don't re-prompt. A file's FIRST edit (even inside the working
+    // directory) still goes through model judgment / judge below; the prompt
+    // steers the model to self-tag routine in-workspace edits as high-confidence
+    // and withhold the tag for risky ones. Protected paths and dangerous
+    // commands were already filtered out above.
+    if smart_edit_already_session_touched(ctx) {
+        return Decision::Allow;
+    }
     resolve_soft_approval_layer(ctx)
+}
+
+/// Smart mode: `true` when this is a `write` / `edit` / `apply_patch` call whose
+/// every target path was already edited earlier in this session (tracked by
+/// [`super::session_edits`]). The working directory grants no deterministic
+/// bypass on its own — in-workspace first edits are judged like any other.
+fn smart_edit_already_session_touched(ctx: &ResolveContext<'_>) -> bool {
+    let Some(session_id) = ctx.session_id else {
+        return false;
+    };
+    let targets = super::rules::resolved_edit_target_paths(
+        ctx.tool_name,
+        ctx.args,
+        ctx.default_path.map(std::path::Path::new),
+    );
+    if targets.is_empty() {
+        return false;
+    }
+    targets
+        .iter()
+        .all(|p| super::session_edits::contains(session_id, p.as_path()))
 }
 
 fn has_self_confidence_high(args: &Value) -> bool {
@@ -1196,6 +1227,111 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn smart_edit_in_workspace_without_confidence_asks() {
+        // In-workspace edits get NO deterministic bypass: a first edit with no
+        // `_confidence` tag and no prior edit still asks (the model is expected
+        // to self-tag routine in-workspace edits; the engine doesn't auto-allow
+        // by directory).
+        let args = json!({"path": "src/lib.rs"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.default_path = Some("/tmp/project");
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+    }
+
+    #[test]
+    fn smart_edit_already_edited_file_allows() {
+        // The one deterministic loosening: re-editing a file already touched
+        // this session skips the prompt, regardless of where it lives.
+        let args = json!({"path": "src/lib.rs"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.default_path = Some("/tmp/project");
+        // Unique session id so the process-global tracker doesn't race other tests.
+        c.session_id = Some("engine-smart-edit-already-edited");
+
+        // Not yet edited this session → asks.
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+        // After it's been edited once, re-edits are trusted. Record the same
+        // canonical path the engine resolves (`default_path` + relative arg).
+        super::super::session_edits::record(
+            "engine-smart-edit-already-edited",
+            std::path::Path::new("/tmp/project/src/lib.rs"),
+        );
+        assert_eq!(resolve(&c), Decision::Allow);
+        super::super::session_edits::clear("engine-smart-edit-already-edited");
+    }
+
+    #[test]
+    fn smart_protected_path_in_workspace_still_asks() {
+        // A protected file inside the workspace still asks — the protected-path
+        // gate runs before mode dispatch, ahead of any Smart loosening.
+        let args = json!({"path": "/tmp/project/.env"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.default_path = Some("/tmp/project");
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn smart_apply_patch_without_confidence_asks() {
+        // apply_patch (in or out of workspace) gets no directory bypass either.
+        let patch = "*** Begin Patch\n*** Update File: src/x.rs\n@@\n*** End Patch\n";
+        let args = json!({ "input": patch });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("apply_patch", &args, SessionMode::Smart, &plan, &custom);
+        c.default_path = Some("/tmp/project");
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+    }
+
+    #[test]
+    fn default_mode_still_asks_for_edit() {
+        // The session-edit loosening is Smart-only; Default always asks.
+        let args = json!({"path": "src/lib.rs"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        c.default_path = Some("/tmp/project");
+        c.session_id = Some("engine-default-still-asks");
+        super::super::session_edits::record(
+            "engine-default-still-asks",
+            std::path::Path::new("/tmp/project/src/lib.rs"),
+        );
+        // Even with the file recorded, Default ignores the tracker and asks.
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+        super::super::session_edits::clear("engine-default-still-asks");
+    }
+
     #[tokio::test]
     async fn resolve_async_passes_through_non_ask() {
         let args = json!({});
@@ -1360,6 +1496,7 @@ mod tests {
                     agent_id: c.agent_id,
                     default_path: c.default_path,
                     home_dir: None,
+                    incognito: false,
                 },
             )
             .expect("persist allow grant");
@@ -1395,6 +1532,7 @@ mod tests {
                     agent_id: c.agent_id,
                     default_path: c.default_path,
                     home_dir: None,
+                    incognito: false,
                 },
             )
             .expect("persist allow grant");

@@ -10,7 +10,7 @@ use ha_core::oauth::{self, TokenData};
 use ha_core::provider::ActiveModelUpdate;
 use tokio::sync::Mutex;
 
-const DEFAULT_CODEX_MODEL: &str = "gpt-5.4";
+const DEFAULT_CODEX_MODEL: &str = ha_core::agent::DEFAULT_CODEX_MODEL_ID;
 
 #[derive(Debug, Clone)]
 pub struct CodexLoginOptions {
@@ -262,7 +262,10 @@ fn print_codex_login_help() {
     println!("Options:");
     println!("  --no-open                         Print the auth URL without opening a browser");
     println!("  --open                            Open the browser (default)");
-    println!("  --model MODEL                     Active Codex model (default: gpt-5.4)");
+    println!(
+        "  --model MODEL                     Active Codex model (default: {})",
+        DEFAULT_CODEX_MODEL
+    );
     println!("  --no-active                       Do not switch the active model to Codex");
     println!("  --help, -h                        Print help and exit");
 }

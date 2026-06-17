@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
+import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
 
 interface MacControlAppSummary {
   pid: number
@@ -46,6 +47,7 @@ interface MacControlFrameResponse {
 interface MacControlPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  reservedMainWidth?: number
   collapsed?: boolean
   onClose: () => void
 }
@@ -56,6 +58,7 @@ const POLL_INTERVAL_MS = 1000
 export default function MacControlPanel({
   panelWidth = 480,
   onPanelWidthChange,
+  reservedMainWidth,
   collapsed = false,
   onClose,
 }: MacControlPanelProps) {
@@ -133,10 +136,11 @@ export default function MacControlPanel({
       width={panelWidth}
       onWidthChange={onPanelWidthChange}
       resizeLabel={t("chat.browserPanel.resizePanel", "Resize panel")}
+      reservedMainWidth={reservedMainWidth}
       collapsed={collapsed}
       contentKey="mac-control"
     >
-      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+      <div className="flex items-center gap-2 px-3 py-2">
         <Monitor className="h-4 w-4 text-muted-foreground" />
         <div className="flex-1 truncate text-sm font-medium">{title}</div>
         <IconTip label={t("chat.browserPanel.refresh")}>
@@ -163,7 +167,7 @@ export default function MacControlPanel({
         </IconTip>
       </div>
 
-      <div className="relative flex-1 overflow-auto bg-muted/30">
+      <div className={`relative flex-1 overflow-auto bg-muted/30 ${PANEL_SCROLL_FADE}`}>
         {error ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">
             {error}

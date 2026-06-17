@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-26
+> 更新时间：2026-06-07
 
 ## 目录
 
@@ -45,7 +45,7 @@
 **当前语义勘误（2026-04-26）：**
 
 - `always: true` 是 Hope Agent 的扩展字段，语义是**跳过 requirements / 依赖检查**，不是“不可关闭”、不是“始终注入 prompt”、也不是 Skill 标准元字段。全局 Settings、首次引导页和 Agent 级 deny 都允许关闭这类 skill。
-- Requirements 目前只影响 **prompt 注入 / 健康状态**。如果用户或模型已经知道 skill 名称，`/skill-name` 或 `skill({ name })` 路径不会在执行前再次强制校验 requirements；这属于当前实现边界。
+- Requirements 分两级：**硬不兼容**（当前实现为 OS 不匹配）不进入模型 catalog；**可修复缺依赖/配置**（bins / anyBins / env / config）继续进入 catalog，但 `skill({ name })` 与 `/skill-name` 激活前会返回“缺什么 + 怎么安装/配置”的诊断，不加载 SKILL.md。
 - `paths:` skill 在 `conditionalSkillsEnabled=false` 时不会被激活，因此仍保持隐藏；该开关是紧急停用条件激活机制，不是“让 paths skill 常驻显示”。
 
 **激活路径对照表：**
@@ -54,6 +54,7 @@
 |------|------|-----------|--------------------------|
 | 模型自主激活 | `skill({name, args?})` 工具 | SKILL.md + `$ARGUMENTS` 替换作为 tool_result 返回 | 子 Agent 执行 → 摘要字符串作为 tool_result 返回（主对话只看到 skill 工具一条记录）|
 | 用户斜杠命令 | `/skill-name [args]` | **直接内联 SKILL.md 全文**到 PassThrough 消息，带 `[SYSTEM: skill 已激活]` 头部引导 LLM 按内容执行，不走 `read` / `tool_search`（参见[斜杠内联路径](#斜杠命令的-inline-内联路径)） | 复用同一 `skills::spawn_skill_fork` helper，结果通过 EventBus 注入 |
+| 用户 `@skill` 提及 | 输入框 `@` 菜单选「技能」段 → 插入 markdown 链接 `[@<标签>](#skill:<name>)` | **后端 send-time 注入**：`skills::mention::resolve_inline_skill_mentions` 扫消息里的 `[@…](#skill:<name>)`（只取 href 里的 id），按**固定 allowlist**（office 三件套 + 浏览器 + macOS-only mac 控制）读 SKILL.md（同 `$ARGUMENTS` 替换 + `build_skill_context_payload`），拼成一段注入到本回合 `extra_system_context`（与 `knowledge::inject` 平行）。支持同时 `@` 多个；非 allowlist / 已禁用 / 非本 OS 名静默跳过留原文。**输入框与消息历史用同一 token 渲染成同一玫瑰粉 chip**（链接文本=本地化标签、href=稳定 id） | — |
 | `read SKILL.md` | `read` 工具 | **已软弃用**：`read` 仍能读取原文（供作者对比 / diff），但系统提示词明确引导走 `skill` 工具 | — |
 
 ### 系统架构总览
@@ -390,23 +391,23 @@ my-project/
 
 ```mermaid
 flowchart TD
-    START(["check_requirements(req, configured_env)"]) --> ALWAYS{"always == true?"}
+    START(["check_requirements_detail(req, configured_env)"]) --> ALWAYS{"always == true?"}
     ALWAYS -->|是| PASS(["通过 ✓"])
     ALWAYS -->|否| OS{"OS 匹配?<br/>darwin/linux/windows"}
 
-    OS -->|不匹配| FAIL(["失败 ✗"])
+    OS -->|不匹配| HARD(["hard_blocked=true<br/>不注入 catalog"])
     OS -->|匹配或空| BINS{"bins 全部存在?<br/>AND 逻辑"}
 
-    BINS -->|任一缺失| FAIL
+    BINS -->|任一缺失| SOFT(["needs_setup=true<br/>继续注入，激活前诊断"])
     BINS -->|全部存在| ANYBINS{"anyBins 至少一个?<br/>OR 逻辑"}
 
-    ANYBINS -->|全部缺失| FAIL
+    ANYBINS -->|全部缺失| SOFT
     ANYBINS -->|至少一个或为空| CONFIG{"config 路径<br/>全部 truthy?"}
 
-    CONFIG -->|任一 falsy| FAIL
+    CONFIG -->|任一 falsy| SOFT
     CONFIG -->|全部 truthy 或空| ENV{"env 全部已设置?"}
 
-    ENV -->|任一未满足| FAIL
+    ENV -->|任一未满足| SOFT
     ENV -->|全部满足| PASS
 
     subgraph ENV_CHECK["env 检查优先级"]
@@ -428,6 +429,10 @@ flowchart TD
 ```rust
 check_requirements_detail(req, configured_env) -> RequirementsDetail {
     eligible: bool,
+    hard_blocked: bool,
+    needs_setup: bool,
+    current_os: Option<String>,
+    supported_os: Vec<String>,
     missing_bins: Vec<String>,
     missing_any_bins: Vec<String>,
     missing_env: Vec<String>,
@@ -435,7 +440,7 @@ check_requirements_detail(req, configured_env) -> RequirementsDetail {
 }
 ```
 
-用于前端健康检查显示，明确告知用户缺少什么。
+`eligible=true` 表示当前可直接运行；`hard_blocked=false` 表示可注入 catalog / slash 菜单；`needs_setup=true` 表示应继续展示，但激活前必须返回诊断。用于 prompt 过滤、菜单过滤、激活前拦截和前端健康检查显示。
 
 ### `always: true` 的准确边界
 
@@ -473,7 +478,7 @@ if req.always {
 - 标记 `internal: true + always_load: true`：跳过审批、deferred_tools 场景也恒定可见
 - 系统提示词明确引导"用 `skill` 工具，不要 `read` SKILL.md"；`read` 仍可用于作者查看 / diff 原文
 
-**查找边界**：`skill` 工具内部用 `get_invocable_skills(extra_dirs, disabled_skills)` 查找，这会过滤全局禁用、`user-invocable: false` 和 `status != active`，但不会再次执行 requirements 检查。Requirements 主要在 prompt 注入与健康检查阶段生效。
+**查找边界**：`skill` 工具内部用 `get_invocable_skills(extra_dirs, disabled_skills)` 查找，这会过滤全局禁用、`user-invocable: false` 和 `status != active`。命中后会按 Agent/global 的 `skill_env_check` 执行 requirements 激活前检查：硬不兼容返回 hard-block 诊断，可修复缺依赖返回 setup 诊断；只有 `eligible=true` 才加载 SKILL.md 或 fork 子 Agent。
 
 ### 工具 schema
 
@@ -588,14 +593,44 @@ pub async fn extract_fork_result(
 
 **Fallback**：读 SKILL.md 失败时（权限 / 路径错 / IO 故障）降级回老的路径指针 prompt，不阻断聊天。
 
+**Skill package metadata**：`skill` 工具 inline 路径和 `context: fork`
+路径都会在 SKILL.md 前加一段 runtime 元数据，至少包含 skill name 和
+skill directory。Skill body 可以要求模型把该目录当作 `SKILL_DIR`，并从
+`$SKILL_DIR/scripts`、`$SKILL_DIR/references`、`$SKILL_DIR/assets` 解析
+bundled resources；这样复杂 skill 可以把稳定逻辑放进包内脚本，而不是
+要求模型临时重写。
+
 #### 已知 Gap
 
 1. **`allowed-tools` 未全路径过滤**：`skill` 工具 fork 路径和子 Agent 会把 allowed-tools 通过 `ToolExecContext.skill_allowed_tools` 贯通到执行层收紧工具白名单；斜杠内联路径目前只把 SKILL.md 作为 user message 注入，LLM 后续仍握有 Agent 的全部工具。`command-dispatch: tool` 直接执行绑定工具时也未套用 skill 的 allowed-tools
-2. **`requires` 只管注入，不管执行**：prompt 注入和健康检查会 `check_requirements`，但 `skill({name})` 与 `/skillname` 执行路径不会再次校验 env / bins / os / config。通常模型看不到未满足 requirements 的 skill，但用户手输或模型猜中名称时仍可能激活
+2. **Agent/global `skill_env_check` 仍有历史双入口**：系统 prompt 的现代路径使用 Agent 级 `capabilities.skill_env_check`；旧 prompt 路径和部分管理接口仍使用全局 `skillEnvCheck`。`skill` 工具和 `/skillname` 激活入口会按 Agent id 优先读取 Agent 级开关，失败时回退全局开关
 3. **Learning Tracker 未埋点**：缺 `record_learning_event(SkillUsed)` 调用，Dashboard Top Skills 会低报斜杠触发的激活
 4. **SKILL.md 大小无上限**：极端大 skill（≥50KB）内联后会占用相当 token；目前未加保护
 
 更彻底的方案是把斜杠激活的 SKILL.md 作为**一次性 system-prompt 追加**（经 `ChatEngineParams.extra_system_context` 送入，Plan Mode 就是这么用的），同轮结束后不进 conversation_history；同时在 `ChatEngineParams.skill_allowed_tools` 收紧工具。Gap 1 + 2 + 4 可用同一改动一并解决，后续如需优化按此方向走。
+
+---
+
+### `@skill` 提及（输入框）内联注入路径
+
+输入框 `@` 菜单除了文件 / 知识笔记，还有一段**内置技能**：用户选中后插入一个 **markdown 链接 token `[@<标签>](#skill:<name>)`**（Codex 风格——链接文本是本地化友好标签、href 是稳定 id），留在消息文本里（与 `@path`、`[[note]]` 一致），由后端在 send-time 解析。这是「一次性 system-prompt 追加」方案的落地实例——技能内容进本回合 `extra_system_context`，不污染 conversation_history。
+
+- **token = markdown 链接（关键设计）**：用 `[@标签](#skill:name)` 而非裸 `@skill:name`，好处是**同一 token 在输入框（CM6 装饰）和消息历史（`MarkdownLink` 拦截 `#skill:` href）都渲染成同一玫瑰粉 chip**，不会在历史里露出 `@skill:xxx` 原文；标签本地化、id 稳定，后端只认 href 里的 id 与标签解耦。href 选 **fragment `#skill:`**（不是 `skill://`）——Streamdown 用固定 `defaultSchema` 的 rehype-sanitize，自定义 scheme 会被剥 href，fragment 则像现有本地路径链接一样存活（`allowedLinkPrefixes:["*"]`）。
+- **固定 allowlist（红线）**：`@skill` **只对内置、固定的技能开放**，不是通用技能注入入口。allowlist 在 [`skills/mention.rs::AT_MENTIONABLE_SKILLS`](../../crates/ha-core/src/skills/mention.rs)：`office-docx` / `office-pptx` / `office-xlsx` / `ha-browser` / `ha-mac-control`（最后一个 `cfg!(target_os = "macos")` 硬门控）。任意 / 已禁用（`disabled_skills`）/ 非本 OS 的名字一律静默跳过，原 token 文本留在消息里不注入。
+- **解析 = `knowledge::inject` 平行**：`resolve_inline_skill_mentions(message)`（同步、纯文本扫描）正则 `\[@[^\]\n]+\]\(#skill:([a-z0-9-]+)\)`（label `+` 非空，与前端 `parseSkillMentions` 字节一致；绑定链接形态，挡掉散落在正文里的 `#skill:`）→ 去重 → 过 allowlist ∩ invocable ∩ OS → 读 SKILL.md（`$ARGUMENTS` 替换为空 + `build_skill_context_payload`）→ 拼一段 `# Activated Skills (@skill)` 块。在 [`chat_engine/engine.rs`](../../crates/ha-core/src/chat_engine/engine.rs) 紧跟 `[[note]]` 注入之后合并进 `extra_system_context`，**仅 `source.fires_user_lifecycle_hooks()`（Desktop / HTTP / IM 用户回合）生效**——`Subagent` / `ParentInjection` 不解析,挡掉子 Agent 未转义输出里夹带的 `[@…](#skill:…)` 自激活 skill。
+- **菜单数据**：`list_mentionable_skills()`（Tauri `list_mentionable_skills` / HTTP `GET /api/skills/mentionable`，owner 平面无 session 参数）返回 allowlist ∩ invocable ∩ OS 的 `{ name, description }`；友好标签 + 图标在前端 [`skill-mention/skillTokens.ts`](../../src/components/chat/skill-mention/skillTokens.ts) 按 `name` 映射（i18n `chat.skillMention.*`），后端不下发文案。插入时 `useFileMention` 用自己的 `useTranslation` 取当前语言标签写进链接文本（`skillTokens` 保持纯 / 无 i18n 副作用导入，避免被广引时把 i18n init 拖进测试图）。
+- **前端**：统一 `@` 菜单第三段（[`useFileMention`](../../src/components/chat/file-mention/useFileMention.ts) + [`FileMentionMenu`](../../src/components/chat/file-mention/FileMentionMenu.tsx)），扁平光标 `[...files, ...notes, ...skills]`；输入框 chip 在 [`MentionComposerInput`](../../src/components/chat/input/MentionComposerInput.tsx)（玫瑰粉，文件=蓝 / 笔记=紫之外的第三色），历史 chip 在 [`SkillMentionChip`](../../src/components/chat/skill-mention/SkillMentionChip.tsx)（`MarkdownLink` 按 `#skill:` href 派发）。链接形态的 `@` 在 `[` 之后，**天然不被裸 `@token` 文件 mention 语法命中**（无需像旧裸 token 那样在文件 chip / 发送展开处特判）。`enableSkillMention` prop 默认关，主对话 `ChatScreen` opt-in（QuickChat / 知识空间面板不开）。
+- **与斜杠路径的差别**：`@skill` 走 system-prompt 追加（解决上文 Gap 4 的 token 占用方向）而非 PassThrough user message；同样**未应用 `allowed-tools`**（与斜杠 inline 一致，Gap 1 仍在）——浏览器 / mac 控制工具本就是默认可用的 `Standard` 工具，SKILL.md 只是引导用法。
+
+#### 已知 Gap / 有意取舍
+
+经多角度 review 评估后**有意接受**的取舍（非疏漏）；如后续要收紧按此清单逐条处理：
+
+1. **前端 chip 渲染只认静态 catalog 成员（`isSkillMentionName`），不感知 OS / `disabled_skills`**。菜单本身正确（`list_mentionable_skills` 后端已 OS + invocable 过滤），后端注入也正确（OS 门控）。残留：在非 macOS 上**手动粘贴** `[@Mac](#skill:ha-mac-control)` 会显示一个误导性玫瑰粉 Mac chip，但后端不注入——纯视觉、无权限泄漏；跨设备查看一条真实 macOS 回合的历史 chip 则是如实的。收紧需把 OS 感知穿到 3 个渲染路径（composer / `MarkdownLink` / `SkillMentionText`）。
+2. **`enableSkillMention` 只 gate 输入框（编辑/菜单），不 gate 历史 chip 渲染与后端注入**。与 `@path` / `[[note]]` 的「token 语义全局统一」一致——开关管的是「该面是否提供录入」，不是 token 本身。残留：在 QuickChat / 知识空间面板（`enableSkillMention=false`）**粘贴** skill token 仍会渲染 chip + 后端注入。要硬隔离需把该 flag 透传到后端。
+3. **`mentionable_entries()` 每个含 @skill token 的回合重走 skill 目录 + 解析 frontmatter**（`get_invocable_skills` → `load_all_skills_with_budget`）。仅在消息确含 token 时触发（无 token 提前返回），且与 slash 菜单 / @ 菜单既有开销同源。skill 数量增大后再考虑缓存解析结果。
+4. **非 allowlist 的 `#skill:` token 跨面降级不一致**：消息气泡走 `MarkdownLink` fallback 成普通 `<a>`，吸顶 pill 走 `SkillMentionText` 渲染成纯 `@label`。仅影响本不应出现的非白名单 token。
+5. **纯文本渲染模式（用户手动关 markdown）显示 token 原文**：非 skill 特有——该模式下所有 markdown 都显示原文,属预期。
 
 ---
 
@@ -1617,6 +1652,45 @@ sequenceDiagram
 | `email-draft` | 办公方法论 | 全局可见 | 邮件起草、润色、翻译和回复，输出 subject / greeting / body / sign-off |
 | `status-report` | 办公方法论 | 全局可见 | 周报 / 月报 / 项目进展，覆盖 shipped / in-flight / blocked / metrics |
 | `mermaid-diagram` | 办公方法论 | 全局可见 | Mermaid flowchart / sequence / ER / state / gantt 等图表，聊天端可原生渲染 |
+| `office-docx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 Word `.docx` 与 Google Docs-targeted 文档；覆盖真实列表、批注、修订、图片 alt、TOC、脚注、水印、保护、内容控件、内部链接、表格导出、合并、对比、脱敏、PDF/PNG 预览 |
+| `office-xlsx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 Excel `.xlsx` 与 Google Sheets-targeted 工作簿；覆盖公式、样式、真实表格、数据验证、条件格式、图表、CSV/TSV 转换、公式审计与缓存、LibreOffice 重算、PDF/PNG 预览 |
+| `office-pptx` | Office 文件 | `requires.bins: [python3]` | 创建 / 编辑 / 检查 PowerPoint `.pptx` 与 Google Slides-targeted deck；覆盖标题/章节/图文/指标/表格/时间线/图片、native chart、文本 patch、追加、复制/重排 slide、布局审计、contact sheet、PDF/PNG 预览 |
+
+### 内置 Office 技能维护契约
+
+Office 三件套是 **skill + bundled scripts**，不是内置 tool。它们默认只要求
+`python3`，因为生成、编辑、检查 OOXML 主要走 Python stdlib；LibreOffice
+和 `pdftoppm` / `magick` 是视觉预览与重算的可选运行时，缺失时由
+`check_env.py` 和激活后的工作流诊断，不应把整项 skill 从 catalog 中硬隐藏。
+
+修改 `skills/office-docx` / `skills/office-xlsx` / `skills/office-pptx` 或对应
+SKILL.md 后，至少跑以下定向检查：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/office-skill-parity-audit.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/office-skill-smoke-test.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile \
+  scripts/office-skill-parity-audit.py \
+  scripts/office-skill-smoke-test.py \
+  skills/office-docx/scripts/*.py \
+  skills/office-xlsx/scripts/*.py \
+  skills/office-pptx/scripts/*.py
+```
+
+`office-skill-parity-audit.py` 是能力清单审计：确认三件套表面能力仍覆盖
+primary-runtime Office skills。`office-skill-smoke-test.py` 是端到端 smoke：
+实际生成 / 编辑 / 检查 / 渲染 DOCX、XLSX、PPTX，并覆盖以下回归点：
+
+- DOCX helpers 向 `word/document.xml` 追加 body 内容时，必须插在最终
+  `w:sectPr` 之前；`w:sectPr` 后不得追加段落、内容控件或超链接。
+- DOCX 水印 / 页眉相关 helper 必须分配不冲突的 `headerN.xml` 和
+  relationship id，不能覆盖用户原有 `word/header1.xml` 或既有页眉关系。
+- PPTX drop / reorder slide 时，只能删除被丢弃 slide 的 relationships；
+  必须保留 slide master、theme、view properties 等非 slide relationships，
+  否则源 deck 样式会丢失或触发 PowerPoint 修复。
+- XLSX patch / formula cache 应只改目标 worksheet/cell，保留 workbook 的
+  其它 package parts；公式变更后继续用 `inspect_xlsx.py` 与
+  `formula_audit.py` 验证。
 
 ### settings 技能工具
 

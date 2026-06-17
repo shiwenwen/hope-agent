@@ -886,6 +886,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
 
 fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
     let mut removed_current = false;
+    let mut removed_current_kb = false;
     let model_id = model_id.to_string();
     crate::config::mutate_config(
         ("embedding_models.remove_ollama", PROVIDER_SOURCE),
@@ -910,7 +911,19 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
                 .unwrap_or(false)
             {
                 removed_current = true;
-                store.memory_embedding = crate::memory::MemoryEmbeddingSelection::default();
+                store.memory_embedding = crate::memory::EmbeddingSelection::default();
+            }
+            // Shared model library (D7): the same Ollama model may be the active
+            // knowledge embedding model too — reset that selection independently.
+            if store
+                .knowledge_embedding
+                .model_config_id
+                .as_ref()
+                .map(|id| removed_ids.contains(id))
+                .unwrap_or(false)
+            {
+                removed_current_kb = true;
+                store.knowledge_embedding = crate::memory::EmbeddingSelection::default();
             }
             store
                 .embedding_models
@@ -923,7 +936,16 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
             backend.clear_embedder();
         }
     }
-    Ok(removed_current)
+    if removed_current_kb {
+        // Cancel any in-flight reembed before clearing the embedder, so an orphan
+        // job can't keep running with a captured signature for the just-deleted
+        // model and stamp it back into the now-default selection.
+        crate::knowledge::cancel_active_knowledge_reembed_jobs();
+        if let Some(db) = crate::knowledge::index::get_index_db() {
+            db.clear_embedder();
+        }
+    }
+    Ok(removed_current || removed_current_kb)
 }
 
 fn library_cache_conn() -> Result<Connection> {

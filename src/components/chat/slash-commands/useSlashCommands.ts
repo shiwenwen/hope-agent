@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { SlashCommandDef, CommandResult } from "./types"
 import { CATEGORY_ORDER } from "./types"
+import type { ComposerInputHandle } from "../input/composerInputHandle"
 
 export interface SlashCommandActions {
   /** Called when a command produces a CommandAction */
@@ -59,6 +60,7 @@ export function useSlashCommands(
   input: string,
   setInput: (value: string) => void,
   actions: SlashCommandActions,
+  inputHandleRef: React.RefObject<ComposerInputHandle | null>,
 ): UseSlashCommandsReturn {
   const [commands, setCommands] = useState<SlashCommandDef[]>([])
   const [isOpen, setIsOpen] = useState(false)
@@ -69,6 +71,24 @@ export function useSlashCommands(
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(0)
   const actionsRef = useRef(actions)
   actionsRef.current = actions
+
+  // Fill the composer with `value` and park the caret at the end, so the next
+  // keystroke lands after the auto-completed command instead of staying where
+  // the old caret was. Mirrors the mention hooks' setInput + rAF
+  // setSelectionRange convention — the value-sync effect preserves the prior
+  // caret, so external fills must re-place it on the next frame.
+  const fillInput = useCallback(
+    (value: string) => {
+      setInput(value)
+      requestAnimationFrame(() => {
+        const inputHandle = inputHandleRef.current
+        if (!inputHandle) return
+        inputHandle.focus()
+        inputHandle.setSelectionRange(value.length, value.length)
+      })
+    },
+    [setInput, inputHandleRef],
+  )
 
   // Load commands from backend (refresh when menu opens to pick up skill changes)
   const loadCommands = useCallback(() => {
@@ -262,10 +282,10 @@ export function useSlashCommands(
         // Has built-in options: expand submenu
         setExpandedCmd(cmd)
         setSelectedOptionIndex(0)
-        setInput(`/${cmd.name} `)
+        fillInput(`/${cmd.name} `)
       } else if (cmd.hasArgs && !cmd.argsOptional) {
         // Has required args but no built-in options: fill in command and let user type
-        setInput(`/${cmd.name} `)
+        fillInput(`/${cmd.name} `)
         setIsOpen(false)
         setForceOpen(false)
       } else {
@@ -273,7 +293,7 @@ export function useSlashCommands(
         executeCommandInner(cmd)
       }
     },
-    [executeCommandInner, setInput],
+    [executeCommandInner, fillInput],
   )
 
   const handleKeyDown = useCallback(
@@ -316,7 +336,7 @@ export function useSlashCommands(
             // Tab: fill option into input box for further editing
             e.preventDefault()
             if (filteredOptions[selectedOptionIndex]) {
-              setInput(`/${expandedCmd.name} ${filteredOptions[selectedOptionIndex]} `)
+              fillInput(`/${expandedCmd.name} ${filteredOptions[selectedOptionIndex]} `)
               setExpandedCmd(null)
               setIsOpen(false)
               setForceOpen(false)
@@ -362,9 +382,9 @@ export function useSlashCommands(
             if (tabCmd.argOptions?.length) {
               setExpandedCmd(tabCmd)
               setSelectedOptionIndex(0)
-              setInput(`/${tabCmd.name} `)
+              fillInput(`/${tabCmd.name} `)
             } else {
-              setInput(`/${tabCmd.name} `)
+              fillInput(`/${tabCmd.name} `)
               setIsOpen(false)
               setForceOpen(false)
             }
@@ -397,7 +417,7 @@ export function useSlashCommands(
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, forceOpen, input, expandedCmd, filteredOptions, selectedOptionIndex, executeOption],
+    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, fillInput, forceOpen, input, expandedCmd, filteredOptions, selectedOptionIndex, executeOption],
   )
 
   const setOpen = useCallback(

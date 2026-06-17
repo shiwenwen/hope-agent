@@ -42,6 +42,39 @@ pub fn build_tool_media_items_attachments_meta(media_items: &Value) -> Option<St
 
 // ── Data Structures ──────────────────────────────────────────────
 
+/// Classifies a session so cross-cutting surfaces can filter it.
+///
+/// `Regular` is the normal user-facing chat. `Knowledge` is a knowledge-space
+/// sidebar conversation — persisted (so history survives) but kept out of the
+/// main session sidebar / `/sessions` picker, and driving a trimmed tool set
+/// at the chat-engine layer (`ToolScope::Knowledge`). It is NOT a security
+/// boundary: KB access is still decided solely by `effective_kb_access`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionKind {
+    #[default]
+    Regular,
+    Knowledge,
+}
+
+impl SessionKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SessionKind::Regular => "regular",
+            SessionKind::Knowledge => "knowledge",
+        }
+    }
+
+    /// Lenient parse — any unknown value (incl. legacy NULL coerced to "")
+    /// falls back to `Regular` so old rows / forward-compat writes are safe.
+    pub fn from_db_string(s: &str) -> Self {
+        match s {
+            "knowledge" => SessionKind::Knowledge,
+            _ => SessionKind::Regular,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -104,6 +137,11 @@ pub struct SessionMeta {
     /// to the server machine's filesystem.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    /// Session classification (see [`SessionKind`]). `Regular` for normal
+    /// chats; `Knowledge` for knowledge-space sidebar conversations (hidden
+    /// from the main sidebar / picker, trimmed tool set).
+    #[serde(default)]
+    pub kind: SessionKind,
 }
 
 fn default_title_source() -> String {
@@ -123,6 +161,7 @@ impl SessionMeta {
             && self.parent_session_id.is_none()
             && self.channel_info.is_none()
             && !self.incognito
+            && self.kind == SessionKind::Regular
     }
 }
 
@@ -514,6 +553,7 @@ mod tests {
             channel_info: None,
             incognito: false,
             working_dir: None,
+            kind: SessionKind::Regular,
         }
     }
 
@@ -548,5 +588,33 @@ mod tests {
         let mut inc = meta("f");
         inc.incognito = true;
         assert!(!inc.is_regular_chat());
+
+        // Knowledge-space sidebar conversations are persisted but never surface
+        // in the main session list / picker.
+        let mut kb = meta("g");
+        kb.kind = SessionKind::Knowledge;
+        assert!(!kb.is_regular_chat());
+    }
+
+    #[test]
+    fn session_kind_roundtrips_and_defaults() {
+        assert_eq!(SessionKind::Regular.as_str(), "regular");
+        assert_eq!(SessionKind::Knowledge.as_str(), "knowledge");
+        assert_eq!(
+            SessionKind::from_db_string("knowledge"),
+            SessionKind::Knowledge
+        );
+        // Unknown / legacy NULL coerced to "" → Regular.
+        assert_eq!(SessionKind::from_db_string(""), SessionKind::Regular);
+        assert_eq!(SessionKind::from_db_string("bogus"), SessionKind::Regular);
+        assert_eq!(SessionKind::default(), SessionKind::Regular);
+
+        // serde uses snake_case and round-trips through SessionMeta.
+        let mut m = meta("k");
+        m.kind = SessionKind::Knowledge;
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"kind\":\"knowledge\""));
+        let back: SessionMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.kind, SessionKind::Knowledge);
     }
 }

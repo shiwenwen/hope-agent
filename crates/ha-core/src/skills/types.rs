@@ -578,8 +578,16 @@ pub struct SkillStatusEntry {
     pub name: String,
     pub source: String,
     pub eligible: bool,
+    #[serde(default)]
+    pub hard_blocked: bool,
+    #[serde(default)]
+    pub needs_setup: bool,
     pub disabled: bool,
     pub blocked_by_allowlist: bool,
+    #[serde(default)]
+    pub current_os: Option<String>,
+    #[serde(default)]
+    pub supported_os: Vec<String>,
     #[serde(default)]
     pub missing_bins: Vec<String>,
     #[serde(default)]
@@ -616,8 +624,21 @@ impl SkillCache {
 #[derive(Debug, Clone, Default)]
 pub struct RequirementsDetail {
     pub eligible: bool,
+    pub hard_blocked: bool,
+    pub needs_setup: bool,
+    pub current_os: Option<String>,
+    pub supported_os: Vec<String>,
     pub missing_bins: Vec<String>,
     pub missing_any_bins: Vec<String>,
     pub missing_env: Vec<String>,
     pub missing_config: Vec<String>,
+}
+
+impl RequirementsDetail {
+    /// True when the skill may be surfaced to the model. Hard blockers are
+    /// things the user cannot fix by installing packages or setting config in
+    /// the current environment, such as an unsupported OS.
+    pub fn injection_eligible(&self) -> bool {
+        !self.hard_blocked
+    }
 }

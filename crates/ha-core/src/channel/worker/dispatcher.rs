@@ -422,6 +422,7 @@ async fn handle_inbound_message(
             &session_id,
             &agent_id,
             user_text,
+            &msg.sender_id,
             supports_buttons,
         )
         .await
@@ -550,6 +551,75 @@ async fn handle_inbound_message(
 
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
+
+    // 5c. Single-flight gate (I8 / MISC-6). IM inbound previously had NO
+    // per-session turn guard: two rapid messages to the same session ran
+    // `run_chat_engine` concurrently, and the loser lost the
+    // `stream_seq::begin` race deep inside the engine — after the pipeline was
+    // spawned — surfacing as an "active stream" error reply. Acquire the same
+    // `active_turn` guard the GUI/HTTP entry points use so a concurrent turn
+    // (from IM, GUI, or HTTP on this 1:1-attached session) is rejected up
+    // front. We acquire AFTER persisting the user message: every inbound is
+    // captured into history + run through the `UserPromptSubmit` preflight,
+    // and only the *engine run* is single-flighted (a deferred message rides
+    // the next turn's context; there is no auto-dequeue). The guard + cancel
+    // handle are held by RAII for the whole turn including delivery.
+    let cancel = match crate::globals::get_channel_cancels() {
+        Some(reg) => reg.register(&session_id),
+        None => Arc::new(AtomicBool::new(false)),
+    };
+    // RAII removal so the channel cancel handle never leaks on an early bail
+    // (e.g. empty model chain below) — it used to be removed only on the
+    // run_chat_engine-reached path.
+    struct CancelHandleGuard(String);
+    impl Drop for CancelHandleGuard {
+        fn drop(&mut self) {
+            if let Some(reg) = crate::globals::get_channel_cancels() {
+                reg.remove(&self.0);
+            }
+        }
+    }
+    let _cancel_handle_guard = CancelHandleGuard(session_id.clone());
+
+    // The synthetic turn id only keys the single-flight registry entry; the
+    // engine keeps `turn_id: None` (IM streams on the `channel:*` bus, not the
+    // `chat:*` seq-tracked bus, so giving it a tracked turn id would change
+    // stream acceptance/broadcast semantics). The shared `cancel` Arc is reused
+    // by `engine_params` below so a cross-surface cancel (session delete /
+    // GUI stop walking `active_turn`) actually aborts this engine run.
+    let _active_turn_guard = match crate::chat_engine::active_turn::try_acquire(
+        &session_id,
+        crate::chat_engine::stream_seq::ChatSource::Channel,
+        uuid::Uuid::new_v4().to_string(),
+        cancel.clone(),
+    ) {
+        Ok(guard) => guard,
+        Err(e) => {
+            app_info!(
+                "channel",
+                "worker",
+                "[{}] inbound for session {} deferred: a turn is already active ({})",
+                channel_id_str,
+                session_id,
+                e
+            );
+            let busy_target = DeliveryTarget {
+                account_id: &account.id,
+                chat_id: &msg.chat_id,
+                thread_id: msg.thread_id.as_deref(),
+                reply_to_message_id: Some(&msg.message_id),
+            };
+            send_text_chunks(
+                &plugin,
+                &busy_target,
+                "⏳ I'm still finishing your previous message; I'll get to this one shortly.",
+                None,
+                &[],
+            )
+            .await;
+            return Ok(());
+        }
+    };
 
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {
@@ -734,13 +804,13 @@ async fn handle_inbound_message(
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
         reasoning_effort,
-        cancel: match crate::globals::get_channel_cancels() {
-            Some(reg) => reg.register(&session_id),
-            None => Arc::new(AtomicBool::new(false)),
-        },
+        // Shared with the single-flight guard above (registered once in the
+        // channel cancel registry); removal is handled by `_cancel_handle_guard`.
+        cancel: cancel.clone(),
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
+        tool_scope: None,
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: account.auto_approve_tools,
@@ -749,6 +819,17 @@ async fn handle_inbound_message(
         abort_on_cancel: false,
         persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Channel,
+        origin_source: None,
+        // WS8: carry the IM origin identity so `effective_kb_access` can apply the
+        // per-account (+ per-group-chat) KB opt-in. `is_group` = any non-DM chat
+        // (group / forum / broadcast channel), which needs separate per-chat
+        // confirmation on top of the account opt-in.
+        channel_kb_context: Some(crate::knowledge::ChannelKbContext {
+            channel_id: channel_id_str.clone(),
+            account_id: account.id.clone(),
+            chat_id: msg.chat_id.clone(),
+            is_group: !matches!(msg.chat_type, ChatType::Dm),
+        }),
         event_sink,
     };
 
@@ -756,9 +837,8 @@ async fn handle_inbound_message(
 
     let result = crate::chat_engine::run_chat_engine(engine_params).await;
 
-    if let Some(reg) = crate::globals::get_channel_cancels() {
-        reg.remove(&session_id);
-    }
+    // (channel cancel handle removal now happens via `_cancel_handle_guard` on
+    // every exit path, including early bails above.)
 
     // Late async tool completions arriving after this drain are deferred to
     // a future turn — a stale attachment from turn N must not leak into N+1.
@@ -1248,7 +1328,29 @@ pub(super) async fn deliver_split(
     let last_idx = remaining.len() - 1;
     for (i, round) in remaining.iter().enumerate() {
         if i == last_idx {
-            send_final_reply(plugin, target, &round.text, preview, &round.medias, caps).await;
+            // The quote marks the turn's first message. When the stream task
+            // already shipped round 0 inline (`finalized_rounds > 0`), the
+            // trailing round must not stack a second quote — only quote here
+            // when nothing was finalized inline (this is the first message).
+            let final_target = DeliveryTarget {
+                account_id: target.account_id,
+                chat_id: target.chat_id,
+                thread_id: target.thread_id,
+                reply_to_message_id: if finalized_rounds == 0 {
+                    target.reply_to_message_id
+                } else {
+                    None
+                },
+            };
+            send_final_reply(
+                plugin,
+                &final_target,
+                &round.text,
+                preview,
+                &round.medias,
+                caps,
+            )
+            .await;
             metrics.text_chars += round.text.chars().count();
             metrics.media_count += round.medias.len();
         } else {
@@ -1653,6 +1755,7 @@ mod tests {
     struct CountingPlugin {
         max_bytes: usize,
         sends: Mutex<Vec<String>>,
+        reply_tos: Mutex<Vec<Option<String>>>,
         send_count: AtomicUsize,
         fail_media: bool,
     }
@@ -1662,6 +1765,7 @@ mod tests {
             Self {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
                 fail_media: false,
             }
@@ -1671,9 +1775,16 @@ mod tests {
             Self {
                 max_bytes,
                 sends: Mutex::new(Vec::new()),
+                reply_tos: Mutex::new(Vec::new()),
                 send_count: AtomicUsize::new(0),
                 fail_media: true,
             }
+        }
+
+        /// reply_to_message_id of the last `send_message` call (outer `None` =
+        /// nothing was sent).
+        fn last_reply_to(&self) -> Option<Option<String>> {
+            self.reply_tos.lock().unwrap().last().cloned()
         }
     }
 
@@ -1721,6 +1832,10 @@ mod tests {
             if let Some(text) = payload.text.as_ref() {
                 self.sends.lock().unwrap().push(text.clone());
             }
+            self.reply_tos
+                .lock()
+                .unwrap()
+                .push(payload.reply_to_message_id.clone());
             Ok(DeliveryResult::ok(format!("msg-{}", n)))
         }
 
@@ -1798,6 +1913,40 @@ mod tests {
         let prefinal_chunks: String = sends.iter().take(sends.len() - 1).cloned().collect();
         assert_eq!(prefinal_chunks, pre_final_text);
         assert_eq!(sends.last().unwrap(), "final.");
+    }
+
+    #[tokio::test]
+    async fn deliver_split_quotes_final_round_only_when_nothing_finalized_inline() {
+        let rounds = vec![
+            RoundOutput {
+                text: "round 0".to_string(),
+                medias: Vec::new(),
+            },
+            RoundOutput {
+                text: "final.".to_string(),
+                medias: Vec::new(),
+            },
+        ];
+        let target = DeliveryTarget {
+            account_id: "acc",
+            chat_id: "chat",
+            thread_id: None,
+            reply_to_message_id: Some("m1"),
+        };
+
+        // Nothing finalized inline (finalized_rounds = 0): the final round is
+        // the turn's first outbound message, so it carries the quote.
+        let p0 = Arc::new(CountingPlugin::new(4096));
+        let dyn0: Arc<dyn ChannelPlugin> = p0.clone();
+        let _ = deliver_split(&dyn0, &target, &rounds, "fb", None, 0, &dyn0.capabilities()).await;
+        assert_eq!(p0.last_reply_to(), Some(Some("m1".to_string())));
+
+        // Stream task already shipped (and quoted) round 0 inline
+        // (finalized_rounds = 1): the trailing round must not stack a 2nd quote.
+        let p1 = Arc::new(CountingPlugin::new(4096));
+        let dyn1: Arc<dyn ChannelPlugin> = p1.clone();
+        let _ = deliver_split(&dyn1, &target, &rounds, "fb", None, 1, &dyn1.capabilities()).await;
+        assert_eq!(p1.last_reply_to(), Some(None));
     }
 
     #[tokio::test]

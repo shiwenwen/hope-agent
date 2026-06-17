@@ -11,6 +11,7 @@ pub(crate) mod quote;
 pub mod sink_registry;
 pub mod stream_broadcast;
 pub mod stream_seq;
+pub mod turn_injection;
 mod types;
 
 use std::sync::Arc;

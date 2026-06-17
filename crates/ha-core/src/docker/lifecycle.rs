@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use std::sync::atomic::Ordering;
-use tokio::process::Command;
 
 use super::{app_log, error, helpers::*, info, CONTAINER_NAME, DEPLOYING};
 
@@ -14,7 +13,7 @@ pub async fn start() -> Result<()> {
     // take effect without requiring a full redeploy.
     prepare_searxng_config().await?;
     info("Starting container...");
-    let out = Command::new("docker")
+    let out = docker_command()
         .args(["start", CONTAINER_NAME])
         .output()
         .await
@@ -46,7 +45,7 @@ pub async fn stop() -> Result<()> {
         anyhow::bail!("A deploy operation is in progress");
     }
     info("Stopping container...");
-    let out = Command::new("docker")
+    let out = docker_command()
         .args(["stop", CONTAINER_NAME])
         .output()
         .await
@@ -65,7 +64,7 @@ pub async fn remove() -> Result<()> {
         anyhow::bail!("A deploy operation is in progress");
     }
     info("Removing container...");
-    let out = Command::new("docker")
+    let out = docker_command()
         .args(["rm", "-f", CONTAINER_NAME])
         .output()
         .await

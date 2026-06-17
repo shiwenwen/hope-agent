@@ -27,6 +27,7 @@ pub(crate) mod job_status;
 mod ls;
 mod mac_control;
 mod memory;
+pub(crate) mod note;
 mod notification;
 pub(crate) mod pdf;
 mod process;
@@ -54,7 +55,10 @@ mod write;
 
 pub(crate) use task::task_reminder_text;
 
-pub use approval::{submit_approval_response, ApprovalResponse};
+pub use approval::{
+    deny_pending_for_session, emit_approval_resolved, submit_approval_response, ApprovalOrigin,
+    ApprovalResolutionSource, ApprovalResponse, ApprovalSubmitError, EVENT_APPROVAL_RESOLVED,
+};
 pub use definitions::{
     get_ask_user_question_tool, get_available_tools, get_canvas_tool, get_core_tools,
     get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
@@ -62,7 +66,9 @@ pub use definitions::{
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
     is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
-pub use execution::{execute_tool_with_context, ToolExecContext};
+pub use execution::{
+    execute_tool_with_context, purge_tool_results_for_session, PidSink, ToolExecContext,
+};
 pub use rejection::{ToolRejection, TOOL_ERROR_PREFIX};
 
 // ── Tool Name Constants ──────────────────────────────────────────
@@ -90,6 +96,33 @@ pub const TOOL_SEND_NOTIFICATION: &str = "send_notification";
 pub const TOOL_SUBAGENT: &str = "subagent";
 pub const TOOL_MEMORY_GET: &str = "memory_get";
 pub const TOOL_AGENTS_LIST: &str = "agents_list";
+
+// Knowledge base (note_*) tools.
+pub const TOOL_NOTE_CREATE: &str = "note_create";
+pub const TOOL_NOTE_READ: &str = "note_read";
+pub const TOOL_NOTE_UPDATE: &str = "note_update";
+pub const TOOL_NOTE_PATCH: &str = "note_patch";
+pub const TOOL_NOTE_APPEND: &str = "note_append";
+pub const TOOL_NOTE_DELETE: &str = "note_delete";
+pub const TOOL_NOTE_SEARCH: &str = "note_search";
+pub const TOOL_NOTE_LINK: &str = "note_link";
+pub const TOOL_NOTE_BACKLINKS: &str = "note_backlinks";
+pub const TOOL_NOTE_BY_TAG: &str = "note_by_tag";
+pub const TOOL_NOTE_TAGS: &str = "note_tags";
+pub const TOOL_NOTE_RENAME: &str = "note_rename";
+pub const TOOL_NOTE_MOVE: &str = "note_move";
+pub const TOOL_NOTE_SET_FRONTMATTER: &str = "note_set_frontmatter";
+pub const TOOL_NOTE_ASSIGN_BLOCK: &str = "note_assign_block";
+pub const TOOL_NOTE_BROKEN_LINKS: &str = "note_broken_links";
+pub const TOOL_NOTE_ORPHANS: &str = "note_orphans";
+pub const TOOL_NOTE_GRAPH: &str = "note_graph";
+pub const TOOL_NOTE_SIMILAR: &str = "note_similar";
+pub const TOOL_NOTE_RELATED: &str = "note_related";
+pub const TOOL_NOTE_SUGGEST_LINKS: &str = "note_suggest_links";
+pub const TOOL_NOTE_DISTILL: &str = "note_distill";
+pub const TOOL_NOTE_MOC: &str = "note_moc";
+pub const TOOL_KNOWLEDGE_RECALL: &str = "knowledge_recall";
+pub const TOOL_SESSION_TO_NOTE: &str = "session_to_note";
 pub const TOOL_SESSIONS_LIST: &str = "sessions_list";
 pub const TOOL_SESSION_STATUS: &str = "session_status";
 pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";
@@ -131,6 +164,73 @@ pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
 pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
 
 // ── Shared Helpers ────────────────────────────────────────────────
+
+/// True for built-in tools that are useless without an attached knowledge base:
+/// all `note_*` tools plus `session_to_note` (they all resolve a `kb` through
+/// `effective_kb_access` and hard-fail when no KB is reachable). Used to drop
+/// them from the eager tool schema when the session has zero accessible KBs —
+/// pure UX / token saving on top of the execution-layer access gate.
+///
+/// Deliberately EXCLUDES `knowledge_recall`: it is `Standard`/deferred and
+/// cross-store (still searches Memory without any KB), so it must stay available.
+pub fn is_kb_scoped_tool(name: &str) -> bool {
+    name.starts_with("note_") || name == TOOL_SESSION_TO_NOTE
+}
+
+/// White-list predicate for [`ToolScope::Knowledge`] — the trimmed tool set the
+/// knowledge-space sidebar chat injects. Keeps note read/write, cross-store
+/// recall, memory, and the framework basics the dispatcher / deferred-tool flow
+/// need (`skill` / `tool_search` / `ask_user_question` / `runtime_cancel` /
+/// `job_status`); everything else (exec / browser / image / subagent / cron /
+/// channel / web / raw fs …) is dropped so a document-writing chat can't wander
+/// into unrelated capabilities.
+///
+/// Purely schema/visibility narrowing — it never WIDENS anything. KB access is
+/// still decided solely by `effective_kb_access`.
+pub fn is_knowledge_scope_tool(name: &str) -> bool {
+    name.starts_with("note_")
+        || matches!(
+            name,
+            TOOL_SESSION_TO_NOTE
+                | TOOL_KNOWLEDGE_RECALL
+                | TOOL_RECALL_MEMORY
+                | TOOL_SAVE_MEMORY
+                | TOOL_UPDATE_MEMORY
+                | TOOL_MEMORY_GET
+                | TOOL_SKILL
+                | TOOL_TOOL_SEARCH
+                | TOOL_ASK_USER_QUESTION
+                | TOOL_RUNTIME_CANCEL
+                | TOOL_JOB_STATUS
+        )
+}
+
+/// Restricts which tools are visible for a turn, orthogonal to the agent's own
+/// allow/deny config and to the chat source. Currently the only variant is
+/// `Knowledge` (the knowledge-space sidebar chat's trimmed set). `None` on
+/// [`crate::chat_engine::ChatEngineParams`] means no extra narrowing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolScope {
+    Knowledge,
+}
+
+impl ToolScope {
+    /// Parse the wire string (`"knowledge"`) into a scope; anything else → None.
+    pub fn from_str_opt(s: Option<&str>) -> Option<Self> {
+        match s {
+            Some("knowledge") => Some(ToolScope::Knowledge),
+            _ => None,
+        }
+    }
+
+    /// True iff a tool `name` is visible under this scope.
+    pub fn allows(&self, name: &str) -> bool {
+        match self {
+            ToolScope::Knowledge => is_knowledge_scope_tool(name),
+        }
+    }
+}
 
 /// Combined context-level visibility check shared by schema generation,
 /// tool_search, and execution-layer defense-in-depth. Agent-level on/off
@@ -188,7 +288,76 @@ pub fn expand_tilde(path: &str) -> String {
 mod tests {
     use crate::agent_config::FilterConfig;
 
-    use super::tool_visible_with_filters;
+    use super::{is_kb_scoped_tool, is_knowledge_scope_tool, tool_visible_with_filters, ToolScope};
+
+    #[test]
+    fn knowledge_scope_whitelist() {
+        // All note_* + the curated recall / memory / framework basics are kept.
+        for t in [
+            super::TOOL_NOTE_CREATE,
+            super::TOOL_NOTE_PATCH,
+            super::TOOL_NOTE_SEARCH,
+            "note_brand_new",
+            super::TOOL_SESSION_TO_NOTE,
+            super::TOOL_KNOWLEDGE_RECALL,
+            super::TOOL_RECALL_MEMORY,
+            super::TOOL_SAVE_MEMORY,
+            super::TOOL_MEMORY_GET,
+            super::TOOL_SKILL,
+            super::TOOL_TOOL_SEARCH,
+            super::TOOL_ASK_USER_QUESTION,
+            super::TOOL_RUNTIME_CANCEL,
+            super::TOOL_JOB_STATUS,
+        ] {
+            assert!(
+                is_knowledge_scope_tool(t),
+                "{t} should be in knowledge scope"
+            );
+            assert!(ToolScope::Knowledge.allows(t), "{t} should be allowed");
+        }
+        // Unrelated capabilities are dropped from the knowledge chat.
+        for t in [
+            super::TOOL_EXEC,
+            super::TOOL_BROWSER,
+            super::TOOL_WEB_SEARCH,
+            super::TOOL_SUBAGENT,
+            super::TOOL_MANAGE_CRON,
+            super::TOOL_IMAGE_GENERATE,
+            "read",
+            "write",
+            "edit",
+        ] {
+            assert!(!is_knowledge_scope_tool(t), "{t} must be excluded");
+            assert!(!ToolScope::Knowledge.allows(t), "{t} must be excluded");
+        }
+    }
+
+    #[test]
+    fn tool_scope_parses_wire_string() {
+        assert_eq!(
+            ToolScope::from_str_opt(Some("knowledge")),
+            Some(ToolScope::Knowledge)
+        );
+        assert_eq!(ToolScope::from_str_opt(Some("bogus")), None);
+        assert_eq!(ToolScope::from_str_opt(None), None);
+    }
+
+    #[test]
+    fn kb_scoped_tool_predicate() {
+        // All note_* tools are KB-scoped (gated off on a no-KB session).
+        assert!(is_kb_scoped_tool(super::TOOL_NOTE_CREATE));
+        assert!(is_kb_scoped_tool(super::TOOL_NOTE_SEARCH));
+        assert!(is_kb_scoped_tool(super::TOOL_NOTE_MOC));
+        assert!(is_kb_scoped_tool("note_anything_new"));
+        // session_to_note also requires a KB to write into.
+        assert!(is_kb_scoped_tool(super::TOOL_SESSION_TO_NOTE));
+        // knowledge_recall is cross-store (Memory + notes) and must stay available
+        // without a KB — it must NOT be caught by the gate.
+        assert!(!is_kb_scoped_tool(super::TOOL_KNOWLEDGE_RECALL));
+        // Unrelated tools are never gated.
+        assert!(!is_kb_scoped_tool(super::TOOL_RECALL_MEMORY));
+        assert!(!is_kb_scoped_tool("read"));
+    }
 
     #[test]
     fn combined_visibility_applies_context_restrictions() {

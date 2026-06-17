@@ -17,7 +17,12 @@ import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
-import { getFailedToolCount, getToolExecutionState } from "./executionStatus"
+import {
+  getFailedToolCount,
+  getToolExecutionState,
+  getToolsWallClockMs,
+  toolHasMedia,
+} from "./executionStatus"
 import type {
   ChatDisplayMode,
   ChatTurnStatus,
@@ -144,12 +149,48 @@ interface RenderUnit {
   node: React.ReactNode
   processTools?: ToolCall[]
   isProcessComplete?: boolean
+  /** This unit's own elapsed time (ms) — tool durations or a thinking block's
+   *  duration — summed across a collapsed group for the group header total. */
+  elapsedMs?: number
 }
 
 function processUnitToolsComplete(tools: ToolCall[]): boolean {
   return tools.every((tool) => getToolExecutionState(tool) !== "running")
 }
 
+/**
+ * Build the collapsed `ProcessedBlockGroup` node for a run of completed units.
+ * Total time sums every unit's own elapsed (tool durations + thinking); media
+ * is hoisted out of the folded steps to render once below the group. Returns
+ * the dot `tone` too so the timeline layout can color the group's marker.
+ */
+function buildProcessedGroup(group: RenderUnit[]): {
+  node: React.ReactNode
+  tone: MessageTimelineTone
+} {
+  const tools = group.flatMap((item) => item.processTools || [])
+  const failedCount = getFailedToolCount(tools)
+  const totalElapsedMs = group.reduce((sum, item) => sum + (item.elapsedMs ?? 0), 0)
+  const mediaTools = tools.filter(toolHasMedia)
+  return {
+    // A run with no tools is pure thinking — color its dot accordingly.
+    tone: failedCount > 0 ? "failed" : tools.length === 0 ? "thinking" : "tool",
+    node: (
+      <ProcessedBlockGroup
+        key={`processed-${group[0].key}`}
+        failedCount={failedCount}
+        totalElapsedMs={totalElapsedMs > 0 ? totalElapsedMs : undefined}
+        mediaTools={mediaTools}
+      >
+        {group.map((item) => (
+          <React.Fragment key={item.key}>{item.node}</React.Fragment>
+        ))}
+      </ProcessedBlockGroup>
+    ),
+  }
+}
+
+/** Bubble layout: collapse runs of ≥2 completed units into a ProcessedBlockGroup. */
 function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   let i = 0
@@ -170,17 +211,7 @@ function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
     }
 
     if (group.length >= 2) {
-      const tools = group.flatMap((item) => item.processTools || [])
-      nodes.push(
-        <ProcessedBlockGroup
-          key={`processed-${group[0].key}`}
-          failedCount={getFailedToolCount(tools)}
-        >
-          {group.map((item) => (
-            <React.Fragment key={item.key}>{item.node}</React.Fragment>
-          ))}
-        </ProcessedBlockGroup>,
-      )
+      nodes.push(buildProcessedGroup(group).node)
     } else {
       nodes.push(unit.node)
     }
@@ -189,6 +220,55 @@ function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
   }
 
   return nodes
+}
+
+interface TimelineRenderItem {
+  key: string
+  tone: MessageTimelineTone
+  active: boolean
+  node: React.ReactNode
+}
+
+/**
+ * Timeline layout: same collapsing as {@link collapseProcessedUnits}, but each
+ * run of ≥2 completed units folds into a SINGLE timeline item (one dot) holding
+ * a ProcessedBlockGroup — so a finished tool/thinking sequence reads as one
+ * "processed" entry. Grouping only kicks in once complete, so the streaming
+ * active dot never lands on a group.
+ */
+function collapseProcessedTimelineUnits(
+  units: RenderUnit[],
+  activeIndex: number,
+): TimelineRenderItem[] {
+  const items: TimelineRenderItem[] = []
+  let i = 0
+
+  while (i < units.length) {
+    const unit = units[i]
+    if (!unit.isProcessComplete) {
+      items.push({ key: unit.key, tone: getTimelineTone(unit), active: i === activeIndex, node: unit.node })
+      i++
+      continue
+    }
+
+    const group: RenderUnit[] = [unit]
+    let j = i + 1
+    while (j < units.length && units[j].isProcessComplete) {
+      group.push(units[j])
+      j++
+    }
+
+    if (group.length >= 2) {
+      const built = buildProcessedGroup(group)
+      items.push({ key: `processed-${group[0].key}`, tone: built.tone, active: false, node: built.node })
+    } else {
+      items.push({ key: unit.key, tone: getTimelineTone(unit), active: i === activeIndex, node: unit.node })
+    }
+
+    i = j
+  }
+
+  return items
 }
 
 function getTimelineTone(unit: RenderUnit): MessageTimelineTone {
@@ -280,6 +360,7 @@ export function AssistantContentBlocks({
       units.push({
         key: `thinking-${i}`,
         isProcessComplete: !isStreamingMessage,
+        elapsedMs: block.durationMs,
         node: (
           <ThinkingBlock
             key={i}
@@ -478,6 +559,7 @@ export function AssistantContentBlocks({
           key: `grp-${tools[0].callId}`,
           processTools: tools,
           isProcessComplete: !isStreamingMessage && processUnitToolsComplete(tools),
+          elapsedMs: getToolsWallClockMs(tools),
           node: (
             <ToolCallGroup
               key={`grp-${tools[0].callId}`}
@@ -494,6 +576,7 @@ export function AssistantContentBlocks({
           processTools: [block.tool],
           isProcessComplete:
             !isStreamingMessage && getToolExecutionState(block.tool) !== "running",
+          elapsedMs: block.tool.durationMs,
           node: (
             <ToolCallBlock
               key={block.tool.callId}
@@ -530,15 +613,15 @@ export function AssistantContentBlocks({
 
   if (displayMode === "timeline") {
     const activeIndex = isStreamingMessage ? units.length - 1 : -1
+    // Once complete, fold consecutive tool/thinking steps into one "processed"
+    // timeline entry (matches the bubble layout); while streaming, items stay
+    // 1:1 so the live active dot tracks the last step.
+    const items = collapseProcessedTimelineUnits(units, activeIndex)
     return (
       <MessageTimeline>
-        {units.map((unit, index) => (
-          <MessageTimelineItem
-            key={unit.key}
-            active={index === activeIndex}
-            tone={getTimelineTone(unit)}
-          >
-            {unit.node}
+        {items.map((item) => (
+          <MessageTimelineItem key={item.key} active={item.active} tone={item.tone}>
+            {item.node}
           </MessageTimelineItem>
         ))}
       </MessageTimeline>

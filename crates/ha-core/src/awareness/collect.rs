@@ -249,6 +249,7 @@ mod tests {
             project_id: None,
             incognito: false,
             working_dir: None,
+            kind: crate::session::SessionKind::Regular,
         }
     }
 

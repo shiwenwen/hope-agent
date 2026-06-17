@@ -75,6 +75,17 @@ const KNOWN_TOOL_STATUS_NAMES = new Set([
   "enter_plan_mode",
 ])
 
+/**
+ * Tools whose category is "edit" (write / edit / apply_patch) all mean "the AI
+ * is modifying a file" and share one status wording ("edit file …") so the chat
+ * row stays consistent; the underlying tool name still surfaces in the expanded
+ * diff/detail view and in Settings. Derived from {@link TOOL_CATEGORY_MAP} so a
+ * new file-mutating tool only has to be registered there, in one place.
+ */
+function isEditClassTool(name: string): boolean {
+  return TOOL_CATEGORY_MAP[name] === "edit"
+}
+
 export function hasToolError(
   tool: Pick<ToolCall, "isError" | "result">,
 ): boolean {
@@ -92,6 +103,48 @@ export function getToolExecutionState(
 
 export function getFailedToolCount(tools: ToolCall[]): number {
   return tools.filter((tool) => getToolExecutionState(tool) === "failed").length
+}
+
+/** A tool whose result carries renderable media (generated images, attachments). */
+export function toolHasMedia(tool: ToolCall): boolean {
+  return !!(tool.mediaItems?.length || tool.mediaUrls?.length)
+}
+
+/**
+ * Wall-clock elapsed across a set of tools: the span from the earliest start to
+ * the latest end. Tools that ran in parallel within a round therefore count
+ * once instead of being summed (summing overstates the real elapsed). Falls
+ * back to summed durations when no usable timestamps exist. `now` lets a still
+ * running tool (no `durationMs` yet) contribute its in-progress elapsed.
+ */
+export function getToolsWallClockMs(tools: ToolCall[], now?: number): number | undefined {
+  const elapsed = (tool: ToolCall): number | undefined => {
+    if (tool.durationMs != null) return tool.durationMs
+    if (now != null && tool.result === undefined && tool.startedAtMs != null) {
+      return now - tool.startedAtMs
+    }
+    return undefined
+  }
+  let minStart = Infinity
+  let maxEnd = -Infinity
+  for (const tool of tools) {
+    const ms = elapsed(tool)
+    if (tool.startedAtMs == null || ms == null || ms < 0) continue
+    minStart = Math.min(minStart, tool.startedAtMs)
+    maxEnd = Math.max(maxEnd, tool.startedAtMs + ms)
+  }
+  if (maxEnd > minStart) return maxEnd - minStart
+  // No usable timestamps — sum bare durations so a value still shows.
+  let total = 0
+  let hasAny = false
+  for (const tool of tools) {
+    const ms = elapsed(tool)
+    if (ms != null && ms >= 0) {
+      total += ms
+      hasAny = true
+    }
+  }
+  return hasAny ? total : undefined
 }
 
 export function getToolCategory(name: string): ToolCategory {
@@ -122,13 +175,16 @@ export function getExecutionToolLabel(params: {
     return String(t(`executionStatus.tool.single.skill_read.${state}`, { name: skillName }))
   }
 
-  const keyBase = KNOWN_TOOL_STATUS_NAMES.has(tool.name)
-    ? `executionStatus.tool.single.${tool.name}`
+  // Collapse the file-mutating tools onto the `edit` wording.
+  const statusName = isEditClassTool(tool.name) ? "edit" : tool.name
+
+  const keyBase = KNOWN_TOOL_STATUS_NAMES.has(statusName)
+    ? `executionStatus.tool.single.${statusName}`
     : "executionStatus.tool.single.fallback"
 
   return String(
     t(`${keyBase}.${state}`, {
-      name: getToolDisplayName(t, tool.name),
+      name: getToolDisplayName(t, statusName),
     }),
   )
 }

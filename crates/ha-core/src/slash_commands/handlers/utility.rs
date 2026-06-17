@@ -24,6 +24,8 @@ pub fn handle_help(session_id: Option<&str>) -> CommandResult {
 
     let cfg = crate::config::cached_config();
     let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let skills =
+        crate::skills::filter_catalog_eligible_skills(skills, cfg.skill_env_check, &cfg.skill_env);
     let resolved_skills = crate::slash_commands::resolve_skill_command_names(
         &skills,
         crate::slash_commands::builtin_command_names(),
@@ -634,6 +636,143 @@ pub async fn handle_imreply(session_id: Option<&str>, args: &str) -> Result<Comm
             "IM reply mode set to **{}** for this channel account.",
             mode_str
         ),
+        action: Some(CommandAction::DisplayOnly),
+    })
+}
+
+/// `/kb [on|off]` — IM-only. Per-group confirmation for knowledge-base access
+/// (WS8). The **account-level** opt-in (`kbAccessOptIn`) stays owner-only in
+/// desktop Settings; this command only flips the *current group chat's*
+/// confirmation, which a group needs on top of the account opt-in. DMs are
+/// covered by the account opt-in alone, so in a DM this command only reports
+/// status. No-arg / `status` shows the effective state.
+///
+/// Even with this group confirmed, KB access still requires: the account opt-in
+/// (Settings), an attached KB, a non-incognito session, and external roots stay
+/// read-capped — see `effective_kb_access`.
+pub async fn handle_kb(session_id: Option<&str>, args: &str) -> Result<CommandResult, String> {
+    let Some(sid) = session_id else {
+        return Err("/kb only works inside an IM channel session.".into());
+    };
+    let session_db = crate::require_session_db().map_err(|e| e.to_string())?;
+    let channel_info = session_db
+        .get_session(sid)
+        .map_err(|e| e.to_string())?
+        .and_then(|m| m.channel_info)
+        .ok_or_else(|| "/kb only works inside an IM channel session.".to_string())?;
+
+    let account_id = channel_info.account_id.clone();
+    let channel_id = channel_info.channel_id.clone();
+    let chat_id = channel_info.chat_id.clone();
+    // ChatType serializes lowercase; any non-DM chat is treated as a group that
+    // needs per-chat confirmation.
+    let is_group = channel_info.chat_type.to_lowercase() != "dm";
+
+    // Snapshot current state for status / confirmation messages.
+    let (opt_in, chat_confirmed) = {
+        let cfg = crate::config::cached_config();
+        let account = cfg
+            .channels
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id)
+            .ok_or_else(|| format!("Channel account `{}` not found in config", account_id))?;
+        (
+            account.kb_access_opt_in(),
+            account.kb_access_chat_confirmed(&chat_id),
+        )
+    };
+
+    let effective =
+        crate::channel::im_kb_access_allowed(&channel_id, &account_id, &chat_id, is_group);
+
+    let arg = args.trim().to_lowercase();
+
+    // Status (no-arg / "status") — report the full picture without mutating.
+    if arg.is_empty() || arg == "status" {
+        let mut lines = vec![format!(
+            "**Knowledge-base access**: {}",
+            if effective {
+                "enabled ✅"
+            } else {
+                "disabled 🚫"
+            }
+        )];
+        lines.push(format!(
+            "- Account opt-in: {} (set in desktop Settings → Channels)",
+            if opt_in { "on" } else { "off" }
+        ));
+        if is_group {
+            lines.push(format!(
+                "- This group confirmed: {}",
+                if chat_confirmed { "yes" } else { "no" }
+            ));
+            lines.push("\nUse `/kb on` to confirm this group, `/kb off` to revoke.".into());
+        } else {
+            lines.push("\nThis is a direct chat — access follows the account opt-in only.".into());
+        }
+        return Ok(CommandResult {
+            content: lines.join("\n"),
+            action: Some(CommandAction::DisplayOnly),
+        });
+    }
+
+    let enable = match arg.as_str() {
+        "on" | "enable" | "yes" => true,
+        "off" | "disable" | "no" => false,
+        other => {
+            return Err(format!(
+                "Invalid option: `{}`. Use `/kb on` or `/kb off`.",
+                other
+            ));
+        }
+    };
+
+    // DMs have no per-chat confirmation — the account opt-in alone governs them.
+    if !is_group {
+        return Ok(CommandResult {
+            content: format!(
+                "Direct chats follow the **account-level** opt-in (currently {}). \
+                 Change it in desktop Settings → Channels; `/kb` per-chat confirmation \
+                 only applies to group chats.",
+                if opt_in { "on" } else { "off" }
+            ),
+            action: Some(CommandAction::DisplayOnly),
+        });
+    }
+
+    // Group: flip this chat's confirmation. The account opt-in is intentionally
+    // NOT changed here (owner-only in Settings).
+    crate::config::mutate_config(("channel.kbAccessChats", "slash:/kb"), |cfg| {
+        match cfg
+            .channels
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == account_id)
+        {
+            Some(acc) => {
+                acc.set_kb_access_chat(&chat_id, enable);
+                Ok(())
+            }
+            None => Err(anyhow::anyhow!(
+                "Channel account `{}` not found in config",
+                account_id
+            )),
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    let content = if enable {
+        if opt_in {
+            "This group is now confirmed for knowledge-base access. Attach a space to the session to use it.".to_string()
+        } else {
+            "This group is confirmed, but the account-level KB opt-in is **off**, so access stays disabled until it's enabled in desktop Settings → Channels.".to_string()
+        }
+    } else {
+        "Knowledge-base access for this group has been revoked.".to_string()
+    };
+    Ok(CommandResult {
+        content,
         action: Some(CommandAction::DisplayOnly),
     })
 }

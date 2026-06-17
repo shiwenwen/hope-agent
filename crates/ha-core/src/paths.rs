@@ -413,6 +413,34 @@ pub fn project_workspace_dir(project_id: &str) -> Result<PathBuf> {
     Ok(project_dir(project_id)?.join("workspace"))
 }
 
+// ── Knowledge Base ──────────────────────────────────────────────
+
+/// Knowledge base root directory: ~/.hope-agent/knowledge/
+pub fn knowledge_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("knowledge"))
+}
+
+/// Global knowledge index database: ~/.hope-agent/knowledge/index.db
+///
+/// Pure rebuildable cache (note / note_chunk / note_link / note_tag + FTS5 +
+/// vec). Deleting it loses nothing — the `.md` files + the `knowledge_bases`
+/// registry in `sessions.db` are the single source of truth.
+pub fn knowledge_index_db_path() -> Result<PathBuf> {
+    Ok(knowledge_dir()?.join("index.db"))
+}
+
+/// Per-KB default notes directory: ~/.hope-agent/knowledge/{kb_id}/notes/
+///
+/// Used when a knowledge base's `root_dir` is NULL (internal, app-managed).
+/// Created lazily on first resolution (see `knowledge::resolve_kb_dir`); never
+/// written into the DB so the `~/.hope-agent` tree stays relocatable via
+/// `HA_DATA_DIR`. A non-NULL `root_dir` points at an external vault instead.
+pub fn knowledge_kb_notes_dir(kb_id: &str) -> Result<PathBuf> {
+    Ok(knowledge_dir()?
+        .join(sanitize_path_segment(kb_id))
+        .join("notes"))
+}
+
 // ── Plans ───────────────────────────────────────────────────────
 
 /// Plans directory: uses custom `plansDirectory` config if set,
@@ -498,6 +526,7 @@ pub fn ensure_dirs() -> Result<()> {
         recap_dir()?,
         reports_dir()?,
         async_jobs_dir()?,
+        knowledge_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

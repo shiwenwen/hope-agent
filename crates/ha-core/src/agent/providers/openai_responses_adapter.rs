@@ -518,6 +518,13 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 );
             }
         }
+        // Passive related-notes (read bridge ③): appended like the task reminder
+        // (outside `instructions`, so it never invalidates the cached prefix).
+        if let Some(related_suffix) = req.related_notes_suffix {
+            if !related_suffix.is_empty() {
+                api_input.push(json!({ "role": "system", "content": related_suffix }));
+            }
+        }
         // Task reminder appended at the end of the input array (closest to the
         // model's next decision) instead of prepended like the other suffixes
         // — this is harness state about what the model already started, not

@@ -50,14 +50,14 @@ memory/            SQLite + FTS5 + vec0 向量 + 多种 Embedding（含 dreaming
 tools/             内置工具集 + 并发/串行执行引擎（具体工具数量以 tools/ 子模块为准）
 channel/           12 个 IM 插件（telegram / wechat / slack / feishu / discord / qqbot /
                    irc / signal / imessage / whatsapp / googlechat / line）+ Worker 分发 + 媒体管道
-plan/              六态状态机 + 双 Agent + 步骤追踪
+plan/              5 态状态机（plan 设计契约 + task 进度真相）+ 步骤追踪
 subagent/          spawn + inject + Mailbox + 深度控制
 skills/            SKILL.md 发现 + 懒加载 + Fork 模式 + draft 审核
 provider/          多模板 + Failover Chain + Proxy + crud helper
                    （所有 provider/active_model 写入必须走 provider/crud.rs，详见下文）
 context_compact/   5 层渐进式压缩 + API-Round 分组
 session/           会话 + 消息持久化 + FTS5 搜索
-project/           Project 容器 + project_files + 绑定 IM channel
+project/           Project 容器（工作目录即真实文件，无独立 project_files；无反向 channel 认领）
 mcp/               MCP 客户端（stdio / Streamable HTTP / SSE / WebSocket）
 cron/              定时任务 + Agent 执行
 acp/               stdio JSON-RPC 服务器

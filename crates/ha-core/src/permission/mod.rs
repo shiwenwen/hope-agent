@@ -15,6 +15,7 @@
 //! Public entry point: [`engine::resolve`].
 
 pub mod allowlist;
+pub mod approval_surface;
 pub mod config;
 pub mod dangerous_commands;
 pub mod edit_commands;
@@ -25,8 +26,10 @@ pub mod mode;
 pub(crate) mod pattern_match;
 pub mod protected_paths;
 pub mod rules;
+pub mod session_edits;
 
-pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig};
+pub use approval_surface::{evaluate_approval_surface, ApprovalSurface, UnattendedReason};
+pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig, UnattendedApprovalAction};
 pub use mode::{JudgeModelConfig, SessionMode, SmartModeConfig, SmartStrategy};
 
 /// Final disposition of a tool call after the engine consumes all rule layers.

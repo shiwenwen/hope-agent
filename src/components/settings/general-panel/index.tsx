@@ -5,6 +5,7 @@ import LanguageSection from "./LanguageSection"
 import {
   AutostartToggle,
   ChatDisplayModeSelector,
+  PreventSleepToggle,
   SidebarDisplayModeSelector,
   UiEffectsToggle,
 } from "./SystemSection"
@@ -42,7 +43,10 @@ export default function GeneralPanel() {
         {/* System & Shortcuts */}
         <TabsContent value="system" className="flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full space-y-8 pt-4">
-            <AutostartToggle />
+            <div>
+              <AutostartToggle />
+              <PreventSleepToggle />
+            </div>
             <ShortcutSection />
             <OnboardingResetSection />
           </div>

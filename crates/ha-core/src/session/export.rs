@@ -437,6 +437,7 @@ mod tests {
             channel_info: None,
             incognito: false,
             working_dir: None,
+            kind: Default::default(),
         }
     }
 

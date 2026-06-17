@@ -186,11 +186,14 @@ impl EmbeddingModelConfig {
     }
 }
 
-/// Active memory embedding selection. The selected model config is resolved
-/// into `EmbeddingConfig` only at runtime.
+/// Active embedding selection: which model from the shared `embedding_models`
+/// library is active, plus its signature lifecycle. Used independently by both
+/// memory (`memory_embedding`) and knowledge (`knowledge_embedding`) — the model
+/// library is shared, the selection is per-subsystem. The selected model config
+/// is resolved into `EmbeddingConfig` only at runtime.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct MemoryEmbeddingSelection {
+pub struct EmbeddingSelection {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
@@ -203,16 +206,16 @@ pub struct MemoryEmbeddingSelection {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct MemoryEmbeddingState {
-    pub selection: MemoryEmbeddingSelection,
+pub struct EmbeddingSelectionState {
+    pub selection: EmbeddingSelection,
     pub current_model: Option<EmbeddingModelConfig>,
     pub needs_reembed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct MemoryEmbeddingSetDefaultResult {
-    pub state: MemoryEmbeddingState,
+pub struct EmbeddingSetDefaultResult {
+    pub state: EmbeddingSelectionState,
     pub reembedded: usize,
     pub reembed_error: Option<String>,
 }
@@ -411,10 +414,13 @@ pub fn embedding_model_templates() -> Vec<EmbeddingModelTemplate> {
     ]
 }
 
+/// Derive the UI-facing state (selected model + `needsReembed`) for an embedding
+/// selection. Subsystem-agnostic — the historical `memory_` name predates the
+/// knowledge split; pass either `memory_embedding` or `knowledge_embedding`.
 pub fn memory_embedding_state(
-    selection: &MemoryEmbeddingSelection,
+    selection: &EmbeddingSelection,
     models: &[EmbeddingModelConfig],
-) -> MemoryEmbeddingState {
+) -> EmbeddingSelectionState {
     // selection.model_config_id 在 disabled 状态下被 disable_memory_embedding
     // 保留（pause 语义），但 current_model 字段必须是 None——否则 UI 会显示
     // 「memoryActive」徽标，与已 clear 的 embedder 实际状态冲突。
@@ -431,15 +437,18 @@ pub fn memory_embedding_state(
     let needs_reembed = selection.enabled
         && active_signature.is_some()
         && active_signature != selection.last_reembedded_signature;
-    MemoryEmbeddingState {
+    EmbeddingSelectionState {
         selection: selection.clone(),
         current_model,
         needs_reembed,
     }
 }
 
+/// Resolve a selection into `(model, runtime config, signature)`. Subsystem-
+/// agnostic despite the `memory_` name (predates the knowledge split); pass
+/// either `memory_embedding` or `knowledge_embedding`.
 pub fn resolve_memory_embedding_config(
-    selection: &MemoryEmbeddingSelection,
+    selection: &EmbeddingSelection,
     models: &[EmbeddingModelConfig],
 ) -> Result<Option<(EmbeddingModelConfig, EmbeddingConfig, String)>> {
     if !selection.enabled {
@@ -460,6 +469,28 @@ pub fn resolve_memory_embedding_config(
         model.to_runtime_config(true),
         signature,
     )))
+}
+
+/// Active signature for an embedding selection: prefer the persisted
+/// `active_signature` (hot path — index/search call this per note / per query),
+/// falling back to recomputing from the model config. `None` when the selection
+/// is disabled or unresolved. Shared single source of truth for memory
+/// (`active_embedding_signature`) and knowledge
+/// (`knowledge_active_embedding_signature`) — pass the respective selection.
+pub fn active_signature_for(
+    selection: &EmbeddingSelection,
+    models: &[EmbeddingModelConfig],
+) -> Option<String> {
+    if !selection.enabled {
+        return None;
+    }
+    if let Some(sig) = selection.active_signature.as_ref() {
+        return Some(sig.clone());
+    }
+    resolve_memory_embedding_config(selection, models)
+        .ok()
+        .flatten()
+        .map(|(_, _, signature)| signature)
 }
 
 /// Return built-in local model presets.

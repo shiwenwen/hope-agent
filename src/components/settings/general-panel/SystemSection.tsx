@@ -77,6 +77,60 @@ export function AutostartToggle() {
 }
 
 /**
+ * PreventSleepToggle -- rendered in the System tab. Keeps the host awake
+ * (prevents system idle sleep) while enabled; the display may still turn off.
+ */
+export function PreventSleepToggle() {
+  const { t } = useTranslation()
+
+  const [enabled, setEnabled] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport().call<boolean>("get_prevent_sleep_enabled")
+      .then((value) => {
+        if (cancelled) return
+        setEnabled(value)
+        setLoaded(true)
+      })
+      .catch((e) => {
+        logger.error("settings", "PreventSleepToggle::load", "Failed to load prevent-sleep", e)
+        setLoaded(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  async function toggle() {
+    const next = !enabled
+    setEnabled(next)
+    try {
+      await getTransport().call("set_prevent_sleep_enabled", { enabled: next })
+    } catch (e) {
+      setEnabled(!next)
+      logger.error("settings", "PreventSleepToggle::toggle", "Failed to set prevent-sleep", e)
+    }
+  }
+
+  return (
+    <div>
+      {loaded && (
+        <div
+          className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+          onClick={toggle}
+        >
+          <div className="space-y-0.5">
+            <div className="text-sm font-medium">{t("settings.systemPreventSleep")}</div>
+            <div className="text-xs text-muted-foreground">{t("settings.systemPreventSleepDesc")}</div>
+          </div>
+          <Switch checked={enabled} onCheckedChange={toggle} onClick={(event) => event.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * UiEffectsToggle -- rendered in the Appearance tab
  */
 export function UiEffectsToggle() {

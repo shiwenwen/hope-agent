@@ -5,6 +5,7 @@ export type LocalModelJobKind =
   | "ollama_pull"
   | "ollama_preload"
   | "memory_reembed"
+  | "knowledge_reembed"
 
 export type LocalModelJobStatus =
   | "running"
@@ -170,6 +171,7 @@ const PHASE_KEY: Record<string, string> = {
   "configure-embedding": "settings.localEmbedding.phases.switchingEmbeddingModel",
   "reembed-keep": "settings.embedding.reembedJob.phaseKeep",
   "reembed-fresh": "settings.embedding.reembedJob.phaseFresh",
+  "knowledge-reembed": "settings.knowledgeEmbedding.reembed.phase",
   done: "settings.localLlm.phases.done",
 }
 
@@ -193,8 +195,12 @@ export function localModelJobToProgressFrame(
     percent: localModelJobPercent(job),
     bytesCompleted: job.bytesCompleted ?? null,
     bytesTotal: job.bytesTotal ?? null,
-    // memory_reembed 的 bytesCompleted/Total 字段语义实际是「已处理 / 总记忆
-    // 条数」，让 dialog 把字节 formatter 换成「X / Y 条记忆」渲染。
-    unit: job.kind === "memory_reembed" ? "count" : "bytes",
+    // memory_reembed / knowledge_reembed 的 bytesCompleted/Total 字段语义实际是
+    // 「已处理 / 总条数」（记忆条数 / KB 数），让 dialog 把字节 formatter 换成
+    // 「X / Y」计数渲染而非字节。
+    unit:
+      job.kind === "memory_reembed" || job.kind === "knowledge_reembed"
+        ? "count"
+        : "bytes",
   }
 }

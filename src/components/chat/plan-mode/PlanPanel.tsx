@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTranslation } from "react-i18next"
@@ -307,7 +308,7 @@ export function PlanPanel({
             : "max-w-[42vw] border-l border-border-soft bg-surface-panel/95",
       )
   const headerClass = cn(
-    "flex items-center gap-2 px-3 border-b shrink-0",
+    "flex items-center gap-2 px-3 shrink-0",
     embedded
       ? "h-11 border-border-soft bg-surface-panel px-4"
       : desktopMode
@@ -498,7 +499,7 @@ export function PlanPanel({
 
       {/* Main content area */}
       <div
-        className="flex-1 overflow-y-auto relative"
+        className={cn("flex-1 overflow-y-auto relative", PANEL_SCROLL_FADE)}
         ref={contentRef}
         onMouseUp={canComment ? handleMouseUp : undefined}
       >

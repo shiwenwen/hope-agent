@@ -12,6 +12,12 @@ user/conversation triggered: it does not run background health scans.
 - Self-study mode answers questions about Hope Agent's implementation by
   reading `docs/architecture/`, live source files, settings, and read-only
   runtime databases.
+- In a packaged install with no source tree, self-study bootstraps the matching
+  release: it reads `current_version` via `app_update`, then shallow-clones that
+  exact tag over anonymous HTTPS into a reusable `~/.hope-agent/source-cache/`
+  (read-only; `docs/architecture/` ships inside the clone). It falls back to
+  `references/diagnostic-playbook.md` when offline or the tag is missing, and
+  never checks out `main` (unreleased code would not match the user's binary).
 - Issue-report mode turns bugs, feature requests, and improvements into
   GitHub issue drafts. A bug is not required: explicit user requests for a
   requirement or improvement may go straight to draft/submission flow.

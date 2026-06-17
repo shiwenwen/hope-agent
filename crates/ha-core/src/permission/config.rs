@@ -26,6 +26,28 @@ pub enum ApprovalTimeoutAction {
     Proceed,
 }
 
+/// What to do when a tool approval is requested on an **unattended** surface —
+/// a turn where no human can possibly respond (cron run, headless server with
+/// no connected client and no IM-attached chat, ACP client without a permission
+/// capability, or a subagent whose parent chain has no surface). Detected by
+/// [`super::approval_surface::evaluate_approval_surface`] (Epic D).
+///
+/// The point of detecting this is to **stop hanging forever** — the old
+/// behavior left the turn / HTTP request / cron run blocked on an approval
+/// nobody could answer, then a generic whole-job timeout masked the real cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UnattendedApprovalAction {
+    /// Fail-closed: immediately deny the tool (no wait) with a structured
+    /// "no one could approve" reason. The safe default.
+    #[default]
+    Deny,
+    /// Auto-proceed: run the tool as if approved. For deliberate headless
+    /// automation; narrower than global YOLO (only fires when the surface is
+    /// genuinely unattended, not on every interactive approval).
+    Proceed,
+}
+
 /// Top-level permission configuration block, nested under `AppConfig.permission`.
 ///
 /// Replaces the legacy top-level fields:
@@ -60,6 +82,13 @@ pub struct PermissionGlobalConfig {
     #[serde(default)]
     pub approval_timeout_action: ApprovalTimeoutAction,
 
+    /// What to do when an approval is requested on an **unattended** surface
+    /// (no human can respond — cron / headless-no-client / ACP-no-capability /
+    /// subagent-no-parent-surface). Default [`UnattendedApprovalAction::Deny`]
+    /// (fail-closed, no hang). See [`super::approval_surface`].
+    #[serde(default)]
+    pub unattended_approval_action: UnattendedApprovalAction,
+
     /// Throttle (seconds) for the IM text-mode "you have N pending
     /// approvals" hint. Only consumed by button-less channels; one nudge
     /// per (account, chat) per interval so casual chitchat during a
@@ -76,6 +105,7 @@ impl Default for PermissionGlobalConfig {
             approval_timeout_enabled: false,
             approval_timeout_secs: default_approval_timeout_secs(),
             approval_timeout_action: ApprovalTimeoutAction::default(),
+            unattended_approval_action: UnattendedApprovalAction::default(),
             im_approval_hint_throttle_secs: default_im_approval_hint_throttle_secs(),
         }
     }

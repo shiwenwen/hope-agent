@@ -3,18 +3,31 @@ import { useTranslation } from "react-i18next"
 import { AlertCircle, CheckCircle2, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
+import { formatDuration } from "../chatUtils"
+import { MediaHoistContext } from "./mediaHoistContext"
+import ToolMediaPreview from "./ToolMediaPreview"
+import type { ToolCall } from "@/types/chat"
 
 interface ProcessedBlockGroupProps {
   children: ReactNode
   failedCount?: number
+  /** Total processing time across the folded steps (tools + thinking), ms. */
+  totalElapsedMs?: number
+  /** Steps that produced renderable media — hoisted below the group so their
+   *  output (generated images, sent attachments, …) stays visible while the
+   *  steps are collapsed. Their inline previews are suppressed via context. */
+  mediaTools?: ToolCall[]
 }
 
 export default function ProcessedBlockGroup({
   children,
   failedCount = 0,
+  totalElapsedMs,
+  mediaTools,
 }: ProcessedBlockGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
+  const elapsedText = totalElapsedMs != null && totalElapsedMs > 0 ? formatDuration(totalElapsedMs) : null
 
   return (
     <div className="my-1 text-xs">
@@ -34,6 +47,11 @@ export default function ProcessedBlockGroup({
         <span className="font-medium text-muted-foreground">
           {t("executionStatus.processed.completed")}
         </span>
+        {elapsedText && (
+          <span className="shrink-0 font-medium text-muted-foreground tabular-nums">
+            {elapsedText}
+          </span>
+        )}
         {failedCount > 0 && (
           <span className="shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-500">
             <span className="inline-flex items-center gap-0.5">
@@ -43,11 +61,20 @@ export default function ProcessedBlockGroup({
           </span>
         )}
       </button>
-      <AnimatedCollapse open={expanded}>
-        <div className="ml-3 border-l border-border/40 pl-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-          {children}
-        </div>
-      </AnimatedCollapse>
+      {/* Collapsed: suppress the steps' inline media and hoist it below so the
+          output stays visible while folded. Expanded: show each step's media
+          inline next to the step that produced it (no suppression, no hoist). */}
+      <MediaHoistContext.Provider value={!expanded}>
+        <AnimatedCollapse open={expanded}>
+          <div className="ml-3 border-l border-border/40 pl-2 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+            {children}
+          </div>
+        </AnimatedCollapse>
+      </MediaHoistContext.Provider>
+      {!expanded &&
+        mediaTools?.map((tool) => (
+          <ToolMediaPreview key={tool.callId} tool={tool} className="ml-1" />
+        ))}
     </div>
   )
 }

@@ -100,6 +100,10 @@ pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "safety");
     let mut cfg = load_config()?;
     if input.approvals_enabled {
+        // Re-enabling approvals must also clear YOLO (it may have been set by a
+        // prior "no approvals" run), otherwise the engine keeps bypassing every
+        // Ask and the user is never actually prompted.
+        cfg.permission.global_yolo = false;
         if cfg.permission.approval_timeout_action == ApprovalTimeoutAction::Proceed {
             cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Deny;
         }
@@ -107,8 +111,16 @@ pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
             cfg.permission.approval_timeout_secs = 300;
         }
     } else {
-        cfg.permission.approval_timeout_enabled = false;
-        cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Proceed;
+        // DEADLOCK-3: "no approvals" used to write `approval_timeout_enabled=false`
+        // + `action=Proceed`. But `enabled=false` means timeout=0 = wait forever,
+        // and the Proceed branch is only read on a timeout that never fires — so
+        // every Ask hung instead of auto-proceeding, the exact opposite of what
+        // the user was told. The honest implementation of "don't ask me" is
+        // global YOLO: the permission engine returns Allow directly, no Ask is
+        // ever emitted (so nothing can hang). This is more permissive than the
+        // old intent (it also bypasses protected-path / dangerous-command
+        // prompts) — the CLI wizard text says so explicitly.
+        cfg.permission.global_yolo = true;
     }
     save_config(&cfg)
 }

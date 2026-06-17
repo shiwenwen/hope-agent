@@ -1,8 +1,8 @@
 use super::types::*;
 use super::{
-    memory_embedding_state, resolve_memory_embedding_config, start_memory_reembed_job,
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, MemoryEmbeddingSetDefaultResult,
-    MemoryEmbeddingState, ReembedMode,
+    active_signature_for, memory_embedding_state, resolve_memory_embedding_config,
+    start_memory_reembed_job, EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate,
+    EmbeddingSelectionState, EmbeddingSetDefaultResult, ReembedMode,
 };
 use anyhow::{anyhow, Result};
 
@@ -112,27 +112,29 @@ pub fn list_embedding_model_configs() -> Vec<EmbeddingModelConfig> {
     crate::config::cached_config().embedding_models.clone()
 }
 
-pub fn get_memory_embedding_state() -> MemoryEmbeddingState {
+pub fn get_memory_embedding_state() -> EmbeddingSelectionState {
     let store = crate::config::cached_config();
     memory_embedding_state(&store.memory_embedding, &store.embedding_models)
 }
 
 pub fn active_embedding_signature() -> Option<String> {
     let store = crate::config::cached_config();
-    if !store.memory_embedding.enabled {
-        return None;
-    }
-    // `MemoryEmbeddingSelection.active_signature` is the persisted SHA256 of
-    // the active model; prefer it on the hot path so add/update/search/stats
-    // skip the per-call resolve + hash. Fall back to recompute if the cache
-    // missed (e.g. legacy configs that predate the field).
-    if let Some(sig) = store.memory_embedding.active_signature.as_ref() {
-        return Some(sig.clone());
-    }
-    resolve_memory_embedding_config(&store.memory_embedding, &store.embedding_models)
-        .ok()
-        .flatten()
-        .map(|(_, _, signature)| signature)
+    active_signature_for(&store.memory_embedding, &store.embedding_models)
+}
+
+/// Which subsystems currently have `model_id` as their active embedding model
+/// (memory, knowledge). The `embedding_models` library is shared between both
+/// (D7), so editing or deleting an entry that is active anywhere must be refused
+/// — this is the single source for that cross-protection check.
+pub(crate) fn embedding_model_active_subsystems(
+    cfg: &crate::config::AppConfig,
+    model_id: &str,
+) -> (bool, bool) {
+    let memory = cfg.memory_embedding.enabled
+        && cfg.memory_embedding.model_config_id.as_deref() == Some(model_id);
+    let knowledge = cfg.knowledge_embedding.enabled
+        && cfg.knowledge_embedding.model_config_id.as_deref() == Some(model_id);
+    (memory, knowledge)
 }
 
 pub fn save_embedding_model_config(
@@ -143,12 +145,17 @@ pub fn save_embedding_model_config(
     config.validate()?;
     let saved = config.clone();
     let saved_signature = saved.signature();
-    let should_reload_active = crate::config::mutate_config(
+    // The model library is shared between memory and knowledge (D7). Editing a
+    // config that is the *active* model of either subsystem would change its
+    // signature out from under already-embedded vectors, so it is refused; both
+    // active checks gate the same way. The closure returns which subsystem(s)
+    // need their runtime provider reloaded after a no-signature-change save.
+    let (reload_memory, reload_knowledge) = crate::config::mutate_config(
         ("embedding_models.save", source),
         move |store| {
-            let is_active = store.memory_embedding.enabled
-                && store.memory_embedding.model_config_id.as_deref() == Some(saved.id.as_str());
-            if is_active {
+            let (memory_active, knowledge_active) =
+                embedding_model_active_subsystems(store, saved.id.as_str());
+            if memory_active || knowledge_active {
                 let existing_signature = store
                     .embedding_models
                     .iter()
@@ -156,7 +163,7 @@ pub fn save_embedding_model_config(
                     .map(EmbeddingModelConfig::signature);
                 if existing_signature.as_deref() != Some(saved_signature.as_str()) {
                     return Err(anyhow!(
-                    "Cannot change the current memory embedding model config. Switch or disable it first."
+                    "Cannot change an embedding model config while it is the active memory or knowledge model. Switch or disable it first."
                 ));
                 }
             }
@@ -169,7 +176,7 @@ pub fn save_embedding_model_config(
             } else {
                 store.embedding_models.push(saved.clone());
             }
-            Ok(is_active)
+            Ok((memory_active, knowledge_active))
         },
     )?;
     app_info!(
@@ -180,12 +187,22 @@ pub fn save_embedding_model_config(
         config.name,
         source
     );
-    if should_reload_active {
+    if reload_memory {
         apply_memory_embedding_from_config(source)?;
         app_info!(
             "memory",
             "embedding_models",
-            "Reloaded active embedding provider after config save: id={} source={}",
+            "Reloaded active memory embedding provider after config save: id={} source={}",
+            config.id,
+            source
+        );
+    }
+    if reload_knowledge {
+        crate::knowledge::apply_knowledge_embedding_from_config(source);
+        app_info!(
+            "knowledge",
+            "embedding_models",
+            "Reloaded active knowledge embedding provider after config save: id={} source={}",
             config.id,
             source
         );
@@ -196,7 +213,7 @@ pub fn save_embedding_model_config(
 pub fn save_legacy_embedding_config(
     config: EmbeddingConfig,
     source: &str,
-) -> Result<MemoryEmbeddingState> {
+) -> Result<EmbeddingSelectionState> {
     if !config.enabled {
         return disable_memory_embedding(source);
     }
@@ -226,11 +243,11 @@ pub fn delete_embedding_model_config(id: &str, source: &str) -> Result<()> {
     let id = id.to_string();
     let log_id = id.clone();
     crate::config::mutate_config(("embedding_models.delete", source), move |store| {
-        if store.memory_embedding.enabled
-            && store.memory_embedding.model_config_id.as_deref() == Some(id.as_str())
-        {
+        let (memory_active, knowledge_active) =
+            embedding_model_active_subsystems(store, id.as_str());
+        if memory_active || knowledge_active {
             return Err(anyhow!(
-                "Cannot delete the current memory embedding model. Switch or disable it first."
+                "Cannot delete an embedding model while it is the active memory or knowledge model. Switch or disable it first."
             ));
         }
         store.embedding_models.retain(|item| item.id != id);
@@ -246,7 +263,7 @@ pub fn delete_embedding_model_config(id: &str, source: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn disable_memory_embedding(source: &str) -> Result<MemoryEmbeddingState> {
+pub fn disable_memory_embedding(source: &str) -> Result<EmbeddingSelectionState> {
     crate::config::mutate_config(("memory_embedding.disable", source), |store| {
         // Pause semantics: keep `model_config_id` / `active_signature` /
         // `last_reembedded_signature` so re-enabling the same model can short
@@ -275,7 +292,7 @@ pub fn disable_memory_embedding(source: &str) -> Result<MemoryEmbeddingState> {
 ///    the new model. Old vectors stay searchable until the reembed job
 ///    overwrites them (KeepExisting) or are wiped before the job starts
 ///    (DeleteAll).
-/// 2. `MemoryEmbeddingSelection.{enabled,model_config_id,active_signature}` are
+/// 2. `EmbeddingSelection.{enabled,model_config_id,active_signature}` are
 ///    written via `mutate_config`.
 /// 3. `embedding_cache` rows whose signature does not match the new model are
 ///    pruned synchronously — the table is small.
@@ -288,7 +305,7 @@ pub fn set_memory_embedding_default(
     mode: ReembedMode,
     source: &str,
     parent_job_id: Option<&str>,
-) -> Result<MemoryEmbeddingSetDefaultResult> {
+) -> Result<EmbeddingSetDefaultResult> {
     let store = crate::config::cached_config();
     let model = store
         .embedding_models
@@ -421,7 +438,7 @@ pub fn set_memory_embedding_default(
     // always 0 now: the actual reembed runs as a background job (see
     // `start_memory_reembed_job`). Counts come through the standard
     // `local_model_job:*` event stream instead.
-    Ok(MemoryEmbeddingSetDefaultResult {
+    Ok(EmbeddingSetDefaultResult {
         state: get_memory_embedding_state(),
         reembedded: 0,
         reembed_error,

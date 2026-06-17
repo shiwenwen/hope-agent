@@ -45,7 +45,7 @@ fn templates() -> Vec<Template> {
             name: "Codex (ChatGPT OAuth)",
             api_type: ApiType::Codex,
             base_url: "https://chatgpt.com/backend-api/codex",
-            model_id: "gpt-5.4",
+            model_id: ha_core::agent::DEFAULT_CODEX_MODEL_ID,
             kind: TemplateKind::CodexOAuth,
         },
         Template {

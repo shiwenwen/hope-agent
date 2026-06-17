@@ -11,7 +11,7 @@ use crate::local_llm::{
     OLLAMA_BASE_URL,
 };
 use crate::memory::{
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, MemoryEmbeddingSetDefaultResult,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingSetDefaultResult,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -200,7 +200,7 @@ pub fn save_embedding_model_config_for_model(
 pub fn save_and_set_default_for_model(
     model: &OllamaEmbeddingModel,
     parent_job_id: Option<&str>,
-) -> Result<MemoryEmbeddingSetDefaultResult> {
+) -> Result<EmbeddingSetDefaultResult> {
     let config = save_embedding_model_config_for_model(model)?;
     crate::memory::set_memory_embedding_default(
         &config.id,
@@ -215,7 +215,7 @@ pub async fn pull_and_activate_cancellable<F>(
     on_progress: F,
     cancel_token: CancellationToken,
     parent_job_id: Option<String>,
-) -> Result<MemoryEmbeddingSetDefaultResult>
+) -> Result<EmbeddingSetDefaultResult>
 where
     F: Fn(&PullProgress) + Send + Sync + 'static,
 {

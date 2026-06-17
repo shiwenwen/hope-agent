@@ -1,10 +1,13 @@
 use anyhow::Result;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
-use super::types::{ChannelSessionInfo, MessageRole, NewMessage, SessionMessage, SessionMeta};
+use super::types::{
+    ChannelSessionInfo, MessageRole, NewMessage, SessionKind, SessionMessage, SessionMeta,
+};
 
 /// Token snapshot for the latest persisted assistant row of a session.
 /// Powers `/status`'s Context usage + Cache info panels in a single read.
@@ -25,8 +28,22 @@ pub struct LastAssistantTokens {
 
 // ── Database Manager ─────────────────────────────────────────────
 
+/// Number of read-only connections in the pool (mirrors the memory backend).
+const READ_POOL_SIZE: usize = 4;
+
 pub struct SessionDB {
+    /// Exclusive write connection — also the *only* connection used by every
+    /// write path, read-write transaction, and external module that touches
+    /// `.conn` directly (channel/db.rs, session/tasks.rs, session_title.rs,
+    /// agent/migration.rs). Migrations run here at open().
     pub(crate) conn: Mutex<Connection>,
+    /// Pool of READ_ONLY connections for the hottest pure-read methods
+    /// (message loads, FTS search, sidebar list). With WAL these run
+    /// concurrently with the writer instead of serializing on one mutex, so a
+    /// streaming write no longer blocks the UI's sidebar/message reads.
+    readers: Vec<Mutex<Connection>>,
+    /// Round-robin cursor into `readers`.
+    reader_idx: AtomicUsize,
 }
 
 /// Log at `app_info!` when `align_window_to_user_boundary` extends a page by
@@ -50,7 +67,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at
+           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -69,6 +86,9 @@ impl SessionDB {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        // Wait up to 5s on a busy lock instead of returning SQLITE_BUSY
+        // immediately — removes spurious write failures under WAL contention.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         // Create tables
         conn.execute_batch(
@@ -88,7 +108,8 @@ impl SessionDB {
                 parent_session_id TEXT,
                 incognito INTEGER NOT NULL DEFAULT 0,
                 title_source TEXT NOT NULL DEFAULT 'manual',
-                pinned_at TEXT
+                pinned_at TEXT,
+                kind TEXT NOT NULL DEFAULT 'regular'
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -297,8 +318,35 @@ impl SessionDB {
              END;"
         )?;
 
-        // Rebuild FTS index to fix any existing corruption
-        let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
+        // One-time FTS rebuild gate. The original unconditional rebuild fixed a
+        // historical "database disk image is malformed" corruption, but it
+        // re-scanned every `messages.content` row on *every* open — hundreds of
+        // ms to seconds for heavy users, on the synchronous pre-window path.
+        //
+        // `PRAGMA user_version` is unused elsewhere here (all other migrations
+        // are probe-based `SELECT col ... is_ok()`), so we claim it as a bitflag
+        // sentinel: bit 0 = "FTS rebuild already run". Future schema versioning
+        // can use the remaining bits. The corruption-recovery rebuild in
+        // `delete_session` (the only other rebuild caller) is unaffected — it
+        // fires on a caught error, not on open.
+        const SCHEMA_FLAG_FTS_REBUILT: i64 = 0x1;
+        let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if schema_flags & SCHEMA_FLAG_FTS_REBUILT == 0 {
+            // Stamp the sentinel ONLY when the rebuild actually succeeded — if a
+            // first post-upgrade open hits the very corruption this is meant to
+            // heal and the rebuild errors, we must retry on the next open rather
+            // than permanently skip it. PRAGMA values can't be parameterized
+            // (integer literal in SQL text); the value is a private const.
+            if conn
+                .execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');")
+                .is_ok()
+            {
+                conn.execute_batch(&format!(
+                    "PRAGMA user_version = {};",
+                    schema_flags | SCHEMA_FLAG_FTS_REBUILT
+                ))?;
+            }
+        }
 
         // Migration: add plan_mode column to sessions if missing
         let has_plan_mode = conn
@@ -424,6 +472,17 @@ impl SessionDB {
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_sessions_pinned_at ON sessions(pinned_at DESC);",
         )?;
+
+        // Migration: session classification (regular | knowledge). Knowledge
+        // sessions are the knowledge-space sidebar conversations — persisted but
+        // hidden from the main session list / picker. Probe-then-ALTER; fresh
+        // DBs already have the column from CREATE TABLE above.
+        let has_kind = conn.prepare("SELECT kind FROM sessions LIMIT 1").is_ok();
+        if !has_kind {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'regular';",
+            )?;
+        }
 
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
@@ -595,9 +654,46 @@ impl SessionDB {
         // presets via Settings → Teams panel; see AGENTS.md Team 系统 section).
         let _ = conn.execute("DELETE FROM team_templates WHERE builtin = 1", []);
 
+        // Read-only connection pool. WAL lets these run concurrently with the
+        // writer; opened AFTER all migrations above so they observe the final
+        // schema. busy_timeout is connection-level, so each reader sets its own.
+        let mut readers = Vec::with_capacity(READ_POOL_SIZE);
+        for _ in 0..READ_POOL_SIZE {
+            let r = Connection::open_with_flags(
+                db_path,
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                    | OpenFlags::SQLITE_OPEN_URI,
+            )?;
+            r.busy_timeout(std::time::Duration::from_secs(5))?;
+            readers.push(Mutex::new(r));
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
+            readers,
+            reader_idx: AtomicUsize::new(0),
         })
+    }
+
+    /// Get a read-only connection from the pool (round-robin `try_lock` first,
+    /// then block on the round-robin target). NEVER returns the writer — read
+    /// methods must not observe uncommitted writer state mid-transaction; WAL
+    /// gives readers a consistent committed snapshot anyway.
+    pub(crate) fn read_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        let idx = self
+            .reader_idx
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.readers.len();
+        for i in 0..self.readers.len() {
+            let t = (idx + i) % self.readers.len();
+            if let Ok(g) = self.readers[t].try_lock() {
+                return Ok(g);
+            }
+        }
+        self.readers[idx]
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Session read pool lock poisoned: {e}"))
     }
 
     /// Insert a learning event row. Best-effort — errors are logged but
@@ -959,7 +1055,23 @@ impl SessionDB {
             channel_info: None,
             incognito,
             working_dir: None,
+            kind: SessionKind::Regular,
         })
+    }
+
+    /// Set a session's classification (see [`SessionKind`]). Used by the
+    /// knowledge-space chat entry to mark a freshly-created session as a
+    /// `Knowledge` conversation so it is hidden from the main session list.
+    pub fn set_session_kind(&self, session_id: &str, kind: SessionKind) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET kind = ?1 WHERE id = ?2",
+            params![kind.as_str(), session_id],
+        )?;
+        Ok(())
     }
 
     /// Move a session to a project (or remove it from the current project when `project_id` is `None`).
@@ -1075,10 +1187,9 @@ impl SessionDB {
         active_session_id: Option<&str>,
         order_by: &str,
     ) -> Result<(Vec<SessionMeta>, u32)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Sidebar list is a hot read during streaming — use the read pool so a
+        // concurrent message-append write doesn't block it.
+        let conn = self.read_conn()?;
 
         // Unread only counts final `assistant` rows — tool / text_block /
         // thinking_block / event rows are artifacts of the same turn and would
@@ -1108,6 +1219,11 @@ impl SessionDB {
                 params_vec.push(Box::new(pid.to_string()));
             }
         }
+
+        // Knowledge-space sidebar conversations live in the KB panel, never the
+        // main session list / picker — hide them unconditionally (no active
+        // exception, unlike incognito below).
+        where_clauses.push("s.kind != 'knowledge'".to_string());
 
         // Hide incognito sessions from listings (the whole point of "no
         // trace"); the currently-open session is the lone exception so the
@@ -1158,10 +1274,7 @@ impl SessionDB {
 
     /// Load all messages for a session.
     pub fn load_session_messages(&self, session_id: &str) -> Result<Vec<SessionMessage>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -1198,10 +1311,7 @@ impl SessionDB {
         session_id: &str,
         limit: u32,
     ) -> Result<(Vec<SessionMessage>, u32, bool)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let total: u32 = conn.query_row(
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
@@ -1254,10 +1364,7 @@ impl SessionDB {
         before_id: i64,
         limit: u32,
     ) -> Result<(Vec<SessionMessage>, bool)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -1398,10 +1505,7 @@ impl SessionDB {
         after_id: i64,
         limit: u32,
     ) -> Result<(Vec<SessionMessage>, bool)> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self.read_conn()?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -1567,6 +1671,10 @@ impl SessionDB {
             incognito: row.get::<_, i64>(16).unwrap_or(0) != 0,
             channel_info,
             working_dir: row.get(22).ok().flatten(),
+            kind: row
+                .get::<_, String>(26)
+                .map(|s| SessionKind::from_db_string(&s))
+                .unwrap_or_default(),
         })
     }
 
@@ -2493,6 +2601,9 @@ impl SessionDB {
     /// session does not exist or is not incognito — both are safe outcomes
     /// for the "user navigated away from this session" caller.
     pub fn purge_session_if_incognito(&self, session_id: &str) -> Result<bool> {
+        // Snapshot before the DELETE for the purge event payload (row is gone
+        // afterwards). Only emitted below when a row was actually removed.
+        let snapshot = self.get_session(session_id)?;
         let was_incognito = {
             let conn = self
                 .conn
@@ -2516,12 +2627,23 @@ impl SessionDB {
             let _ = std::fs::remove_dir_all(att_dir);
         }
         self.cleanup_session_orphan_tables(session_id);
+        // Mirror delete_session_with_reason: drop the Smart-mode "already edited"
+        // trust set so a burned incognito session leaves no in-memory trace
+        // (burn-on-close must not survive in the per-session edit-trust map).
+        crate::permission::session_edits::clear(session_id);
         app_info!(
             "session",
             "purge_incognito",
             "purged incognito session {}",
             session_id
         );
+        // Emit `session:purged` after lock release for cleanup_watcher fan-out.
+        if let Some(meta) = snapshot {
+            crate::session::events::emit_session_deleted(
+                &meta,
+                crate::session::events::SessionDeleteReason::IncognitoPurge,
+            );
+        }
         Ok(true)
     }
 
@@ -2583,7 +2705,10 @@ impl SessionDB {
             rows.filter_map(|r| r.ok()).collect()
         };
         for id in &ids {
-            if let Err(e) = self.delete_session(id) {
+            if let Err(e) = self.delete_session_with_reason(
+                id,
+                crate::session::events::SessionDeleteReason::OrphanSweep,
+            ) {
                 app_warn!(
                     "session",
                     "purge_orphan_incognito",
@@ -2605,7 +2730,32 @@ impl SessionDB {
     }
 
     /// Delete a session and all its messages (CASCADE) and attachments.
+    ///
+    /// Thin wrapper over [`Self::delete_session_with_reason`] tagging the
+    /// emitted lifecycle event as a user delete.
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
+        self.delete_session_with_reason(
+            session_id,
+            crate::session::events::SessionDeleteReason::UserDelete,
+        )
+    }
+
+    /// Delete a session and all its messages (CASCADE) and attachments, tagging
+    /// the emitted `session:deleted` event with `reason`.
+    ///
+    /// Captures a pre-delete `SessionMeta` snapshot (the row is gone by emit
+    /// time, but the event payload needs `agent_id` / `incognito`). After the
+    /// row + side effects are removed and the conn lock is released, emits the
+    /// lifecycle event so `cleanup_watcher` can fan out coordinated cleanup of
+    /// in-memory subsystems. No event is emitted when the session did not exist.
+    pub fn delete_session_with_reason(
+        &self,
+        session_id: &str,
+        reason: crate::session::events::SessionDeleteReason,
+    ) -> Result<()> {
+        // Snapshot before deletion — needed for the emit payload, and lets us
+        // skip the event entirely when nothing was there to delete.
+        let snapshot = self.get_session(session_id)?;
         {
             let conn = self
                 .conn
@@ -2636,6 +2786,16 @@ impl SessionDB {
             let _ = std::fs::remove_dir_all(att_dir);
         }
         self.cleanup_session_orphan_tables(session_id);
+        // Drop the Smart-mode "already edited" trust set for this session so it
+        // can't outlive the session (and doesn't accumulate in long-running
+        // server processes).
+        crate::permission::session_edits::clear(session_id);
+
+        // Emit after the conn lock is released — subscribers (cleanup_watcher
+        // fan-out) may re-lock the DB.
+        if let Some(meta) = snapshot {
+            crate::session::events::emit_session_deleted(&meta, reason);
+        }
 
         Ok(())
     }
@@ -2711,6 +2871,25 @@ impl SessionDB {
             .ok()
             .flatten();
         Ok(result)
+    }
+
+    /// List the ids of every session assigned to `project_id` (any status /
+    /// kind). Used by project deletion to cancel each session's in-flight async
+    /// jobs *before* the sessions are unassigned — afterwards there's no
+    /// `project_id` link to find them and they would run on orphaned. Epic E
+    /// (DELETE-6).
+    pub fn session_ids_in_project(&self, project_id: &str) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT id FROM sessions WHERE project_id = ?1")?;
+        let rows = stmt.query_map(params![project_id], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     /// Get a single session's metadata.
@@ -2801,6 +2980,36 @@ impl SessionDB {
 
     // ── History Search ──────────────────────────────────────────
 
+    /// True when a rusqlite error signals `messages_fts` shadow-table
+    /// corruption ("database disk image is malformed" / `SQLITE_CORRUPT`) — the
+    /// trigger to rebuild the FTS index.
+    fn is_fts_corruption(e: &rusqlite::Error) -> bool {
+        match e {
+            rusqlite::Error::SqliteFailure(f, msg) => {
+                f.code == rusqlite::ErrorCode::DatabaseCorrupt
+                    || msg
+                        .as_deref()
+                        .is_some_and(|m| m.contains("malformed") || m.contains("corrupt"))
+            }
+            _ => false,
+        }
+    }
+
+    /// Rebuild `messages_fts` via the writer connection. The open-time rebuild
+    /// now runs only once (gated by the `user_version` sentinel), so this is the
+    /// on-demand recovery path for corruption that develops afterward — invoked
+    /// from the read path when a query hits `SQLITE_CORRUPT`. Cheaper than the
+    /// old unconditional every-open rebuild: it fires only on real corruption,
+    /// and uses the writer because the read pool is `READ_ONLY`.
+    fn rebuild_fts(&self) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');")?;
+        Ok(())
+    }
+
     /// Search message history using FTS5 full-text search.
     ///
     /// Returns matching messages with session context and a highlighted snippet
@@ -2819,11 +3028,6 @@ impl SessionDB {
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-
         let fts_query = sanitize_fts_query(query);
         if fts_query.is_empty() {
             return Ok(Vec::new());
@@ -2846,10 +3050,12 @@ impl SessionDB {
             where_clauses.push(format!("m.session_id = ?{}", idx));
             params_vec.push(Box::new(sid.to_string()));
         } else {
-            // Global FTS path: hide incognito sessions. The in-session search
-            // path (Some(sid)) already scopes to one session and is allowed to
-            // search incognito content while it is open.
+            // Global FTS path: hide incognito sessions + knowledge-space
+            // conversations (the latter have their own KB-panel history search).
+            // The in-session search path (Some(sid)) already scopes to one
+            // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
+            where_clauses.push("s.kind != 'knowledge'".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -2859,7 +3065,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL)".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind != 'knowledge')".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -2889,7 +3095,7 @@ impl SessionDB {
             "SELECT m.id, m.session_id, m.role,
                     snippet(messages_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
                     m.timestamp,
-                    s.title, s.agent_id, s.is_cron, s.parent_session_id,
+                    s.title, s.agent_id, s.is_cron, s.parent_session_id, s.project_id,
                     cc.channel_id, cc.chat_type,
                     fts.rank
              FROM messages_fts fts
@@ -2902,30 +3108,67 @@ impl SessionDB {
             where_sql, limit
         );
 
-        let mut stmt = conn.prepare(&sql)?;
+        // Run the FTS query on a read-pool connection. FTS shadow-table
+        // corruption surfaces while *stepping* the virtual table, so it is
+        // propagated (not swallowed like benign per-row errors) to drive the
+        // rebuild-and-retry below.
+        let run = |conn: &Connection| -> rusqlite::Result<Vec<SessionSearchResult>> {
+            let mut stmt = conn.prepare(&sql)?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params_vec.iter().map(|p| p.as_ref()).collect();
+            let rows = stmt.query_map(param_refs.as_slice(), |row| {
+                Ok(SessionSearchResult {
+                    message_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    message_role: row.get(2)?,
+                    content_snippet: row.get(3)?,
+                    timestamp: row.get(4)?,
+                    session_title: row.get(5)?,
+                    agent_id: row.get(6)?,
+                    is_cron: row.get::<_, i64>(7).unwrap_or(0) != 0,
+                    parent_session_id: row.get(8)?,
+                    project_id: row.get(9)?,
+                    channel_type: row.get(10)?,
+                    channel_chat_type: row.get(11)?,
+                    relevance_rank: row.get::<_, f64>(12).unwrap_or(0.0),
+                })
+            })?;
+            let mut results = Vec::new();
+            for r in rows {
+                match r {
+                    Ok(item) => results.push(item),
+                    // Corruption → propagate so the caller can rebuild + retry.
+                    Err(e) if Self::is_fts_corruption(&e) => return Err(e),
+                    // Benign per-row decode error → skip, matching the prior
+                    // `filter_map(|r| r.ok())` behavior.
+                    Err(_) => {}
+                }
+            }
+            Ok(results)
+        };
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            params_vec.iter().map(|p| p.as_ref()).collect();
-
-        let rows = stmt.query_map(param_refs.as_slice(), |row| {
-            Ok(SessionSearchResult {
-                message_id: row.get(0)?,
-                session_id: row.get(1)?,
-                message_role: row.get(2)?,
-                content_snippet: row.get(3)?,
-                timestamp: row.get(4)?,
-                session_title: row.get(5)?,
-                agent_id: row.get(6)?,
-                is_cron: row.get::<_, i64>(7).unwrap_or(0) != 0,
-                parent_session_id: row.get(8)?,
-                channel_type: row.get(9)?,
-                channel_chat_type: row.get(10)?,
-                relevance_rank: row.get::<_, f64>(11).unwrap_or(0.0),
-            })
-        })?;
-
-        let results: Vec<SessionSearchResult> = rows.filter_map(|r| r.ok()).collect();
-        Ok(results)
+        // FTS search is a hot read (Cmd+F + /sessions) — route to the read pool.
+        let conn = self.read_conn()?;
+        match run(&conn) {
+            Ok(results) => Ok(results),
+            Err(e) if Self::is_fts_corruption(&e) => {
+                // The one-time open gate means the every-open rebuild no longer
+                // self-heals corruption that develops later, and the read pool
+                // is READ_ONLY. Recover on demand: rebuild via the writer, then
+                // retry once on a fresh read connection.
+                drop(conn);
+                app_warn!(
+                    "session",
+                    "db",
+                    "search_messages hit FTS corruption ({}); rebuilding index and retrying",
+                    e
+                );
+                self.rebuild_fts()?;
+                let conn = self.read_conn()?;
+                run(&conn).map_err(|e| anyhow::anyhow!("FTS search failed after rebuild: {}", e))
+            }
+            Err(e) => Err(anyhow::anyhow!("FTS search failed: {}", e)),
+        }
     }
 
     /// FTS5 search that returns up to `limit` *distinct* sessions (best-rank
@@ -3326,6 +3569,34 @@ mod tests {
     }
 
     #[test]
+    fn read_pool_is_readonly_and_sees_committed_writes() {
+        let db_path = temp_db_path("session-read-pool");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        // read_conn must hand out READ_ONLY connections — a write fails.
+        let probe = db
+            .read_conn()
+            .expect("read conn")
+            .execute("CREATE TABLE __readpool_probe (x)", []);
+        assert!(
+            probe.is_err(),
+            "read_conn must reject writes (read-only pool)"
+        );
+
+        // A committed write on the writer is visible to a subsequent read-pool
+        // read (WAL gives readers the latest committed snapshot).
+        let tool = crate::session::NewMessage::tool("call-rp", "noop", "{}", "", None, false);
+        db.append_message(&session.id, &tool).expect("append");
+        let msgs = db
+            .load_session_messages(&session.id)
+            .expect("read via pool");
+        assert_eq!(msgs.len(), 1, "read pool must see the committed append");
+    }
+
+    #[test]
     fn tool_media_items_persist_in_attachments_meta() {
         let db_path = temp_db_path("session-tool-media-items");
         let db = SessionDB::open(&db_path).expect("open session db");
@@ -3555,7 +3826,7 @@ mod tests {
 }
 
 /// Sanitize query for FTS5 MATCH: wrap each token in double quotes for exact matching.
-fn sanitize_fts_query(query: &str) -> String {
+pub(crate) fn sanitize_fts_query(query: &str) -> String {
     let tokens: Vec<String> = query
         .split_whitespace()
         .filter(|t| !t.is_empty())
@@ -3629,6 +3900,8 @@ pub struct SessionSearchResult {
     pub relevance_rank: f64,
     pub is_cron: bool,
     pub parent_session_id: Option<String>,
+    /// Project id when this hit belongs to a project-bound chat session.
+    pub project_id: Option<String>,
     /// Source channel plugin id (e.g. "telegram", "wechat"), when this session
     /// originates from an IM channel.
     pub channel_type: Option<String>,

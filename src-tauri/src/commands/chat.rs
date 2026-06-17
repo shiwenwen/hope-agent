@@ -127,6 +127,44 @@ pub async fn save_attachment(
 }
 
 #[tauri::command]
+pub async fn queue_turn_user_message(
+    request_id: Option<String>,
+    message: String,
+    attachments: Vec<Attachment>,
+    session_id: String,
+    turn_id: String,
+    display_text: Option<String>,
+    is_plan_trigger: Option<bool>,
+    plan_comment: Option<serde_json::Value>,
+) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
+    Ok(ha_core::chat_engine::turn_injection::enqueue(
+        ha_core::chat_engine::turn_injection::QueueTurnUserMessageArgs {
+            request_id,
+            session_id,
+            turn_id,
+            message,
+            display_text,
+            attachments,
+            is_plan_trigger: is_plan_trigger.unwrap_or(false),
+            plan_comment,
+        },
+    ))
+}
+
+#[tauri::command]
+pub async fn cancel_queued_turn_user_message(
+    session_id: String,
+    turn_id: String,
+    request_id: String,
+) -> Result<ha_core::chat_engine::turn_injection::CancelQueuedTurnMessageResult, CmdError> {
+    Ok(ha_core::chat_engine::turn_injection::cancel(
+        &session_id,
+        &turn_id,
+        &request_id,
+    ))
+}
+
+#[tauri::command]
 pub async fn chat(
     message: String,
     mut attachments: Vec<Attachment>,
@@ -156,6 +194,17 @@ pub async fn chat(
     // when this call also creates the session — applies via the same
     // `update_session_working_dir` validation as the explicit setter command.
     working_dir: Option<String>,
+    // Composer-staged KB attaches. Only honored when this call also creates the
+    // session (mirrors `working_dir`); applied before the engine runs so the
+    // first turn already sees the access. No-op for incognito.
+    kb_attachments: Option<Vec<ha_core::knowledge::types::KbAttachInput>>,
+    // Tool-visibility scope (`"knowledge"`). Set by the knowledge-space sidebar
+    // chat to trim the injected tool set; `None` for normal chats.
+    tool_scope: Option<String>,
+    // Knowledge-space sidebar chat: the note open when the conversation started.
+    // Only honored on the auto-create branch (mirrors `working_dir` /
+    // `kb_attachments`) — promotes the new session into a KB chat thread.
+    kb_anchor_note: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
@@ -233,6 +282,13 @@ pub async fn chat(
                 wd
             );
         }
+        if let Some(attaches) = kb_attachments.as_ref() {
+            ha_core::knowledge::service::apply_draft_attachments(
+                &sid,
+                incognito.unwrap_or(false),
+                attaches,
+            );
+        }
     }
 
     let turn_id = uuid::Uuid::new_v4().to_string();
@@ -275,6 +331,18 @@ pub async fn chat(
             // run as a turn — and crucially, no attachment file has been
             // written yet (we're upstream of all attachment IO).
             let notice = format!("🚫 {reason}");
+            // KB sidebar lazy-create: a blocked first message must leave NO
+            // session behind — neither a hidden `kind=Knowledge` zombie nor a
+            // stray `kind=regular` row polluting the main list / picker / FTS.
+            // Drop the freshly auto-created session; the notice still reaches the
+            // panel via the transient event channel (no `session_created`, so the
+            // frontend never registers it).
+            if new_session_created.is_some() && tool_scope.as_deref() == Some("knowledge") {
+                let _ = db.delete_session(&sid);
+                let _ = on_event
+                    .send(serde_json::json!({ "type": "text", "text": notice }).to_string());
+                return Ok(notice);
+            }
             // If this preflight ran against a freshly-auto-created session,
             // emit `session_created` BEFORE the block notice so the frontend
             // can register the new session and route the notice to it.
@@ -302,6 +370,25 @@ pub async fn chat(
             return Ok(notice);
         }
     };
+
+    // KB sidebar chat: promote the freshly-created session into a knowledge
+    // thread (hidden from the main list; bound to the KB + anchor note) now that
+    // preflight has passed. Doing this in the auto-create block above left a
+    // hidden `kind=Knowledge` zombie + thread row whenever a UserPromptSubmit
+    // hook blocked the very first message.
+    if new_session_created.is_some() && tool_scope.as_deref() == Some("knowledge") {
+        if let Some(kb_id) = kb_attachments
+            .as_ref()
+            .and_then(|a| a.first())
+            .map(|a| a.kb_id.clone())
+        {
+            ha_core::knowledge::service::mark_session_as_kb_thread(
+                &sid,
+                &kb_id,
+                kb_anchor_note.as_deref(),
+            );
+        }
+    }
 
     let attachments_meta =
         ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut attachments)?;
@@ -803,6 +890,7 @@ pub async fn chat(
         plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
+        tool_scope: ha_core::tools::ToolScope::from_str_opt(tool_scope.as_deref()),
         subagent_depth: 0,
         steer_run_id: None,
         auto_approve_tools: false,
@@ -811,6 +899,9 @@ pub async fn chat(
         abort_on_cancel: false,
         persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Desktop,
+        origin_source: None,
+        // Desktop owner turn — KB access via attach, not the IM opt-in gate.
+        channel_kb_context: None,
         event_sink: Arc::new(ChannelSink {
             channel: on_event.clone(),
         }),
@@ -994,9 +1085,13 @@ pub async fn respond_to_approval(request_id: String, response: String) -> Result
             )))
         }
     };
-    tools::submit_approval_response(&request_id, approval_response)
-        .await
-        .map_err(Into::into)
+    tools::submit_approval_response(
+        &request_id,
+        approval_response,
+        tools::ApprovalResolutionSource::Gui,
+    )
+    .await
+    .map_err(|e| CmdError::msg(e.to_string()))
 }
 
 // ── System Prompt ────────────────────────────────────────────────

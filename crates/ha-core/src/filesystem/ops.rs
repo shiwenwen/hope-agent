@@ -271,7 +271,11 @@ fn extract_at(abs: &Path, rel_path: String) -> Result<ExtractedContent> {
 }
 
 /// Write text content to a file (saving an edit or creating a new file).
-/// `create_only` makes the call fail if the target already exists.
+/// `create_only` makes the call fail if the target already exists. The write is
+/// **atomic** ([`crate::platform::write_atomic`]: temp file in the same dir →
+/// fsync → rename), so a crash / power loss mid-write leaves either the old file
+/// intact or the new one complete — never a truncated note. Matters most for
+/// bound external vaults.
 pub fn project_write_text(
     scope: &WorkspaceScope,
     rel: &str,
@@ -282,11 +286,9 @@ pub fn project_write_text(
     if create_only && abs.exists() {
         return Err(FilesystemError::bad_input("file already exists"));
     }
-    if let Some(parent) = abs.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| FilesystemError::internal(format!("create parent: {}", e)))?;
-    }
-    std::fs::write(&abs, content.as_bytes())
+    // Atomic temp+rename lives in `platform/` (cross-platform rename / permission
+    // handling in one place); it creates parent dirs itself.
+    crate::platform::write_atomic(&abs, content.as_bytes())
         .map_err(|e| FilesystemError::internal(format!("write: {}", e)))?;
     Ok(WriteResult {
         rel_path: scope.rel_of(&abs),

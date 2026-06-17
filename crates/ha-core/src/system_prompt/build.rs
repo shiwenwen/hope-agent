@@ -1,6 +1,6 @@
 use super::constants::{
-    build_tool_budget_guidance, APP_INTRO, HUMAN_IN_THE_LOOP_GUIDANCE,
-    MARKDOWN_PATH_LINKS_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES, SMART_MODE_GUIDANCE,
+    build_permission_mode_guidance, build_tool_budget_guidance, APP_INTRO,
+    HUMAN_IN_THE_LOOP_GUIDANCE, MARKDOWN_PATH_LINKS_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES,
     SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
 };
 use super::helpers::truncate;
@@ -50,6 +50,7 @@ pub fn build(
     session_id: Option<&str>,
     incognito: bool,
     session_working_dir: Option<&str>,
+    channel_info: Option<&crate::session::ChannelSessionInfo>,
     permission_mode: SessionMode,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
@@ -203,12 +204,9 @@ pub fn build(
         sections.push(MARKDOWN_PATH_LINKS_GUIDANCE.to_string());
     }
 
-    // ⑥c¹ Smart-mode guidance — only when the session opted into Smart
-    // permissions. Living near the prompt tail keeps mode flips from
-    // invalidating the static prefix cache.
-    if permission_mode == SessionMode::Smart {
-        sections.push(SMART_MODE_GUIDANCE.to_string());
-    }
+    // ⑥c¹ Permission-mode guidance. Living near the prompt tail keeps mode
+    // flips from invalidating the larger static prefix cache.
+    sections.push(build_permission_mode_guidance(permission_mode));
 
     // ⑥c² Tool-call budget reminder — always injected when rounds are bounded,
     // so the model can produce a graceful handoff instead of a cut-off mid-call.
@@ -252,6 +250,12 @@ pub fn build(
     if let Some(wd) = session_working_dir.map(str::trim).filter(|s| !s.is_empty()) {
         let instructions = collect_working_dir_instructions(wd);
         sections.push(build_session_working_dir_section(wd, &instructions));
+    }
+
+    // ⑦e IM channel attachment — injected for sessions attached to an IM chat,
+    // including desktop / HTTP turns whose replies may be mirrored to IM.
+    if let Some(info) = channel_info {
+        sections.push(build_im_channel_attachment_section(info));
     }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
@@ -761,6 +765,7 @@ mod memory_section_tests {
             None,
             false,
             Some("/srv/projects/demo"),
+            None,
             SessionMode::Default,
         );
         assert!(
@@ -790,6 +795,7 @@ mod memory_section_tests {
             None,
             false,
             None,
+            None,
             SessionMode::Default,
         );
         let out_blank = build(
@@ -805,6 +811,7 @@ mod memory_section_tests {
             None,
             false,
             Some("   "),
+            None,
             SessionMode::Default,
         );
         assert!(
@@ -856,6 +863,7 @@ mod memory_section_tests {
             None,
             false,
             None,
+            None,
             SessionMode::Default,
         );
         assert!(
@@ -881,6 +889,7 @@ mod memory_section_tests {
             None,
             None,
             false,
+            None,
             None,
             SessionMode::Default,
         );
@@ -908,6 +917,7 @@ mod memory_section_tests {
             None,
             false,
             None,
+            None,
             SessionMode::Default,
         );
         definition.config.avatar = None;
@@ -923,6 +933,7 @@ mod memory_section_tests {
             None,
             None,
             false,
+            None,
             None,
             SessionMode::Default,
         );
@@ -951,6 +962,7 @@ mod memory_section_tests {
             None,
             false,
             None,
+            None,
             SessionMode::Default,
         );
         assert!(
@@ -977,6 +989,7 @@ mod memory_section_tests {
             None,
             None,
             false,
+            None,
             None,
             SessionMode::Default,
         );
@@ -1006,6 +1019,7 @@ mod memory_section_tests {
             None,
             false,
             None,
+            None,
             SessionMode::Default,
         );
         assert!(
@@ -1032,6 +1046,7 @@ mod memory_section_tests {
             None,
             None,
             true,
+            None,
             None,
             SessionMode::Default,
         );

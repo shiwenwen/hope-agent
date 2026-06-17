@@ -1,7 +1,7 @@
 /**
  * Mention token parser, shared between:
  * - {@link useFileMention} — caret-aware "what is the user typing right now"
- * - {@link MentionMirrorOverlay} — segments the whole input string for chip rendering
+ * - `MentionComposerInput` — segments the whole input string for chip rendering
  * - {@link expandMentionsToAttachments} — collects all mentions before send
  *
  * Token grammar (simplified from Claude Code's HAS_AT_SYMBOL_RE; ASCII-only path
@@ -22,7 +22,9 @@ import type { MentionSegment } from "./types";
  * - `@"..."`  — quoted path (no embedded `"`)
  * - `@token`  — bare path, terminated by whitespace
  */
-const MENTION_RE_SOURCE = /(^|\s)@(?:"([^"]+)"|([^\s]+))/;
+// Bare token excludes `[` so a `@`-glued `[[note]]` (e.g. `@[[My Note]]`) is not
+// parsed as a file mention at send time — `[[ ]]` belongs to the note picker.
+const MENTION_RE_SOURCE = /(^|\s)@(?:"([^"]+)"|([^\s[]+))/;
 
 export interface ParsedMention {
   /** Starting index of the `@` character in `input`. */
@@ -56,22 +58,62 @@ export function parseMentions(input: string): ParsedMention[] {
   return out;
 }
 
-/**
- * Split `input` into alternating text and mention segments. Used by the mirror
- * overlay to render chip backgrounds aligned to the textarea's character grid.
- */
-export function segmentInput(input: string): MentionSegment[] {
-  const mentions = parseMentions(input);
-  if (mentions.length === 0) return [{ kind: "text", text: input }];
+/** Completed `[[note]]` references (closed `]]`), for the mirror overlay chips. */
+const NOTE_RE_SOURCE = /\[\[([^\]\n]+)\]\]/;
 
+export function parseNoteRefs(
+  input: string,
+): Array<{ start: number; end: number; raw: string }> {
+  const out: Array<{ start: number; end: number; raw: string }> = [];
+  const re = new RegExp(NOTE_RE_SOURCE.source, "g");
+  for (const m of input.matchAll(re)) {
+    const start = m.index ?? 0;
+    out.push({ start, end: start + m[0].length, raw: m[0] });
+  }
+  return out;
+}
+
+/**
+ * Split `input` into alternating text / file-mention / note-ref segments. Used
+ * by the mirror overlay to render chip backgrounds aligned to the textarea's
+ * character grid. `files` gates `@path` chips (working dir set); `notes` gates
+ * `[[note]]` chips (note mention enabled). The two never overlap — the `@`
+ * grammar excludes `[`.
+ */
+export function segmentInput(
+  input: string,
+  opts?: { files?: boolean; notes?: boolean },
+): MentionSegment[] {
+  const files = opts?.files ?? true;
+  const notes = opts?.notes ?? false;
+
+  const spans: Array<{ start: number; end: number; seg: MentionSegment }> = [];
+  if (files) {
+    for (const m of parseMentions(input)) {
+      spans.push({
+        start: m.start,
+        end: m.end,
+        seg: { kind: "mention", raw: m.raw, relPath: m.relPath },
+      });
+    }
+  }
+  if (notes) {
+    for (const n of parseNoteRefs(input)) {
+      spans.push({ start: n.start, end: n.end, seg: { kind: "note", raw: n.raw } });
+    }
+  }
+  if (spans.length === 0) return [{ kind: "text", text: input }];
+
+  spans.sort((a, b) => a.start - b.start);
   const segments: MentionSegment[] = [];
   let cursor = 0;
-  for (const m of mentions) {
-    if (m.start > cursor) {
-      segments.push({ kind: "text", text: input.slice(cursor, m.start) });
+  for (const s of spans) {
+    if (s.start < cursor) continue; // defensive: skip any overlap
+    if (s.start > cursor) {
+      segments.push({ kind: "text", text: input.slice(cursor, s.start) });
     }
-    segments.push({ kind: "mention", raw: m.raw, relPath: m.relPath });
-    cursor = m.end;
+    segments.push(s.seg);
+    cursor = s.end;
   }
   if (cursor < input.length) {
     segments.push({ kind: "text", text: input.slice(cursor) });
@@ -98,6 +140,9 @@ export function detectActiveMention(input: string, caret: number): ActiveMention
   let i = caret - 1;
   while (i >= 0) {
     const c = input[i];
+    // Cede a `[[` opener to the note picker: if we hit `[[` before the `@`, this
+    // is a `[[note]]` context, not a file mention — keep the two triggers disjoint.
+    if (c === "[" && i > 0 && input[i - 1] === "[") return null;
     if (c === "@") {
       // The `@` must sit at start-of-input or after whitespace — this is what
       // rules out `email@host` from triggering the popper.

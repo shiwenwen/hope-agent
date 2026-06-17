@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -111,7 +112,7 @@ export default function WeChatConnectSection({
       const result = await getTransport().call<WeChatLoginStartResult>("channel_wechat_start_login", {
         accountId: accountId ?? null,
       })
-      console.log("[WeChat Login] start_login result:", {
+      logger.info("channel", "WeChatConnectSection::handleStart", "start_login result", {
         qrcodeUrl: result.qrcodeUrl ? `${result.qrcodeUrl.substring(0, 80)}... (${result.qrcodeUrl.length} chars)` : null,
         sessionKey: result.sessionKey,
         message: result.message,

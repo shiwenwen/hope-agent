@@ -225,6 +225,77 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `preview_read_text` | `GET /api/sessions/{id}/files/read?path=` | ✅ (preview-by-path，绝对路径，会话鉴权) |
 | `preview_extract` | `GET /api/sessions/{id}/files/extract?path=` | ✅ (preview-by-path，绝对路径，会话鉴权) |
 
+### Knowledge Base（知识空间）
+
+**Owner / 管理平面**——API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D14）。
+
+| Tauri 命令 | HTTP 路由 | 对齐 |
+|---|---|---|
+| `list_kbs_cmd` | `GET /api/knowledge?includeArchived=` | ✅ |
+| `get_kb_cmd` | `GET /api/knowledge/{id}` | ✅ |
+| `create_kb_cmd` | `POST /api/knowledge` (`{ input }`) | ✅ |
+| `update_kb_cmd` | `PATCH /api/knowledge/{id}` (`{ patch }`) | ✅ |
+| `delete_kb_cmd` | `DELETE /api/knowledge/{id}` | ✅ (级联 registry+index+磁盘) |
+| `reindex_kb_cmd` | `POST /api/knowledge/{id}/reindex` | ✅ |
+| `attach_session_kb_cmd` | `POST /api/knowledge/attach` (`{ sessionId, kbId, access }`) | ✅ |
+| `attach_project_kb_cmd` | `POST /api/knowledge/attach` (`{ projectId, kbId, access }`) | ✅ |
+| `detach_session_kb_cmd` | `POST /api/knowledge/detach` (`{ sessionId, kbId }`) | ✅ |
+| `detach_project_kb_cmd` | `POST /api/knowledge/detach` (`{ projectId, kbId }`) | ✅ |
+| `list_session_kbs_cmd` | `GET /api/knowledge/attachments?sessionId=&projectId=` | ✅ (当前生效 KB 列表) |
+| `list_project_kbs_cmd` | `GET /api/knowledge/project-attachments?projectId=` | ✅ (项目级绑定列表，项目设置 UI) |
+| `list_kb_notes_cmd` | `GET /api/knowledge/{kbId}/notes` | ✅ |
+| `kb_note_read_cmd` | `GET /api/knowledge/{kbId}/note?path=` | ✅ (含出链/反链/标签) |
+| `kb_note_save_cmd` | `PUT /api/knowledge/{kbId}/note` | ✅ (写闸门 + stale-write guard) |
+| `kb_note_delete_cmd` | `DELETE /api/knowledge/{kbId}/note?path=` | ✅ (写闸门) |
+| `kb_note_rename_cmd` | `POST /api/knowledge/{kbId}/note/rename` | ✅ (写闸门 + **改写入站 `[[ ]]` 链接** #9，返回 `RenameOutcome`) |
+| `kb_list_dirs_cmd` | `GET /api/knowledge/{kbId}/dirs` | ✅ (含空目录，读盘) |
+| `kb_list_tags_cmd` | `GET /api/knowledge/{kbId}/tags` | ✅ (owner 平面，编辑器 `#tag` 补全词表) |
+| `knowledge_embedding_get_cmd` | `GET /api/knowledge/embedding` | ✅ (D7 独立 selector 状态) |
+| `knowledge_embedding_set_default_cmd` | `POST /api/knowledge/embedding/set-default` | ✅ (装 embedder + 后台 KnowledgeReembed) |
+| `knowledge_embedding_disable_cmd` | `POST /api/knowledge/embedding/disable` | ✅ (pause 语义，清 index embedder) |
+| `knowledge_embedding_rebuild_cmd` | `POST /api/knowledge/embedding/rebuild` | ✅ (强制全 KB 重建，无 same-signature 短路) |
+| `knowledge_chunk_get_cmd` | `GET /api/knowledge/chunk` | ✅ (D12 分块参数，GUI-only) |
+| `knowledge_chunk_set_cmd` | `POST /api/knowledge/chunk` | ✅ (写参数 clamp + 触发全 KB 重切) |
+| `knowledge_search_config_get_cmd` | `GET /api/knowledge/search-config` | ✅ (混合检索排序参数 `KnowledgeSearchConfig`：融合权重 / RRF-k / MMR-λ / 候选倍数) |
+| `knowledge_search_config_set_cmd` | `POST /api/knowledge/search-config` | ✅ (body `{config}`，clamp 后保存、无重索引；发默认值即恢复默认) |
+| `reindex_note_cmd` | `POST /api/knowledge/{kbId}/note/reindex` | ✅ (单篇重建，同步) |
+| `reindex_dir_cmd` | `POST /api/knowledge/{kbId}/dir/reindex` | ✅ (文件夹子树重建，同步) |
+| `kb_mkdir_cmd` | `POST /api/knowledge/{kbId}/dir` | ✅ (写闸门) |
+| `kb_rename_dir_cmd` | `POST /api/knowledge/{kbId}/dir/rename` | ✅ (写闸门 + reindex + **改写入站路径式链接** #9，返回 `RenameOutcome`) |
+| `kb_delete_dir_cmd` | `DELETE /api/knowledge/{kbId}/dir?path=` | ✅ (写闸门，rm -rf + prune) |
+| `kb_backlinks_cmd` | `GET /api/knowledge/{kbId}/backlinks?path=` | ✅ |
+| `kb_broken_links_cmd` | `GET /api/knowledge/{kbId}/broken-links` | ✅ (维护面板：悬空 `[[ ]]` 清单) |
+| `kb_orphans_cmd` | `GET /api/knowledge/{kbId}/orphans` | ✅ (维护面板：无链接孤岛笔记) |
+| `kb_graph_cmd` | `GET /api/knowledge/{kbId}/graph` | ✅ (WS1 图谱视图：nodes+edges，含 degree，节点上限 2000 截断标 `truncated`) |
+| `kb_graph_layout_get_cmd` | `GET /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 用户拖拽固定的节点坐标，按 `relPath` 键，落 sessions.db) |
+| `kb_graph_layout_save_cmd` | `POST /api/knowledge/{kbId}/graph/layout` | ✅ (Batch J 整体替换布局，body `{positions:[{relPath,x,y}]}`，空数组=重置) |
+| `kb_chat_thread_get_cmd` | `GET /api/knowledge/{kbId}/chat/thread?note=` | ✅ (侧边栏对话默认加载：某笔记最近一次 `kind=knowledge` 会话 `SessionMeta`，无则 `null`) |
+| `kb_chat_threads_list_cmd` | `GET /api/knowledge/{kbId}/chat/threads?query=&limit=&offset=` | ✅ (历史对话列表分页：KB 内对话线程 `KbChatThread[]`，`query` 非空时 FTS 过滤；`limit` 默认 50 钳 1..=200、`offset` 翻页，FTS 走 `IN` 子查询使 `LIMIT` 作用于命中集) |
+| `kb_ai_rewrite_cmd` | `POST /api/knowledge/ai/rewrite` | ✅ (快捷改写：body `{text, instruction, modelOverride?}` → side_query 返回改写后 Markdown；不落盘，GUI 走 diff 确认后经 `note_save`) |
+| `kb_rewrite_log_cmd` | `POST /api/knowledge/rewrite/log` | ✅ (快捷改写统计：body `{kbId, notePath?, instruction, model?, charsBefore, charsAfter, accepted}` → 落 `learning_events`(`kind="kb_quick_rewrite"`)，best-effort) |
+| `kb_maintenance_run_cmd` | `POST /api/knowledge/maintenance/run` | ✅ (WS6 手动跑一轮维护：扫全部内部 KB 生成 draft 提案；返回 `MaintenanceReport`) |
+| `kb_maintenance_status_cmd` | `GET /api/knowledge/maintenance/status` | ✅ (running 标志 + 上轮 report) |
+| `kb_maintenance_list_cmd` | `GET /api/knowledge/{kbId}/maintenance/proposals?status=` | ✅ (某 KB 的提案，可按 draft/applied/rejected/failed 过滤) |
+| `kb_maintenance_pending_count_cmd` | `GET /api/knowledge/{kbId}/maintenance/pending-count` | ✅ (待审提案数，维护面板徽章) |
+| `kb_maintenance_approve_cmd` | `POST /api/knowledge/maintenance/proposals/{id}/approve` | ✅ (批准并经 owner 平面落地，返回更新后的提案) |
+| `kb_maintenance_reject_cmd` | `POST /api/knowledge/maintenance/proposals/{id}/reject` | ✅ (忽略单条提案) |
+| `kb_maintenance_reject_all_cmd` | `POST /api/knowledge/{kbId}/maintenance/reject-all` | ✅ (清空某 KB 待审队列，返回清除数) |
+| `kb_maintenance_config_get_cmd` | `GET /api/knowledge/maintenance/config` | ✅ (维护配置，GUI 面板；也可经 `get_settings(knowledge_maintenance)` 读) |
+| `kb_maintenance_config_set_cmd` | `POST /api/knowledge/maintenance/config` | ✅ (写维护配置，clamp 后返回；emit `config:changed` 唤醒 cron loop) |
+| `kb_passive_recall_config_get_cmd` | `GET /api/knowledge/passive-recall/config` | ✅ (读取桥③ 被动相关笔记配置，GUI 面板；也可经 `get_settings(knowledge_passive_recall)` 读) |
+| `kb_passive_recall_config_set_cmd` | `POST /api/knowledge/passive-recall/config` | ✅ (写被动相关笔记配置，clamp 后返回) |
+| `kb_sprite_observe_cmd` | `POST /api/knowledge/sprite/observe` | ✅ (精灵编辑空闲触发，fire-and-forget；节流 + side_query 后建议经 `sprite:suggestion` 事件返回) |
+| `sprite_config_get_cmd` | `GET /api/knowledge/sprite/config` | ✅ (读精灵配置，GUI 面板；也可经 `get_settings(sprite)` 读) |
+| `sprite_config_set_cmd` | `POST /api/knowledge/sprite/config` | ✅ (写精灵配置，clamp 后返回) |
+| `kb_note_read_ref_cmd` | `GET /api/knowledge/{kbId}/note/resolve?reference=` | ✅ (WS2 transclusion：按 `[[ ]]` ref 经 resolver 取目标 `NoteReadResult`，broken 返回 `null`；Batch G 起按 ref 的 `#anchor` 切片——`^id`→块、heading→标题段，未命中降级整篇) |
+| `kb_search_cmd` | `GET /api/knowledge/search?query=&kbId=&limit=` | ✅ (FTS+向量混合) |
+| `kb_file_read_cmd` | `GET /api/knowledge/{kbId}/files/read?path=` | ✅ (纯 owner 平面 + scope contains) |
+| `kb_file_extract_cmd` | `GET /api/knowledge/{kbId}/files/extract?path=` | ✅ |
+| `kb_file_resolve_cmd` | —（Tauri-only，`convertFileSrc`） | N/A |
+| —（HTTP-only raw serve） | `GET /api/knowledge/{kbId}/files/raw?path=&download=` | N/A |
+
+KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fallback**——与 `/api/sessions/{id}/files/*` 物理隔离，不放宽其判定。外部绑定 vault Phase 1 只读（写经 `WorkspaceScope::resolve_writable` 拒绝 + HTTP `allow_remote_writes` 闸门双拒）。agent 读笔记不经此端点，走 `note_*` 工具（`effective_kb_access` 校验）。`knowledge:changed` 事件 `{ kbId, op }` 经 EventBus fan-out 到两端前端。
+
 **preview-by-path（文件操作统一）**：`preview_read_text` / `preview_extract` 按**绝对路径**读取，供 Markdown 链接 / 下挂文件 / 工作台产物文件统一预览。桌面信任本机路径直接读；HTTP 经 `/api/sessions/{id}/files/{read,extract}`，与既有 `/files/by-path` 共用授权 `authorized_canonical_file_path` = **被会话 tool 消息引用 ∪ 落在会话工作目录内**，二者皆非的主机任意路径一律 403。详见 [file-operations.md](./file-operations.md)。
 
 写端点（write/delete/rename/mkdir/upload）在 HTTP handler 层读 `filesystem.allow_remote_writes`（默认 false）闸门，为 false 返 403；桌面 Tauri 不受限。配置读写：`get_filesystem_config` / `save_filesystem_config` ↔ `GET/PUT /api/config/filesystem`。
@@ -275,6 +346,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 `set_session_working_dir` 接受 `{ workingDir: string | null }`，后端 `canonicalize` 路径并校验是否为存在的目录，返回 `{ updated: true, workingDir: <canonical> }`；`null` 或空串清除选择。该字段以 `SessionMeta.workingDir` 呈现，被 `system_prompt::build` 注入到 "# Working Directory" 段落（位于 Project / Project Files 之后、Memory 之前）。执行层也会把它作为 path-aware 工具的默认根：`read` / `write` / `edit` / `ls` / `grep` / `find` / `apply_patch` 的相对路径，以及 `exec.cwd` 的相对路径，均按「显式绝对路径 > Session working dir > Agent home」解析；`exec` 无 `cwd` 时再回退到用户 home。与 Project / Incognito 正交：三者可同时启用。在 HTTP 模式下前端没有原生目录选择器，改走 `GET /api/filesystem/list-dir`（见 Filesystem 域）的服务端目录浏览器。
 
 新会话尚未 materialize 时也允许选目录：前端把选择存为 `draftWorkingDir`，首条消息发送时通过 `chat` 命令的可选 `workingDir` 字段（Tauri / `POST /api/chat` 同名）随请求带过去；后端只在自动创建 session 的分支应用，复用 `update_session_working_dir` 的 canonicalize + `is_dir` 校验，无效路径直接 400。已有 sessionId 的 `chat` 调用会忽略此字段，避免覆盖现成的工作目录设置。
+
+`chat` 命令还有两个知识空间侧边栏对话用的可选字段（Tauri / `POST /api/chat` 同名 camelCase）：`toolScope: "knowledge"` 把本轮注入工具集收窄到笔记 / 检索 / 记忆白名单（与 source / `effective_kb_access` 正交，只动 schema 可见性）；`kbAnchorNote` 仅在自动创建 session 的分支生效——配合单条 `kbAttachments`(write) 把新会话提升为 `kind=knowledge` 的对话线程并锚定该笔记。已有 sessionId 的调用忽略 `kbAnchorNote`。
 
 ### Chat
 
@@ -583,6 +656,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `get_notification_config` | `GET /api/config/notification` | ✅ |
 | `save_notification_config` | `PUT /api/config/notification` | ✅ |
+| `get_auto_update_config` | `GET /api/config/auto-update` | ✅ |
+| `set_auto_update_config` | `PUT /api/config/auto-update` | ✅ |
 | `get_startup_notification_config` | `GET /api/config/startup-notification` | ✅ |
 | `save_startup_notification_config` | `PUT /api/config/startup-notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |
@@ -685,6 +760,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `get_skills` | `GET /api/skills` | ✅ |
+| `list_mentionable_skills` | `GET /api/skills/mentionable` | ✅ |
 | `get_skill_detail` | `GET /api/skills/{name}` | ✅ |
 | `toggle_skill` | `POST /api/skills/{name}/toggle` | ✅ |
 | `get_extra_skills_dirs` | `GET /api/skills/extra-dirs` | ✅ |
@@ -844,6 +920,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `set_language` | `POST /api/config/language` | ✅ |
 | `get_ui_effects_enabled` | `GET /api/config/ui-effects` | ✅ |
 | `set_ui_effects_enabled` | `POST /api/config/ui-effects` | ✅ |
+| `get_prevent_sleep_enabled` | `GET /api/config/prevent-sleep` | ✅ |
+| `set_prevent_sleep_enabled` | `POST /api/config/prevent-sleep` | ✅ |
 | `get_tool_call_narration_enabled` | `GET /api/config/tool-call-narration` | ✅ |
 | `set_tool_call_narration_enabled` | `POST /api/config/tool-call-narration` | ✅ |
 | `get_autostart_enabled` | `GET /api/config/autostart` | ✅ |
@@ -861,6 +939,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `set_approval_timeout_enabled` | `POST /api/config/approval-timeout-enabled` | ✅ |
 | `get_approval_timeout_action` | `GET /api/config/approval-timeout-action` | ✅ |
 | `set_approval_timeout_action` | `POST /api/config/approval-timeout-action` | ✅ |
+| `get_unattended_approval_action` | `GET /api/config/unattended-approval-action` | ✅ |
+| `set_unattended_approval_action` | `POST /api/config/unattended-approval-action` | ✅ |
 | `get_tool_result_disk_threshold` | `GET /api/config/tool-result-threshold` | ✅ |
 | `set_tool_result_disk_threshold` | `POST /api/config/tool-result-threshold` | ✅ |
 | `get_tool_limits` | `GET /api/config/tool-limits` | ✅ |

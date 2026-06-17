@@ -24,6 +24,10 @@ pub struct WorkspaceScope {
     /// Canonical, symlink-free absolute root. All resolved paths must live
     /// under this prefix.
     root: PathBuf,
+    /// Browse-only roots reject every mutating op on every transport (desktop
+    /// included). Set for the `"path"` worktree-jump scope and for external
+    /// (bound) knowledge-base roots (Phase 1, design D11).
+    read_only: bool,
 }
 
 impl WorkspaceScope {
@@ -34,6 +38,7 @@ impl WorkspaceScope {
         match kind {
             "session" => Self::for_session(id),
             "project" => Self::for_project(id),
+            "knowledge" => Self::for_knowledge(id),
             "path" => Self::for_path(id),
             other => Err(FilesystemError::bad_input(format!(
                 "invalid scope: {other}"
@@ -42,13 +47,25 @@ impl WorkspaceScope {
     }
 
     /// Like [`Self::resolve`] but rejects read-only scopes. The `"path"` scope
-    /// (git-worktree jump browsing) is read-only — write/delete/rename/mkdir/
-    /// upload must route through here so a worktree view can't mutate files.
+    /// (git-worktree jump browsing) and external knowledge-base roots are
+    /// read-only — write/delete/rename/mkdir/upload must route through here so a
+    /// browse-only view can't mutate files (on any transport, desktop included).
     pub fn resolve_writable(kind: &str, id: &str) -> Result<Self> {
-        if kind == "path" {
+        let scope = Self::resolve(kind, id)?;
+        if scope.read_only {
             return Err(FilesystemError::bad_input("this view is read-only"));
         }
-        Self::resolve(kind, id)
+        Ok(scope)
+    }
+
+    /// Scope to a knowledge base's storage root. External (bound) roots are
+    /// browse-only unless the KB opted into external writes (WS7, design D11) —
+    /// `read_only` reflects that opt-in so every mutating op rejects a locked
+    /// external root on every transport.
+    pub fn for_knowledge(kb_id: &str) -> Result<Self> {
+        let root = crate::knowledge::resolve_kb_dir(kb_id)
+            .map_err(|e| FilesystemError::bad_input(e.to_string()))?;
+        Self::from_root_with(&root.dir.to_string_lossy(), root.read_only)
     }
 
     /// Read-only worktree-jump browse scope. The `id` is an opaque triple
@@ -90,7 +107,10 @@ impl WorkspaceScope {
                 "path is not a worktree of the current repository",
             ));
         }
-        Ok(Self { root: target_root })
+        Ok(Self {
+            root: target_root,
+            read_only: true,
+        })
     }
 
     /// Scope to a session's effective working directory (session-level dir →
@@ -113,6 +133,10 @@ impl WorkspaceScope {
     }
 
     fn from_root(dir: &str) -> Result<Self> {
+        Self::from_root_with(dir, false)
+    }
+
+    fn from_root_with(dir: &str, read_only: bool) -> Result<Self> {
         let root = Path::new(dir).canonicalize().map_err(|e| {
             FilesystemError::internal(format!("cannot resolve workspace root '{}': {}", dir, e))
         })?;
@@ -122,7 +146,12 @@ impl WorkspaceScope {
                 root.display()
             )));
         }
-        Ok(Self { root })
+        Ok(Self { root, read_only })
+    }
+
+    /// Whether this scope is browse-only (mutations rejected).
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     /// The canonical workspace root.
@@ -162,6 +191,11 @@ impl WorkspaceScope {
     /// destination), verifying containment via the nearest existing ancestor so
     /// a symlinked ancestor cannot smuggle the target outside the root.
     pub fn resolve_new(&self, rel: &str) -> Result<PathBuf> {
+        // Defense in depth: a scope built directly via `for_knowledge` (external)
+        // must reject mutations even if the caller skipped `resolve_writable`.
+        if self.read_only {
+            return Err(FilesystemError::bad_input("this view is read-only"));
+        }
         let joined = self.join_checked(rel)?;
 
         let mut ancestor = joined.as_path();
@@ -214,7 +248,13 @@ impl WorkspaceScope {
                 Component::Prefix(_) | Component::RootDir => {
                     return Err(FilesystemError::bad_input("path must be relative"))
                 }
-                _ => {}
+                // Reject `.` components: a bare "." (or "./", "a/./b") would
+                // canonicalize to the workspace root and let delete/rename target
+                // the root itself (the empty-string guard only catches "").
+                Component::CurDir => {
+                    return Err(FilesystemError::bad_input("path must not contain '.'"))
+                }
+                Component::Normal(_) => {}
             }
         }
         Ok(self.root.join(p))

@@ -6,7 +6,7 @@
 //! and retry machinery with no duplication.
 
 use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::types::AsyncJobStatus;
 
@@ -64,16 +64,55 @@ pub fn dispatch_injection(
         }
     };
 
+    // Resolve the session row once — it backs both the agent-id fallback and
+    // the ghost-turn gate below, so one lookup serves both.
+    let session_lookup = session_db.get_session(&session_id);
+
     // Resolve the parent agent id from the session row when not supplied.
     let parent_agent_id = match parent_agent_id {
         Some(id) => id,
-        None => session_db
-            .get_session(&session_id)
+        None => session_lookup
+            .as_ref()
             .ok()
-            .flatten()
-            .map(|s| s.agent_id)
+            .and_then(|row| row.as_ref())
+            .map(|s| s.agent_id.clone())
             .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
     };
+
+    // E2 / DELETE-3 / INCOG-3: the parent session can be deleted or burned
+    // (incognito close) after the job started. Injecting into a gone session
+    // would resurrect a *ghost turn* — append a user row and run a billed LLM
+    // turn against a session that no longer exists. Gate it before spawning the
+    // injection thread.
+    match session_lookup {
+        // Alive — proceed to inject as normal.
+        Ok(Some(_)) => {}
+        // Row genuinely gone: mark the job injected so `replay_pending_jobs()`
+        // won't keep retrying a dead session forever, then skip.
+        Ok(None) => {
+            app_info!(
+                "async_jobs",
+                "injection",
+                "Parent session {} gone (deleted/burned); marking job {} injected and skipping ghost turn",
+                &session_id,
+                &job_id
+            );
+            mark_injected_with_retry(&job_id);
+            return;
+        }
+        // Transient lookup failure: don't drop a real job on a momentary glitch.
+        // Proceed — `inject_and_run_parent` re-checks existence as a backstop,
+        // and an idle timeout there leaves the row un-injected for restart replay.
+        Err(e) => {
+            app_warn!(
+                "async_jobs",
+                "injection",
+                "Parent session {} lookup failed ({}); proceeding — inject backstop will re-check",
+                &session_id,
+                e
+            );
+        }
+    }
 
     // Deduplicate in-flight dispatches inside this process. Replay on startup
     // + a late EventBus retry for the same terminal job could otherwise fire
@@ -121,15 +160,37 @@ pub fn dispatch_injection(
             .build()
         {
             Ok(rt) => {
-                rt.block_on(crate::subagent::injection::inject_and_run_parent(
+                // I7: hand the mark-injected step to the injection pipeline as a
+                // callback so it fires only at the real terminal landing — even
+                // when the attempt is deferred and re-queued (the callback rides
+                // the PendingInjection through flush). An idle-timeout returns
+                // `Abandoned` WITHOUT firing it, so the row stays un-injected and
+                // `replay_pending_jobs()` retries it on the next restart
+                // (MISC-15: an abandoned injection must not look delivered).
+                let on_injected: crate::subagent::injection::OnInjected = {
+                    let jid = job_id_for_db.clone();
+                    Arc::new(move || mark_injected_with_retry(&jid))
+                };
+                let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
                     session_id,
                     parent_agent_id,
                     child_agent_id,
                     job_id,
                     push_message,
                     db_clone,
+                    Some(on_injected),
                 ));
-                mark_injected_with_retry(&job_id_for_db);
+                if matches!(
+                    outcome,
+                    crate::subagent::injection::InjectionOutcome::Abandoned
+                ) {
+                    app_warn!(
+                        "async_jobs",
+                        "injection",
+                        "Injection for job {} abandoned (parent never went idle); left pending for restart replay",
+                        &job_id_for_db
+                    );
+                }
             }
             Err(e) => app_error!(
                 "async_jobs",
@@ -272,6 +333,11 @@ pub fn build_tool_job_push_message(
         }
         AsyncJobStatus::Cancelling => {
             format!("Async tool \"{tool_name}\" is cancelling; wait for terminal notification.")
+        }
+        AsyncJobStatus::AwaitingApproval => {
+            // Non-terminal: never finalized, so it shouldn't reach the
+            // injection path. Defensive arm to keep the match exhaustive.
+            format!("Async tool \"{tool_name}\" is awaiting a human approval decision.")
         }
     };
     format!(

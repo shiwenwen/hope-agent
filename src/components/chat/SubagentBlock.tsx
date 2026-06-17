@@ -6,6 +6,7 @@ import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { loadAgents, statusConfig, TERMINAL_STATUSES } from "./subagentShared"
 import SubagentRunDetails from "./SubagentRunDetails"
 
@@ -60,7 +61,8 @@ export default function SubagentBlock({
 
   // Hydrate from DB on mount (handles re-mount after switching sessions)
   useEffect(() => {
-    getTransport().call<SubagentRun | null>("get_subagent_run", { runId })
+    getTransport()
+      .call<SubagentRun | null>("get_subagent_run", { runId })
       .then((run) => {
         if (!run) return
         setStatus(run.status)
@@ -119,10 +121,7 @@ export default function SubagentBlock({
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
       <div
-        className={cn(
-          "flex items-center rounded-lg transition-colors",
-          "hover:bg-secondary/80",
-        )}
+        className={cn("flex items-center rounded-lg transition-colors", "hover:bg-secondary/80")}
       >
         <button
           type="button"
@@ -144,9 +143,7 @@ export default function SubagentBlock({
             <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
           )}
           <IconTip label={nameTooltip || friendlyName}>
-            <span className="font-medium text-foreground truncate max-w-[40%]">
-              {friendlyName}
-            </span>
+            <span className="font-medium text-foreground truncate max-w-[40%]">{friendlyName}</span>
           </IconTip>
           <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
             {toolLabel}
@@ -214,16 +211,13 @@ export default function SubagentBlock({
         <div className="flex items-center gap-2 px-2.5 pb-1 text-[10px] text-muted-foreground">
           {modelUsed && <span>{modelUsed}</span>}
           {inputTokens != null && outputTokens != null && (
-            <span>{inputTokens.toLocaleString()}↑ {outputTokens.toLocaleString()}↓</span>
+            <span>
+              {inputTokens.toLocaleString()}↑ {outputTokens.toLocaleString()}↓
+            </span>
           )}
         </div>
       )}
-      <div
-        className={cn(
-          "overflow-hidden transition-all duration-200 ease-out",
-          expanded ? "max-h-[760px] opacity-100" : "max-h-0 opacity-0",
-        )}
-      >
+      <AnimatedCollapse open={expanded} unmountOnExit={false}>
         <div className="space-y-2 px-2.5 pb-2 pt-0.5 max-h-[760px] overflow-y-auto">
           <SubagentRunDetails
             runId={runId}
@@ -246,7 +240,7 @@ export default function SubagentBlock({
             </div>
           )}
         </div>
-      </div>
+      </AnimatedCollapse>
     </div>
   )
 }

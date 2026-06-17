@@ -4,9 +4,10 @@ use crate::cron;
 use crate::globals::AppState;
 use crate::globals::{
     ACP_MANAGER, APP_LOGGER, CACHED_AGENT, CHANNEL_CANCELS, CHANNEL_DB, CHANNEL_REGISTRY,
-    CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, IDLE_EXTRACT_HANDLES, LOG_DB, MEMORY_BACKEND,
-    PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS,
+    CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, IDLE_EXTRACT_HANDLES, KNOWLEDGE_DB, LOG_DB,
+    MEMORY_BACKEND, PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS,
 };
+use crate::knowledge::KnowledgeRegistry;
 use crate::logging::{self, AppLogger, LogDB};
 use crate::memory;
 use crate::paths;
@@ -69,6 +70,30 @@ pub fn is_desktop() -> bool {
     runtime_role() == Some("desktop")
 }
 
+/// True iff the process started as the ACP stdio bridge (`hope-agent acp`).
+/// ACP runs over stdio for an editor client (Zed etc.); approvals can only
+/// reach a human if that client declared a permission capability (Epic D7).
+/// **Must use this, not `ChatSource`** — ACP turns reuse `ChatSource::Http`
+/// ([`crate::acp`]), so source alone can't distinguish ACP from a real HTTP
+/// client (D1 risk note).
+pub fn is_acp() -> bool {
+    runtime_role() == Some("acp")
+}
+
+/// Whether an interactive, approval-capable client is attached to this
+/// process. Drives the unattended-approval surface check (Epic D): a headless
+/// `server` with no web client and no IM-attached session has no one to answer
+/// an `Ask`. Desktop always counts (the window + OS notification surface always
+/// exist); `server` mode is attended while ≥1 client holds the `/ws/events`
+/// stream — that's the channel `approval_required` broadcasts reach, and its
+/// live count is already maintained by `server_status::events_ws_count`
+/// (no extra wiring). ACP does NOT use this — it gates on the client's declared
+/// permission capability instead.
+pub fn desktop_client_present() -> bool {
+    is_desktop()
+        || crate::server_status::events_ws_counter().load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
 /// Initialize all global singletons (databases, OnceLocks, channel registry,
 /// ACP control plane, orphan cleanup, embedder, welcome log). Idempotent —
 /// the second call is a no-op so dev hot-reload and accidental double-call
@@ -100,6 +125,14 @@ pub fn init_runtime(role: &'static str) {
     if let Err(e) = paths::ensure_dirs() {
         eprintln!("[runtime_lock] ensure_dirs failed: {e}");
     }
+
+    // Pre-warm the user's login-shell environment snapshot on a background
+    // thread so the first `exec` doesn't pay the one-time (~1s) cost of sourcing
+    // the shell on its hot path. Unix-only; Windows inherits the process env.
+    #[cfg(unix)]
+    std::thread::spawn(|| {
+        let _ = crate::tools::exec::login_shell_env();
+    });
 
     // Elect Primary / Secondary across the data dir. Tier is captured
     // here but logged via `app_info!` further down once APP_LOGGER is
@@ -137,6 +170,22 @@ pub fn init_runtime(role: &'static str) {
     }
     let _ = PROJECT_DB.set(project_db);
 
+    // Initialize the KnowledgeRegistry (also shares the SessionDB connection).
+    // Its migration creates `knowledge_bases` + `session/project_knowledge_bases`
+    // before any command or tool touches them.
+    let knowledge_db = Arc::new(KnowledgeRegistry::new(session_db.clone()));
+    if let Err(e) = knowledge_db.migrate() {
+        eprintln!("[FATAL] Cannot run knowledge DB migration: {e}");
+        panic!("knowledge DB migration failed: {e}");
+    }
+    let _ = KNOWLEDGE_DB.set(knowledge_db);
+
+    // Open the knowledge index cache (index.db) + install the note embedder.
+    // Non-fatal: notes degrade to FTS-only / no search if this fails.
+    if let Err(e) = crate::knowledge::index::init_index_db() {
+        eprintln!("[runtime] knowledge index init failed: {e}");
+    }
+
     // Initialize the LogDB and AppLogger. `LogDB` captures the db path
     // internally so we don't need to keep it around in this scope.
     let log_db_path = fatal(logging::db_path(), "Cannot resolve log database path");
@@ -153,6 +202,16 @@ pub fn init_runtime(role: &'static str) {
 
     // Store logger globally for access from non-State contexts
     let _ = APP_LOGGER.set(logger.clone());
+
+    // First-run seed: give a fresh install one usable knowledge space out of the
+    // box (idempotent via a sentinel — never recreated if the user deletes it).
+    // Placed after the logger so its app_info!/app_warn! land; registry + index
+    // (set above) are the only other prerequisites. Primary-only — the sentinel
+    // check isn't atomic across instances, so a Secondary booting a fresh shared
+    // data dir could otherwise race the Primary and seed a duplicate space.
+    if crate::runtime_lock::is_primary() {
+        crate::knowledge::service::ensure_default_knowledge_base();
+    }
 
     recover_startup_session_state(&session_db, tier);
 
@@ -180,75 +239,15 @@ pub fn init_runtime(role: &'static str) {
     let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 
-    // Auto-initialize memory embedding model if enabled in config
-    if let Some(backend) = MEMORY_BACKEND.get() {
-        match crate::config::load_config() {
-            Ok(store) if store.memory_embedding.enabled => {
-                match memory::resolve_memory_embedding_config(
-                    &store.memory_embedding,
-                    &store.embedding_models,
-                )
-                .and_then(|resolved| {
-                    resolved
-                        .map(|(_, config, _)| memory::create_embedding_provider(&config))
-                        .transpose()
-                }) {
-                    Ok(Some(emb_provider)) => {
-                        backend.set_embedder(emb_provider);
-                        logger.log(
-                            "info",
-                            "memory",
-                            "embedding",
-                            "Memory embedding provider auto-initialized on startup",
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        logger.log(
-                            "warn",
-                            "memory",
-                            "embedding",
-                            &format!("Failed to auto-initialize memory embedding provider: {}", e),
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                }
-            }
-            Ok(store) if store.embedding.enabled => {
-                match memory::create_embedding_provider(&store.embedding) {
-                    Ok(emb_provider) => {
-                        backend.set_embedder(emb_provider);
-                        logger.log(
-                            "info",
-                            "memory",
-                            "embedding",
-                            "Embedding provider auto-initialized on startup",
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                    Err(e) => {
-                        logger.log(
-                            "warn",
-                            "memory",
-                            "embedding",
-                            &format!("Failed to auto-initialize embedding provider: {}", e),
-                            None,
-                            None,
-                            None,
-                        );
-                    }
-                }
-            }
-            _ => {} // Embedding not enabled or config load failed — skip silently
-        }
-    }
+    // Memory embedding provider initialization is DEFERRED to
+    // `start_background_tasks` / `start_minimal_background_tasks` (see
+    // `spawn_embedding_init`). Constructing the local ONNX embedder
+    // (`fastembed::TextEmbedding::try_new`) takes 300ms–2s and may download
+    // model weights on first run — far too heavy for this synchronous,
+    // pre-window init path. The backend tolerates a missing embedder (recall
+    // degrades to FTS-only until it lands) and the config hot-reload path
+    // (`tools::settings::trigger_backend_hot_reload`) sets the embedder
+    // independently, so deferring is safe.
 
     // Initialize the CronDB (scheduler started in start_background_tasks)
     let cron_db_path = fatal(paths::cron_db_path(), "Cannot resolve cron database path");
@@ -458,6 +457,9 @@ pub fn build_app_state() -> AppState {
     let project_db = crate::require_project_db()
         .expect("init_runtime contract")
         .clone();
+    let knowledge_db = crate::require_knowledge_db()
+        .expect("init_runtime contract")
+        .clone();
     let log_db = crate::require_log_db()
         .expect("init_runtime contract")
         .clone();
@@ -491,6 +493,7 @@ pub fn build_app_state() -> AppState {
         current_agent_id: Mutex::new(crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
         session_db,
         project_db,
+        knowledge_db,
         chat_cancel: Arc::new(AtomicBool::new(false)),
         log_db,
         logger,
@@ -668,6 +671,57 @@ fn spawn_hooks_config_listener() {
     });
 }
 
+/// Apply the `prevent_sleep` user setting and keep it in sync with config
+/// changes. Holds an OS sleep assertion (macOS `caffeinate` / Linux logind
+/// inhibitor / Windows `ES_SYSTEM_REQUIRED`) for the lifetime of the setting.
+/// Primary-only: sleep prevention is a host-level resource, so only one process
+/// should hold the assertion — secondary instances must not spawn duplicates.
+fn spawn_keep_awake_listener() {
+    // `keep_awake::apply` does blocking work (fork/exec a helper + waitpid on
+    // Unix, thread join on Windows), so every call is offloaded to a blocking
+    // thread and never run on a tokio worker. The loop also tracks the last
+    // applied value, so unrelated `config:changed` events (which carry no
+    // category we can cheaply discriminate on) don't re-enter `apply` — this
+    // avoids a spawn/log storm when the OS helper is unavailable.
+    let Some(bus) = crate::globals::get_event_bus() else {
+        // No hot-reload without a bus; still honour the current setting once,
+        // off any runtime thread.
+        let enabled = crate::config::cached_config().prevent_sleep;
+        std::thread::spawn(move || crate::platform::keep_awake::apply(enabled));
+        app_warn!(
+            "platform",
+            "keep_awake",
+            "EventBus not initialized — sleep-prevention hot-reload disabled"
+        );
+        return;
+    };
+    // Subscribe before the initial apply so a `config:changed` racing startup is
+    // buffered for the loop rather than lost.
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        let mut last = crate::config::cached_config().prevent_sleep;
+        let _ = tokio::task::spawn_blocking(move || crate::platform::keep_awake::apply(last)).await;
+        loop {
+            match rx.recv().await {
+                Ok(event) if event.name != "config:changed" => continue,
+                Ok(_) => {} // config:changed
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {} // converge
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+            // Cache is refreshed before `config:changed` fires, so this sees the
+            // new value. Only act on an actual transition.
+            let desired = crate::config::cached_config().prevent_sleep;
+            if desired != last {
+                last = desired;
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::platform::keep_awake::apply(desired)
+                })
+                .await;
+            }
+        }
+    });
+}
+
 /// Whether a `config:changed` event should rebuild the hooks registry.
 fn hooks_config_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
     event.name == "config:changed"
@@ -716,16 +770,108 @@ fn menu_resync_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
 /// actions on the same subsystems (`/api/cron/jobs/{id}/run` via atomic
 /// SQL claim, `/api/dreaming/run`, channel `start_account` button) are
 /// tier-agnostic and continue to work in Secondary processes.
+/// Construct the memory embedding provider off the critical path and install
+/// it via `set_embedder`. Heavy (ONNX init + possible first-run model
+/// download), so it runs on a blocking thread. No-op when embedding is
+/// disabled in config or the backend isn't initialized. Idempotent w.r.t. the
+/// config hot-reload path (`trigger_backend_hot_reload`) — both call
+/// `set_embedder`, last write wins; `load_config()` reads the latest config at
+/// task-run time, so the race window is sub-second and self-heals on any later
+/// config save.
+fn spawn_embedding_init() {
+    tokio::task::spawn_blocking(|| {
+        let Some(backend) = MEMORY_BACKEND.get() else {
+            return;
+        };
+        let Ok(store) = crate::config::load_config() else {
+            return;
+        };
+
+        // New selector (memory_embedding) takes priority; legacy single
+        // `embedding` config is the fallback — mirrors the old init_runtime
+        // branch order exactly.
+        let provider = if store.memory_embedding.enabled {
+            match memory::resolve_memory_embedding_config(
+                &store.memory_embedding,
+                &store.embedding_models,
+            )
+            .and_then(|resolved| {
+                resolved
+                    .map(|(_, config, _)| memory::create_embedding_provider(&config))
+                    .transpose()
+            }) {
+                Ok(p) => p,
+                Err(e) => {
+                    app_warn!(
+                        "memory",
+                        "embedding",
+                        "Failed to auto-initialize memory embedding provider (deferred): {}",
+                        e
+                    );
+                    None
+                }
+            }
+        } else if store.embedding.enabled {
+            match memory::create_embedding_provider(&store.embedding) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    app_warn!(
+                        "memory",
+                        "embedding",
+                        "Failed to auto-initialize embedding provider (deferred): {}",
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(p) = provider {
+            backend.set_embedder(p);
+            app_info!(
+                "memory",
+                "embedding",
+                "Memory embedding provider initialized (deferred, off critical path)"
+            );
+        }
+    });
+}
+
 pub async fn start_background_tasks() {
     let primary = crate::runtime_lock::is_primary();
 
     // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
 
+    // Tier-agnostic: session-lifecycle cleanup fan-out (delete/purge → deny
+    // pending approvals, cancel jobs, drop IM pending, clear rules). NOT inside
+    // spawn_channel_listeners — server / ACP have no channel registry but still
+    // delete sessions.
+    crate::session::cleanup_watcher::spawn_session_cleanup_watcher();
+
     // Tier-agnostic: per-process in-memory hooks registry + hot-reload.
     spawn_hooks_config_listener();
 
+    // Memory embedding provider: deferred off init_runtime's synchronous
+    // pre-window path (ONNX init + possible model download is 300ms–2s).
+    // Per-process in-memory state, tier-agnostic.
+    spawn_embedding_init();
+
+    // Background weather cache refresh — desktop UI only. Moved here from
+    // src-tauri setup.rs so it shares the ambient runtime instead of spawning
+    // its own OS thread + tokio Runtime. Gated on desktop to skip the loop
+    // entirely in server / ACP (refresh also self-checks weather_enabled).
+    if is_desktop() {
+        crate::weather::start_background_refresh();
+    }
+
     if primary {
+        // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
+        // a single process owns the OS assertion; reacts to config changes.
+        spawn_keep_awake_listener();
+
         // Cron scheduler self-hosts a dedicated OS thread with its own tokio
         // runtime (see scheduler.rs). Primary-only because the periodic
         // tick's `claim_scheduled_job_for_execution` would double-claim
@@ -734,6 +880,11 @@ pub async fn start_background_tasks() {
         if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
             let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
+
+        // Headless auto-update: periodic check + optional silent pre-download.
+        // Primary-only (avoids N processes racing to download/stage the same
+        // build) and a no-op on desktop (the JS plugin-updater owns that path).
+        crate::updater::auto_check::spawn_auto_update_loop();
 
         // One-time migration: legacy flat-layout plan files
         // (`<plans>/plan-{short_id}-...md`) → per-session subdirs
@@ -915,6 +1066,24 @@ pub async fn start_background_tasks() {
                         }
                     });
                 }
+                // Knowledge maintenance idle trigger (WS6) — same idle clock.
+                let mcfg = crate::config::cached_config().knowledge_maintenance.clone();
+                if crate::knowledge::maintenance::check_idle_trigger(&mcfg) {
+                    tokio::spawn(async {
+                        let report = crate::knowledge::maintenance::manual_run(
+                            crate::knowledge::maintenance::MaintenanceTrigger::Idle,
+                        )
+                        .await;
+                        app_info!(
+                            "knowledge",
+                            "maintenance::idle_trigger",
+                            "idle-trigger cycle: generated={}, autoApplied={}, note={:?}",
+                            report.generated,
+                            report.auto_applied,
+                            report.note,
+                        );
+                    });
+                }
             }
         });
 
@@ -922,6 +1091,10 @@ pub async fn start_background_tasks() {
         // fires `manual_run(Cron)` on the configured schedule. Re-evaluates
         // on every `config:changed { category: "dreaming" }`.
         crate::memory::dreaming::spawn_dreaming_cron_loop();
+
+        // Knowledge maintenance cron-trigger loop (WS6). Reads
+        // `knowledge_maintenance.cron_trigger`; off unless the user enables it.
+        crate::knowledge::maintenance::spawn_maintenance_cron_loop();
 
         // Optional skill draft consolidation loop. Re-reads the
         // auto-review config after every interval or config change.
@@ -947,6 +1120,12 @@ pub async fn start_background_tasks() {
                 }
             }
         });
+
+        // Knowledge base index: reconcile every KB against disk (catches edits
+        // made while the app was off) and start a live watcher per KB root so
+        // external-vault edits stay indexed (D6).
+        crate::knowledge::index::spawn_startup_reconcile();
+        crate::knowledge::watcher::start_all_watchers();
 
         // One-shot reconciler for orphan project-scoped memory rows. The
         // delete_project cascade touches both `session.db` and `memory.db` and
@@ -1008,11 +1187,19 @@ pub async fn start_minimal_background_tasks() {
     // EventBus listeners — multi-subscriber-safe, tier-agnostic.
     spawn_channel_listeners();
 
+    // Session-lifecycle cleanup fan-out — tier-agnostic, required in
+    // server / ACP too (they delete sessions but have no channel registry).
+    crate::session::cleanup_watcher::spawn_session_cleanup_watcher();
+
     // Hooks registry initial load + hot-reload. Required in server / ACP modes
     // too (this fn is their only background-task entry): without it the global
     // registry stays empty and every dispatch is a no-op, contradicting the
     // "hooks run in desktop / server / ACP alike" contract.
     spawn_hooks_config_listener();
+
+    // Memory embedding provider deferred (per-process, tier-agnostic). See
+    // start_background_tasks for rationale.
+    spawn_embedding_init();
 
     if primary {
         // One-shot ask_user table cleanup. Primary-only because Secondary

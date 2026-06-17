@@ -19,15 +19,32 @@ impl RecapDb {
         let conn = Connection::open(db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // One-time cache-schema upgrade: `session_facets` gained a `language`
+        // column + composite (session_id, language) key so facets can be cached
+        // per output language. It is a pure rebuildable cache, so on the
+        // pre-language shape we drop and recreate rather than migrate.
+        let facets_has_language: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('session_facets') WHERE name = 'language'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if facets_has_language == 0 {
+            conn.execute_batch("DROP TABLE IF EXISTS session_facets;")?;
+        }
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS session_facets (
-                session_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                language TEXT NOT NULL DEFAULT '',
                 last_message_ts TEXT NOT NULL,
                 message_count INTEGER NOT NULL,
                 analysis_model TEXT NOT NULL,
                 facet_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                schema_version INTEGER NOT NULL DEFAULT 1
+                schema_version INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (session_id, language)
             );
             CREATE INDEX IF NOT EXISTS idx_facets_ts ON session_facets(last_message_ts);
 
@@ -65,6 +82,7 @@ impl RecapDb {
         session_id: &str,
         last_message_ts: &str,
         analysis_model: &str,
+        language: &str,
     ) -> Result<Option<SessionFacet>> {
         let conn = self
             .conn
@@ -75,13 +93,15 @@ impl RecapDb {
              WHERE session_id = ?1
                AND last_message_ts = ?2
                AND analysis_model = ?3
-               AND schema_version = ?4",
+               AND schema_version = ?4
+               AND language = ?5",
         )?;
         let mut rows = stmt.query(params![
             session_id,
             last_message_ts,
             analysis_model,
-            RECAP_SCHEMA_VERSION as i64
+            RECAP_SCHEMA_VERSION as i64,
+            language
         ])?;
         if let Some(row) = rows.next()? {
             let json: String = row.get(0)?;
@@ -102,7 +122,7 @@ impl RecapDb {
         let mut stmt = conn.prepare(
             "SELECT facet_json FROM session_facets
              WHERE session_id = ?1
-             ORDER BY last_message_ts DESC LIMIT 1",
+             ORDER BY last_message_ts DESC, created_at DESC LIMIT 1",
         )?;
         let mut rows = stmt.query(params![session_id])?;
         if let Some(row) = rows.next()? {
@@ -120,6 +140,7 @@ impl RecapDb {
         last_message_ts: &str,
         message_count: i64,
         analysis_model: &str,
+        language: &str,
     ) -> Result<()> {
         let conn = self
             .conn
@@ -129,9 +150,9 @@ impl RecapDb {
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO session_facets
-                 (session_id, last_message_ts, message_count, analysis_model, facet_json, created_at, schema_version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(session_id) DO UPDATE SET
+                 (session_id, language, last_message_ts, message_count, analysis_model, facet_json, created_at, schema_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(session_id, language) DO UPDATE SET
                  last_message_ts = excluded.last_message_ts,
                  message_count   = excluded.message_count,
                  analysis_model  = excluded.analysis_model,
@@ -140,6 +161,7 @@ impl RecapDb {
                  schema_version  = excluded.schema_version",
             params![
                 facet.session_id,
+                language,
                 last_message_ts,
                 message_count,
                 analysis_model,

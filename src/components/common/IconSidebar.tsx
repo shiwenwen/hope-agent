@@ -27,6 +27,7 @@ import {
   CalendarDays,
   BarChart3,
   ClipboardList,
+  Library,
   Server,
   Sun,
   Moon,
@@ -51,6 +52,7 @@ interface IconSidebarProps {
     | "calendar"
     | "dashboard"
     | "plans"
+    | "knowledge"
   onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
@@ -62,6 +64,7 @@ interface IconSidebarProps {
   onOpenCalendar: () => void
   onOpenDashboard: () => void
   onOpenPlans: () => void
+  onOpenKnowledge: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
   onMarkAllRead?: () => void
@@ -80,6 +83,7 @@ export default function IconSidebar({
   onOpenCalendar,
   onOpenDashboard,
   onOpenPlans,
+  onOpenKnowledge,
   userAvatar,
   totalUnreadCount,
   onMarkAllRead,
@@ -88,7 +92,8 @@ export default function IconSidebar({
   const { theme, cycleTheme } = useTheme()
   const [showLangMenu, setShowLangMenu] = useState(false)
   const { pendingUpdate } = useDesktopUpdateStore()
-  const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
+  const { draftCount: skillDraftCount } = useDraftSkillsStore()
+  const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
 
   return (
     <div className="w-[76px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
@@ -149,6 +154,24 @@ export default function IconSidebar({
               </ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
+          {/* Knowledge Space entry — grouped directly under Conversations */}
+          <div className="w-full flex justify-center">
+            <IconTip label={t("knowledge.title", "Knowledge Space")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "knowledge"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenKnowledge}
+              >
+                <Library className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
         </div>
 
         <div className="my-1 h-px w-6 bg-border-soft/80" />
@@ -228,8 +251,10 @@ export default function IconSidebar({
                 <Puzzle className="h-4 w-4" />
               </Button>
             </IconTip>
-            {skillDraftUnseen > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 z-10 w-2 h-2 rounded-full bg-amber-500 border-2 border-background pointer-events-none animate-in zoom-in-0 duration-200" />
+            {skillDraftCount > 0 && (
+              <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
+                {skillDraftBadgeLabel}
+              </span>
             )}
           </div>
         </div>
@@ -252,8 +277,6 @@ export default function IconSidebar({
             </Button>
           </IconTip>
         </div>
-
-        <div className="my-1 h-px w-6 bg-border-soft/60" />
 
         {/* Calendar / Scheduled Tasks entry */}
         <div className="w-full flex justify-center mt-1">

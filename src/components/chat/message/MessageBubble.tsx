@@ -266,6 +266,12 @@ function MessageBubbleInner({
   const hasTextContent = hasRenderableTextContent(msg)
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
   const hasToolbarActions = hasTextContent || hasDetails
+  // Always-visible total turn duration, shown at the message bottom once the
+  // assistant turn has finished (the per-step / per-group times live above).
+  const totalDurationText =
+    msg.role === "assistant" && !(loading && isLast) && msg.usage?.durationMs != null
+      ? formatDuration(msg.usage.durationMs)
+      : null
   const toolbarButtonClass =
     "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
   const renderToggleLabel =
@@ -612,9 +618,15 @@ function MessageBubbleInner({
               <FileAttachments files={messageFiles} sessionId={sessionId} />
             </div>
           )}
-          {msg.timestamp && (
+          {(msg.timestamp || totalDurationText) && (
             <div className="ml-7 mt-0.5 text-[10px] leading-none text-muted-foreground/60 select-none">
-              {formatMessageTime(msg.timestamp)}
+              {msg.timestamp ? formatMessageTime(msg.timestamp) : null}
+              {totalDurationText && (
+                <span className="text-muted-foreground/50">
+                  {msg.timestamp ? " · " : ""}
+                  {t("tools.elapsed", { time: totalDurationText })}
+                </span>
+              )}
             </div>
           )}
           <div
@@ -744,14 +756,20 @@ function MessageBubbleInner({
           {messageFiles.length > 0 && (
             <FileAttachments files={messageFiles} sessionId={sessionId} />
           )}
-          {msg.timestamp && (
+          {(msg.timestamp || totalDurationText) && (
             <div
               className={cn(
                 "mt-1 text-[10px] leading-none select-none",
                 isUserAligned ? "text-foreground/40 text-right" : "text-muted-foreground/60",
               )}
             >
-              {formatMessageTime(msg.timestamp)}
+              {msg.timestamp ? formatMessageTime(msg.timestamp) : null}
+              {totalDurationText && (
+                <span className="text-muted-foreground/50">
+                  {msg.timestamp ? " · " : ""}
+                  {t("tools.elapsed", { time: totalDurationText })}
+                </span>
+              )}
             </div>
           )}
         </div>

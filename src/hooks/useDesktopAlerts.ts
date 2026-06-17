@@ -51,7 +51,9 @@ export function useDesktopAlerts() {
     ): () => void {
       return transport.listen(event, (raw) => {
         try {
-          const result = build(parsePayload<T>(raw))
+          const parsed = parsePayload<T>(raw)
+          if (!parsed) return
+          const result = build(parsed)
           if (result) notifyIfBackground(result.title, result.body)
         } catch (e) {
           logger.error("ui", source, `Bad ${event} payload`, e)

@@ -212,9 +212,25 @@ fn codex_noop_provider_id(active: &ActiveModelUpdate) -> Option<String> {
 }
 
 fn codex_provider_needs_backfill(provider: &ProviderConfig) -> bool {
-    default_codex_model_ids()
+    let defaults = default_codex_model_ids();
+    // Missing any default model → needs backfill.
+    if defaults
         .iter()
         .any(|id| !provider.models.iter().any(|m| &m.id == id))
+    {
+        return true;
+    }
+    // All defaults present but not in canonical order → needs reorder. Older
+    // configs appended newly-added defaults (e.g. gpt-5.5) to the tail; without
+    // this the noop short-circuit skips ensure_codex_provider and the newest
+    // model stays buried at the bottom of the picker forever.
+    let current: Vec<&str> = provider
+        .models
+        .iter()
+        .map(|m| m.id.as_str())
+        .filter(|id| defaults.contains(id))
+        .collect();
+    current.as_slice() != defaults
 }
 
 fn default_codex_model_ids() -> &'static [&'static str] {
@@ -231,7 +247,8 @@ fn default_codex_model_ids() -> &'static [&'static str] {
     ]
 }
 
-fn new_provider_from_add_request(config: ProviderConfig) -> ProviderConfig {
+fn new_provider_from_add_request(mut config: ProviderConfig) -> ProviderConfig {
+    config.sanitize();
     let mut provider = ProviderConfig::new(
         config.name,
         config.api_type,
@@ -242,6 +259,12 @@ fn new_provider_from_add_request(config: ProviderConfig) -> ProviderConfig {
     provider.auth_profiles = config.auth_profiles;
     provider.thinking_style = config.thinking_style;
     provider.allow_private_network = config.allow_private_network;
+    // Carry over the request's own values rather than letting them silently
+    // fall back to `ProviderConfig::new` defaults — otherwise a custom
+    // User-Agent (already trimmed by sanitize) or `enabled: false` from the add
+    // request would be dropped, diverging from the update path.
+    provider.user_agent = config.user_agent;
+    provider.enabled = config.enabled;
     provider
 }
 
@@ -287,8 +310,9 @@ pub(crate) fn add_and_activate_provider_in_config(
 
 pub(crate) fn update_provider_in_config(
     store: &mut AppConfig,
-    config: ProviderConfig,
+    mut config: ProviderConfig,
 ) -> ProviderWriteResult<()> {
+    config.sanitize();
     let Some(existing) = store.providers.iter_mut().find(|p| p.id == config.id) else {
         return Err(ProviderWriteError::NotFound(config.id));
     };

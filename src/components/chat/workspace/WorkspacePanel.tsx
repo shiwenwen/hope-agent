@@ -1,24 +1,41 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import {
+  BarChart3,
+  BookText,
   Bot,
+  Brain,
   CalendarClock,
+  Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CheckCircle2,
   CircleAlert,
+  Clock,
+  Copy,
   Cpu,
+  Database,
   EyeOff,
+  FileText,
   Files,
   FolderGit2,
   FolderOpen,
+  Gauge,
   GitCompare,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
   Globe,
   HardDrive,
+  Hash,
   LayoutDashboard,
+  Loader2,
+  Lock,
   MessageCircle,
+  MessageSquare,
+  Monitor,
   Radio,
   Search,
   Server,
@@ -32,11 +49,30 @@ import { Button } from "@/components/ui/button"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { IconTip } from "@/components/ui/tooltip"
 import { basename } from "@/lib/path"
+import { logger } from "@/lib/logger"
+import { useAppVersion } from "@/lib/appMeta"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
-import type { ActiveModel, FileChangeMetadata, Message, SessionMeta, SessionMode } from "@/types/chat"
+import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "../chatUtils"
+import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
+import {
+  compactContextNow,
+  compactResultMessage,
+  computeCacheStats,
+  resolveCurrentModel,
+  runViewContext,
+} from "../sessionStatus"
+import type { CommandResult } from "../slash-commands/types"
+import type {
+  ActiveModel,
+  AvailableModel,
+  FileChangeMetadata,
+  Message,
+  SessionMeta,
+  SessionMode,
+} from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
@@ -50,7 +86,9 @@ import type { SessionUrlSource } from "./useSessionUrlSources"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
+import { useSessionKnowledge } from "./useSessionKnowledge"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
+import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import {
   formatGitRef,
   resolveWorkspaceEnvironmentStatus,
@@ -77,6 +115,16 @@ interface WorkspacePanelProps {
   permissionMode?: SessionMode
   planState?: PlanModeState
   activeModel?: ActiveModel | null
+  /** 会话卡（复刻状态悬浮窗）所需:Agent 名 / Think 档 / 模型解析 / 会话动作回调。 */
+  agentName?: string
+  reasoningEffort?: string
+  availableModels?: AvailableModel[]
+  currentAgentId?: string
+  /** 「查看上下文」把 `/context` 结果回派给 ChatScreen（与悬浮窗共用入口）。 */
+  onCommandAction?: (result: CommandResult) => void
+  /** 「查看系统提示词」—— 复用 ChatScreen 的 loadSystemPrompt。 */
+  onViewSystemPrompt?: () => void
+  systemPromptLoading?: boolean
   /** 无痕会话:跳过后端聚合,只用 live tail（守「关闭即焚」）。 */
   incognito?: boolean
   /** 当前会话是否正在跑一轮:true→false 跳变时面板重新拉后端聚合。 */
@@ -113,7 +161,7 @@ function WorkspaceSection({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/80 bg-card/95 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-border/80 bg-surface-floating shadow-sm">
       <button
         type="button"
         aria-expanded={expanded}
@@ -354,6 +402,276 @@ function gitSyncLabel(t: ReturnType<typeof useTranslation>["t"], git: WorkspaceG
   }
 }
 
+/** Shared action-button styling for the session card (matches the status popover). */
+const SESSION_ACTION_BTN =
+  "rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-50"
+
+
+/**
+ * 会话卡 —— 把标题栏状态悬浮窗的能力「复刻一份」到工作台。模型 / 认证、上下文用量条
+ * + 压缩 / 查看上下文、Agent 作为核心常驻;缓存、会话名 / ID、消息数、思考模式、更新
+ * 时间、查看系统提示词折进「展开更多」。动作走与悬浮窗完全相同的 transport
+ * (`compact_context_now` / `/context` / `get_system_prompt`);上下文数值与悬浮窗共用
+ * `computeContextUsage`,两处永不漂移。App 版本不在此卡(归「环境」卡)。
+ */
+function SessionSection({
+  sessionId,
+  sessionMeta,
+  agentName,
+  reasoningEffort,
+  activeModel,
+  availableModels,
+  messages,
+  currentAgentId,
+  turnActive,
+  onCommandAction,
+  onViewSystemPrompt,
+  systemPromptLoading,
+}: {
+  sessionId?: string | null
+  sessionMeta?: SessionMeta | null
+  agentName?: string
+  reasoningEffort?: string
+  activeModel?: ActiveModel | null
+  availableModels?: AvailableModel[]
+  messages: Message[]
+  currentAgentId?: string
+  turnActive?: boolean
+  onCommandAction?: (result: CommandResult) => void
+  onViewSystemPrompt?: () => void
+  systemPromptLoading?: boolean
+}) {
+  const { t } = useTranslation()
+  const [showMore, setShowMore] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Clear the "copied" reset timer on unmount so it can't fire after the card
+  // is closed / the session switched (leaked timer + stale setState).
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+  }, [])
+
+  const currentModel = useMemo(
+    () => resolveCurrentModel(activeModel, availableModels),
+    [activeModel, availableModels],
+  )
+  const usage = useMemo(
+    () => (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null),
+    [currentModel, messages],
+  )
+  const cache = useMemo(() => computeCacheStats(messages), [messages])
+
+  const modelLabel = currentModel
+    ? `${currentModel.providerName}/${currentModel.modelName || currentModel.modelId}`
+    : activeModel?.modelId || "—"
+  const authLabel = (currentModel?.apiType ?? "") === "codex" ? "oauth" : "api-key"
+  const sessionTitle = sessionMeta?.title
+    ? sessionMeta.title
+    : sessionId
+      ? sessionId.slice(0, 8)
+      : t("chat.statusNewSession")
+
+  const handleCopyId = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      await navigator.clipboard.writeText(sessionId)
+    } catch (e) {
+      logger.error("ui", "WorkspaceSession::copyId", "Copy session id failed", e)
+      return
+    }
+    setCopied(true)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 1500)
+  }, [sessionId])
+
+  const handleCompact = useCallback(async () => {
+    if (!sessionId) return
+    setCompacting(true)
+    try {
+      toast.success(compactResultMessage(t, await compactContextNow(sessionId)))
+    } catch (e) {
+      logger.error("ui", "WorkspaceSession::compact", "Compact failed", e)
+      toast.error(t("chat.compactFailed"))
+    } finally {
+      setCompacting(false)
+    }
+  }, [sessionId, t])
+
+  const handleViewContext = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      onCommandAction?.(await runViewContext(sessionId, currentAgentId))
+    } catch (e) {
+      logger.error("ui", "WorkspaceSession::viewContext", "View context failed", e)
+    }
+  }, [sessionId, currentAgentId, onCommandAction])
+
+  return (
+    <WorkspaceSection title={t("workspace.sectionSession", "会话")} icon={MessageCircle}>
+      <div className="space-y-2">
+        {/* 核心 — 模型 + 认证 */}
+        <div className="space-y-0.5">
+          <EnvRow
+            icon={Brain}
+            label={t("chat.statusModel")}
+            value={modelLabel}
+            detail={authLabel}
+            title={modelLabel}
+          />
+        </div>
+
+        {/* 核心 — 上下文用量条 + 压缩 / 查看上下文 */}
+        {usage ? (
+          <div className="space-y-1.5 rounded-md border border-border/40 bg-secondary/25 px-2.5 py-2">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">{t("chat.statusContext")}</span>
+              <span className="font-medium tabular-nums text-foreground">
+                {usage.usedK}k/{usage.ctxK}k ({usage.pct}%)
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  contextUsageBarClass(usage.pct),
+                )}
+                style={{ width: `${Math.min(usage.pct, 100)}%` }}
+              />
+            </div>
+            <div className="flex gap-1.5 pt-0.5">
+              {usage.usedTokens > 0 ? (
+                <button
+                  type="button"
+                  className={cn(SESSION_ACTION_BTN, "flex-1")}
+                  disabled={compacting || turnActive}
+                  onClick={handleCompact}
+                >
+                  {compacting ? t("chat.compacting") : t("chat.compactNow")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={cn(SESSION_ACTION_BTN, "inline-flex flex-1 items-center justify-center gap-1")}
+                onClick={handleViewContext}
+              >
+                <BarChart3 className="h-3 w-3" />
+                {t("chat.viewContext", "View context")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* 核心 — Agent */}
+        <div className="space-y-0.5">
+          <EnvRow icon={Bot} label={t("chat.statusAgent")} value={agentName || t("chat.mainAgent")} />
+        </div>
+
+        {/* 展开更多 / 收起 */}
+        <button
+          type="button"
+          aria-expanded={showMore}
+          onClick={() => setShowMore((v) => !v)}
+          className="flex w-full items-center justify-center gap-1 rounded-md py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground"
+        >
+          {showMore ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {showMore ? t("workspace.sessionShowLess", "收起") : t("workspace.sessionShowMore", "展开更多")}
+        </button>
+
+        <AnimatedCollapse open={showMore}>
+          <div className="space-y-0.5 pt-0.5">
+            {cache ? (
+              <EnvRow
+                icon={Database}
+                label={t("chat.statusCache")}
+                value={formatCacheUsageDisplay({
+                  created: cache.created,
+                  read: cache.read,
+                  writeLabel: t("chat.statusCacheWrite"),
+                  hitLabel: t("chat.statusCacheHit"),
+                })}
+                detail={
+                  cache.lastInput != null ? formatCompactTokenCount(cache.lastInput) : undefined
+                }
+              />
+            ) : null}
+
+            <EnvRow icon={MessageCircle} label={t("chat.statusSession")} value={sessionTitle} />
+
+            {sessionId ? (
+              <IconTip label={copied ? t("chat.copied") : t("chat.copy")}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleCopyId}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      void handleCopyId()
+                    }
+                  }}
+                  className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary/35"
+                >
+                  <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="w-14 shrink-0 text-muted-foreground">
+                    {t("chat.statusSessionId")}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
+                    {sessionId}
+                  </span>
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                  )}
+                </div>
+              </IconTip>
+            ) : null}
+
+            <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground">
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <span>{t("chat.statusMessages", { count: messages.length })}</span>
+            </div>
+
+            <EnvRow
+              icon={Gauge}
+              label={t("chat.statusThinking")}
+              value={reasoningEffort ? t(`effort.${reasoningEffort}`) : "—"}
+            />
+
+            {sessionMeta?.updatedAt ? (
+              <EnvRow
+                icon={Clock}
+                label={t("chat.statusUpdated")}
+                value={formatMessageTime(sessionMeta.updatedAt)}
+              />
+            ) : null}
+
+            {onViewSystemPrompt ? (
+              <button
+                type="button"
+                className={cn(
+                  SESSION_ACTION_BTN,
+                  "mt-1 inline-flex w-full items-center justify-center gap-1.5",
+                )}
+                disabled={systemPromptLoading}
+                onClick={onViewSystemPrompt}
+              >
+                {systemPromptLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <FileText className="h-3 w-3" />
+                )}
+                {t("chat.viewSystemPrompt")}
+              </button>
+            ) : null}
+          </div>
+        </AnimatedCollapse>
+      </div>
+    </WorkspaceSection>
+  )
+}
+
 function EnvironmentSection({
   sessionId,
   sessionMeta,
@@ -362,7 +680,6 @@ function EnvironmentSection({
   workingDirSource,
   permissionMode = "default",
   planState = "off",
-  activeModel,
   turnActive,
 }: {
   sessionId?: string | null
@@ -372,10 +689,10 @@ function EnvironmentSection({
   workingDirSource?: "session" | "project"
   permissionMode?: SessionMode
   planState?: PlanModeState
-  activeModel?: ActiveModel | null
   turnActive?: boolean
 }) {
   const { t } = useTranslation()
+  const appVersion = useAppVersion()
   const environmentRefreshKey = useMemo(
     () =>
       [
@@ -431,6 +748,12 @@ function EnvironmentSection({
       meta={<StatusPill label={statusLabel} tone={status.tone} loading={env.loading} />}
     >
       <div className="space-y-0.5">
+        <EnvRow
+          icon={Monitor}
+          label={t("workspace.environment.version", "版本")}
+          value={`v${appVersion}`}
+        />
+
         <EnvRow
           icon={isLocalRuntime ? HardDrive : Server}
           label={t("workspace.environment.runtime", "运行")}
@@ -492,15 +815,6 @@ function EnvironmentSection({
             label={t("workspace.environment.plan", "计划")}
             value={planStateLabel(t, planState)}
             tone={planState === "executing" ? "info" : planState === "completed" ? "good" : "muted"}
-          />
-        ) : null}
-
-        {activeModel ? (
-          <EnvRow
-            icon={Bot}
-            label={t("workspace.environment.model", "模型")}
-            value={activeModel.modelId}
-            detail={activeModel.providerId}
           />
         ) : null}
 
@@ -605,6 +919,115 @@ function EnvironmentSection({
 }
 
 /**
+ * 知识空间段:① 本会话挂载的知识空间(owner 平面 list_session_kbs_cmd,带读/写徽章
+ * + 项目来源 + 外部锁);② 本会话的笔记活动(live-tail:写入 / 读取的笔记 + 检索次数)。
+ * 无痕会话不拉挂载列表(D10 关闭即焚),活动走 live-tail 自然为空。
+ */
+function KnowledgeSection({
+  sessionId,
+  projectId,
+  incognito,
+  messages,
+}: {
+  sessionId?: string | null
+  projectId?: string | null
+  incognito?: boolean
+  messages: Message[]
+}) {
+  const { t } = useTranslation()
+  const { attachments, activity } = useSessionKnowledge(sessionId, projectId, {
+    incognito,
+    messages,
+  })
+  const hasContent =
+    attachments.length > 0 || activity.entries.length > 0 || activity.searchCount > 0
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.sectionKnowledge", "知识空间")}
+      count={attachments.length}
+      icon={BookText}
+    >
+      {hasContent ? (
+        <div className="space-y-2">
+          {attachments.length > 0 && (
+            <div className="space-y-1">
+              {attachments.map((kb) => {
+                const external = !!kb.rootDir
+                return (
+                  <div
+                    key={kb.id}
+                    className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5"
+                  >
+                    <span className="shrink-0 text-sm leading-none">{kb.emoji || "📚"}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+                      {kb.name}
+                    </span>
+                    {external && (
+                      <IconTip label={t("knowledge.picker.external", "外部库")}>
+                        <Lock className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                      </IconTip>
+                    )}
+                    {kb.via === "project" && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                        {t("workspace.kbViaProject", "项目")}
+                      </span>
+                    )}
+                    <span className="shrink-0 rounded bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {kb.access === "write"
+                        ? t("knowledge.picker.accessWrite", "读写")
+                        : t("knowledge.picker.accessRead", "只读")}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {activity.entries.length > 0 && (
+            <div className="space-y-0.5">
+              {activity.entries.map((e) => (
+                <IconTip key={e.key} label={e.ref}>
+                  <div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary/40">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground/85">
+                      {basename(e.ref)}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[10px]",
+                        e.kind === "write"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-muted-foreground/70",
+                      )}
+                    >
+                      {e.kind === "write"
+                        ? t("workspace.kbWrote", "写入")
+                        : t("workspace.kbRead", "读取")}
+                    </span>
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          )}
+
+          {activity.searchCount > 0 && (
+            <div className="px-2 pt-0.5 text-[10px] text-muted-foreground/60">
+              {t("workspace.kbSearchCount", {
+                n: activity.searchCount,
+                defaultValue: "检索 {{n}} 次",
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <EmptyHint>{t("workspace.emptyKnowledge", "未挂载知识空间")}</EmptyHint>
+      )}
+    </WorkspaceSection>
+  )
+}
+
+/**
  * 右侧「工作台」面板:把本会话的任务进度、碰到的文件、引用来源聚合到一处。
  * 文件 / 来源走 useWorkspaceArtifacts —— 后端读时聚合全会话历史 + 当前轮 live tail
  * 内存合并;输出 / 来源两段各自定高内部滚动,滚到底自动增量渲染(无按钮)。
@@ -623,6 +1046,13 @@ export default function WorkspacePanel({
   permissionMode = "default",
   planState = "off",
   activeModel,
+  agentName,
+  reasoningEffort,
+  availableModels,
+  currentAgentId,
+  onCommandAction,
+  onViewSystemPrompt,
+  systemPromptLoading,
   incognito = false,
   turnActive = false,
   onClose,
@@ -647,7 +1077,7 @@ export default function WorkspacePanel({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex items-center gap-2 px-3 py-2">
         <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate text-sm font-medium">{t("workspace.panelTitle", "工作台")}</span>
         <Button
@@ -662,7 +1092,25 @@ export default function WorkspacePanel({
         </Button>
       </div>
 
-      <div className="flex-1 space-y-2 overflow-auto p-2">
+      {/* 上下边缘柔化淡出 —— 内容滚到边界时渐隐不硬切（mask 渐变到透明，露出面板底色）。
+          Tauri = WebKit,补 `-webkit-mask-image` 兜底。 */}
+      <div className={cn("flex-1 space-y-2 overflow-auto p-2", PANEL_SCROLL_FADE)}>
+        {/* 会话 — 复刻状态悬浮窗的能力(模型 / 上下文 / 动作),核心常驻 + 展开更多。 */}
+        <SessionSection
+          sessionId={sessionId}
+          sessionMeta={sessionMeta}
+          agentName={agentName}
+          reasoningEffort={reasoningEffort}
+          activeModel={activeModel}
+          availableModels={availableModels}
+          messages={messages}
+          currentAgentId={currentAgentId}
+          turnActive={turnActive}
+          onCommandAction={onCommandAction}
+          onViewSystemPrompt={onViewSystemPrompt}
+          systemPromptLoading={systemPromptLoading}
+        />
+
         <EnvironmentSection
           sessionId={sessionId}
           sessionMeta={sessionMeta}
@@ -671,7 +1119,6 @@ export default function WorkspacePanel({
           workingDirSource={workingDirSource}
           permissionMode={permissionMode}
           planState={planState}
-          activeModel={activeModel}
           turnActive={turnActive}
         />
 
@@ -719,6 +1166,14 @@ export default function WorkspacePanel({
             <EmptyHint>{t("workspace.emptySources", "还没有引用来源")}</EmptyHint>
           )}
         </WorkspaceSection>
+
+        {/* 知识空间 — 挂载的库(读/写)+ 本会话笔记活动。 */}
+        <KnowledgeSection
+          sessionId={sessionId}
+          projectId={project?.id ?? sessionMeta?.projectId ?? null}
+          incognito={incognito}
+          messages={messages}
+        />
       </div>
     </div>
   )

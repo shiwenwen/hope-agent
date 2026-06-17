@@ -97,6 +97,7 @@ pub enum LocalModelJobKind {
     OllamaPull,
     OllamaPreload,
     MemoryReembed,
+    KnowledgeReembed,
 }
 
 impl LocalModelJobKind {
@@ -108,6 +109,7 @@ impl LocalModelJobKind {
             Self::OllamaPull => "ollama_pull",
             Self::OllamaPreload => "ollama_preload",
             Self::MemoryReembed => "memory_reembed",
+            Self::KnowledgeReembed => "knowledge_reembed",
         }
     }
 
@@ -119,6 +121,7 @@ impl LocalModelJobKind {
             "ollama_pull" => Some(Self::OllamaPull),
             "ollama_preload" => Some(Self::OllamaPreload),
             "memory_reembed" => Some(Self::MemoryReembed),
+            "knowledge_reembed" => Some(Self::KnowledgeReembed),
             _ => None,
         }
     }
@@ -215,6 +218,7 @@ impl LocalModelJobsDB {
             .with_context(|| format!("Failed to open local model jobs DB at {}", path.display()))?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS local_model_jobs (
                 job_id TEXT PRIMARY KEY,
@@ -816,6 +820,12 @@ pub fn retry_job(
                 // 一次失败的 reembed），故不传 successor 链路。
                 None,
             )
+        }
+        LocalModelJobKind::KnowledgeReembed => {
+            // Retry re-runs a full reindex of every KB under the active
+            // knowledge embedding model; the chat-completion hook is irrelevant.
+            let _ = on_chat_complete;
+            crate::knowledge::reembed::start_knowledge_reembed_job(None, "retry")
         }
     }?;
 

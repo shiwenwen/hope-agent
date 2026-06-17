@@ -319,14 +319,35 @@ Examples:
 
 This rule applies to file paths only. Keep wrapping shell commands, code identifiers, and short snippets in inline code — those are not paths.";
 
-/// Smart permission-mode guidance. Tells the model it can self-approve
-/// high-confidence calls via `_confidence: "high"` so the user isn't pinged
-/// for obviously safe ones. Lives at the prompt tail so a session-mode flip
-/// (Default ↔ Smart) only invalidates the very last cache breakpoint, not
-/// the static prefix.
-pub(super) const SMART_MODE_GUIDANCE: &str = "# Smart Permission Mode
+/// Current per-session permission-mode guidance. This is intentionally short:
+/// the permission engine remains the source of truth, while the prompt gives
+/// the model enough state to choose how boldly to call tools.
+pub(super) fn build_permission_mode_guidance(mode: crate::permission::SessionMode) -> String {
+    let (label, behavior, boundary) = match mode {
+        crate::permission::SessionMode::Default => (
+            "`default` (standard approvals)",
+            "In Default mode, call the tools you need to complete the task as usual. If an operation requires user confirmation, the system will show an approval prompt automatically. Do not stop early or ask the user only because an approval may appear; ask only when you lack task information or the operation requires a product, safety, or preference decision from the user.",
+            "The permission engine remains the source of truth; Plan Mode, protected paths, dangerous-command checks, and backend safety policies can still override your judgment. Do not sacrifice correctness to avoid approvals: call the needed tool and let the system decide whether to prompt.",
+        ),
+        crate::permission::SessionMode::Smart => (
+            "`smart` (smart approvals)",
+            "In Smart mode, for a `write`/`edit`/`apply_patch` call you may add an extra `_confidence: \"high\"` field to the tool_call arguments when you judge the change safe, to skip the approval prompt. Routine edits to files inside the current working directory usually qualify — tag them and proceed without hesitation. Withhold the tag (let the user be asked) for higher-risk changes: large overwrites of existing files, deletions, or writes OUTSIDE the working directory that the user didn't clearly ask for. Files you have already written or edited earlier in this conversation are approved automatically — re-edit them freely without the field. Protected paths such as `~/.ssh` or `.env`, and dangerous commands such as `rm -rf /` or `git push --force`, always require user confirmation and cannot be auto-approved through this field.",
+            "The permission engine remains the source of truth; Plan Mode, protected paths, dangerous-command checks, and backend safety policies can still override your judgment. Do not sacrifice correctness to avoid approvals: call the needed tool and let the system decide whether to prompt.",
+        ),
+        crate::permission::SessionMode::Yolo => (
+            "`yolo` (all approvals granted for this session)",
+            "In YOLO mode, all tool approval permissions for this session have been granted. You may act more freely and proactively to complete the user's goal; the system normally will not interrupt you for confirmation when reading or writing files, running commands, accessing the network, using the browser, or calling other tools. When the task goal and scope are clear, choose an effective path and proceed. Do not pause out of concern for approvals, and do not repeatedly ask the user to confirm obvious execution steps.",
+            "This grant applies to the approval layer; it does not authorize work outside the user's goal. Keep using engineering judgment: prefer approaches that are low-risk, traceable, and recoverable; do not perform unrelated destructive actions, leak sensitive data, or expand into system-level changes the user did not ask for. Plan Mode and backend hard-safety policies may still override this mode.",
+        ),
+    };
 
-This session is running under Smart permission mode. For tool calls you are highly confident are safe (read-only, scoped to the current project, idempotent, easily reversible), you may add an extra `_confidence: \"high\"` field to the tool_call arguments to bypass the approval prompt. Use this sparingly — only when the call is clearly low-risk in the current context. Edits to protected paths (e.g. `~/.ssh`, `.env`) and dangerous shell commands (e.g. `rm -rf /`, `git push --force`) cannot be auto-approved this way.";
+    format!(
+        "# Current Permission Mode\n\n\
+         This session is running in **{label}** mode.\n\n\
+         {behavior}\n\n\
+         {boundary}"
+    )
+}
 
 /// Short guidance reminding the model that tool-call rounds are bounded so it
 /// wraps up gracefully instead of getting cut off mid-call. Dynamic because

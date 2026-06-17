@@ -4,6 +4,10 @@ dist/
 *.env
 .env*
 
+# This project uses pnpm; reject stray npm/yarn lockfiles
+package-lock.json
+yarn.lock
+
 # Rust / Tauri
 target/
 src-tauri/target/

@@ -15,9 +15,69 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+// MentionComposerInput is a heavy CodeMirror 6 editor (Phase 1 composer refactor)
+// that doesn't drive its updateListener reliably under jsdom. Stub it with a
+// plain contenteditable so these ChatInput-wiring tests can fire onChange without
+// simulating CM internals; the editor's own behavior is covered elsewhere.
+vi.mock("./MentionComposerInput", async () => {
+  const React = await import("react")
+  return {
+    default: React.forwardRef(function MockComposer(
+      props: {
+        value?: string
+        onChange?: (v: string) => void
+        onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
+        onPaste?: (e: React.ClipboardEvent<HTMLElement>) => void
+        onSelectionChange?: () => void
+        readOnly?: boolean
+      },
+      ref: React.Ref<{
+        focus: () => void
+        getValue: () => string
+        getSelectionRange: () => { start: number; end: number }
+        setSelectionRange: (start: number, end: number) => void
+      }>,
+    ) {
+      const value = props.value ?? ""
+      // Emulate the real ComposerInputHandle so the `@`-mention hook (which reads
+      // the caret via getSelectionRange) can drive the popper under jsdom. Caret
+      // sits at end-of-value, which is where these wiring tests expect it.
+      React.useImperativeHandle(
+        ref,
+        () => ({
+          focus: () => {},
+          getValue: () => value,
+          getSelectionRange: () => ({ start: value.length, end: value.length }),
+          setSelectionRange: () => {},
+        }),
+        [value],
+      )
+      return React.createElement("div", {
+        role: "textbox",
+        "aria-multiline": "true",
+        contentEditable: !props.readOnly,
+        suppressContentEditableWarning: true,
+        onInput: (e: React.FormEvent<HTMLDivElement>) =>
+          props.onChange?.(e.currentTarget.textContent ?? ""),
+        onKeyDown: props.onKeyDown,
+        onSelect: props.onSelectionChange,
+        onPaste: props.onPaste,
+      })
+    }),
+  }
+})
+
 type MockTransportCall = (command: string, args?: unknown) => Promise<unknown>
 type MockDirEntry = { name: string; path: string; isDir: boolean }
 type MockDirectoryResult = { path: string; entries: MockDirEntry[]; truncated: boolean }
+type MockFileMatch = {
+  name: string
+  path: string
+  relPath: string
+  isDir: boolean
+  score: number
+}
+type MockSearchResult = { root: string; matches: MockFileMatch[]; truncated: boolean }
 
 const transportMock = vi.hoisted(() => {
   const defaultCall: MockTransportCall = (command) => {
@@ -27,7 +87,11 @@ const transportMock = vi.hoisted(() => {
   return {
     defaultCall,
     call: vi.fn<MockTransportCall>(defaultCall),
-    searchFiles: vi.fn(() => Promise.resolve({ entries: [], truncated: false })),
+    searchFiles: vi.fn<() => Promise<MockSearchResult>>(() =>
+      Promise.resolve({ root: "", matches: [], truncated: false }),
+    ),
+    supportsLocalFileOps: () => false,
+    listen: vi.fn(() => () => {}),
     listServerDirectory: vi.fn<() => Promise<MockDirectoryResult>>(() =>
       Promise.resolve({ path: "/tmp", entries: [], truncated: false }),
     ),
@@ -46,7 +110,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   transportMock.call.mockImplementation(transportMock.defaultCall)
-  transportMock.searchFiles.mockResolvedValue({ entries: [], truncated: false })
+  transportMock.searchFiles.mockResolvedValue({ root: "", matches: [], truncated: false })
   transportMock.listServerDirectory.mockResolvedValue({
     path: "/tmp",
     entries: [],
@@ -153,12 +217,14 @@ describe("IncognitoToggle", () => {
 })
 
 describe("ChatInput", () => {
-  test("forwards textarea changes and disables empty sends", () => {
+  test("forwards composer changes and disables empty sends", () => {
     const onInputChange = vi.fn()
     const onSend = vi.fn()
     const { props, view } = renderChatInput({ onInputChange, onSend })
 
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "hello" } })
+    const textbox = screen.getByRole("textbox")
+    textbox.textContent = "hello"
+    fireEvent.input(textbox)
     expect(onInputChange).toHaveBeenCalledWith("hello")
     expect((screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement).disabled).toBe(
       true,
@@ -183,6 +249,16 @@ describe("ChatInput", () => {
 
     fireEvent.click(sendButton)
     expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  test("keeps the input dock from clipping upward toolbar menus", () => {
+    renderChatInput()
+
+    const inputDock = screen.getByRole("textbox").closest(".rounded-input-dock")
+
+    expect(inputDock).toBeTruthy()
+    expect(inputDock?.className).toContain("overflow-visible")
+    expect(inputDock?.className).not.toContain("overflow-hidden")
   })
 
   test.each([
@@ -239,25 +315,28 @@ describe("ChatInput", () => {
   test("lets file mention menu consume Shift+Tab before permission cycling", async () => {
     const onInputChange = vi.fn()
     const onPermissionModeChange = vi.fn()
-    transportMock.listServerDirectory.mockResolvedValue({
-      path: "/tmp",
-      entries: [{ name: "notes.md", path: "/tmp/notes.md", isDir: false }],
+    // In the composer a bare `@` shows the note section; a query (`@notes`) drives
+    // the file-search section. searchFiles backs that path (list mode is for `/`).
+    transportMock.searchFiles.mockResolvedValue({
+      root: "/tmp",
+      matches: [
+        { name: "notes.md", path: "/tmp/notes.md", relPath: "notes.md", isDir: false, score: 1 },
+      ],
       truncated: false,
     })
 
     renderChatInput({
-      input: "@",
+      input: "@notes",
       onInputChange,
       onPermissionModeChange,
       workingDir: "/tmp",
     })
 
-    const textbox = screen.getByRole("textbox") as HTMLTextAreaElement
-    textbox.setSelectionRange(1, 1)
-    fireEvent.select(textbox)
+    // Nudge the mention popper open (mirrors a caret move after typing `@notes`).
+    fireEvent.select(screen.getByRole("textbox"))
 
     await waitFor(() => expect(screen.getByText("notes.md")).toBeTruthy())
-    fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
 
     expect(onPermissionModeChange).not.toHaveBeenCalled()
     expect(onInputChange).toHaveBeenCalledWith("@notes.md ")
