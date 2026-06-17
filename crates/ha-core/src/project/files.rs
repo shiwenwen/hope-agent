@@ -61,7 +61,7 @@ pub fn delete_project_cascade(project_id: &str, db: &ProjectDB) -> Result<bool> 
             Ok(ids) => {
                 let mut cancelled = 0;
                 for sid in &ids {
-                    cancelled += crate::async_jobs::cancel_jobs_for_session(sid);
+                    cancelled += crate::async_jobs::JobManager::cancel_for_session(sid);
                 }
                 if cancelled > 0 {
                     crate::app_info!(

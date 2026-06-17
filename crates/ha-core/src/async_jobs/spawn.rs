@@ -3,10 +3,10 @@ use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
-use super::db::AsyncJobsDB;
+use super::db::JobsDB;
 use super::error::JobError;
 use super::injection;
-use super::types::{AsyncJob, AsyncJobStatus, JobOrigin};
+use super::types::{BackgroundJob, JobKind, JobOrigin, JobStatus};
 use crate::tools::{ToolExecContext, ASYNC_JOB_TIMEOUT_ARG};
 
 const DEFAULT_PREVIEW_BYTES: usize = 4096;
@@ -17,32 +17,40 @@ pub fn new_job_id() -> String {
     format!("job_{}", uuid::Uuid::new_v4().simple())
 }
 
-/// Persist a freshly spawned job row in `running` state. Returns the job id.
+/// Persist a freshly spawned job row in the given state — `running` for the
+/// immediate path, `queued` when the cap is full and it must wait for a slot.
 pub fn record_running_job(
-    db: &AsyncJobsDB,
+    db: &JobsDB,
     job_id: &str,
     ctx: &ToolExecContext,
     tool_name: &str,
     args: &Value,
     origin: JobOrigin,
+    status: JobStatus,
 ) -> Result<()> {
     // E4 (INCOG-2): an incognito job must not persist its raw tool args (which
     // can carry sensitive commands / prompts) in plaintext on disk. Store a
     // redaction placeholder — the live in-memory dispatch still receives the
-    // real args; only the durable `async_jobs.db` row is scrubbed.
+    // real args; only the durable `background_jobs.db` row is scrubbed.
     let args_json = if ctx.incognito {
         "{\"_incognito_redacted\":true}".to_string()
     } else {
         serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string())
     };
-    let job = AsyncJob {
+    let job = BackgroundJob {
         job_id: job_id.to_string(),
+        // R1: this path is the Tool executor — the only wired `JobKind` today.
+        kind: super::types::JobKind::Tool,
+        // R6: tool jobs never reference a subagent run.
+        subagent_run_id: None,
+        // R5: tool jobs are standalone — never part of a Group fan-out.
+        group_id: None,
         session_id: ctx.session_id.clone(),
         agent_id: ctx.agent_id.clone(),
         tool_name: tool_name.to_string(),
         tool_call_id: ctx.tool_call_id.clone(),
         args_json,
-        status: AsyncJobStatus::Running,
+        status,
         result_preview: None,
         result_path: None,
         error: None,
@@ -132,7 +140,7 @@ fn effective_max_job_secs(args: &Value) -> u64 {
 /// paths. The actual tool dispatch runs on a separate OS thread + current-thread
 /// runtime to avoid the `Send` requirement on the tool's future, mirroring the
 /// approach used by `subagent::injection::inject_and_run_parent`.
-pub fn spawn_explicit_job(
+pub(crate) fn spawn_explicit_job(
     tool_name: &str,
     args: Value,
     mut ctx: ToolExecContext,
@@ -148,62 +156,30 @@ pub fn spawn_explicit_job(
         }
     };
 
-    // I2 (MISC-5): reserve a background-job concurrency slot before committing
-    // any state. The guard is moved into the runner thread below and released
-    // when that thread exits, so the slot frees exactly when the job ends. At
-    // the cap, surface an actionable error result the model can act on (wait /
-    // poll job_status / run synchronously) instead of stacking another OS
-    // thread. Held across all early returns below — dropped (released) on each.
-    let slot = match super::slots::try_acquire_job_slot() {
-        Some(slot) => slot,
-        None => {
-            let max = crate::config::cached_config()
-                .async_tools
-                .max_concurrent_jobs;
-            return Err(anyhow::anyhow!(
-                "Background job limit reached ({max} concurrent). Too many tools are already \
-                 running in the background — wait for some to finish (check `job_status`) before \
-                 backgrounding more, or re-run this one synchronously (without `run_in_background`)."
-            ));
-        }
-    };
-
     let job_id = new_job_id();
     // review#1: register the cancel token BEFORE the row becomes queryable, so a
-    // concurrent cancel (e.g. cancel_jobs_for_session on session delete) that
-    // sees the fresh `running` row also finds a live token — instead of taking
-    // the "no active runner" branch and marking it Cancelled while this worker
-    // keeps running unsignalled. Roll the registration back if the insert fails.
+    // concurrent cancel (cancel_jobs_for_session on session delete, or a cancel
+    // of a still-QUEUED job) finds a live token. Roll back on any early failure.
     let cancel_token = super::cancel::register_job(&job_id);
-    if let Err(e) = record_running_job(&db, &job_id, &ctx, tool_name, &args, origin) {
-        super::cancel::remove_job(&job_id);
-        return Err(e);
-    }
 
-    let synthetic = synthetic_started_result(&job_id, tool_name, origin);
-
-    // Strip async-job controls from args AND set bypass on the ctx so the
-    // recursive `execute_tool_with_context` call inside the OS thread runtime
-    // goes straight to the sync dispatch path. Without bypass the
-    // `AlwaysBackground` policy would re-enter `spawn_explicit_job` forever.
+    // Prepare the ctx for the (possibly deferred) inner re-dispatch BEFORE the
+    // slot decision, so a queued job carries a ready-to-run ctx in the queue.
     let max_secs = effective_max_job_secs(&args);
-    let clean_args = strip_async_control_args(args);
     ctx.bypass_async_dispatch = true;
-    // Engine gate already ran (or was deliberately skipped for `exec`) at
-    // the outer dispatch; the recursive inner call must not re-prompt (the
-    // user has no surface to answer it from inside a background runtime).
+    // Engine gate already ran (or was deliberately skipped for `exec`) at the
+    // outer dispatch; the recursive inner call must not re-prompt (the user has
+    // no surface to answer it from inside a background runtime).
     // `external_pre_approved` silences the engine-level prompt **without**
     // bypassing `exec`'s command-level dangerous/edit audit — flipping
-    // `auto_approve_tools` here would let any shell command run silently
-    // whenever `run_in_background: true` is set. Visibility / plan-mode
-    // checks still re-run as belt-and-suspenders.
+    // `auto_approve_tools` here would let any shell command run silently whenever
+    // `run_in_background: true` is set. Visibility / plan-mode checks still
+    // re-run as belt-and-suspenders.
     ctx.external_pre_approved = true;
     ctx.suppress_global_tool_timeout = true;
     ctx.suppress_result_disk_persistence = true;
     ctx.cancellation_token = Some(cancel_token.clone());
-    // I3: let the re-dispatched tool record its spawned child pid into this
-    // job's row, so a crash/restart can terminate the orphaned process tree
-    // (the row already exists — recorded above). Cheap guarded UPDATE per spawn.
+    // I3: let the re-dispatched tool record its spawned child pid into this job's
+    // row so a crash/restart can terminate the orphaned process tree.
     {
         let pid_db = db.clone();
         let pid_job_id = job_id.clone();
@@ -213,17 +189,110 @@ pub fn spawn_explicit_job(
             },
         )));
     }
-    let preview_bytes = preview_byte_budget();
-    let tool_name_owned = tool_name.to_string();
-    let job_id_owned = job_id.clone();
+    // R3 ①: tee a backgrounded `exec`'s running stdout/stderr into a bounded
+    // tail buffer so `job_status(action:status)` can show a *running* job's
+    // latest output (BashOutput parity). `exec` is the only async tool that
+    // streams; incognito jobs leave no tail (close-and-burn, like the spool).
+    if tool_name == crate::tools::TOOL_EXEC && !ctx.incognito {
+        super::output_tail::register(&job_id, super::output_tail::configured_bytes());
+        ctx.output_tail_job_id = Some(job_id.clone());
+    }
 
-    // Run on a dedicated OS thread so we don't constrain the dispatch future
-    // to be `Send`. This mirrors `subagent::injection::inject_and_run_parent`.
+    let synthetic = synthetic_started_result(&job_id, tool_name, origin);
+    let session_key = ctx.session_id.clone().unwrap_or_default();
+
+    // R7.1: try to reserve a concurrency slot. If the cap is full the job QUEUES
+    // (status `Queued`) and the Primary scheduler promotes it per-session
+    // round-robin when a slot frees — instead of hard-rejecting.
+    let reservation = super::slots::try_reserve(&session_key);
+    let status = if reservation.is_some() {
+        JobStatus::Running
+    } else {
+        JobStatus::Queued
+    };
+    if let Err(e) = record_running_job(&db, &job_id, &ctx, tool_name, &args, origin, status) {
+        super::cancel::remove_job(&job_id);
+        // R3: this early-return bypasses finalize_job — drop the tail ring
+        // registered above (no-op if none was). Paired with every cancel::remove_job.
+        super::output_tail::remove(&job_id);
+        return Err(e);
+    }
+    // R3: announce the new job (running or queued) on the unified `job:*` bus.
+    super::events::emit_created(
+        &job_id,
+        super::types::JobKind::Tool,
+        tool_name,
+        status.as_str(),
+        ctx.session_id.as_deref(),
+    );
+
+    let clean_args = strip_async_control_args(args);
+    let prepared = super::slots::PreparedJob {
+        job_id: job_id.clone(),
+        tool_name: tool_name.to_string(),
+        args: clean_args,
+        ctx,
+        max_secs,
+        preview_bytes: preview_byte_budget(),
+        cancel_token,
+    };
+
+    match reservation {
+        Some(reservation) => {
+            start_runner(db, prepared, reservation);
+            Ok(synthetic)
+        }
+        None => {
+            if super::slots::enqueue(prepared) {
+                // Wake the scheduler in case a slot is already free (nothing
+                // finished to notify it otherwise).
+                super::slots::wake_scheduler();
+                Ok(synthetic)
+            } else {
+                // The wait queue itself is full — roll back the row + token and
+                // hard-reject so the model can wait or run synchronously.
+                super::cancel::remove_job(&job_id);
+                super::output_tail::remove(&job_id); // R3: bypasses finalize_job
+                let _ = db.delete(&job_id);
+                Err(anyhow::anyhow!(
+                    "Background job queue is full — too many tools are already running or waiting. \
+                     Wait for some to finish (check `job_status`) before backgrounding more, or \
+                     re-run this one synchronously (without `run_in_background`)."
+                ))
+            }
+        }
+    }
+}
+
+/// Spawn the dedicated OS thread + current-thread runtime that runs a
+/// backgrounded job to completion. Used by both the immediate path
+/// ([`spawn_explicit_job`]) and the scheduler promote path ([`run_scheduler`]).
+/// The [`super::slots::SlotReservation`] is held for the thread's whole
+/// lifetime, so the slot releases (and the scheduler wakes) exactly when the job
+/// ends — on every exit path including the runtime-build failure below.
+fn start_runner(
+    db: Arc<JobsDB>,
+    prepared: super::slots::PreparedJob,
+    reservation: super::slots::SlotReservation,
+) {
+    let super::slots::PreparedJob {
+        job_id: job_id_owned,
+        tool_name: tool_name_owned,
+        args: clean_args,
+        ctx,
+        max_secs,
+        preview_bytes,
+        cancel_token,
+    } = prepared;
+
+    // Run on a dedicated OS thread so we don't constrain the dispatch future to
+    // be `Send`. This mirrors `subagent::injection::inject_and_run_parent`.
     std::thread::spawn(move || {
-        // Hold the concurrency slot for the job's whole lifetime; it releases
-        // when this thread exits via any path (success, failure, or the
-        // runtime-build-failure early return below).
-        let _slot = slot;
+        // Hold the slot reservation for the job's whole lifetime; on drop it
+        // decrements the running count and wakes the scheduler, so the freed
+        // slot immediately promotes the next queued job. Released on every exit
+        // path (success, failure, or the runtime-build-failure early return).
+        let _reservation = reservation;
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -240,21 +309,26 @@ pub fn spawn_explicit_job(
                 );
                 let _ = db.update_terminal(
                     &job_id_owned,
-                    AsyncJobStatus::Failed,
+                    JobStatus::Failed,
                     None,
                     None,
                     Some(&err_msg),
                     now_secs(),
                 );
                 super::wait::notify_completion(&job_id_owned);
-                emit_completion_event(&job_id_owned, &tool_name_owned, "failed");
+                emit_completion_event(
+                    &job_id_owned,
+                    &tool_name_owned,
+                    "failed",
+                    ctx.session_id.as_deref(),
+                );
                 super::cancel::remove_job(&job_id_owned);
+                // R3: this build-failure path also bypasses finalize_job — drop
+                // the tail ring (no-op if none).
+                super::output_tail::remove(&job_id_owned);
                 // I6: don't silently lose the job. `finalize_job` never runs on
                 // this build-failure path, so fire the terminal hook (H4 parity)
-                // and inject the failure back into the parent session — the model
-                // already saw a synthetic "started" and would otherwise wait
-                // forever. `dispatch_injection` spawns its own thread + runtime,
-                // so it works even though THIS runtime failed to build.
+                // and inject the failure back into the parent session.
                 crate::hooks::fire_async_job_terminal(
                     ctx.session_id.as_deref(),
                     ctx.agent_id.as_deref(),
@@ -266,13 +340,14 @@ pub fn spawn_explicit_job(
                     &err_msg,
                 );
                 if let Some(sid) = ctx.session_id.clone() {
-                    injection::dispatch_injection(
+                    // R4: same merge window as the normal finalize path.
+                    injection::enqueue_injection(
                         sid,
                         ctx.agent_id.clone(),
                         job_id_owned.clone(),
                         tool_name_owned.clone(),
                         ctx.tool_call_id.clone(),
-                        AsyncJobStatus::Failed,
+                        JobStatus::Failed,
                         None,
                         None,
                         Some(err_msg),
@@ -297,8 +372,61 @@ pub fn spawn_explicit_job(
             .await;
         });
     });
+}
 
-    Ok(synthetic)
+/// Background-job scheduler task (R7.1): parks until a slot frees / a job is
+/// enqueued (with a periodic fallback tick), then promotes queued jobs into free
+/// slots per-session round-robin until no slot is free or the queue is empty.
+///
+/// **Tier-agnostic** — the wait queue is process-local (it pins each job's live
+/// ctx, which can't be persisted), so EVERY process that can background tools
+/// runs its own scheduler over its OWN queue and never touches another process's
+/// queued jobs (unlike `replay_pending_jobs`, which sweeps shared DB rows and is
+/// therefore Primary-only). Idempotent: at most one loop per process even if
+/// spawned from multiple init paths.
+pub(crate) async fn run_scheduler() {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return; // a scheduler loop is already running in this process
+    }
+    loop {
+        // Wake on slot-free / enqueue, with a periodic fallback so queued jobs
+        // still promote after an event that didn't notify us — e.g. the user
+        // RAISES `max_concurrent_jobs` OR `max_concurrent_jobs_per_session` while
+        // the queue is full (config changes fire no completion/Drop to wake us, so
+        // a newly-eligible job waits up to one tick), or any theoretically-missed
+        // notify. `try_take_next` re-reads both caps live, so the next tick honors
+        // the raised value.
+        tokio::select! {
+            _ = super::slots::scheduler_notified() => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+        }
+        let Some(db) = super::get_async_jobs_db() else {
+            continue;
+        };
+        loop {
+            let Some((prepared, reservation)) = super::slots::try_take_next() else {
+                break;
+            };
+            // Promote the row `queued` -> `running`. If it is no longer queued (a
+            // concurrent cancel already settled it terminal + removed it from the
+            // queue), drop the reservation and skip — the cancel path handled it.
+            match db.mark_running(&prepared.job_id) {
+                Ok(true) => start_runner(db.clone(), prepared, reservation),
+                Ok(false) => drop(reservation),
+                Err(e) => {
+                    app_error!(
+                        "async_jobs",
+                        "scheduler",
+                        "mark_running failed for {}: {}",
+                        prepared.job_id,
+                        e
+                    );
+                    drop(reservation);
+                }
+            }
+        }
+    }
 }
 
 /// Run an async-capable tool synchronously, but transfer it to a background
@@ -311,7 +439,7 @@ pub fn spawn_explicit_job(
 /// constrain the underlying tool future to be `Send`. Coordination with the
 /// main thread uses an explicit phase machine to avoid the race window
 /// between "OS thread finished" and "main thread already gave up."
-pub async fn dispatch_with_auto_background(
+pub(crate) async fn dispatch_with_auto_background(
     name: &str,
     args: &Value,
     ctx: &ToolExecContext,
@@ -338,16 +466,41 @@ pub async fn dispatch_with_auto_background(
     let mut ctx_w = ctx.clone();
     ctx_w.cancellation_token = Some(cancel_w.clone());
     ctx_w.suppress_result_disk_persistence = true;
+    // R3 ①: auto-backgrounded `exec` tees its running stdout/stderr into a tail
+    // ring too (parity with explicit `run_in_background`), so `job_status` can
+    // show a long auto-detached command's latest output. The ring is registered
+    // INSIDE the worker (below), right before the tool streams — not here —
+    // because this path runs the tool from the start without yet knowing it will
+    // detach. Cleanup is uniform: the worker removes the ring on every
+    // non-detached terminal outcome (`next.is_none()` — sync completion consumed
+    // inline, or the awaiter already bailed), and `finalize_job` removes it on
+    // the detached path. So no exit can leak the ring.
     let preview_bytes = preview_byte_budget();
     let max_secs = effective_max_job_secs(args);
 
+    // R7.1: a job that auto-detaches must count against the concurrency pool for
+    // the rest of its life (so later `try_reserve` sees the slot occupied). The
+    // job is already running on the worker thread by the time we know it
+    // detached, so we can only *count* it (forced reservation), not queue it. The
+    // reservation lives in this slot, shared with the worker; the worker holds a
+    // clone of the Arc, so it releases exactly when the worker thread ends — on
+    // every terminal path. Stays `None` (harmless) unless we actually detach.
+    let autobg_slot: Arc<Mutex<Option<super::slots::SlotReservation>>> = Arc::new(Mutex::new(None));
+    let autobg_slot_w = autobg_slot.clone();
+
     std::thread::spawn(move || {
+        // Hold the worker's Arc clone for the whole thread lifetime; dropping it
+        // here (after `block_on` returns) releases any forced reservation set by
+        // the detach path below.
+        let _autobg_slot = autobg_slot_w;
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
         {
             Ok(rt) => rt,
             Err(e) => {
+                // Ring not registered yet (we register after the runtime is up),
+                // so nothing to clean here.
                 let mut p = phase_w.lock().unwrap_or_else(|p| p.into_inner());
                 *p = Phase::ResultReady(Err(JobError::Failed {
                     message: format!("runtime build failed: {}", e),
@@ -365,33 +518,18 @@ pub async fn dispatch_with_auto_background(
             let poll_handle = super::get_async_jobs_db().map(|db| {
                 spawn_cross_process_cancel_watcher(db.clone(), job_id_w.clone(), cancel_w.clone())
             });
-            let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
-                &name_w, &args_w, &ctx_w,
-            ));
-            let result: Result<String, JobError> = if max_secs == 0 {
-                tokio::select! {
-                    inner = &mut dispatch => inner.map_err(JobError::from_dispatch_error),
-                    _ = cancel_w.cancelled() => {
-                        let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                        Err(JobError::Cancelled)
-                    },
-                }
-            } else {
-                let timer = tokio::time::sleep(std::time::Duration::from_secs(max_secs));
-                tokio::pin!(timer);
-                tokio::select! {
-                    inner = &mut dispatch => inner.map_err(JobError::from_dispatch_error),
-                    _ = &mut timer => {
-                        cancel_w.cancel();
-                        let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                        Err(JobError::TimedOut { max_secs })
-                    },
-                    _ = cancel_w.cancelled() => {
-                        let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                        Err(JobError::Cancelled)
-                    },
-                }
-            };
+            // R3 ①: register the tail ring now that the runtime is up, before the
+            // tool streams (exec only; incognito leaves no tail, like the spool).
+            if name_w == crate::tools::TOOL_EXEC && !ctx_w.incognito {
+                super::output_tail::register(&job_id_w, super::output_tail::configured_bytes());
+                ctx_w.output_tail_job_id = Some(job_id_w.clone());
+            }
+            // R7.4: same retry path as the explicit runner (Failed-only, eligible
+            // tools, cancellable backoff). A retrying auto-bg tool just takes
+            // longer, which may trip the main thread's detach budget — correct
+            // (it becomes a real background job and keeps retrying there).
+            let result: Result<String, JobError> =
+                run_tool_with_retry(&name_w, &args_w, &ctx_w, max_secs, &cancel_w).await;
 
             // Job settled — stop the cross-process cancel watcher.
             if let Some(h) = poll_handle {
@@ -417,11 +555,26 @@ pub async fn dispatch_with_auto_background(
             };
             drop(p);
 
+            // R3 ①: `finalize_job` removes the tail ring on the detached path
+            // (`next.is_some()`); every other terminal outcome — sync completion
+            // consumed inline (`Pending → ResultReady`) or the awaiter already
+            // bailed (`Consumed`/other) — bypasses `finalize_job`, so drop the
+            // ring here. No-op when none was registered (non-exec / incognito).
+            if next.is_none() {
+                super::output_tail::remove(&job_id_w);
+            }
+
             // If we transitioned to DetachedDone, finalize the job now.
             if let Some(r) = next {
                 let db = match super::get_async_jobs_db() {
                     Some(db) => db.clone(),
-                    None => return,
+                    None => {
+                        // finalize_job (which removes the ring) is unreachable
+                        // here — drop the ring so this early return can't leak it
+                        // (symmetry with the explicit path's hoisted removals).
+                        super::output_tail::remove(&job_id_w);
+                        return;
+                    }
                 };
                 let session_id = ctx_w.session_id.clone();
                 let agent_id = ctx_w.agent_id.clone();
@@ -505,7 +658,7 @@ pub async fn dispatch_with_auto_background(
                         // worker keeps running unsignalled.
                         super::cancel::register_job_token(&job_id, cancel_token.clone());
                         if let Err(e) =
-                            record_running_job(db, &job_id, ctx, name, args, JobOrigin::AutoBackgrounded)
+                            record_running_job(db, &job_id, ctx, name, args, JobOrigin::AutoBackgrounded, JobStatus::Running)
                         {
                             *p = Phase::Consumed;
                             drop(p);
@@ -522,7 +675,34 @@ pub async fn dispatch_with_auto_background(
                             ));
                         }
                         *p = Phase::DetachedRunning;
+                        // R7.1: now a real background job still running on its
+                        // worker thread — count it against the pool (forced; it's
+                        // already live, so it can't be queued/refused, only
+                        // accounted). Set under the phase lock so the worker can't
+                        // settle + drop its Arc before this is stored. Released
+                        // when the worker thread ends (holds the other Arc clone).
+                        // NOTE (pre-existing orphan window, orthogonal to R7.1): a
+                        // session deleted in the sub-ms gap before the row insert
+                        // above can be missed by `cancel_for_session` (it finds
+                        // jobs via the DB row, not the token), so this worker may
+                        // run orphaned to natural completion. The forced
+                        // reservation tracks that live thread correctly and
+                        // releases when it ends — no leak, just an uncancelled
+                        // orphan (a cancellation-subsystem gap, not a quota one).
+                        {
+                            let session_key = ctx.session_id.clone().unwrap_or_default();
+                            *autobg_slot.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(super::slots::reserve_forced(&session_key));
+                        }
                         drop(p);
+                        // R3: it is now a real background job — announce it.
+                        super::events::emit_created(
+                            &job_id,
+                            JobKind::Tool,
+                            name,
+                            JobStatus::Running.as_str(),
+                            ctx.session_id.as_deref(),
+                        );
                         app_info!(
                             "async_jobs",
                             "auto_bg",
@@ -566,7 +746,7 @@ enum Phase {
 /// Spawn the I4 cross-process cancel watcher shared by both background paths.
 ///
 /// A cancel issued from another process (desktop + headless `server` share
-/// `async_jobs.db`) can't reach this runtime's in-memory [`CancellationToken`],
+/// `background_jobs.db`) can't reach this runtime's in-memory [`CancellationToken`],
 /// so [`super::cancel_job`] persists a `cancel_requested` flag instead. This
 /// polls that flag (single-row PK read, 5s) and trips `token` on a hit. It stops
 /// itself the moment the token is cancelled by any source; the caller must
@@ -575,7 +755,7 @@ enum Phase {
 /// `dispatch_with_auto_background` worker (auto) so both honor a cross-process
 /// cancel identically.
 fn spawn_cross_process_cancel_watcher(
-    db: Arc<AsyncJobsDB>,
+    db: Arc<JobsDB>,
     job_id: String,
     token: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
@@ -594,8 +774,146 @@ fn spawn_cross_process_cancel_watcher(
     })
 }
 
+/// Run a backgrounded tool's dispatch exactly once, racing it against the job's
+/// cancel token (and the runtime budget when `max_secs > 0`). Shared by the
+/// explicit-background runner ([`run_job_to_completion`]) and the auto-background
+/// worker so both honor identical cancel/timeout semantics. A timeout cancels
+/// the job token (terminal — the job settles `TimedOut`); a normal dispatch
+/// error returns `Failed` WITHOUT touching the token, so a retry can re-run.
+async fn run_tool_once(
+    tool_name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    max_secs: u64,
+    cancel_token: &CancellationToken,
+) -> Result<String, JobError> {
+    let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
+        tool_name, args, ctx,
+    ));
+    if max_secs == 0 {
+        tokio::select! {
+            inner = &mut dispatch => inner.map_err(JobError::from_dispatch_error),
+            _ = cancel_token.cancelled() => {
+                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                Err(JobError::Cancelled)
+            },
+        }
+    } else {
+        let budget = std::time::Duration::from_secs(max_secs);
+        let started = std::time::Instant::now();
+        let timer = tokio::time::sleep(budget);
+        tokio::pin!(timer);
+        loop {
+            tokio::select! {
+                inner = &mut dispatch => return inner.map_err(JobError::from_dispatch_error),
+                _ = &mut timer => {
+                    // R8 (ASYNC-2): exclude time the job spent parked on a human
+                    // approval from its execution budget. While the job is
+                    // CURRENTLY parked the extension keeps growing, so the deadline
+                    // moves out and the timeout never fires mid-approval; once
+                    // resumed the extension is fixed and the full `max_secs` of
+                    // execution budget remains. The extension is 0 on threads with
+                    // no approval bridge (auto-bg / a job that never parks), so this
+                    // behaves exactly like the old one-shot timer there.
+                    let effective =
+                        started + budget + super::approval_bridge::parked_budget_extension();
+                    let now = std::time::Instant::now();
+                    if now < effective {
+                        timer.as_mut().reset(tokio::time::Instant::now() + (effective - now));
+                        continue;
+                    }
+                    cancel_token.cancel();
+                    let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                    return Err(JobError::TimedOut { max_secs });
+                },
+                _ = cancel_token.cancelled() => {
+                    let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
+                    return Err(JobError::Cancelled);
+                },
+            }
+        }
+    }
+}
+
+/// Run a backgrounded tool with R7.4 retry: re-attempt a retry-eligible tool on
+/// a transient `Failed` with exponential backoff (see [`super::retry`]). The
+/// backoff is cancellable — a job-level cancel (incl. the cross-process watcher
+/// tripping the token) during the wait stops retrying and settles `Cancelled`.
+/// Non-eligible tools and non-`Failed` terminals settle on the first attempt.
+async fn run_tool_with_retry(
+    tool_name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    max_secs: u64,
+    cancel_token: &CancellationToken,
+) -> Result<String, JobError> {
+    // Retry-eligible tools must never be tail-streaming tools: the `output_tail`
+    // ring is registered ONCE before this loop, so a retried tail tool would
+    // re-stream into a stale ring. `exec` (the only tail tool) is not eligible;
+    // this guards the invariant if the allowlist ever drifts.
+    debug_assert!(
+        !(super::retry::is_retry_eligible(tool_name) && ctx.output_tail_job_id.is_some()),
+        "retry-eligible tool '{tool_name}' must not register an output_tail ring",
+    );
+    let retry_cfg = super::retry::RetryConfig::current();
+    let mut attempt: u32 = 1;
+    loop {
+        let err = match run_tool_once(tool_name, args, ctx, max_secs, cancel_token).await {
+            Ok(out) => return Ok(out),
+            Err(e) => e,
+        };
+        // Cancel wins any tie: if the token is already cancelled (e.g. the
+        // dispatch arm of run_tool_once's select happened to win over a
+        // simultaneously-ready cancel), settle Cancelled now — don't log a
+        // spurious "retrying" line for a job that's actually being cancelled.
+        if cancel_token.is_cancelled() {
+            return Err(JobError::Cancelled);
+        }
+        let backoff_ms = match super::retry::decide(tool_name, attempt, &err, &retry_cfg) {
+            super::retry::RetryDecision::Stop => {
+                // On a retried-then-exhausted failure, annotate the terminal
+                // error so the injected `<task-notification>` + persisted row
+                // reflect that it was retried (audit parity with the rest of the
+                // subsystem). `attempt` is the count of attempts actually made.
+                return Err(annotate_retry_attempts(err, attempt));
+            }
+            super::retry::RetryDecision::Retry { backoff_ms } => backoff_ms,
+        };
+        // Cancellable backoff. Log AFTER the wait so the "retrying" line is
+        // emitted only when we actually proceed to re-dispatch (a cancel during
+        // the wait settles Cancelled without a misleading retry log).
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)) => {}
+            _ = cancel_token.cancelled() => return Err(JobError::Cancelled),
+        }
+        app_warn!(
+            "async_jobs",
+            "retry",
+            "Background tool '{}' attempt {} failed transiently; retrying (attempt {})",
+            tool_name,
+            attempt,
+            attempt + 1
+        );
+        attempt += 1;
+    }
+}
+
+/// Append a "(failed after N attempts)" marker to a retried job's terminal error
+/// so a retried-then-failed job is distinguishable from a single failure in the
+/// injected notification and the persisted `error` column. No-op for `attempt
+/// <= 1` (never retried) and for non-`Failed` terminals (cancels/timeouts/denials
+/// are returned verbatim — they're never reached with `attempt > 1`).
+fn annotate_retry_attempts(err: JobError, attempt: u32) -> JobError {
+    match err {
+        JobError::Failed { message } if attempt > 1 => JobError::Failed {
+            message: format!("{message} (failed after {attempt} attempts)"),
+        },
+        other => other,
+    }
+}
+
 async fn run_job_to_completion(
-    db: Arc<AsyncJobsDB>,
+    db: Arc<JobsDB>,
     job_id: String,
     tool_name: String,
     args: Value,
@@ -609,42 +927,37 @@ async fn run_job_to_completion(
     let tool_call_id = ctx.tool_call_id.clone();
     let incognito = ctx.incognito;
 
+    // R8: install the approval bridge for this job-runner thread so an *attended*
+    // approval gate hit during the dispatch (the explicit-background `exec`
+    // command gate, now deferred to here) parks the row at AwaitingApproval for
+    // the duration of the wait and reverts to Running on resolve. No-op unless
+    // the dispatch actually blocks on a human. Held across the whole dispatch;
+    // the RAII scope clears the thread-local at function end. Reset the park
+    // accounting first so the budget timer's exclusion starts from a clean slate.
+    super::approval_bridge::reset_park_timing();
+    let _approval_scope = super::approval_bridge::install(
+        db.clone(),
+        job_id.clone(),
+        tool_name.clone(),
+        session_id.clone(),
+    );
+
     // I4: cross-process cancel watcher (shared with the auto-background worker).
     // Aborted once the job settles below.
     let poll_handle =
         spawn_cross_process_cancel_watcher(db.clone(), job_id.clone(), cancel_token.clone());
 
-    let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
-        &tool_name, &args, &ctx,
-    ));
-    let result: Result<String, JobError> = if max_secs == 0 {
-        tokio::select! {
-            inner = &mut dispatch => inner.map_err(JobError::from_dispatch_error),
-            _ = cancel_token.cancelled() => {
-                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                Err(JobError::Cancelled)
-            },
-        }
-    } else {
-        let timer = tokio::time::sleep(std::time::Duration::from_secs(max_secs));
-        tokio::pin!(timer);
-        tokio::select! {
-            inner = &mut dispatch => inner.map_err(JobError::from_dispatch_error),
-            _ = &mut timer => {
-                cancel_token.cancel();
-                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                Err(JobError::TimedOut { max_secs })
-            },
-            _ = cancel_token.cancelled() => {
-                let _ = tokio::time::timeout(CANCEL_CLEANUP_GRACE, &mut dispatch).await;
-                Err(JobError::Cancelled)
-            },
-        }
-    };
+    // R7.4: dispatch with retry (re-attempts a retry-eligible tool on a transient
+    // `Failed`; a single attempt for everything else). The cross-process cancel
+    // watcher above stays live across attempts + backoffs.
+    let result = run_tool_with_retry(&tool_name, &args, &ctx, max_secs, &cancel_token).await;
 
     // The job has settled — stop the cross-process cancel watcher (no-op if it
     // already exited because the token was cancelled).
     poll_handle.abort();
+    // R8: terminal cleanup of any parked-approval record (idempotent — `on_resume`
+    // already removed it on the normal path; this covers any stray).
+    super::approval_bridge::forget(&job_id);
 
     // E4 (INCOG-2) hardening: re-evaluate incognito at settle time, not only at
     // spawn. `ctx.incognito` was captured when the job started; a long-running
@@ -670,7 +983,7 @@ async fn run_job_to_completion(
 
 #[allow(clippy::too_many_arguments)]
 async fn finalize_job(
-    db: &AsyncJobsDB,
+    db: &JobsDB,
     job_id: &str,
     tool_name: &str,
     session_id: Option<&str>,
@@ -682,8 +995,27 @@ async fn finalize_job(
 ) {
     let (status, preview, path, error_text) = match result {
         Ok(output) => {
-            let (preview, path) = persist_result(job_id, &output, preview_bytes, incognito);
-            (AsyncJobStatus::Completed, Some(preview), path, None)
+            let persisted = persist_result(job_id, &output, preview_bytes, incognito);
+            let mut preview = persisted.preview;
+            // N4: the tool SUCCEEDED, but its full output was too big to inline
+            // AND the disk spill failed — only a truncated preview survives.
+            // Keep `Completed` (the work + side effects really happened), but tell
+            // the model the complete result is unrecoverable so it doesn't act on
+            // a silently-truncated answer; it can re-run if it needs the rest.
+            if persisted.full_output_lost {
+                app_error!(
+                    "async_jobs",
+                    "finalize",
+                    "job {} full output ({} bytes) could not be spooled to disk; only a truncated preview survives",
+                    job_id,
+                    output.len()
+                );
+                preview.push_str(&format!(
+                    "\n\n[⚠️ The full output ({} bytes) could not be saved to disk and is unavailable — only the truncated preview above remains. Re-run the tool if you need the complete result.]",
+                    output.len()
+                ));
+            }
+            (JobStatus::Completed, Some(preview), persisted.path, None)
         }
         Err(job_err) => {
             // Typed terminal status — no more re-parsing the error message
@@ -716,6 +1048,9 @@ async fn finalize_job(
         }
     };
     super::cancel::remove_job(job_id);
+    // R3: drop the running-output tail ring; the full result is now on disk
+    // (`result_path`) / in the preview. No-op for jobs that never had one.
+    super::output_tail::remove(job_id);
     if !updated {
         return;
     }
@@ -723,7 +1058,7 @@ async fn finalize_job(
     // Wake per-job `job_status(block=true)` waiters; the EventBus emit below
     // is retained for frontend subscribers only.
     super::wait::notify_completion(job_id);
-    emit_completion_event(job_id, tool_name, status.as_str());
+    emit_completion_event(job_id, tool_name, status.as_str(), session_id);
 
     // H4: fire the terminal PostToolUse / PostToolUseFailure hook so a
     // backgrounded job is visible to hooks (HOOKS-1) — including cancellation
@@ -750,10 +1085,13 @@ async fn finalize_job(
     }
 
     // Schedule injection back into the parent session.
-    if status == AsyncJobStatus::Cancelled {
+    if status == JobStatus::Cancelled {
         let _ = db.mark_injected(job_id);
     } else if let Some(sid) = session_id {
-        injection::dispatch_injection(
+        // R4: buffer through the per-session completion merge window so several
+        // jobs finishing close together inject as ONE billed turn. Falls back to
+        // immediate single injection when the window is 0 (disabled).
+        injection::enqueue_injection(
             sid.to_string(),
             agent_id.map(|s| s.to_string()),
             job_id.to_string(),
@@ -774,23 +1112,40 @@ async fn finalize_job(
 /// Returning a stable output file lets the parent agent decide when to spend a
 /// `read` call on detailed output instead of embedding arbitrary tool text in
 /// the notification envelope.
+/// Outcome of persisting a finished job's output. `full_output_lost` is `true`
+/// only when the output was TOO BIG for the inline preview AND spooling it to
+/// disk failed — i.e. the truncated preview is all that survives and the
+/// complete result is unrecoverable. (Incognito preview-only is by design and
+/// NOT a loss; a small output that fits inline is fully preserved in `preview`.)
+struct PersistedResult {
+    preview: String,
+    path: Option<String>,
+    full_output_lost: bool,
+}
+
 fn persist_result(
     job_id: &str,
     output: &str,
     max_bytes: usize,
     incognito: bool,
-) -> (String, Option<String>) {
-    let preview = if output.len() <= max_bytes {
-        output.to_string()
-    } else {
+) -> PersistedResult {
+    let truncated = output.len() > max_bytes;
+    let preview = if truncated {
         truncate_preview(output, max_bytes)
+    } else {
+        output.to_string()
     };
     // E4 (INCOG-2): incognito jobs keep only the bounded inline preview — never
-    // spool the full output to disk, so burn-on-close leaves no spool file.
+    // spool the full output to disk, so burn-on-close leaves no spool file. This
+    // is intentional, not a loss.
     if incognito {
-        return (preview, None);
+        return PersistedResult {
+            preview,
+            path: None,
+            full_output_lost: false,
+        };
     }
-    let path = match crate::paths::async_job_result_path(job_id) {
+    let path = match crate::paths::background_job_result_path(job_id) {
         Ok(p) => p,
         Err(e) => {
             app_warn!(
@@ -800,7 +1155,11 @@ fn persist_result(
                 job_id,
                 e
             );
-            return (preview, None);
+            return PersistedResult {
+                preview,
+                path: None,
+                full_output_lost: truncated,
+            };
         }
     };
     if let Some(parent) = path.parent() {
@@ -822,9 +1181,17 @@ fn persist_result(
             job_id,
             e
         );
-        return (preview, None);
+        return PersistedResult {
+            preview,
+            path: None,
+            full_output_lost: truncated,
+        };
     }
-    (preview, Some(path.to_string_lossy().to_string()))
+    PersistedResult {
+        preview,
+        path: Some(path.to_string_lossy().to_string()),
+        full_output_lost: false,
+    }
 }
 
 fn truncate_preview(output: &str, max_bytes: usize) -> String {
@@ -839,17 +1206,16 @@ fn truncate_preview(output: &str, max_bytes: usize) -> String {
     format!("{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}")
 }
 
-fn emit_completion_event(job_id: &str, tool_name: &str, status: &str) {
-    if let Some(bus) = crate::get_event_bus() {
-        bus.emit(
-            "async_tool_job:completed",
-            json!({
-                "job_id": job_id,
-                "tool": tool_name,
-                "status": status,
-            }),
-        );
-    }
+fn emit_completion_event(job_id: &str, tool_name: &str, status: &str, session_id: Option<&str>) {
+    // R3: unified `job:*` namespace. finalize_job is the Tool executor's terminal
+    // path, so `kind = Tool`.
+    super::events::emit_completed(
+        job_id,
+        super::types::JobKind::Tool,
+        tool_name,
+        status,
+        session_id,
+    );
 }
 
 fn preview_byte_budget() -> usize {
@@ -892,14 +1258,40 @@ mod tests {
         // E4 (INCOG-2): even a large output must never spool to disk for an
         // incognito job — only the bounded inline preview is kept, with no path.
         let big = "x".repeat(10_000);
-        let (preview, path) = persist_result("job_incognito", &big, 100, true);
+        let persisted = persist_result("job_incognito", &big, 100, true);
         assert!(
-            path.is_none(),
+            persisted.path.is_none(),
             "incognito job must not produce a spool path"
         );
         assert!(
-            preview.len() < big.len(),
+            persisted.preview.len() < big.len(),
             "preview should be truncated to the inline budget"
+        );
+        // Incognito preview-only is by design — NOT a data-loss (N4).
+        assert!(
+            !persisted.full_output_lost,
+            "incognito preview-only must not be flagged as lost"
+        );
+    }
+
+    #[test]
+    fn persist_result_never_false_flags_loss_when_output_preserved() {
+        // N4: `full_output_lost` must be false whenever the COMPLETE output
+        // survives — a false positive would scare the model off a perfectly good
+        // result. Two preserving cases, both robust regardless of HA_DATA_DIR:
+        //   - output fits inline → preview IS the full output (truncated=false,
+        //     so lost is false even if the spool path can't be resolved);
+        //   - incognito preview-only → returns before any spool, by design.
+        let small = persist_result("job_small", "tiny", 100, false);
+        assert_eq!(small.preview, "tiny");
+        assert!(!small.full_output_lost, "inline-fit output is never lost");
+
+        let big = "x".repeat(10_000);
+        let incog = persist_result("job_incognito_big", &big, 100, true);
+        assert!(incog.path.is_none());
+        assert!(
+            !incog.full_output_lost,
+            "incognito preview-only is intentional, never flagged lost"
         );
     }
 

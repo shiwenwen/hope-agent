@@ -10,7 +10,7 @@ use super::injection::{build_subagent_push_message, inject_and_run_parent};
 use super::mailbox::SUBAGENT_MAILBOX;
 use super::types::{SpawnParams, SubagentEvent, SubagentRun, SubagentStatus};
 use super::{
-    max_depth_for_agent, DEFAULT_TIMEOUT_SECS, MAX_CONCURRENT_PER_SESSION, MAX_RESULT_CHARS,
+    max_concurrent_for_agent, max_depth_for_agent, queue, DEFAULT_TIMEOUT_SECS, MAX_RESULT_CHARS,
 };
 
 // ── Spawn Logic ─────────────────────────────────────────────────
@@ -38,7 +38,9 @@ pub async fn spawn_subagent(
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
 ) -> Result<String> {
-    // 1. Validate depth (use parent agent's configured max)
+    // ── Structural limits: hard-reject (a breach can't become legal by waiting;
+    // guarded by `structural_limit_tests`). ──
+    // 1. Depth (use parent agent's configured max).
     let effective_max_depth = max_depth_for_agent(&params.parent_agent_id);
     if params.depth > effective_max_depth {
         return Err(anyhow::anyhow!(
@@ -47,20 +49,29 @@ pub async fn spawn_subagent(
             effective_max_depth
         ));
     }
-
-    // 2. Check concurrent limit
-    let active_count = session_db.count_active_subagent_runs(&params.parent_session_id)?;
-    if active_count >= MAX_CONCURRENT_PER_SESSION {
-        return Err(anyhow::anyhow!(
-            "Max concurrent sub-agents reached ({}/{}). Wait for some to complete or kill them.",
-            active_count,
-            MAX_CONCURRENT_PER_SESSION
-        ));
-    }
-
-    // 3. Validate agent exists
+    // 2. Agent exists.
     let _agent_def = crate::agent_loader::load_agent(&params.agent_id)
         .map_err(|e| anyhow::anyhow!("Agent '{}' not found: {}", params.agent_id, e))?;
+
+    // ── Resource limit (R7.2): at the per-session concurrency limit, PARK the
+    // spawn as `Queued` instead of rejecting — the subagent scheduler
+    // ([`super::queue`]) promotes it when a running child settles. A full queue
+    // is the only hard reject here (the queue pins live `SpawnParams` in RAM, so
+    // it must stay bounded). `Queued` is excluded from `count_active_subagent_runs`
+    // so a parked run can't inflate the count and deadlock its own promotion. ──
+    let max_concurrent = max_concurrent_for_agent(&params.parent_agent_id);
+    let active_count = session_db.count_active_subagent_runs(&params.parent_session_id)?;
+    let should_queue = active_count >= max_concurrent;
+    if should_queue && queue::is_full() {
+        return Err(anyhow::anyhow!(
+            "Sub-agent queue is full. Wait for some to complete or kill them."
+        ));
+    }
+    let initial_status = if should_queue {
+        SubagentStatus::Queued
+    } else {
+        SubagentStatus::Spawning
+    };
 
     // 4. Generate run_id and create isolated session (linked to parent)
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -82,7 +93,7 @@ pub async fn spawn_subagent(
         child_agent_id: params.agent_id.clone(),
         child_session_id: child_session_id.clone(),
         task: params.task.clone(),
-        status: SubagentStatus::Spawning,
+        status: initial_status.clone(),
         result: None,
         error: None,
         depth: params.depth,
@@ -96,6 +107,107 @@ pub async fn spawn_subagent(
         output_tokens: None,
     };
     session_db.insert_subagent_run(&run)?;
+
+    // R6: project user-delegated background subagent runs into the unified
+    // `background_jobs` surface (one-way; `subagent_runs` stays the truth
+    // source) so they appear in `job_status` list/cancel + the future panel.
+    // Gate: only runs that auto-inject (`!skip_parent_injection` — excludes
+    // internal plan / team / hook spawns) and non-incognito parents (close-and-
+    // burn leaves no persisted trace). The incognito check uses the canonical
+    // `is_session_incognito` helper, which fail-closes a missing/burned parent
+    // row to incognito (do NOT project on `Ok(None)`). Best-effort: a projection
+    // failure must never block the spawn.
+    //
+    // R5: a `batch_spawn` child carries its owning Group's id in
+    // `params.group_id`. `effective_group_id` is `Some` ONLY when the child is
+    // grouped AND its projection was created — a projection-insert failure
+    // ungroups the child so it falls back to its own per-child injection
+    // (below) rather than stranding its result with no delivery path (the Group
+    // join only tracks children it can see as projections).
+    let mut effective_group_id: Option<String> = None;
+    if !params.skip_parent_injection
+        && !crate::session::is_session_incognito(Some(&params.parent_session_id))
+    {
+        match crate::async_jobs::JobManager::project_subagent_spawn(
+            &run_id,
+            &params.parent_session_id,
+            &params.parent_agent_id,
+            &params.agent_id,
+            initial_status.clone(),
+            params.group_id.as_deref(),
+        ) {
+            Ok(()) => effective_group_id = params.group_id.clone(),
+            Err(e) => crate::app_warn!(
+                "subagent",
+                "spawn",
+                "Failed to project subagent run {} into background_jobs: {}",
+                run_id,
+                e
+            ),
+        }
+    }
+
+    // R7.2: over the concurrency limit → PARK as `Queued`; the subagent
+    // scheduler promotes it when a running child settles. Otherwise launch now.
+    if should_queue {
+        // Register the cancel flag NOW, at park time, so `request_cancel_run`
+        // can trip a flag that the promoted run REUSES (see
+        // `SubagentCancelRegistry::register`, which is get-or-create). Without
+        // this, a cancel arriving in the window between the scheduler's dequeue
+        // and the promoted run registering its own flag would create a fresh
+        // (untripped) flag — letting a killed run execute to completion and
+        // inject its result.
+        cancel_registry.register(&run_id);
+        if !queue::enqueue(queue::PendingSubagentSpawn {
+            params,
+            run_id: run_id.clone(),
+            child_session_id,
+            effective_group_id,
+        }) {
+            // Lost the cap race after the earlier check — settle the row and
+            // drop the just-registered flag so we never leave a dangling
+            // `Queued` run with no queue entry.
+            cancel_registry.remove(&run_id);
+            let _ = session_db.update_subagent_status(
+                &run_id,
+                SubagentStatus::Killed,
+                None,
+                Some("Sub-agent queue full"),
+                None,
+                None,
+            );
+            return Err(anyhow::anyhow!(
+                "Sub-agent queue is full. Wait for some to complete or kill them."
+            ));
+        }
+        return Ok(run_id);
+    }
+
+    launch_subagent_run(
+        params,
+        run_id.clone(),
+        child_session_id,
+        effective_group_id,
+        session_db,
+        cancel_registry,
+    );
+    Ok(run_id)
+}
+
+/// Launch a sub-agent run: register the cancel flag + steer mailbox, emit the
+/// `spawned` event, fire `SubagentStart`, and spawn the execution task. The run
+/// row + projection already exist (status `Spawning`). Called directly by
+/// [`spawn_subagent`] for an under-limit spawn, and by the subagent scheduler
+/// ([`super::queue`]) when promoting a previously `Queued` run.
+pub(crate) fn launch_subagent_run(
+    params: SpawnParams,
+    run_id: String,
+    child_session_id: String,
+    effective_group_id: Option<String>,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+) {
+    let task_preview = truncate_str(&params.task, 50);
 
     // 6. Register cancel flag and steer mailbox slot
     let cancel_flag = cancel_registry.register(&run_id);
@@ -148,6 +260,9 @@ pub async fn spawn_subagent(
     let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
     let lock_plan_agent_mode = params.lock_plan_agent_mode;
     let skip_parent_injection = params.skip_parent_injection;
+    // R5: a grouped child suppresses its individual completion injection — the
+    // Group fires ONE merged injection when every child settles (see below).
+    let grouped = effective_group_id.is_some();
     let extra_system_context = params.extra_system_context.clone();
     let skill_allowed_tools = params.skill_allowed_tools.clone();
     let reasoning_effort = params.reasoning_effort.clone();
@@ -341,7 +456,11 @@ pub async fn spawn_subagent(
         // Backend-driven result injection: push result to parent agent without relying on frontend.
         // Uses a dedicated OS thread + runtime to avoid the Send cycle:
         // inject_and_run_parent → agent.chat() → action_spawn → spawn_subagent → tokio::spawn
+        // R5: `grouped` children never inject individually — their Group joins
+        // all child results into ONE merged injection (covering every terminal
+        // status, including Killed, which the per-child path below skips).
         if !skip_parent_injection
+            && !grouped
             && matches!(
                 status_for_inject,
                 SubagentStatus::Completed | SubagentStatus::Error | SubagentStatus::Timeout
@@ -391,8 +510,6 @@ pub async fn spawn_subagent(
             });
         }
     });
-
-    Ok(run_id)
 }
 
 /// Execute the sub-agent (runs within the spawned tokio task).
@@ -604,5 +721,170 @@ mod hook_label_tests {
         assert!(!is_hook_spawn(Some("")));
         assert!(!is_hook_spawn(Some("agent-team")));
         assert!(!is_hook_spawn(Some("subagent-tool")));
+    }
+}
+
+/// R7.0/R7.4 acceptance: structural limits (`depth` / `batch` / `turn`) must
+/// REJECT when hit — never queue. Per R7.0's three-way taxonomy, a structural
+/// breach can't become legal by waiting (unlike a resource/cost limit, which
+/// the R7.1 background-job queue defers), so it fails fast with an error and is
+/// NOT routed through any [`crate::async_jobs::slots`] queue. This guards
+/// against R7.1's "reject → queue" change ever leaking into the structural path.
+#[cfg(test)]
+mod structural_limit_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn params_at_depth(depth: u32) -> SpawnParams {
+        SpawnParams {
+            task: "t".into(),
+            // Nonexistent agent → `max_depth_for_agent` falls back to the
+            // hardcoded DEFAULT_MAX_DEPTH (3), independent of on-disk config.
+            agent_id: "__nonexistent_for_test__".into(),
+            parent_session_id: "s".into(),
+            parent_agent_id: "__nonexistent_for_test__".into(),
+            depth,
+            timeout_secs: None,
+            model_override: None,
+            label: None,
+            attachments: Vec::new(),
+            plan_agent_mode: None,
+            plan_mode_allow_paths: Vec::new(),
+            lock_plan_agent_mode: false,
+            skip_parent_injection: false,
+            extra_system_context: None,
+            skill_allowed_tools: Vec::new(),
+            reasoning_effort: None,
+            skill_name: None,
+            origin_source: None,
+            origin_channel_kb_context: None,
+            group_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn subagent_depth_overflow_rejects_not_queues() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Arc::new(SessionDB::open(&tmp.path().join("s.db")).unwrap());
+        let registry = Arc::new(SubagentCancelRegistry::new());
+        // Default cap is 3 (DEFAULT_MAX_DEPTH); depth 99 is structurally illegal.
+        let err = spawn_subagent(params_at_depth(99), db, registry)
+            .await
+            .expect_err("a depth past the structural cap must reject, not queue");
+        assert!(
+            err.to_string().contains("depth limit"),
+            "expected a depth-limit rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn batch_size_cap_is_a_fixed_structural_limit() {
+        // The `batch_spawn` fan-out cap is a fixed structural limit (default 10),
+        // enforced by a hard reject in `action_batch_spawn` (`tasks.len() >
+        // max_batch → Err`), NOT a resizable resource quota. Pin the default so a
+        // future edit can't silently turn it into a tunable queue depth.
+        assert_eq!(
+            super::super::max_batch_size_for_agent("__nonexistent_for_test__"),
+            10
+        );
+    }
+
+    fn active_run(run_id: &str, parent_session: &str, agent: &str) -> SubagentRun {
+        SubagentRun {
+            run_id: run_id.into(),
+            parent_session_id: parent_session.into(),
+            parent_agent_id: agent.into(),
+            child_agent_id: agent.into(),
+            child_session_id: format!("child-{run_id}"),
+            task: "t".into(),
+            status: SubagentStatus::Running,
+            result: None,
+            error: None,
+            depth: 1,
+            model_used: None,
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: None,
+            duration_ms: None,
+            label: None,
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+        }
+    }
+
+    #[test]
+    fn concurrency_over_limit_queues_instead_of_rejecting() {
+        // R7.2: at the per-session concurrency limit, an extra spawn must PARK as
+        // `Queued` (Ok) — NOT reject (the pre-R7.2 behavior). Uses a real on-disk
+        // agent (the agent-exists check precedes the concurrency decision) with
+        // `max_concurrent = 1`, and one pre-inserted active run so the next spawn
+        // is over-limit. The env lock in `with_env_vars` serializes HA_DATA_DIR.
+        let root = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let agent_id = "test-queue-agent";
+            let dir = crate::paths::agent_dir(agent_id).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut cfg = crate::agent_config::AgentConfig::default();
+            cfg.subagents.max_concurrent = 1;
+            std::fs::write(dir.join("agent.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
+
+            let db = Arc::new(SessionDB::open(&root.path().join("s.db")).unwrap());
+            let registry = Arc::new(SubagentCancelRegistry::new());
+            let parent = db.create_session(agent_id).unwrap();
+
+            // One active run → active_count (1) == max_concurrent (1): at limit.
+            db.insert_subagent_run(&active_run("active-1", &parent.id, agent_id))
+                .unwrap();
+
+            let params = SpawnParams {
+                task: "queued task".into(),
+                agent_id: agent_id.into(),
+                parent_session_id: parent.id.clone(),
+                parent_agent_id: agent_id.into(),
+                depth: 1,
+                timeout_secs: None,
+                model_override: None,
+                label: None,
+                attachments: Vec::new(),
+                plan_agent_mode: None,
+                plan_mode_allow_paths: Vec::new(),
+                lock_plan_agent_mode: false,
+                skip_parent_injection: false,
+                extra_system_context: None,
+                skill_allowed_tools: Vec::new(),
+                reasoning_effort: None,
+                skill_name: None,
+                origin_source: None,
+                origin_channel_kb_context: None,
+                group_id: None,
+            };
+
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let run_id = rt
+                .block_on(spawn_subagent(params, db.clone(), registry))
+                .expect("over-limit spawn must QUEUE (Ok), not reject");
+
+            // Parked, not launched: row is Queued and the entry is in the queue.
+            let run = db.get_subagent_run(&run_id).unwrap().unwrap();
+            assert_eq!(
+                run.status,
+                SubagentStatus::Queued,
+                "over-limit spawn must park as Queued"
+            );
+
+            // The parked spawn is dequeuable — the queue half of the cancel path
+            // (the terminal stamp goes through the global SessionDB, exercised in
+            // production wiring, not reachable with this test's local db).
+            assert!(
+                super::queue::remove_for_run(&run_id).is_some(),
+                "the parked spawn must be in the in-memory queue and dequeuable"
+            );
+
+            // Leave the process-global queue clean for sibling tests.
+            super::queue::purge_for_session(&parent.id);
+        });
     }
 }

@@ -25,7 +25,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 "action": {
                     "type": "string",
                     "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all", "spawn_and_wait"],
-                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (spawn multiple), wait_all (wait for multiple), spawn_and_wait (spawn + auto-background on timeout)"
+                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (fan out multiple in the background as one group — ALL results arrive together as ONE merged notification when the batch finishes; just end your turn, no need to poll or wait_all), wait_all (wait for multiple), spawn_and_wait (spawn + auto-background on timeout)"
                 },
                 "task": {
                     "type": "string",

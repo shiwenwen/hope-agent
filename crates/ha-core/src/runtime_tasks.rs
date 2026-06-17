@@ -129,7 +129,7 @@ fn cancel_async_job(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
             "Async job is already in a terminal state",
         ));
     }
-    match crate::async_jobs::cancel_job(id)? {
+    match crate::async_jobs::JobManager::cancel(id)? {
         Some(job) => Ok(CancelRuntimeTaskResult::new(
             RuntimeTaskKind::AsyncJob,
             id,

@@ -150,6 +150,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
   load_session_artifacts_cmd:      { method: "GET",    path: "/api/sessions/{sessionId}/artifacts" },
+  list_background_jobs:            { method: "GET",    path: "/api/sessions/{sessionId}/background-jobs" },
+  get_background_job:              { method: "GET",    path: "/api/background-jobs/{jobId}" },
   load_session_environment_cmd:    { method: "GET",    path: "/api/sessions/{sessionId}/environment" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
   load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },

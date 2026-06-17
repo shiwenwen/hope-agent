@@ -142,7 +142,25 @@ pub(crate) async fn attach_im_live_mirror(
     if !matches!(source, ChatSource::Desktop | ChatSource::Http) {
         return None;
     }
+    attach_im_live_mirror_inner(session_id, last_user).await
+}
 
+/// G1: mirror a background-completion **injection** turn (`ParentInjection`)
+/// into the parent session's attached IM chat. The engine's own
+/// [`attach_im_live_mirror`] gates `ParentInjection` out (it's not a
+/// `Desktop`/`Http` turn), so `inject_and_run_parent` calls this directly and
+/// **awaits** finalize itself — the injection runs on a short-lived
+/// current-thread runtime whose drop would cancel a `tokio::spawn`ed finalize.
+/// No user-quote is sent: the injection's "message" is the internal
+/// `<subagent-result>` envelope, not something to render to the IM user.
+pub(crate) async fn attach_im_injection_mirror(session_id: &str) -> Option<ImLiveMirrorState> {
+    attach_im_live_mirror_inner(session_id, None).await
+}
+
+async fn attach_im_live_mirror_inner(
+    session_id: &str,
+    last_user: Option<LastUserSnapshot>,
+) -> Option<ImLiveMirrorState> {
     let store = crate::config::cached_config();
     if store.channels.accounts.is_empty() {
         // Desktop-only deployments skip the SQL probe entirely.

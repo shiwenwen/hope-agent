@@ -32,6 +32,36 @@ use crate::tools::{self, ToolExecContext};
 const MAX_OUTPUT_TOKENS: u32 = 16384;
 const TOOL_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Max concurrent-safe (read-only) tools allowed to run at once within one
+/// assistant turn. Bounds fd / outbound-request fan-out when a single message
+/// emits many read-only calls (e.g. N `web_fetch`). An internal guardrail (peer
+/// to the IM-inbound concurrency const), not a user-facing knob.
+const MAX_CONCURRENT_SAFE_TOOLS: usize = 8;
+
+/// Run `futs` concurrently with at most `max` in flight at any time, returning
+/// results in the SAME order as the input. Order preservation lets callers pair
+/// results to inputs positionally. The semaphore is never closed, so permit
+/// acquisition cannot fail (`.ok()` degrades to unbounded only in that
+/// impossible closed case).
+async fn run_bounded_in_order<T, Fut>(max: usize, futs: Vec<Fut>) -> Vec<T>
+where
+    Fut: std::future::Future<Output = T>,
+{
+    // `max.max(1)`: a degenerate cap of 0 would make `Semaphore::new(0)` +
+    // `acquire_owned()` park forever (acquire only errors on a *closed*
+    // semaphore), so clamp it to single-flight. Today both callers pass 8;
+    // this guards future reuse with a config-derived bound.
+    let sem = Arc::new(tokio::sync::Semaphore::new(max.max(1)));
+    let wrapped = futs.into_iter().map(|f| {
+        let sem = sem.clone();
+        async move {
+            let _permit = sem.acquire_owned().await.ok();
+            f.await
+        }
+    });
+    join_all(wrapped).await
+}
+
 fn final_round_handoff_guidance(max_rounds: u32) -> String {
     format!(
         "# Tool-Call Limit Reached\n\n\
@@ -424,7 +454,7 @@ async fn execute_tool_with_cancel(
                         job_id,
                         name
                     );
-                    let _ = crate::async_jobs::cancel_job(&job_id);
+                    let _ = crate::async_jobs::JobManager::cancel(&job_id);
                 }
             }
             tools::ToolRejection::cancelled(name).to_tool_result()
@@ -726,7 +756,12 @@ impl AssistantAgent {
             let mut executed: Vec<ExecutedTool> = Vec::new();
             let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
 
-            // Phase 1: concurrent-safe in parallel.
+            // Phase 1: concurrent-safe in parallel, but BOUNDED — a single
+            // assistant message with many read-only calls (e.g. N `web_fetch`)
+            // must not fire N concurrent operations at once (fd / outbound-request
+            // flood). A semaphore caps the in-flight count; `join_all` still
+            // preserves result order, and each result tuple self-describes via
+            // its own call_id so completion order never affects correctness.
             if !concurrent_tcs.is_empty() && !cancel.load(Ordering::SeqCst) {
                 let futures: Vec<_> = concurrent_tcs
                     .iter()
@@ -767,7 +802,9 @@ impl AssistantAgent {
                     log_tool_input(tc, round);
                 }
 
-                let results = join_all(futures).await;
+                // Bounded fan-out: at most MAX_CONCURRENT_SAFE_TOOLS in flight at
+                // once (order preserved; each result self-describes via call_id).
+                let results = run_bounded_in_order(MAX_CONCURRENT_SAFE_TOOLS, futures).await;
 
                 for (call_id, name, arguments, result, elapsed_ms, side) in results {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
@@ -1075,6 +1112,49 @@ mod tests {
 
         let auto = synthetic_started_result("job_xyz", "web_search", JobOrigin::AutoBackgrounded);
         assert_eq!(extract_started_job_id(&auto).as_deref(), Some("job_xyz"));
+    }
+
+    #[tokio::test]
+    async fn run_bounded_in_order_caps_concurrency_and_preserves_order() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let n = 20usize;
+        let max = 8usize;
+
+        let futs: Vec<_> = (0..n)
+            .map(|i| {
+                let inflight = inflight.clone();
+                let peak = peak.clone();
+                async move {
+                    let cur = inflight.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(cur, Ordering::SeqCst);
+                    // Yield + brief sleep so calls actually overlap in time.
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    inflight.fetch_sub(1, Ordering::SeqCst);
+                    i
+                }
+            })
+            .collect();
+
+        let results = super::run_bounded_in_order(max, futs).await;
+
+        let observed_peak = peak.load(Ordering::SeqCst);
+        assert!(
+            observed_peak <= max,
+            "peak in-flight {} exceeded cap {}",
+            observed_peak,
+            max
+        );
+        assert!(
+            observed_peak > 1,
+            "concurrency never overlapped (peak {}); test is not exercising the bound",
+            observed_peak
+        );
+        // Order must match input despite out-of-order completion.
+        assert_eq!(results, (0..n).collect::<Vec<_>>());
     }
 
     #[test]

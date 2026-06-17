@@ -58,6 +58,7 @@ export function isCenteredSystemMessage(msg: Message): boolean {
     msg.role === "event" ||
     !!msg.isSubagentResult ||
     !!msg.isCronTrigger ||
+    !!msg.isWakeupTrigger ||
     !!msg.isPlanTrigger
   )
 }
@@ -375,6 +376,7 @@ export function parseSessionMessages(
       let subagentResultAgentId: string | undefined
       let isCronTrigger = false
       let cronJobName: string | undefined
+      let isWakeupTrigger = false
       let isPlanTrigger = false
       let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound: { channelId: string; senderName?: string } | undefined
@@ -389,6 +391,9 @@ export function parseSessionMessages(
           if (meta?.cron_trigger) {
             isCronTrigger = true
             cronJobName = meta.cron_trigger.job_name
+          }
+          if (meta?.wakeup_trigger) {
+            isWakeupTrigger = true
           }
           if (meta?.plan_trigger) {
             isPlanTrigger = true
@@ -425,6 +430,7 @@ export function parseSessionMessages(
         subagentResultAgentId,
         isCronTrigger,
         cronJobName,
+        isWakeupTrigger,
         isPlanTrigger,
         planComment,
         channelInbound,

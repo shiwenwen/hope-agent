@@ -11,6 +11,7 @@ import {
   Info,
   Network,
   Timer,
+  AlarmClock,
   PlayCircle,
   ChevronDown,
   Code2,
@@ -214,6 +215,21 @@ function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => strin
           {msg.content}
         </div>
       </AnimatedCollapse>
+    </div>
+  )
+}
+
+function WakeupTriggerBubble({ t }: { t: (key: string) => string }) {
+  // Static chip only — no expand. `msg.content` is the LLM-facing `<wakeup>…
+  // <note>…</note></wakeup>` scaffolding with XML-escaped entities; rendering it
+  // raw would show internal tags and literal `&lt;` to the user. The chip alone
+  // conveys "the agent resumed from a scheduled wakeup".
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-500/8 border border-violet-500/20 text-xs text-violet-400/80 max-w-[80%]">
+      <AlarmClock className="w-3 h-3 shrink-0 text-violet-500" />
+      <span className="font-medium text-violet-500">{t("chat.wakeupTrigger")}</span>
+      <span className="text-violet-400/50">·</span>
+      <span>{t("chat.wakeupResumed")}</span>
     </div>
   )
 }
@@ -531,6 +547,10 @@ function MessageBubbleInner({
 
   if (msg.isCronTrigger) {
     return <CronTriggerBubble msg={msg} t={t} />
+  }
+
+  if (msg.isWakeupTrigger) {
+    return <WakeupTriggerBubble t={t} />
   }
 
   if (msg.isPlanTrigger) {

@@ -85,6 +85,12 @@ pub struct NotificationConfig {
     /// Include assistant reply previews in chat-completion notifications.
     #[serde(default)]
     pub show_chat_content: bool,
+    /// Fire a desktop notification when a background job (R4: tool / group)
+    /// finishes — gated by [`enabled`](Self::enabled) and only when the window
+    /// is in the background (`notifyIfBackground`). Default: true. The "跑完叫我"
+    /// half of the Background Jobs P1 experience.
+    #[serde(default = "crate::default_true")]
+    pub notify_on_background_job_complete: bool,
 }
 
 impl Default for NotificationConfig {
@@ -92,6 +98,7 @@ impl Default for NotificationConfig {
         Self {
             enabled: true,
             show_chat_content: false,
+            notify_on_background_job_complete: true,
         }
     }
 }
@@ -199,11 +206,16 @@ pub struct AsyncToolsConfig {
     /// to disable auto-backgrounding.
     #[serde(default = "default_async_auto_background_secs")]
     pub auto_background_secs: u64,
-    /// Maximum time (seconds) a backgrounded job may run before being killed.
-    /// Default: 0 (no async-job limit); individual tools may still enforce
-    /// their own timeouts when the model sets one (for example `exec.timeout`).
-    /// Per-call `job_timeout_secs` can set a timeout when this is 0, or tighten
-    /// the configured limit when this is positive.
+    /// Maximum time (seconds) a single backgrounded job *attempt* may run before
+    /// being killed. Default: 0 (no async-job limit); individual tools may still
+    /// enforce their own timeouts when the model sets one (for example
+    /// `exec.timeout`). Per-call `job_timeout_secs` can set a timeout when this
+    /// is 0, or tighten the configured limit when this is positive.
+    /// **R7.4 note:** this is a PER-ATTEMPT budget — a retry-eligible job that
+    /// fails (not times out) and retries gets a fresh budget per attempt, so a
+    /// retried job's total wall-clock can reach `max_job_secs × max_retry_attempts`
+    /// plus backoffs. A timeout itself is never retried, so the budget still
+    /// bounds any single execution.
     #[serde(default = "default_async_max_job_secs")]
     pub max_job_secs: u64,
     /// Number of result bytes to keep as the SQLite preview. Full completed
@@ -237,11 +249,86 @@ pub struct AsyncToolsConfig {
     /// so an uncapped model could linearly exhaust threads/memory by firing
     /// many `run_in_background` calls across rounds. When the cap is reached a
     /// new background request returns an error result telling the model to wait
-    /// (it can poll `job_status`) or run synchronously. Default: 8. Set to 0
-    /// for no limit. (Auto-background transfers of merely-slow sync calls are
-    /// bounded separately by per-turn tool concurrency + the sync budget.)
+    /// (it can poll `job_status`) or run synchronously. Default: hardware-derived
+    /// `clamp(logical_cores - 2, 4, 16)` (see `default_async_max_concurrent_jobs`).
+    /// Set to 0 for no limit. (Auto-background transfers of merely-slow sync calls
+    /// are bounded separately by per-turn tool concurrency + the sync budget.)
     #[serde(default = "default_async_max_concurrent_jobs")]
     pub max_concurrent_jobs: usize,
+    /// Per-session share of the background-job pool (R7.1 fairness tier). A
+    /// single session (or IM chat) may hold at most this many concurrent tool
+    /// jobs; further `run_in_background` calls from the same session QUEUE even
+    /// when the global pool (`max_concurrent_jobs`) still has room, so one busy
+    /// session can't monopolize every slot and starve the others. The scheduler
+    /// promotes queued jobs per-session round-robin, skipping any session already
+    /// at this cap. Auto-backgrounded jobs are *counted* against it too (but an
+    /// already-running job that auto-detaches is counted, not refused — it can
+    /// briefly exceed this cap). Default: hardware-derived (~3/4 of the global
+    /// cap, always below it, band [3,12]). Set to 0 for no per-session limit
+    /// (only the global cap applies).
+    #[serde(default = "default_async_max_concurrent_jobs_per_session")]
+    pub max_concurrent_jobs_per_session: usize,
+    /// R7.4 retry: auto-retry a *backgrounded* job that fails with a transient
+    /// error, with exponential backoff. **Opt-in (default `false`).** Only
+    /// idempotent, re-runnable tools (`web_search` / `web_fetch`) are ever
+    /// retried; `exec` (could repeat a half-applied side effect) and
+    /// `image_generate` (re-runs to a different, re-billed image) are NEVER
+    /// retried regardless of this switch (eligibility is a code-level allowlist,
+    /// not a knob). User cancels / policy denials / timeouts are never retried.
+    /// Default is off because an eligible tool still re-RUNS — and `web_search`
+    /// is often a *paid* provider, so retrying a deterministic failure (e.g. a
+    /// 400 bad query) would re-bill; the user opts in to that trade-off. Per-tool
+    /// retry-eligibility is in `async_jobs::retry::is_retry_eligible`.
+    #[serde(default)]
+    pub retry_enabled: bool,
+    /// R7.4: total attempts for a retry-eligible backgrounded job (1 = no retry;
+    /// the initial try counts), hard-capped at 10. Backoff between attempts is
+    /// exponential from a fixed 500ms base. Default: 3.
+    #[serde(default = "default_async_max_retry_attempts")]
+    pub max_retry_attempts: u32,
+    /// Completion-injection merge window (R4), in seconds. When multiple
+    /// background jobs in the SAME session finish within this window, their
+    /// completion notifications are merged into ONE injected turn (one
+    /// `<task-notification-batch>` listing every task) instead of N separately
+    /// billed turns — so "encourage backgrounding" doesn't degrade into "spam
+    /// billed turns". The first completion opens the window; everything settling
+    /// before it elapses joins the batch. A `Group` (R5) is the pre-merged
+    /// special case and bypasses this. Default: 3. Set to 0 to disable merging
+    /// (each job injects immediately).
+    #[serde(default = "default_async_completion_merge_window_secs")]
+    pub completion_merge_window_secs: u64,
+    /// R9: bytes of *running* output retained per backgrounded `exec` job (R3 ①
+    /// tail ring). While a backgrounded `exec` runs, its stdout/stderr is teed
+    /// into a per-job ring of this size so `job_status(action:status)` can show
+    /// the latest output (judge "still working" vs "stuck") without waiting for
+    /// completion. Larger = more visibility, more RAM per running job (the ring
+    /// is bounded by the concurrent-job cap). The cap is snapshotted when the
+    /// job starts; changing this does not resize an already-running job's ring.
+    /// Default: 8192. Clamped at read to `[256, 1048576]` (256B–1MB).
+    #[serde(default = "default_async_output_tail_bytes")]
+    pub output_tail_bytes: usize,
+    /// R9: hard ceiling on the in-memory background-job wait queue (R7.1). When
+    /// every slot (`max_concurrent_jobs` / `max_concurrent_jobs_per_session`) is
+    /// full, further `run_in_background` requests QUEUE here; each queued job
+    /// pins its live `ToolExecContext` in RAM, so the queue MUST stay bounded —
+    /// past this a new background request hard-rejects (the model waits / runs
+    /// synchronously). This is a memory guardrail, not an "unlimited" knob: it is
+    /// clamped at read to `[1, 4096]` (0 does NOT mean unlimited). Default: 256.
+    #[serde(default = "default_async_max_queued_jobs")]
+    pub max_queued_jobs: usize,
+    /// R9: upper bound (seconds) on `schedule_wakeup`'s self-scheduled delay.
+    /// A requested delay is clamped to `[10, wakeup_max_delay_secs]` (the 10s
+    /// floor is a non-configurable busy-poll guard). Guards against zombie timers
+    /// pinning a session indefinitely; longer cadences belong to cron. Clamped at
+    /// read to `[10, 604800]` (10s–7d). Default: 86400 (24h).
+    #[serde(default = "default_wakeup_max_delay_secs")]
+    pub wakeup_max_delay_secs: u64,
+    /// R9: per-session cap on pending `schedule_wakeup` wakeups. Exceeding it is a
+    /// structural reject (it does NOT queue) — guards against an agent
+    /// self-scheduling a flood of billed turns. Clamped at read to `[1, 100]`.
+    /// Default: 5.
+    #[serde(default = "default_wakeup_max_pending_per_session")]
+    pub wakeup_max_pending_per_session: usize,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -262,8 +349,48 @@ fn default_async_orphan_grace_secs() -> u64 {
 fn default_async_job_status_max_wait_secs() -> u64 {
     7200
 }
+fn default_async_completion_merge_window_secs() -> u64 {
+    3
+}
+fn default_async_output_tail_bytes() -> usize {
+    8 * 1024
+}
+fn default_async_max_queued_jobs() -> usize {
+    256
+}
+fn default_wakeup_max_delay_secs() -> u64 {
+    86_400
+}
+fn default_wakeup_max_pending_per_session() -> usize {
+    5
+}
+fn default_async_max_retry_attempts() -> u32 {
+    // 3 total attempts (1 initial + 2 retries) for retry-eligible tools. A
+    // user-set 1 disables retry for everything; `retry_enabled = false` is the
+    // master kill-switch.
+    3
+}
+fn default_async_max_concurrent_jobs_per_session() -> usize {
+    // Per-session fairness share (R7.1), **derived from the global default** so it
+    // ALWAYS leaves headroom for other sessions on every hardware tier. A fixed
+    // value can't: the global cap is itself hardware-derived (`clamp(cores-2,4,16)`,
+    // band [4,16]), so a fixed `6` would be >= the global cap on common ≤8-logical-
+    // core machines (8-thread laptop → global 6) and silently no-op — a single
+    // session fills the whole global pool before its per-session cap ever bites.
+    // ~3/4 of the global cap (band [3,12], always strictly below it) lets one
+    // focused session use most of the pool while still reserving slots for others.
+    // A user-set `0` means no per-session limit (handled in the slot acquire path).
+    (default_async_max_concurrent_jobs() * 3 / 4).max(2)
+}
 fn default_async_max_concurrent_jobs() -> usize {
-    8
+    // Hardware-derived default so the cap doesn't oversubscribe the machine:
+    // `clamp(logical_cores - 2, 4, 16)`. `available_parallelism` reports logical
+    // cores (incl. SMT); we leave 2 for the main loop + UI/IO. A user-set `0`
+    // still means unlimited (handled in the slot acquire path, not here).
+    // Aligned with the Workflow engine's `min(16, cores - 2)` concurrency cap.
+    std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(2).clamp(4, 16))
+        .unwrap_or(8)
 }
 
 impl AsyncToolsConfig {
@@ -291,6 +418,14 @@ impl Default for AsyncToolsConfig {
             orphan_grace_secs: default_async_orphan_grace_secs(),
             job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
             max_concurrent_jobs: default_async_max_concurrent_jobs(),
+            max_concurrent_jobs_per_session: default_async_max_concurrent_jobs_per_session(),
+            retry_enabled: false,
+            max_retry_attempts: default_async_max_retry_attempts(),
+            completion_merge_window_secs: default_async_completion_merge_window_secs(),
+            output_tail_bytes: default_async_output_tail_bytes(),
+            max_queued_jobs: default_async_max_queued_jobs(),
+            wakeup_max_delay_secs: default_wakeup_max_delay_secs(),
+            wakeup_max_pending_per_session: default_wakeup_max_pending_per_session(),
         }
     }
 }
@@ -1049,5 +1184,154 @@ mod mcp_compat_tests {
         assert_eq!(cfg.mcp_global.max_concurrent_calls, 0);
         // Other defaults remain intact:
         assert_eq!(cfg.mcp_global.backoff_max_secs, 300);
+    }
+}
+
+#[cfg(test)]
+mod async_tools_defaults_tests {
+    use super::*;
+
+    #[test]
+    fn max_concurrent_jobs_default_is_hardware_clamped() {
+        // Hardware-derived default must always land in the [4, 16] band
+        // regardless of core count: clamp(logical_cores - 2, 4, 16).
+        let d = default_async_max_concurrent_jobs();
+        assert!(
+            (4..=16).contains(&d),
+            "default {} out of clamp band [4,16]",
+            d
+        );
+    }
+
+    #[test]
+    fn async_tools_uses_hardware_default_when_field_absent() {
+        // A config without asyncTools.maxConcurrentJobs must fall back to the
+        // hardware-derived default, not a hardcoded literal.
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert_eq!(
+            cfg.async_tools.max_concurrent_jobs,
+            default_async_max_concurrent_jobs()
+        );
+    }
+
+    #[test]
+    fn explicit_zero_unlimited_survives_deserialization() {
+        // A user-set 0 (= unlimited) must NOT be overwritten by the default.
+        let json = serde_json::json!({
+            "providers": [],
+            "asyncTools": { "maxConcurrentJobs": 0 }
+        });
+        let cfg: AppConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.async_tools.max_concurrent_jobs, 0);
+    }
+
+    #[test]
+    fn default_impl_matches_serde_default() {
+        // The hand-written `AsyncToolsConfig::default` (used by `AppConfig::default`)
+        // and the `#[serde(default = ...)]` helper are two independent sources of the
+        // same default; pin them together so a future edit to one literal can't
+        // silently diverge from the other.
+        assert_eq!(
+            AsyncToolsConfig::default().max_concurrent_jobs,
+            default_async_max_concurrent_jobs()
+        );
+        assert_eq!(
+            AsyncToolsConfig::default().completion_merge_window_secs,
+            default_async_completion_merge_window_secs()
+        );
+        assert_eq!(default_async_completion_merge_window_secs(), 3);
+        assert_eq!(
+            AsyncToolsConfig::default().max_concurrent_jobs_per_session,
+            default_async_max_concurrent_jobs_per_session()
+        );
+        assert!(
+            !AsyncToolsConfig::default().retry_enabled,
+            "retry is opt-in (default off): eligible tools re-run and may re-bill"
+        );
+        assert_eq!(
+            AsyncToolsConfig::default().max_retry_attempts,
+            default_async_max_retry_attempts()
+        );
+        assert_eq!(default_async_max_retry_attempts(), 3);
+        // R9 knobs: Default impl and serde-default helpers stay in lockstep.
+        assert_eq!(
+            AsyncToolsConfig::default().output_tail_bytes,
+            default_async_output_tail_bytes()
+        );
+        assert_eq!(default_async_output_tail_bytes(), 8 * 1024);
+        assert_eq!(
+            AsyncToolsConfig::default().max_queued_jobs,
+            default_async_max_queued_jobs()
+        );
+        assert_eq!(default_async_max_queued_jobs(), 256);
+        assert_eq!(
+            AsyncToolsConfig::default().wakeup_max_delay_secs,
+            default_wakeup_max_delay_secs()
+        );
+        assert_eq!(default_wakeup_max_delay_secs(), 86_400);
+        assert_eq!(
+            AsyncToolsConfig::default().wakeup_max_pending_per_session,
+            default_wakeup_max_pending_per_session()
+        );
+        assert_eq!(default_wakeup_max_pending_per_session(), 5);
+    }
+
+    #[test]
+    fn r9_knobs_use_defaults_when_absent() {
+        // Old configs (and partial writes) omit the R9 fields; serde fills them.
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert_eq!(cfg.async_tools.output_tail_bytes, 8 * 1024);
+        assert_eq!(cfg.async_tools.max_queued_jobs, 256);
+        assert_eq!(cfg.async_tools.wakeup_max_delay_secs, 86_400);
+        assert_eq!(cfg.async_tools.wakeup_max_pending_per_session, 5);
+    }
+
+    #[test]
+    fn retry_fields_use_defaults_when_absent() {
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert!(!cfg.async_tools.retry_enabled, "default off");
+        assert_eq!(cfg.async_tools.max_retry_attempts, 3);
+    }
+
+    #[test]
+    fn per_session_default_always_leaves_global_headroom() {
+        // R7.1 review fix: the per-session default must stay STRICTLY below the
+        // global default on every hardware tier, or the fairness tier no-ops
+        // (a single session fills the whole global pool first). It is derived as
+        // ~3/4 of the global cap (band [3,12]), floored at 2.
+        let global = default_async_max_concurrent_jobs();
+        let per_session = default_async_max_concurrent_jobs_per_session();
+        assert!(
+            per_session < global,
+            "per-session default {per_session} must be below global default {global} or the cap never bites"
+        );
+        assert!(
+            per_session >= 2,
+            "per-session default {per_session} below floor 2"
+        );
+        assert!(
+            (3..=12).contains(&per_session),
+            "per-session default {per_session} out of expected band [3,12]"
+        );
+    }
+
+    #[test]
+    fn per_session_cap_zero_unlimited_survives_deserialization() {
+        // A user-set 0 (= no per-session limit) must NOT be overwritten by the default.
+        let json = serde_json::json!({
+            "providers": [],
+            "asyncTools": { "maxConcurrentJobsPerSession": 0 }
+        });
+        let cfg: AppConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.async_tools.max_concurrent_jobs_per_session, 0);
+    }
+
+    #[test]
+    fn per_session_cap_uses_default_when_field_absent() {
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert_eq!(
+            cfg.async_tools.max_concurrent_jobs_per_session,
+            default_async_max_concurrent_jobs_per_session()
+        );
     }
 }

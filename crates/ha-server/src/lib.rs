@@ -423,6 +423,14 @@ fn build_router_with_cors(
             get(routes::sessions::get_session_artifacts),
         )
         .route(
+            "/sessions/{id}/background-jobs",
+            get(routes::sessions::list_session_background_jobs),
+        )
+        .route(
+            "/background-jobs/{job_id}",
+            get(routes::sessions::get_background_job),
+        )
+        .route(
             "/sessions/{id}/environment",
             get(routes::sessions::get_session_environment),
         )

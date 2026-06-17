@@ -11,7 +11,7 @@ use super::{
 /// Callback fired exactly once, on the dedicated injection OS-thread, when an
 /// injection reaches its terminal **Injected** state (the parent turn ran and
 /// persisted, the result was already consumed, or it failed terminally). Tool
-/// jobs pass a closure that marks the `async_tool_jobs` row injected; subagent
+/// jobs pass a closure that marks the `background_jobs` row injected; subagent
 /// runs pass `None`. Carried through the re-queue so a deferred injection still
 /// marks its source done when the queued attempt eventually lands.
 pub(crate) type OnInjected = Arc<dyn Fn() + Send + Sync>;
@@ -29,10 +29,11 @@ pub(crate) enum InjectionOutcome {
     /// `on_injected`); the next flush owns the retry. Caller must NOT mark the
     /// source injected.
     Queued,
-    /// Gave up after waiting for the session to go idle (announce_timeout).
-    /// Nothing persisted, nothing re-queued, `on_injected` NOT fired — the
-    /// source row stays un-injected so `replay_pending_jobs()` retries it on
-    /// the next restart (MISC-15: abandoned must not look delivered).
+    /// Could not persist or re-queue the attempt (a poisoned `PENDING_INJECTIONS`
+    /// lock — the only remaining path here now that the idle-timeout re-queues as
+    /// `Queued`). Nothing persisted, `on_injected` NOT fired — the source row
+    /// stays un-injected so `replay_pending_jobs()` retries it on the next
+    /// restart (MISC-15: an abandoned injection must not look delivered).
     Abandoned,
 }
 
@@ -198,6 +199,70 @@ fn parent_session_present(db: &crate::session::SessionDB, session_id: &str) -> b
     !matches!(db.get_session(session_id), Ok(None))
 }
 
+/// `child_agent_id` label used by `crate::wakeup` when reusing this injection
+/// pipeline for a self-scheduled wakeup (R10). `inject_and_run_parent` branches
+/// on it to write a `wakeup_trigger` marker instead of `subagent_result`.
+pub(crate) const WAKEUP_CHILD_AGENT_ID: &str = "wakeup";
+
+/// Outcome of waiting for a parent session to become idle before injecting.
+enum IdleWait {
+    /// No foreground turn is active — safe to inject now.
+    Idle,
+    /// `should_abort` fired (e.g. the agent already fetched the result via a
+    /// `check`/`result` tool action) — caller treats the injection as handled.
+    Aborted,
+    /// Timed out waiting for the session to go idle — caller abandons the
+    /// attempt (the source row stays for restart replay).
+    TimedOut,
+}
+
+/// Wait until `session_id` has no active foreground chat turn, or until
+/// `should_abort` fires, or `max_wait` elapses.
+///
+/// Foreground turns are tracked in `ACTIVE_CHAT_SESSIONS` by
+/// [`ChatSessionGuard`](super::ChatSessionGuard), created at the shared
+/// `run_chat_engine` entry (R2) so this gate holds across desktop / HTTP / IM /
+/// cron — and at the ACP turn boundary for ACP. The wait is event-driven on
+/// `SESSION_IDLE_NOTIFY` (fired when a guard releases) with a bounded fallback
+/// poll so a missed notification can't park forever. The fallback is clamped to
+/// the time remaining before `max_wait` so the timeout is honored promptly
+/// regardless of the 5s poll cadence.
+async fn wait_for_session_idle(
+    session_id: &str,
+    max_wait: std::time::Duration,
+    should_abort: impl Fn() -> bool,
+) -> IdleWait {
+    let fallback_interval = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    loop {
+        let is_busy = ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(session_id)
+            .copied()
+            .unwrap_or(0)
+            > 0;
+        if !is_busy {
+            return IdleWait::Idle;
+        }
+        if start.elapsed() >= max_wait {
+            return IdleWait::TimedOut;
+        }
+        if should_abort() {
+            return IdleWait::Aborted;
+        }
+        // Wait for notify (instant wake) or the fallback poll (in case notify is
+        // missed). Cap the poll at the remaining budget so timeout is honored
+        // without overshooting by up to a full poll interval.
+        let remaining = max_wait.saturating_sub(start.elapsed());
+        let sleep_dur = fallback_interval.min(remaining.max(std::time::Duration::from_millis(1)));
+        tokio::select! {
+            _ = SESSION_IDLE_NOTIFY.notified() => {}
+            _ = tokio::time::sleep(sleep_dur) => {}
+        }
+    }
+}
+
 /// Backend-driven result injection: wait for idle, then run the parent agent with the push message.
 /// Respects user chat priority: waits if busy, cancels if user sends a new message, skips if
 /// the agent already fetched the result via check/result tool actions.
@@ -282,42 +347,66 @@ pub(crate) async fn inject_and_run_parent(
         session_id: parent_session_id.clone(),
     };
 
-    // 1. Wait for parent session to become idle (event-driven with timeout fallback)
+    // 1. Wait for parent session to become idle (event-driven with timeout
+    // fallback). The idle gate (`ACTIVE_CHAT_SESSIONS`) is now populated by
+    // `ChatSessionGuard` at the shared `run_chat_engine` entry (R2), so this
+    // wait correctly parks behind live turns on every entry point, not just
+    // desktop.
     let announce_timeout = crate::agent_loader::load_agent(&parent_agent_id)
         .ok()
         .and_then(|def| def.config.subagents.announce_timeout_secs)
         .unwrap_or(120)
         .clamp(10, 600);
     let max_wait = std::time::Duration::from_secs(announce_timeout);
-    let fallback_interval = std::time::Duration::from_secs(5);
-    let start = std::time::Instant::now();
-    loop {
-        let is_busy = ACTIVE_CHAT_SESSIONS
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(&parent_session_id)
-            .copied()
-            .unwrap_or(0)
-            > 0;
-        if !is_busy {
-            break;
-        }
-
-        if start.elapsed() > max_wait {
-            app_warn!(
-                "subagent",
-                "inject",
-                "Timed out waiting for session {} to become idle, skipping",
-                &parent_session_id
-            );
-            return InjectionOutcome::Abandoned;
-        }
-        // Re-check if result was fetched while we were waiting
-        if FETCHED_RUN_IDS
+    match wait_for_session_idle(&parent_session_id, max_wait, || {
+        // Re-check if the result was fetched while we were waiting.
+        FETCHED_RUN_IDS
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .contains(&run_id)
-        {
+    })
+    .await
+    {
+        IdleWait::Idle => {}
+        IdleWait::TimedOut => {
+            // G3/G5: the parent session stayed busy past `announce_timeout`.
+            // Re-queue (carrying `on_injected`) instead of abandoning to
+            // restart-replay — `PENDING_INJECTIONS` flushes when the long
+            // foreground turn ends (`ChatSessionGuard::drop`), so the completion
+            // surfaces this run instead of waiting for the next process start.
+            // Critical for subagent / Group injections (`on_injected = None`),
+            // which have no `injected=0` restart-replay backstop — a Group's
+            // merged injection (row `injected=true`, out of replay) would
+            // otherwise be lost permanently. `on_injected` is carried but NOT
+            // fired, so a tool job's row stays un-injected (MISC-15: an
+            // undelivered injection must not look delivered) and the restart
+            // backstop is preserved.
+            app_warn!(
+                "subagent",
+                "inject",
+                "Session {} still busy after idle wait; re-queuing injection for run {}",
+                &parent_session_id,
+                &run_id
+            );
+            return match PENDING_INJECTIONS.lock() {
+                Ok(mut queue) => {
+                    queue.push(PendingInjection {
+                        parent_session_id,
+                        parent_agent_id,
+                        child_agent_id,
+                        run_id,
+                        push_message,
+                        session_db,
+                        on_injected,
+                    });
+                    InjectionOutcome::Queued
+                }
+                // Couldn't re-queue (poisoned): leave the source pending for
+                // restart replay rather than firing on_injected on a dropped task.
+                Err(_) => InjectionOutcome::Abandoned,
+            };
+        }
+        IdleWait::Aborted => {
             app_info!(
                 "subagent",
                 "inject",
@@ -328,11 +417,6 @@ pub(crate) async fn inject_and_run_parent(
                 cb();
             }
             return InjectionOutcome::Injected;
-        }
-        // Wait for notify (instant wake) or fallback timeout (in case notify is missed)
-        tokio::select! {
-            _ = SESSION_IDLE_NOTIFY.notified() => {}
-            _ = tokio::time::sleep(fallback_interval) => {}
         }
     }
 
@@ -453,15 +537,28 @@ pub(crate) async fn inject_and_run_parent(
     if !user_msg_already_written {
         let mut user_msg = crate::session::NewMessage::user(&push_message)
             .with_source(crate::chat_engine::ChatSource::ParentInjection);
-        user_msg.attachments_meta = Some(
+        // Tag the injected row so the frontend renders it as the right kind of
+        // system chip. A self-scheduled wakeup (R10) is a *trigger*, not a
+        // sub-agent *result* — stamping `subagent_result` made it render as a
+        // misleading green "completed" pill with the note dropped, so wakeups
+        // get their own `wakeup_trigger` marker (mirrors cron's `cron_trigger`).
+        // The `run_id` MUST stay in the meta even for wakeups: the re-queue
+        // idempotency guard `has_injection_user_msg` matches on `"run_id":"…"`,
+        // so dropping it would defeat dedup and append a duplicate `<wakeup>`
+        // row (+ a second billed turn) every time a wakeup turn is cancelled and
+        // re-queued. The frontend only checks `wakeup_trigger` presence, so the
+        // extra field is invisible to it.
+        let meta = if child_agent_id == WAKEUP_CHILD_AGENT_ID {
+            serde_json::json!({ "wakeup_trigger": { "run_id": &run_id } })
+        } else {
             serde_json::json!({
                 "subagent_result": {
                     "run_id": &run_id,
                     "agent_id": &child_agent_id,
                 }
             })
-            .to_string(),
-        );
+        };
+        user_msg.attachments_meta = Some(meta.to_string());
         let _ = session_db.append_message(&parent_session_id, &user_msg);
     }
 
@@ -474,6 +571,16 @@ pub(crate) async fn inject_and_run_parent(
         );
     } else {
         let parent_agent_def = crate::agent_loader::load_agent(&parent_agent_id).ok();
+
+        // G1: if the parent session is attached to an IM chat, mirror this
+        // injection turn into it so an IM-origin background task's completion
+        // reaches the IM user (per the account's `imReplyMode`). Reuses the
+        // GUI↔IM live mirror; the engine's own attach gates `ParentInjection`
+        // out, so we drive it here and AWAIT finalize/abort below — this runs on
+        // a short-lived current-thread runtime whose drop would cancel a spawned
+        // finalize. `None` when there's no IM attach (desktop-only / no channel).
+        let injection_mirror =
+            crate::chat_engine::im_mirror::attach_im_injection_mirror(&parent_session_id).await;
 
         match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: parent_session_id.clone(),
@@ -538,6 +645,21 @@ pub(crate) async fn inject_and_run_parent(
                     model_label
                 );
                 succeeded = true;
+                // G1: deliver the mirrored injection turn to IM (per imReplyMode).
+                // Awaited so it completes before this current-thread runtime drops.
+                if let Some(state) = injection_mirror {
+                    crate::chat_engine::im_mirror::finalize_im_live_mirror(state, &result.response)
+                        .await;
+                }
+                // G2: if this is a cron run session, fan the injected result out to
+                // the cron job's delivery_targets (the inline run delivered its own
+                // response; a background job spawned during the run completes later
+                // and would otherwise reach nobody). No-op for non-cron sessions.
+                crate::cron::delivery::deliver_injection_for_session(
+                    &parent_session_id,
+                    &result.response,
+                )
+                .await;
             }
             Err(e) => {
                 if cancel.load(Ordering::SeqCst) {
@@ -549,6 +671,13 @@ pub(crate) async fn inject_and_run_parent(
                     );
                 } else {
                     last_error = e;
+                }
+                // G1: drain + tear down the IM mirror (no follow-up notice — the
+                // injection sent no user-quote, so there's nothing orphaned; a
+                // cancel re-queues and re-delivers on the next idle attempt).
+                if let Some(state) = injection_mirror {
+                    crate::chat_engine::im_mirror::abort_im_live_mirror_with_body(state, None)
+                        .await;
                 }
             }
         }
@@ -660,5 +789,57 @@ mod tests {
         assert!(msg.contains("<task>read &lt;file&gt; &amp; report</task>"));
         assert!(msg.contains("<result>\nok &lt;done&gt; &amp; safe\n</result>"));
         assert!(!msg.contains("BEGIN_SUBAGENT_RESULT"));
+    }
+
+    // R2 (§5.4): the idle gate must park completion injection behind a live
+    // foreground turn on *every* entry point. These exercise the shared wait
+    // helper against `ChatSessionGuard` (the same guard `run_chat_engine` now
+    // creates for HTTP / IM / cron, and ACP creates at its turn boundary).
+
+    #[tokio::test]
+    async fn wait_for_session_idle_parks_until_guard_released() {
+        let sid = "test-r2-wait-idle-parks";
+        crate::subagent::ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap()
+            .remove(sid);
+
+        // A live foreground turn holds the guard → busy → a bounded wait times
+        // out rather than firing (injection would NOT splice into a live turn).
+        let guard = crate::subagent::ChatSessionGuard::new(sid);
+        let outcome =
+            wait_for_session_idle(sid, std::time::Duration::from_millis(120), || false).await;
+        assert!(matches!(outcome, IdleWait::TimedOut));
+
+        // Releasing the turn makes the session idle → the next wait returns Idle.
+        drop(guard);
+        let outcome = wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
+        assert!(matches!(outcome, IdleWait::Idle));
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_idle_aborts_when_should_abort_fires() {
+        let sid = "test-r2-wait-idle-abort";
+        crate::subagent::ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap()
+            .remove(sid);
+
+        // Busy, but the agent already fetched the result → Aborted (caller
+        // fires on_injected and returns Injected without running a turn).
+        let _guard = crate::subagent::ChatSessionGuard::new(sid);
+        let outcome = wait_for_session_idle(sid, std::time::Duration::from_secs(2), || true).await;
+        assert!(matches!(outcome, IdleWait::Aborted));
+    }
+
+    #[tokio::test]
+    async fn wait_for_session_idle_idle_when_no_turn_active() {
+        let sid = "test-r2-wait-idle-noturn";
+        crate::subagent::ACTIVE_CHAT_SESSIONS
+            .lock()
+            .unwrap()
+            .remove(sid);
+        let outcome = wait_for_session_idle(sid, std::time::Duration::from_secs(2), || false).await;
+        assert!(matches!(outcome, IdleWait::Idle));
     }
 }

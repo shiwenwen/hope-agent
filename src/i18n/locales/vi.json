@@ -325,6 +325,8 @@
     "copy": "Sao chép",
     "cronTaskStarted": "Một tác vụ định kỳ đã được kích hoạt",
     "cronTrigger": "Tác vụ định kỳ",
+    "wakeupResumed": "Tiếp tục lại",
+    "wakeupTrigger": "Đánh thức theo lịch",
     "daysAgo": "{{count}} ngày trước",
     "deleteSessionTitle": "Xóa cuộc trò chuyện",
     "deleteSessionWarning": "Thao tác này sẽ xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn. Không thể hoàn tác. Bạn có chắc chắn không?",
@@ -571,7 +573,8 @@
         "browser": "Điều khiển trình duyệt",
         "mac": "Điều khiển Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\"."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} mô hình",
     "outputCost": "Chi phí đầu ra ($/1M tokens)",
     "reasoning": "Suy luận / Tư duy",
+    "reasoningHint": "Sau khi bật, bạn có thể chọn độ sâu suy luận (thấp / trung bình / cao) trong menu mô hình phía trên ô nhập liệu trò chuyện; nó sẽ được tự động thêm vào mỗi yêu cầu.",
     "supportedInputTypes": "Loại đầu vào hỗ trợ",
     "text": "Văn bản",
     "video": "Video"
@@ -1686,7 +1690,12 @@
     "on": "Bật",
     "startupDesc": "Sau khi dịch vụ khởi động lại, đăng một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện IM từng hoạt động trong 72 giờ qua. Tắt thông báo theo tài khoản nằm trong từng tài khoản kênh.",
     "startupToggle": "Thông báo \"đã quay lại\" sau khởi động lại",
-    "title": "Cài đặt thông báo"
+    "title": "Cài đặt thông báo",
+    "backgroundJobComplete": "Tác vụ nền đã hoàn tất",
+    "backgroundJobFailed": "Tác vụ nền thất bại",
+    "backgroundJobFallback": "Một tác vụ nền đã hoàn tất",
+    "backgroundJobToggle": "Thông báo khi tác vụ nền hoàn tất",
+    "backgroundJobDesc": "Hiển thị thông báo trên màn hình khi một tác vụ nền hoàn tất trong lúc cửa sổ ở chế độ nền"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "Thời lượng job tối đa",
     "asyncToolsMaxJobDesc": "Giới hạn thời gian chạy tối đa của job nền. Quá hạn sẽ bị kết thúc. 0 = không giới hạn ở tầng async job; từng công cụ vẫn có thể áp dụng timeout riêng.",
     "asyncToolsMaxConcurrent": "Số job nền tối đa chạy đồng thời",
-    "asyncToolsMaxConcurrentDesc": "Số lượng tối đa job công cụ run_in_background được chạy cùng lúc; mỗi job chiếm một luồng OS riêng. Khi đạt giới hạn, các yêu cầu nền mới sẽ bị từ chối (mô hình được yêu cầu chờ hoặc chạy đồng bộ). 0 = không giới hạn. Mặc định 8.",
+    "asyncToolsMaxConcurrentDesc": "Số lượng tối đa job công cụ run_in_background được chạy cùng lúc; mỗi job chiếm một luồng OS riêng. 0 = không giới hạn.",
+    "asyncToolsMaxConcurrentPerSession": "Giới hạn đồng thời mỗi phiên",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Số tác vụ nền tối đa mà một phiên (hoặc cuộc trò chuyện IM) có thể chạy cùng lúc; các yêu cầu vượt mức sẽ xếp hàng ngay cả khi nhóm chung còn chỗ, để một phiên không chiếm hết mọi vị trí. 0 = không giới hạn mỗi phiên.",
+    "asyncToolsMaxQueued": "Giới hạn hàng đợi",
+    "asyncToolsMaxQueuedDesc": "Độ dài tối đa của hàng đợi khi mọi khe chạy song song đã đầy; vượt quá thì tác vụ nền mới bị từ chối (mô hình thử lại sau hoặc chạy đồng bộ). Mỗi tác vụ trong hàng đợi chiếm bộ nhớ nên có giới hạn. Phạm vi 1–4096.",
+    "asyncToolsOutputTail": "Lượng đầu ra đang chạy được giữ",
+    "asyncToolsOutputTailDesc": "Số byte đầu ra mới nhất của tác vụ exec nền đang chạy được giữ để xem trực tiếp qua job_status (để đánh giá 'vẫn đang chạy' hay 'bị kẹt'). Lớn hơn thì rõ hơn nhưng tốn bộ nhớ hơn. Phạm vi 256B–1MB.",
+    "asyncToolsWakeupMaxDelay": "Độ trễ tự đánh thức tối đa",
+    "asyncToolsWakeupMaxDelayDesc": "Giới hạn trên cho khoảng thời gian tác nhân có thể tự lên lịch đánh thức qua schedule_wakeup; các chu kỳ lặp dài hơn nên dùng cron. Mức sàn 10 giây là cố định. Phạm vi 10 giây–7 ngày.",
+    "asyncToolsWakeupMaxPending": "Số lần đánh thức chờ mỗi phiên",
+    "asyncToolsWakeupMaxPendingDesc": "Số lần tự đánh thức đang chờ tối đa mà một phiên có thể giữ cùng lúc; vượt quá thì yêu cầu bị từ chối (không xếp hàng), ngăn tác nhân tự lên lịch hàng loạt lượt tính phí. Phạm vi 1–100.",
+    "asyncToolsRetryEnabled": "Tự động thử lại khi thất bại",
+    "asyncToolsRetryEnabledDesc": "Tự động thử lại (có khoảng chờ) một tác vụ nền thất bại. Chỉ áp dụng cho các công cụ mạng an toàn để chạy lại (như tìm kiếm web). Việc thử lại sẽ chạy lại công cụ, có thể phát sinh lệnh gọi bổ sung ở các nhà cung cấp tính phí (ví dụ tìm kiếm web), nên mặc định tắt và do người dùng bật. exec, tạo ảnh và các công cụ có tác dụng phụ / không tất định khác, cùng các tác vụ bị hủy / hết thời gian, không bao giờ được thử lại.",
+    "asyncToolsMaxRetryAttempts": "Số lần thử tối đa",
+    "asyncToolsMaxRetryAttemptsDesc": "Tổng số lần thử gồm cả lần chạy đầu (1 = không thử lại). Khoảng chờ giữa các lần thử tăng theo cấp số nhân từ 500ms.",
     "asyncToolsOrphanGrace": "Khoảng ân hạn spool mồ côi",
     "asyncToolsOrphanGraceDesc": "File spool không có bản ghi DB tham chiếu sẽ được dọn sau số giờ này. Thời gian ân hạn tránh xung đột với ghi đang diễn ra.",
     "asyncToolsRetention": "Lưu trữ job đã kết thúc",
@@ -4633,7 +4656,9 @@
     "toolSessionToNoteName": "Lưu hội thoại thành ghi chú",
     "toolSessionToNoteDesc": "Chắt lọc cuộc hội thoại thành một ghi chú có cấu trúc.",
     "toolKnowledgeRecallName": "Truy hồi tri thức",
-    "toolKnowledgeRecallDesc": "Tìm kiếm đồng thời bộ nhớ và ghi chú (hai phần xếp hạng riêng)."
+    "toolKnowledgeRecallDesc": "Tìm kiếm đồng thời bộ nhớ và ghi chú (hai phần xếp hạng riêng).",
+    "asyncToolsMergeWindow": "Cửa sổ gộp khi hoàn tất",
+    "asyncToolsMergeWindowDesc": "Khi nhiều tác vụ nền trong cùng một phiên hoàn tất trong cửa sổ này, gộp chúng thành một lượt chèn (tiết kiệm lượt tính phí); đặt 0 để tắt."
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -5356,6 +5381,28 @@
     "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài.",
     "result": {
       "memory": "Bộ nhớ"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tác vụ nền",
+    "openPanel": "Tác vụ nền",
+    "openFull": "Xem tất cả / hủy",
+    "empty": "Không có tác vụ nền",
+    "sectionSession": "Phiên này",
+    "sectionLocalModel": "Mô hình cục bộ",
+    "kindGroup": "Nhóm tác vụ",
+    "kindSubagent": "Tác nhân phụ",
+    "resizePanel": "Thay đổi kích thước bảng tác vụ nền",
+    "status": {
+      "queued": "Đang chờ",
+      "running": "Đang chạy",
+      "cancelling": "Đang hủy",
+      "awaiting_approval": "Chờ phê duyệt",
+      "completed": "Hoàn tất",
+      "failed": "Thất bại",
+      "interrupted": "Bị gián đoạn",
+      "timed_out": "Hết thời gian",
+      "cancelled": "Đã hủy"
     }
   }
 }

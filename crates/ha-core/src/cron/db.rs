@@ -269,6 +269,33 @@ impl CronDB {
         }
     }
 
+    /// Find the cron job that owns a run session (the most recent run log for
+    /// that session). Used by background-job injection delivery (G2): a
+    /// background job spawned during a cron run completes later, and its injected
+    /// result turn should fan out to the job's `delivery_targets` just like the
+    /// inline run did — otherwise it bills a turn delivered to nobody.
+    pub fn find_job_by_session(&self, session_id: &str) -> Result<Option<CronJob>> {
+        let job_id: Option<String> = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+            match conn.query_row(
+                "SELECT job_id FROM cron_run_logs WHERE session_id = ?1 ORDER BY started_at DESC LIMIT 1",
+                params![session_id],
+                |row| row.get::<_, String>(0),
+            ) {
+                Ok(jid) => Some(jid),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
+            }
+        };
+        match job_id {
+            Some(jid) => self.get_job(&jid),
+            None => Ok(None),
+        }
+    }
+
     /// List all jobs.
     pub fn list_jobs(&self) -> Result<Vec<CronJob>> {
         let conn = self
@@ -1008,6 +1035,58 @@ mod tests {
 
     fn parse(ts: &str) -> DateTime<Utc> {
         crate::cron::schedule::parse_flexible_timestamp(ts).expect("timestamp")
+    }
+
+    #[test]
+    fn find_job_by_session_resolves_via_run_log() {
+        // G2: a background job spawned during a cron run completes later; its
+        // injected result turn must resolve the owning job (from the run log) to
+        // fan out to delivery_targets.
+        let path = temp_db_path("find-job-by-session");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Report".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "x".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+
+        db.add_run_log(&crate::cron::CronRunLog {
+            id: 0,
+            job_id: job.id.clone(),
+            session_id: "cron-sess-1".into(),
+            status: "success".into(),
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: None,
+            duration_ms: None,
+            result_preview: None,
+            error: None,
+        })
+        .expect("add run log");
+
+        let found = db
+            .find_job_by_session("cron-sess-1")
+            .expect("query ok")
+            .expect("job resolved from session");
+        assert_eq!(found.id, job.id);
+        assert!(db
+            .find_job_by_session("no-such-session")
+            .expect("query ok")
+            .is_none());
+
+        cleanup_db_files(&path);
     }
 
     #[test]

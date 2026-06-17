@@ -37,13 +37,14 @@ export default function AsyncJobCancelCard({
 
   useEffect(() => {
     if (!asyncJobId) return
-    const unlistenCompleted = getTransport().listen("async_tool_job:completed", (raw) => {
+    // R3: unified `job:*` event namespace (was `async_tool_job:*`).
+    const unlistenCompleted = getTransport().listen("job:completed", (raw) => {
       const payload = raw as { job_id?: string; status?: string }
       if (payload.job_id === asyncJobId && payload.status) {
         setAsyncJobState({ jobId: asyncJobId, status: payload.status })
       }
     })
-    const unlistenUpdated = getTransport().listen("async_tool_job:updated", (raw) => {
+    const unlistenUpdated = getTransport().listen("job:updated", (raw) => {
       const payload = raw as { job_id?: string; status?: string }
       if (payload.job_id === asyncJobId && payload.status) {
         setAsyncJobState({ jobId: asyncJobId, status: payload.status })

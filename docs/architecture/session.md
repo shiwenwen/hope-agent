@@ -492,6 +492,33 @@ stateDiagram-v2
 
 辅以两道「焚毁不留尾巴」守卫:**幽灵回合**——异步结果注入(`async_jobs::injection::dispatch_injection` + `subagent::injection::inject_and_run_parent` 顶部 + idle 等待后双兜底)在会话已删/已焚时 `mark_injected` + 跳过,杜绝向死会话凭空起计费 LLM 回合(INCOG-3/DELETE-3);**在途回合**——前端焚毁前 best-effort `stop_chat` + 后端 `cleanup_watcher` 在 `session:purged` live-cancel `active_turn`,双保险中断在途流式(INCOG-1/DELETE-5)。`cleanup_watcher` 区分 `session:deleted`(仅 cancel 活跃 job)与 `session:purged`(额外清盘 tool_results + job 行/spool)。
 
+### 会话生命周期协调清理（cleanup_watcher）
+
+删除 / 焚毁一个会话时,多个**内存子系统**仍持有它的引用(待审批、后台 job、IM 文本审批栈、在途 turn、per-session allowlist 规则、定时唤醒、排队 subagent)。`session::cleanup_watcher`（#318 引入）是 `session:deleted` / `session:purged` 的**唯一订阅者**,把一次生命周期事件 fan-out 到所有这些子系统,杜绝泄漏。
+
+模块设计(镜像 `channel::worker::eviction_watcher`):
+
+- **单订阅 + 名字过滤**:一个 EventBus subscriber,只认 `EVENT_SESSION_DELETED` / `EVENT_SESSION_PURGED`
+- **fan-out 在接收循环外 `tokio::spawn`**:`cleanup_session` 含多次 DB 查询 + 全局锁扫描,inline await 会让突发删除回压 broadcast buffer 触发 `Lagged`(丢后续清理);off-loop spawn 后每步 best-effort + per-subsystem 幂等,不同会话并发清理安全
+- **`Lagged` 走 `app_error!`(运维信号,非保证)**:丢一个生命周期事件 = 那个会话的清理永不跑(审批挂死 / job 不取消 / 无痕产物不清);它仍骑共享 EventBus,根治需专用 lifecycle channel / reconcile
+- **从 `start_background_tasks` + `start_minimal_background_tasks` 两路 spawn**:**刻意不放进 `spawn_channel_listeners`**——server / ACP 无 channel registry 但同样删会话、需要此清理
+
+`cleanup_session(session_id, is_purge, descendant_session_ids, im_chat)` 级联(每步独立 best-effort)。**`descendant_session_ids` / `im_chat` 必须删除前快照**(`SessionDB::capture_session_cleanup_context`):`subagent_runs`(父→子映射)与 `channel_conversations`(IM attach)都随会话 FK 级联删除,emit 时已不可恢复:
+
+| # | 步骤 | 函数 | 编号 |
+|---|---|---|---|
+| 1 | 取消活跃 / `awaiting_approval` 后台 job | `JobManager::cancel_for_session` | A-8 / DELETE-4 |
+| 2 | deny + resolve 待审批(解阻塞 tool turn + 撤所有 surface 弹窗) | `tools::deny_pending_for_session(SessionDeleted)` | A-9 / DELETE-1 / INCOG-4 |
+| 2b | **后代 subagent 子会话级联**:对每个 `descendant_session_ids` 也 `cancel_for_session` + `deny_pending_for_session`——内层 tool 审批 key 在**子会话**,被删父 id 匹配不到(子会话经 `collect_descendant_session_ids` 传递性收集) | `JobManager::cancel_for_session` + `tools::deny_pending_for_session` | **G4** |
+| 3 | 清该会话 IM 文本审批栈;**并按删除前快照的 `im_chat`(account, chat) 直接 `drop_pending_for_chat`**——`channel_conversations` 行已 FK 级联删,session-keyed 查找解析不出 | `channel::worker::approval::drop_pending_for_session` + `drop_pending_for_chat` | A-9 / **SURFACE-2** |
+| 4 | 清 per-session allowlist 规则 | `permission::allowlist::clear_session_rules` | A-9 / INCOG-7 |
+| 5 | live-cancel 在途 turn | `chat_engine::active_turn::current(..).cancel` | A-9 / DELETE-5 / INCOG-1 |
+| 6 | 取消 + 删定时唤醒(删与焚都做) | `wakeup::purge_for_session` | R10 |
+| 7 | drop 排队(`Queued`)subagent spawn 并逐个 `request_cancel_run`（兜 incognito / 未投影的 parked spawn——其敏感 `SpawnParams` 只活在队列项里,丢弃即焚） | `subagent::queue::purge_for_session` | R7.2 |
+| +purge | 仅焚毁额外清盘:删 `tool_results/<sid>/` + async-job 行/spool | `tools::purge_tool_results_for_session` + `JobManager::purge_for_session` | INCOG-2 / INCOG-5 |
+
+普通 `delete` 不做最后一步(留给 age-based GC),只有 `purge`(无痕焚毁)立即清盘。
+
 ### 与 Project / IM Channel 互斥
 
 无痕会话不能进项目、不能绑定 IM channel：

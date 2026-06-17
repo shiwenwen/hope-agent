@@ -25,9 +25,10 @@
 //!
 //! # EventBus coexistence
 //!
-//! [`crate::async_jobs::spawn::finalize_job`] still emits the
-//! `async_tool_job:completed` EventBus event. `job_status` no longer consumes
-//! it — the broadcast is kept solely so future frontend UI can subscribe.
+//! [`crate::async_jobs::spawn::finalize_job`] still emits the `job:completed`
+//! EventBus event (R3 unified namespace, was `async_tool_job:completed`).
+//! `job_status` no longer consumes it — the broadcast is kept solely so the R4
+//! frontend panel can subscribe.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};

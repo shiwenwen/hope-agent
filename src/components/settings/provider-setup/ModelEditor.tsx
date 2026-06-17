@@ -221,7 +221,12 @@ export function ModelEditor({
       </div>
 
       <div className="flex items-center justify-between">
-        <label className="text-xs text-muted-foreground">{t("model.reasoning")}</label>
+        <div className="flex items-center gap-1">
+          <label className="text-xs text-muted-foreground">{t("model.reasoning")}</label>
+          <IconTip label={t("model.reasoningHint")}>
+            <Info className="h-3.5 w-3.5 shrink-0 cursor-help text-muted-foreground/60" />
+          </IconTip>
+        </div>
         <Switch
           checked={model.reasoning}
           onCheckedChange={(checked) => onChange({ ...model, reasoning: checked })}

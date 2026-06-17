@@ -2604,6 +2604,10 @@ impl SessionDB {
         // Snapshot before the DELETE for the purge event payload (row is gone
         // afterwards). Only emitted below when a row was actually removed.
         let snapshot = self.get_session(session_id)?;
+        // G4: capture descendant subagent sessions before the cascade drops
+        // `subagent_runs`, so the burn denies their inner-tool approvals too.
+        // (im_chat is always None here — incognito ⊥ IM Channel.)
+        let cleanup_ctx = self.capture_session_cleanup_context(session_id);
         let was_incognito = {
             let conn = self
                 .conn
@@ -2642,6 +2646,7 @@ impl SessionDB {
             crate::session::events::emit_session_deleted(
                 &meta,
                 crate::session::events::SessionDeleteReason::IncognitoPurge,
+                &cleanup_ctx,
             );
         }
         Ok(true)
@@ -2756,6 +2761,11 @@ impl SessionDB {
         // Snapshot before deletion — needed for the emit payload, and lets us
         // skip the event entirely when nothing was there to delete.
         let snapshot = self.get_session(session_id)?;
+        // G4 / SURFACE-2: capture cleanup context BEFORE the cascade, while the
+        // `subagent_runs` and `channel_conversations` rows still exist (both are
+        // gone by emit time). Done before taking the conn lock — both helpers
+        // lock it themselves.
+        let cleanup_ctx = self.capture_session_cleanup_context(session_id);
         {
             let conn = self
                 .conn
@@ -2794,10 +2804,28 @@ impl SessionDB {
         // Emit after the conn lock is released — subscribers (cleanup_watcher
         // fan-out) may re-lock the DB.
         if let Some(meta) = snapshot {
-            crate::session::events::emit_session_deleted(&meta, reason);
+            crate::session::events::emit_session_deleted(&meta, reason, &cleanup_ctx);
         }
 
         Ok(())
+    }
+
+    /// Snapshot the pre-delete cleanup context for a session (G4 / SURFACE-2):
+    /// its transitive subagent descendant sessions + its IM attach coordinates.
+    /// Both reference rows the delete cascade removes, so this MUST run before
+    /// the DELETE. Best-effort: any lookup failure yields an empty/None field.
+    fn capture_session_cleanup_context(
+        &self,
+        session_id: &str,
+    ) -> crate::session::events::SessionCleanupContext {
+        let descendant_session_ids = self.collect_descendant_session_ids(session_id);
+        let im_chat = crate::globals::get_channel_db()
+            .and_then(|cdb| cdb.get_conversation_by_session(session_id).ok().flatten())
+            .map(|c| (c.account_id, c.chat_id));
+        crate::session::events::SessionCleanupContext {
+            descendant_session_ids,
+            im_chat,
+        }
     }
 
     /// Persist or update the set of conditional skills activated for a session.

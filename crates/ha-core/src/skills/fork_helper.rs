@@ -99,6 +99,8 @@ pub async fn spawn_skill_fork(
         skill_name: Some(skill.name.clone()),
         origin_source: None,
         origin_channel_kb_context: None,
+        // `context: fork` skill subagent (skip_parent_injection) — never grouped (R5).
+        group_id: None,
     };
 
     subagent::spawn_subagent(params, session_db, cancel_registry)

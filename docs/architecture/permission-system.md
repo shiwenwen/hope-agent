@@ -167,17 +167,19 @@ pub enum AskReason {
     ProtectedPath { matched_path: String },
     AgentCustomList,
     SmartJudge { rationale: String },
+    BrowserEvaluate { script_preview: String },   // browser control.evaluate 执行任意 JS
     MacControlAction { action: String },
     MacControlDangerousAction { action: String },
     PlanModeAsk,
 }
 
 impl AskReason {
-    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制），AllowAlways 按钮置灰
+    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制 / Plan-ask），AllowAlways 按钮置灰；
+    /// 这也是无人值守 fail-closed 的真相源——strict 原因即便配 Proceed 也强制 deny
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
             self,
-            ProtectedPath { .. } | DangerousCommand { .. } | MacControlDangerousAction { .. }
+            ProtectedPath { .. } | DangerousCommand { .. } | MacControlDangerousAction { .. } | PlanModeAsk
         )
     }
 }
@@ -210,6 +212,7 @@ pub struct PermissionGlobalConfig {
     pub approval_timeout_secs: u64,             // 审批等待超时秒数
     pub approval_timeout_action: ApprovalTimeoutAction, // Deny / Proceed
     pub unattended_approval_action: UnattendedApprovalAction, // Deny(默认) / Proceed,见「无人值守审批 surface」
+    pub im_approval_hint_throttle_secs: u64,    // IM 文本模式「你有 N 个待审批」nudge 节流,每 (account,chat) 每 N 秒一次,默认 60
 }
 ```
 
@@ -230,7 +233,7 @@ pub struct PermissionGlobalConfig {
 
 一条审批可能同时呈现在多端(桌面弹窗 / Web / IM 按钮或文本),决议必须**单点广播、各端统一撤窗**,且只能由**有权的来源**应答。
 
-- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction`。
+- **`approval:resolved` 统一撤窗(SURFACE-1)**:`submit_approval_response`(GUI/HTTP/IM)、超时(F4)、删会话(A-9)、eviction(G5)所有决议路径都 emit `approval:resolved {requestId, sessionId, decision, source}`。前端 `useApprovals` 订阅后按 `requestId` 撤窗;非本端(`locallyResolvedRef` 区分)且来源是另一交互端(`gui`/`http`/`im`)时 toast「已由他端处理」。`ApprovalResolutionSource` 全集（8）:`gui` / `http` / `im` / `session_deleted` / `timeout_deny` / `timeout_proceed` / `eviction` / `job_cancelled`（后台任务 park 在该审批上被取消时由 `dismiss_parked_job_approval` emit,R8）。
 - **IM listener 残留清理(SURFACE-2)**:`spawn_channel_approval_listener` 收到 `approval:resolved` 调 `drop_pending_by_request_id` 清 IM 端 `TEXT_PENDING`,杜绝旧 prompt 劫持后续消息。
 - **IM 应答来源 fail-closed(MISC-11 + SURFACE-3)**:按钮回调 `handle_approval_callback_with_source` 总是查 session + 校验来源,**缺源(None)直接拒**(fail-closed;共享 `validate_callback_source_for_session` 的 `None→Ok` 仅留给低风险 ask_user Q&A 路径);文本回复 `try_handle_approval_reply` submit 前复用同一 `validate_callback_source_for_session`,session 已改绑别的 chat 则拒 + `send_source_mismatch_notice`。
 - **chat 接管拒决(SURFACE-4)**:`eviction_watcher` 在 `notify_session_eviction` 门之前无条件——`pending_request_ids_for_session` 枚举 + 逐个 `submit_approval_response(Deny, source=eviction)` + `drop_pending_for_chat` 兜底,被踢 chat 的审批即时解阻塞、各端撤窗。

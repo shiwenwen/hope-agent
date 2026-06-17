@@ -5,9 +5,9 @@
 //! `finalize_job` used to re-derive the terminal status (MISC-7). The
 //! `run_job_to_completion` / auto-background workers now construct the right
 //! variant directly from the `select!` arm that fired, so the terminal
-//! [`AsyncJobStatus`] comes from a type rather than re-parsing a message.
+//! [`JobStatus`] comes from a type rather than re-parsing a message.
 
-use super::types::AsyncJobStatus;
+use super::types::JobStatus;
 use crate::tools::rejection::ToolRejection;
 
 /// Why an async tool job ended without a successful result.
@@ -30,13 +30,13 @@ pub enum JobError {
 }
 
 impl JobError {
-    /// Terminal [`AsyncJobStatus`] this error maps to. `DeniedByUser` folds
+    /// Terminal [`JobStatus`] this error maps to. `DeniedByUser` folds
     /// into `Failed` (see the variant doc).
-    pub fn to_status(&self) -> AsyncJobStatus {
+    pub fn to_status(&self) -> JobStatus {
         match self {
-            JobError::Cancelled => AsyncJobStatus::Cancelled,
-            JobError::TimedOut { .. } => AsyncJobStatus::TimedOut,
-            JobError::DeniedByUser { .. } | JobError::Failed { .. } => AsyncJobStatus::Failed,
+            JobError::Cancelled => JobStatus::Cancelled,
+            JobError::TimedOut { .. } => JobStatus::TimedOut,
+            JobError::DeniedByUser { .. } | JobError::Failed { .. } => JobStatus::Failed,
         }
     }
 
@@ -90,17 +90,17 @@ mod tests {
 
     #[test]
     fn status_mapping_folds_denied_into_failed() {
-        assert_eq!(JobError::Cancelled.to_status(), AsyncJobStatus::Cancelled);
+        assert_eq!(JobError::Cancelled.to_status(), JobStatus::Cancelled);
         assert_eq!(
             JobError::TimedOut { max_secs: 30 }.to_status(),
-            AsyncJobStatus::TimedOut
+            JobStatus::TimedOut
         );
         assert_eq!(
             JobError::Failed {
                 message: "boom".into()
             }
             .to_status(),
-            AsyncJobStatus::Failed
+            JobStatus::Failed
         );
         assert_eq!(
             JobError::DeniedByUser {
@@ -109,7 +109,7 @@ mod tests {
                 }
             }
             .to_status(),
-            AsyncJobStatus::Failed,
+            JobStatus::Failed,
             "DeniedByUser must fold into Failed — no separate Denied terminal state"
         );
     }

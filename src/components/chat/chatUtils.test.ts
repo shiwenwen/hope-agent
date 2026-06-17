@@ -62,6 +62,24 @@ describe("parseSessionMessages user attachments", () => {
     expect(parsed[0]).toMatchObject({ isPlanTrigger: true })
   })
 
+  test("parses wakeup_trigger meta as a centered wakeup chip (not a subagent result)", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 81,
+        role: "user",
+        content: "<wakeup>...</wakeup>",
+        // Backend includes run_id in the meta (so the re-queue dedup guard
+        // matches); the frontend keys only on `wakeup_trigger` presence.
+        attachmentsMeta: JSON.stringify({ wakeup_trigger: { run_id: "wakeup_abc" } }),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toBeUndefined()
+    expect(parsed[0]).toMatchObject({ isWakeupTrigger: true })
+    // Must NOT be misclassified as a sub-agent result (the bug this fixed).
+    expect(parsed[0]?.isSubagentResult).toBeFalsy()
+  })
+
   test("restores non-image user attachments as file attachments", () => {
     const parsed = parseSessionMessages([
       sessionMessage({

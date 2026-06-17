@@ -424,7 +424,7 @@ emit_team_event("template_saved" / "template_deleted")
 | 用户暂停成员 | kill subagent → 标记 Paused → 保留任务分配 |
 | 用户恢复成员 | 重新 spawn subagent（同一任务 + 成员 session 历史上下文） |
 | 用户手动发消息 | TeamMessageFeed 输入框 → `send_user_team_message` → 投递到成员 mailbox |
-| 并发限制 | 团队成员计入 `MAX_CONCURRENT_PER_SESSION`，超限拒绝 |
+| 并发限制 | 团队成员经 `spawn_subagent`（`parent_agent_id = lead_agent_id`）计入 lead Agent 的并发配额，上限按其 `subagents.maxConcurrent` 配置（默认 8，clamp 1–50，经 `max_concurrent_for_agent` 解析），超限拒绝 |
 | 跨会话事件 | `useActiveTeam` 按 `leadSessionId` 过滤，解散事件按 `teamId` 匹配 |
 
 ## 与子 Agent 系统的集成点

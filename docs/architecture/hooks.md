@@ -32,7 +32,7 @@
 | `PreToolUse` | `tool_name` | `tools::execution::fire_pre_tool_use_hook`（`execution.rs`，可见性闸后、权限引擎前）| `deny`/`ask`/`defer`/`allow` 决策 + `updatedInput` 改写入参 |
 | `PreCompact` | `trigger` ∈ {manual, auto} | `agent::context`（`run_compaction` 入口，使用率 ≥ `reactiveTriggerRatio` 时）| `block` 跳过本次压缩；使用率 ≥ `CACHE_TTL_EMERGENCY_RATIO` 强制覆盖 |
 
-> **async exec 的审批时序**：`PreToolUse` 一律在可见性闸后、引擎/审批前早早触发（与是否后台化无关）。`exec` 的命令级审批历来在 `tool_exec` 内部跑——对 `run_in_background` 的 exec 曾导致审批弹窗出现在 synthetic `{status:"started"}` **之后**（HOOKS-2 时序倒置）。现已前移：`execute_tool_with_context` 在 detach 前跑完命令审批（详见 [tool-system.md「exec 命令审批前移」](tool-system.md#exec-命令审批前移)），故审批/拒绝因果上恒在「后台化」之前。异步 job 的**终局** hook（PostToolUse/Failure + `job_id` 关联）见 §2.2「异步 job 终局可见性」。
+> **async exec 的审批时序**：`PreToolUse` 一律在可见性闸后、引擎/审批前早早触发（与是否后台化无关，下述两档都不变）。`exec` 的命令级审批历来在 `tool_exec` 内部跑;R8 起按两条后台路径分开（详见 [tool-system.md「exec 命令审批：两条后台路径」](tool-system.md#exec-命令审批两条后台路径r8)）:**Auto-Background 档（Tier 3）审批前移**——`execute_tool_with_context` 在 detach 前跑完命令审批,审批/拒绝因果上恒在「后台化」之前;**显式后台 exec（`run_in_background` / `always-background`）R8 起不前移**——命令门下放后台 job 线程,命中审批时 job park 为 `AwaitingApproval`(模型先拿 job id,弹窗可在 synthetic `{status:"started"}` 之后出现,但此时 job 是 parked 非 running,刻意 supersede 旧 HOOKS-2 修复)。异步 job 的**终局** hook（PostToolUse/Failure + `job_id` 关联）见 §2.2「异步 job 终局可见性」。
 
 ### 2.2 真触发 · 观察型（21）
 

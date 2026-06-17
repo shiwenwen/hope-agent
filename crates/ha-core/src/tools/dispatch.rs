@@ -272,6 +272,7 @@ static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| 
         get_enter_plan_mode_tool(),
         get_submit_plan_tool(),
         super::job_status::get_job_status_tool(),
+        super::schedule_wakeup::get_schedule_wakeup_tool(),
     ]);
     tools.extend(super::feishu::get_feishu_tools());
     tools

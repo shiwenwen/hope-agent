@@ -30,6 +30,7 @@ import {
   Globe,
   HardDrive,
   Hash,
+  Layers,
   LayoutDashboard,
   Loader2,
   Lock,
@@ -54,6 +55,12 @@ import { useAppVersion } from "@/lib/appMeta"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
+import {
+  type BackgroundJobSnapshot,
+  backgroundJobLabel,
+  isBackgroundJobActive,
+} from "@/types/background-jobs"
+import { BackgroundJobStatusChip } from "../background-jobs/jobDisplay"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
 import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "../chatUtils"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
@@ -129,6 +136,10 @@ interface WorkspacePanelProps {
   incognito?: boolean
   /** 当前会话是否正在跑一轮:true→false 跳变时面板重新拉后端聚合。 */
   turnActive?: boolean
+  /** R4:本会话后台任务（由 ChatScreen 的 useBackgroundJobs 传入,与头部徽标 / 独立面板共用一份订阅）。 */
+  backgroundJobs?: BackgroundJobSnapshot[]
+  /** R4:打开独立「后台任务」面板（取消 / 完整列表在那里管理）。 */
+  onOpenBackgroundJobs?: () => void
   onClose: () => void
 }
 
@@ -1028,6 +1039,58 @@ function KnowledgeSection({
 }
 
 /**
+ * R4 简化区块:本会话后台任务的速览(标签 + 状态)。取消 / 完整列表在独立「后台
+ * 任务」面板里管理 —— 这里只展示 + 一个「查看全部」入口,避免与独立面板重复造轮子。
+ */
+const WORKSPACE_JOBS_PREVIEW = 6
+
+function BackgroundJobsSection({
+  jobs,
+  onOpenPanel,
+}: {
+  jobs: BackgroundJobSnapshot[]
+  onOpenPanel?: () => void
+}) {
+  const { t } = useTranslation()
+  const activeCount = jobs.filter(isBackgroundJobActive).length
+  const preview = jobs.slice(0, WORKSPACE_JOBS_PREVIEW)
+  return (
+    <WorkspaceSection
+      title={t("backgroundJobs.panelTitle", "后台任务")}
+      count={activeCount}
+      icon={Layers}
+    >
+      {jobs.length > 0 ? (
+        <div className="space-y-1">
+          {preview.map((job) => (
+            <div
+              key={job.jobId}
+              className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5"
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
+                {backgroundJobLabel(job, t)}
+              </span>
+              <BackgroundJobStatusChip status={job.status} />
+            </div>
+          ))}
+          {onOpenPanel && (
+            <button
+              type="button"
+              onClick={onOpenPanel}
+              className="w-full rounded-md px-2 py-1 text-center text-[11px] text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground"
+            >
+              {t("backgroundJobs.openFull", "查看全部 / 取消")}
+            </button>
+          )}
+        </div>
+      ) : (
+        <EmptyHint>{t("backgroundJobs.empty", "暂无后台任务")}</EmptyHint>
+      )}
+    </WorkspaceSection>
+  )
+}
+
+/**
  * 右侧「工作台」面板:把本会话的任务进度、碰到的文件、引用来源聚合到一处。
  * 文件 / 来源走 useWorkspaceArtifacts —— 后端读时聚合全会话历史 + 当前轮 live tail
  * 内存合并;输出 / 来源两段各自定高内部滚动,滚到底自动增量渲染(无按钮)。
@@ -1055,6 +1118,8 @@ export default function WorkspacePanel({
   systemPromptLoading,
   incognito = false,
   turnActive = false,
+  backgroundJobs = [],
+  onOpenBackgroundJobs,
   onClose,
 }: WorkspacePanelProps) {
   const { t } = useTranslation()
@@ -1130,6 +1195,9 @@ export default function WorkspacePanel({
             <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
           </WorkspaceSection>
         )}
+
+        {/* 后台任务 — R4 简化速览;完整管理在独立面板。 */}
+        <BackgroundJobsSection jobs={backgroundJobs} onOpenPanel={onOpenBackgroundJobs} />
 
         {/* 输出 — 本会话碰到的文件(读 + 改),定高内部滚动 + 滚动增量渲染。 */}
         <WorkspaceSection title={t("workspace.sectionOutput", "输出")} count={files.length} icon={Files}>

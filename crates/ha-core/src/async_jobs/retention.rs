@@ -18,7 +18,7 @@ const MAX_ORPHANS_PER_SWEEP: u64 = 10_000;
 
 /// Run one retention + orphan sweep according to the current config. Safe to
 /// call at any time; guarded internally if the DB is not yet initialized.
-pub fn run_once() {
+pub(crate) fn run_once() {
     let cfg = crate::config::cached_config().async_tools.clone();
     let retention_secs = cfg.retention_secs;
     let orphan_grace_secs = cfg.orphan_grace_secs;
@@ -69,8 +69,8 @@ pub fn run_once() {
     }
 }
 
-fn sweep_orphans(db: &super::AsyncJobsDB, orphan_grace_secs: u64) -> anyhow::Result<()> {
-    let spool_dir = paths::async_jobs_dir()?;
+fn sweep_orphans(db: &super::JobsDB, orphan_grace_secs: u64) -> anyhow::Result<()> {
+    let spool_dir = paths::background_jobs_dir()?;
     if !spool_dir.exists() {
         return Ok(());
     }
@@ -147,7 +147,7 @@ fn sweep_orphans(db: &super::AsyncJobsDB, orphan_grace_secs: u64) -> anyhow::Res
 /// per day. Returns immediately. Skipped entirely when both retention and
 /// orphan sweeps are disabled, so a fully-off config doesn't leave a permanent
 /// 24h ticker running doing nothing.
-pub fn spawn_background_loop() {
+pub(crate) fn spawn_background_loop() {
     let cfg = crate::config::cached_config().async_tools.clone();
     if cfg.retention_secs == 0 && cfg.orphan_grace_secs == 0 {
         return;

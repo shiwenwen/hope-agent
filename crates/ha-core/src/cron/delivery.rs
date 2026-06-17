@@ -16,6 +16,34 @@ pub enum DeliveryOutcome<'a> {
 /// from clearing `running_at`.
 const SEND_TIMEOUT_SECS: u64 = 10;
 
+/// G2: deliver a background-completion **injection** turn to a cron job's
+/// targets. A background job/subagent spawned during a cron run completes after
+/// the inline run already delivered its own response; `inject_and_run_parent`
+/// then runs a fresh billed turn against the (now-idle) cron session whose
+/// output would otherwise reach nobody. Resolve the owning job from the session
+/// and fan its result out the same way the inline run does. No-op when the
+/// session isn't a cron run, the job is gone, or it has no delivery targets.
+pub async fn deliver_injection_for_session(session_id: &str, text: &str) {
+    let Some(cron_db) = crate::globals::get_cron_db() else {
+        return;
+    };
+    let job = match cron_db.find_job_by_session(session_id) {
+        Ok(Some(job)) if !job.delivery_targets.is_empty() => job,
+        Ok(_) => return,
+        Err(e) => {
+            app_warn!(
+                "cron",
+                "delivery",
+                "find_job_by_session({}) failed: {}",
+                session_id,
+                e
+            );
+            return;
+        }
+    };
+    deliver_results(&job, DeliveryOutcome::Success { text }).await;
+}
+
 /// Fan-out a finished cron job's result to each configured IM channel target in parallel.
 ///
 /// - Success → send the raw response text (no prefix / header).

@@ -4,6 +4,7 @@ pub use error::CmdError;
 pub mod acp_control;
 pub mod agent_mgmt;
 pub mod auth;
+pub mod background_jobs;
 pub mod browser;
 pub mod channel;
 pub mod chat;

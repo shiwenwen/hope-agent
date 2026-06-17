@@ -44,6 +44,17 @@ fn registry() -> &'static Mutex<HashMap<String, Entry>> {
     ACTIVE_TURNS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Poison-tolerant lock on the active-turn registry. A panic while another
+/// thread held this lock must NOT cascade into callers — most critically
+/// `session::cleanup_watcher::cleanup_session` (live-cancel step) runs BEFORE
+/// the incognito on-disk scrub, so a poison-panic here would skip burning a
+/// session's artifacts. The guarded sections are short, panic-free HashMap ops,
+/// so recovering the inner data is always safe (matches the `unwrap_or_else(|p|
+/// p.into_inner())` idiom the other cleanup steps already use).
+fn registry_lock() -> std::sync::MutexGuard<'static, HashMap<String, Entry>> {
+    registry().lock().unwrap_or_else(|p| p.into_inner())
+}
+
 #[derive(Debug)]
 pub struct ActiveTurnGuard {
     session_id: String,
@@ -83,9 +94,7 @@ pub fn try_acquire(
     cancel: Arc<AtomicBool>,
 ) -> Result<ActiveTurnGuard, ActiveTurnError> {
     let token = uuid::Uuid::new_v4().to_string();
-    let mut map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let mut map = registry_lock();
     if let Some(existing) = map.get(session_id) {
         return Err(ActiveTurnError {
             session_id: session_id.to_string(),
@@ -119,9 +128,7 @@ pub struct ActiveTurnSnapshot {
 }
 
 pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
-    let map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let map = registry_lock();
     map.get(session_id).map(|entry| ActiveTurnSnapshot {
         session_id: session_id.to_string(),
         turn_id: entry.turn_id.clone(),
@@ -137,9 +144,7 @@ pub fn current(session_id: &str) -> Option<ActiveTurnSnapshot> {
 /// [`current`] allocates. Returns `None` when no entry matches that exact turn
 /// (the caller decides the fallback — see `turn_accepts_stream_event`).
 pub fn is_accepting(session_id: &str, turn_id: &str) -> Option<bool> {
-    let map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let map = registry_lock();
     map.get(session_id).and_then(|entry| {
         if entry.turn_id == turn_id {
             Some(!entry.cancel.load(std::sync::atomic::Ordering::SeqCst))
@@ -153,16 +158,11 @@ pub fn is_accepting(session_id: &str, turn_id: &str) -> Option<bool> {
 /// Lets `turn_accepts_stream_event` preserve the original "a different turn is
 /// live → reject without a DB probe" semantics without cloning a snapshot.
 pub fn has_entry(session_id: &str) -> bool {
-    registry()
-        .lock()
-        .expect("active chat turn registry poisoned")
-        .contains_key(session_id)
+    registry_lock().contains_key(session_id)
 }
 
 pub fn all_current() -> Vec<ActiveTurnSnapshot> {
-    let map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let map = registry_lock();
     map.iter()
         .map(|(session_id, entry)| ActiveTurnSnapshot {
             session_id: session_id.clone(),
@@ -175,9 +175,7 @@ pub fn all_current() -> Vec<ActiveTurnSnapshot> {
 }
 
 pub fn all_current_turn_ids() -> Vec<String> {
-    let map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let map = registry_lock();
     map.values().map(|entry| entry.turn_id.clone()).collect()
 }
 
@@ -187,9 +185,7 @@ pub fn all_current_turn_ids() -> Vec<String> {
 /// persistent state. The turn id guard prevents an old watchdog from clearing
 /// a newer turn that started in the same session.
 pub fn force_release(session_id: &str, turn_id: &str) -> bool {
-    let mut map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let mut map = registry_lock();
     let matches = map
         .get(session_id)
         .map(|entry| entry.turn_id == turn_id)
@@ -206,9 +202,7 @@ pub fn force_release(session_id: &str, turn_id: &str) -> bool {
 /// have been marked interrupted. This is mostly relevant for hot-reload/dev
 /// processes where Rust statics can outlive a logical app restart.
 pub fn clear_all() -> usize {
-    let mut map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let mut map = registry_lock();
     let n = map.len();
     map.clear();
     n
@@ -278,9 +272,7 @@ fn finalized_ring() -> &'static Mutex<FinalizedRing> {
 /// means (DB UPDATE conditions, mostly).
 pub fn mark_finalized(turn_id: Option<&str>) -> bool {
     let Some(id) = turn_id else { return true };
-    let mut ring = finalized_ring()
-        .lock()
-        .expect("finalized turn registry poisoned");
+    let mut ring = finalized_ring().lock().unwrap_or_else(|p| p.into_inner());
     ring.insert(id.to_string())
 }
 
@@ -293,9 +285,7 @@ pub(crate) fn reset_finalized_for_test() {
 }
 
 pub fn set_stream_id(session_id: &str, turn_id: &str, stream_id: &str) -> bool {
-    let mut map = registry()
-        .lock()
-        .expect("active chat turn registry poisoned");
+    let mut map = registry_lock();
     match map.get_mut(session_id) {
         Some(entry) if entry.turn_id == turn_id => {
             entry.stream_id = Some(stream_id.to_string());

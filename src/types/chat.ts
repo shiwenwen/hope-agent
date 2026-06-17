@@ -179,6 +179,10 @@ export interface Message {
   subagentResultAgentId?: string
   /** If true, this user message was triggered by a cron job */
   isCronTrigger?: boolean
+  /** If true, this user message is an agent self-scheduled wakeup firing
+   *  (R10 `schedule_wakeup`) — sent to the LLM as a normal user turn but
+   *  rendered as a system chip, like a cron trigger. */
+  isWakeupTrigger?: boolean
   /** If true, this user message is a Plan Mode trigger (approve / resume) —
    *  sent to the LLM as a normal user turn but rendered as a system chip
    *  in the UI to distinguish it from real user input. */

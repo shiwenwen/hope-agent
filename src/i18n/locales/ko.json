@@ -325,6 +325,8 @@
     "copy": "복사",
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
     "cronTrigger": "예약 작업",
+    "wakeupResumed": "다시 시작하여 계속",
+    "wakeupTrigger": "예약 깨우기",
     "daysAgo": "{{count}}일 전",
     "deleteSessionTitle": "대화 삭제",
     "deleteSessionWarning": "이 작업은 이 대화와 모든 메시지를 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
@@ -571,7 +573,8 @@
         "browser": "브라우저 제어",
         "mac": "Mac 제어"
       }
-    }
+    },
+    "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1647,6 +1650,7 @@
     "modelsCount": "모델 {{count}}개",
     "outputCost": "출력 비용 ($/1M tokens)",
     "reasoning": "추론/사고",
+    "reasoningHint": "활성화하면 채팅 입력창 위의 모델 메뉴에서 추론 강도(낮음 / 중간 / 높음)를 선택할 수 있으며, 요청마다 자동으로 적용됩니다.",
     "supportedInputTypes": "지원 입력 유형",
     "text": "텍스트",
     "video": "비디오"
@@ -1686,7 +1690,12 @@
     "on": "켜짐",
     "startupDesc": "서비스 재시작 후 지난 72시간 동안 활성화된 IM 채팅에 짧은 \"다시 온라인\" 알림을 게시합니다. 계정별 음소거는 각 채널 계정에서 관리합니다.",
     "startupToggle": "재시작 시 IM 복귀 알림",
-    "title": "알림 설정"
+    "title": "알림 설정",
+    "backgroundJobComplete": "백그라운드 작업 완료",
+    "backgroundJobFailed": "백그라운드 작업 실패",
+    "backgroundJobFallback": "백그라운드 작업이 완료되었습니다",
+    "backgroundJobToggle": "백그라운드 작업 완료 시 알림",
+    "backgroundJobDesc": "창이 백그라운드에 있는 동안 백그라운드 작업이 완료되면 데스크톱 알림을 표시합니다"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "작업당 최대 시간",
     "asyncToolsMaxJobDesc": "백그라운드 작업의 최대 실행 시간. 초과 시 강제 종료됩니다. 0 = async job 계층에서는 제한 없음. 개별 도구는 자체 타임아웃을 적용할 수 있습니다.",
     "asyncToolsMaxConcurrent": "백그라운드 작업 최대 동시 실행 수",
-    "asyncToolsMaxConcurrentDesc": "동시에 실행할 수 있는 run_in_background 도구 작업의 상한. 각 작업은 전용 OS 스레드를 차지합니다. 상한에 도달하면 새 백그라운드 요청은 거부됩니다(모델에 대기하거나 동기로 실행하도록 안내). 0 = 무제한. 기본값 8.",
+    "asyncToolsMaxConcurrentDesc": "동시에 실행할 수 있는 run_in_background 도구 작업의 상한. 각 작업은 전용 OS 스레드를 차지합니다. 0 = 무제한.",
+    "asyncToolsMaxConcurrentPerSession": "세션당 동시 실행 한도",
+    "asyncToolsMaxConcurrentPerSessionDesc": "하나의 세션(또는 IM 채팅)이 동시에 실행할 수 있는 백그라운드 작업의 최대 수입니다. 초과 요청은 전역 풀에 여유가 있어도 대기열에 들어가므로 한 세션이 모든 슬롯을 차지하지 못합니다. 0 = 제한 없음.",
+    "asyncToolsMaxQueued": "대기열 상한",
+    "asyncToolsMaxQueuedDesc": "모든 동시 실행 슬롯이 가득 찼을 때 새 백그라운드 작업이 들어가는 대기열의 최대 길이. 초과하면 거부됩니다(모델이 나중에 재시도하거나 동기로 실행). 대기 중인 각 작업은 메모리를 점유하므로 상한이 있습니다. 범위 1–4096.",
+    "asyncToolsOutputTail": "실행 중 출력 보존량",
+    "asyncToolsOutputTailDesc": "실행 중인 백그라운드 exec 작업의 최신 출력을 job_status로 실시간 확인하기 위해 보존하는 바이트 수('실행 중'인지 '멈춤'인지 판단용). 클수록 명확하지만 메모리를 더 사용합니다. 범위 256B–1MB.",
+    "asyncToolsWakeupMaxDelay": "자동 깨우기 최대 지연",
+    "asyncToolsWakeupMaxDelayDesc": "에이전트가 schedule_wakeup으로 자신을 다시 깨울 수 있는 최대 지연. 더 긴 주기 작업은 cron에 맡기세요. 하한 10초는 고정입니다. 범위 10초–7일.",
+    "asyncToolsWakeupMaxPending": "세션당 대기 깨우기 상한",
+    "asyncToolsWakeupMaxPendingDesc": "한 세션이 동시에 보유할 수 있는 대기 중 자동 깨우기 수. 초과하면 거부됩니다(대기열에 넣지 않음). 에이전트가 과금 턴을 대량으로 자가 예약하는 것을 방지합니다. 범위 1–100.",
+    "asyncToolsRetryEnabled": "실패 시 자동 재시도",
+    "asyncToolsRetryEnabledDesc": "실패한 백그라운드 작업을 백오프와 함께 자동 재시도합니다. 다시 실행해도 안전한 네트워크 도구(웹 검색 등)에만 적용됩니다. 재시도는 도구를 다시 실행하므로 웹 검색 등 유료 제공자에서 추가 호출이 발생할 수 있어 기본적으로 꺼져 있으며 사용자가 켭니다. exec·이미지 생성 등 부작용/비결정적 도구와 취소·시간 초과된 작업은 재시도하지 않습니다.",
+    "asyncToolsMaxRetryAttempts": "최대 시도 횟수",
+    "asyncToolsMaxRetryAttemptsDesc": "첫 실행을 포함한 총 시도 횟수(1 = 재시도 없음). 시도 간 대기 시간은 500ms부터 지수적으로 증가합니다.",
     "asyncToolsOrphanGrace": "고아 spool 유예 시간",
     "asyncToolsOrphanGraceDesc": "DB 레코드로 참조되지 않는 spool 파일은 이 시간(시간) 이후에 정리됩니다. 유예 기간으로 쓰기 중인 파일과의 경합을 방지합니다.",
     "asyncToolsRetention": "종결 작업 보존(일)",
@@ -4633,7 +4656,9 @@
     "toolSessionToNoteName": "대화를 노트로",
     "toolSessionToNoteDesc": "현재 대화를 구조화된 노트로 정제합니다.",
     "toolKnowledgeRecallName": "지식 호출",
-    "toolKnowledgeRecallDesc": "기억과 노트를 함께 검색합니다(순위별 두 구간)."
+    "toolKnowledgeRecallDesc": "기억과 노트를 함께 검색합니다(순위별 두 구간).",
+    "asyncToolsMergeWindow": "완료 병합 윈도우",
+    "asyncToolsMergeWindowDesc": "같은 세션의 여러 백그라운드 작업이 이 윈도우 내에 완료되면 하나의 주입 턴으로 병합합니다(청구 턴 절약). 0이면 비활성화."
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -5356,6 +5381,28 @@
     "allowExternalWritesHint": "외부 보관함은 기본적으로 읽기 전용입니다. 활성화하면 편집기와 AI 도구가 연결된 폴더에 쓸 수 있습니다. 백그라운드 자동 유지관리는 외부 보관함에 쓰지 않습니다.",
     "result": {
       "memory": "기억"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "백그라운드 작업",
+    "openPanel": "백그라운드 작업",
+    "openFull": "전체 보기 / 취소",
+    "empty": "백그라운드 작업이 없습니다",
+    "sectionSession": "현재 세션",
+    "sectionLocalModel": "로컬 모델",
+    "kindGroup": "작업 그룹",
+    "kindSubagent": "하위 에이전트",
+    "resizePanel": "백그라운드 작업 패널 크기 조정",
+    "status": {
+      "queued": "대기 중",
+      "running": "실행 중",
+      "cancelling": "취소 중",
+      "awaiting_approval": "승인 대기 중",
+      "completed": "완료됨",
+      "failed": "실패",
+      "interrupted": "중단됨",
+      "timed_out": "시간 초과",
+      "cancelled": "취소됨"
     }
   }
 }

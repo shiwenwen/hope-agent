@@ -15,6 +15,7 @@ import {
   FileText,
   FolderCheck,
   FolderOpen,
+  Layers,
   LayoutDashboard,
   Loader2,
   Search,
@@ -121,6 +122,12 @@ interface ChatTitleBarProps {
   onToggleWorkspacePanel?: () => void
   /** Whether the workspace panel is currently open (controls active styling). */
   workspacePanelOpen?: boolean
+  /** Toggle the right-side background-jobs panel (R4). */
+  onToggleBackgroundJobsPanel?: () => void
+  /** Whether the background-jobs panel is currently open (controls active styling). */
+  backgroundJobsPanelOpen?: boolean
+  /** Count of running background jobs in this session (drives the header badge). */
+  backgroundJobsRunningCount?: number
   /** Open right-side panels available for switching/collapsing. */
   rightPanels?: RightPanelTitleBarItem[]
   /** Active right-side panel id. */
@@ -168,6 +175,9 @@ export default function ChatTitleBar({
   filesPanelOpen = false,
   onToggleWorkspacePanel,
   workspacePanelOpen = false,
+  onToggleBackgroundJobsPanel,
+  backgroundJobsPanelOpen = false,
+  backgroundJobsRunningCount = 0,
   rightPanels = [],
   activeRightPanelId,
   rightPanelCollapsed = false,
@@ -258,6 +268,7 @@ export default function ChatTitleBar({
   const hasRightPanelControls =
     !!onToggleFilesPanel ||
     !!onToggleWorkspacePanel ||
+    !!onToggleBackgroundJobsPanel ||
     (rightPanels.length > 0 && (rightPanels.length > 1 || !!onToggleRightPanelCollapsed))
   const workingDirChip = effectiveWorkingDir ? (
     <IconTip
@@ -311,6 +322,27 @@ export default function ChatTitleBar({
             onClick={onToggleWorkspacePanel}
           >
             <LayoutDashboard className="h-4 w-4" />
+          </button>
+        </IconTip>
+      )}
+      {onToggleBackgroundJobsPanel && (
+        <IconTip label={t("backgroundJobs.openPanel", "后台任务")}>
+          <button
+            type="button"
+            className={cn(
+              "relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground",
+              backgroundJobsPanelOpen && "text-foreground",
+            )}
+            aria-label={t("backgroundJobs.openPanel", "后台任务")}
+            aria-pressed={backgroundJobsPanelOpen}
+            onClick={onToggleBackgroundJobsPanel}
+          >
+            <Layers className="h-4 w-4" />
+            {backgroundJobsRunningCount > 0 && (
+              <span className="absolute -right-1 -top-1 z-10 flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white tabular-nums">
+                {backgroundJobsRunningCount > 99 ? "99+" : backgroundJobsRunningCount}
+              </span>
+            )}
           </button>
         </IconTip>
       )}

@@ -659,7 +659,15 @@
       "recapLanguageDesc": "AI が生成するレポートのセクションとタイトルの言語。デフォルトではインターフェース言語に従います。",
       "recapLanguageFollow": "インターフェース言語に従う",
       "systemPreventSleep": "スリープを防止",
-      "systemPreventSleepDesc": "長時間タスク・ダウンロード・バックグラウンド処理がシステムのスリープで中断されないよう、コンピューターを起動状態に保ちます。ディスプレイは通常どおりオフになります。"
+      "systemPreventSleepDesc": "長時間タスク・ダウンロード・バックグラウンド処理がシステムのスリープで中断されないよう、コンピューターを起動状態に保ちます。ディスプレイは通常どおりオフになります。",
+      "asyncToolsMaxQueued": "待機キュー上限",
+      "asyncToolsMaxQueuedDesc": "すべての並列スロットが埋まった後、新しいバックグラウンドジョブが入る待機キューの最大長。超えると拒否されます（モデルは後で再試行するか同期実行します）。キュー内の各ジョブはメモリを保持するため上限があります。範囲 1〜4096。",
+      "asyncToolsOutputTail": "実行中出力の保持量",
+      "asyncToolsOutputTailDesc": "実行中のバックグラウンド exec ジョブの最新出力を job_status でリアルタイム確認するために保持するバイト数（「実行中」か「停止」かの判断用）。大きいほど見やすいがメモリを消費します。範囲 256B〜1MB。",
+      "asyncToolsWakeupMaxDelay": "自動ウェイクアップ最大遅延",
+      "asyncToolsWakeupMaxDelayDesc": "エージェントが schedule_wakeup で自身を再起動できる最大遅延。より長い周期タスクは cron に任せてください。下限の 10 秒は固定です。範囲 10 秒〜7 日。",
+      "asyncToolsWakeupMaxPending": "セッションごとの保留ウェイクアップ上限",
+      "asyncToolsWakeupMaxPendingDesc": "1 つのセッションが同時に保持できる保留中の自動ウェイクアップ数。超えると拒否されます（キューには入りません）。エージェントが課金ターンを大量に自己スケジュールするのを防ぎます。範囲 1〜100。"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -2012,7 +2020,15 @@
       "recapLanguageDesc": "AI가 생성하는 리포트 섹션과 제목의 언어입니다. 기본적으로 인터페이스 언어를 따릅니다.",
       "recapLanguageFollow": "인터페이스 언어 따르기",
       "systemPreventSleep": "절전 모드 방지",
-      "systemPreventSleepDesc": "장시간 작업, 다운로드, 백그라운드 활동이 시스템 절전으로 중단되지 않도록 컴퓨터를 깨어 있게 유지합니다. 디스플레이는 정상적으로 꺼질 수 있습니다."
+      "systemPreventSleepDesc": "장시간 작업, 다운로드, 백그라운드 활동이 시스템 절전으로 중단되지 않도록 컴퓨터를 깨어 있게 유지합니다. 디스플레이는 정상적으로 꺼질 수 있습니다.",
+      "asyncToolsMaxQueued": "대기열 상한",
+      "asyncToolsMaxQueuedDesc": "모든 동시 실행 슬롯이 가득 찼을 때 새 백그라운드 작업이 들어가는 대기열의 최대 길이. 초과하면 거부됩니다(모델이 나중에 재시도하거나 동기로 실행). 대기 중인 각 작업은 메모리를 점유하므로 상한이 있습니다. 범위 1–4096.",
+      "asyncToolsOutputTail": "실행 중 출력 보존량",
+      "asyncToolsOutputTailDesc": "실행 중인 백그라운드 exec 작업의 최신 출력을 job_status로 실시간 확인하기 위해 보존하는 바이트 수('실행 중'인지 '멈춤'인지 판단용). 클수록 명확하지만 메모리를 더 사용합니다. 범위 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "자동 깨우기 최대 지연",
+      "asyncToolsWakeupMaxDelayDesc": "에이전트가 schedule_wakeup으로 자신을 다시 깨울 수 있는 최대 지연. 더 긴 주기 작업은 cron에 맡기세요. 하한 10초는 고정입니다. 범위 10초–7일.",
+      "asyncToolsWakeupMaxPending": "세션당 대기 깨우기 상한",
+      "asyncToolsWakeupMaxPendingDesc": "한 세션이 동시에 보유할 수 있는 대기 중 자동 깨우기 수. 초과하면 거부됩니다(대기열에 넣지 않음). 에이전트가 과금 턴을 대량으로 자가 예약하는 것을 방지합니다. 범위 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -3365,7 +3381,15 @@
       "recapLanguageDesc": "AI 生成的回顧章節與標題使用的語言，預設跟隨介面語言。",
       "recapLanguageFollow": "跟隨介面語言",
       "systemPreventSleep": "阻止電腦休眠",
-      "systemPreventSleepDesc": "保持電腦喚醒，避免長時間任務、下載與背景活動被系統休眠打斷；螢幕仍可正常熄滅。"
+      "systemPreventSleepDesc": "保持電腦喚醒，避免長時間任務、下載與背景活動被系統休眠打斷；螢幕仍可正常熄滅。",
+      "asyncToolsMaxQueued": "排隊上限",
+      "asyncToolsMaxQueuedDesc": "並行槽位佔滿後，新的背景任務進入等待佇列的最大長度；超出則直接拒絕（讓模型稍後重試或同步執行）。每個排隊任務會佔用記憶體，故有上限。範圍 1–4096。",
+      "asyncToolsOutputTail": "執行輸出留存",
+      "asyncToolsOutputTailDesc": "背景 exec 任務執行期間留存的最新輸出位元組數，供 job_status 即時查看（判斷「還在跑」還是「卡住」）。越大越清晰、越佔記憶體。範圍 256B–1MB。",
+      "asyncToolsWakeupMaxDelay": "定時喚醒最長延遲",
+      "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定時喚醒的最長延遲上限；更長的週期任務應交給定時任務（cron）。下限固定 10 秒。範圍 10 秒–7 天。",
+      "asyncToolsWakeupMaxPending": "每會話定時喚醒上限",
+      "asyncToolsWakeupMaxPendingDesc": "單一會話最多可同時掛起的定時喚醒數；超出直接拒絕（不排隊），防止代理自我排程出大量計費輪次。範圍 1–100。"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -4701,7 +4725,15 @@
       "recapLanguageDesc": "Yapay zeka tarafından oluşturulan rapor bölümleri ve başlıkları için dil. Varsayılan olarak arayüz dilini izler.",
       "recapLanguageFollow": "Arayüz dilini izle",
       "systemPreventSleep": "Uykuyu engelle",
-      "systemPreventSleepDesc": "Uzun süren görevlerin, indirmelerin ve arka plan etkinliğinin sistem uykusuyla kesilmemesi için bilgisayarınızı uyanık tutun. Ekran yine de kapanabilir."
+      "systemPreventSleepDesc": "Uzun süren görevlerin, indirmelerin ve arka plan etkinliğinin sistem uykusuyla kesilmemesi için bilgisayarınızı uyanık tutun. Ekran yine de kapanabilir.",
+      "asyncToolsMaxQueued": "Bekleme kuyruğu sınırı",
+      "asyncToolsMaxQueuedDesc": "Tüm eşzamanlılık yuvaları dolduğunda yeni bir arka plan işinin gireceği bekleme kuyruğunun en fazla uzunluğu; aşılırsa iş reddedilir (model sonra yeniden dener ya da eşzamanlı çalıştırır). Kuyruktaki her iş bellek tuttuğundan bu sınırlıdır. Aralık 1–4096.",
+      "asyncToolsOutputTail": "Saklanan çalışma çıktısı",
+      "asyncToolsOutputTailDesc": "Çalışan bir arka plan exec işinin en son çıktısının, job_status ile canlı incelenmesi için saklanan bayt miktarı ('hâlâ çalışıyor' mu yoksa 'takıldı' mı ayrımı için). Büyük olması daha açıktır ama daha çok bellek kullanır. Aralık 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "En fazla kendini uyandırma gecikmesi",
+      "asyncToolsWakeupMaxDelayDesc": "Aracının schedule_wakeup ile kendini ne kadar ileriye programlayabileceğinin üst sınırı; daha uzun yinelenen aralıklar cron'a aittir. 10 sn'lik alt sınır sabittir. Aralık 10 sn–7 gün.",
+      "asyncToolsWakeupMaxPending": "Oturum başına bekleyen uyandırma",
+      "asyncToolsWakeupMaxPendingDesc": "Bir oturumun aynı anda tutabileceği en fazla bekleyen kendini uyandırma sayısı; aşılırsa istekler reddedilir (kuyruğa alınmaz), böylece aracı çok sayıda ücretli tur programlayamaz. Aralık 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -6054,7 +6086,15 @@
       "recapLanguageDesc": "Ngôn ngữ cho các phần và tiêu đề báo cáo do AI tạo. Mặc định theo ngôn ngữ giao diện.",
       "recapLanguageFollow": "Theo ngôn ngữ giao diện",
       "systemPreventSleep": "Ngăn chế độ ngủ",
-      "systemPreventSleepDesc": "Giữ cho máy tính luôn hoạt động để các tác vụ dài, tải xuống và hoạt động nền không bị gián đoạn do hệ thống ngủ. Màn hình vẫn có thể tắt."
+      "systemPreventSleepDesc": "Giữ cho máy tính luôn hoạt động để các tác vụ dài, tải xuống và hoạt động nền không bị gián đoạn do hệ thống ngủ. Màn hình vẫn có thể tắt.",
+      "asyncToolsMaxQueued": "Giới hạn hàng đợi",
+      "asyncToolsMaxQueuedDesc": "Độ dài tối đa của hàng đợi khi mọi khe chạy song song đã đầy; vượt quá thì tác vụ nền mới bị từ chối (mô hình thử lại sau hoặc chạy đồng bộ). Mỗi tác vụ trong hàng đợi chiếm bộ nhớ nên có giới hạn. Phạm vi 1–4096.",
+      "asyncToolsOutputTail": "Lượng đầu ra đang chạy được giữ",
+      "asyncToolsOutputTailDesc": "Số byte đầu ra mới nhất của tác vụ exec nền đang chạy được giữ để xem trực tiếp qua job_status (để đánh giá 'vẫn đang chạy' hay 'bị kẹt'). Lớn hơn thì rõ hơn nhưng tốn bộ nhớ hơn. Phạm vi 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "Độ trễ tự đánh thức tối đa",
+      "asyncToolsWakeupMaxDelayDesc": "Giới hạn trên cho khoảng thời gian tác nhân có thể tự lên lịch đánh thức qua schedule_wakeup; các chu kỳ lặp dài hơn nên dùng cron. Mức sàn 10 giây là cố định. Phạm vi 10 giây–7 ngày.",
+      "asyncToolsWakeupMaxPending": "Số lần đánh thức chờ mỗi phiên",
+      "asyncToolsWakeupMaxPendingDesc": "Số lần tự đánh thức đang chờ tối đa mà một phiên có thể giữ cùng lúc; vượt quá thì yêu cầu bị từ chối (không xếp hàng), ngăn tác nhân tự lên lịch hàng loạt lượt tính phí. Phạm vi 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -7407,7 +7447,15 @@
       "recapLanguageDesc": "Idioma das seções e títulos do relatório gerados por IA. Segue o idioma da interface por padrão.",
       "recapLanguageFollow": "Seguir o idioma da interface",
       "systemPreventSleep": "Impedir suspensão",
-      "systemPreventSleepDesc": "Mantenha o computador ativo para que tarefas demoradas, downloads e atividades em segundo plano não sejam interrompidos pela suspensão do sistema. A tela ainda pode desligar."
+      "systemPreventSleepDesc": "Mantenha o computador ativo para que tarefas demoradas, downloads e atividades em segundo plano não sejam interrompidos pela suspensão do sistema. A tela ainda pode desligar.",
+      "asyncToolsMaxQueued": "Limite da fila de espera",
+      "asyncToolsMaxQueuedDesc": "Comprimento máximo da fila de espera quando todos os espaços de concorrência estão cheios; além dele, um novo trabalho em segundo plano é recusado (o modelo tenta mais tarde ou executa de forma síncrona). Cada trabalho na fila ocupa memória, por isso é limitado. Intervalo 1–4096.",
+      "asyncToolsOutputTail": "Saída em execução retida",
+      "asyncToolsOutputTailDesc": "Bytes da saída mais recente de um trabalho exec em segundo plano em execução, mantidos para inspeção ao vivo via job_status (para avaliar 'ainda a trabalhar' vs 'travado'). Maior é mais claro mas usa mais memória. Intervalo 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "Atraso máximo de autodespertar",
+      "asyncToolsWakeupMaxDelayDesc": "Limite superior de quão à frente o agente pode agendar um despertar via schedule_wakeup; cadências recorrentes mais longas pertencem ao cron. O piso de 10s é fixo. Intervalo 10s–7d.",
+      "asyncToolsWakeupMaxPending": "Despertares pendentes por sessão",
+      "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendentes que uma sessão pode manter ao mesmo tempo; além dele, os pedidos são recusados (não entram na fila), impedindo o agente de agendar uma enxurrada de turnos cobrados. Intervalo 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -8760,7 +8808,15 @@
       "recapLanguageDesc": "Язык разделов и заголовков отчёта, создаваемых ИИ. По умолчанию следует языку интерфейса.",
       "recapLanguageFollow": "Следовать языку интерфейса",
       "systemPreventSleep": "Запретить спящий режим",
-      "systemPreventSleepDesc": "Не давайте компьютеру засыпать, чтобы длительные задачи, загрузки и фоновая активность не прерывались переходом системы в спящий режим. Экран при этом может отключаться."
+      "systemPreventSleepDesc": "Не давайте компьютеру засыпать, чтобы длительные задачи, загрузки и фоновая активность не прерывались переходом системы в спящий режим. Экран при этом может отключаться.",
+      "asyncToolsMaxQueued": "Лимит очереди ожидания",
+      "asyncToolsMaxQueuedDesc": "Максимальная длина очереди ожидания, когда все слоты параллелизма заняты; сверх неё новая фоновая задача отклоняется (модель повторит позже или выполнит синхронно). Каждая задача в очереди занимает память, поэтому лимит ограничен. Диапазон 1–4096.",
+      "asyncToolsOutputTail": "Хранимый вывод выполнения",
+      "asyncToolsOutputTailDesc": "Число байт последнего вывода выполняющейся фоновой задачи exec, сохраняемых для просмотра в реальном времени через job_status (чтобы понять «ещё работает» или «завис»). Больше — нагляднее, но занимает больше памяти. Диапазон 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "Макс. задержка самопробуждения",
+      "asyncToolsWakeupMaxDelayDesc": "Верхний предел того, насколько вперёд агент может запланировать пробуждение через schedule_wakeup; более длинные периодические интервалы — для cron. Нижний предел 10 с фиксирован. Диапазон 10 с–7 д.",
+      "asyncToolsWakeupMaxPending": "Ожидающие пробуждения на сессию",
+      "asyncToolsWakeupMaxPendingDesc": "Максимум ожидающих самопланируемых пробуждений, которые сессия может держать одновременно; сверх него запросы отклоняются (не ставятся в очередь), не давая агенту запланировать лавину оплачиваемых ходов. Диапазон 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -10113,7 +10169,15 @@
       "recapLanguageDesc": "لغة أقسام التقرير وعناوينه التي ينشئها الذكاء الاصطناعي. تتبع لغة الواجهة افتراضيًا.",
       "recapLanguageFollow": "اتباع لغة الواجهة",
       "systemPreventSleep": "منع السكون",
-      "systemPreventSleepDesc": "أبقِ الحاسوب مستيقظًا حتى لا تنقطع المهام الطويلة والتنزيلات والنشاط في الخلفية بسبب سكون النظام. يمكن أن تنطفئ الشاشة كالمعتاد."
+      "systemPreventSleepDesc": "أبقِ الحاسوب مستيقظًا حتى لا تنقطع المهام الطويلة والتنزيلات والنشاط في الخلفية بسبب سكون النظام. يمكن أن تنطفئ الشاشة كالمعتاد.",
+      "asyncToolsMaxQueued": "حد طابور الانتظار",
+      "asyncToolsMaxQueuedDesc": "أقصى طول لطابور الانتظار بعد امتلاء جميع خانات التزامن؛ وبتجاوزه تُرفض المهمة الخلفية الجديدة (يعيد النموذج المحاولة لاحقًا أو يشغّلها بشكل متزامن). كل مهمة في الطابور تشغل ذاكرة، لذا فهو محدود. النطاق 1–4096.",
+      "asyncToolsOutputTail": "المخرجات الجارية المحتفظ بها",
+      "asyncToolsOutputTailDesc": "عدد بايتات أحدث مخرجات مهمة exec الخلفية الجارية المحتفظ بها للمعاينة الحيّة عبر job_status (لتمييز «ما زالت تعمل» عن «متوقفة»). الأكبر أوضح لكنه يستهلك ذاكرة أكثر. النطاق 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "أقصى تأخير للتنبيه الذاتي",
+      "asyncToolsWakeupMaxDelayDesc": "الحد الأعلى لمدى ما يمكن للوكيل جدولته مسبقًا لتنبيه ذاتي عبر schedule_wakeup؛ أما الدورات المتكررة الأطول فهي من اختصاص cron. الحد الأدنى 10 ثوانٍ ثابت. النطاق 10 ثوانٍ–7 أيام.",
+      "asyncToolsWakeupMaxPending": "التنبيهات المعلّقة لكل جلسة",
+      "asyncToolsWakeupMaxPendingDesc": "أقصى عدد للتنبيهات الذاتية المعلّقة التي يمكن لجلسة واحدة الاحتفاظ بها في آنٍ واحد؛ وبتجاوزه تُرفض الطلبات (ولا توضع في الطابور)، مما يمنع الوكيل من جدولة سيل من الأدوار المدفوعة. النطاق 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -11466,7 +11530,15 @@
       "recapLanguageDesc": "Idioma de las secciones y títulos del informe generados por IA. Sigue el idioma de la interfaz de forma predeterminada.",
       "recapLanguageFollow": "Seguir el idioma de la interfaz",
       "systemPreventSleep": "Evitar suspensión",
-      "systemPreventSleepDesc": "Mantén el ordenador despierto para que las tareas largas, las descargas y la actividad en segundo plano no se interrumpan por la suspensión del sistema. La pantalla puede apagarse igualmente."
+      "systemPreventSleepDesc": "Mantén el ordenador despierto para que las tareas largas, las descargas y la actividad en segundo plano no se interrumpan por la suspensión del sistema. La pantalla puede apagarse igualmente.",
+      "asyncToolsMaxQueued": "Límite de la cola de espera",
+      "asyncToolsMaxQueuedDesc": "Longitud máxima de la cola de espera cuando todas las ranuras de concurrencia están llenas; al superarla se rechaza un nuevo trabajo en segundo plano (el modelo lo reintenta más tarde o lo ejecuta de forma síncrona). Cada trabajo en cola ocupa memoria, por eso está acotado. Rango 1–4096.",
+      "asyncToolsOutputTail": "Salida en ejecución retenida",
+      "asyncToolsOutputTailDesc": "Bytes de la salida más reciente de un trabajo exec en segundo plano en ejecución, conservados para inspección en vivo vía job_status (para juzgar 'sigue trabajando' vs 'atascado'). Más grande es más claro pero usa más memoria. Rango 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "Retraso máximo de autodespertar",
+      "asyncToolsWakeupMaxDelayDesc": "Límite superior de con cuánta antelación el agente puede autoprogramar un despertar vía schedule_wakeup; las cadencias periódicas más largas corresponden a cron. El mínimo de 10 s es fijo. Rango 10 s–7 d.",
+      "asyncToolsWakeupMaxPending": "Despertares pendientes por sesión",
+      "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendientes que una sesión puede mantener a la vez; al superarlo las solicitudes se rechazan (no se encolan), evitando que el agente autoprograme una avalancha de turnos facturados. Rango 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -12819,7 +12891,15 @@
       "recapLanguageDesc": "Bahasa untuk bahagian dan tajuk laporan yang dijana AI. Mengikut bahasa antara muka secara lalai.",
       "recapLanguageFollow": "Ikut bahasa antara muka",
       "systemPreventSleep": "Halang tidur",
-      "systemPreventSleepDesc": "Pastikan komputer anda kekal aktif supaya tugas panjang, muat turun dan aktiviti latar belakang tidak terganggu oleh tidur sistem. Paparan masih boleh dimatikan."
+      "systemPreventSleepDesc": "Pastikan komputer anda kekal aktif supaya tugas panjang, muat turun dan aktiviti latar belakang tidak terganggu oleh tidur sistem. Paparan masih boleh dimatikan.",
+      "asyncToolsMaxQueued": "Had baris gilir menunggu",
+      "asyncToolsMaxQueuedDesc": "Panjang maksimum baris gilir menunggu apabila semua slot keserentakan penuh; melebihinya, tugas latar baharu ditolak (model cuba semula kemudian atau jalankan secara segerak). Setiap tugas dalam baris gilir menggunakan memori, jadi ia terhad. Julat 1–4096.",
+      "asyncToolsOutputTail": "Output berjalan yang disimpan",
+      "asyncToolsOutputTailDesc": "Bait output terkini bagi tugas exec latar yang sedang berjalan, disimpan untuk pemeriksaan langsung melalui job_status (untuk menilai 'masih berjalan' lwn 'tersekat'). Lebih besar lebih jelas tetapi menggunakan lebih banyak memori. Julat 256B–1MB.",
+      "asyncToolsWakeupMaxDelay": "Lengah maksimum sedar-diri",
+      "asyncToolsWakeupMaxDelayDesc": "Had atas berapa awal ejen boleh menjadualkan sedar-diri melalui schedule_wakeup; kadens berulang yang lebih panjang adalah untuk cron. Had bawah 10s adalah tetap. Julat 10s–7h.",
+      "asyncToolsWakeupMaxPending": "Sedaran tertunda setiap sesi",
+      "asyncToolsWakeupMaxPendingDesc": "Maksimum sedaran sedar-diri tertunda yang boleh dipegang satu sesi serentak; melebihinya permintaan ditolak (tidak dibaris-gilirkan), menghalang ejen daripada menjadualkan banyak pusingan berbayar. Julat 1–100."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -13619,7 +13699,15 @@
       "recapLanguageDesc": "AI 生成的复盘章节与标题使用的语言，默认跟随界面语言。",
       "recapLanguageFollow": "跟随界面语言",
       "systemPreventSleep": "阻止电脑休眠",
-      "systemPreventSleepDesc": "保持电脑唤醒，避免长时间任务、下载与后台活动被系统休眠打断；屏幕仍可正常熄灭。"
+      "systemPreventSleepDesc": "保持电脑唤醒，避免长时间任务、下载与后台活动被系统休眠打断；屏幕仍可正常熄灭。",
+      "asyncToolsMaxQueued": "排队上限",
+      "asyncToolsMaxQueuedDesc": "并发槽位占满后，新的后台任务进入等待队列的最大长度；超出则直接拒绝（让模型稍后重试或同步运行）。每个排队任务会占用内存，故有上限。范围 1–4096。",
+      "asyncToolsOutputTail": "运行输出留存",
+      "asyncToolsOutputTailDesc": "后台 exec 任务运行期间留存的最新输出字节数，供 job_status 实时查看（判断「还在跑」还是「卡住」）。越大越清晰、越占内存。范围 256B–1MB。",
+      "asyncToolsWakeupMaxDelay": "定时唤醒最长延迟",
+      "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定时唤醒的最长延迟上限；更长的周期任务应交给定时任务（cron）。下限固定 10 秒。范围 10 秒–7 天。",
+      "asyncToolsWakeupMaxPending": "每会话定时唤醒上限",
+      "asyncToolsWakeupMaxPendingDesc": "单个会话最多可同时挂起的定时唤醒数；超出直接拒绝（不排队），防止代理自我排程出大量计费轮次。范围 1–100。"
     },
     "chat": {
       "handover": {

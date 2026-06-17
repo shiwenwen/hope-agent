@@ -364,6 +364,25 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     }
 
     let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source, turn_id.clone())?;
+
+    // Idle/busy tracking (R2 — §5.4 fix). Mark this session active for the whole
+    // turn so background-job / sub-agent completion injection yields to the live
+    // turn instead of splicing into it. Created here at the shared engine entry
+    // so all four foreground entry points are covered uniformly — desktop, HTTP,
+    // IM channel, and cron (cron turns carry `Channel`). Previously only the
+    // Tauri shell created the guard (`commands/chat.rs`), so on server / IM the
+    // gate `ACTIVE_CHAT_SESSIONS` stayed at 0 and injection fired immediately
+    // against a running turn. The Tauri shell keeps its own earlier guard (to
+    // cancel an in-flight injection the moment the user hits send, before this
+    // turn's preflight); the refcount in `ChatSessionGuard` makes the overlap
+    // safe — the engine guard drops first, the shell guard last, so idle/flush
+    // fires exactly once after the whole command. `ParentInjection` / `Subagent`
+    // are excluded by `holds_foreground_idle_guard` (the former is the injection
+    // itself; the latter is a distinct child session). ACP guards itself.
+    let _idle_guard = source
+        .holds_foreground_idle_guard()
+        .then(|| crate::subagent::ChatSessionGuard::new(&session_id));
+
     if let (Some(ref turn_id), Some(ref stream_id)) =
         (turn_id.as_ref(), stream_lifecycle.stream_id.as_ref())
     {

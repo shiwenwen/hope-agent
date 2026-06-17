@@ -325,6 +325,8 @@
     "copy": "Kopyala",
     "cronTaskStarted": "Zamanlanmış bir görev tetiklendi",
     "cronTrigger": "Zamanlanmış görev",
+    "wakeupResumed": "Devam etmek için sürdürüldü",
+    "wakeupTrigger": "Zamanlanmış uyandırma",
     "daysAgo": "{{count}} gün önce",
     "deleteSessionTitle": "Sohbeti Sil",
     "deleteSessionWarning": "Bu işlem bu sohbeti ve tüm mesajlarını kalıcı olarak silecektir. Bu işlem geri alınamaz. Emin misiniz?",
@@ -571,7 +573,8 @@
         "browser": "Tarayıcı kontrolü",
         "mac": "Mac kontrolü"
       }
-    }
+    },
+    "reasoningDisabledHint": "Bu model için akıl yürütme etkin değil. Akıl yürütme derinliğini ayarlamak için \"Ayarlar → Model Sağlayıcıları\" bölümünden bu modeli düzenleyin ve \"Akıl yürütme/düşünme desteği\" seçeneğini açın."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} model",
     "outputCost": "Çıkış Maliyeti ($/1M tokens)",
     "reasoning": "Muhakeme / Düşünme",
+    "reasoningHint": "Etkinleştirdiğinizde, sohbet giriş kutusunun üzerindeki model menüsünden akıl yürütme derinliğini (düşük / orta / yüksek) seçebilirsiniz; her istekte otomatik olarak eklenir.",
     "supportedInputTypes": "Desteklenen Giriş Türleri",
     "text": "Metin",
     "video": "Video"
@@ -1686,7 +1690,12 @@
     "on": "Açık",
     "startupDesc": "Hizmet yeniden başlatıldıktan sonra son 72 saat içinde aktif olan IM sohbetlerine kısa bir \"yeniden çevrim içi\" bildirimi yayınlar. Hesap başına sessize alma her kanal hesabında bulunur.",
     "startupToggle": "Yeniden başlatma sonrası IM \"yeniden çevrim içi\" bildirimi",
-    "title": "Bildirim ayarları"
+    "title": "Bildirim ayarları",
+    "backgroundJobComplete": "Arka plan görevi tamamlandı",
+    "backgroundJobFailed": "Arka plan görevi başarısız oldu",
+    "backgroundJobFallback": "Bir arka plan görevi tamamlandı",
+    "backgroundJobToggle": "Arka plan görevleri tamamlandığında bildir",
+    "backgroundJobDesc": "Pencere arka plandayken bir arka plan görevi tamamlandığında masaüstü bildirimi göster"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "Maks. iş süresi",
     "asyncToolsMaxJobDesc": "Arka plan işinin çalışabileceği süre sınırı. Aşılırsa sonlandırılır. 0 = async job katmanında sınır yok; tek tek araçlar kendi zaman aşımlarını uygulayabilir.",
     "asyncToolsMaxConcurrent": "Maks. eşzamanlı arka plan işi",
-    "asyncToolsMaxConcurrentDesc": "Aynı anda çalışabilecek run_in_background araç işlerinin üst sınırı; her biri ayrı bir OS iş parçacığı tutar. Sınıra ulaşıldığında yeni arka plan istekleri reddedilir (modele beklemesi veya senkron çalıştırması söylenir). 0 = sınırsız. Varsayılan 8.",
+    "asyncToolsMaxConcurrentDesc": "Aynı anda çalışabilecek run_in_background araç işlerinin üst sınırı; her biri ayrı bir OS iş parçacığı tutar. 0 = sınırsız.",
+    "asyncToolsMaxConcurrentPerSession": "Oturum başına eşzamanlılık sınırı",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Tek bir oturumun (veya IM sohbetinin) aynı anda çalıştırabileceği en fazla arka plan işi sayısı; küresel havuzda yer olsa bile fazla istekler kuyruğa alınır, böylece tek bir oturum tüm yuvaları kapatamaz. 0 = oturum başına sınır yok.",
+    "asyncToolsMaxQueued": "Bekleme kuyruğu sınırı",
+    "asyncToolsMaxQueuedDesc": "Tüm eşzamanlılık yuvaları dolduğunda yeni bir arka plan işinin gireceği bekleme kuyruğunun en fazla uzunluğu; aşılırsa iş reddedilir (model sonra yeniden dener ya da eşzamanlı çalıştırır). Kuyruktaki her iş bellek tuttuğundan bu sınırlıdır. Aralık 1–4096.",
+    "asyncToolsOutputTail": "Saklanan çalışma çıktısı",
+    "asyncToolsOutputTailDesc": "Çalışan bir arka plan exec işinin en son çıktısının, job_status ile canlı incelenmesi için saklanan bayt miktarı ('hâlâ çalışıyor' mu yoksa 'takıldı' mı ayrımı için). Büyük olması daha açıktır ama daha çok bellek kullanır. Aralık 256B–1MB.",
+    "asyncToolsWakeupMaxDelay": "En fazla kendini uyandırma gecikmesi",
+    "asyncToolsWakeupMaxDelayDesc": "Aracının schedule_wakeup ile kendini ne kadar ileriye programlayabileceğinin üst sınırı; daha uzun yinelenen aralıklar cron'a aittir. 10 sn'lik alt sınır sabittir. Aralık 10 sn–7 gün.",
+    "asyncToolsWakeupMaxPending": "Oturum başına bekleyen uyandırma",
+    "asyncToolsWakeupMaxPendingDesc": "Bir oturumun aynı anda tutabileceği en fazla bekleyen kendini uyandırma sayısı; aşılırsa istekler reddedilir (kuyruğa alınmaz), böylece aracı çok sayıda ücretli tur programlayamaz. Aralık 1–100.",
+    "asyncToolsRetryEnabled": "Başarısızlıkta otomatik yeniden deneme",
+    "asyncToolsRetryEnabledDesc": "Başarısız bir arka plan işini geri çekilmeyle otomatik olarak yeniden dener. Yalnızca yeniden çalıştırılması güvenli ağ araçlarına (web araması gibi) uygulanır. Yeniden deneme aracı tekrar çalıştırır; bu, ücretli sağlayıcılarda (ör. web araması) ek çağrılara yol açabileceğinden varsayılan olarak kapalıdır ve kullanıcı tarafından açılır. exec, görüntü üretimi ve yan etkili / belirlenimci olmayan diğer araçlar ile iptal edilen / zaman aşımına uğrayan işler asla yeniden denenmez.",
+    "asyncToolsMaxRetryAttempts": "Maksimum deneme",
+    "asyncToolsMaxRetryAttemptsDesc": "İlk çalıştırma dahil toplam deneme sayısı (1 = yeniden deneme yok). Denemeler arası bekleme 500ms'den üstel olarak artar.",
     "asyncToolsOrphanGrace": "Yetim spool bekleme süresi",
     "asyncToolsOrphanGraceDesc": "Veritabanında referansı olmayan spool dosyaları bu saatler sonra temizlenir. Bekleme süresi, uçuş halindeki yazmalarla yarışı önler.",
     "asyncToolsRetention": "Sonlanmış iş saklama",
@@ -4633,7 +4656,9 @@
     "toolSessionToNoteName": "Oturumu Nota Çevir",
     "toolSessionToNoteDesc": "Konuşmayı yapılandırılmış bir nota damıtır.",
     "toolKnowledgeRecallName": "Bilgi Çağırma",
-    "toolKnowledgeRecallDesc": "Belleği ve notları birlikte arar (iki sıralı bölüm)."
+    "toolKnowledgeRecallDesc": "Belleği ve notları birlikte arar (iki sıralı bölüm).",
+    "asyncToolsMergeWindow": "Tamamlanma birleştirme penceresi",
+    "asyncToolsMergeWindowDesc": "Aynı oturumdaki birden fazla arka plan görevi bu pencere içinde tamamlandığında, bunları tek bir enjeksiyon turunda birleştirir (ücretlendirilen turlardan tasarruf sağlar); devre dışı bırakmak için 0."
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -5356,6 +5381,28 @@
     "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz.",
     "result": {
       "memory": "Bellek"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Arka Plan Görevleri",
+    "openPanel": "Arka plan görevleri",
+    "openFull": "Tümünü görüntüle / iptal et",
+    "empty": "Arka plan görevi yok",
+    "sectionSession": "Bu oturum",
+    "sectionLocalModel": "Yerel modeller",
+    "kindGroup": "Görev grubu",
+    "kindSubagent": "Alt aracı",
+    "resizePanel": "Arka plan görevleri panelini yeniden boyutlandır",
+    "status": {
+      "queued": "Sırada",
+      "running": "Çalışıyor",
+      "cancelling": "İptal ediliyor",
+      "awaiting_approval": "Onay bekleniyor",
+      "completed": "Tamamlandı",
+      "failed": "Başarısız",
+      "interrupted": "Kesildi",
+      "timed_out": "Zaman aşımı",
+      "cancelled": "İptal edildi"
     }
   }
 }

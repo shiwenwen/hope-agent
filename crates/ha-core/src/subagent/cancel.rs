@@ -19,13 +19,20 @@ impl SubagentCancelRegistry {
         }
     }
 
-    /// Register a cancel flag for a run, returning the Arc<AtomicBool>.
+    /// Register (or fetch) the cancel flag for a run, returning the
+    /// `Arc<AtomicBool>`. **Get-or-create**: if a flag is already registered
+    /// (R7.2 — it was registered at PARK time and this call is the promoted run
+    /// reusing it via `launch_subagent_run`), the SAME flag is returned so a
+    /// cancel signalled while the run was parked stays visible to the launched
+    /// engine. A fresh, untripped flag is created only when none exists.
     pub fn register(&self, run_id: &str) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
         if let Ok(mut map) = self.flags.lock() {
-            map.insert(run_id.to_string(), flag.clone());
+            return map
+                .entry(run_id.to_string())
+                .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+                .clone();
         }
-        flag
+        Arc::new(AtomicBool::new(false))
     }
 
     /// Signal cancellation for a specific run.
@@ -65,5 +72,41 @@ impl SubagentCancelRegistry {
         if let Ok(mut map) = self.flags.lock() {
             map.remove(run_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_is_get_or_create_and_preserves_trip() {
+        // R7.2 promote-vs-cancel: a cancel signalled while a spawn is PARKED
+        // must stay visible to the engine the promoter later launches. The
+        // promoted run re-registers under the same run_id and must get the SAME,
+        // already-tripped flag — a fresh flag would lose the cancel and let a
+        // killed run execute to completion.
+        let reg = SubagentCancelRegistry::new();
+        let flag1 = reg.register("run-x");
+        assert!(!flag1.load(Ordering::SeqCst));
+
+        // Cancel while "parked".
+        assert!(reg.cancel("run-x"));
+
+        // Promotion re-registers — same Arc, trip preserved.
+        let flag2 = reg.register("run-x");
+        assert!(
+            Arc::ptr_eq(&flag1, &flag2),
+            "re-register must return the same flag, not a fresh one"
+        );
+        assert!(
+            flag2.load(Ordering::SeqCst),
+            "the cancel signalled while parked must survive re-registration"
+        );
+
+        // A distinct run still gets its own fresh, untripped flag.
+        let other = reg.register("run-y");
+        assert!(!other.load(Ordering::SeqCst));
+        assert!(!Arc::ptr_eq(&flag1, &other));
     }
 }

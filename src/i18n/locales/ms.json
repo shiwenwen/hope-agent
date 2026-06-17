@@ -325,6 +325,8 @@
     "copy": "Salin",
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
     "cronTrigger": "Tugasan berjadual",
+    "wakeupResumed": "Disambung untuk teruskan",
+    "wakeupTrigger": "Jaga berjadual",
     "daysAgo": "{{count}} hari lalu",
     "deleteSessionTitle": "Padam Perbualan",
     "deleteSessionWarning": "Tindakan ini akan memadamkan perbualan ini dan semua mesejnya secara kekal. Tindakan ini tidak boleh dibatalkan. Adakah anda pasti?",
@@ -571,7 +573,8 @@
         "browser": "Kawalan pelayar",
         "mac": "Kawalan Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\"."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} model",
     "outputCost": "Kos Output ($/1M tokens)",
     "reasoning": "Penaakulan / Pemikiran",
+    "reasoningHint": "Setelah didayakan, anda boleh memilih kedalaman penaakulan (rendah / sederhana / tinggi) daripada menu model di atas kotak input sembang; ia ditambah secara automatik pada setiap permintaan.",
     "supportedInputTypes": "Jenis Input Disokong",
     "text": "Teks",
     "video": "Video"
@@ -1686,7 +1690,12 @@
     "on": "Hidup",
     "startupDesc": "Selepas perkhidmatan dimulakan semula, terbitkan notis pendek \"kembali dalam talian\" ke sembang IM yang aktif dalam 72 jam yang lalu. Senyapan setiap akaun berada di tetapan akaun saluran masing-masing.",
     "startupToggle": "Notis \"kembali dalam talian\" selepas mula semula",
-    "title": "Tetapan pemberitahuan"
+    "title": "Tetapan pemberitahuan",
+    "backgroundJobComplete": "Tugas latar belakang selesai",
+    "backgroundJobFailed": "Tugas latar belakang gagal",
+    "backgroundJobFallback": "Satu tugas latar belakang telah selesai",
+    "backgroundJobToggle": "Beritahu apabila tugas latar belakang selesai",
+    "backgroundJobDesc": "Tunjukkan pemberitahuan desktop apabila tugas latar belakang selesai semasa tetingkap berada di latar belakang"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "Tempoh maksimum kerja",
     "asyncToolsMaxJobDesc": "Had masa pelaksanaan kerja latar. Jika melebihi, ia dihentikan. 0 = tiada had pada lapisan kerja async; alat individu masih boleh mengenakan tamat masa sendiri.",
     "asyncToolsMaxConcurrent": "Maks. kerja latar serentak",
-    "asyncToolsMaxConcurrentDesc": "Bilangan maksimum kerja alat run_in_background yang boleh berjalan serentak; setiap satu menggunakan satu utas OS khusus. Apabila had dicapai, permintaan latar baharu ditolak (model diminta menunggu atau menjalankan secara segerak). 0 = tiada had. Lalai 8.",
+    "asyncToolsMaxConcurrentDesc": "Bilangan maksimum kerja alat run_in_background yang boleh berjalan serentak; setiap satu menggunakan satu utas OS khusus. 0 = tiada had.",
+    "asyncToolsMaxConcurrentPerSession": "Had keserentakan setiap sesi",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Bilangan maksimum kerja latar yang boleh dijalankan oleh satu sesi (atau sembang IM) pada satu masa; permintaan tambahan akan beratur walaupun kumpulan global masih ada ruang, supaya satu sesi tidak menguasai semua slot. 0 = tiada had setiap sesi.",
+    "asyncToolsMaxQueued": "Had baris gilir menunggu",
+    "asyncToolsMaxQueuedDesc": "Panjang maksimum baris gilir menunggu apabila semua slot keserentakan penuh; melebihinya, tugas latar baharu ditolak (model cuba semula kemudian atau jalankan secara segerak). Setiap tugas dalam baris gilir menggunakan memori, jadi ia terhad. Julat 1–4096.",
+    "asyncToolsOutputTail": "Output berjalan yang disimpan",
+    "asyncToolsOutputTailDesc": "Bait output terkini bagi tugas exec latar yang sedang berjalan, disimpan untuk pemeriksaan langsung melalui job_status (untuk menilai 'masih berjalan' lwn 'tersekat'). Lebih besar lebih jelas tetapi menggunakan lebih banyak memori. Julat 256B–1MB.",
+    "asyncToolsWakeupMaxDelay": "Lengah maksimum sedar-diri",
+    "asyncToolsWakeupMaxDelayDesc": "Had atas berapa awal ejen boleh menjadualkan sedar-diri melalui schedule_wakeup; kadens berulang yang lebih panjang adalah untuk cron. Had bawah 10s adalah tetap. Julat 10s–7h.",
+    "asyncToolsWakeupMaxPending": "Sedaran tertunda setiap sesi",
+    "asyncToolsWakeupMaxPendingDesc": "Maksimum sedaran sedar-diri tertunda yang boleh dipegang satu sesi serentak; melebihinya permintaan ditolak (tidak dibaris-gilirkan), menghalang ejen daripada menjadualkan banyak pusingan berbayar. Julat 1–100.",
+    "asyncToolsRetryEnabled": "Cuba semula automatik apabila gagal",
+    "asyncToolsRetryEnabledDesc": "Mencuba semula secara automatik (dengan jeda) tugas latar yang gagal. Hanya terpakai untuk alat rangkaian yang selamat dijalankan semula (seperti carian web). Cubaan semula menjalankan semula alat itu, yang boleh menyebabkan panggilan tambahan pada penyedia berbayar (cth. carian web), jadi ia dimatikan secara lalai dan dihidupkan oleh pengguna. exec, penjanaan imej dan alat lain yang berkesan sampingan / tak deterministik, serta tugas yang dibatalkan / tamat masa, tidak sekali-kali dicuba semula.",
+    "asyncToolsMaxRetryAttempts": "Cubaan maksimum",
+    "asyncToolsMaxRetryAttemptsDesc": "Jumlah cubaan termasuk larian pertama (1 = tiada cuba semula). Jeda antara cubaan meningkat secara eksponen dari 500ms.",
     "asyncToolsOrphanGrace": "Tempoh ihsan spool yatim",
     "asyncToolsOrphanGraceDesc": "Fail spool tanpa rujukan DB dibersihkan selepas jam ini. Tempoh ihsan mengelak perlumbaan dengan penulisan sedang berjalan.",
     "asyncToolsRetention": "Pengekalan kerja terminal",
@@ -4633,7 +4656,9 @@
     "toolSessionToNoteName": "Sesi ke Nota",
     "toolSessionToNoteDesc": "Saring perbualan menjadi nota berstruktur.",
     "toolKnowledgeRecallName": "Imbas Kembali Pengetahuan",
-    "toolKnowledgeRecallDesc": "Cari memori dan nota serentak (dua bahagian berperingkat)."
+    "toolKnowledgeRecallDesc": "Cari memori dan nota serentak (dua bahagian berperingkat).",
+    "asyncToolsMergeWindow": "Tetingkap gabungan penyelesaian",
+    "asyncToolsMergeWindowDesc": "Apabila beberapa tugas latar belakang dalam sesi yang sama selesai dalam tetingkap ini, gabungkannya menjadi satu pusingan suntikan (menjimatkan pusingan yang dicaj); 0 untuk lumpuhkan."
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -5356,6 +5381,28 @@
     "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran.",
     "result": {
       "memory": "Memori"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tugas Latar Belakang",
+    "openPanel": "Tugas latar belakang",
+    "openFull": "Lihat semua / batal",
+    "empty": "Tiada tugas latar belakang",
+    "sectionSession": "Sesi ini",
+    "sectionLocalModel": "Model tempatan",
+    "kindGroup": "Kumpulan tugas",
+    "kindSubagent": "Subejen",
+    "resizePanel": "Ubah saiz panel tugas latar belakang",
+    "status": {
+      "queued": "Beratur",
+      "running": "Berjalan",
+      "cancelling": "Membatalkan",
+      "awaiting_approval": "Menunggu kelulusan",
+      "completed": "Selesai",
+      "failed": "Gagal",
+      "interrupted": "Terganggu",
+      "timed_out": "Tamat masa",
+      "cancelled": "Dibatalkan"
     }
   }
 }

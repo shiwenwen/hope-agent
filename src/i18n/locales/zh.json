@@ -325,6 +325,8 @@
     "copy": "复制",
     "cronTaskStarted": "定时器触发了一个任务",
     "cronTrigger": "定时任务",
+    "wakeupResumed": "已唤醒继续",
+    "wakeupTrigger": "定时唤醒",
     "daysAgo": "{{count}}天前",
     "deleteSessionTitle": "删除对话",
     "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？",
@@ -571,7 +573,8 @@
         "browser": "浏览器控制",
         "mac": "Mac 控制"
       }
-    }
+    },
+    "reasoningDisabledHint": "该模型未启用推理。如需调节推理深度,请在「设置 → 模型服务商」中编辑该模型并开启「支持推理/思考」。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} 个模型",
     "outputCost": "输出成本 ($/1M tokens)",
     "reasoning": "支持推理/思考",
+    "reasoningHint": "开启后,可在聊天界面输入框上方的模型菜单中选择推理深度(低 / 中 / 高),并在每次请求时自动注入。",
     "supportedInputTypes": "支持的输入类型",
     "text": "文本",
     "video": "视频"
@@ -1686,7 +1690,12 @@
     "on": "开启",
     "startupDesc": "服务重启后，向最近 72 小时活跃过的 IM 聊天发送一条「已恢复」提示。账号级开关请在各 IM 渠道的账号设置中调整。",
     "startupToggle": "重启后向 IM 发送已恢复提示",
-    "title": "通知设置"
+    "title": "通知设置",
+    "backgroundJobComplete": "后台任务完成",
+    "backgroundJobFailed": "后台任务失败",
+    "backgroundJobFallback": "一个后台任务已结束",
+    "backgroundJobToggle": "后台任务完成提醒",
+    "backgroundJobDesc": "后台任务跑完且窗口处于后台时弹桌面通知"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "单 job 最大时长",
     "asyncToolsMaxJobDesc": "后台 job 运行时长上限，超时会被 kill。0 = async job 层不限时；具体工具仍可有自己的内部超时",
     "asyncToolsMaxConcurrent": "后台 job 最大并发数",
-    "asyncToolsMaxConcurrentDesc": "允许同时运行的 run_in_background 工具 job 上限，每个占用一个独立 OS 线程。达到上限后新的后台请求会被拒绝（提示模型等待或改为同步执行）。0 = 不限。默认 8",
+    "asyncToolsMaxConcurrentDesc": "允许同时运行的 run_in_background 工具 job 上限，每个占用一个独立 OS 线程。0 = 不限。",
+    "asyncToolsMaxConcurrentPerSession": "每会话并发上限",
+    "asyncToolsMaxConcurrentPerSessionDesc": "单个会话（或 IM 群聊）最多同时运行的后台任务数；超出的请求即使全局仍有空位也会排队，避免单个会话占满所有槽位。0 = 不限。",
+    "asyncToolsMaxQueued": "排队上限",
+    "asyncToolsMaxQueuedDesc": "并发槽位占满后，新的后台任务进入等待队列的最大长度；超出则直接拒绝（让模型稍后重试或同步运行）。每个排队任务会占用内存，故有上限。范围 1–4096。",
+    "asyncToolsOutputTail": "运行输出留存",
+    "asyncToolsOutputTailDesc": "后台 exec 任务运行期间留存的最新输出字节数，供 job_status 实时查看（判断「还在跑」还是「卡住」）。越大越清晰、越占内存。范围 256B–1MB。",
+    "asyncToolsWakeupMaxDelay": "定时唤醒最长延迟",
+    "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定时唤醒的最长延迟上限；更长的周期任务应交给定时任务（cron）。下限固定 10 秒。范围 10 秒–7 天。",
+    "asyncToolsWakeupMaxPending": "每会话定时唤醒上限",
+    "asyncToolsWakeupMaxPendingDesc": "单个会话最多可同时挂起的定时唤醒数；超出直接拒绝（不排队），防止代理自我排程出大量计费轮次。范围 1–100。",
+    "asyncToolsRetryEnabled": "失败自动重试",
+    "asyncToolsRetryEnabledDesc": "失败时自动退避重试后台任务，仅对可安全重跑的联网工具（如联网搜索）生效。重试会重新调用该工具，联网搜索等计费供应商可能因此产生额外调用，故默认关闭、按需开启。exec、图像生成等有副作用 / 非确定性工具，以及被取消 / 超时的任务，永不重试。",
+    "asyncToolsMaxRetryAttempts": "最大尝试次数",
+    "asyncToolsMaxRetryAttemptsDesc": "含首次执行的总尝试次数（1 = 不重试）。重试间隔按 500ms 起指数退避。",
     "asyncToolsOrphanGrace": "孤儿 spool 宽限时长",
     "asyncToolsOrphanGraceDesc": "spool 目录里不在 DB 中的孤儿文件按此宽限期（小时）清理，避免与刚写入但未提交 DB 行的 spool 竞态",
     "asyncToolsRetention": "终态 job 保留天数",
@@ -4641,7 +4664,9 @@
     "toolSessionToNoteName": "对话存为笔记",
     "toolSessionToNoteDesc": "把当前对话提炼成一篇结构化笔记。",
     "toolKnowledgeRecallName": "知识召回",
-    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库(分两段返回)。"
+    "toolKnowledgeRecallDesc": "同时检索记忆与笔记两个库(分两段返回)。",
+    "asyncToolsMergeWindow": "完成合并窗口",
+    "asyncToolsMergeWindowDesc": "同会话多个后台任务在此窗口内完成时合并为一轮注入（省计费 turn）；0 关闭。"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -5364,6 +5389,28 @@
     "allowExternalWritesHint": "外部库默认只读。开启后可让编辑器与 AI 工具写入绑定目录。后台自动维护始终不写入外部库。",
     "result": {
       "memory": "记忆"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "后台任务",
+    "openPanel": "后台任务",
+    "openFull": "查看全部 / 取消",
+    "empty": "暂无后台任务",
+    "sectionSession": "本会话",
+    "sectionLocalModel": "本地模型",
+    "kindGroup": "任务组",
+    "kindSubagent": "子智能体",
+    "resizePanel": "调整后台任务面板宽度",
+    "status": {
+      "queued": "排队中",
+      "running": "运行中",
+      "cancelling": "取消中",
+      "awaiting_approval": "等待审批",
+      "completed": "已完成",
+      "failed": "失败",
+      "interrupted": "已中断",
+      "timed_out": "已超时",
+      "cancelled": "已取消"
     }
   }
 }

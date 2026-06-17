@@ -325,6 +325,8 @@
     "copy": "複制",
     "cronTaskStarted": "定時器觸發了一個任務",
     "cronTrigger": "定時任務",
+    "wakeupResumed": "已喚醒繼續",
+    "wakeupTrigger": "定時喚醒",
     "daysAgo": "{{count}}天前",
     "deleteSessionTitle": "刪除對話",
     "deleteSessionWarning": "此操作將永久刪除該對話及其所有消息記錄，且無法恢複。請確認是否繼續？",
@@ -571,7 +573,8 @@
         "browser": "瀏覽器控制",
         "mac": "Mac 控制"
       }
-    }
+    },
+    "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度,請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} 個模型",
     "outputCost": "輸出成本 ($/1M tokens)",
     "reasoning": "支持推理/思考",
+    "reasoningHint": "開啟後,可在聊天介面輸入框上方的模型選單中選擇推理深度(低 / 中 / 高),並在每次請求時自動注入。",
     "supportedInputTypes": "支持的輸入類型",
     "text": "文本",
     "video": "視頻"
@@ -1686,7 +1690,12 @@
     "on": "開啟",
     "startupDesc": "服務重啟後，向最近 72 小時活躍過的 IM 聊天發送一條「已恢復」提示。帳號層級的開關請在各 IM 通道的帳號設定中調整。",
     "startupToggle": "重啟後向 IM 發送已恢復提示",
-    "title": "通知設置"
+    "title": "通知設置",
+    "backgroundJobComplete": "背景任務完成",
+    "backgroundJobFailed": "背景任務失敗",
+    "backgroundJobFallback": "一項背景任務已完成",
+    "backgroundJobToggle": "背景任務完成時通知",
+    "backgroundJobDesc": "當視窗位於背景時，背景任務完成後顯示桌面通知"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "單 job 最大時長",
     "asyncToolsMaxJobDesc": "背景 job 執行時長上限，超時會被 kill。0 = async job 層不限時；具體工具仍可有自己的內部逾時",
     "asyncToolsMaxConcurrent": "背景 job 最大並發數",
-    "asyncToolsMaxConcurrentDesc": "允許同時執行的 run_in_background 工具 job 上限，每個佔用一個獨立 OS 執行緒。達到上限後新的背景請求會被拒絕（提示模型等待或改為同步執行）。0 = 不限。預設 8",
+    "asyncToolsMaxConcurrentDesc": "允許同時執行的 run_in_background 工具 job 上限，每個佔用一個獨立 OS 執行緒。0 = 不限。",
+    "asyncToolsMaxConcurrentPerSession": "每工作階段並行上限",
+    "asyncToolsMaxConcurrentPerSessionDesc": "單個工作階段（或 IM 群組）最多同時執行的背景任務數；超出的請求即使全域仍有空位也會排隊，避免單一工作階段佔滿所有名額。0 = 不限。",
+    "asyncToolsMaxQueued": "排隊上限",
+    "asyncToolsMaxQueuedDesc": "並行槽位佔滿後，新的背景任務進入等待佇列的最大長度；超出則直接拒絕（讓模型稍後重試或同步執行）。每個排隊任務會佔用記憶體，故有上限。範圍 1–4096。",
+    "asyncToolsOutputTail": "執行輸出留存",
+    "asyncToolsOutputTailDesc": "背景 exec 任務執行期間留存的最新輸出位元組數，供 job_status 即時查看（判斷「還在跑」還是「卡住」）。越大越清晰、越佔記憶體。範圍 256B–1MB。",
+    "asyncToolsWakeupMaxDelay": "定時喚醒最長延遲",
+    "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定時喚醒的最長延遲上限；更長的週期任務應交給定時任務（cron）。下限固定 10 秒。範圍 10 秒–7 天。",
+    "asyncToolsWakeupMaxPending": "每會話定時喚醒上限",
+    "asyncToolsWakeupMaxPendingDesc": "單一會話最多可同時掛起的定時喚醒數；超出直接拒絕（不排隊），防止代理自我排程出大量計費輪次。範圍 1–100。",
+    "asyncToolsRetryEnabled": "失敗自動重試",
+    "asyncToolsRetryEnabledDesc": "失敗時自動退避重試背景任務，僅對可安全重跑的聯網工具（如聯網搜尋）生效。重試會重新呼叫該工具，聯網搜尋等計費供應商可能因此產生額外呼叫，故預設關閉、按需開啟。exec、影像生成等有副作用 / 非確定性工具，以及被取消 / 逾時的任務，永不重試。",
+    "asyncToolsMaxRetryAttempts": "最大嘗試次數",
+    "asyncToolsMaxRetryAttemptsDesc": "含首次執行的總嘗試次數（1 = 不重試）。重試間隔按 500ms 起指數退避。",
     "asyncToolsOrphanGrace": "孤兒 spool 寬限時長",
     "asyncToolsOrphanGraceDesc": "DB 中無引用的 spool 檔案按此寬限期（小時）清理，避免與剛寫入但尚未提交 DB 行的 spool 競態",
     "asyncToolsRetention": "終態 job 保留天數",
@@ -4633,7 +4656,9 @@
     "toolSessionToNoteName": "對話存為筆記",
     "toolSessionToNoteDesc": "將目前對話提煉成一篇結構化筆記。",
     "toolKnowledgeRecallName": "知識召回",
-    "toolKnowledgeRecallDesc": "同時檢索記憶與筆記兩個庫（分兩段回傳）。"
+    "toolKnowledgeRecallDesc": "同時檢索記憶與筆記兩個庫（分兩段回傳）。",
+    "asyncToolsMergeWindow": "完成合併視窗",
+    "asyncToolsMergeWindowDesc": "當同一工作階段中的多項背景任務在此視窗內完成時，將其合併為一次注入回合（節省計費回合）；設為 0 可停用。"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -5356,6 +5381,28 @@
     "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。",
     "result": {
       "memory": "記憶"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "背景任務",
+    "openPanel": "背景任務",
+    "openFull": "查看全部 / 取消",
+    "empty": "暫無背景任務",
+    "sectionSession": "本工作階段",
+    "sectionLocalModel": "本機模型",
+    "kindGroup": "任務群組",
+    "kindSubagent": "子代理",
+    "resizePanel": "調整背景任務面板大小",
+    "status": {
+      "queued": "排隊中",
+      "running": "執行中",
+      "cancelling": "取消中",
+      "awaiting_approval": "等待核准",
+      "completed": "已完成",
+      "failed": "失敗",
+      "interrupted": "已中斷",
+      "timed_out": "已逾時",
+      "cancelled": "已取消"
     }
   }
 }

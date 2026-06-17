@@ -523,7 +523,8 @@ pub struct SubagentConfig {
     #[serde(default)]
     pub denied_agents: Vec<String>,
 
-    /// Max concurrent sub-agents this agent can have running
+    /// Max concurrent sub-agents this agent can have running (default 8, clamped
+    /// 1..=50 at the spawn gate). Wired through `subagent::max_concurrent_for_agent`.
     #[serde(default = "default_max_concurrent")]
     pub max_concurrent: u32,
 
@@ -557,7 +558,7 @@ pub struct SubagentConfig {
 }
 
 fn default_max_concurrent() -> u32 {
-    5
+    8
 }
 
 fn default_subagent_timeout() -> u64 {

@@ -3,8 +3,12 @@ import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { MCP_EVENTS } from "@/lib/mcp"
-import { notifyIfBackground } from "@/lib/notifications"
+import { getCachedConfig, notifyIfBackground } from "@/lib/notifications"
 import { logger } from "@/lib/logger"
+
+// Background-job terminal statuses worth a "跑完叫我" notification — skip
+// user-cancelled / restart-interrupted (not noteworthy outcomes).
+const NOTIFIABLE_JOB_STATUSES = new Set(["completed", "failed", "timed_out"])
 
 // Truncate user-visible strings (commands, questions) so notifications
 // don't blow past Notification Center's character limit.
@@ -164,6 +168,36 @@ export function useDesktopAlerts() {
       },
     )
 
+    // R4: "跑完叫我" — a background job (tool / group, R3 `job:*`) finishing in
+    // the background fires a desktop notification, gated by the dedicated
+    // `notifyOnBackgroundJobComplete` toggle. Subagent jobs ride `subagent:*` and
+    // are out of scope here. Background-only via `notifyIfBackground` (the user
+    // already sees the panel/badge when the window is up front).
+    const offJobCompleted = bindAlert<{
+      tool?: string
+      status?: string
+      kind?: string
+    }>("job:completed", "useDesktopAlerts::job_completed", (ev) => {
+      if (getCachedConfig()?.notifyOnBackgroundJobComplete === false) return null
+      const status = ev?.status ?? ""
+      if (!NOTIFIABLE_JOB_STATUSES.has(status)) return null
+      const tx = tRef.current
+      const failed = status !== "completed"
+      // A Group's `tool` is the internal id "subagent:batch" — show a friendly
+      // localized label instead; tool jobs surface their real tool name.
+      const body =
+        ev?.kind === "group"
+          ? tx("backgroundJobs.kindGroup", "任务组")
+          : truncate(ev?.tool ?? "") ||
+            tx("notification.backgroundJobFallback", "一个后台任务已结束")
+      return {
+        title: failed
+          ? tx("notification.backgroundJobFailed", "后台任务失败")
+          : tx("notification.backgroundJobComplete", "后台任务完成"),
+        body,
+      }
+    })
+
     return () => {
       offApproval()
       offApprovalTimedOut()
@@ -171,6 +205,7 @@ export function useDesktopAlerts() {
       offAskUserTimedOut()
       offMcpAuth()
       offChannelAuth()
+      offJobCompleted()
     }
   }, [])
 }

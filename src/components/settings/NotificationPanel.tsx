@@ -104,6 +104,20 @@ export default function NotificationPanel() {
     }
   }
 
+  const handleBackgroundJobToggle = async (notifyOnBackgroundJobComplete: boolean) => {
+    if (!config) return
+    const newConfig = { ...config, notifyOnBackgroundJobComplete }
+    setConfig(newConfig)
+    setSaving(true)
+    try {
+      await saveNotificationConfig(newConfig)
+    } catch (e) {
+      logger.error("settings", "NotificationPanel::saveBgJob", "Failed to save config", e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleStartupToggle = async (enabled: boolean) => {
     if (!startupConfig) return
     const next = { ...startupConfig, enabled }
@@ -155,6 +169,21 @@ export default function NotificationPanel() {
           <Switch
             checked={config.showChatContent === true}
             onCheckedChange={handleShowChatContentToggle}
+            disabled={saving}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium">
+              {t("notification.backgroundJobToggle", "后台任务完成提醒")}
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t("notification.backgroundJobDesc", "后台任务跑完时在窗口处于后台时弹桌面通知")}
+            </p>
+          </div>
+          <Switch
+            checked={config.notifyOnBackgroundJobComplete !== false}
+            onCheckedChange={handleBackgroundJobToggle}
             disabled={saving}
           />
         </div>

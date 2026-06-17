@@ -31,6 +31,41 @@ pub(crate) fn subagent_capability_enabled(agent_id: &str, agent_config: &AgentCo
     }
 }
 
+/// Enforce the parent agent's sub-agent delegation gates before spawning
+/// `child_agent_id`: the Tier 3 capability toggle (`subagent_capability_enabled`)
+/// and the allowed/denied delegation list (`subagents.is_agent_allowed`). Shared
+/// by `do_spawn` AND `action_batch_spawn` so the model can't bypass the gate via
+/// `batch_spawn` (which historically skipped it entirely).
+///
+/// **Fail-closed**: if the parent agent definition can't be loaded we DENY rather
+/// than silently allow — the gate is a security boundary (AGENTS.md「执行层兜底」),
+/// and a model-writable delegation allowlist that fails open is a privilege
+/// escalation. The parent agent is the one currently running, so a load failure
+/// here is an anomaly (corrupt/half-written `agent.json`, racing delete), not a
+/// normal path.
+fn check_subagent_delegation_allowed(parent_agent_id: &str, child_agent_id: &str) -> Result<()> {
+    let def = crate::agent_loader::load_agent(parent_agent_id).map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot verify sub-agent delegation permission (failed to load agent '{}': {}); \
+             delegation denied",
+            parent_agent_id,
+            e
+        )
+    })?;
+    if !subagent_capability_enabled(parent_agent_id, &def.config) {
+        return Err(anyhow::anyhow!(
+            "Sub-agent delegation is disabled for this agent"
+        ));
+    }
+    if !def.config.subagents.is_agent_allowed(child_agent_id) {
+        return Err(anyhow::anyhow!(
+            "Agent '{}' is not in the allowed delegation list",
+            child_agent_id
+        ));
+    }
+    Ok(())
+}
+
 /// Tool handler for the `subagent` tool.
 /// Actions: spawn, check, list, result, kill, kill_all, steer
 pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -84,21 +119,9 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 
     let parent_agent_id = ctx.agent_id.as_deref().unwrap_or(DEFAULT_AGENT_ID);
 
-    // Check agent-level permission via the dispatcher (Tier 3 subagent toggle).
-    let agent_def = crate::agent_loader::load_agent(parent_agent_id).ok();
-    if let Some(ref def) = agent_def {
-        if !subagent_capability_enabled(parent_agent_id, &def.config) {
-            return Err(anyhow::anyhow!(
-                "Sub-agent delegation is disabled for this agent"
-            ));
-        }
-        if !def.config.subagents.is_agent_allowed(&agent_id) {
-            return Err(anyhow::anyhow!(
-                "Agent '{}' is not in the allowed delegation list",
-                agent_id
-            ));
-        }
-    }
+    // Enforce the parent's delegation gates (Tier 3 capability toggle + allowed
+    // delegation list). Fail-closed — see `check_subagent_delegation_allowed`.
+    check_subagent_delegation_allowed(parent_agent_id, &agent_id)?;
 
     let label = args
         .get("label")
@@ -176,6 +199,9 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         // WS8: carry the parent turn's IM origin identity so an IM-origin
         // subagent's KB opt-in is judged against the origin account/chat.
         origin_channel_kb_context: ctx.channel_kb_context.clone(),
+        // A standalone spawn is not part of a Group (R5) — it injects its own
+        // result individually. Only `batch_spawn` sets a group id.
+        group_id: None,
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -371,7 +397,27 @@ async fn action_kill_all(ctx: &ToolExecContext) -> Result<String> {
     let session_db = get_session_db()?;
     let count = cancel_registry.cancel_all_for_session(parent_session_id, &session_db);
 
-    Ok(format!("Kill signal sent to {} active sub-agent(s)", count))
+    // R7.2: `cancel_all_for_session` only signals ACTIVE (spawning/running)
+    // runs — it reads `list_active_subagent_runs`, which excludes `Queued`. A
+    // parked spawn holds no slot, so without this it would survive kill_all and
+    // then be PROMOTED by the scheduler (killing the active runs just freed a
+    // slot) — running AFTER the user asked to kill everything. Purge the parked
+    // entries and stamp each terminal (mirrors the session-delete cascade).
+    let parked = subagent::queue::purge_for_session(parent_session_id);
+    let parked_count = parked.len();
+    for run_id in parked {
+        subagent::request_cancel_run(&run_id);
+    }
+
+    let queued_note = if parked_count > 0 {
+        format!(" and cancelled {} queued sub-agent(s)", parked_count)
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "Kill signal sent to {} active sub-agent(s){}",
+        count, queued_note
+    ))
 }
 
 async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -400,39 +446,80 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     let session_db = get_session_db()?;
     let cancel_registry = get_cancel_registry()?;
 
-    let mut results = Vec::new();
+    // R5: validate EVERY task object up front, BEFORE creating the Group or
+    // spawning anything. A malformed task (missing `task` field) must fail the
+    // whole call cleanly. If we validated lazily inside the spawn loop instead,
+    // an error on task k>0 would `?`-return AFTER the group + children `0..k`
+    // were already created — and those grouped children would be stranded
+    // forever (their individual injection is suppressed, but the group is never
+    // sealed, so the merged injection never fires). No `?` may run between the
+    // group's creation and `seal_group` below.
+    struct BatchTask {
+        task: String,
+        agent_id: String,
+        label: Option<String>,
+        timeout_secs: Option<u64>,
+        model_override: Option<String>,
+    }
+    let mut parsed: Vec<BatchTask> = Vec::with_capacity(tasks.len());
     for task_def in tasks {
         let task = task_def
             .get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Each task in batch_spawn must have a 'task' field"))?;
-        let agent_id = task_def
+        let child_agent_id = task_def
             .get("agent_id")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_AGENT_ID)
             .to_string();
-        let label = task_def
-            .get("label")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let timeout_secs = task_def
-            .get("timeout_secs")
-            .and_then(|v| v.as_u64())
-            .map(|t| t.min(1800));
-        let model_override = task_def
-            .get("model")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let params = SpawnParams {
+        // Enforce the delegation gates per child, up front (same as `do_spawn`)
+        // — `batch_spawn` must NOT be a bypass of the Tier 3 capability toggle /
+        // allowed-agent list. Validated here in the pre-flight loop (before the
+        // Group is created) so a denied agent fails the whole call cleanly; no
+        // `?` may run after the group's creation (see the comment above).
+        check_subagent_delegation_allowed(parent_agent_id, &child_agent_id)?;
+        parsed.push(BatchTask {
             task: task.to_string(),
-            agent_id,
+            agent_id: child_agent_id,
+            label: task_def
+                .get("label")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            timeout_secs: task_def
+                .get("timeout_secs")
+                .and_then(|v| v.as_u64())
+                .map(|t| t.min(1800)),
+            model_override: task_def
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+        });
+    }
+
+    // R5: fan these children out as a single Group so all results arrive as ONE
+    // merged injection when the batch finishes, instead of N separate billed
+    // turns. Skipped for incognito (no projection survives close-and-burn) and
+    // when the jobs DB is uninitialized — those children fall back to per-child
+    // injection (the pre-R5 behavior). The group is created BEFORE spawning so
+    // each child can carry its `group_id`, then SEALED after the loop so the
+    // join coordinator may complete it once every child settles.
+    let group_id = if crate::session::is_session_incognito(Some(parent_session_id)) {
+        None
+    } else {
+        crate::async_jobs::JobManager::spawn_group(parent_session_id, parent_agent_id)
+    };
+
+    let mut results = Vec::new();
+    for bt in parsed {
+        let params = SpawnParams {
+            task: bt.task,
+            agent_id: bt.agent_id,
             parent_session_id: parent_session_id.to_string(),
             parent_agent_id: parent_agent_id.to_string(),
             depth: ctx.subagent_depth + 1,
-            timeout_secs,
-            model_override,
-            label,
+            timeout_secs: bt.timeout_secs,
+            model_override: bt.model_override,
+            label: bt.label,
             attachments: Vec::new(),
             plan_agent_mode: None,
             plan_mode_allow_paths: Vec::new(),
@@ -445,6 +532,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             origin_source: ctx.origin_chat_source.or(ctx.chat_source),
             // WS8: forward the parent turn's IM origin identity (see above).
             origin_channel_kb_context: ctx.channel_kb_context.clone(),
+            // R5: tag each child with the Group so its result joins the merged
+            // injection instead of injecting on its own.
+            group_id: group_id.clone(),
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {
@@ -453,11 +543,32 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         }
     }
 
-    Ok(serde_json::to_string_pretty(&serde_json::json!({
+    // R5: seal the group now that every child has been spawned — the join
+    // coordinator may complete it (and fire the one merged injection) once all
+    // children settle. The seal also runs an immediate completion check for the
+    // case where fast children already finished during the spawn loop.
+    if let Some(ref gid) = group_id {
+        crate::async_jobs::JobManager::seal_group(gid);
+    }
+
+    let mut response = serde_json::json!({
         "status": "batch_spawned",
         "total": results.len(),
         "runs": results,
-    }))?)
+    });
+    // Surface the group id so the model can `job_status(action='status',
+    // job_id=...)` the batch as a whole (N-of-M) and knows results will arrive
+    // as one merged notification when the batch finishes.
+    if let Some(gid) = group_id {
+        response["group_id"] = serde_json::Value::String(gid);
+        response["delivery"] = serde_json::Value::String(
+            "All results will be injected together as one notification when the batch finishes. \
+             You can end your turn; no need to poll."
+                .to_string(),
+        );
+    }
+
+    Ok(serde_json::to_string_pretty(&response)?)
 }
 
 async fn action_wait_all(args: &Value) -> Result<String> {
@@ -667,4 +778,26 @@ fn get_session_db() -> Result<Arc<crate::session::SessionDB>> {
 
 fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
     crate::require_subagent_cancels().map(Arc::clone)
+}
+
+#[cfg(test)]
+mod delegation_gate_tests {
+    use super::*;
+
+    #[test]
+    fn delegation_fails_closed_when_parent_agent_cant_load() {
+        // B1: if the parent agent definition can't be loaded, delegation must be
+        // DENIED, not silently allowed — a model-writable allowlist that fails
+        // open is a privilege escalation. (`do_spawn` and `action_batch_spawn`
+        // both route through this gate so `batch_spawn` can't bypass it.)
+        let root = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let err = check_subagent_delegation_allowed("__nonexistent_parent__", "helper")
+                .expect_err("a missing parent agent definition must deny delegation");
+            assert!(
+                err.to_string().contains("delegation denied"),
+                "expected fail-closed denial, got: {err}"
+            );
+        });
+    }
 }

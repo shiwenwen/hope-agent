@@ -257,13 +257,35 @@ pub fn init_runtime(role: &'static str) {
     ));
     let _ = CRON_DB.set(cron_db);
 
+    // R1: the background-jobs cache moved from `async_jobs.db` → `background_jobs.db`.
+    // Best-effort discard the legacy file/dir (pure rebuildable cache, no migration).
+    if let Ok(old) = paths::legacy_async_jobs_db_path() {
+        let _ = std::fs::remove_file(&old);
+        let _ = std::fs::remove_file(old.with_extension("db-wal"));
+        let _ = std::fs::remove_file(old.with_extension("db-shm"));
+    }
+    if let Ok(old_dir) = paths::legacy_async_jobs_dir() {
+        let _ = std::fs::remove_dir_all(&old_dir);
+    }
     // Failure here is non-fatal — async tools degrade to sync mode if the DB cannot be opened.
-    match paths::async_jobs_db_path().and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p)) {
+    match paths::background_jobs_db_path().and_then(|p| crate::async_jobs::JobsDB::open(&p)) {
         Ok(db) => crate::async_jobs::set_async_jobs_db(Arc::new(db)),
         Err(e) => crate::app_warn!(
             "async_jobs",
             "init",
-            "Failed to open async_jobs DB ({}); async tool backgrounding disabled",
+            "Failed to open background_jobs DB ({}); async tool backgrounding disabled",
+            e
+        ),
+    }
+
+    // Agent self-scheduled wakeups (R10). Non-fatal: without it `schedule_wakeup`
+    // arms in-memory-only timers that don't survive a restart.
+    match paths::wakeups_db_path().and_then(|p| crate::wakeup::WakeupDB::open(&p)) {
+        Ok(db) => crate::wakeup::set_wakeup_db(Arc::new(db)),
+        Err(e) => crate::app_warn!(
+            "wakeup",
+            "init",
+            "Failed to open wakeups DB ({}); scheduled wakeups won't survive restart",
             e
         ),
     }
@@ -867,6 +889,23 @@ pub async fn start_background_tasks() {
         crate::weather::start_background_refresh();
     }
 
+    // R7.1 background-job scheduler: promotes queued jobs (status `Queued`) into
+    // free slots, per-session round-robin, as running jobs finish. Tier-agnostic
+    // — the wait queue is process-local (pins live ctx), so each process
+    // schedules its OWN queue and never touches another process's jobs;
+    // `run_scheduler` is idempotent (at most one loop per process).
+    tokio::spawn(async move {
+        crate::async_jobs::JobManager::run_scheduler().await;
+    });
+    // R7.2: subagent reject→queue scheduler — promotes parked (`Queued`) spawns
+    // as running children settle. Idempotent per process (mirrors run_scheduler).
+    tokio::spawn(async move {
+        crate::subagent::queue::run_subagent_scheduler().await;
+    });
+    // R8 follow-up: mirror background-subagent inner approvals onto their
+    // projection label (running ⇄ awaiting_approval). Idempotent per process.
+    crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
+
     if primary {
         // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
         // a single process owns the OS assertion; reacts to config changes.
@@ -1003,14 +1042,19 @@ pub async fn start_background_tasks() {
         // Shutdown / Crash) and any `ParentInjection` turn that the
         // replay schedules will see a coherent `context_json`.
         tokio::spawn(async move {
-            crate::async_jobs::replay_pending_jobs();
+            crate::async_jobs::JobManager::replay_pending();
         });
         crate::local_model_jobs::replay_interrupted_jobs();
+
+        // Re-arm agent self-scheduled wakeups (R10). Primary-only — the rows
+        // are shared, so a Secondary re-arming would double-deliver. Past-due
+        // wakeups fire promptly.
+        crate::wakeup::replay_pending();
 
         // Retention sweep for async_jobs (rows + spool files). Runs once at
         // startup and then once per day. Disabled entirely when both
         // `retention_secs` and `orphan_grace_secs` are `0`.
-        crate::async_jobs::spawn_retention_loop();
+        crate::async_jobs::JobManager::spawn_retention_loop();
 
         // Retention sweep for recap session facets. Runs once at startup and
         // then once per day. Disabled when `recap.cache_retention_days == 0`.
@@ -1201,6 +1245,19 @@ pub async fn start_minimal_background_tasks() {
     // start_background_tasks for rationale.
     spawn_embedding_init();
 
+    // R7.1 background-job scheduler (tier-agnostic: process-local queue, idempotent).
+    tokio::spawn(async move {
+        crate::async_jobs::JobManager::run_scheduler().await;
+    });
+    // R7.2: subagent reject→queue scheduler — promotes parked (`Queued`) spawns
+    // as running children settle. Idempotent per process (mirrors run_scheduler).
+    tokio::spawn(async move {
+        crate::subagent::queue::run_subagent_scheduler().await;
+    });
+    // R8 follow-up: mirror background-subagent inner approvals onto their
+    // projection label (running ⇄ awaiting_approval). Idempotent per process.
+    crate::async_jobs::approval_projection_watcher::spawn_subagent_approval_projection_watcher();
+
     if primary {
         // One-shot ask_user table cleanup. Primary-only because Secondary
         // would expire the desktop's still-live pending questions.
@@ -1229,9 +1286,12 @@ pub async fn start_minimal_background_tasks() {
         // booting alongside an active desktop would flip the desktop's
         // running tools to Interrupted.
         tokio::spawn(async move {
-            crate::async_jobs::replay_pending_jobs();
+            crate::async_jobs::JobManager::replay_pending();
         });
         crate::local_model_jobs::replay_interrupted_jobs();
+
+        // Re-arm agent self-scheduled wakeups (R10). Primary-only (shared rows).
+        crate::wakeup::replay_pending();
     }
 
     // MCP init (no watchdog). Tier-agnostic — ACP tool dispatch may hit

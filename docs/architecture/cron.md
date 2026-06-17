@@ -20,7 +20,7 @@ Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（E
 | `cron/schedule.rs` | `compute_next_run` 三种调度计算、cron 表达式验证、`backoff_delay_ms` 指数退避、时间戳灵活解析 |
 | `cron/scheduler.rs` | `start_scheduler` 后台调度循环 + 启动恢复 + 追赶执行 |
 | `cron/executor.rs` | `execute_job` 任务执行 + `build_and_run_agent` 含 failover + `record_failure` + 事件发射 |
-| `cron/delivery.rs` | `deliver_to_targets` 把执行结果文本 fan-out 到 IM 渠道会话（每 target 10s 超时保护） |
+| `cron/delivery.rs` | `deliver_results` 把执行结果文本 fan-out 到 IM 渠道会话（每 target 10s 超时保护）；`deliver_injection_for_session`（G2）按会话反查 `cron_run_logs → job` 后,把**后台 job/subagent 完成的注入 turn** 同样下发到 `delivery_targets`——cron turn 里 spawn 的后台任务稍后完成时不再投递给无人 |
 | `cron/cancel.rs` | 任务级 cancel token 注册 / 触发 / 清理，供 `stop_running_job` 等取消路径使用 |
 | `cron/db.rs` | `CronDB` SQLite 持久化（CRUD、claim、running 标记、calendar 查询、启动恢复） |
 

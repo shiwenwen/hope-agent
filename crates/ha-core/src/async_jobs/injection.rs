@@ -5,10 +5,10 @@
 //! as the `run_id` parameter — this lets us share the idle-wait, cancellation,
 //! and retry machinery with no duplication.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use super::types::AsyncJobStatus;
+use super::types::JobStatus;
 
 /// In-flight dispatch set. A job_id present here means another task in this
 /// process has already called `dispatch_injection` for it and is either still
@@ -25,7 +25,7 @@ fn dispatching_set() -> &'static Mutex<HashSet<String>> {
 /// dispatch is already in flight for this job in the current process,
 /// preventing `list_pending_injection()` + event-driven retries from racing
 /// into a double-injection. Cross-process races (desktop + server hitting
-/// the same `async_jobs.db`) still require a DB-level claim; that's tracked
+/// the same `background_jobs.db`) still require a DB-level claim; that's tracked
 /// separately.
 fn try_claim_dispatch(job_id: &str) -> bool {
     let mut guard = dispatching_set().lock().unwrap_or_else(|p| p.into_inner());
@@ -37,6 +37,326 @@ fn release_dispatch(job_id: &str) {
     guard.remove(job_id);
 }
 
+// ── Completion merge window (R4) ───────────────────────────────────────────
+//
+// When several background jobs in the SAME session finish close together (the
+// common "fire 5 `run_in_background` at once" case), injecting each separately
+// would burn N billed turns. Instead we buffer terminal completions per session
+// for a short window (`async_tools.completion_merge_window_secs`, default 3s)
+// and fire ONE merged injection listing every task. The first completion opens
+// the window (one timer thread); everything that settles before it elapses joins
+// the batch; the flush atomically drains the buffer so a later completion starts
+// a fresh window. This is a pure in-memory live-path optimization: if the
+// process dies mid-window the rows are terminal-but-uninjected and
+// `replay_pending_jobs()` re-dispatches each on the next start (no merge, no
+// loss). A `Group` (R5) is the pre-merged special case — it bypasses this
+// entirely via its own single injection.
+
+/// A terminal tool-job completion waiting in the merge window. Carries exactly
+/// the fields [`dispatch_injection`] needs (session id is the buffer key).
+struct PendingJobInjection {
+    parent_agent_id: Option<String>,
+    job_id: String,
+    tool_name: String,
+    tool_call_id: Option<String>,
+    status: JobStatus,
+    result_preview: Option<String>,
+    result_path: Option<String>,
+    error: Option<String>,
+}
+
+/// Per-session merge buffer. A session id present here has an open window with a
+/// timer thread that will `flush_merge_buffer` it.
+fn merge_buffers() -> &'static Mutex<HashMap<String, Vec<PendingJobInjection>>> {
+    static M: OnceLock<Mutex<HashMap<String, Vec<PendingJobInjection>>>> = OnceLock::new();
+    M.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Live-path completion entry point (R4): buffer this job's injection for the
+/// merge window, or — when merging is disabled (`window == 0`) — inject it
+/// immediately. The first job in an empty buffer opens the window + starts the
+/// timer; subsequent jobs just join. Replaces the direct `dispatch_injection`
+/// call in `finalize_job`. Startup replay still calls `dispatch_injection`
+/// directly (each un-injected row is independent — no live window to join).
+#[allow(clippy::too_many_arguments)]
+pub fn enqueue_injection(
+    session_id: String,
+    parent_agent_id: Option<String>,
+    job_id: String,
+    tool_name: String,
+    tool_call_id: Option<String>,
+    status: JobStatus,
+    result_preview: Option<String>,
+    result_path: Option<String>,
+    error: Option<String>,
+) {
+    let window_secs = crate::config::cached_config()
+        .async_tools
+        .completion_merge_window_secs;
+    let mut pending = Some(PendingJobInjection {
+        parent_agent_id,
+        job_id,
+        tool_name,
+        tool_call_id,
+        status,
+        result_preview,
+        result_path,
+        error,
+    });
+
+    // Decide under the buffer lock. If a window is already OPEN for this session,
+    // always join it — even if `window_secs` was meanwhile flipped to 0 — so a
+    // mid-window config change can't split/reorder a batch (an immediate dispatch
+    // would race the buffered ones). Otherwise honor the current config: 0 =
+    // inject immediately (legacy), >0 = open a new window + arm one timer.
+    let start_timer = {
+        let mut buffers = merge_buffers().lock().unwrap_or_else(|p| p.into_inner());
+        match buffers.get_mut(&session_id) {
+            Some(entry) => {
+                entry.push(pending.take().expect("pending present"));
+                false
+            }
+            None if window_secs == 0 => false, // immediate dispatch below
+            None => {
+                buffers.insert(
+                    session_id.clone(),
+                    vec![pending.take().expect("pending present")],
+                );
+                true
+            }
+        }
+    };
+
+    if let Some(p) = pending {
+        // window_secs == 0 and no open window → legacy immediate injection.
+        dispatch_injection(
+            session_id,
+            p.parent_agent_id,
+            p.job_id,
+            p.tool_name,
+            p.tool_call_id,
+            p.status,
+            p.result_preview,
+            p.result_path,
+            p.error,
+        );
+        return;
+    }
+    if start_timer {
+        let sid = session_id;
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(window_secs));
+            flush_merge_buffer(&sid);
+        });
+    }
+}
+
+/// Drop any buffered (un-flushed) completions for a session — used by incognito
+/// burn (`purge_jobs_for_session`) so a burned session's `PendingJobInjection`
+/// (tool name / result preview / error) can't linger in RAM past the burn
+/// (mirrors `slots::remove_queued_for_session`). Any timer thread still fires but
+/// finds the entry gone and no-ops. Returns the number dropped.
+pub fn remove_buffered_for_session(session_id: &str) -> usize {
+    let mut buffers = merge_buffers().lock().unwrap_or_else(|p| p.into_inner());
+    buffers.remove(session_id).map(|v| v.len()).unwrap_or(0)
+}
+
+/// Drain a session's merge buffer and inject: a single job goes through the
+/// normal single-`<task-notification>` path; multiple go through one merged
+/// `<task-notification-batch>` injection. Atomically removes the buffer so a
+/// completion arriving after the drain opens a fresh window.
+fn flush_merge_buffer(session_id: &str) {
+    let jobs = {
+        let mut buffers = merge_buffers().lock().unwrap_or_else(|p| p.into_inner());
+        match buffers.remove(session_id) {
+            Some(jobs) if !jobs.is_empty() => jobs,
+            _ => return,
+        }
+    };
+    if jobs.len() == 1 {
+        let j = jobs.into_iter().next().expect("len == 1 checked");
+        dispatch_injection(
+            session_id.to_string(),
+            j.parent_agent_id,
+            j.job_id,
+            j.tool_name,
+            j.tool_call_id,
+            j.status,
+            j.result_preview,
+            j.result_path,
+            j.error,
+        );
+        return;
+    }
+    dispatch_merged_injection(session_id.to_string(), jobs);
+}
+
+/// Fire ONE merged injection for several jobs that finished in the same window.
+/// Mirrors [`dispatch_injection`]'s ghost-turn gate + per-process dedup, but
+/// over a batch: claims each job's dispatch slot, builds one
+/// `<task-notification-batch>`, and marks every claimed row injected on the
+/// single terminal landing (each callback fires exactly once, per gotcha I7).
+fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>) {
+    let session_db = match crate::get_session_db() {
+        Some(db) => db.clone(),
+        None => {
+            app_warn!(
+                "async_jobs",
+                "injection",
+                "Session DB not initialized; cannot inject merged batch of {} jobs for session {}",
+                jobs.len(),
+                &session_id
+            );
+            return;
+        }
+    };
+
+    let session_lookup = session_db.get_session(&session_id);
+    let parent_agent_id = jobs
+        .iter()
+        .find_map(|j| j.parent_agent_id.clone())
+        .or_else(|| {
+            session_lookup
+                .as_ref()
+                .ok()
+                .and_then(|row| row.as_ref())
+                .map(|s| s.agent_id.clone())
+        })
+        .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string());
+
+    // Ghost-turn gate (mirrors dispatch_injection): a deleted/burned parent
+    // would resurrect a billed turn. Mark every row injected so replay stops
+    // retrying a dead session, then skip.
+    match session_lookup {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            app_info!(
+                "async_jobs",
+                "injection",
+                "Parent session {} gone; marking {} merged jobs injected and skipping ghost turn",
+                &session_id,
+                jobs.len()
+            );
+            for j in &jobs {
+                mark_injected_with_retry(&j.job_id);
+            }
+            return;
+        }
+        Err(e) => {
+            app_warn!(
+                "async_jobs",
+                "injection",
+                "Parent session {} lookup failed ({}); proceeding with merged inject — backstop will re-check",
+                &session_id,
+                e
+            );
+        }
+    }
+
+    // Per-process dedup: claim each job. A job already in-flight (a racing
+    // startup replay) is dropped from this batch, not double-injected.
+    let mut claimed: Vec<PendingJobInjection> = Vec::with_capacity(jobs.len());
+    for j in jobs {
+        if try_claim_dispatch(&j.job_id) {
+            claimed.push(j);
+        } else {
+            app_debug!(
+                "async_jobs",
+                "injection",
+                "Job {} already has an in-flight dispatch; dropping from merged batch",
+                &j.job_id
+            );
+        }
+    }
+    if claimed.is_empty() {
+        return;
+    }
+    // A single survivor degrades to the normal single-job message (no batch
+    // envelope for one task). Release its claim first so dispatch_injection can
+    // re-claim it through its own path.
+    if claimed.len() == 1 {
+        let j = claimed.into_iter().next().expect("len == 1 checked");
+        release_dispatch(&j.job_id);
+        dispatch_injection(
+            session_id,
+            j.parent_agent_id,
+            j.job_id,
+            j.tool_name,
+            j.tool_call_id,
+            j.status,
+            j.result_preview,
+            j.result_path,
+            j.error,
+        );
+        return;
+    }
+
+    let push_message = build_merged_push_message(&claimed);
+    let claimed_ids: Vec<String> = claimed.iter().map(|j| j.job_id.clone()).collect();
+    // Synthetic batch run id for the injection pipeline. Tool job ids are never
+    // in FETCHED_RUN_IDS (only subagents are marked fetched), so this never
+    // collides with the fetch-skip path.
+    let run_id = format!("batch:{}", claimed_ids.first().cloned().unwrap_or_default());
+    let child_agent_id = "tool_job:batch".to_string();
+    let claimed_count = claimed_ids.len();
+    let ids_for_release = claimed_ids.clone();
+    let ids_for_injected = claimed_ids;
+
+    std::thread::spawn(move || {
+        struct DispatchGuard(Vec<String>);
+        impl Drop for DispatchGuard {
+            fn drop(&mut self) {
+                for id in &self.0 {
+                    release_dispatch(id);
+                }
+            }
+        }
+        let _guard = DispatchGuard(ids_for_release);
+
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => {
+                let on_injected: crate::subagent::injection::OnInjected = {
+                    let ids = ids_for_injected;
+                    Arc::new(move || {
+                        for id in &ids {
+                            mark_injected_with_retry(id);
+                        }
+                    })
+                };
+                let outcome = rt.block_on(crate::subagent::injection::inject_and_run_parent(
+                    session_id,
+                    parent_agent_id,
+                    child_agent_id,
+                    run_id,
+                    push_message,
+                    session_db,
+                    Some(on_injected),
+                ));
+                if matches!(
+                    outcome,
+                    crate::subagent::injection::InjectionOutcome::Abandoned
+                ) {
+                    app_warn!(
+                        "async_jobs",
+                        "injection",
+                        "Merged injection abandoned (parent never went idle); {} jobs left pending for restart replay",
+                        claimed_count
+                    );
+                }
+            }
+            Err(e) => app_error!(
+                "async_jobs",
+                "injection",
+                "Failed to build runtime for merged injection: {}",
+                e
+            ),
+        }
+    });
+}
+
 /// Dispatch a tool-job completion injection in the background.
 ///
 /// Falls back to a no-op (logs an error) if the SessionDB is missing.
@@ -46,7 +366,7 @@ pub fn dispatch_injection(
     job_id: String,
     tool_name: String,
     tool_call_id: Option<String>,
-    status: AsyncJobStatus,
+    status: JobStatus,
     result_preview: Option<String>,
     result_path: Option<String>,
     error: Option<String>,
@@ -246,15 +566,7 @@ fn mark_injected_with_retry(job_id: &str) {
         BACKOFFS_MS.len(),
         &err
     );
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "async_tool_job:mark_injected_failed",
-            serde_json::json!({
-                "job_id": job_id,
-                "error": err,
-            }),
-        );
-    }
+    super::events::emit_mark_injected_failed(job_id, &err);
 }
 
 /// Format the user-visible message that gets injected back into the parent
@@ -265,7 +577,7 @@ pub fn build_tool_job_push_message(
     job_id: &str,
     tool_name: &str,
     tool_call_id: Option<&str>,
-    status: AsyncJobStatus,
+    status: JobStatus,
     result_preview: Option<&str>,
     result_path: Option<&str>,
     error: Option<&str>,
@@ -292,19 +604,17 @@ pub fn build_tool_job_push_message(
     let error_block = error
         .map(|err| format!("<error>{}</error>\n", escape_xml_text(err)))
         .unwrap_or_default();
-    let preview_block = if status == AsyncJobStatus::Completed
-        && result_path.is_none()
-        && !clean_preview.is_empty()
-    {
-        format!(
-            "<output-preview>\n{}\n</output-preview>\n",
-            escape_xml_text(&clean_preview)
-        )
-    } else {
-        String::new()
-    };
+    let preview_block =
+        if status == JobStatus::Completed && result_path.is_none() && !clean_preview.is_empty() {
+            format!(
+                "<output-preview>\n{}\n</output-preview>\n",
+                escape_xml_text(&clean_preview)
+            )
+        } else {
+            String::new()
+        };
     let summary = match status {
-        AsyncJobStatus::Completed => {
+        JobStatus::Completed => {
             if result_path.is_some() {
                 format!(
                     "Async tool \"{tool_name}\" completed; full output is saved in output-file."
@@ -313,31 +623,36 @@ pub fn build_tool_job_push_message(
                 format!("Async tool \"{tool_name}\" completed; output file is unavailable. See output-preview.")
             }
         }
-        AsyncJobStatus::Failed => {
+        JobStatus::Failed => {
             let err = error.unwrap_or("(unknown error)");
             format!("Async tool \"{tool_name}\" failed: {err}")
         }
-        AsyncJobStatus::TimedOut => {
+        JobStatus::TimedOut => {
             let err = error.unwrap_or("exceeded max_job_secs");
             format!("Async tool \"{tool_name}\" timed out: {err}")
         }
-        AsyncJobStatus::Cancelled => {
+        JobStatus::Cancelled => {
             let err = error.unwrap_or("Job was cancelled.");
             format!("Async tool \"{tool_name}\" was cancelled: {err}")
         }
-        AsyncJobStatus::Interrupted => {
+        JobStatus::Interrupted => {
             format!("Async tool \"{tool_name}\" was interrupted by application restart.")
         }
-        AsyncJobStatus::Running => {
+        JobStatus::Running => {
             format!("Async tool \"{tool_name}\" is still running; wait for the terminal notification, or use job_status only for an occasional status snapshot.")
         }
-        AsyncJobStatus::Cancelling => {
+        JobStatus::Cancelling => {
             format!("Async tool \"{tool_name}\" is cancelling; wait for terminal notification.")
         }
-        AsyncJobStatus::AwaitingApproval => {
+        JobStatus::AwaitingApproval => {
             // Non-terminal: never finalized, so it shouldn't reach the
             // injection path. Defensive arm to keep the match exhaustive.
             format!("Async tool \"{tool_name}\" is awaiting a human approval decision.")
+        }
+        JobStatus::Queued => {
+            // Non-terminal: a queued job is never finalized, so it shouldn't
+            // reach the injection path. Defensive arm to keep the match exhaustive.
+            format!("Async tool \"{tool_name}\" is queued, waiting for a free concurrency slot.")
         }
     };
     format!(
@@ -359,9 +674,89 @@ pub fn build_tool_job_push_message(
     )
 }
 
+/// Merge several completed jobs' notifications into ONE injected message (R4).
+/// Wraps each job's standard `<task-notification>` block in a
+/// `<task-notification-batch>` envelope carrying aggregate counts, so the LLM
+/// sees every task-id in one turn and the frontend can render a "N tasks" pill.
+fn build_merged_push_message(jobs: &[PendingJobInjection]) -> String {
+    let count = jobs.len();
+    let completed = jobs
+        .iter()
+        .filter(|j| j.status == JobStatus::Completed)
+        .count();
+    let failed = count.saturating_sub(completed);
+    let blocks: Vec<String> = jobs
+        .iter()
+        .map(|j| {
+            build_tool_job_push_message(
+                &j.job_id,
+                &j.tool_name,
+                j.tool_call_id.as_deref(),
+                j.status,
+                j.result_preview.as_deref(),
+                j.result_path.as_deref(),
+                j.error.as_deref(),
+            )
+        })
+        .collect();
+    format!(
+        "<task-notification-batch count=\"{count}\" completed=\"{completed}\" failed=\"{failed}\">\n\
+         {}\n\
+         </task-notification-batch>",
+        blocks.join("\n")
+    )
+}
+
 fn escape_xml_text(input: &str) -> String {
     input
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending(job_id: &str, status: JobStatus) -> PendingJobInjection {
+        PendingJobInjection {
+            parent_agent_id: None,
+            job_id: job_id.to_string(),
+            tool_name: "exec".to_string(),
+            tool_call_id: None,
+            status,
+            result_preview: Some("ok".to_string()),
+            result_path: None,
+            error: if status == JobStatus::Completed {
+                None
+            } else {
+                Some("boom".to_string())
+            },
+        }
+    }
+
+    #[test]
+    fn merged_message_wraps_every_task_with_aggregate_counts() {
+        let jobs = vec![
+            pending("job-a", JobStatus::Completed),
+            pending("job-b", JobStatus::Failed),
+            pending("job-c", JobStatus::Completed),
+        ];
+        let msg = build_merged_push_message(&jobs);
+        assert!(
+            msg.starts_with("<task-notification-batch count=\"3\" completed=\"2\" failed=\"1\">")
+        );
+        assert!(msg.trim_end().ends_with("</task-notification-batch>"));
+        // Every task-id is present so the LLM can correlate each background job.
+        for id in ["job-a", "job-b", "job-c"] {
+            assert!(
+                msg.contains(&format!("<task-id>{id}</task-id>")),
+                "merged message missing {id}"
+            );
+        }
+        // Three inner notifications, one per job.
+        assert_eq!(msg.matches("<task-notification>").count(), 3);
+        // The failure carries its error through into its block.
+        assert!(msg.contains("<error>boom</error>"));
+    }
 }

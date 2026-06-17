@@ -325,6 +325,8 @@
     "copy": "Copiar",
     "cronTaskStarted": "Se ha activado una tarea programada",
     "cronTrigger": "Tarea programada",
+    "wakeupResumed": "Reanudado para continuar",
+    "wakeupTrigger": "Reactivación programada",
     "daysAgo": "hace {{count}}d",
     "deleteSessionTitle": "Eliminar conversación",
     "deleteSessionWarning": "Esta acción eliminará permanentemente esta conversación y todos sus mensajes. No se puede deshacer. ¿Estás seguro?",
@@ -571,7 +573,8 @@
         "browser": "Control del navegador",
         "mac": "Control de Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "El razonamiento no está activado para este modelo. Para ajustar la profundidad de razonamiento, edita el modelo en Configuración → Proveedores de modelos y activa \"Razonamiento\"."
   },
   "codexAuth": {
     "expiredDescription": "Tu token OAuth de Codex ya no es válido. Inicia sesión de nuevo para continuar.",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} modelos",
     "outputCost": "Costo de Salida ($/1M tokens)",
     "reasoning": "Razonamiento / Pensamiento",
+    "reasoningHint": "Una vez activado, elige la profundidad de razonamiento (baja / media / alta) en el menú de modelos situado encima del cuadro de chat; se aplica automáticamente en cada solicitud.",
     "supportedInputTypes": "Tipos de Entrada Soportados",
     "text": "Texto",
     "video": "Vídeo"
@@ -1686,7 +1690,12 @@
     "on": "Activado",
     "startupDesc": "Tras un reinicio del servicio, publica un breve aviso «de vuelta en línea» en los chats de IM que estuvieron activos en las últimas 72 h. El silenciamiento por cuenta vive en cada cuenta de canal.",
     "startupToggle": "Aviso de vuelta en línea tras reinicio",
-    "title": "Ajustes de notificaciones"
+    "title": "Ajustes de notificaciones",
+    "backgroundJobComplete": "Tarea en segundo plano completada",
+    "backgroundJobFailed": "Tarea en segundo plano fallida",
+    "backgroundJobFallback": "Ha finalizado una tarea en segundo plano",
+    "backgroundJobToggle": "Notificar cuando finalicen las tareas en segundo plano",
+    "backgroundJobDesc": "Mostrar una notificación de escritorio cuando finalice una tarea en segundo plano mientras la ventana está en segundo plano"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "Duración máx. de un job",
     "asyncToolsMaxJobDesc": "Límite de tiempo de ejecución de un job en segundo plano. Al superarlo se termina. 0 = sin límite en la capa de jobs async; cada herramienta aún puede aplicar sus propios timeouts.",
     "asyncToolsMaxConcurrent": "Máx. jobs en segundo plano simultáneos",
-    "asyncToolsMaxConcurrentDesc": "Número máximo de jobs de herramienta run_in_background que pueden ejecutarse a la vez; cada uno ocupa un hilo del SO. Al alcanzar el límite, las nuevas solicitudes en segundo plano se rechazan (se pide al modelo que espere o ejecute de forma síncrona). 0 = sin límite. Predeterminado 8.",
+    "asyncToolsMaxConcurrentDesc": "Número máximo de jobs de herramienta run_in_background que pueden ejecutarse a la vez; cada uno ocupa un hilo del SO. 0 = sin límite.",
+    "asyncToolsMaxConcurrentPerSession": "Límite de concurrencia por sesión",
+    "asyncToolsMaxConcurrentPerSessionDesc": "Número máximo de tareas en segundo plano que una sesión (o chat de IM) puede ejecutar a la vez; las solicitudes adicionales se ponen en cola aunque el grupo global tenga espacio, para que una sola sesión no ocupe todas las ranuras. 0 = sin límite por sesión.",
+    "asyncToolsMaxQueued": "Límite de la cola de espera",
+    "asyncToolsMaxQueuedDesc": "Longitud máxima de la cola de espera cuando todas las ranuras de concurrencia están llenas; al superarla se rechaza un nuevo trabajo en segundo plano (el modelo lo reintenta más tarde o lo ejecuta de forma síncrona). Cada trabajo en cola ocupa memoria, por eso está acotado. Rango 1–4096.",
+    "asyncToolsOutputTail": "Salida en ejecución retenida",
+    "asyncToolsOutputTailDesc": "Bytes de la salida más reciente de un trabajo exec en segundo plano en ejecución, conservados para inspección en vivo vía job_status (para juzgar 'sigue trabajando' vs 'atascado'). Más grande es más claro pero usa más memoria. Rango 256B–1MB.",
+    "asyncToolsWakeupMaxDelay": "Retraso máximo de autodespertar",
+    "asyncToolsWakeupMaxDelayDesc": "Límite superior de con cuánta antelación el agente puede autoprogramar un despertar vía schedule_wakeup; las cadencias periódicas más largas corresponden a cron. El mínimo de 10 s es fijo. Rango 10 s–7 d.",
+    "asyncToolsWakeupMaxPending": "Despertares pendientes por sesión",
+    "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendientes que una sesión puede mantener a la vez; al superarlo las solicitudes se rechazan (no se encolan), evitando que el agente autoprograme una avalancha de turnos facturados. Rango 1–100.",
+    "asyncToolsRetryEnabled": "Reintento automático al fallar",
+    "asyncToolsRetryEnabledDesc": "Reintenta automáticamente con espera una tarea en segundo plano fallida. Solo se aplica a herramientas de red seguras de reejecutar (como la búsqueda web). El reintento vuelve a ejecutar la herramienta, lo que puede generar llamadas adicionales en proveedores de pago (p. ej. la búsqueda web), por eso está desactivado por defecto y se activa manualmente. exec, generación de imágenes y otras herramientas con efectos secundarios / no deterministas, y las tareas canceladas / con tiempo agotado, nunca se reintentan.",
+    "asyncToolsMaxRetryAttempts": "Intentos máximos",
+    "asyncToolsMaxRetryAttemptsDesc": "Intentos totales incluyendo la primera ejecución (1 = sin reintento). La espera entre intentos crece exponencialmente desde 500ms.",
     "asyncToolsOrphanGrace": "Periodo de gracia de spool huérfanos",
     "asyncToolsOrphanGraceDesc": "Los archivos spool no referenciados por una fila de la BD se eliminan tras estas horas. El periodo evita carreras con escrituras en curso.",
     "asyncToolsRetention": "Retención de jobs finalizados",
@@ -4633,7 +4656,9 @@
     "toolSessionToNoteName": "Sesión a nota",
     "toolSessionToNoteDesc": "Destila la conversación en una nota estructurada.",
     "toolKnowledgeRecallName": "Recuperar conocimiento",
-    "toolKnowledgeRecallDesc": "Busca en memoria y notas a la vez (dos secciones ordenadas)."
+    "toolKnowledgeRecallDesc": "Busca en memoria y notas a la vez (dos secciones ordenadas).",
+    "asyncToolsMergeWindow": "Ventana de fusión al finalizar",
+    "asyncToolsMergeWindowDesc": "Cuando varias tareas en segundo plano de la misma sesión finalizan dentro de esta ventana, se fusionan en un único turno de inyección (ahorra turnos facturados); 0 para desactivar."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",
@@ -5356,6 +5381,28 @@
     "allowExternalWritesHint": "Las bóvedas externas son de solo lectura de forma predeterminada. Actívalo para que el editor y las herramientas de IA puedan escribir en la carpeta vinculada. El mantenimiento en segundo plano nunca escribe en bóvedas externas.",
     "result": {
       "memory": "Memoria"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Tareas en segundo plano",
+    "openPanel": "Tareas en segundo plano",
+    "openFull": "Ver todo / cancelar",
+    "empty": "No hay tareas en segundo plano",
+    "sectionSession": "Esta sesión",
+    "sectionLocalModel": "Modelos locales",
+    "kindGroup": "Grupo de tareas",
+    "kindSubagent": "Subagente",
+    "resizePanel": "Cambiar el tamaño del panel de tareas en segundo plano",
+    "status": {
+      "queued": "En cola",
+      "running": "En ejecución",
+      "cancelling": "Cancelando",
+      "awaiting_approval": "Esperando aprobación",
+      "completed": "Completada",
+      "failed": "Fallida",
+      "interrupted": "Interrumpida",
+      "timed_out": "Tiempo agotado",
+      "cancelled": "Cancelada"
     }
   }
 }

@@ -59,7 +59,7 @@ function AgentCreateView({
         subagents: {
           allowedAgents: [],
           deniedAgents: [],
-          maxConcurrent: 5,
+          maxConcurrent: 8,
           defaultTimeoutSecs: 300,
           model: null,
         },

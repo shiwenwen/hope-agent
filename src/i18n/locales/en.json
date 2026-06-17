@@ -325,6 +325,8 @@
     "copy": "Copy",
     "cronTaskStarted": "A scheduled task was triggered",
     "cronTrigger": "Scheduled Task",
+    "wakeupResumed": "Resumed to continue",
+    "wakeupTrigger": "Scheduled Wakeup",
     "daysAgo": "{{count}}d ago",
     "deleteSessionTitle": "Delete Conversation",
     "deleteSessionWarning": "This will permanently delete this conversation and all its messages. This action cannot be undone. Are you sure?",
@@ -571,7 +573,8 @@
         "browser": "Browser control",
         "mac": "Mac control"
       }
-    }
+    },
+    "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\"."
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -1647,6 +1650,7 @@
     "modelsCount": "{{count}} models",
     "outputCost": "Output Cost ($/1M tokens)",
     "reasoning": "Reasoning / Thinking",
+    "reasoningHint": "Once enabled, pick the reasoning depth (low / medium / high) from the model menu above the chat input; it is injected automatically on every request.",
     "supportedInputTypes": "Supported Input Types",
     "text": "Text",
     "video": "Video"
@@ -1686,7 +1690,12 @@
     "on": "On",
     "startupDesc": "After a service restart, post a short \"back online\" notice into IM chats that were active in the past 72h. Per-account silencing lives on each channel account.",
     "startupToggle": "IM back-online notice on restart",
-    "title": "Notification Settings"
+    "title": "Notification Settings",
+    "backgroundJobComplete": "Background task complete",
+    "backgroundJobFailed": "Background task failed",
+    "backgroundJobFallback": "A background task has finished",
+    "backgroundJobToggle": "Notify when background tasks finish",
+    "backgroundJobDesc": "Show a desktop notification when a background task finishes while the window is in the background"
   },
   "onboarding": {
     "channels": {
@@ -2597,7 +2606,21 @@
     "asyncToolsMaxJob": "Max job duration",
     "asyncToolsMaxJobDesc": "Hard limit on how long a background job may run before being killed. 0 = no async-job limit; individual tools may still enforce their own timeouts.",
     "asyncToolsMaxConcurrent": "Max concurrent background jobs",
-    "asyncToolsMaxConcurrentDesc": "Maximum number of run_in_background tool jobs allowed to run at once; each holds a dedicated OS thread. At the cap, new background requests are refused (the model is asked to wait or run synchronously). 0 = unlimited. Default 8.",
+    "asyncToolsMaxConcurrentDesc": "Maximum number of run_in_background tool jobs allowed to run at once; each holds a dedicated OS thread. 0 = unlimited.",
+    "asyncToolsMaxConcurrentPerSession": "Per-session concurrency limit",
+    "asyncToolsMaxConcurrentPerSessionDesc": "The most background jobs one session (or IM chat) may run at once; further requests queue even when the global pool has room, so a single session can't take every slot. 0 = no per-session limit.",
+    "asyncToolsMaxQueued": "Wait-queue limit",
+    "asyncToolsMaxQueuedDesc": "Maximum length of the wait queue once every concurrency slot is full; beyond it a new background job is rejected (the model retries later or runs it synchronously). Each queued job holds memory, so this stays bounded. Range 1–4096.",
+    "asyncToolsOutputTail": "Running-output retained",
+    "asyncToolsOutputTailDesc": "Bytes of a running background exec job's latest output kept for live inspection via job_status (to judge 'still working' vs 'stuck'). Larger is clearer but uses more memory. Range 256B–1MB.",
+    "asyncToolsWakeupMaxDelay": "Max self-wakeup delay",
+    "asyncToolsWakeupMaxDelayDesc": "Upper bound on how far ahead the agent may self-schedule a wakeup via schedule_wakeup; longer recurring cadences belong to cron. The 10s floor is fixed. Range 10s–7d.",
+    "asyncToolsWakeupMaxPending": "Pending wakeups per session",
+    "asyncToolsWakeupMaxPendingDesc": "Maximum pending self-scheduled wakeups one session may hold at once; beyond it requests are rejected (not queued), preventing an agent from self-scheduling a flood of billed turns. Range 1–100.",
+    "asyncToolsRetryEnabled": "Auto-retry on failure",
+    "asyncToolsRetryEnabledDesc": "Auto-retry a failed background job with backoff. Applies only to safe-to-rerun network tools (like web search). Retrying re-runs the tool, which can incur extra calls on paid providers (e.g. web search) — so it's off by default and you opt in. exec, image generation and other side-effecting / non-deterministic tools, and cancelled / timed-out jobs, are never retried.",
+    "asyncToolsMaxRetryAttempts": "Max attempts",
+    "asyncToolsMaxRetryAttemptsDesc": "Total attempts including the first run (1 = no retry). Backoff between attempts grows exponentially from 500ms.",
     "asyncToolsOrphanGrace": "Orphan spool grace period",
     "asyncToolsOrphanGraceDesc": "Spool files not referenced by any DB row are cleaned up after this many hours. Grace window prevents races with in-flight writes.",
     "asyncToolsRetention": "Terminal job retention",
@@ -4641,7 +4664,9 @@
     "toolSessionToNoteName": "Session to Note",
     "toolSessionToNoteDesc": "Distill the conversation into a structured note.",
     "toolKnowledgeRecallName": "Knowledge Recall",
-    "toolKnowledgeRecallDesc": "Search memory and notes together (two ranked sections)."
+    "toolKnowledgeRecallDesc": "Search memory and notes together (two ranked sections).",
+    "asyncToolsMergeWindow": "Completion merge window",
+    "asyncToolsMergeWindowDesc": "When several background tasks in the same session finish within this window, merge them into one injection turn (saves billed turns); 0 to disable."
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -5364,6 +5389,28 @@
     "allowExternalWritesHint": "External vaults are read-only by default. Enable to let the editor and AI tools write to the bound folder. Background maintenance never writes to external vaults.",
     "result": {
       "memory": "Memory"
+    }
+  },
+  "backgroundJobs": {
+    "panelTitle": "Background Tasks",
+    "openPanel": "Background tasks",
+    "openFull": "View all / cancel",
+    "empty": "No background tasks",
+    "sectionSession": "This session",
+    "sectionLocalModel": "Local models",
+    "kindGroup": "Task group",
+    "kindSubagent": "Sub-agent",
+    "resizePanel": "Resize background tasks panel",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "cancelling": "Cancelling",
+      "awaiting_approval": "Awaiting approval",
+      "completed": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "timed_out": "Timed out",
+      "cancelled": "Cancelled"
     }
   }
 }

@@ -150,12 +150,12 @@ export default function SubagentPanel({
                 onChange={(e) =>
                   onChange({
                     ...config,
-                    maxConcurrent: Math.max(1, Math.min(10, Number(e.target.value) || 5)),
+                    maxConcurrent: Math.max(1, Math.min(50, Number(e.target.value) || 8)),
                   })
                 }
                 className="w-20 text-sm"
                 min={1}
-                max={10}
+                max={50}
               />
             </div>
           </div>

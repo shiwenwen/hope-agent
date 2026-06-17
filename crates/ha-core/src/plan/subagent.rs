@@ -138,6 +138,8 @@ pub async fn spawn_plan_subagent(
         skill_name: None,
         origin_source: None,
         origin_channel_kb_context: None,
+        // Internal plan subagent (skip_parent_injection) — never grouped (R5).
+        group_id: None,
     };
 
     let run_id =

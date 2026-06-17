@@ -766,7 +766,7 @@ turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处
 
 **错误 / 取消路径**:engine 走 Err 不调 finalize,`ImLiveMirrorState` Drop 自动卸载 sink(RAII),stream task 收到 channel-close 后 drain 自然结束,IM 端保留半截 preview——与 IM 入站 cancel 行为一致(半截 preview 本身就是 turn 中止的视觉信号)。
 
-**source filter**:`Subagent / ParentInjection / Channel / Cron` 直接 no-op(IM 入站自己有完整流式管线;subagent / cron 不应外溢到 IM)。
+**source filter**:引擎入口的自动 attach 对 `Subagent / ParentInjection / Channel / Cron` 直接 no-op(IM 入站自己有完整流式管线;subagent 不应外溢到 IM)。**例外 `ParentInjection`(G1)**:后台 job / subagent / group 完成的注入 turn 由 [`subagent::injection::inject_and_run_parent`](../../crates/ha-core/src/subagent/injection.rs) 经 `im_mirror::attach_im_injection_mirror`(无 user-quote)**自驱动镜像并 await finalize**(注入跑在短命 current-thread runtime 上,引擎的 `tokio::spawn(finalize)` 会被腰斩,故必须 await)——父会话若 attach 了 IM chat,后台完成结果按 `imReplyMode` 回投 IM。
 
 **镜像消息加 user 引用前缀**([`chat_engine/quote.rs::build_user_quote_prefix`](../../crates/ha-core/src/chat_engine/quote.rs)):`finalize_im_live_mirror` 在调 `deliver_rounds` 之前,把触发该轮的 user 原文拼成 markdown blockquote,prepend 到传给 dispatcher 的 final response 文本。`attach_im_live_mirror` 入参带 `Option<LastUserSnapshot>`(owned `source / text / attachment_count`,引擎层从 `ChatSource::as_str()` / `message` / `attachments.len()` 直接构造),通过 `ImLiveMirrorState` 一直带到 finalize。契约:
 
@@ -1436,7 +1436,13 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 ### 文本渠道（supports_buttons = false）
 
-发送文本提示（"回复 1/2/3"），用户回复的数字消息在 `dispatcher.rs` 的消息处理最前端被 `try_handle_approval_reply()` 拦截。不匹配 "1"/"2"/"3" 的消息正常处理。
+发送文本提示，用户回复在 `dispatcher.rs` 消息处理最前端被 `try_handle_approval_reply()` 拦截。接受大量中英文别名（不止数字）：
+
+- **允许一次**：`1` / `y` / `yes` / `ok` / `okay` / `allow` / `approve` / `好` / `好的` / `同意` / `允许` / `可以` / `行`
+- **始终允许**：`2` / `always` / `总是` / `始终`（strict 原因——`forbids_allow_always`——隐藏此项）
+- **拒绝**：`3` / `n` / `no` / `deny` / `block` / `stop` / `cancel` / `不` / `不行` / `拒绝` / `否` / `取消`
+
+匹配做词边界，避免 `yesterday` 误命中 `yes`。同一 chat 多条待审批时提示带 `#<tag>` 短标签,用户可定向指定 pending（如 `yes#abc123`）；裸回复（`yes` / `1`）作用于最近一条。命中别名的消息被 `try_handle_approval_reply` **消费**（不进正常对话）；只有完全不匹配别名的消息才正常处理。提示文案显示与 `approval_timeout_secs` 一致的截止时间（`0` = 无时限）；用户在待审批期间发无关消息时,按 `permission.im_approval_hint_throttle_secs`（默认 60s,每 (account, chat)）节流 nudge「你有 N 条待审批」。
 
 适用渠道：WeChat、Signal、iMessage、IRC、WhatsApp
 

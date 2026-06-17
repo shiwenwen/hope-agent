@@ -30,6 +30,28 @@ pub mod session_event_keys {
     pub const AGENT_ID: &str = "agentId";
     pub const INCOGNITO: &str = "incognito";
     pub const REASON: &str = "reason";
+    /// Transitive subagent CHILD session ids (G4): captured pre-delete so the
+    /// cleanup fan-out can deny inner-tool approvals parked on them — they key
+    /// on the child session, which the deleted parent's id can't match.
+    pub const DESCENDANT_SESSION_IDS: &str = "descendantSessionIds";
+    /// IM attach coordinates (SURFACE-2), captured pre-delete because
+    /// `channel_conversations` is FK-cascade-deleted with the session and the
+    /// cleanup can't resolve them afterward.
+    pub const IM_ACCOUNT_ID: &str = "imAccountId";
+    pub const IM_CHAT_ID: &str = "imChatId";
+}
+
+/// Extra pre-delete context the cleanup fan-out needs but can't recover once the
+/// session row and its FK-cascaded rows are gone. Captured by the delete/purge
+/// path BEFORE the DELETE (the `subagent_runs` and `channel_conversations` rows
+/// vanish with the session).
+#[derive(Debug, Default, Clone)]
+pub struct SessionCleanupContext {
+    /// Transitive subagent child session ids (G4).
+    pub descendant_session_ids: Vec<String>,
+    /// The IM chat this session was attached to, if any: `(account_id, chat_id)`
+    /// (SURFACE-2).
+    pub im_chat: Option<(String, String)>,
 }
 
 /// Why a session row was removed. Carried in the event payload so subscribers
@@ -66,7 +88,11 @@ impl SessionDeleteReason {
 /// `meta` must be the **pre-delete** snapshot — by emit time the row is gone,
 /// so callers capture it (via `get_session`) before deleting. No-op when no
 /// event bus is registered (e.g. early startup / tests).
-pub fn emit_session_deleted(meta: &SessionMeta, reason: SessionDeleteReason) {
+pub fn emit_session_deleted(
+    meta: &SessionMeta,
+    reason: SessionDeleteReason,
+    ctx: &SessionCleanupContext,
+) {
     let Some(bus) = crate::globals::get_event_bus() else {
         return;
     };
@@ -75,15 +101,21 @@ pub fn emit_session_deleted(meta: &SessionMeta, reason: SessionDeleteReason) {
     } else {
         EVENT_SESSION_DELETED
     };
-    bus.emit(
-        name,
-        serde_json::json!({
-            session_event_keys::SESSION_ID: meta.id,
-            session_event_keys::AGENT_ID: meta.agent_id,
-            session_event_keys::INCOGNITO: meta.incognito,
-            session_event_keys::REASON: reason.as_str(),
-        }),
-    );
+    let mut payload = serde_json::json!({
+        session_event_keys::SESSION_ID: meta.id,
+        session_event_keys::AGENT_ID: meta.agent_id,
+        session_event_keys::INCOGNITO: meta.incognito,
+        session_event_keys::REASON: reason.as_str(),
+    });
+    if !ctx.descendant_session_ids.is_empty() {
+        payload[session_event_keys::DESCENDANT_SESSION_IDS] =
+            serde_json::json!(ctx.descendant_session_ids);
+    }
+    if let Some((account_id, chat_id)) = &ctx.im_chat {
+        payload[session_event_keys::IM_ACCOUNT_ID] = serde_json::json!(account_id);
+        payload[session_event_keys::IM_CHAT_ID] = serde_json::json!(chat_id);
+    }
+    bus.emit(name, payload);
 }
 
 #[cfg(test)]

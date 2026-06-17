@@ -38,25 +38,73 @@ impl SessionDB {
         model_used: Option<&str>,
         duration_ms: Option<u64>,
     ) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE subagent_runs SET status = ?1, result = COALESCE(?2, result),
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "UPDATE subagent_runs SET status = ?1, result = COALESCE(?2, result),
                 error = COALESCE(?3, error), model_used = COALESCE(?4, model_used),
                 duration_ms = COALESCE(?5, duration_ms)
              WHERE run_id = ?6",
-            params![
-                status.as_str(),
-                result,
-                error,
-                model_used,
-                duration_ms.map(|d| d as i64),
-                run_id,
-            ],
-        )?;
+                params![
+                    status.as_str(),
+                    result,
+                    error,
+                    model_used,
+                    duration_ms.map(|d| d as i64),
+                    run_id,
+                ],
+            )?;
+        } // drop the SessionDB lock before the cross-DB projection sync below.
+          // R6: this is the single status choke point, so mirroring here keeps the
+          // `background_jobs` subagent projection in lockstep with the truth source
+          // for ALL transition paths (run lifecycle + the three kill fallbacks).
+          // Best-effort + no-op when the run was never projected (foreground /
+          // internal / incognito) — and it NEVER writes run content back.
+        let became_terminal = status.is_terminal();
+        crate::async_jobs::JobManager::sync_subagent_projection(run_id, status);
+        // R7.2: a terminal status may have freed a per-session concurrency slot —
+        // wake the subagent scheduler to promote any parked (`Queued`) spawn.
+        if became_terminal {
+            crate::subagent::queue::wake_subagent_scheduler();
+        }
         Ok(())
+    }
+
+    /// Guarded status transition: write `to` only when the row is currently
+    /// `from`. Returns `Ok(true)` iff a row was updated. The R7.2 promoter uses
+    /// this to flip `Queued → Spawning` atomically so it loses cleanly to a
+    /// concurrent cancel (which stamps the row terminal): a no-op transition
+    /// (`Ok(false)`) means the row already moved off `Queued`, so the promoter
+    /// must NOT launch — otherwise a killed run would be resurrected into a
+    /// running child. On a real transition it keeps the `background_jobs`
+    /// projection in lockstep, exactly like [`update_subagent_status`].
+    pub fn try_transition_subagent_status(
+        &self,
+        run_id: &str,
+        from: crate::subagent::SubagentStatus,
+        to: crate::subagent::SubagentStatus,
+    ) -> Result<bool> {
+        let changed = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "UPDATE subagent_runs SET status = ?1 WHERE run_id = ?2 AND status = ?3",
+                params![to.as_str(), run_id, from.as_str()],
+            )?
+        }; // drop the SessionDB lock before the cross-DB projection sync below.
+        if changed > 0 {
+            let became_terminal = to.is_terminal();
+            crate::async_jobs::JobManager::sync_subagent_projection(run_id, to);
+            if became_terminal {
+                crate::subagent::queue::wake_subagent_scheduler();
+            }
+        }
+        Ok(changed > 0)
     }
 
     /// Set the finished_at timestamp for a sub-agent run.
@@ -174,6 +222,35 @@ impl SessionDB {
         Ok(runs)
     }
 
+    /// R8 follow-up: the active (`spawning`/`running`) sub-agent run whose CHILD
+    /// session is `child_session_id`. An inner-tool approval event carries the
+    /// child session that requested it; this maps that back to the run whose
+    /// Background Job projection should reflect `AwaitingApproval`. Each active
+    /// run owns a distinct child session, so the result is 0-or-1; terminal runs
+    /// are excluded (their projection is already settled and must not reopen).
+    pub fn find_active_run_by_child_session(
+        &self,
+        child_session_id: &str,
+    ) -> Result<Option<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
+             FROM subagent_runs
+             WHERE child_session_id = ?1 AND status IN ('spawning', 'running')
+             ORDER BY started_at DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map(params![child_session_id], Self::row_to_subagent_run)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
     /// List all active (non-terminal) sub-agent runs.
     pub fn list_all_active_subagent_runs(&self) -> Result<Vec<crate::subagent::SubagentRun>> {
         let conn = self
@@ -196,6 +273,45 @@ impl SessionDB {
         Ok(runs)
     }
 
+    /// Collect the transitive set of subagent CHILD session ids descended from
+    /// `root_session_id` (walking `subagent_runs.parent_session_id →
+    /// child_session_id`). Session delete/purge calls this BEFORE the cascade
+    /// drops `subagent_runs`, so the cleanup fan-out can deny inner-tool
+    /// approvals parked on those child sessions (G4): an inner approval keys on
+    /// the child session, which the deleted parent's id can't match. Bounded by a
+    /// visited set (no cycles in practice — a child can't be its own ancestor)
+    /// plus a hard cap as a defensive backstop.
+    pub fn collect_descendant_session_ids(&self, root_session_id: &str) -> Vec<String> {
+        use std::collections::HashSet;
+        const MAX_DESCENDANTS: usize = 4096;
+        let Ok(conn) = self.conn.lock() else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) =
+            conn.prepare("SELECT child_session_id FROM subagent_runs WHERE parent_session_id = ?1")
+        else {
+            return Vec::new();
+        };
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut frontier = vec![root_session_id.to_string()];
+        let mut out = Vec::new();
+        while let Some(parent) = frontier.pop() {
+            if out.len() >= MAX_DESCENDANTS {
+                break;
+            }
+            let Ok(rows) = stmt.query_map(params![parent], |row| row.get::<_, String>(0)) else {
+                continue;
+            };
+            for child in rows.flatten() {
+                if seen.insert(child.clone()) {
+                    frontier.push(child.clone());
+                    out.push(child);
+                }
+            }
+        }
+        out
+    }
+
     /// Count active sub-agent runs for a parent session.
     pub fn count_active_subagent_runs(&self, parent_session_id: &str) -> Result<usize> {
         let conn = self
@@ -211,6 +327,9 @@ impl SessionDB {
     }
 
     /// Mark all non-terminal sub-agent runs as error (orphan cleanup on startup).
+    /// Includes `queued` (R7.2): a parked run's in-memory queue entry is lost on
+    /// restart, so the row must settle (mirrors the tool-job `Queued→Interrupted`
+    /// recovery) rather than linger forever as a phantom queued run.
     pub fn cleanup_orphan_subagent_runs(&self) -> Result<usize> {
         let conn = self
             .conn
@@ -219,7 +338,7 @@ impl SessionDB {
         let now = chrono::Utc::now().to_rfc3339();
         let affected = conn.execute(
             "UPDATE subagent_runs SET status = 'error', error = 'Orphaned: app restarted before completion', finished_at = ?1
-             WHERE status IN ('spawning', 'running')",
+             WHERE status IN ('queued', 'spawning', 'running')",
             params![now],
         )?;
         Ok(affected)
@@ -252,5 +371,167 @@ impl SessionDB {
             input_tokens: input_tokens_val.map(|v| v as u64),
             output_tokens: output_tokens_val.map(|v| v as u64),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionDB;
+    use crate::subagent::{SubagentRun, SubagentStatus};
+
+    fn run(run_id: &str, child_session: &str, status: SubagentStatus) -> SubagentRun {
+        SubagentRun {
+            run_id: run_id.into(),
+            parent_session_id: "parent".into(),
+            parent_agent_id: "ha-main".into(),
+            child_agent_id: "helper".into(),
+            child_session_id: child_session.into(),
+            task: "t".into(),
+            status,
+            result: None,
+            error: None,
+            depth: 1,
+            model_used: None,
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: None,
+            duration_ms: None,
+            label: None,
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+        }
+    }
+
+    #[test]
+    fn find_active_run_by_child_session_matches_only_active_runs() {
+        // R8 follow-up: maps an inner-tool approval's child session → the active
+        // run whose projection should reflect AwaitingApproval. Terminal runs and
+        // other sessions must not match (their projection is already settled).
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        db.insert_subagent_run(&run("run-A", "child-A", SubagentStatus::Running))
+            .unwrap();
+        db.insert_subagent_run(&run("run-S", "child-S", SubagentStatus::Spawning))
+            .unwrap();
+        db.insert_subagent_run(&run("run-done", "child-done", SubagentStatus::Completed))
+            .unwrap();
+
+        assert_eq!(
+            db.find_active_run_by_child_session("child-A")
+                .unwrap()
+                .unwrap()
+                .run_id,
+            "run-A"
+        );
+        // Spawning counts as active (the run can already hit an inner approval).
+        assert_eq!(
+            db.find_active_run_by_child_session("child-S")
+                .unwrap()
+                .unwrap()
+                .run_id,
+            "run-S"
+        );
+        // Terminal run is excluded.
+        assert!(db
+            .find_active_run_by_child_session("child-done")
+            .unwrap()
+            .is_none());
+        // Unknown child session (e.g. a foreground turn / R8 background exec whose
+        // approval carries its parent session) → None.
+        assert!(db
+            .find_active_run_by_child_session("child-nope")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn collect_descendant_session_ids_walks_transitively() {
+        // G4: deleting a parent must reach inner-tool approvals parked on its
+        // transitive subagent child sessions. root → childA, root → childB;
+        // childA → grandchild.
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        let mk = |run_id: &str, parent: &str, child: &str| SubagentRun {
+            run_id: run_id.into(),
+            parent_session_id: parent.into(),
+            parent_agent_id: "ha-main".into(),
+            child_agent_id: "helper".into(),
+            child_session_id: child.into(),
+            task: "t".into(),
+            status: SubagentStatus::Running,
+            result: None,
+            error: None,
+            depth: 1,
+            model_used: None,
+            started_at: "2026-01-01T00:00:00Z".into(),
+            finished_at: None,
+            duration_ms: None,
+            label: None,
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+        };
+        db.insert_subagent_run(&mk("r1", "root", "childA")).unwrap();
+        db.insert_subagent_run(&mk("r2", "root", "childB")).unwrap();
+        db.insert_subagent_run(&mk("r3", "childA", "grandchild"))
+            .unwrap();
+
+        let mut got = db.collect_descendant_session_ids("root");
+        got.sort();
+        assert_eq!(got, vec!["childA", "childB", "grandchild"]);
+
+        // A leaf with no children → empty (and no infinite walk).
+        assert!(db.collect_descendant_session_ids("grandchild").is_empty());
+        assert!(db.collect_descendant_session_ids("unknown").is_empty());
+    }
+
+    #[test]
+    fn try_transition_subagent_status_is_a_guarded_cas() {
+        // R7.2 promote-vs-cancel core guarantee: `Queued → Spawning` is a CAS
+        // that fires at most once and NEVER resurrects a row a concurrent cancel
+        // already stamped terminal.
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        db.insert_subagent_run(&run("run-q", "child-q", SubagentStatus::Queued))
+            .unwrap();
+
+        // First Queued → Spawning succeeds and moves the row.
+        assert!(db
+            .try_transition_subagent_status(
+                "run-q",
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning
+            )
+            .unwrap());
+        assert_eq!(
+            db.get_subagent_run("run-q").unwrap().unwrap().status,
+            SubagentStatus::Spawning
+        );
+        // A second promote attempt is a no-op (row no longer Queued) — the
+        // promoter must not relaunch.
+        assert!(!db
+            .try_transition_subagent_status(
+                "run-q",
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning
+            )
+            .unwrap());
+
+        // A concurrent cancel stamped the row terminal: Queued → Spawning must
+        // NOT resurrect it (the bug this fix closes).
+        db.insert_subagent_run(&run("run-k", "child-k", SubagentStatus::Killed))
+            .unwrap();
+        assert!(!db
+            .try_transition_subagent_status(
+                "run-k",
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning
+            )
+            .unwrap());
+        assert_eq!(
+            db.get_subagent_run("run-k").unwrap().unwrap().status,
+            SubagentStatus::Killed,
+            "a killed run must stay killed — never resurrected into Spawning"
+        );
     }
 }

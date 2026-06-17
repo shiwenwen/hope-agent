@@ -14,7 +14,7 @@
 //! - `logs.db`: `logs.agent_id`
 //! - `memory.db`: `memories.scope_agent_id` + `memory_claims.scope_id` for
 //!   `scope_type='agent'` rows
-//! - `async_jobs.db` (best-effort, only when the file already exists)
+//! - `background_jobs.db` (best-effort, only when the file already exists)
 //! - `canvas/canvas.db` (best-effort, only when the file already exists)
 //! - global config (`config.json`): `default_agent_id`,
 //!   `recap.analysis_agent`, `channels.default_agent_id`,
@@ -46,10 +46,10 @@ const OLD_DEFAULT_ID: &str = "default";
 /// no-op once the sentinel is present. Pulls live DB handles from the
 /// `globals::*` registries (`SESSION_DB` / `CRON_DB` / `LOG_DB` are
 /// initialised earlier in `init_runtime`); opens fresh connections for
-/// `async_jobs.db` / `canvas/canvas.db` / `memory.db`, which are either
+/// `background_jobs.db` / `canvas/canvas.db` / `memory.db`, which are either
 /// lazy-initialised elsewhere (canvas has no global registry) or not yet
-/// stored at this point in the runtime lifecycle (async_jobs is set
-/// later); for memory we'd need to reach through an `Arc<dyn
+/// stored at this point in the runtime lifecycle (the background jobs DB is
+/// set later); for memory we'd need to reach through an `Arc<dyn
 /// MemoryBackend>` trait object which doesn't expose the raw connection.
 ///
 /// **Order contract**: callers MUST run this before `ensure_default_agent()`
@@ -95,9 +95,9 @@ pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
         update_log_db(db)?;
     }
     update_external_db_if_present(
-        "async_jobs.db",
-        paths::async_jobs_db_path()?,
-        "async_tool_jobs",
+        "background_jobs.db",
+        paths::background_jobs_db_path()?,
+        "background_jobs",
     )?;
     update_external_db_if_present("canvas.db", paths::canvas_db_path()?, "canvas_projects")?;
     update_memory_db_if_present()?;
