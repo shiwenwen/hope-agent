@@ -27,7 +27,7 @@ interface AsyncToolsConfig {
 
 const DEFAULT_CONFIG: AsyncToolsConfig = {
   enabled: true,
-  autoBackgroundSecs: 30,
+  autoBackgroundSecs: 0,
   maxJobSecs: 0,
   maxConcurrentJobs: 8,
   maxConcurrentJobsPerSession: 6,
