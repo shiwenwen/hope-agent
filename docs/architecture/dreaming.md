@@ -224,6 +224,7 @@ claim 与 profile 经三条路径进入系统提示，与 legacy 记忆共存于
 - **提取**：`memory_extract` 的 `extract_after_turn` / `flush_before_compact` / 空闲提取入口先查 `is_session_incognito`，真则直接返回。
 - **扫描 / 证据**：`scanner` 的证据构造 fail-closed——session 元数据缺失 / 已删 / `incognito=true` 都视为不可见，只挂 memory ref、不挂 session ref；`evidence.rs` 的 `evidence_quote` 双门（无 `message_id` 拒、session 不可见拒），即便 quote 已脱敏也永不展开。
 - **注入**：incognito 会话整段记忆注入跳过、改注入显式「Incognito Session」指令；Context Pack / Active Memory 同被短路。
+- **手动写入工具**：`save_memory` / `update_core_memory` 工具入口同样 fail-closed——`ToolExecContext.incognito` 为真直接拒，与提取路径对称。否则模型可在无痕会话里手动落库 / 改 `memory.md`，绕过「关闭即焚」。
 
 ### Scope 隔离
 
@@ -296,6 +297,7 @@ Dreaming 靠离线 eval 守红线、不靠感觉。三层避免 LLM 非确定性
 - **[Recap](recap.md) / [Awareness](behavior-awareness.md)**：与 Dreaming 同为离线 / 动态注入子系统，各自独立 store，互不折叠。
 - **[Side Query](side-query.md)**：Light narrative / Deep 冲突 / Profile 重写都走它，复用主对话 prefix 命中 cache。
 - **Session / Evidence 生命周期**：incognito 会话证据永不写入；常规会话删除 / 压缩后 evidence 退化为 `anchor_only`（留锚点、清 quote），claim 仍可保留（≥1 证据锚点）。
+- **Project 生命周期**：删除项目时级联清理该 scope 的 **claim 图谱**（claim + evidence + link + vec0 + profile snapshot），与 legacy memory 一并清（`claims::delete_claims_for_scope`）。FK 在 `memory.db` 上未开，故显式 teardown；避免删项目后孤儿 claim 残留在列表 / Lucid Review。
 
 ## 关键源文件
 

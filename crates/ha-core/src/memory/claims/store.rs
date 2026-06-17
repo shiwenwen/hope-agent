@@ -323,6 +323,18 @@ pub fn forget_claim(claim_id: &str, permanent: bool) -> Result<bool> {
     store.forget_claim(claim_id, permanent)
 }
 
+/// Hard-delete every claim in `scope` (with its evidence / links / vec0 rows)
+/// plus that scope's profile snapshots. Used by the project-deletion cascade:
+/// the claim layer lives in `memory.db` with `PRAGMA foreign_keys` off, so the
+/// graph is torn down explicitly (mirrors the permanent-forget teardown).
+/// Returns the number of claims removed. No-op (Ok(0)) if the store is absent.
+pub fn delete_claims_for_scope(scope: &MemoryScope) -> Result<usize> {
+    let Some(store) = store() else {
+        return Ok(0);
+    };
+    store.delete_claims_for_scope(scope)
+}
+
 impl ClaimStore {
     fn new(backend: Arc<SqliteMemoryBackend>) -> Self {
         Self { backend }
@@ -685,6 +697,7 @@ impl ClaimStore {
             &candidate.subject,
             &candidate.predicate,
             &normalized,
+            &now,
         )?;
 
         if let Some(claim_id) = existing {
@@ -787,6 +800,7 @@ impl ClaimStore {
     /// the same scope/type/subject/predicate and a normalized object equal to
     /// `normalized`, if any.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn find_exact_active_claim(
         &self,
         conn: &rusqlite::Connection,
@@ -796,16 +810,25 @@ impl ClaimStore {
         subject: &str,
         predicate: &str,
         normalized: &str,
+        now: &str,
     ) -> Result<Option<String>> {
+        // Dedup must target only *effectively-active* claims (design §4.5): a
+        // claim stored `active` but past its `valid_until` reads as `expired`
+        // everywhere, so merging a fresh fact into it would bury the new
+        // evidence behind a non-injectable status until the (manual-only) Deep
+        // resolver reconciles it. Mirror the read-path filter so an expired
+        // shadow no longer swallows a re-stated fact — the candidate falls
+        // through and gets a live claim instead.
         let mut stmt = conn.prepare(
             "SELECT id, object FROM memory_claims
              WHERE scope_type = ?1
                AND ((?2 IS NULL AND scope_id IS NULL) OR scope_id = ?2)
                AND claim_type = ?3 AND subject = ?4 AND predicate = ?5
-               AND status = 'active'",
+               AND status = 'active'
+               AND (valid_until IS NULL OR valid_until = '' OR valid_until >= ?6)",
         )?;
         let rows = stmt.query_map(
-            params![scope_type, scope_id, claim_type, subject, predicate],
+            params![scope_type, scope_id, claim_type, subject, predicate, now],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )?;
         for row in rows {
@@ -815,6 +838,62 @@ impl ClaimStore {
             }
         }
         Ok(None)
+    }
+
+    /// See the module-level [`delete_claims_for_scope`]. FK cascade is off on
+    /// this DB, so the graph is torn down explicitly (claim + evidence + link +
+    /// vec0) plus the scope's profile snapshots.
+    fn delete_claims_for_scope(&self, scope: &MemoryScope) -> Result<usize> {
+        let (scope_type, scope_id) = scope_columns(scope);
+        let conn = self.backend.write_conn()?;
+
+        // Snapshot the target (id, rowid) pairs up front, then tear them down in
+        // one transaction. Scoped block drops the prepared statement before the
+        // write transaction begins.
+        let targets: Vec<(String, i64)> = {
+            let mut stmt = conn.prepare(
+                "SELECT id, rowid FROM memory_claims
+                 WHERE scope_type = ?1
+                   AND ((?2 IS NULL AND scope_id IS NULL) OR scope_id = ?2)",
+            )?;
+            let rows: Vec<(String, i64)> = stmt
+                .query_map(params![scope_type, scope_id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        };
+
+        let removed = targets.len();
+        with_tx(&conn, || {
+            for (claim_id, rowid) in &targets {
+                // vec0 has no delete trigger (and is created lazily, so tolerate
+                // it being absent); FTS is trigger-maintained on the DELETE.
+                let _ = conn.execute(
+                    "DELETE FROM memory_claims_vec WHERE rowid = ?1",
+                    params![rowid],
+                );
+                conn.execute(
+                    "DELETE FROM memory_evidence WHERE claim_id = ?1",
+                    params![claim_id],
+                )?;
+                conn.execute(
+                    "DELETE FROM memory_claim_links WHERE claim_id = ?1",
+                    params![claim_id],
+                )?;
+                conn.execute("DELETE FROM memory_claims WHERE id = ?1", params![claim_id])?;
+            }
+            // Profile snapshots are scope-keyed, not claim-keyed, and store '' for
+            // the global scope_id. A project scope always carries its id, so this
+            // matches the rows `insert_profile_snapshot` wrote for the scope.
+            conn.execute(
+                "DELETE FROM memory_profile_snapshots WHERE scope_type = ?1 AND scope_id = ?2",
+                params![scope_type, scope_id.as_deref().unwrap_or("")],
+            )?;
+            Ok(())
+        })?;
+        Ok(removed)
     }
 
     /// Insert one evidence row per cited anchor (or a single session-anchored
@@ -831,11 +910,25 @@ impl ClaimStore {
     ) -> Result<()> {
         let anchors = evidence_anchors(candidate, session_id);
         for (source_type, source_id, ev_session_id, message_id) in anchors {
+            // Idempotent per anchor: re-extracting the same fact from the same
+            // source (canonicalize merge re-runs this every round) must not
+            // append a duplicate evidence row. Dedup on the anchor identity
+            // (claim_id + source_type + source_id + session + message), treating
+            // NULL as '' so a fully-NULL anchor still collapses. NOT a UNIQUE
+            // index (no schema migration; correction evidence goes through a
+            // different path and is unaffected).
             conn.execute(
                 "INSERT INTO memory_evidence
                     (id, claim_id, source_type, evidence_class, source_id, session_id,
                      message_id, redaction_status, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'anchor_only', ?8)",
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'anchor_only', ?8
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM memory_evidence
+                     WHERE claim_id = ?2
+                       AND source_type = ?3
+                       AND IFNULL(source_id, '') = IFNULL(?5, '')
+                       AND IFNULL(session_id, '') = IFNULL(?6, '')
+                       AND IFNULL(message_id, '') = IFNULL(?7, ''))",
                 params![
                     uuid::Uuid::new_v4().to_string(),
                     claim_id,

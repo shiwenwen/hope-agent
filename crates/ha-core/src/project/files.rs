@@ -94,16 +94,32 @@ pub fn delete_project_cascade(project_id: &str, db: &ProjectDB) -> Result<bool> 
     // database and cannot ride the same transaction, so we do it last: if we
     // crash between step 2 and here, the only leftover is orphan memory rows
     // that are already unreachable via `project_id`.
+    let scope = crate::memory::MemoryScope::Project {
+        id: project_id.to_string(),
+    };
     if let Some(backend) = crate::get_memory_backend() {
-        let scope = crate::memory::MemoryScope::Project {
-            id: project_id.to_string(),
-        };
         if let Ok(project_mems) = backend.list(Some(&scope), None, 10_000, 0) {
             let ids: Vec<i64> = project_mems.into_iter().map(|m| m.id).collect();
             if !ids.is_empty() {
                 let _ = backend.delete_batch(&ids);
             }
         }
+    }
+
+    // Step 5: tear down the structured claim graph for this project scope
+    // (claims + evidence + links + vectors + profile snapshots). The claim layer
+    // lives in the same memory.db but is not covered by the legacy `delete_batch`
+    // above, so a deleted project would otherwise leave orphan claims that still
+    // surface in the claim list / Lucid Review. Best-effort: a failure here must
+    // not block the rest of the cascade.
+    if let Err(e) = crate::memory::claims::delete_claims_for_scope(&scope) {
+        crate::app_warn!(
+            "project",
+            "delete_cascade",
+            "failed to purge claims for deleted project {} ({})",
+            project_id,
+            e
+        );
     }
 
     Ok(true)
