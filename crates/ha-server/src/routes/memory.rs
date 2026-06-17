@@ -43,6 +43,28 @@ pub struct ImportPromptQuery {
     pub locale: Option<String>,
 }
 
+/// `GET /api/claims` query. Scope is primitive `scopeType` + `scopeId` (not a
+/// JSON object) so the filter can never silently degrade over the query
+/// transport; an invalid `scopeType` is a 400 (not a fail-open to "all").
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListClaimsQuery {
+    pub scope_type: Option<String>,
+    pub scope_id: Option<String>,
+    pub status: Option<String>,
+    pub claim_type: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+/// `POST /api/claims/{id}/forget` body — both fields optional (`{}` = archive).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgetClaimBody {
+    pub permanent: Option<bool>,
+    pub note: Option<String>,
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn get_backend() -> Result<&'static std::sync::Arc<dyn ha_core::memory::MemoryBackend>, AppError> {
@@ -134,6 +156,79 @@ pub async fn list_memories(
         q.offset.unwrap_or(0),
     )?;
     Ok(Json(entries))
+}
+
+/// `GET /api/claims` -- list structured claims (next-gen Dreaming, read-only).
+pub async fn list_claims(
+    Query(q): Query<ListClaimsQuery>,
+) -> Result<Json<Vec<ha_core::memory::claims::ClaimRecord>>, AppError> {
+    // Strict scope parse: invalid scopeType → 400 (no silent fail-open to all).
+    let scope =
+        ha_core::memory::claims::parse_claim_scope(q.scope_type.as_deref(), q.scope_id.as_deref())
+            .map_err(|e| AppError::bad_request(e.to_string()))?;
+    let claims = ha_core::memory::claims::list_claims(ha_core::memory::claims::ClaimListFilter {
+        scope,
+        status: q.status,
+        claim_type: q.claim_type,
+        limit: q.limit,
+        offset: q.offset,
+    })?;
+    Ok(Json(claims))
+}
+
+/// `GET /api/claims/{id}` -- a single claim plus its evidence + legacy-memory
+/// links. Returns `null` when the id is unknown (mirrors the Tauri command).
+pub async fn get_claim(
+    Path(id): Path<String>,
+) -> Result<Json<Option<ha_core::memory::claims::ClaimDetail>>, AppError> {
+    Ok(Json(ha_core::memory::claims::get_claim(&id)?))
+}
+
+/// `PATCH /api/claims/{id}` -- user correction (Lucid Review, design §5.2):
+/// edit content/triple/tags, change status (approve / reject / mark-outdated),
+/// move scope, or pin/unpin. The path id is authoritative (overrides any
+/// `claimId` in the body). Owner plane.
+pub async fn update_claim(
+    Path(id): Path<String>,
+    Json(mut body): Json<ha_core::memory::claims::ClaimUpdate>,
+) -> Result<Json<ha_core::memory::claims::ClaimActionOutcome>, AppError> {
+    body.claim_id = id;
+    Ok(Json(ha_core::memory::claims::update_claim(body)?))
+}
+
+/// `POST /api/claims/{id}/forget` -- forget a claim (design §5.3). Body:
+/// `{ permanent?: bool, note?: string }`. `permanent=false` archives (kept as
+/// an audit trail); `true` hard-deletes the claim graph. Owner plane.
+pub async fn forget_claim(
+    Path(id): Path<String>,
+    Json(body): Json<ForgetClaimBody>,
+) -> Result<Json<ha_core::memory::claims::ClaimActionOutcome>, AppError> {
+    Ok(Json(ha_core::memory::claims::forget_claim(
+        &id,
+        body.permanent.unwrap_or(false),
+        body.note.as_deref(),
+    )?))
+}
+
+/// `GET /api/memory/backfill/plan` -- dry-run existing-memory backfill plan
+/// (owner plane). Writes nothing; the full-table scan runs on a blocking thread.
+pub async fn memory_backfill_plan() -> Result<Json<ha_core::memory::claims::BackfillPlan>, AppError>
+{
+    let plan = tokio::task::spawn_blocking(ha_core::memory::claims::plan_backfill)
+        .await
+        .map_err(|e| AppError::internal(format!("backfill plan task failed: {e}")))??;
+    Ok(Json(plan))
+}
+
+/// `POST /api/memory/backfill/apply` -- apply the existing-memory backfill
+/// (owner plane): deterministic re-scan → claim + memory evidence + detached
+/// link per not-yet-linked memory.
+pub async fn memory_backfill_apply(
+) -> Result<Json<ha_core::memory::claims::BackfillApplyResult>, AppError> {
+    let result = tokio::task::spawn_blocking(ha_core::memory::claims::apply_backfill)
+        .await
+        .map_err(|e| AppError::internal(format!("backfill apply task failed: {e}")))??;
+    Ok(Json(result))
 }
 
 /// `POST /api/memory/search` -- semantic search over memories.

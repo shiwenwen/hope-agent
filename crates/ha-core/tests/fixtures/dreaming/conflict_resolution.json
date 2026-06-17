@@ -1,0 +1,50 @@
+{
+  "name": "conflict_resolution",
+  "description": "Conflict handling (§5.3 / §10 Deep): two claims on the SAME subject+predicate with different objects are a genuine conflict; the one flagged needs_review is held OUT of the active/injection set (never silently overwriting the other) and stays visible in the review queue. (Detection is LLM/Deep — the deterministic layer asserts the held-out outcome.)",
+  "claims": [
+    {
+      "key": "keep",
+      "scope": { "type": "agent", "id": "ev_conflict" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "prefers_indentation",
+      "object": "spaces",
+      "content": "The user prefers space-indentation.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    },
+    {
+      "key": "disputed",
+      "scope": { "type": "agent", "id": "ev_conflict" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "prefers_indentation",
+      "object": "tabs",
+      "content": "The user prefers tab-indentation.",
+      "evidence_class": "assistant_inferred",
+      "salience": 0.5,
+      "set_status": "needs_review"
+    }
+  ],
+  "checks": {
+    "status": [
+      { "claim": "disputed", "expect": "needs_review" },
+      { "claim": "keep", "expect": "active" }
+    ],
+    "list_active": [
+      {
+        "scope": { "type": "agent", "id": "ev_conflict" },
+        "status": "active",
+        "expect_present": ["keep"],
+        "expect_absent": ["disputed"],
+        "forbidden_content": ["tab-indentation"]
+      },
+      {
+        "scope": { "type": "agent", "id": "ev_conflict" },
+        "status": "needs_review",
+        "expect_present": ["disputed"],
+        "expect_absent": ["keep"]
+      }
+    ]
+  }
+}

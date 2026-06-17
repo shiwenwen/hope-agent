@@ -225,10 +225,18 @@ pub fn init_runtime(role: &'static str) {
         paths::memory_db_path(),
         "Cannot resolve memory database path",
     );
-    let memory_backend: Arc<dyn memory::MemoryBackend> = Arc::new(fatal(
+    // Build the concrete backend Arc once: the trait object goes into
+    // MEMORY_BACKEND, and clones seed the Dreaming durable store + the claim
+    // store. The dreaming_* and claim tables live in the same memory.db, so
+    // both stores reuse this backend's write/read connections rather than
+    // opening their own.
+    let sqlite_backend = Arc::new(fatal(
         memory::SqliteMemoryBackend::open(&memory_db_path),
         "Cannot open memory database",
     ));
+    crate::memory::dreaming::init_store(sqlite_backend.clone());
+    crate::memory::claims::init_claim_store(sqlite_backend.clone());
+    let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 
     // Memory embedding provider initialization is DEFERRED to
@@ -356,6 +364,11 @@ pub fn init_runtime(role: &'static str) {
         // Backstop the live close-on-leave path: incognito sessions left from a
         // crash / SIGKILL / power loss never reach the frontend purge call.
         crate::session::cleanup_orphan_incognito(&session_db);
+
+        // Recover crash-orphaned Dreaming state from a previous process:
+        // fail stale `running` rows, clear expired locks, and return abandoned
+        // `claimed` pending sources to the queue (next-gen Dreaming Phase 0).
+        crate::memory::dreaming::recover_on_startup();
 
         // One-shot rename of the legacy `"default"` agent id to the new
         // hardcoded `DEFAULT_AGENT_ID` (`"ha-main"`). Idempotent — writes a
@@ -1047,6 +1060,10 @@ pub async fn start_background_tasks() {
         // then once per day. Disabled when `recap.cache_retention_days == 0`.
         crate::recap::spawn_facet_retention_loop();
 
+        // Retention sweep for the Dreaming pending-source queue + expired
+        // locks (next-gen Dreaming Phase 0). Runs once at startup, then daily.
+        crate::memory::dreaming::spawn_retention_loop();
+
         // Dreaming idle-trigger loop (Phase B3). Every minute, check whether
         // the app has been idle long enough and fire an offline consolidation
         // cycle. The DREAMING_RUNNING AtomicBool serialises within one
@@ -1059,7 +1076,8 @@ pub async fn start_background_tasks() {
                 ticker.tick().await;
                 let cfg = crate::config::cached_config().dreaming.clone();
                 if crate::memory::dreaming::check_idle_trigger(&cfg) {
-                    tokio::spawn(async {
+                    let profile_enabled = cfg.profile_synthesis.enabled;
+                    tokio::spawn(async move {
                         let report = crate::memory::dreaming::manual_run(
                             crate::memory::dreaming::DreamTrigger::Idle,
                         )
@@ -1072,6 +1090,24 @@ pub async fn start_background_tasks() {
                             report.promoted.len(),
                             report.note,
                         );
+                        // After promotion releases the single-cycle guard, run a
+                        // cheap rule-based Memory Profile synthesis (Phase 4) so
+                        // the profile stays fresh without a separate trigger.
+                        // Gated by `profile_synthesis.enabled` (on by default).
+                        if profile_enabled {
+                            let p = crate::memory::dreaming::run_profile_synthesis_cycle(
+                                crate::memory::dreaming::DreamTrigger::Idle,
+                            )
+                            .await;
+                            app_info!(
+                                "memory",
+                                "dreaming::idle_trigger",
+                                "idle profile synthesis: scanned={}, snapshots={}, note={:?}",
+                                p.scanned,
+                                p.snapshots_written,
+                                p.note,
+                            );
+                        }
                     });
                 }
                 // Knowledge maintenance idle trigger (WS6) — same idle clock.

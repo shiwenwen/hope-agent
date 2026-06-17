@@ -23,23 +23,45 @@
 //! phases (pattern recognition, long-window consolidation) are deferred.
 
 mod config;
+mod context_pack;
 mod cron_loop;
+pub mod eval;
+mod evidence;
 mod narrative;
 mod pipeline;
+mod profile;
 mod promotion;
+mod resolver;
 mod scanner;
 mod scoring;
+mod store;
 mod triggers;
 mod types;
 
-pub use config::{CronTriggerConfig, DreamingConfig, IdleTriggerConfig, PromotionThresholds};
+pub use config::{
+    CronTriggerConfig, DreamingConfig, IdleTriggerConfig, ProfileSynthesisConfig,
+    PromotionThresholds,
+};
+pub use context_pack::{
+    build_context_pack, ContextPackOptions, MemoryContextPack, SourceRef, PINNED_MIN_SALIENCE,
+};
 pub use cron_loop::spawn_dreaming_cron_loop;
+pub use evidence::evidence_quote;
 pub use pipeline::{last_report_snapshot, run_cycle};
+pub use profile::{run_profile_synthesis_cycle, ProfileReport};
+pub use resolver::{run_resolver_cycle, ResolverReport};
+pub use store::{
+    get_run, init_store, latest_profile_body, list_profile_snapshots, list_runs,
+    record_user_action, recover_on_startup, spawn_retention_loop,
+};
 pub use triggers::{
     check_idle_trigger, dreaming_running, last_activity_epoch_secs, manual_run, touch_activity,
     DreamTrigger,
 };
-pub use types::{DreamReport, PromotionRecord};
+pub use types::{
+    DreamPhase, DreamReport, DreamRunStatus, DreamingDecisionRecord, DreamingRunDetail,
+    DreamingRunRecord, EvidenceQuote, EvidenceRef, ProfileSnapshotRecord, PromotionRecord,
+};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

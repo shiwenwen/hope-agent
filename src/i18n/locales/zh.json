@@ -780,7 +780,71 @@
       "trigger": {
         "cron": "定时触发",
         "idle": "空闲触发",
-        "manual": "手动触发"
+        "manual": "手动触发",
+        "user_correction": "纠错"
+      },
+      "runs": {
+        "title": "运行历史",
+        "empty": "暂无运行记录",
+        "decisions": "决策记录",
+        "noDecisions": "本轮没有晋升记忆",
+        "selectRun": "选择一次运行查看其决策",
+        "status": {
+          "running": "运行中",
+          "completed": "已完成",
+          "failed": "失败",
+          "skipped": "已跳过"
+        },
+        "evidence": "来源",
+        "evidenceIncognito": "无痕会话来源，不可查看",
+        "evidenceUnavailable": "来源不可用"
+      },
+      "runResolver": "深度整理",
+      "resolving": "整理中…",
+      "resolverDone": "深度整理完成:{{expired}} 过期,{{merged}} 合并,{{review}} 待审核",
+      "resolverFailed": "深度整理失败",
+      "review": {
+        "queueTitle": "待审核",
+        "queueEmpty": "没有待审核的 claim",
+        "approve": "批准",
+        "approveDone": "已批准",
+        "markOutdated": "标记过时",
+        "markOutdatedDone": "已标记过时",
+        "pin": "钉住",
+        "pinDone": "已钉住",
+        "unpin": "取消钉住",
+        "unpinDone": "已取消钉住",
+        "edit": "编辑",
+        "editTitle": "编辑 claim",
+        "editDesc": "编辑 claim 的内容与标签。你的修改会记为一次纠错。",
+        "editContent": "内容",
+        "editTags": "标签",
+        "editTagsPlaceholder": "用逗号分隔",
+        "editDone": "已更新",
+        "moveScope": "移动作用域",
+        "moveScopeTitle": "移动作用域",
+        "moveScopeDesc": "更改此 claim 所属的作用域。",
+        "moveScopeDone": "作用域已更改",
+        "scopeGlobal": "全局",
+        "scopeAgent": "Agent",
+        "scopeProject": "项目",
+        "scopeId": "作用域 ID",
+        "scopeIdPlaceholder": "agent 或项目 id",
+        "reject": "驳回",
+        "rejectTitle": "驳回此 claim？",
+        "rejectDesc": "该 claim 将被归档，不再影响提示词。",
+        "rejectDone": "已驳回",
+        "forget": "忘记",
+        "forgetTitle": "忘记此记忆",
+        "forgetDesc": "停止使用此记忆。",
+        "forgetArchive": "归档",
+        "forgetArchiveDesc": "归档该 claim 并停止注入关联记忆。证据将保留。",
+        "forgetPermanent": "永久删除",
+        "forgetPermanentDesc": "永久删除该 claim、其证据，以及仅由它管理的记忆。此操作不可撤销。",
+        "forgetNotePlaceholder": "可选原因",
+        "forgetConfirm": "忘记",
+        "forgetDone": "已忘记",
+        "failed": "操作失败"
       }
     },
     "error": {
@@ -2249,6 +2313,8 @@
     "acpTimeout": "超时（秒）",
     "activeMemoryCacheTtl": "缓存 TTL (秒)",
     "activeMemoryCandidateLimit": "候选数量上限",
+    "activeMemoryIncludeClaims": "纳入结构化 Claim",
+    "activeMemoryIncludeClaimsDesc": "召回候选除历史记忆外，同时检索 Dreaming 整理出的结构化 claim（默认关闭）",
     "activeMemoryDesc": "每轮提问前主动搜索相关记忆并用 side query 压成一句话注入。超时或失败自动回退到被动召回，不阻塞对话。",
     "activeMemoryMaxChars": "召回句长上限",
     "activeMemoryTimeout": "超时 (ms)",
@@ -2844,7 +2910,12 @@
       "scopeDays": "回溯天数",
       "scopeDaysDesc": "扫描最近多少天的记忆。",
       "title": "梦境（Dreaming）",
-      "windowTitle": "扫描窗口"
+      "windowTitle": "扫描窗口",
+      "profileTitle": "画像合成",
+      "profileEnabled": "合成记忆画像",
+      "profileEnabledDesc": "从活跃的 claim 构建一份可读画像，按作用域分层。开启后将替换系统提示中旧版画像部分；关闭则保留旧版渲染。空闲 / 定时触发使用低成本的规则合成；手动触发则用 LLM 重写。",
+      "profileMaxLines": "每作用域最大行数",
+      "profileMaxLinesDesc": "限制每个作用域保留的画像条目数量。"
     },
     "embedding": {
       "reembedJob": {
@@ -3405,7 +3476,9 @@
     "memoryTabs": {
       "dreaming": "梦境（Dreaming）",
       "manage": "记忆管理",
-      "settings": "记忆设置"
+      "settings": "记忆设置",
+      "claims": "Claims",
+      "profile": "画像"
     },
     "memoryTags": "标签",
     "memoryTagsPlaceholder": "逗号分隔的标签（可选）",
@@ -3672,7 +3745,18 @@
     "planQuestionTimeoutDesc": "Plan Mode 向用户提问后等待回答的最长时间，超时后自动取消该提问。设为 0 表示不限时",
     "planSubagent": "计划子 Agent 模式",
     "planSubagentDesc": "开启后 Plan Mode 的计划制定由独立子 Agent 执行，主 Agent 上下文更干净；关闭时在主 Agent 中内联制定计划，保持上下文连续",
-    "profile": "个人信息",
+    "profile": {
+      "title": "记忆画像",
+      "desc": "它对你和你项目的了解，从活跃的 claim 合成并按作用域分层。",
+      "refresh": "刷新画像",
+      "refreshing": "正在合成…",
+      "refreshDone": "画像已刷新（{{count}} 份快照）",
+      "refreshSkipped": "已跳过合成",
+      "refreshFailed": "合成画像失败",
+      "empty": "暂无画像快照",
+      "emptyHint": "在「梦境」标签页开启画像合成，然后刷新。",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} 岁",
     "profileAiExpBeginner": "入门 — 刚开始接触 AI",
     "profileAiExpExpert": "熟练 — 深度使用各类 AI 工具",
@@ -4368,6 +4452,46 @@
       "addHandler": "添加处理器",
       "advanced": "高级",
       "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。"
+    },
+    "memoryExtractClaims": "提取 claim（beta）",
+    "memoryExtractClaimsDesc": "在记忆之外，额外提取带证据的结构化 claim（双写）。",
+    "claims": {
+      "title": "结构化记忆 Claims",
+      "desc": "带作用域、置信度与来源证据的结构化长期记忆。",
+      "list": "Claim 列表",
+      "empty": "暂无 claim。",
+      "selectClaim": "选择一条 claim 查看其证据。",
+      "confidence": "置信度",
+      "salience": "重要度",
+      "evidence": "证据",
+      "noEvidence": "暂无证据。",
+      "links": "关联记忆",
+      "statusAll": "全部状态",
+      "status": {
+        "active": "活跃",
+        "superseded": "已替代",
+        "expired": "已过期",
+        "archived": "已归档",
+        "needs_review": "待审核"
+      },
+      "backfill": {
+        "button": "回填",
+        "title": "回填历史记忆",
+        "desc": "将现有记忆登记为结构化 claim。仅置顶的个人信息与偏好(user/feedback)自动启用,其余进入待审核队列;以独立关联方式登记,不改变当前的记忆注入。",
+        "summaryTotal": "记忆总数",
+        "summaryLinked": "已登记",
+        "summaryCandidates": "待回填",
+        "summaryActive": "自动启用",
+        "summaryReview": "待审核",
+        "previewTruncated": "显示 {{shown}} / {{total}} 条",
+        "apply": "回填 {{count}} 条",
+        "applying": "正在回填…",
+        "applied": "已回填 {{created}} 条 claim:{{active}} 条启用,{{review}} 条待审核",
+        "planFailed": "生成回填预览失败",
+        "applyFailed": "回填失败",
+        "empty": "所有记忆均已纳入 claim 层。",
+        "appliedPartial": "已回填 {{created}} 条,{{failed}} 条失败,可重试剩余项"
+      }
     },
     "knowledge": {
       "tab": "知识空间"

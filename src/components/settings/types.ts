@@ -160,6 +160,8 @@ export interface ActiveMemoryConfig {
   cacheTtlSecs: number
   budgetTokens: number
   candidateLimit: number
+  /// Active Memory v2: also shortlist structured claims as recall candidates.
+  includeClaims: boolean
 }
 
 /// Per-section character budgets for the SQLite Layer 3 memory block.
@@ -205,6 +207,7 @@ export const DEFAULT_ACTIVE_MEMORY: ActiveMemoryConfig = {
   cacheTtlSecs: 15,
   budgetTokens: 512,
   candidateLimit: 10,
+  includeClaims: false,
 }
 
 export const DEFAULT_SQLITE_SECTION_BUDGETS: SqliteSectionBudgets = {

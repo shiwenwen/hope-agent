@@ -780,7 +780,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "유휴",
-        "manual": "수동"
+        "manual": "수동",
+        "user_correction": "교정"
+      },
+      "runs": {
+        "title": "실행 기록",
+        "empty": "아직 실행 기록이 없습니다",
+        "decisions": "결정",
+        "noDecisions": "이번 실행에서 승격된 항목이 없습니다.",
+        "selectRun": "실행을 선택하면 결정을 볼 수 있습니다.",
+        "status": {
+          "running": "실행 중",
+          "completed": "완료",
+          "failed": "실패",
+          "skipped": "건너뜀"
+        },
+        "evidence": "출처",
+        "evidenceIncognito": "시크릿 세션 출처 — 볼 수 없음",
+        "evidenceUnavailable": "출처를 사용할 수 없음"
+      },
+      "runResolver": "심층 정리",
+      "resolving": "정리 중…",
+      "resolverDone": "정리 완료: 만료 {{expired}}, 병합 {{merged}}, 검토 대기 {{review}}",
+      "resolverFailed": "심층 정리 실패",
+      "review": {
+        "queueTitle": "검토 필요",
+        "queueEmpty": "검토가 필요한 claim이 없습니다",
+        "approve": "승인",
+        "approveDone": "승인됨",
+        "markOutdated": "오래됨 표시",
+        "markOutdatedDone": "오래됨으로 표시함",
+        "pin": "고정",
+        "pinDone": "고정됨",
+        "unpin": "고정 해제",
+        "unpinDone": "고정 해제됨",
+        "edit": "편집",
+        "editTitle": "claim 편집",
+        "editDesc": "claim의 내용과 태그를 편집합니다. 편집은 교정으로 기록됩니다.",
+        "editContent": "내용",
+        "editTags": "태그",
+        "editTagsPlaceholder": "쉼표로 구분",
+        "editDone": "업데이트됨",
+        "moveScope": "범위 이동",
+        "moveScopeTitle": "범위 이동",
+        "moveScopeDesc": "이 claim이 속한 범위를 변경합니다.",
+        "moveScopeDone": "범위가 변경됨",
+        "scopeGlobal": "전역",
+        "scopeAgent": "에이전트",
+        "scopeProject": "프로젝트",
+        "scopeId": "범위 ID",
+        "scopeIdPlaceholder": "에이전트 또는 프로젝트 ID",
+        "reject": "거부",
+        "rejectTitle": "이 claim을 거부할까요?",
+        "rejectDesc": "claim이 보관되어 더 이상 프롬프트에 영향을 주지 않습니다.",
+        "rejectDone": "거부됨",
+        "forget": "잊기",
+        "forgetTitle": "이 기억 잊기",
+        "forgetDesc": "이 기억의 사용을 중지합니다.",
+        "forgetArchive": "보관",
+        "forgetArchiveDesc": "claim을 보관하고 연결된 기억의 주입을 중지합니다. 증거는 유지됩니다.",
+        "forgetPermanent": "영구 삭제",
+        "forgetPermanentDesc": "claim, 그 증거, 그리고 이 claim만 관리하던 기억을 영구히 삭제합니다. 되돌릴 수 없습니다.",
+        "forgetNotePlaceholder": "사유(선택)",
+        "forgetConfirm": "잊기",
+        "forgetDone": "기억을 잊음",
+        "failed": "작업 실패"
       }
     },
     "error": {
@@ -2249,6 +2313,8 @@
     "acpTimeout": "시간 초과 (초)",
     "activeMemoryCacheTtl": "캐시 TTL (초)",
     "activeMemoryCandidateLimit": "후보 한도",
+    "activeMemoryIncludeClaims": "구조화된 클레임 포함",
+    "activeMemoryIncludeClaimsDesc": "회상 후보로 레거시 메모리뿐 아니라 Dreaming이 정리한 구조화된 클레임도 검색합니다. 기본값은 꺼짐.",
     "activeMemoryDesc": "사용자 턴이 시작될 때마다 제한된 side query를 실행하여 가장 관련된 메모리를 한 문장으로 추출해 시스템 프롬프트에 주입합니다. 타임아웃과 실패는 조용히 수동 리콜로 폴백되며 대화를 막지 않습니다.",
     "activeMemoryMaxChars": "리콜 최대 문자 수",
     "activeMemoryTimeout": "시간 초과 (ms)",
@@ -2844,7 +2910,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "프로필 합성",
+      "profileEnabled": "메모리 프로필 합성",
+      "profileEnabledDesc": "활성 claim을 기반으로 범위별 계층화된 읽기 쉬운 프로필을 만듭니다. 켜면 시스템 프롬프트의 기존 프로필 섹션을 대체하고, 끄면 기존 렌더링을 유지합니다. 유휴/예약 실행은 저비용 규칙 기반 처리를 사용하고, 수동 실행은 LLM 재작성을 수행합니다.",
+      "profileMaxLines": "범위별 최대 줄 수",
+      "profileMaxLinesDesc": "범위별로 유지할 프로필 항목 수의 상한입니다."
     },
     "embedding": {
       "reembedJob": {
@@ -3405,7 +3476,9 @@
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "기억 관리",
-      "settings": "기억 설정"
+      "settings": "기억 설정",
+      "claims": "Claims",
+      "profile": "프로필"
     },
     "memoryTags": "태그",
     "memoryTagsPlaceholder": "쉼표로 구분된 태그 (선택)",
@@ -3672,7 +3745,18 @@
     "planQuestionTimeoutDesc": "계획 모드 질문에 대한 사용자 응답을 기다리는 최대 시간. 시간 초과 시 자동 취소. 0 = 무제한.",
     "planSubagent": "계획 서브 Agent 모드",
     "planSubagentDesc": "활성화 시 계획 모드는 계획 작성을 위해 전용 서브 Agent 를 사용합니다 (메인 컨텍스트가 깔끔). 비활성화 시 메인 Agent 에서 인라인으로 계획을 실행합니다 (컨텍스트 연속성).",
-    "profile": "프로필",
+    "profile": {
+      "title": "메모리 프로필",
+      "desc": "활성 claim에서 합성하여 범위별로 계층화한, 사용자와 프로젝트에 대해 파악한 내용입니다.",
+      "refresh": "프로필 새로고침",
+      "refreshing": "합성 중…",
+      "refreshDone": "프로필 새로고침됨 (스냅샷 {{count}}개)",
+      "refreshSkipped": "합성 건너뜀",
+      "refreshFailed": "프로필 합성 실패",
+      "empty": "아직 프로필 스냅샷이 없습니다",
+      "emptyHint": "Dreaming 탭에서 프로필 합성을 켠 다음 새로고침하세요.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} 세",
     "profileAiExpBeginner": "초급 — AI 입문",
     "profileAiExpExpert": "전문가 — AI 도구 심층 사용자",
@@ -4360,6 +4444,46 @@
       "addHandler": "핸들러 추가",
       "advanced": "고급",
       "slowHandlerWarning": "이 핸들러는 LLM / 서브에이전트를 인라인으로 실행하므로 이 차단 이벤트가 발생할 때마다 지연됩니다. 여기서는 command / http를 권장하거나 관찰 이벤트(PostToolUse 등)로 옮기세요."
+    },
+    "memoryExtractClaims": "클레임 추출 (베타)",
+    "memoryExtractClaimsDesc": "메모리와 함께 근거 기반 구조화 클레임도 추출 (이중 기록).",
+    "claims": {
+      "title": "구조화 메모리 Claims",
+      "desc": "범위·신뢰도·출처 근거를 갖춘 구조화 장기 기억.",
+      "list": "클레임 목록",
+      "empty": "아직 클레임이 없습니다.",
+      "selectClaim": "클레임을 선택하면 근거가 표시됩니다.",
+      "confidence": "신뢰도",
+      "salience": "중요도",
+      "evidence": "근거",
+      "noEvidence": "근거 없음.",
+      "links": "연결된 메모리",
+      "statusAll": "모든 상태",
+      "status": {
+        "active": "활성",
+        "superseded": "대체됨",
+        "expired": "만료됨",
+        "archived": "보관됨",
+        "needs_review": "검토 필요"
+      },
+      "backfill": {
+        "button": "백필",
+        "title": "기존 메모리 백필",
+        "desc": "기존 메모리를 구조화된 claim으로 등록합니다. 고정된 프로필 및 선호 항목(user/feedback)만 자동 활성화되고 나머지는 검토 대기열로 들어갑니다. 느슨하게 연결되므로 현재 메모리 주입은 변경되지 않습니다.",
+        "summaryTotal": "전체 메모리",
+        "summaryLinked": "등록됨",
+        "summaryCandidates": "백필 대상",
+        "summaryActive": "자동 활성화",
+        "summaryReview": "검토 필요",
+        "previewTruncated": "{{total}}개 중 {{shown}}개 표시",
+        "apply": "{{count}}개 백필",
+        "applying": "백필 중…",
+        "applied": "claim {{created}}개 백필됨: {{active}}개 활성, {{review}}개 검토 대기",
+        "planFailed": "백필 계획 생성 실패",
+        "applyFailed": "백필 실패",
+        "empty": "모든 메모리가 이미 claim 계층에 있습니다.",
+        "appliedPartial": "{{created}}개 백필됨, {{failed}}개 실패 — 나머지를 다시 시도할 수 있습니다"
+      }
     },
     "knowledge": {
       "tab": "지식"

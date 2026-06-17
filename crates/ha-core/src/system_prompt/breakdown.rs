@@ -46,12 +46,18 @@ pub fn compute_breakdown(
     // Breakdown is not project-aware (it's used by the /context dashboard,
     // which measures prompt size outside the chat loop). Pass empty project
     // context so the output matches the non-project case.
+    // Breakdown excludes the profile snapshot and Context Pack (diagnostic
+    // estimate; the `/context` dashboard has no snapshot / claim context). Both
+    // sides pass `None` for both, so the diff still isolates the legacy memory
+    // section.
     let full = build(
         definition,
         model,
         provider,
         memory_entries,
         memory_budget,
+        None,
+        None,
         agent_home,
         None,
         None,
@@ -67,6 +73,8 @@ pub fn compute_breakdown(
         provider,
         &[],
         &empty_budget,
+        None,
+        None,
         agent_home,
         None,
         None,
