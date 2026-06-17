@@ -116,6 +116,12 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 不允许 `fs::write` 直接覆盖正在运行的 binary——即使 Unix 上能 work，崩溃中途会留下半截文件。
 
+### macOS 桌面 updater 的 EXDEV 守卫
+
+上面的 `atomic_replace_binary` 只覆盖 **headless `SelfContained`** 路径。**桌面 `Tauri`** 路径的 swap 由 `tauri-plugin-updater` 自己做：它把新 `.app` 解压进 `std::env::temp_dir()`（`$TMPDIR`）再 `std::fs::rename` 覆盖安装位置。当应用运行在与 `$TMPDIR` 不同的卷（外置 / 独立数据卷、DMG 直跑等）时，该 rename 返回 `EXDEV`（"Cross-device link (os error 18)"）导致更新中断。插件无 per-update 临时目录开关，且 macOS 路径**没有** Linux AppImage 路径那种「多候选目录 + 同 `dev()` 校验」兜底。
+
+防御在启动早期（`src-tauri/src/lib.rs::run()` 顶部、`init_runtime` 之前——POSIX `setenv` 非线程安全，必须在任何线程 spawn 前）调用 [`platform::redirect_updater_tmpdir_if_cross_volume`](../../crates/ha-core/src/platform/mod.rs)：macOS 上若 `.app` 所在卷 ≠ `$TMPDIR` 卷，则把 `$TMPDIR` 重定向到 `.app` 父目录下的 `.hope-agent-updater-tmp`，使插件的 rename 留在同卷内。该失败模式下父目录必可写（插件唯一会撞 raw `rename` 的非提权 swap 路径只在父目录可写时才走，否则它升级到 AppleScript `mv` 跨卷复制、不会 EXDEV）。同卷 / 非 `.app` bundle / 非 macOS 一律 no-op。
+
 ## Service restart 契约
 
 binary 换好后 [`service_control::restart_service`](../../crates/ha-core/src/updater/service_control.rs) 跑：

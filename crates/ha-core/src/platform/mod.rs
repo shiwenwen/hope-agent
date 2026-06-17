@@ -306,6 +306,58 @@ pub fn atomic_replace_binary(
     imp::atomic_replace_binary(target, source)
 }
 
+/// macOS desktop-updater cross-device (`EXDEV`) workaround.
+///
+/// `tauri-plugin-updater` extracts the new `.app` into `std::env::temp_dir()`
+/// (`$TMPDIR`) and then `rename(2)`s it over the installed bundle. When the
+/// app runs from a different volume than `$TMPDIR` (external / secondary
+/// volume, a mounted DMG, etc.) that rename fails with `EXDEV`
+/// ("Cross-device link (os error 18)") and the update aborts. The plugin
+/// exposes no per-update temp-dir knob and — unlike its Linux AppImage path —
+/// has no same-volume fallback on macOS.
+///
+/// We pre-empt it: when the bundle volume differs from the temp volume, point
+/// `$TMPDIR` at a directory on the bundle's own volume so the plugin's rename
+/// stays intra-volume. The bundle's parent is writable in exactly this failure
+/// mode — the plugin's non-admin swap path (the only one that hits the raw
+/// `rename`) is taken only when the parent is writable; otherwise it escalates
+/// to an AppleScript `mv` that copies across volumes fine.
+///
+/// MUST run before any threads spawn — POSIX `setenv` is not thread-safe.
+/// Returns the redirected directory when it acted, `None` on no-op (not macOS,
+/// not a `.app` bundle, same volume, or parent not writable).
+#[cfg(target_os = "macos")]
+pub fn redirect_updater_tmpdir_if_cross_volume() -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let exe = std::env::current_exe().ok()?;
+    // Locate the `.app` bundle root in the executable's ancestry.
+    let app_root = exe
+        .ancestors()
+        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("app"))?;
+    let install_parent = app_root.parent()?;
+    let cur_tmp = std::env::temp_dir();
+    let tmp_dev = std::fs::metadata(&cur_tmp).ok()?.dev();
+    let parent_dev = std::fs::metadata(install_parent).ok()?.dev();
+    if tmp_dev == parent_dev {
+        // Same volume — the plugin's rename already works; leave $TMPDIR alone.
+        return None;
+    }
+    // Different volume: stage the updater's temp on the bundle's own volume.
+    let updater_tmp = install_parent.join(".hope-agent-updater-tmp");
+    // Parent not writable → can't help (and the plugin would take its admin
+    // `mv` path anyway); leave $TMPDIR untouched.
+    std::fs::create_dir_all(&updater_tmp).ok()?;
+    std::env::set_var("TMPDIR", &updater_tmp);
+    Some(updater_tmp)
+}
+
+/// Non-macOS no-op: the desktop updater's `EXDEV` workaround is macOS-specific
+/// (the Linux AppImage path already retries on the install volume).
+#[cfg(not(target_os = "macos"))]
+pub fn redirect_updater_tmpdir_if_cross_volume() -> Option<PathBuf> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
