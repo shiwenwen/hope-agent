@@ -1,0 +1,17 @@
+{
+  "name": "incognito_exclusion",
+  "description": "Evidence-expansion fail-closed gate (§8.1 / §8.4) — the deterministic surface of the incognito red-line. evidence_quote refuses (available=false) unless the source PROVABLY comes from a present, non-incognito session: a missing anchor and an unprovable session are both refused, so the frontend can never coax a quote out of an incognito/unknown source. The live incognito-session branch (meta.incognito) needs the session subsystem and is covered by the evidence-layer's own tests; here we lock the gate's default-deny.",
+  "checks": {
+    "evidence_quote": [
+      {
+        "session_id": "ev-incognito-unprovable",
+        "message_id": 1,
+        "expect_available": false
+      },
+      {
+        "session_id": "ev-incognito-no-anchor",
+        "expect_available": false
+      }
+    ]
+  }
+}

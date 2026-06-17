@@ -37,6 +37,110 @@ pub async fn memory_get(id: i64) -> Result<Option<memory::MemoryEntry>, CmdError
     backend.get(id).map_err(Into::into)
 }
 
+/// List structured claims (next-gen Dreaming, read-only). Optional scope
+/// (`scope_type` + `scope_id` primitives — never a structured object, so the
+/// HTTP query transport can't silently degrade the filter) / status /
+/// claim_type; newest-updated first. Maps to `GET /api/claims`.
+#[tauri::command]
+pub async fn claim_list(
+    scope_type: Option<String>,
+    scope_id: Option<String>,
+    status: Option<String>,
+    claim_type: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<memory::claims::ClaimRecord>, CmdError> {
+    let scope = memory::claims::parse_claim_scope(scope_type.as_deref(), scope_id.as_deref())?;
+    memory::claims::list_claims(memory::claims::ClaimListFilter {
+        scope,
+        status,
+        claim_type,
+        limit,
+        offset,
+    })
+    .map_err(Into::into)
+}
+
+/// Fetch a single claim plus its evidence + legacy-memory links. Returns
+/// `null` if the id is unknown. Maps to `GET /api/claims/{id}`.
+#[tauri::command]
+pub async fn claim_get(id: String) -> Result<Option<memory::claims::ClaimDetail>, CmdError> {
+    memory::claims::get_claim(&id).map_err(Into::into)
+}
+
+/// User correction (Lucid Review, design §5.2 §5.3): partial-update one claim —
+/// edit content/triple/tags, change status (approve / reject / mark-outdated),
+/// move scope, or pin/unpin. Writes evidence + a decision-log entry and emits
+/// `memory:claim_changed`. Flat params (not a wrapped struct) so the call shape
+/// matches the HTTP `PATCH /api/claims/{id}` body verbatim — `id` interpolates
+/// into the path there, the rest becomes the JSON body.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn claim_update(
+    id: String,
+    content: Option<String>,
+    subject: Option<String>,
+    predicate: Option<String>,
+    object: Option<String>,
+    tags: Option<Vec<String>>,
+    status: Option<String>,
+    scope_type: Option<String>,
+    scope_id: Option<String>,
+    pinned: Option<bool>,
+    note: Option<String>,
+) -> Result<memory::claims::ClaimActionOutcome, CmdError> {
+    memory::claims::update_claim(memory::claims::ClaimUpdate {
+        claim_id: id,
+        content,
+        subject,
+        predicate,
+        object,
+        tags,
+        status,
+        scope_type,
+        scope_id,
+        pinned,
+        note,
+    })
+    .map_err(Into::into)
+}
+
+/// Forget a claim (design §5.3): `permanent=false` archives it (kept as an audit
+/// trail, linked legacy memories stop injecting); `true` hard-deletes the claim
+/// graph + any legacy memory it solely managed. Maps to
+/// `POST /api/claims/{id}/forget`.
+#[tauri::command]
+pub async fn claim_forget(
+    id: String,
+    permanent: Option<bool>,
+    note: Option<String>,
+) -> Result<memory::claims::ClaimActionOutcome, CmdError> {
+    memory::claims::forget_claim(&id, permanent.unwrap_or(false), note.as_deref())
+        .map_err(Into::into)
+}
+
+/// Dry-run: scan legacy memories and return a backfill plan (exact summary +
+/// capped candidate preview), writing nothing. Maps to
+/// `GET /api/memory/backfill/plan`. Full-table scan runs on a blocking thread.
+#[tauri::command]
+pub async fn memory_backfill_plan() -> Result<memory::claims::BackfillPlan, CmdError> {
+    tokio::task::spawn_blocking(memory::claims::plan_backfill)
+        .await
+        .map_err(|e| CmdError::msg(format!("backfill plan task failed: {e}")))?
+        .map_err(Into::into)
+}
+
+/// Apply the backfill deterministically (re-scan, NOT trusting any client-sent
+/// candidate list): write a claim + memory evidence + detached link for each
+/// not-yet-linked memory. Maps to `POST /api/memory/backfill/apply`.
+#[tauri::command]
+pub async fn memory_backfill_apply() -> Result<memory::claims::BackfillApplyResult, CmdError> {
+    tokio::task::spawn_blocking(memory::claims::apply_backfill)
+        .await
+        .map_err(|e| CmdError::msg(format!("backfill apply task failed: {e}")))?
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn memory_list(
     scope: Option<memory::MemoryScope>,

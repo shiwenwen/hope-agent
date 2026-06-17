@@ -31,6 +31,9 @@ fn default_narrative_timeout_secs() -> u64 {
 fn default_true() -> bool {
     true
 }
+fn default_profile_max_lines() -> usize {
+    12
+}
 
 /// Idle trigger: run when the app has been idle (no user turn) for this
 /// many minutes. Consumed by `Guardian`'s heartbeat via
@@ -96,6 +99,32 @@ impl Default for PromotionThresholds {
     }
 }
 
+/// Profile Synthesis (next-gen Dreaming Phase 4): synthesise a displayable +
+/// injectable Memory Profile from active claims, layered by scope. **On by
+/// default** — when disabled, no snapshot is produced and the system
+/// prompt keeps rendering the legacy profile-tagged `## User Profile` section.
+/// Idle / cron run a cheap rule-based aggregation (no side_query); manual runs
+/// an LLM rewrite for fluency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileSynthesisConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Max profile bullet lines kept per scope (rule-based aggregation cap;
+    /// the LLM rewrite is asked to stay within roughly the same budget).
+    #[serde(default = "default_profile_max_lines")]
+    pub max_lines_per_scope: usize,
+}
+
+impl Default for ProfileSynthesisConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_lines_per_scope: default_profile_max_lines(),
+        }
+    }
+}
+
 /// Top-level Dreaming configuration. Persisted under `AppConfig.dreaming`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +171,10 @@ pub struct DreamingConfig {
     /// None = use the active chat agent (cache-friendly side_query).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub narrative_model: Option<String>,
+
+    /// Profile Synthesis (Phase 4). On by default.
+    #[serde(default)]
+    pub profile_synthesis: ProfileSynthesisConfig,
 }
 
 impl Default for DreamingConfig {
@@ -157,6 +190,7 @@ impl Default for DreamingConfig {
             narrative_max_tokens: default_narrative_max_tokens(),
             narrative_timeout_secs: default_narrative_timeout_secs(),
             narrative_model: None,
+            profile_synthesis: ProfileSynthesisConfig::default(),
         }
     }
 }

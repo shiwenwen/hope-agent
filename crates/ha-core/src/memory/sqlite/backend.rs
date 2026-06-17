@@ -186,6 +186,290 @@ impl SqliteMemoryBackend {
             );
         }
 
+        // ── Dreaming durable state (next-gen Dreaming Phase 0) ──────────
+        // Audit trail + cross-process coordination for the offline
+        // consolidation pipeline. Co-located in memory.db (not a separate
+        // dreaming.db) so future claim / evidence tables (Phase 2+) can sync
+        // transactionally against `memories.id`. All timestamps are RFC3339
+        // UTC strings to match the rest of this database; lexical comparison
+        // (`lease_expires_at < now`) is therefore valid for lease expiry.
+        //
+        // Schema mirrors docs/architecture/dreaming.md §数据模型 with three
+        // parity columns added on `dreaming_runs` (nominated_count,
+        // duration_ms, diary_path) so a durable run losslessly carries what
+        // the in-memory `DreamReport` shows in the Dashboard.
+        //
+        // NOTE: when Phase 1+ starts writing agent/project-scoped
+        // `scope_key`s (e.g. "agent:<id>"), those columns must be registered
+        // with `agent::migration` for the `default → ha-main` rename. Phase 0
+        // only writes global scope, so nothing here needs the rename yet.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS dreaming_runs (
+                id TEXT PRIMARY KEY,
+                trigger TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                status TEXT NOT NULL,
+                owner_instance_id TEXT,
+                heartbeat_at TEXT,
+                lease_expires_at TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                scope_json TEXT NOT NULL DEFAULT '{}',
+                scanned_count INTEGER NOT NULL DEFAULT 0,
+                nominated_count INTEGER NOT NULL DEFAULT 0,
+                decision_count INTEGER NOT NULL DEFAULT 0,
+                promoted_count INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                diary_path TEXT,
+                note TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_runs_started
+                ON dreaming_runs(started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_dreaming_runs_status
+                ON dreaming_runs(status);
+
+            -- Cross-process lease. `lock_key` = phase+scope (e.g. light:global).
+            -- The in-process AtomicBool guards same-process overlap; this row
+            -- guards desktop / server / ACP multi-process overlap.
+            CREATE TABLE IF NOT EXISTS dreaming_locks (
+                lock_key TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                owner_instance_id TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                lease_expires_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_locks_expires
+                ON dreaming_locks(lease_expires_at);
+
+            -- Cross-run scan progress (foundation; the Light scanner still
+            -- uses a time window in Phase 0 and only writes these).
+            CREATE TABLE IF NOT EXISTS dreaming_watermarks (
+                scope_key TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                last_source_id TEXT,
+                last_source_ts TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (scope_key, source_type)
+            );
+
+            -- Durable queue so high-frequency source capture is not lost when
+            -- a lease is held by another run. `updated_at` doubles as the
+            -- claim timestamp for stale-claim recovery.
+            CREATE TABLE IF NOT EXISTS dreaming_pending_sources (
+                id TEXT PRIMARY KEY,
+                scope_key TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_ts TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_pending_sources_scope_status
+                ON dreaming_pending_sources(scope_key, status, created_at);
+
+            -- Machine-readable decision log (turns the Dream Diary into an
+            -- auditable event stream). Phase 0 writes only `promote` rows.
+            CREATE TABLE IF NOT EXISTS dreaming_decisions (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                decision_type TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT,
+                score REAL,
+                rationale TEXT NOT NULL,
+                before_json TEXT,
+                after_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES dreaming_runs(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_dreaming_decisions_run
+                ON dreaming_decisions(run_id);",
+        )?;
+
+        // ── Claim schema (next-gen Dreaming, design §3.2 / §3.3 / §3.3.1) ──
+        //
+        // Structured long-term memory lives in this same memory.db alongside
+        // `memories` (design §9.1). These tables are the dual-track foundation:
+        // claims + per-claim evidence + a link table that keeps legacy
+        // `memories` rows in sync without state drift. This PR only creates the
+        // schema + a read API; claim extraction / dual-write / canonicalize (and
+        // the `memory_claims_fts` index that canonicalize needs) land in a later
+        // PR.
+        //
+        // The `ON DELETE CASCADE` foreign keys encode intent but are NOT
+        // enforced yet — `PRAGMA foreign_keys` is off on this connection (see
+        // top of `open`). Cascade enforcement + the pragma are enabled when the
+        // claim write/delete path lands; until then there is no claim deletion
+        // path so nothing relies on the cascade.
+        //
+        // NOTE: `memory_claims.scope_id` (when `scope_type='agent'`) is an
+        // agent-id-bearing column and is registered with `agent::migration` for
+        // the `default → ha-main` rename, per the §11 contract. It is empty
+        // until dual-write starts, so the rename is defensive.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_claims (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT,
+                claim_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                confidence REAL NOT NULL DEFAULT 0.5,
+                confidence_source TEXT NOT NULL DEFAULT 'derived',
+                salience REAL NOT NULL DEFAULT 0.5,
+                freshness_policy_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'active',
+                valid_from TEXT,
+                valid_until TEXT,
+                supersedes_claim_id TEXT,
+                source_run_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                embedding_signature TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_scope
+                ON memory_claims(scope_type, scope_id);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_status
+                ON memory_claims(status);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_type
+                ON memory_claims(claim_type);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_spo
+                ON memory_claims(subject, predicate);
+            CREATE INDEX IF NOT EXISTS idx_memory_claims_updated
+                ON memory_claims(updated_at DESC);
+
+            -- Per-claim provenance. `evidence_class` baseline drives confidence;
+            -- `quote` is short + redacted; incognito sources never persisted.
+            CREATE TABLE IF NOT EXISTS memory_evidence (
+                id TEXT PRIMARY KEY,
+                claim_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                evidence_class TEXT NOT NULL DEFAULT 'assistant_inferred',
+                source_id TEXT NOT NULL,
+                session_id TEXT,
+                message_id TEXT,
+                file_path TEXT,
+                url TEXT,
+                quote TEXT,
+                redaction_status TEXT NOT NULL DEFAULT 'redacted',
+                access_scope_json TEXT NOT NULL DEFAULT '{}',
+                weight REAL NOT NULL DEFAULT 1.0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (claim_id) REFERENCES memory_claims(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_evidence_claim
+                ON memory_evidence(claim_id);
+
+            -- Sync relationship between a claim and the legacy `memories` row(s)
+            -- it manages, so dual-track state can't drift (design §3.3.1).
+            CREATE TABLE IF NOT EXISTS memory_claim_links (
+                claim_id TEXT NOT NULL,
+                memory_id INTEGER NOT NULL,
+                sync_mode TEXT NOT NULL DEFAULT 'managed',
+                last_synced_claim_status TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (claim_id, memory_id),
+                FOREIGN KEY (claim_id) REFERENCES memory_claims(id) ON DELETE CASCADE,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_claim_links_memory
+                ON memory_claim_links(memory_id);",
+        )?;
+
+        // ── Memory Profile snapshots (next-gen Dreaming Phase 4, design §3.5) ──
+        //
+        // Displayable + injectable profile summaries synthesised from active
+        // claims, layered by scope (global / agent / project). One row per
+        // (scope, version); `version` is allocated as `MAX(version)+1` inside a
+        // write transaction so the latest snapshot per scope is the highest
+        // version. Global rows store `scope_id = ''` (not NULL) so the UNIQUE
+        // constraint actually guards against duplicate versions for the global
+        // scope too (SQLite treats NULLs as distinct under UNIQUE).
+        //
+        // No FK to `dreaming_runs(id)`: a snapshot is a durable product whose
+        // lifetime is independent of the audit run that produced it (runs are
+        // retention-GC'd; snapshots are not). `source_run_id` is a plain
+        // reference for provenance. (FKs on this connection are inert anyway —
+        // `PRAGMA foreign_keys` is off, see top of `open`.)
+        //
+        // NOTE: `scope_id` (when `scope_type='agent'`) is agent-id-bearing and
+        // is registered with `agent::migration` for the `default → ha-main`
+        // rename (§11). Defensive: snapshots are only written once the user
+        // opts into profile synthesis, long after the legacy id is gone.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_profile_snapshots (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT NOT NULL DEFAULT '',
+                version INTEGER NOT NULL,
+                body_md TEXT NOT NULL,
+                source_run_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(scope_type, scope_id, version)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_profile_snapshots_scope
+                ON memory_profile_snapshots(scope_type, scope_id, version DESC);",
+        )?;
+
+        // ── Claim relevance search: FTS5 over memory_claims (PR #8 Context
+        // Pack — "Relevant Claims" this turn). External-content FTS keyed on
+        // memory_claims' implicit INTEGER rowid (the table PK is a TEXT uuid,
+        // which can't be an FTS/vec rowid). Triggers keep it in sync; on first
+        // creation we rebuild from rows written before this index existed.
+        let claims_fts_existed = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='memory_claims_fts'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_claims_fts USING fts5(
+                content, subject, object,
+                content='memory_claims',
+                content_rowid='rowid',
+                tokenize='unicode61'
+            );
+            CREATE TRIGGER IF NOT EXISTS memory_claims_ai AFTER INSERT ON memory_claims BEGIN
+                INSERT INTO memory_claims_fts(rowid, content, subject, object)
+                VALUES (new.rowid, new.content, new.subject, new.object);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_claims_ad AFTER DELETE ON memory_claims BEGIN
+                INSERT INTO memory_claims_fts(memory_claims_fts, rowid, content, subject, object)
+                VALUES ('delete', old.rowid, old.content, old.subject, old.object);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_claims_au AFTER UPDATE ON memory_claims BEGIN
+                INSERT INTO memory_claims_fts(memory_claims_fts, rowid, content, subject, object)
+                VALUES ('delete', old.rowid, old.content, old.subject, old.object);
+                INSERT INTO memory_claims_fts(rowid, content, subject, object)
+                VALUES (new.rowid, new.content, new.subject, new.object);
+            END;",
+        )?;
+        if !claims_fts_existed {
+            // Backfill claims written before this index existed (PR #3-7).
+            let _ = conn.execute_batch(
+                "INSERT INTO memory_claims_fts(memory_claims_fts) VALUES('rebuild');",
+            );
+        }
+
+        // Claim embedding signature column (PR #8 claim vector retrieval).
+        // Additive: dev DBs that created `memory_claims` before this column
+        // existed (PR #2-7) get it backfilled here; the error on re-run (column
+        // already present) is expected and ignored. The vec0 table
+        // (`memory_claims_vec`) is created lazily on first embed, mirroring
+        // `memories_vec`.
+        let _ = conn.execute(
+            "ALTER TABLE memory_claims ADD COLUMN embedding_signature TEXT",
+            [],
+        );
+
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
         for _ in 0..READ_POOL_SIZE {
@@ -618,6 +902,127 @@ impl SqliteMemoryBackend {
             }
         }
     }
+
+    /// Ensure the claim vec0 virtual table exists with the correct dimensions
+    /// (PR #8 claim vector retrieval). Mirrors [`Self::ensure_vec_table`] but
+    /// for `memory_claims_vec`, keyed on `memory_claims`' implicit INTEGER
+    /// rowid (the table PK is a TEXT uuid). Recreated on dimension change.
+    pub(crate) fn ensure_claims_vec_table(&self, conn: &Connection, dims: u32) -> Result<()> {
+        let existing_sql: Option<String> = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_claims_vec'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let expected_dim = format!("float[{}]", dims);
+        if let Some(sql) = existing_sql {
+            if !sql.contains(&expected_dim) {
+                app_warn!(
+                    "memory",
+                    "embedding",
+                    "Recreating memory_claims_vec for embedding dimension change to {}",
+                    dims
+                );
+                conn.execute_batch("DROP TABLE IF EXISTS memory_claims_vec;")?;
+            }
+        }
+        let sql = format!(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_claims_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding float[{}])",
+            dims
+        );
+        conn.execute_batch(&sql)?;
+        Ok(())
+    }
+
+    /// Generate + persist one claim's embedding into `memory_claims_vec` and
+    /// stamp `memory_claims.embedding_signature` (PR #8). Best-effort: a missing
+    /// embedder, dim=0, or a vanished claim row is a silent no-op (FTS-only
+    /// recall still works; the reembed job backfills later).
+    ///
+    /// MUST be called WITHOUT holding the write lock: `generate_embedding`
+    /// itself acquires `write_conn` to persist the embedding cache, so calling
+    /// this while the caller already holds `write_conn` would deadlock (the
+    /// writer `Mutex` is not re-entrant). Callers that wrote the claim under a
+    /// tx must `drop` their guard first.
+    pub(crate) fn embed_and_index_claim(&self, claim_id: &str, content: &str) {
+        let dims = self
+            .embedding_dims
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if dims == 0 {
+            return;
+        }
+        let Some(emb) = self.generate_embedding(content) else {
+            return;
+        };
+        let Some(signature) = crate::memory::helpers::active_embedding_signature() else {
+            return;
+        };
+        let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let Ok(conn) = self.write_conn() else {
+            return;
+        };
+        if self.ensure_claims_vec_table(&conn, dims).is_err() {
+            return;
+        }
+        let rowid: Option<i64> = conn
+            .query_row(
+                "SELECT rowid FROM memory_claims WHERE id = ?1",
+                params![claim_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .unwrap_or(None);
+        let Some(rowid) = rowid else {
+            return;
+        };
+        let _ = conn.execute(
+            "UPDATE memory_claims SET embedding_signature = ?1 WHERE id = ?2",
+            params![signature, claim_id],
+        );
+        let _ = conn.execute(
+            "DELETE FROM memory_claims_vec WHERE rowid = ?1",
+            params![rowid],
+        );
+        let _ = conn.execute(
+            "INSERT INTO memory_claims_vec(rowid, embedding) VALUES (?1, ?2)",
+            params![rowid, emb_bytes],
+        );
+    }
+
+    /// Re-embed every active claim (PR #8). Claims share the memory embedding
+    /// model, so the `MemoryReembed` job calls this after re-embedding memories
+    /// on a model switch. Best-effort + cancel-aware; claim volume is small so
+    /// a per-claim acquire/release of the write lock is acceptable.
+    pub(crate) fn reembed_claims(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<usize> {
+        if self
+            .embedding_dims
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            return Ok(0);
+        }
+        let claims: Vec<(String, String)> = {
+            let conn = self.read_conn()?;
+            let mut stmt =
+                conn.prepare("SELECT id, content FROM memory_claims WHERE status = 'active'")?;
+            let rows =
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        let mut count = 0usize;
+        for (id, content) in claims {
+            if cancel.is_cancelled() {
+                break;
+            }
+            self.embed_and_index_claim(&id, &content);
+            count += 1;
+        }
+        Ok(count)
+    }
 }
 
 // ── Helper: scope -> SQL conditions ──────────────────────────────
@@ -722,5 +1127,48 @@ mod tests {
         backend.ensure_vec_table(&conn, 768).expect("recreate 768");
         assert!(vec_table_sql(&conn).contains("float[768]"));
         assert!(!vec_table_sql(&conn).contains("float[384]"));
+    }
+
+    fn claims_vec_table_sql(conn: &Connection) -> String {
+        conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_claims_vec'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("memory_claims_vec sql")
+    }
+
+    #[test]
+    fn ensure_claims_vec_table_recreates_when_dimensions_change() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("memory.db");
+        let backend = SqliteMemoryBackend::open(&db_path).expect("open backend");
+        let conn = backend.write_conn().expect("write conn");
+
+        backend
+            .ensure_claims_vec_table(&conn, 384)
+            .expect("create 384");
+        assert!(claims_vec_table_sql(&conn).contains("float[384]"));
+
+        backend
+            .ensure_claims_vec_table(&conn, 768)
+            .expect("recreate 768");
+        assert!(claims_vec_table_sql(&conn).contains("float[768]"));
+        assert!(!claims_vec_table_sql(&conn).contains("float[384]"));
+    }
+
+    #[test]
+    fn claims_table_exposes_embedding_signature_column() {
+        // DDL + the defensive ALTER must leave `embedding_signature` queryable
+        // (the claim vector retrieval signature filter depends on it).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("memory.db");
+        let backend = SqliteMemoryBackend::open(&db_path).expect("open backend");
+        let conn = backend.write_conn().expect("write conn");
+        assert!(
+            conn.prepare("SELECT embedding_signature FROM memory_claims LIMIT 0")
+                .is_ok(),
+            "memory_claims must expose embedding_signature"
+        );
     }
 }

@@ -11,6 +11,16 @@ use crate::memory::{self, AddResult, MemoryScope, MemorySearchQuery, MemoryType,
 /// `memory_extract::resolve_extract_scope` so manual and auto-extracted
 /// memories land in the same place for project sessions.
 pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
+    // Incognito red-line: a burn-on-close session must never persist into the
+    // long-term memory store. The extraction paths (memory_extract) and the KB
+    // note tools already fail-closed on incognito; this is the matching guard
+    // for the manual write tool, which otherwise wrote straight to memory.db.
+    if ctx.incognito {
+        return Err(anyhow::anyhow!(
+            "save_memory is unavailable in an incognito session (close = burn)"
+        ));
+    }
+
     let content = args
         .get("content")
         .and_then(|v| v.as_str())
@@ -412,7 +422,23 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
 
 /// Tool: update_core_memory — update the core memory file (memory.md) that is always visible
 /// in the system prompt. Used for persistent rules, preferences, and standing instructions.
-pub(crate) async fn tool_update_core_memory(args: &Value, agent_id: &str) -> Result<String> {
+pub(crate) async fn tool_update_core_memory(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+) -> Result<String> {
+    // Incognito red-line: never write core memory (memory.md) from a
+    // burn-on-close session. Mirrors save_memory + the extraction guards.
+    if ctx.incognito {
+        return Err(anyhow::anyhow!(
+            "update_core_memory is unavailable in an incognito session (close = burn)"
+        ));
+    }
+
+    let agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
+
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -482,4 +508,43 @@ pub(crate) async fn tool_update_core_memory(args: &Value, agent_id: &str) -> Res
     .await??;
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Incognito red-line: the manual memory-write tools must refuse to persist
+    /// anything from a burn-on-close session. The guard runs before any backend
+    /// / filesystem access, so this needs no initialised memory backend.
+    #[tokio::test]
+    async fn save_memory_refuses_incognito_session() {
+        let ctx = super::super::ToolExecContext {
+            incognito: true,
+            ..Default::default()
+        };
+        let err = tool_save_memory(&json!({ "content": "secret" }), &ctx)
+            .await
+            .expect_err("save_memory must be refused in an incognito session");
+        assert!(
+            err.to_string().contains("incognito"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_core_memory_refuses_incognito_session() {
+        let ctx = super::super::ToolExecContext {
+            incognito: true,
+            ..Default::default()
+        };
+        let err = tool_update_core_memory(&json!({ "content": "rule", "action": "append" }), &ctx)
+            .await
+            .expect_err("update_core_memory must be refused in an incognito session");
+        assert!(
+            err.to_string().contains("incognito"),
+            "unexpected error: {err}"
+        );
+    }
 }

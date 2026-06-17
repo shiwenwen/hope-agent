@@ -12,7 +12,8 @@
 //! - `cron.db`: `cron_jobs.payload_json` (rewrites the embedded `agent_id`
 //!   inside each `AgentTurn` payload)
 //! - `logs.db`: `logs.agent_id`
-//! - `memory.db`: `memories.scope_agent_id` for `scope_type='agent'` rows
+//! - `memory.db`: `memories.scope_agent_id` + `memory_claims.scope_id` for
+//!   `scope_type='agent'` rows
 //! - `background_jobs.db` (best-effort, only when the file already exists)
 //! - `canvas/canvas.db` (best-effort, only when the file already exists)
 //! - global config (`config.json`): `default_agent_id`,
@@ -339,11 +340,34 @@ fn update_memory_db_if_present() -> Result<()> {
     if !table_exists(&conn, "memories") {
         return Ok(());
     }
-    let n = conn.execute(
+    let mut n = conn.execute(
         "UPDATE memories SET scope_agent_id = ?1 \
          WHERE scope_type = 'agent' AND scope_agent_id = ?2",
         params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],
     )?;
+    // `memory_claims.scope_id` is the claim-layer analogue of
+    // `memories.scope_agent_id` for `scope_type='agent'` rows (§11: new tables
+    // participate in the agent-id rename). Defensive: claims are only written
+    // after dual-write starts, long after the legacy `default` id is gone, so
+    // this is normally a no-op — but it keeps the contract honest if a build
+    // ever ships claims before this migration has run.
+    if table_exists(&conn, "memory_claims") {
+        n += conn.execute(
+            "UPDATE memory_claims SET scope_id = ?1 \
+             WHERE scope_type = 'agent' AND scope_id = ?2",
+            params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],
+        )?;
+    }
+    // `memory_profile_snapshots.scope_id` is the same agent-id-bearing column
+    // for `scope_type='agent'` rows (§11). Defensive, like `memory_claims`:
+    // snapshots only appear once the user opts into profile synthesis.
+    if table_exists(&conn, "memory_profile_snapshots") {
+        n += conn.execute(
+            "UPDATE memory_profile_snapshots SET scope_id = ?1 \
+             WHERE scope_type = 'agent' AND scope_id = ?2",
+            params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],
+        )?;
+    }
     log_rewrite("memory.db", n);
     Ok(())
 }

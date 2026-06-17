@@ -590,10 +590,22 @@ fn build_router_with_cors(
         // Memory
         .route("/memory", post(routes::memory::add_memory))
         .route("/memory", get(routes::memory::list_memories))
+        .route("/claims", get(routes::memory::list_claims))
+        .route("/claims/{id}", get(routes::memory::get_claim))
+        .route("/claims/{id}", patch(routes::memory::update_claim))
+        .route("/claims/{id}/forget", post(routes::memory::forget_claim))
         .route("/memory/{id}", get(routes::memory::get_memory))
         .route("/memory/{id}", put(routes::memory::update_memory))
         .route("/memory/{id}", delete(routes::memory::delete_memory))
         .route("/memory/search", post(routes::memory::search_memories))
+        .route(
+            "/memory/backfill/plan",
+            get(routes::memory::memory_backfill_plan),
+        )
+        .route(
+            "/memory/backfill/apply",
+            post(routes::memory::memory_backfill_apply),
+        )
         .route("/memory/count", get(routes::memory::memory_count))
         .route("/memory/stats", get(routes::memory::memory_stats))
         .route(
@@ -1118,6 +1130,12 @@ fn build_router_with_cors(
         .route("/cron/calendar", get(routes::cron::get_calendar_events))
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
+        .route("/dreaming/resolver", post(routes::dreaming::run_resolver))
+        .route("/dreaming/profile/run", post(routes::dreaming::run_profile))
+        .route(
+            "/dreaming/profile",
+            get(routes::dreaming::list_profile_snapshots),
+        )
         .route("/dreaming/diaries", get(routes::dreaming::list_diaries))
         .route(
             "/dreaming/diaries/{filename}",
@@ -1126,6 +1144,12 @@ fn build_router_with_cors(
         .route("/dreaming/status", get(routes::dreaming::status))
         .route("/dreaming/last-report", get(routes::dreaming::last_report))
         .route("/dreaming/idle-status", get(routes::dreaming::idle_status))
+        .route("/dreaming/runs", get(routes::dreaming::list_runs))
+        .route("/dreaming/runs/{id}", get(routes::dreaming::get_run))
+        .route(
+            "/dreaming/evidence/quote",
+            get(routes::dreaming::evidence_quote),
+        )
         .route(
             "/cron/validate",
             post(routes::config::validate_cron_expression),

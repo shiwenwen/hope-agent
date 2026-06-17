@@ -13,10 +13,12 @@ use chrono::Local;
 use crate::agent::AssistantAgent;
 use crate::memory::MemoryEntry;
 
+use std::collections::HashMap;
+
 use super::config::DreamingConfig;
-use super::scanner::render_candidates_for_prompt;
+use super::scanner::{evidence_for_candidate, render_candidates_for_prompt};
 use super::scoring::{filter_and_rank, parse_nominations};
-use super::types::PromotionRecord;
+use super::types::{EvidenceRef, PromotionRecord};
 
 /// Result of the narrative step. `promotions` is already filtered
 /// against `DreamingConfig.promotion.min_score` / `max_promote`.
@@ -81,17 +83,50 @@ pub async fn run_side_query(
     let (promotions_raw, diary) = split_envelope(&result.text);
     let nominated = parse_nominations(&promotions_raw);
     let promotions_nominated = nominated.len();
-    let promoted = filter_and_rank(
+    let mut promoted = filter_and_rank(
         nominated,
         cfg.promotion.min_score,
         cfg.promotion.max_promote,
     );
+
+    attach_evidence(&mut promoted, candidates);
 
     Ok(NarrativeOutput {
         promotions: promoted,
         promotions_nominated,
         diary_markdown: diary,
     })
+}
+
+/// Attach provenance to each promotion by matching its memory id back to
+/// the scanned candidate it came from (Evidence Layer). The LLM only
+/// returns ids; the source session lives on the candidate, so the join
+/// happens here. A nomination with no matching candidate (shouldn't
+/// normally happen) still anchors to its own memory id.
+fn attach_evidence(promoted: &mut [PromotionRecord], candidates: &[MemoryEntry]) {
+    let by_id: HashMap<i64, &MemoryEntry> = candidates.iter().map(|c| (c.id, c)).collect();
+    for p in promoted.iter_mut() {
+        p.evidence = match by_id.get(&p.memory_id) {
+            Some(candidate) => evidence_for_candidate(candidate),
+            None => vec![EvidenceRef::memory(p.memory_id)],
+        };
+    }
+}
+
+/// Render evidence refs into a stable, grep-able anchor for the diary
+/// comment, e.g. `memory:42,session:abc123`. Empty refs → empty string.
+pub(crate) fn render_evidence_anchor(refs: &[EvidenceRef]) -> String {
+    refs.iter()
+        .filter_map(|r| match r.source_type.as_str() {
+            "memory" => r.memory_id.map(|id| format!("memory:{}", id)),
+            "session_message" => r.session_id.as_ref().map(|sid| match r.message_id {
+                Some(mid) => format!("session:{}#{}", sid, mid),
+                None => format!("session:{}", sid),
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// Pull out (promotions_json, diary_markdown) from the LLM response.
@@ -149,9 +184,10 @@ pub fn render_diary_markdown(output: &NarrativeOutput) -> String {
     } else {
         for p in &output.promotions {
             md.push_str(&format!("### {}\n\n", p.title));
+            let evidence_anchor = render_evidence_anchor(&p.evidence);
             md.push_str(&format!(
-                "<!-- ha-dream-promotion: memory_id={} score={:.2} -->\n",
-                p.memory_id, p.score
+                "<!-- ha-dream-promotion: memory_id={} score={:.2} evidence={} -->\n",
+                p.memory_id, p.score, evidence_anchor
             ));
             if !p.rationale.is_empty() {
                 md.push_str(&p.rationale);
@@ -177,4 +213,70 @@ pub fn write_diary(md: &str) -> Result<std::path::PathBuf> {
     let path = dir.join(format!("{}.md", stamp));
     std::fs::write(&path, md).context("writing diary markdown")?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(id: i64, session: Option<&str>) -> MemoryEntry {
+        MemoryEntry {
+            id,
+            memory_type: crate::memory::MemoryType::User,
+            scope: crate::memory::MemoryScope::Global,
+            content: format!("memory {id}"),
+            tags: Vec::new(),
+            source: "auto".to_string(),
+            source_session_id: session.map(|s| s.to_string()),
+            pinned: false,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            relevance_score: None,
+            attachment_path: None,
+            attachment_mime: None,
+        }
+    }
+
+    fn promo(memory_id: i64) -> PromotionRecord {
+        PromotionRecord {
+            memory_id,
+            score: 0.9,
+            title: format!("t{memory_id}"),
+            rationale: String::new(),
+            evidence: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn attach_evidence_anchors_each_promotion_to_its_memory() {
+        let candidates = vec![candidate(1, Some("sess-1")), candidate(2, None)];
+        let mut promoted = vec![promo(2), promo(1)];
+        attach_evidence(&mut promoted, &candidates);
+
+        // The join maps each promotion to the right candidate's memory id,
+        // regardless of order. Session refs fail closed without a live
+        // session DB (that rule is covered purely in scanner::build_evidence),
+        // so here we assert the join + that every promotion is anchored.
+        assert_eq!(promoted[0].memory_id, 2);
+        assert_eq!(promoted[0].evidence[0].memory_id, Some(2));
+        assert_eq!(promoted[1].memory_id, 1);
+        assert_eq!(promoted[1].evidence[0].memory_id, Some(1));
+        assert!(promoted.iter().all(|p| !p.evidence.is_empty()));
+    }
+
+    #[test]
+    fn attach_evidence_falls_back_to_memory_id_when_unmatched() {
+        let candidates = vec![candidate(1, Some("sess-1"))];
+        let mut promoted = vec![promo(99)];
+        attach_evidence(&mut promoted, &candidates);
+        assert_eq!(promoted[0].evidence.len(), 1);
+        assert_eq!(promoted[0].evidence[0].memory_id, Some(99));
+    }
+
+    #[test]
+    fn render_anchor_is_stable_and_grepable() {
+        let refs = vec![EvidenceRef::memory(42), EvidenceRef::session("abc")];
+        assert_eq!(render_evidence_anchor(&refs), "memory:42,session:abc");
+        assert_eq!(render_evidence_anchor(&[]), "");
+    }
 }

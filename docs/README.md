@@ -36,6 +36,7 @@
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
 | [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/工作目录/指令、7 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
 | [记忆系统](architecture/memory.md)                 | SQLite + FTS5 + vec0 混合检索、多模型 Embedding 配置、自动提取、Active Memory、Dreaming、Recall Summary、向量重建 | `memory/`                                      |
+| [Dreaming 子系统](architecture/dreaming.md)        | 离线固化 + 结构化 claim 长期记忆：数据模型、Light/Deep/Profile pipeline、Context Pack 注入、Lucid Review 纠错闭环、确定性评测、owner 平面 API | `memory/dreaming/`, `memory/claims/`           |
 | [知识空间（Knowledge Base）](architecture/knowledge-base.md) | 真实 `.md` 双链笔记 + index.db 可重建缓存（chunk FTS+向量 RRF/MMR 检索）、Wikilink/反链/标签/块引用、图谱视图 + transclusion、`note_*` 工具 + `effective_kb_access` 双鉴权平面、外部 vault 绑定（默认只读 / opt-in 可写）+ notify watcher、CM6 五模式编辑器、Layer 2 自主维护 | `knowledge/`, `tools/note.rs`, `components/knowledge/` |
 
 

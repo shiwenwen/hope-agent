@@ -145,6 +145,26 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
               onCheckedChange={data.handleToggleFlushBeforeCompact}
             />
           </div>
+          {/* Claim dual-write (beta) — global-only */}
+          {!isAgentMode && (
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium flex items-center gap-1.5">
+                  {t("settings.memoryExtractClaims")}
+                  <span className="text-[9px] uppercase tracking-wide rounded bg-primary/15 text-primary px-1 py-0.5">
+                    beta
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("settings.memoryExtractClaimsDesc")}
+                </div>
+              </div>
+              <Switch
+                checked={data.effectiveExtractClaims}
+                onCheckedChange={data.handleToggleExtractClaims}
+              />
+            </div>
+          )}
           {/* Reset to global (agent mode only) */}
           {isAgentMode && agentHasOverride && (
             <Button

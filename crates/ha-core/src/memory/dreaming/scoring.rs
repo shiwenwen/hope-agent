@@ -65,6 +65,9 @@ pub fn parse_nominations(text: &str) -> Vec<PromotionRecord> {
                 score,
                 title,
                 rationale,
+                // Provenance is attached by the pipeline once the nominated
+                // id is matched back to its scanned candidate.
+                evidence: Vec::new(),
             })
         })
         .collect()
@@ -136,12 +139,14 @@ mod tests {
                 score: 0.5,
                 title: "a".into(),
                 rationale: String::new(),
+                evidence: Vec::new(),
             },
             PromotionRecord {
                 memory_id: 2,
                 score: 0.9,
                 title: "b".into(),
                 rationale: String::new(),
+                evidence: Vec::new(),
             },
         ];
         let out = filter_and_rank(records, 0.8, 10);
@@ -157,6 +162,7 @@ mod tests {
                 score: 0.9,
                 title: format!("t{}", i),
                 rationale: String::new(),
+                evidence: Vec::new(),
             })
             .collect();
         let out = filter_and_rank(records, 0.0, 3);

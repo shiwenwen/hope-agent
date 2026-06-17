@@ -780,7 +780,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "terbiar",
-        "manual": "manual"
+        "manual": "manual",
+        "user_correction": "pembetulan"
+      },
+      "runs": {
+        "title": "Sejarah larian",
+        "empty": "Tiada larian direkodkan lagi.",
+        "decisions": "Keputusan",
+        "noDecisions": "Tiada peningkatan dalam larian ini.",
+        "selectRun": "Pilih larian untuk melihat keputusannya.",
+        "status": {
+          "running": "berjalan",
+          "completed": "selesai",
+          "failed": "gagal",
+          "skipped": "dilangkau"
+        },
+        "evidence": "Sumber",
+        "evidenceIncognito": "Sumber inkognito — tidak boleh dilihat",
+        "evidenceUnavailable": "Sumber tidak tersedia"
+      },
+      "runResolver": "Penyelesaian mendalam",
+      "resolving": "Menyelesaikan…",
+      "resolverDone": "Selesai: {{expired}} luput, {{merged}} digabung, {{review}} untuk semakan",
+      "resolverFailed": "Penyelesaian mendalam gagal",
+      "review": {
+        "queueTitle": "Perlu disemak",
+        "queueEmpty": "Tiada claim yang perlu disemak",
+        "approve": "Luluskan",
+        "approveDone": "Claim diluluskan",
+        "markOutdated": "Tanda lapuk",
+        "markOutdatedDone": "Ditanda lapuk",
+        "pin": "Sematkan",
+        "pinDone": "Claim disematkan",
+        "unpin": "Nyahsemat",
+        "unpinDone": "Claim dinyahsemat",
+        "edit": "Sunting",
+        "editTitle": "Sunting claim",
+        "editDesc": "Sunting kandungan dan tag claim. Suntingan anda direkodkan sebagai pembetulan.",
+        "editContent": "Kandungan",
+        "editTags": "Tag",
+        "editTagsPlaceholder": "dipisahkan koma",
+        "editDone": "Claim dikemas kini",
+        "moveScope": "Alih skop",
+        "moveScopeTitle": "Alih skop",
+        "moveScopeDesc": "Tukar skop yang claim ini tergolong.",
+        "moveScopeDone": "Skop ditukar",
+        "scopeGlobal": "Global",
+        "scopeAgent": "Ejen",
+        "scopeProject": "Projek",
+        "scopeId": "ID skop",
+        "scopeIdPlaceholder": "id ejen atau projek",
+        "reject": "Tolak",
+        "rejectTitle": "Tolak claim ini?",
+        "rejectDesc": "Claim akan diarkibkan dan berhenti mempengaruhi gesaan.",
+        "rejectDone": "Claim ditolak",
+        "forget": "Lupakan",
+        "forgetTitle": "Lupakan memori ini",
+        "forgetDesc": "Hentikan penggunaan memori ini.",
+        "forgetArchive": "Arkib",
+        "forgetArchiveDesc": "Arkibkan claim dan hentikan suntikan memori berpaut. Bukti dikekalkan.",
+        "forgetPermanent": "Padam kekal",
+        "forgetPermanentDesc": "Padam secara kekal claim, buktinya, dan mana-mana memori yang diuruskannya sahaja. Tidak boleh dibatalkan.",
+        "forgetNotePlaceholder": "Sebab (pilihan)",
+        "forgetConfirm": "Lupakan",
+        "forgetDone": "Memori dilupakan",
+        "failed": "Tindakan gagal"
       }
     },
     "error": {
@@ -2249,6 +2313,8 @@
     "acpTimeout": "Tamat masa (saat)",
     "activeMemoryCacheTtl": "TTL Cache (saat)",
     "activeMemoryCandidateLimit": "Had calon",
+    "activeMemoryIncludeClaims": "Sertakan dakwaan berstruktur",
+    "activeMemoryIncludeClaimsDesc": "Turut pendekkan senarai dakwaan berstruktur Dreaming (bukan hanya memori lama) sebagai calon imbasan. Dimatikan secara lalai.",
     "activeMemoryDesc": "Pada permulaan setiap giliran pengguna, jalankan side query bertimbang untuk merumuskan memori paling relevan dalam satu ayat dan suntikkannya bersama prompt sistem. Timeout dan kegagalan akan senyap jatuh ke recall pasif — tidak pernah menghalang sembang.",
     "activeMemoryMaxChars": "Had aksara recall",
     "activeMemoryTimeout": "Timeout (ms)",
@@ -2844,7 +2910,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Sintesis profil",
+      "profileEnabled": "Sintesiskan profil ingatan",
+      "profileEnabledDesc": "Bina profil yang mudah dibaca daripada claim aktif, berlapis mengikut skop. Apabila dihidupkan, ia menggantikan bahagian profil lama dalam system prompt; jika dimatikan, paparan lama dikekalkan. Larian terbiar/cron menggunakan laluan berasaskan peraturan yang murah; larian manual menjalankan tulis semula LLM.",
+      "profileMaxLines": "Baris maksimum setiap skop",
+      "profileMaxLinesDesc": "Had bilangan poin profil yang disimpan bagi setiap skop."
     },
     "embedding": {
       "reembedJob": {
@@ -3405,7 +3476,9 @@
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Pengurusan ingatan",
-      "settings": "Tetapan ingatan"
+      "settings": "Tetapan ingatan",
+      "claims": "Claims",
+      "profile": "Profil"
     },
     "memoryTags": "Tag",
     "memoryTagsPlaceholder": "Tag dipisahkan oleh koma (pilihan)",
@@ -3672,7 +3745,18 @@
     "planQuestionTimeoutDesc": "Masa maksimum untuk menunggu respons pengguna kepada soalan Plan Mode. Batalkan soalan secara automatik pada tamat masa. Tetapkan 0 untuk tiada had.",
     "planSubagent": "Mod Sub-Agent Plan",
     "planSubagentDesc": "Apabila didayakan, Plan Mode menggunakan sub-agent khusus untuk penciptaan pelan (konteks utama lebih bersih). Apabila dilumpuhkan, perancangan berjalan sebaris dalam agent utama (kesinambungan konteks).",
-    "profile": "Profil",
+    "profile": {
+      "title": "Profil Ingatan",
+      "desc": "Apa yang ia tahu tentang anda dan projek anda, disintesis daripada claim aktif dan berlapis mengikut skop.",
+      "refresh": "Muat semula profil",
+      "refreshing": "Mensintesis…",
+      "refreshDone": "Profil dimuat semula ({{count}} snapshot)",
+      "refreshSkipped": "Sintesis dilangkau",
+      "refreshFailed": "Gagal mensintesis profil",
+      "empty": "Belum ada snapshot profil",
+      "emptyHint": "Dayakan sintesis profil di bawah tab Dreaming, kemudian muat semula.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} tahun",
     "profileAiExpBeginner": "Pemula — baru bermula",
     "profileAiExpExpert": "Pakar — pengguna AI yang mendalam",
@@ -4360,6 +4444,46 @@
       "addHandler": "Tambah pengendali",
       "advanced": "Lanjutan",
       "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse)."
+    },
+    "memoryExtractClaims": "Ekstrak claim (beta)",
+    "memoryExtractClaimsDesc": "Turut mengekstrak claim berstruktur berasaskan bukti bersama ingatan (tulis dua).",
+    "claims": {
+      "title": "Claims",
+      "desc": "Ingatan jangka panjang berstruktur dengan skop, keyakinan dan bukti.",
+      "list": "Senarai claim",
+      "empty": "Tiada claim lagi.",
+      "selectClaim": "Pilih satu claim untuk melihat buktinya.",
+      "confidence": "Keyakinan",
+      "salience": "Kepentingan",
+      "evidence": "Bukti",
+      "noEvidence": "Tiada bukti.",
+      "links": "Ingatan berkait",
+      "statusAll": "Semua status",
+      "status": {
+        "active": "Aktif",
+        "superseded": "Diganti",
+        "expired": "Tamat tempoh",
+        "archived": "Diarkibkan",
+        "needs_review": "Perlu semakan"
+      },
+      "backfill": {
+        "button": "Isi semula",
+        "title": "Isi semula memori sedia ada",
+        "desc": "Daftarkan memori sedia ada sebagai claim berstruktur. Hanya memori profil dan keutamaan yang disemat (user/feedback) diaktifkan secara automatik; selebihnya masuk ke baris gilir semakan. Dipaut secara longgar, jadi suntikan memori semasa tidak berubah.",
+        "summaryTotal": "Jumlah memori",
+        "summaryLinked": "Sudah dipaut",
+        "summaryCandidates": "Untuk diisi",
+        "summaryActive": "Auto-aktif",
+        "summaryReview": "Perlu semakan",
+        "previewTruncated": "Memaparkan {{shown}} daripada {{total}}",
+        "apply": "Isi semula {{count}}",
+        "applying": "Mengisi semula…",
+        "applied": "{{created}} claim diisi semula: {{active}} aktif, {{review}} menunggu semakan",
+        "planFailed": "Gagal mengira pelan pengisian",
+        "applyFailed": "Pengisian semula gagal",
+        "empty": "Semua memori sudah berada dalam lapisan claim.",
+        "appliedPartial": "{{created}} diisi, {{failed}} gagal — anda boleh cuba semula yang selebihnya"
+      }
     },
     "knowledge": {
       "tab": "Pengetahuan"

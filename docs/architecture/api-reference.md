@@ -99,7 +99,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | 事件名 | 触发点 |
 |---|---|
 | `core_memory_updated` / `memory_extracted` | tools/memory.rs 及自动提取 |
-| `dreaming:cycle_complete` | dreaming 固化周期 |
+| `dreaming:cycle_started` / `dreaming:cycle_complete` | dreaming 固化周期开始 / 结束（payload 含 `runId`） |
 | `cron:run_completed` | cron/executor.rs |
 | `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | **统一后台任务事件（R3，替代旧 `async_tool_job:*`）**。`async_jobs::events` 发射；kind-tagged（payload `{ job_id, kind: "tool"\|"group", tool, status, session_id }`），覆盖后台**工具 + Group** 生命周期。`created`=新任务出现（running/queued）；`updated`=非终态变化（如 cancelling）；`progress`=`{ job_id, kind, session_id, current, total }`（目前 Group 报 N/M 子完成）；`completed`=终态；`mark_injected_failed`=结果注入主对话失败告警 `{ job_id, error }`。**`subagent` kind 沿用 `subagent:*` 流**（不双发），R4 面板合并两路 + `job_status list`。 |
 | `app_update:progress` / `app_update:completed` | 自升级 (`app_update` 工具) 进度上报。`progress` payload `{ job_id, label, phase, percent?, written?, total? }`（每 5% / 1s 节流）；`completed` payload `{ job_id, status: "done"|"failed", outcome?, error? }`，详见 [`self-update.md`](self-update.md) |
@@ -430,11 +430,23 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_agent_memory_md` | `GET /api/agents/{id}/memory-md` | ✅ |
 | `save_agent_memory_md` | `PUT /api/agents/{id}/memory-md` | ✅ |
 | `dreaming_run_now` | `POST /api/dreaming/run` | ✅ |
+| `dreaming_run_resolver` | `POST /api/dreaming/resolver` | ✅ owner 平面；Deep resolver（phase=deep）：valid_until 过期确定性 expire + 同主谓多对象组 LLM 判定 duplicates→merge / conflict→needs_review / independent→no_op，绝不自动 supersede 或硬删 |
+| `dreaming_run_profile` | `POST /api/dreaming/profile/run` | ✅ owner 平面；Memory Profile 合成（phase=profile）：从 active claims 按 scope 规则式聚合（manual 触发额外 LLM 重写），写 `memory_profile_snapshots`（version=MAX+1）；受 `dreaming.profileSynthesis.enabled`（默认开）门控 |
+| `dreaming_list_profile_snapshots` | `GET /api/dreaming/profile` | ✅ owner 平面；每 scope 最新 profile 快照（只读视图，global/agent/project） |
 | `dreaming_list_diaries` | `GET /api/dreaming/diaries` | ✅ |
 | `dreaming_read_diary` | `GET /api/dreaming/diaries/{filename}` | ✅ |
 | `dreaming_is_running` | `GET /api/dreaming/status` | ✅ |
 | `dreaming_last_report` | `GET /api/dreaming/last-report` | ✅ |
 | `dreaming_idle_status` | `GET /api/dreaming/idle-status` | ✅ |
+| `dreaming_list_runs` | `GET /api/dreaming/runs` | ✅ |
+| `dreaming_get_run` | `GET /api/dreaming/runs/{id}` | ✅ |
+| `dreaming_evidence_quote` | `GET /api/dreaming/evidence/quote` | ✅ owner 平面；incognito 来源归零（后端门控） |
+| `claim_list` | `GET /api/claims` | ✅ 结构化 claim 只读（`scopeType`+`scopeId`/status/claimType 过滤；无效 scopeType → 400，不 fail-open；status 按 **effective** 计算并返回——`active` 且已过 `valid_until` 视为 `expired`，`status=active`/`expired` 过滤同步对齐） |
+| `claim_get` | `GET /api/claims/{id}` | ✅ claim + evidence + links（`status` 同为 effective 值） |
+| `claim_update` | `PATCH /api/claims/{id}` | ✅ owner 平面；用户纠错（Lucid Review §5.2）：edit content/triple/tags、改 status（approve→active / reject→archived / mark-outdated→expired / flag→needs_review）、move scope、pin/unpin（salience 越过 0.7 阈值）。写 `manual_correction` evidence（approve 用 `user_confirmed`）+ `user_correction` decision log + 发 `memory:claim_changed`；content 变更触发 re-embed。`id` 走 path（覆盖 body 的 `claimId`），其余字段为 body |
+| `claim_forget` | `POST /api/claims/{id}/forget` | ✅ owner 平面；`{permanent?,note?}`。`permanent=false`（默认）archive（保留 evidence 作审计，linked legacy memory 停止注入）；`true` 硬删 claim 图谱（claim+evidence+link+vector）+ 仅本 claim 独管的 legacy memory。写 decision log + 发 `memory:claim_changed` |
+| `memory_backfill_plan` | `GET /api/memory/backfill/plan` | ✅ owner 平面；dry-run 把 legacy memory 确定性映射为 claim 预览（精确计数 + 截断预览，不写） |
+| `memory_backfill_apply` | `POST /api/memory/backfill/apply` | ✅ owner 平面；确定性重扫，事务内 check（memory 存在 + 未 link，竞态/重入幂等→skipped）后写入 claim + `source_type=memory` evidence + **detached** link（不改变现有注入），仅 pinned 的 user/feedback 自动 active、其余 needs_review；返回 created/skipped/failed |
 | `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
 | `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
 | `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |

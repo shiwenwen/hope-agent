@@ -1,0 +1,44 @@
+{
+  "name": "temporal_supersede",
+  "description": "Stale-suppression red-line (§9.2): a claim past its valid_until reads as effective-expired and drops out of the active set, while a still-valid claim stays.",
+  "claims": [
+    {
+      "key": "current",
+      "scope": { "type": "agent", "id": "ev_temporal" },
+      "claim_type": "standing_rule",
+      "subject": "user",
+      "predicate": "uses_editor",
+      "object": "neovim",
+      "content": "The user currently uses Neovim.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "future",
+      "salience": 0.6
+    },
+    {
+      "key": "outdated",
+      "scope": { "type": "agent", "id": "ev_temporal" },
+      "claim_type": "standing_rule",
+      "subject": "user",
+      "predicate": "uses_laptop",
+      "object": "old-model-2018",
+      "content": "The user uses an old-model-2018 laptop.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "past",
+      "salience": 0.6
+    }
+  ],
+  "checks": {
+    "status": [
+      { "claim": "current", "expect": "active" },
+      { "claim": "outdated", "expect": "expired" }
+    ],
+    "list_active": [
+      {
+        "scope": { "type": "agent", "id": "ev_temporal" },
+        "expect_present": ["current"],
+        "expect_absent": ["outdated"],
+        "forbidden_content": ["old-model-2018"]
+      }
+    ]
+  }
+}

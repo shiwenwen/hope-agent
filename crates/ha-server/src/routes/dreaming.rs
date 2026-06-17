@@ -17,6 +17,19 @@ pub struct ListDiariesQuery {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ListRunsQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceQuoteQuery {
+    pub session_id: String,
+    pub message_id: Option<i64>,
+}
+
 use crate::error::AppError;
 
 /// `POST /api/dreaming/run` — kick off a cycle inline (trigger=manual).
@@ -24,6 +37,29 @@ pub async fn run_now() -> Result<Json<dreaming::DreamReport>, AppError> {
     Ok(Json(
         dreaming::manual_run(dreaming::DreamTrigger::Manual).await,
     ))
+}
+
+/// `POST /api/dreaming/resolver` — run one Deep resolver cycle (expire / merge
+/// / conflict) over active claims (trigger=manual).
+pub async fn run_resolver() -> Result<Json<dreaming::ResolverReport>, AppError> {
+    Ok(Json(
+        dreaming::run_resolver_cycle(dreaming::DreamTrigger::Manual).await,
+    ))
+}
+
+/// `POST /api/dreaming/profile/run` — run one Memory Profile synthesis cycle
+/// (manual = LLM rewrite) over active claims (trigger=manual).
+pub async fn run_profile() -> Result<Json<dreaming::ProfileReport>, AppError> {
+    Ok(Json(
+        dreaming::run_profile_synthesis_cycle(dreaming::DreamTrigger::Manual).await,
+    ))
+}
+
+/// `GET /api/dreaming/profile` — latest Memory Profile snapshot per scope
+/// (read-only profile view). Owner-plane.
+pub async fn list_profile_snapshots() -> Result<Json<Vec<dreaming::ProfileSnapshotRecord>>, AppError>
+{
+    Ok(Json(dreaming::list_profile_snapshots()?))
 }
 
 /// `GET /api/dreaming/diaries?limit=N` — list available Dream Diary
@@ -61,4 +97,33 @@ pub async fn idle_status() -> Result<Json<Value>, AppError> {
         "lastActivityEpochSecs": dreaming::last_activity_epoch_secs(),
         "idleMinutes": cfg.dreaming.idle_trigger.idle_minutes,
     })))
+}
+
+/// `GET /api/dreaming/runs?limit=N&offset=M` — durable run history, newest
+/// first. Survives restart, unlike `/last-report`.
+pub async fn list_runs(
+    Query(q): Query<ListRunsQuery>,
+) -> Result<Json<Vec<dreaming::DreamingRunRecord>>, AppError> {
+    Ok(Json(dreaming::list_runs(q.limit, q.offset)?))
+}
+
+/// `GET /api/dreaming/runs/{id}` — a single run plus its decision log.
+/// Returns `null` when the id is unknown (mirrors the Tauri command).
+pub async fn get_run(
+    Path(id): Path<String>,
+) -> Result<Json<Option<dreaming::DreamingRunDetail>>, AppError> {
+    Ok(Json(dreaming::get_run(&id)?))
+}
+
+/// `GET /api/dreaming/evidence/quote?sessionId=&messageId=` — resolve a
+/// redacted, length-capped excerpt for an evidence ref (Evidence Layer).
+///
+/// Owner-plane (API-key trust, like `/api/sessions/{id}/messages`); it
+/// surfaces a strict subset of that data. The incognito gate lives in the
+/// core so expansion can't be unlocked by the frontend alone (design
+/// §5.3 / §8.1) — incognito sources come back `available: false`.
+pub async fn evidence_quote(
+    Query(q): Query<EvidenceQuoteQuery>,
+) -> Result<Json<dreaming::EvidenceQuote>, AppError> {
+    Ok(Json(dreaming::evidence_quote(&q.session_id, q.message_id)))
 }

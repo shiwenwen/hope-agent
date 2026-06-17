@@ -595,6 +595,8 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     handleUpdateIdleTimeoutMins: extract.handleUpdateIdleTimeoutMins,
     handleToggleFlushBeforeCompact: extract.handleToggleFlushBeforeCompact,
     effectiveFlushBeforeCompact: extract.effectiveFlushBeforeCompact,
+    effectiveExtractClaims: extract.effectiveExtractClaims,
+    handleToggleExtractClaims: extract.handleToggleExtractClaims,
     resetAgentExtract: extract.resetAgentExtract,
   }
 }
