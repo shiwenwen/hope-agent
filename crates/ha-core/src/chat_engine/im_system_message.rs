@@ -1,7 +1,8 @@
 //! Friendly IM system-event notices.
 //!
 //! Mirrors the GUI's inline status banners (model fallback, profile
-//! rotation, context compaction, thinking auto-disabled) onto IM as
+//! rotation, context compaction, thinking auto-disabled, vision
+//! auto-disabled) onto IM as
 //! short standalone markdown messages. Format: emoji prefix +
 //! single-line italic body. Routed through
 //! [`crate::channel::worker::pipeline::StreamPipeline::system_notice_tx`]
@@ -25,6 +26,7 @@ pub fn format_im_system_event(event: &Value) -> Option<String> {
         "profile_rotation" => Some(format_profile_rotation(obj)),
         "context_compacted" => format_context_compacted(obj),
         "thinking_auto_disabled" => Some(format_thinking_auto_disabled()),
+        "vision_auto_disabled" => Some(format_vision_auto_disabled()),
         _ => None,
     }
 }
@@ -91,6 +93,10 @@ fn format_context_compacted(obj: &serde_json::Map<String, Value>) -> Option<Stri
 
 fn format_thinking_auto_disabled() -> String {
     "🧠 _Reasoning unavailable on this model — continuing without thinking._".to_string()
+}
+
+fn format_vision_auto_disabled() -> String {
+    "🖼️ _This model can't read images — continuing with the image(s) ignored._".to_string()
 }
 
 /// Map serialized [`crate::failover::FailoverReason`] (snake_case) to a

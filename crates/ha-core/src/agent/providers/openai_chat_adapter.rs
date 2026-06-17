@@ -5,7 +5,7 @@
 //! `tool_calls[]` index accumulation + `<think>` tag filtering), and history
 //! persistence in Chat Completions' `tool_calls` + `role=tool` shape.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -16,6 +16,7 @@ use super::super::api_types::FunctionCallItem;
 use super::super::config::{apply_thinking_to_chat_body, build_api_url};
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, expand_openai_chat_image_markers_for_api,
+    openai_chat_history_has_images,
 };
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
@@ -30,6 +31,35 @@ pub(crate) struct OpenAIChatStreamingAdapter<'a> {
     pub model: &'a str,
     pub thinking_style: &'a ThinkingStyle,
     pub provider_config: Option<&'a crate::provider::ProviderConfig>,
+    /// Set once the backend rejects `image_url` content (400) at runtime, so
+    /// later tool-loop rounds in the same turn skip images directly instead of
+    /// re-paying a wasted 400 + retry each round.
+    pub vision_runtime_disabled: Arc<AtomicBool>,
+    /// Guards the user-facing "model can't see images" notice to once per turn.
+    pub vision_notice_emitted: Arc<AtomicBool>,
+}
+
+/// Emit the one-shot "images ignored, continuing without vision" notice.
+/// Frontend renders it as a gray inline banner; IM ships it as a standalone
+/// system message. Deduped via `vision_notice_emitted`.
+fn emit_vision_auto_disabled(
+    on_delta: &(impl Fn(&str) + Send),
+    provider_config: Option<&crate::provider::ProviderConfig>,
+    model: &str,
+) {
+    let provider_id = provider_config.map(|p| p.id.clone());
+    let provider_name = provider_config
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "Unknown Provider".to_string());
+    on_delta(
+        &json!({
+            "type": "vision_auto_disabled",
+            "provider_id": provider_id,
+            "provider_name": provider_name,
+            "model_id": model,
+        })
+        .to_string(),
+    );
 }
 
 #[derive(Debug, Clone)]
@@ -418,10 +448,22 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<RoundOutcome> {
         let api_url = build_api_url(self.base_url, "/v1/chat/completions");
+        // Effective vision = catalog says yes AND the backend hasn't already
+        // rejected images this turn at runtime.
         let model_supports_vision = self
             .provider_config
             .map(|pc| pc.model_supports_vision(self.model))
-            .unwrap_or(true);
+            .unwrap_or(true)
+            && !self.vision_runtime_disabled.load(Ordering::Relaxed);
+        // Proactive notice: a text-only model can't see the image(s) the
+        // conversation carries — surface it once, then fold the images to text
+        // below so the request still succeeds instead of 400-ing.
+        if !model_supports_vision
+            && openai_chat_history_has_images(req.history_for_api)
+            && !self.vision_notice_emitted.swap(true, Ordering::Relaxed)
+        {
+            emit_vision_auto_disabled(&on_delta, self.provider_config, self.model);
+        }
         let (body, api_messages, tools_array) =
             build_chat_body(self.model, self.thinking_style, model_supports_vision, &req);
         log_openai_chat_request(
@@ -498,20 +540,12 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                 }
             } else if model_supports_vision && is_unsupported_image_url_error(status, &error_text) {
                 log_vision_auto_disabled(self.provider_config, self.model, status, &error_text);
-                let provider_id = self.provider_config.map(|p| p.id.clone());
-                let provider_name = self
-                    .provider_config
-                    .map(|p| p.name.clone())
-                    .unwrap_or_else(|| "Unknown Provider".to_string());
-                on_delta(
-                    &json!({
-                        "type": "vision_auto_disabled",
-                        "provider_id": provider_id,
-                        "provider_name": provider_name,
-                        "model_id": self.model,
-                    })
-                    .to_string(),
-                );
+                // Remember the rejection so the remaining tool-loop rounds skip
+                // images directly instead of re-paying a 400 + retry each round.
+                self.vision_runtime_disabled.store(true, Ordering::Relaxed);
+                if !self.vision_notice_emitted.swap(true, Ordering::Relaxed) {
+                    emit_vision_auto_disabled(&on_delta, self.provider_config, self.model);
+                }
                 let (retry_body, retry_messages, retry_tools) =
                     build_chat_body(self.model, self.thinking_style, false, &req);
                 log_openai_chat_request(

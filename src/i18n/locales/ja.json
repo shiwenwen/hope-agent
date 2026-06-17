@@ -510,6 +510,7 @@
     "tasks": "タスク",
     "thinking": "実行中...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} は画像入力に対応していません。画像を無視して回答を続けました。",
     "toolCalling": "ツール呼び出し中...",
     "totalTokens": "合計",
     "unknownProvider": "Unknown provider",

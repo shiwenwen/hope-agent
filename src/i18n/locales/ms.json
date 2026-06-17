@@ -510,6 +510,7 @@
     "tasks": "Tugasan",
     "thinking": "Sedang berfikir...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} tidak menyokong input imej. Imej diabaikan dan jawapan diteruskan.",
     "toolCalling": "Memanggil alat...",
     "totalTokens": "Jumlah",
     "unknownProvider": "Unknown provider",

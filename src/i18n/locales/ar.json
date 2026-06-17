@@ -510,6 +510,7 @@
     "tasks": "المهام",
     "thinking": "جارٍ التفكير...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} لا يدعم إدخال الصور. تم تجاهل الصورة ومتابعة الرد.",
     "toolCalling": "جارٍ استدعاء الأدوات...",
     "totalTokens": "الإجمالي",
     "unknownProvider": "Unknown provider",

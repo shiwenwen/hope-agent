@@ -510,6 +510,7 @@
     "tasks": "Tarefas",
     "thinking": "Pensando...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} não suporta entrada de imagem. A imagem foi ignorada e a resposta continuou.",
     "toolCalling": "Chamando ferramentas...",
     "totalTokens": "Total",
     "unknownProvider": "Unknown provider",

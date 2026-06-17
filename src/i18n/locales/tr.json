@@ -510,6 +510,7 @@
     "tasks": "Görevler",
     "thinking": "Düşünüyor...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} görüntü girişini desteklemiyor. Görüntü yoksayılarak yanıt sürdürüldü.",
     "toolCalling": "Araç çağrılıyor...",
     "totalTokens": "Toplam",
     "unknownProvider": "Unknown provider",

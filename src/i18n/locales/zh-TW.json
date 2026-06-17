@@ -510,6 +510,7 @@
     "tasks": "任務",
     "thinking": "執行中...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} 不支援目前的 Think 模式，已自動關閉思考並重試本次請求。",
+    "visionAutoDisabled": "{{provider}} / {{model}} 不支援圖片輸入，已忽略圖片繼續回覆。",
     "toolCalling": "工具調用中...",
     "totalTokens": "總計",
     "unknownProvider": "未知 Provider",

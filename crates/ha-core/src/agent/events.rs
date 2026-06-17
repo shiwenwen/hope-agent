@@ -285,15 +285,88 @@ pub(super) fn expand_openai_chat_image_markers_for_api(
         .iter()
         .map(|item| {
             let mut msg = item.clone();
-            if msg.get("role").and_then(|r| r.as_str()) == Some("tool") {
-                if let Some(result) = msg.get("content").and_then(|c| c.as_str()) {
-                    msg["content"] =
-                        build_openai_chat_tool_result_content(result, model_supports_vision);
+            match msg.get("role").and_then(|r| r.as_str()) {
+                // Tool results carry images as `[[ha-image:...]]` markers in a
+                // plain string; expanded to `image_url` blocks (or folded to
+                // text when vision is unsupported).
+                Some("tool") => {
+                    if let Some(result) = msg.get("content").and_then(|c| c.as_str()) {
+                        msg["content"] =
+                            build_openai_chat_tool_result_content(result, model_supports_vision);
+                    }
                 }
+                // User-uploaded images live as `image_url` parts inside a
+                // content array. Text-only backends (e.g. DeepSeek) reject the
+                // `image_url` variant with a 400, so fold them to a text
+                // placeholder when the model can't see images. Vision models
+                // keep the array untouched.
+                Some("user") if !model_supports_vision => {
+                    if let Some(Value::Array(parts)) = msg.get("content") {
+                        if parts.iter().any(is_openai_image_part) {
+                            msg["content"] = fold_openai_user_content_without_images(parts);
+                        }
+                    }
+                }
+                _ => {}
             }
             msg
         })
         .collect()
+}
+
+/// True if an OpenAI Chat content part is an `image_url` block.
+fn is_openai_image_part(part: &Value) -> bool {
+    part.get("type").and_then(Value::as_str) == Some("image_url")
+}
+
+/// Collapse a user message's multimodal content array into a plain string,
+/// dropping `image_url` parts and prepending a short placeholder so the model
+/// still knows an image was attached. Used only for text-only backends.
+fn fold_openai_user_content_without_images(parts: &[Value]) -> Value {
+    let mut out: Vec<String> = Vec::new();
+    let mut dropped = 0usize;
+    for part in parts {
+        match part.get("type").and_then(Value::as_str) {
+            Some("image_url") => dropped += 1,
+            Some("text") => {
+                if let Some(t) = part.get("text").and_then(Value::as_str) {
+                    out.push(t.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    if dropped > 0 {
+        let placeholder = if dropped == 1 {
+            "[image omitted: this model does not accept image input]".to_string()
+        } else {
+            format!("[{dropped} images omitted: this model does not accept image input]")
+        };
+        out.insert(0, placeholder);
+    }
+    json!(out.join("\n"))
+}
+
+/// True if the OpenAI Chat history carries any image content the model would
+/// need vision for — user-uploaded `image_url` parts or tool image markers.
+/// Drives the one-shot "model can't see images" notice.
+pub(super) fn openai_chat_history_has_images(history: &[Value]) -> bool {
+    history
+        .iter()
+        .any(|msg| match msg.get("role").and_then(|r| r.as_str()) {
+            Some("user") => msg
+                .get("content")
+                .and_then(Value::as_array)
+                .map(|parts| parts.iter().any(is_openai_image_part))
+                .unwrap_or(false),
+            Some("tool") => msg
+                .get("content")
+                .and_then(Value::as_str)
+                .and_then(crate::tools::image_markers::parse_image_markers)
+                .map(|p| !p.markers.is_empty())
+                .unwrap_or(false),
+            _ => false,
+        })
 }
 
 pub(super) fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<Value> {
@@ -410,6 +483,7 @@ mod tests {
     use super::{
         build_openai_chat_tool_result_content, build_responses_tool_result,
         expand_openai_chat_image_markers_for_api, expand_responses_image_markers_for_api,
+        openai_chat_history_has_images,
     };
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
     use serde_json::json;
@@ -548,6 +622,51 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Screenshot captured."));
+    }
+
+    #[test]
+    fn openai_chat_user_image_folded_for_text_only_model() {
+        // A user-uploaded image is an `image_url` part inside a content array.
+        let history = vec![json!({
+            "role": "user",
+            "content": [
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,aGk=" } },
+                { "type": "text", "text": "看下这个图片" },
+            ],
+        })];
+
+        // Vision model: untouched (array preserved).
+        let with_vision = expand_openai_chat_image_markers_for_api(&history, true);
+        assert!(with_vision[0]["content"].is_array());
+
+        // Text-only model: collapsed to a string with a placeholder + the
+        // original text, so the backend's deserializer never sees `image_url`.
+        let without_vision = expand_openai_chat_image_markers_for_api(&history, false);
+        let folded = without_vision[0]["content"].as_str().unwrap();
+        assert!(folded.contains("看下这个图片"));
+        assert!(folded.contains("image omitted"));
+        assert!(!folded.contains("image_url"));
+    }
+
+    #[test]
+    fn openai_chat_history_has_images_detects_user_and_tool_images() {
+        let user_img = json!({
+            "role": "user",
+            "content": [
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,aGk=" } },
+                { "type": "text", "text": "hi" },
+            ],
+        });
+        let tool_img = json!({
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": format!("{}image/png__aGVsbG8=__\nShot.", IMAGE_BASE64_PREFIX),
+        });
+        let plain_user = json!({ "role": "user", "content": "just text" });
+
+        assert!(openai_chat_history_has_images(&[user_img]));
+        assert!(openai_chat_history_has_images(&[tool_img]));
+        assert!(!openai_chat_history_has_images(&[plain_user]));
     }
 
     #[test]

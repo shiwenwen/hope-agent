@@ -510,6 +510,7 @@
     "tasks": "Задачи",
     "thinking": "Думаю...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} не поддерживает ввод изображений. Изображение проигнорировано, ответ продолжен.",
     "toolCalling": "Вызов инструментов...",
     "totalTokens": "Всего",
     "unknownProvider": "Unknown provider",

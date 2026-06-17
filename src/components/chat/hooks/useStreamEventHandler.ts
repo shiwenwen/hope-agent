@@ -360,6 +360,7 @@ export function handleStreamEvent(
   // Handle tool_call, tool_result, model_fallback, codex_auth_expired via updateSessionMessages
   if (
     event.type === "thinking_auto_disabled" ||
+    event.type === "vision_auto_disabled" ||
     event.type === "profile_rotation" ||
     event.type === "context_compacted" ||
     event.type === "queued_user_message_blocked" ||

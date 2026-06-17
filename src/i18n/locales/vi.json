@@ -510,6 +510,7 @@
     "tasks": "Tác vụ",
     "thinking": "Đang suy nghĩ...",
     "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "visionAutoDisabled": "{{provider}} / {{model}} không hỗ trợ đầu vào hình ảnh. Đã bỏ qua hình ảnh và tiếp tục trả lời.",
     "toolCalling": "Đang gọi công cụ...",
     "totalTokens": "Tổng",
     "unknownProvider": "Unknown provider",

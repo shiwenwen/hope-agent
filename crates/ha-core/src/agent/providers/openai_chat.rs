@@ -28,6 +28,8 @@ impl AssistantAgent {
             model,
             thinking_style: &self.thinking_style,
             provider_config: self.provider_config.as_deref(),
+            vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
+            vision_notice_emitted: Arc::new(AtomicBool::new(false)),
         };
         let user_content = build_user_content_openai_chat(message, attachments);
         self.run_streaming_chat(
