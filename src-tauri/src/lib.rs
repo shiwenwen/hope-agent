@@ -85,12 +85,13 @@ pub(crate) use shortcuts::toggle_quickchat_window;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
-    // `.app` under `$TMPDIR` then renames it over the installed bundle; when the
-    // app runs from a different volume than `$TMPDIR` that rename fails with
-    // "Cross-device link (os error 18)" and the update aborts. Redirect `$TMPDIR`
-    // onto the bundle's own volume so the rename stays intra-volume. MUST run
-    // before any threads spawn (POSIX setenv is not thread-safe) — hence at the
-    // very top, ahead of `init_runtime`. No-op off macOS / non-bundle / same-volume.
+    // `.app` under the temp dir then renames it over the installed bundle; when
+    // the app runs from a different volume than the temp dir that rename fails
+    // with "Cross-device link (os error 18)" and the update aborts. Override the
+    // `tempfile` crate's temp dir onto the bundle's own volume so the rename
+    // stays intra-volume (process-local — does NOT touch `$TMPDIR`, so child
+    // processes are unaffected). Set early so it's in effect before any update.
+    // No-op off macOS / non-bundle / same-volume.
     // NOTE: log::* is intentional here — AppLogger is not yet initialized.
     match ha_core::platform::redirect_updater_tmpdir_if_cross_volume() {
         ha_core::platform::UpdaterTmpdir::Redirected(dir) => log::warn!(
