@@ -676,7 +676,8 @@ pub(crate) async fn inject_and_run_parent(
                 // injection sent no user-quote, so there's nothing orphaned; a
                 // cancel re-queues and re-delivers on the next idle attempt).
                 if let Some(state) = injection_mirror {
-                    crate::chat_engine::im_mirror::abort_im_live_mirror_with_body(state, None).await;
+                    crate::chat_engine::im_mirror::abort_im_live_mirror_with_body(state, None)
+                        .await;
                 }
             }
         }

@@ -158,8 +158,7 @@ pub fn is_accepting(session_id: &str, turn_id: &str) -> Option<bool> {
 /// Lets `turn_accepts_stream_event` preserve the original "a different turn is
 /// live → reject without a DB probe" semantics without cloning a snapshot.
 pub fn has_entry(session_id: &str) -> bool {
-    registry_lock()
-        .contains_key(session_id)
+    registry_lock().contains_key(session_id)
 }
 
 pub fn all_current() -> Vec<ActiveTurnSnapshot> {
@@ -273,9 +272,7 @@ fn finalized_ring() -> &'static Mutex<FinalizedRing> {
 /// means (DB UPDATE conditions, mostly).
 pub fn mark_finalized(turn_id: Option<&str>) -> bool {
     let Some(id) = turn_id else { return true };
-    let mut ring = finalized_ring()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let mut ring = finalized_ring().lock().unwrap_or_else(|p| p.into_inner());
     ring.insert(id.to_string())
 }
 
