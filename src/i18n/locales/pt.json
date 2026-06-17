@@ -573,7 +573,8 @@
         "browser": "Controle do navegador",
         "mac": "Controle do Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "O raciocínio não está ativado para este modelo. Para ajustar a profundidade de raciocínio, edite o modelo em Configurações → Provedores de modelos e ative \"Raciocínio\"."
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} modelos",
     "outputCost": "Custo de Saída ($/1M tokens)",
     "reasoning": "Raciocínio / Pensamento",
+    "reasoningHint": "Depois de ativado, escolha a profundidade de raciocínio (baixa / média / alta) no menu de modelos acima da caixa de mensagem; ela é aplicada automaticamente em cada requisição.",
     "supportedInputTypes": "Tipos de Entrada Suportados",
     "text": "Texto",
     "video": "Vídeo"

@@ -573,7 +573,8 @@
         "browser": "Control del navegador",
         "mac": "Control de Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "El razonamiento no está activado para este modelo. Para ajustar la profundidad de razonamiento, edita el modelo en Configuración → Proveedores de modelos y activa \"Razonamiento\"."
   },
   "codexAuth": {
     "expiredDescription": "Tu token OAuth de Codex ya no es válido. Inicia sesión de nuevo para continuar.",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} modelos",
     "outputCost": "Costo de Salida ($/1M tokens)",
     "reasoning": "Razonamiento / Pensamiento",
+    "reasoningHint": "Una vez activado, elige la profundidad de razonamiento (baja / media / alta) en el menú de modelos situado encima del cuadro de chat; se aplica automáticamente en cada solicitud.",
     "supportedInputTypes": "Tipos de Entrada Soportados",
     "text": "Texto",
     "video": "Vídeo"

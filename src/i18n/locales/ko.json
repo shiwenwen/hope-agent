@@ -573,7 +573,8 @@
         "browser": "브라우저 제어",
         "mac": "Mac 제어"
       }
-    }
+    },
+    "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1585,6 +1586,7 @@
     "modelsCount": "모델 {{count}}개",
     "outputCost": "출력 비용 ($/1M tokens)",
     "reasoning": "추론/사고",
+    "reasoningHint": "활성화하면 채팅 입력창 위의 모델 메뉴에서 추론 강도(낮음 / 중간 / 높음)를 선택할 수 있으며, 요청마다 자동으로 적용됩니다.",
     "supportedInputTypes": "지원 입력 유형",
     "text": "텍스트",
     "video": "비디오"

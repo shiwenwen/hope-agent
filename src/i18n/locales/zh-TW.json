@@ -573,7 +573,8 @@
         "browser": "瀏覽器控制",
         "mac": "Mac 控制"
       }
-    }
+    },
+    "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度,請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} 個模型",
     "outputCost": "輸出成本 ($/1M tokens)",
     "reasoning": "支持推理/思考",
+    "reasoningHint": "開啟後,可在聊天介面輸入框上方的模型選單中選擇推理深度(低 / 中 / 高),並在每次請求時自動注入。",
     "supportedInputTypes": "支持的輸入類型",
     "text": "文本",
     "video": "視頻"

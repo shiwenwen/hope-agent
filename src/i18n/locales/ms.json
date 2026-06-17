@@ -573,7 +573,8 @@
         "browser": "Kawalan pelayar",
         "mac": "Kawalan Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\"."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} model",
     "outputCost": "Kos Output ($/1M tokens)",
     "reasoning": "Penaakulan / Pemikiran",
+    "reasoningHint": "Setelah didayakan, anda boleh memilih kedalaman penaakulan (rendah / sederhana / tinggi) daripada menu model di atas kotak input sembang; ia ditambah secara automatik pada setiap permintaan.",
     "supportedInputTypes": "Jenis Input Disokong",
     "text": "Teks",
     "video": "Video"

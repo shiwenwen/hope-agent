@@ -573,7 +573,8 @@
         "browser": "ブラウザ操作",
         "mac": "Mac 操作"
       }
-    }
+    },
+    "reasoningDisabledHint": "このモデルでは推論が有効になっていません。推論の深さを調整するには、「設定 → モデルプロバイダー」でこのモデルを編集し、「推論/思考に対応」をオンにしてください。"
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} モデル",
     "outputCost": "出力コスト ($/1M tokens)",
     "reasoning": "推論/思考",
+    "reasoningHint": "有効にすると、チャット入力欄上部のモデルメニューから推論の深さ(低 / 中 / 高)を選択でき、リクエストごとに自動的に付与されます。",
     "supportedInputTypes": "対応入力タイプ",
     "text": "テキスト",
     "video": "動画"

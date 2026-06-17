@@ -573,7 +573,8 @@
         "browser": "Điều khiển trình duyệt",
         "mac": "Điều khiển Mac"
       }
-    }
+    },
+    "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\"."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} mô hình",
     "outputCost": "Chi phí đầu ra ($/1M tokens)",
     "reasoning": "Suy luận / Tư duy",
+    "reasoningHint": "Sau khi bật, bạn có thể chọn độ sâu suy luận (thấp / trung bình / cao) trong menu mô hình phía trên ô nhập liệu trò chuyện; nó sẽ được tự động thêm vào mỗi yêu cầu.",
     "supportedInputTypes": "Loại đầu vào hỗ trợ",
     "text": "Văn bản",
     "video": "Video"

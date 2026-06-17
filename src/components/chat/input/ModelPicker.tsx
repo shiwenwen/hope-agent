@@ -105,31 +105,37 @@ export default function ModelPicker({
           <div className="px-2.5 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground">
             {t("settings.localModels.filters.thinking")}
           </div>
-          <div className="flex flex-col gap-0.5">
-            {effortOptions.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                className={cn(
-                  "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
-                  reasoningEffort === opt.value
-                    ? "bg-secondary text-foreground font-medium shadow-sm"
-                    : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
-                )}
-                onMouseEnter={() => setOpenPanel(null)}
-                onClick={() => {
-                  onEffortChange(opt.value)
-                  setShowMenu(false)
-                  setOpenPanel(null)
-                }}
-              >
-                <span className="truncate">{opt.label}</span>
-                {reasoningEffort === opt.value && (
-                  <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                )}
-              </button>
-            ))}
-          </div>
+          {supportsThinking ? (
+            <div className="flex flex-col gap-0.5">
+              {effortOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-all duration-150",
+                    reasoningEffort === opt.value
+                      ? "bg-secondary text-foreground font-medium shadow-sm"
+                      : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+                  )}
+                  onMouseEnter={() => setOpenPanel(null)}
+                  onClick={() => {
+                    onEffortChange(opt.value)
+                    setShowMenu(false)
+                    setOpenPanel(null)
+                  }}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {reasoningEffort === opt.value && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="px-2.5 pb-1 pt-0.5 text-[11px] leading-relaxed text-muted-foreground/70">
+              {t("chat.reasoningDisabledHint")}
+            </p>
+          )}
 
           <div className="-mx-1 my-1.5 h-px bg-border-soft" />
 

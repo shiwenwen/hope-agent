@@ -573,7 +573,8 @@
         "browser": "Browser control",
         "mac": "Mac control"
       }
-    }
+    },
+    "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\"."
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -1585,6 +1586,7 @@
     "modelsCount": "{{count}} models",
     "outputCost": "Output Cost ($/1M tokens)",
     "reasoning": "Reasoning / Thinking",
+    "reasoningHint": "Once enabled, pick the reasoning depth (low / medium / high) from the model menu above the chat input; it is injected automatically on every request.",
     "supportedInputTypes": "Supported Input Types",
     "text": "Text",
     "video": "Video"
