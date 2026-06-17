@@ -17,6 +17,11 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     extractTimeThresholdSecs: 300,
     extractMessageThreshold: 10,
     extractIdleTimeoutSecs: 1800,
+    // Declared so the whole-struct save round-trip (save_extract_config
+    // replaces the entire config) never drops it.
+    enableReflection: true,
+    // Next-gen claim dual-write (default on). Global-only; also gates the Claims view.
+    extractClaims: true,
   })
   const [agentExtractOverride, setAgentExtractOverride] = useState<{
     autoExtract: boolean | null
@@ -85,8 +90,10 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
           extractTimeThresholdSecs: number
           extractMessageThreshold: number
           extractIdleTimeoutSecs: number
+          enableReflection?: boolean
+          extractClaims?: boolean
         }>("get_extract_config")
-        setGlobalExtract(global)
+        setGlobalExtract({ enableReflection: true, extractClaims: true, ...global })
 
         if (isAgentMode && agentId) {
           const cfg = await getTransport().call<{ memory?: {
@@ -239,6 +246,12 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     saveGlobalExtract({ flushBeforeCompact: enabled })
   }
 
+  // Claim dual-write (beta). Global-only — no agent override.
+  const effectiveExtractClaims = globalExtract.extractClaims
+  function handleToggleExtractClaims(enabled: boolean) {
+    saveGlobalExtract({ extractClaims: enabled })
+  }
+
   return {
     globalExtract,
     agentExtractOverride,
@@ -252,6 +265,7 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     effectiveTimeThresholdSecs,
     effectiveMessageThreshold,
     effectiveIdleTimeoutSecs,
+    effectiveExtractClaims,
     agentHasOverride,
     handleToggleAutoExtract,
     handleUpdateExtractModel,
@@ -260,6 +274,7 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     handleUpdateMessageThreshold,
     handleUpdateIdleTimeoutMins,
     handleToggleFlushBeforeCompact,
+    handleToggleExtractClaims,
     resetAgentExtract,
   }
 }

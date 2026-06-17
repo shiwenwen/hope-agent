@@ -781,7 +781,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "idle",
-        "manual": "manual"
+        "manual": "manual",
+        "user_correction": "correction"
+      },
+      "runs": {
+        "title": "Run history",
+        "empty": "No runs recorded yet.",
+        "decisions": "Decisions",
+        "noDecisions": "No promotions in this run.",
+        "selectRun": "Select a run to see its decisions.",
+        "status": {
+          "running": "running",
+          "completed": "completed",
+          "failed": "failed",
+          "skipped": "skipped"
+        },
+        "evidence": "Evidence",
+        "evidenceIncognito": "Incognito source — not viewable",
+        "evidenceUnavailable": "Source unavailable"
+      },
+      "runResolver": "Deep resolve",
+      "resolving": "Resolving…",
+      "resolverDone": "Resolved: {{expired}} expired, {{merged}} merged, {{review}} to review",
+      "resolverFailed": "Deep resolve failed",
+      "review": {
+        "queueTitle": "Needs review",
+        "queueEmpty": "No claims need review",
+        "approve": "Approve",
+        "approveDone": "Claim approved",
+        "markOutdated": "Mark outdated",
+        "markOutdatedDone": "Marked outdated",
+        "pin": "Pin",
+        "pinDone": "Claim pinned",
+        "unpin": "Unpin",
+        "unpinDone": "Claim unpinned",
+        "edit": "Edit",
+        "editTitle": "Edit claim",
+        "editDesc": "Edit the claim's content and tags. Your edit is recorded as a correction.",
+        "editContent": "Content",
+        "editTags": "Tags",
+        "editTagsPlaceholder": "comma-separated",
+        "editDone": "Claim updated",
+        "moveScope": "Move scope",
+        "moveScopeTitle": "Move scope",
+        "moveScopeDesc": "Change which scope this claim belongs to.",
+        "moveScopeDone": "Scope changed",
+        "scopeGlobal": "Global",
+        "scopeAgent": "Agent",
+        "scopeProject": "Project",
+        "scopeId": "Scope ID",
+        "scopeIdPlaceholder": "agent or project id",
+        "reject": "Reject",
+        "rejectTitle": "Reject this claim?",
+        "rejectDesc": "The claim will be archived and stop influencing prompts.",
+        "rejectDone": "Claim rejected",
+        "forget": "Forget",
+        "forgetTitle": "Forget this memory",
+        "forgetDesc": "Stop this memory from being used.",
+        "forgetArchive": "Archive",
+        "forgetArchiveDesc": "Archive the claim and stop linked memories from being injected. Evidence is kept.",
+        "forgetPermanent": "Delete permanently",
+        "forgetPermanentDesc": "Permanently delete the claim, its evidence, and any memory it solely managed. This cannot be undone.",
+        "forgetNotePlaceholder": "Optional reason",
+        "forgetConfirm": "Forget",
+        "forgetDone": "Memory forgotten",
+        "failed": "Action failed"
       }
     },
     "error": {
@@ -2250,6 +2314,8 @@
     "acpTimeout": "Timeout (s)",
     "activeMemoryCacheTtl": "Cache TTL (seconds)",
     "activeMemoryCandidateLimit": "Candidate limit",
+    "activeMemoryIncludeClaims": "Include structured claims",
+    "activeMemoryIncludeClaimsDesc": "Also shortlist Dreaming's structured claims (not just legacy memories) as recall candidates. Off by default.",
     "activeMemoryDesc": "At the start of each user turn, run a bounded side query to distill the single most relevant memory into one sentence and inject it alongside the system prompt. Timeouts and failures silently fall back to passive recall — they never block the chat.",
     "activeMemoryMaxChars": "Recall max chars",
     "activeMemoryTimeout": "Timeout (ms)",
@@ -2845,7 +2911,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Profile synthesis",
+      "profileEnabled": "Synthesise a memory profile",
+      "profileEnabledDesc": "Build a readable profile from active claims, layered by scope. When on, it replaces the legacy profile section in the system prompt; off keeps the legacy rendering. Idle/cron use a cheap rule-based pass; manual runs an LLM rewrite.",
+      "profileMaxLines": "Max lines per scope",
+      "profileMaxLinesDesc": "Cap on how many profile bullets are kept per scope."
     },
     "embedding": {
       "reembedJob": {
@@ -3406,7 +3477,9 @@
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Memory Management",
-      "settings": "Memory Settings"
+      "settings": "Memory Settings",
+      "claims": "Claims",
+      "profile": "Profile"
     },
     "memoryTags": "Tags",
     "memoryTagsPlaceholder": "Comma-separated tags (optional)",
@@ -3673,7 +3746,18 @@
     "planQuestionTimeoutDesc": "Maximum time to wait for user response to Plan Mode questions. Auto-cancels the question on timeout. Set to 0 for no limit.",
     "planSubagent": "Plan Sub-Agent Mode",
     "planSubagentDesc": "When enabled, Plan Mode uses a dedicated sub-agent for plan creation (cleaner main context). When disabled, planning runs inline in the main agent (context continuity).",
-    "profile": "Profile",
+    "profile": {
+      "title": "Memory Profile",
+      "desc": "What it knows about you and your projects, synthesised from active claims and layered by scope.",
+      "refresh": "Refresh profile",
+      "refreshing": "Synthesising…",
+      "refreshDone": "Profile refreshed ({{count}} snapshots)",
+      "refreshSkipped": "Synthesis skipped",
+      "refreshFailed": "Failed to synthesise profile",
+      "empty": "No profile snapshot yet",
+      "emptyHint": "Enable profile synthesis under the Dreaming tab, then refresh.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} years old",
     "profileAiExpBeginner": "Beginner — just getting started",
     "profileAiExpExpert": "Expert — deep user of AI tools",
@@ -4369,6 +4453,46 @@
       "addHandler": "Add handler",
       "advanced": "Advanced",
       "slowHandlerWarning": "This handler runs an LLM / sub-agent inline and will delay every time this blocking event fires. Prefer command / http here, or move it to an observation event (e.g. PostToolUse)."
+    },
+    "memoryExtractClaims": "Extract claims (beta)",
+    "memoryExtractClaimsDesc": "Also extract structured, evidence-backed claims alongside memories (dual-write).",
+    "claims": {
+      "title": "Claims",
+      "desc": "Structured long-term memory with scope, confidence and evidence.",
+      "list": "Claims",
+      "empty": "No claims yet.",
+      "selectClaim": "Select a claim to see its evidence.",
+      "confidence": "Confidence",
+      "salience": "Salience",
+      "evidence": "Evidence",
+      "noEvidence": "No evidence.",
+      "links": "Linked memories",
+      "statusAll": "All statuses",
+      "status": {
+        "active": "Active",
+        "superseded": "Superseded",
+        "expired": "Expired",
+        "archived": "Archived",
+        "needs_review": "Needs review"
+      },
+      "backfill": {
+        "button": "Backfill",
+        "title": "Backfill legacy memories",
+        "desc": "Register existing memories as structured claims. Only pinned profile & preference memories (user/feedback) are auto-activated; the rest enter the review queue. Memories are linked loosely, so current memory injection is unchanged.",
+        "summaryTotal": "Total memories",
+        "summaryLinked": "Already linked",
+        "summaryCandidates": "To backfill",
+        "summaryActive": "Auto-active",
+        "summaryReview": "Needs review",
+        "previewTruncated": "Showing {{shown}} of {{total}}",
+        "apply": "Backfill {{count}}",
+        "applying": "Backfilling…",
+        "applied": "Backfilled {{created}} claims: {{active}} active, {{review}} pending review",
+        "planFailed": "Failed to compute the backfill plan",
+        "applyFailed": "Backfill failed",
+        "empty": "All memories are already in the claim layer.",
+        "appliedPartial": "Backfilled {{created}}, {{failed}} failed — you can retry the rest"
+      }
     },
     "knowledge": {
       "tab": "Knowledge"

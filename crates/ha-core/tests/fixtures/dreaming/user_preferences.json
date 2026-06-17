@@ -1,0 +1,44 @@
+{
+  "name": "user_preferences",
+  "description": "Basic claim lifecycle: user-profile + preference claims land active, are retrievable by scope, and each carries provenance.",
+  "claims": [
+    {
+      "key": "pref_lang",
+      "scope": { "type": "agent", "id": "ev_user_pref" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "prefers_language",
+      "object": "Chinese",
+      "content": "The user prefers replies in Chinese.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.8
+    },
+    {
+      "key": "profile_role",
+      "scope": { "type": "agent", "id": "ev_user_pref" },
+      "claim_type": "user_profile",
+      "subject": "user",
+      "predicate": "works_as",
+      "object": "backend engineer",
+      "content": "The user is a backend engineer.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.6
+    }
+  ],
+  "checks": {
+    "list_active": [
+      {
+        "scope": { "type": "agent", "id": "ev_user_pref" },
+        "expect_present": ["pref_lang", "profile_role"]
+      }
+    ],
+    "status": [
+      { "claim": "pref_lang", "expect": "active" },
+      { "claim": "profile_role", "expect": "active" }
+    ],
+    "evidence": [
+      { "claim": "pref_lang", "min": 1 },
+      { "claim": "profile_role", "min": 1 }
+    ]
+  }
+}

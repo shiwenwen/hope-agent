@@ -12,6 +12,28 @@ pub async fn dreaming_run_now() -> Result<dreaming::DreamReport, CmdError> {
     Ok(dreaming::manual_run(dreaming::DreamTrigger::Manual).await)
 }
 
+/// Run one Deep resolver cycle (expire / merge / conflict) over active claims
+/// and return its summary. Maps to `POST /api/dreaming/resolver`.
+#[tauri::command]
+pub async fn dreaming_run_resolver() -> Result<dreaming::ResolverReport, CmdError> {
+    Ok(dreaming::run_resolver_cycle(dreaming::DreamTrigger::Manual).await)
+}
+
+/// Run one Memory Profile synthesis cycle (manual = LLM rewrite) and return
+/// its summary. Maps to `POST /api/dreaming/profile/run`.
+#[tauri::command]
+pub async fn dreaming_run_profile() -> Result<dreaming::ProfileReport, CmdError> {
+    Ok(dreaming::run_profile_synthesis_cycle(dreaming::DreamTrigger::Manual).await)
+}
+
+/// Latest Memory Profile snapshot per scope (read-only profile view). Maps to
+/// `GET /api/dreaming/profile`.
+#[tauri::command]
+pub async fn dreaming_list_profile_snapshots(
+) -> Result<Vec<dreaming::ProfileSnapshotRecord>, CmdError> {
+    dreaming::list_profile_snapshots().map_err(Into::into)
+}
+
 /// List Dream Diary markdown files (newest first). `limit` caps the
 /// returned set so the Dashboard stays responsive after months of daily
 /// cycles; omitting it returns the full set.
@@ -60,4 +82,34 @@ pub async fn dreaming_idle_status() -> Result<DreamingIdleStatus, CmdError> {
         last_activity_epoch_secs: dreaming::last_activity_epoch_secs(),
         idle_minutes: cfg.dreaming.idle_trigger.idle_minutes,
     })
+}
+
+/// List durable run records, newest first. Survives restart (unlike
+/// `dreaming_last_report`, which is process-local). Maps to
+/// `GET /api/dreaming/runs`.
+#[tauri::command]
+pub async fn dreaming_list_runs(
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<dreaming::DreamingRunRecord>, CmdError> {
+    dreaming::list_runs(limit, offset).map_err(Into::into)
+}
+
+/// Fetch a single run plus its decision log. Returns `null` if the id is
+/// unknown. Maps to `GET /api/dreaming/runs/{id}`.
+#[tauri::command]
+pub async fn dreaming_get_run(id: String) -> Result<Option<dreaming::DreamingRunDetail>, CmdError> {
+    dreaming::get_run(&id).map_err(Into::into)
+}
+
+/// Resolve a redacted, length-capped excerpt for an evidence ref (Evidence
+/// Layer). Incognito sources are never expandable; the backend gate can't
+/// be bypassed from the frontend. Maps to
+/// `GET /api/dreaming/evidence/quote`.
+#[tauri::command]
+pub async fn dreaming_evidence_quote(
+    session_id: String,
+    message_id: Option<i64>,
+) -> Result<dreaming::EvidenceQuote, CmdError> {
+    Ok(dreaming::evidence_quote(&session_id, message_id))
 }

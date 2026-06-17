@@ -1,0 +1,44 @@
+{
+  "name": "project_scope_isolation",
+  "description": "Scope-leakage red-line (§9.2): a Project A fact must never surface when querying Project B, and B's results must never contain A's content.",
+  "claims": [
+    {
+      "key": "alpha_fact",
+      "scope": { "type": "project", "id": "ev_iso_alpha" },
+      "claim_type": "project_fact",
+      "subject": "alpha_service",
+      "predicate": "deploys_to",
+      "object": "region-alpha-secret",
+      "content": "Project Alpha deploys to region-alpha-secret.",
+      "evidence_class": "project_artifact_fact",
+      "salience": 0.7
+    },
+    {
+      "key": "beta_fact",
+      "scope": { "type": "project", "id": "ev_iso_beta" },
+      "claim_type": "project_fact",
+      "subject": "beta_service",
+      "predicate": "deploys_to",
+      "object": "region-beta-secret",
+      "content": "Project Beta deploys to region-beta-secret.",
+      "evidence_class": "project_artifact_fact",
+      "salience": 0.7
+    }
+  ],
+  "checks": {
+    "list_active": [
+      {
+        "scope": { "type": "project", "id": "ev_iso_alpha" },
+        "expect_present": ["alpha_fact"],
+        "expect_absent": ["beta_fact"],
+        "forbidden_content": ["region-beta-secret"]
+      },
+      {
+        "scope": { "type": "project", "id": "ev_iso_beta" },
+        "expect_present": ["beta_fact"],
+        "expect_absent": ["alpha_fact"],
+        "forbidden_content": ["region-alpha-secret"]
+      }
+    ]
+  }
+}

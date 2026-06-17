@@ -781,7 +781,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "アイドル",
-        "manual": "手動"
+        "manual": "手動",
+        "user_correction": "訂正"
+      },
+      "runs": {
+        "title": "実行履歴",
+        "empty": "実行記録はまだありません",
+        "decisions": "決定",
+        "noDecisions": "この実行では昇格はありません。",
+        "selectRun": "実行を選択すると決定が表示されます。",
+        "status": {
+          "running": "実行中",
+          "completed": "完了",
+          "failed": "失敗",
+          "skipped": "スキップ"
+        },
+        "evidence": "出典",
+        "evidenceIncognito": "シークレットセッションのため表示できません",
+        "evidenceUnavailable": "出典を表示できません"
+      },
+      "runResolver": "ディープ整理",
+      "resolving": "整理中…",
+      "resolverDone": "整理完了:期限切れ {{expired}}、統合 {{merged}}、要レビュー {{review}}",
+      "resolverFailed": "ディープ整理に失敗しました",
+      "review": {
+        "queueTitle": "要レビュー",
+        "queueEmpty": "レビューが必要な claim はありません",
+        "approve": "承認",
+        "approveDone": "承認しました",
+        "markOutdated": "古いと記録",
+        "markOutdatedDone": "古いと記録しました",
+        "pin": "ピン留め",
+        "pinDone": "ピン留めしました",
+        "unpin": "ピン解除",
+        "unpinDone": "ピンを解除しました",
+        "edit": "編集",
+        "editTitle": "claim を編集",
+        "editDesc": "claim の内容とタグを編集します。編集は訂正として記録されます。",
+        "editContent": "内容",
+        "editTags": "タグ",
+        "editTagsPlaceholder": "カンマ区切り",
+        "editDone": "更新しました",
+        "moveScope": "スコープ変更",
+        "moveScopeTitle": "スコープを変更",
+        "moveScopeDesc": "この claim が属するスコープを変更します。",
+        "moveScopeDone": "スコープを変更しました",
+        "scopeGlobal": "グローバル",
+        "scopeAgent": "エージェント",
+        "scopeProject": "プロジェクト",
+        "scopeId": "スコープ ID",
+        "scopeIdPlaceholder": "エージェントまたはプロジェクト ID",
+        "reject": "却下",
+        "rejectTitle": "この claim を却下しますか？",
+        "rejectDesc": "claim はアーカイブされ、プロンプトに影響しなくなります。",
+        "rejectDone": "却下しました",
+        "forget": "忘れる",
+        "forgetTitle": "この記憶を忘れる",
+        "forgetDesc": "この記憶の使用を停止します。",
+        "forgetArchive": "アーカイブ",
+        "forgetArchiveDesc": "claim をアーカイブし、関連する記憶の注入を停止します。証拠は保持されます。",
+        "forgetPermanent": "完全に削除",
+        "forgetPermanentDesc": "claim、その証拠、そしてそれだけが管理する記憶を完全に削除します。元に戻せません。",
+        "forgetNotePlaceholder": "理由（任意）",
+        "forgetConfirm": "忘れる",
+        "forgetDone": "記憶を忘れました",
+        "failed": "操作に失敗しました"
       }
     },
     "error": {
@@ -2250,6 +2314,8 @@
     "acpTimeout": "タイムアウト (秒)",
     "activeMemoryCacheTtl": "キャッシュ TTL（秒）",
     "activeMemoryCandidateLimit": "候補数の上限",
+    "activeMemoryIncludeClaims": "構造化クレームを含める",
+    "activeMemoryIncludeClaimsDesc": "想起候補としてレガシー記憶だけでなく、Dreaming が整理した構造化クレームも検索します。既定はオフ。",
     "activeMemoryDesc": "ユーザー発話ごとに制限付き side query を実行し、最も関連の高い記憶を一文に要約してシステムプロンプトへ注入します。タイムアウトや失敗時は受動的想起へ静かにフォールバックし、会話は止まりません。",
     "activeMemoryMaxChars": "想起出力の上限文字数",
     "activeMemoryTimeout": "タイムアウト (ms)",
@@ -2845,7 +2911,12 @@
       "scopeDays": "遡及日数",
       "scopeDaysDesc": "何日前までの記憶をスキャンするか。",
       "title": "ドリーミング",
-      "windowTitle": "スキャン範囲"
+      "windowTitle": "スキャン範囲",
+      "profileTitle": "プロフィール合成",
+      "profileEnabled": "メモリプロフィールを合成",
+      "profileEnabledDesc": "有効な claim から読みやすいプロフィールを構築し、スコープごとに階層化します。オンにするとシステムプロンプト内の従来のプロフィール部分を置き換え、オフのままなら従来の表示を維持します。アイドル / スケジュール実行では低コストなルールベースのパスを使い、手動実行では LLM による書き換えを行います。",
+      "profileMaxLines": "スコープごとの最大行数",
+      "profileMaxLinesDesc": "スコープごとに保持するプロフィールの箇条書き数の上限。"
     },
     "embedding": {
       "reembedJob": {
@@ -3406,7 +3477,9 @@
     "memoryTabs": {
       "dreaming": "ドリーミング",
       "manage": "記憶管理",
-      "settings": "記憶設定"
+      "settings": "記憶設定",
+      "claims": "Claims",
+      "profile": "プロフィール"
     },
     "memoryTags": "タグ",
     "memoryTagsPlaceholder": "カンマ区切りのタグ（任意）",
@@ -3673,7 +3746,18 @@
     "planQuestionTimeoutDesc": "プランモードでユーザー応答を待つ最大時間。タイムアウトで質問を自動キャンセル。0 で無制限。",
     "planSubagent": "プランサブ Agent モード",
     "planSubagentDesc": "有効時、プラン作成は専用サブ Agent で実行（メインコンテキストがクリーン）。無効時、メイン Agent 内でインラインで実行（コンテキスト連続性）。",
-    "profile": "プロフィール",
+    "profile": {
+      "title": "メモリプロフィール",
+      "desc": "有効な claim から合成し、スコープごとに階層化した、あなたとプロジェクトについて把握している内容。",
+      "refresh": "プロフィールを更新",
+      "refreshing": "合成中…",
+      "refreshDone": "プロフィールを更新しました（スナップショット {{count}} 件）",
+      "refreshSkipped": "合成をスキップしました",
+      "refreshFailed": "プロフィールの合成に失敗しました",
+      "empty": "プロフィールのスナップショットはまだありません",
+      "emptyHint": "ドリーミングタブでプロフィール合成を有効にしてから更新してください。",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} 歳",
     "profileAiExpBeginner": "初級 — AIを始めたばかり",
     "profileAiExpExpert": "上級 — AIツールの深い利用者",
@@ -4361,6 +4445,46 @@
       "addHandler": "ハンドラーを追加",
       "advanced": "詳細",
       "slowHandlerWarning": "このハンドラーは LLM / サブエージェントをインラインで実行するため、このブロッキングイベントが発火するたびに遅延します。ここでは command / http を推奨、または観測イベント（PostToolUse など）へ移してください。"
+    },
+    "memoryExtractClaims": "クレーム抽出（ベータ）",
+    "memoryExtractClaimsDesc": "記憶に加えて、証拠付きの構造化クレームも抽出（二重書き込み）。",
+    "claims": {
+      "title": "構造化メモリ Claims",
+      "desc": "スコープ・信頼度・出典を備えた構造化長期記憶。",
+      "list": "クレーム一覧",
+      "empty": "クレームはまだありません。",
+      "selectClaim": "クレームを選択して出典を表示。",
+      "confidence": "信頼度",
+      "salience": "重要度",
+      "evidence": "出典",
+      "noEvidence": "出典なし。",
+      "links": "関連メモリ",
+      "statusAll": "すべての状態",
+      "status": {
+        "active": "有効",
+        "superseded": "置換済み",
+        "expired": "期限切れ",
+        "archived": "アーカイブ済み",
+        "needs_review": "要確認"
+      },
+      "backfill": {
+        "button": "バックフィル",
+        "title": "既存メモリのバックフィル",
+        "desc": "既存のメモリを構造化 claim として登録します。ピン留めされたプロフィールと設定(user/feedback)のみ自動的に有効化され、その他はレビュー待ちになります。緩やかにリンクするため、現在のメモリ注入は変わりません。",
+        "summaryTotal": "メモリ総数",
+        "summaryLinked": "登録済み",
+        "summaryCandidates": "対象",
+        "summaryActive": "自動有効化",
+        "summaryReview": "要レビュー",
+        "previewTruncated": "{{total}} 件中 {{shown}} 件を表示",
+        "apply": "{{count}} 件をバックフィル",
+        "applying": "バックフィル中…",
+        "applied": "{{created}} 件の claim をバックフィルしました:{{active}} 件有効、{{review}} 件レビュー待ち",
+        "planFailed": "バックフィルプランの生成に失敗しました",
+        "applyFailed": "バックフィルに失敗しました",
+        "empty": "すべてのメモリはすでに claim 層に含まれています。",
+        "appliedPartial": "{{created}} 件をバックフィルしました。{{failed}} 件は失敗 — 残りを再試行できます"
+      }
     },
     "knowledge": {
       "tab": "ナレッジ"

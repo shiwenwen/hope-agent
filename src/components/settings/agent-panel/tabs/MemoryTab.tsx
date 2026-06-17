@@ -223,6 +223,20 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                       }
                     />
                   </label>
+                  <div className="col-span-2 flex items-center justify-between pt-1">
+                    <div className="flex flex-col pr-4">
+                      <span className="text-muted-foreground">
+                        {t("settings.activeMemoryIncludeClaims")}
+                      </span>
+                      <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                        {t("settings.activeMemoryIncludeClaimsDesc")}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={activeMemory.includeClaims}
+                      onCheckedChange={(v) => updateActiveMemory({ includeClaims: v })}
+                    />
+                  </div>
                 </div>
               )}
             </div>

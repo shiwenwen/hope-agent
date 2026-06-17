@@ -25,6 +25,10 @@ interface PromotionThresholds {
   minScore: number
   maxPromote: number
 }
+interface ProfileSynthesisConfig {
+  enabled: boolean
+  maxLinesPerScope: number
+}
 interface DreamingConfig {
   enabled: boolean
   idleTrigger: IdleTriggerConfig
@@ -36,6 +40,7 @@ interface DreamingConfig {
   narrativeMaxTokens: number
   narrativeTimeoutSecs: number
   narrativeModel?: string | null
+  profileSynthesis: ProfileSynthesisConfig
 }
 
 interface DreamReport {
@@ -465,6 +470,38 @@ export default function DreamingPanel() {
               )}
             </div>
           </div>
+        </Section>
+
+        {/* ── Profile Synthesis (Phase 4) ── */}
+        <Section title={t("settings.dreaming.profileTitle")}>
+          <Row
+            label={t("settings.dreaming.profileEnabled")}
+            desc={t("settings.dreaming.profileEnabledDesc")}
+            control={
+              <Switch
+                checked={cfg.profileSynthesis.enabled}
+                onCheckedChange={(v) =>
+                  save({
+                    ...cfg,
+                    profileSynthesis: { ...cfg.profileSynthesis, enabled: v },
+                  })
+                }
+              />
+            }
+          />
+          <NumberRow
+            label={t("settings.dreaming.profileMaxLines")}
+            desc={t("settings.dreaming.profileMaxLinesDesc")}
+            min={1}
+            max={100}
+            value={cfg.profileSynthesis.maxLinesPerScope}
+            onChange={(v) =>
+              save({
+                ...cfg,
+                profileSynthesis: { ...cfg.profileSynthesis, maxLinesPerScope: v },
+              })
+            }
+          />
         </Section>
       </div>
     </div>

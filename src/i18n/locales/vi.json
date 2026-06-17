@@ -781,7 +781,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "nhàn rỗi",
-        "manual": "thủ công"
+        "manual": "thủ công",
+        "user_correction": "sửa lỗi"
+      },
+      "runs": {
+        "title": "Lịch sử chạy",
+        "empty": "Chưa có lần chạy nào.",
+        "decisions": "Quyết định",
+        "noDecisions": "Không có mục nào được thăng trong lần chạy này.",
+        "selectRun": "Chọn một lần chạy để xem quyết định.",
+        "status": {
+          "running": "đang chạy",
+          "completed": "hoàn tất",
+          "failed": "thất bại",
+          "skipped": "đã bỏ qua"
+        },
+        "evidence": "Nguồn",
+        "evidenceIncognito": "Nguồn ẩn danh — không thể xem",
+        "evidenceUnavailable": "Nguồn không khả dụng"
+      },
+      "runResolver": "Xử lý sâu",
+      "resolving": "Đang xử lý…",
+      "resolverDone": "Hoàn tất: {{expired}} hết hạn, {{merged}} hợp nhất, {{review}} cần xem xét",
+      "resolverFailed": "Xử lý sâu thất bại",
+      "review": {
+        "queueTitle": "Cần xem xét",
+        "queueEmpty": "Không có claim nào cần xem xét",
+        "approve": "Duyệt",
+        "approveDone": "Đã duyệt claim",
+        "markOutdated": "Đánh dấu lỗi thời",
+        "markOutdatedDone": "Đã đánh dấu lỗi thời",
+        "pin": "Ghim",
+        "pinDone": "Đã ghim claim",
+        "unpin": "Bỏ ghim",
+        "unpinDone": "Đã bỏ ghim claim",
+        "edit": "Sửa",
+        "editTitle": "Sửa claim",
+        "editDesc": "Sửa nội dung và thẻ của claim. Chỉnh sửa của bạn được ghi nhận là một lần sửa lỗi.",
+        "editContent": "Nội dung",
+        "editTags": "Thẻ",
+        "editTagsPlaceholder": "phân tách bằng dấu phẩy",
+        "editDone": "Đã cập nhật claim",
+        "moveScope": "Đổi phạm vi",
+        "moveScopeTitle": "Đổi phạm vi",
+        "moveScopeDesc": "Thay đổi phạm vi mà claim này thuộc về.",
+        "moveScopeDone": "Đã đổi phạm vi",
+        "scopeGlobal": "Toàn cục",
+        "scopeAgent": "Agent",
+        "scopeProject": "Dự án",
+        "scopeId": "ID phạm vi",
+        "scopeIdPlaceholder": "id agent hoặc dự án",
+        "reject": "Từ chối",
+        "rejectTitle": "Từ chối claim này?",
+        "rejectDesc": "Claim sẽ được lưu trữ và ngừng ảnh hưởng đến prompt.",
+        "rejectDone": "Đã từ chối claim",
+        "forget": "Quên",
+        "forgetTitle": "Quên ký ức này",
+        "forgetDesc": "Ngừng sử dụng ký ức này.",
+        "forgetArchive": "Lưu trữ",
+        "forgetArchiveDesc": "Lưu trữ claim và ngừng chèn các ký ức liên kết. Bằng chứng được giữ lại.",
+        "forgetPermanent": "Xóa vĩnh viễn",
+        "forgetPermanentDesc": "Xóa vĩnh viễn claim, bằng chứng của nó và bất kỳ ký ức nào do nó quản lý độc quyền. Không thể hoàn tác.",
+        "forgetNotePlaceholder": "Lý do (tùy chọn)",
+        "forgetConfirm": "Quên",
+        "forgetDone": "Đã quên ký ức",
+        "failed": "Thao tác thất bại"
       }
     },
     "error": {
@@ -2250,6 +2314,8 @@
     "acpTimeout": "Hết thời gian (giây)",
     "activeMemoryCacheTtl": "TTL cache (giây)",
     "activeMemoryCandidateLimit": "Giới hạn ứng viên",
+    "activeMemoryIncludeClaims": "Bao gồm các khẳng định có cấu trúc",
+    "activeMemoryIncludeClaimsDesc": "Cũng đưa các khẳng định có cấu trúc của Dreaming (không chỉ ký ức cũ) vào danh sách ứng viên gợi nhớ. Mặc định tắt.",
     "activeMemoryDesc": "Đầu mỗi lượt người dùng, chạy một side query có giới hạn để cô đọng ký ức liên quan nhất thành một câu và đưa vào cùng system prompt. Hết thời gian và lỗi sẽ lặng lẽ quay lại recall bị động — không bao giờ chặn cuộc trò chuyện.",
     "activeMemoryMaxChars": "Số ký tự tối đa khi recall",
     "activeMemoryTimeout": "Hết hạn (ms)",
@@ -2845,7 +2911,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Tổng hợp hồ sơ",
+      "profileEnabled": "Tổng hợp hồ sơ bộ nhớ",
+      "profileEnabledDesc": "Xây dựng hồ sơ dễ đọc từ các claim đang hoạt động, phân lớp theo phạm vi. Khi bật, nó thay thế phần hồ sơ cũ trong system prompt; khi tắt sẽ giữ cách hiển thị cũ. Trigger nhàn rỗi/cron dùng lượt xử lý theo luật ít tốn kém; chạy thủ công sẽ dùng LLM để viết lại.",
+      "profileMaxLines": "Số dòng tối đa mỗi phạm vi",
+      "profileMaxLinesDesc": "Giới hạn số gạch đầu dòng hồ sơ được giữ cho mỗi phạm vi."
     },
     "embedding": {
       "reembedJob": {
@@ -3406,7 +3477,9 @@
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Quản lý bộ nhớ",
-      "settings": "Cài đặt bộ nhớ"
+      "settings": "Cài đặt bộ nhớ",
+      "claims": "Claims",
+      "profile": "Hồ sơ"
     },
     "memoryTags": "Thẻ",
     "memoryTagsPlaceholder": "Nhãn phân cách bằng dấu phẩy (tùy chọn)",
@@ -3673,7 +3746,18 @@
     "planQuestionTimeoutDesc": "Thời gian tối đa chờ phản hồi của người dùng cho câu hỏi Plan Mode. Tự động hủy câu hỏi khi hết thời gian. Đặt 0 cho không giới hạn.",
     "planSubagent": "Chế độ Sub-Agent của Plan",
     "planSubagentDesc": "Khi bật, Plan Mode sử dụng sub-agent chuyên dụng để tạo kế hoạch (ngữ cảnh chính sạch hơn). Khi tắt, lập kế hoạch chạy nội tuyến trong agent chính (tính liên tục ngữ cảnh).",
-    "profile": "Hồ sơ",
+    "profile": {
+      "title": "Hồ sơ bộ nhớ",
+      "desc": "Những gì nó biết về bạn và các dự án của bạn, được tổng hợp từ các claim đang hoạt động và phân lớp theo phạm vi.",
+      "refresh": "Làm mới hồ sơ",
+      "refreshing": "Đang tổng hợp…",
+      "refreshDone": "Đã làm mới hồ sơ ({{count}} ảnh chụp)",
+      "refreshSkipped": "Đã bỏ qua tổng hợp",
+      "refreshFailed": "Không thể tổng hợp hồ sơ",
+      "empty": "Chưa có ảnh chụp hồ sơ",
+      "emptyHint": "Bật tổng hợp hồ sơ trong tab Dreaming, rồi làm mới.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} tuổi",
     "profileAiExpBeginner": "Mới bắt đầu — vừa tiếp xúc AI",
     "profileAiExpExpert": "Chuyên gia — sử dụng AI chuyên sâu",
@@ -4361,6 +4445,46 @@
       "addHandler": "Thêm trình xử lý",
       "advanced": "Nâng cao",
       "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse)."
+    },
+    "memoryExtractClaims": "Trích xuất claim (beta)",
+    "memoryExtractClaimsDesc": "Trích xuất thêm các claim có cấu trúc kèm bằng chứng song song với bộ nhớ (ghi kép).",
+    "claims": {
+      "title": "Claims",
+      "desc": "Bộ nhớ dài hạn có cấu trúc với phạm vi, độ tin cậy và bằng chứng.",
+      "list": "Danh sách claim",
+      "empty": "Chưa có claim.",
+      "selectClaim": "Chọn một claim để xem bằng chứng.",
+      "confidence": "Độ tin cậy",
+      "salience": "Mức quan trọng",
+      "evidence": "Bằng chứng",
+      "noEvidence": "Không có bằng chứng.",
+      "links": "Bộ nhớ liên kết",
+      "statusAll": "Mọi trạng thái",
+      "status": {
+        "active": "Hoạt động",
+        "superseded": "Đã thay thế",
+        "expired": "Đã hết hạn",
+        "archived": "Đã lưu trữ",
+        "needs_review": "Cần xem xét"
+      },
+      "backfill": {
+        "button": "Lấp đầy",
+        "title": "Lấp đầy từ bộ nhớ hiện có",
+        "desc": "Đăng ký các bộ nhớ hiện có thành claim có cấu trúc. Chỉ các bộ nhớ hồ sơ và tùy chọn được ghim (user/feedback) mới tự động kích hoạt; phần còn lại vào hàng đợi xem xét. Liên kết lỏng lẻo nên việc chèn bộ nhớ hiện tại không thay đổi.",
+        "summaryTotal": "Tổng số bộ nhớ",
+        "summaryLinked": "Đã liên kết",
+        "summaryCandidates": "Cần lấp đầy",
+        "summaryActive": "Tự động kích hoạt",
+        "summaryReview": "Cần xem xét",
+        "previewTruncated": "Hiển thị {{shown}} trong {{total}}",
+        "apply": "Lấp đầy {{count}}",
+        "applying": "Đang lấp đầy…",
+        "applied": "Đã lấp đầy {{created}} claim: {{active}} kích hoạt, {{review}} chờ xem xét",
+        "planFailed": "Không thể tính toán kế hoạch lấp đầy",
+        "applyFailed": "Lấp đầy thất bại",
+        "empty": "Tất cả bộ nhớ đã nằm trong lớp claim.",
+        "appliedPartial": "Đã lấp đầy {{created}}, {{failed}} thất bại — bạn có thể thử lại phần còn lại"
+      }
     },
     "knowledge": {
       "tab": "Kiến thức"

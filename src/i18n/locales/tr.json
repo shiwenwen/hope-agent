@@ -781,7 +781,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "boşta",
-        "manual": "el ile"
+        "manual": "el ile",
+        "user_correction": "düzeltme"
+      },
+      "runs": {
+        "title": "Çalışma geçmişi",
+        "empty": "Henüz çalışma kaydı yok.",
+        "decisions": "Kararlar",
+        "noDecisions": "Bu çalışmada terfi yok.",
+        "selectRun": "Kararları görmek için bir çalışma seçin.",
+        "status": {
+          "running": "çalışıyor",
+          "completed": "tamamlandı",
+          "failed": "başarısız",
+          "skipped": "atlandı"
+        },
+        "evidence": "Kaynak",
+        "evidenceIncognito": "Gizli oturum kaynağı — görüntülenemez",
+        "evidenceUnavailable": "Kaynak kullanılamıyor"
+      },
+      "runResolver": "Derin düzenleme",
+      "resolving": "Düzenleniyor…",
+      "resolverDone": "Tamamlandı: {{expired}} süresi doldu, {{merged}} birleştirildi, {{review}} incelenecek",
+      "resolverFailed": "Derin düzenleme başarısız",
+      "review": {
+        "queueTitle": "İnceleme gerekiyor",
+        "queueEmpty": "İncelenecek claim yok",
+        "approve": "Onayla",
+        "approveDone": "Claim onaylandı",
+        "markOutdated": "Eskimiş işaretle",
+        "markOutdatedDone": "Eskimiş olarak işaretlendi",
+        "pin": "Sabitle",
+        "pinDone": "Claim sabitlendi",
+        "unpin": "Sabiti kaldır",
+        "unpinDone": "Sabit kaldırıldı",
+        "edit": "Düzenle",
+        "editTitle": "Claim düzenle",
+        "editDesc": "Claim içeriğini ve etiketlerini düzenleyin. Düzenlemeniz bir düzeltme olarak kaydedilir.",
+        "editContent": "İçerik",
+        "editTags": "Etiketler",
+        "editTagsPlaceholder": "virgülle ayrılmış",
+        "editDone": "Claim güncellendi",
+        "moveScope": "Kapsam taşı",
+        "moveScopeTitle": "Kapsamı taşı",
+        "moveScopeDesc": "Bu claim'in ait olduğu kapsamı değiştirin.",
+        "moveScopeDone": "Kapsam değiştirildi",
+        "scopeGlobal": "Genel",
+        "scopeAgent": "Ajan",
+        "scopeProject": "Proje",
+        "scopeId": "Kapsam kimliği",
+        "scopeIdPlaceholder": "ajan veya proje kimliği",
+        "reject": "Reddet",
+        "rejectTitle": "Bu claim reddedilsin mi?",
+        "rejectDesc": "Claim arşivlenecek ve istemleri etkilemeyi bırakacak.",
+        "rejectDone": "Claim reddedildi",
+        "forget": "Unut",
+        "forgetTitle": "Bu anıyı unut",
+        "forgetDesc": "Bu anının kullanımını durdurun.",
+        "forgetArchive": "Arşivle",
+        "forgetArchiveDesc": "Claim'i arşivler ve bağlı anıların eklenmesini durdurur. Kanıtlar saklanır.",
+        "forgetPermanent": "Kalıcı olarak sil",
+        "forgetPermanentDesc": "Claim'i, kanıtlarını ve yalnızca onun yönettiği anıları kalıcı olarak siler. Geri alınamaz.",
+        "forgetNotePlaceholder": "Neden (isteğe bağlı)",
+        "forgetConfirm": "Unut",
+        "forgetDone": "Anı unutuldu",
+        "failed": "İşlem başarısız"
       }
     },
     "error": {
@@ -2250,6 +2314,8 @@
     "acpTimeout": "Zaman aşımı (sn)",
     "activeMemoryCacheTtl": "Önbellek TTL (saniye)",
     "activeMemoryCandidateLimit": "Aday sınırı",
+    "activeMemoryIncludeClaims": "Yapılandırılmış iddiaları dahil et",
+    "activeMemoryIncludeClaimsDesc": "Anımsama adayları olarak yalnızca eski anıları değil, Dreaming'in yapılandırılmış iddialarını da kısa listeye alır. Varsayılan olarak kapalı.",
     "activeMemoryDesc": "Her kullanıcı turunun başında, en alakalı belleği tek bir cümleye dönüştürmek ve sistem istemiyle birlikte enjekte etmek için sınırlı bir side query çalıştırır. Zaman aşımı ve hatalar sessizce pasif hatırlatmaya döner — sohbeti asla engellemez.",
     "activeMemoryMaxChars": "Hatırlatma maks. karakter",
     "activeMemoryTimeout": "Zaman aşımı (ms)",
@@ -2845,7 +2911,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Profil sentezi",
+      "profileEnabled": "Bellek profili sentezle",
+      "profileEnabledDesc": "Etkin claim'lerden, kapsama göre katmanlanmış okunabilir bir profil oluşturur. Açıkken sistem komutundaki eski profil bölümünün yerini alır; kapalıyken eski görünüm korunur. Boşta/cron tetiklemeleri ucuz, kural tabanlı bir geçiş kullanır; manuel tetikleme LLM ile yeniden yazma çalıştırır.",
+      "profileMaxLines": "Kapsam başına maksimum satır",
+      "profileMaxLinesDesc": "Kapsam başına tutulacak profil maddesi sayısının üst sınırı."
     },
     "embedding": {
       "reembedJob": {
@@ -3406,7 +3477,9 @@
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Hafıza yönetimi",
-      "settings": "Hafıza ayarları"
+      "settings": "Hafıza ayarları",
+      "claims": "Claims",
+      "profile": "Profil"
     },
     "memoryTags": "Etiketler",
     "memoryTagsPlaceholder": "Virgülle ayrılmış etiketler (isteğe bağlı)",
@@ -3673,7 +3746,18 @@
     "planQuestionTimeoutDesc": "Plan Mode sorularına kullanıcı yanıtı için maksimum bekleme süresi. Zaman aşımında otomatik iptal eder. Sınır olmaması için 0.",
     "planSubagent": "Plan Sub-Agent modu",
     "planSubagentDesc": "Etkinleştirildiğinde, Plan Mode plan oluşturma için özel bir sub-agent kullanır (ana bağlam daha temiz). Devre dışı bırakıldığında, planlama ana agent içinde satır içi çalışır (bağlam sürekliliği).",
-    "profile": "Profil",
+    "profile": {
+      "title": "Bellek Profili",
+      "desc": "Sizin ve projeleriniz hakkında bildikleri; etkin claim'lerden sentezlenir ve kapsama göre katmanlanır.",
+      "refresh": "Profili yenile",
+      "refreshing": "Sentezleniyor…",
+      "refreshDone": "Profil yenilendi ({{count}} anlık görüntü)",
+      "refreshSkipped": "Sentez atlandı",
+      "refreshFailed": "Profil sentezlenemedi",
+      "empty": "Henüz profil anlık görüntüsü yok",
+      "emptyHint": "Dreaming sekmesinde profil sentezini etkinleştirin, ardından yenileyin.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} yaşında",
     "profileAiExpBeginner": "Başlangıç — yeni başlıyor",
     "profileAiExpExpert": "Uzman — AI araçlarının yoğun kullanıcısı",
@@ -4361,6 +4445,46 @@
       "addHandler": "İşleyici ekle",
       "advanced": "Gelişmiş",
       "slowHandlerWarning": "Bu işleyici LLM / alt ajanı satır içi çalıştırır ve bu engelleyici olay her tetiklendiğinde gecikmeye yol açar. Burada command / http tercih edin veya bir gözlem olayına (örn. PostToolUse) taşıyın."
+    },
+    "memoryExtractClaims": "İddiaları çıkar (beta)",
+    "memoryExtractClaimsDesc": "Belleklerin yanı sıra kanıta dayalı yapılandırılmış iddiaları da çıkarır (çift yazma).",
+    "claims": {
+      "title": "İddialar (Claims)",
+      "desc": "Kapsam, güven ve kanıt içeren yapılandırılmış uzun süreli bellek.",
+      "list": "İddialar",
+      "empty": "Henüz iddia yok.",
+      "selectClaim": "Kanıtını görmek için bir iddia seçin.",
+      "confidence": "Güven",
+      "salience": "Önem",
+      "evidence": "Kanıt",
+      "noEvidence": "Kanıt yok.",
+      "links": "Bağlı bellekler",
+      "statusAll": "Tüm durumlar",
+      "status": {
+        "active": "Etkin",
+        "superseded": "Geçersiz kılındı",
+        "expired": "Süresi doldu",
+        "archived": "Arşivlendi",
+        "needs_review": "İnceleme gerekli"
+      },
+      "backfill": {
+        "button": "Geri doldur",
+        "title": "Mevcut anıları geri doldur",
+        "desc": "Mevcut anıları yapılandırılmış claim olarak kaydeder. Yalnızca sabitlenmiş profil ve tercih anıları (user/feedback) otomatik etkinleştirilir; gerisi inceleme kuyruğuna girer. Gevşek bağlandığından mevcut bellek enjeksiyonu değişmez.",
+        "summaryTotal": "Toplam anı",
+        "summaryLinked": "Zaten bağlı",
+        "summaryCandidates": "Doldurulacak",
+        "summaryActive": "Otomatik etkin",
+        "summaryReview": "İnceleme gerekli",
+        "previewTruncated": "{{total}} içinden {{shown}} gösteriliyor",
+        "apply": "{{count}} öğeyi doldur",
+        "applying": "Dolduruluyor…",
+        "applied": "{{created}} claim geri dolduruldu: {{active}} etkin, {{review}} inceleme bekliyor",
+        "planFailed": "Geri doldurma planı hesaplanamadı",
+        "applyFailed": "Geri doldurma başarısız",
+        "empty": "Tüm anılar zaten claim katmanında.",
+        "appliedPartial": "{{created}} dolduruldu, {{failed}} başarısız — kalanları yeniden deneyebilirsiniz"
+      }
     },
     "knowledge": {
       "tab": "Bilgi"

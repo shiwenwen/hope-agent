@@ -338,6 +338,67 @@ pub fn build_system_prompt_with_session(
             &app_cfg.memory_budget,
         );
 
+        // Memory Profile snapshot (next-gen Dreaming Phase 4): when profile
+        // synthesis is enabled and a snapshot exists, it renders the
+        // `## User Profile` section in place of the legacy profile-tagged
+        // memories; otherwise the legacy rendering is the fallback (so disabling
+        // synthesis — the default — never blanks the section). Global +
+        // current-agent snapshots are concatenated here; the project profile is
+        // shown in the read-only view but injected via the Context Pack later.
+        let profile_snapshot: Option<String> = if definition.config.memory.enabled
+            && !incognito
+            && app_cfg.dreaming.profile_synthesis.enabled
+        {
+            let mut parts: Vec<String> = Vec::new();
+            for (scope_type, scope_id) in [("global", ""), ("agent", agent_id)] {
+                if let Some(body) =
+                    crate::memory::dreaming::latest_profile_body(scope_type, scope_id)
+                {
+                    let body = body.trim();
+                    if !body.is_empty() {
+                        parts.push(body.to_string());
+                    }
+                }
+            }
+            (!parts.is_empty()).then(|| parts.join("\n"))
+        } else {
+            None
+        };
+
+        // Context Pack — static Pinned Claims segment (next-gen Dreaming Phase 5,
+        // design §4.8). Built once here (query-independent, cache-stable) and
+        // folded into the system prompt prefix by `build_memory_section`. Same
+        // gate as the profile snapshot: memory on + not incognito. Empty on the
+        // dual-track default (no claims yet) → None → no injection. Dynamic
+        // per-turn claim recall is served separately by Active Memory v2.
+        let context_pack = if definition.config.memory.enabled && !incognito {
+            let mut scopes = vec![
+                crate::memory::MemoryScope::Global,
+                crate::memory::MemoryScope::Agent {
+                    id: agent_id.to_string(),
+                },
+            ];
+            if let Some(p) = project.as_ref() {
+                scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
+            }
+            let pack = crate::memory::dreaming::build_context_pack(
+                &scopes,
+                &crate::memory::dreaming::ContextPackOptions::default(),
+            );
+            if !pack.source_digest.is_empty() {
+                crate::app_debug!(
+                    "memory",
+                    "context_pack",
+                    "context pack: {} pinned claim(s) for agent {}",
+                    pack.source_digest.len(),
+                    agent_id
+                );
+            }
+            (!pack.is_empty()).then_some(pack)
+        } else {
+            None
+        };
+
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
@@ -359,6 +420,8 @@ pub fn build_system_prompt_with_session(
             Some(provider),
             &memory_entries,
             &memory_budget,
+            profile_snapshot.as_deref(),
+            context_pack.as_ref(),
             agent_home.as_deref(),
             project.as_ref(),
             session_id,

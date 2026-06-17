@@ -146,28 +146,53 @@ Candidate memories (top matches from local store):\n\
 User's latest message:\n\
 {user_msg}\n";
 
-/// Build the recall prompt from user text and a shortlist of candidates.
-pub fn build_recall_prompt(user_msg: &str, candidates: &[MemoryEntry], max_chars: usize) -> String {
-    let rendered_candidates = if candidates.is_empty() {
+/// Build the recall prompt from user text and a shortlist of candidate memories
+/// plus (Active Memory v2) candidate claims. Both render into one numbered list
+/// so the LLM picks the single most relevant entry regardless of source; claims
+/// carry a `claim:<type>` tag to disambiguate them from legacy memory.
+pub fn build_recall_prompt(
+    user_msg: &str,
+    candidates: &[MemoryEntry],
+    claims: &[crate::memory::claims::ClaimRecord],
+    max_chars: usize,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    // Trim each candidate to keep the prompt bounded even if someone has an
+    // unusually long entry. The LLM only needs the gist to decide relevance.
+    for (i, m) in candidates.iter().enumerate() {
+        let content = crate::truncate_utf8(&m.content, 500);
+        let tags = if m.tags.is_empty() {
+            String::new()
+        } else {
+            format!(" [tags: {}]", m.tags.join(","))
+        };
+        lines.push(format!(
+            "{:>2}. ({:?}) {}{}",
+            i + 1,
+            m.memory_type,
+            content,
+            tags
+        ));
+    }
+    for (j, c) in claims.iter().enumerate() {
+        let content = crate::truncate_utf8(&c.content, 500);
+        let tags = if c.tags.is_empty() {
+            String::new()
+        } else {
+            format!(" [tags: {}]", c.tags.join(","))
+        };
+        lines.push(format!(
+            "{:>2}. (claim:{}) {}{}",
+            candidates.len() + j + 1,
+            c.claim_type,
+            content,
+            tags
+        ));
+    }
+    let rendered_candidates = if lines.is_empty() {
         "(none)".to_string()
     } else {
-        candidates
-            .iter()
-            .enumerate()
-            .map(|(i, m)| {
-                // Trim each candidate to keep the prompt bounded even if
-                // someone has an unusually long memory entry. The LLM only
-                // needs the gist to decide relevance.
-                let content = crate::truncate_utf8(&m.content, 500);
-                let tags = if m.tags.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [tags: {}]", m.tags.join(","))
-                };
-                format!("{:>2}. ({:?}) {}{}", i + 1, m.memory_type, content, tags)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        lines.join("\n")
     };
 
     RECALL_PROMPT_TEMPLATE
@@ -250,10 +275,88 @@ pub fn shortlist_candidates(query: &str, scopes: &[MemoryScope], limit: usize) -
     out
 }
 
+/// Active Memory v2 (design §7.5): shortlist active claims as recall candidates,
+/// mirroring [`shortlist_candidates`] but over the structured claim store.
+/// `search_claims` already returns effective-active, scope-filtered claims, so
+/// an expired / superseded claim can never loop back into the prompt via Active
+/// Memory (§7.5 red line). Returns claims to merge into the recall prompt
+/// alongside legacy memories.
+pub fn shortlist_claim_candidates(
+    query: &str,
+    scopes: &[MemoryScope],
+    limit: usize,
+) -> Vec<crate::memory::claims::ClaimRecord> {
+    let mut out: Vec<crate::memory::claims::ClaimRecord> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let per_scope = limit.max(1);
+    for scope in scopes {
+        if let Ok(found) =
+            crate::memory::claims::search_claims(query, Some(scope.clone()), per_scope)
+        {
+            for c in found {
+                if seen.insert(c.id.clone()) {
+                    out.push(c);
+                    if out.len() >= limit {
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Format the final Active Memory suffix section that gets injected into
 /// the provider request. Matches the markdown heading style used by the
 /// other dynamic blocks (awareness suffix, etc.) so the LLM can tell
 /// them apart at a glance.
 pub fn format_suffix(text: &str) -> String {
     format!("## Active Memory\n\n{}", text.trim())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::claims::ClaimRecord;
+
+    fn claim(content: &str, claim_type: &str) -> ClaimRecord {
+        ClaimRecord {
+            id: "c1".into(),
+            scope_type: "global".into(),
+            scope_id: None,
+            claim_type: claim_type.into(),
+            subject: "s".into(),
+            predicate: "p".into(),
+            object: "o".into(),
+            content: content.into(),
+            tags: vec![],
+            confidence: 0.9,
+            confidence_source: "derived".into(),
+            salience: 0.9,
+            freshness_policy: serde_json::json!({}),
+            status: "active".into(),
+            valid_from: None,
+            valid_until: None,
+            supersedes_claim_id: None,
+            source_run_id: None,
+            created_at: "2026-01-01T00:00:00.000Z".into(),
+            updated_at: "2026-01-01T00:00:00.000Z".into(),
+        }
+    }
+
+    #[test]
+    fn recall_prompt_renders_claim_candidates() {
+        // Active Memory v2: claims merge into the numbered candidate list with a
+        // `claim:<type>` tag, after any legacy memory candidates.
+        let claims = vec![claim("User prefers dark mode", "preference")];
+        let prompt = build_recall_prompt("what theme do I like?", &[], &claims, 220);
+        assert!(prompt.contains("(claim:preference) User prefers dark mode"));
+        assert!(prompt.contains("what theme do I like?"));
+    }
+
+    #[test]
+    fn recall_prompt_none_when_no_candidates() {
+        let prompt = build_recall_prompt("hi", &[], &[], 220);
+        assert!(prompt.contains("(none)"));
+    }
 }

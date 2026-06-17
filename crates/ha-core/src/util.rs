@@ -21,6 +21,15 @@ pub fn epoch_cutoff_secs(window_days: u32) -> i64 {
     now - (window_days as i64) * (SECS_PER_DAY as i64)
 }
 
+/// Current UTC timestamp as fixed-width RFC3339 (`...SSSZ`, millisecond
+/// precision + `Z`) — the canonical `created_at` / `updated_at` format for the
+/// memory and dreaming layers. Fixed width so timestamp columns compare
+/// lexically (e.g. `valid_until < now`); chrono's default variable-precision
+/// `to_rfc3339()` would break that. Centralized so the convention lives once.
+pub fn now_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
 /// Trim `opt` and return it if non-empty; otherwise return `fallback`. Used when
 /// an optional override ("display text", "override title", ...) should win over
 /// a mandatory default only when the caller actually supplied meaningful text.

@@ -1,0 +1,40 @@
+{
+  "name": "source_evidence",
+  "description": "Evidence-coverage red-line (§9.2 / §11): every active claim is traceable — it carries at least one evidence anchor.",
+  "claims": [
+    {
+      "key": "fact_a",
+      "scope": { "type": "agent", "id": "ev_source_ev" },
+      "claim_type": "user_profile",
+      "subject": "user",
+      "predicate": "lives_in",
+      "object": "Shanghai",
+      "content": "The user lives in Shanghai.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.6
+    },
+    {
+      "key": "fact_b",
+      "scope": { "type": "agent", "id": "ev_source_ev" },
+      "claim_type": "reference",
+      "subject": "docs",
+      "predicate": "live_at",
+      "object": "internal-wiki",
+      "content": "Team docs live at the internal-wiki.",
+      "evidence_class": "project_artifact_fact",
+      "salience": 0.5
+    }
+  ],
+  "checks": {
+    "evidence": [
+      { "claim": "fact_a", "min": 1 },
+      { "claim": "fact_b", "min": 1 }
+    ],
+    "list_active": [
+      {
+        "scope": { "type": "agent", "id": "ev_source_ev" },
+        "expect_present": ["fact_a", "fact_b"]
+      }
+    ]
+  }
+}

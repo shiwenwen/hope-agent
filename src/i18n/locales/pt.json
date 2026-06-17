@@ -781,7 +781,71 @@
       "trigger": {
         "cron": "cron",
         "idle": "ocioso",
-        "manual": "manual"
+        "manual": "manual",
+        "user_correction": "correção"
+      },
+      "runs": {
+        "title": "Histórico de execuções",
+        "empty": "Ainda não há execuções registradas.",
+        "decisions": "Decisões",
+        "noDecisions": "Sem promoções nesta execução.",
+        "selectRun": "Selecione uma execução para ver suas decisões.",
+        "status": {
+          "running": "em execução",
+          "completed": "concluído",
+          "failed": "falhou",
+          "skipped": "ignorado"
+        },
+        "evidence": "Origem",
+        "evidenceIncognito": "Origem anônima — não visível",
+        "evidenceUnavailable": "Origem indisponível"
+      },
+      "runResolver": "Resolução profunda",
+      "resolving": "Resolvendo…",
+      "resolverDone": "Resolvido: {{expired}} expirados, {{merged}} mesclados, {{review}} para revisão",
+      "resolverFailed": "Falha na resolução profunda",
+      "review": {
+        "queueTitle": "Para revisar",
+        "queueEmpty": "Nenhum claim para revisar",
+        "approve": "Aprovar",
+        "approveDone": "Claim aprovado",
+        "markOutdated": "Marcar desatualizado",
+        "markOutdatedDone": "Marcado como desatualizado",
+        "pin": "Fixar",
+        "pinDone": "Claim fixado",
+        "unpin": "Desafixar",
+        "unpinDone": "Claim desafixado",
+        "edit": "Editar",
+        "editTitle": "Editar claim",
+        "editDesc": "Edite o conteúdo e as etiquetas do claim. Sua edição é registrada como uma correção.",
+        "editContent": "Conteúdo",
+        "editTags": "Etiquetas",
+        "editTagsPlaceholder": "separadas por vírgula",
+        "editDone": "Claim atualizado",
+        "moveScope": "Mudar escopo",
+        "moveScopeTitle": "Mudar escopo",
+        "moveScopeDesc": "Altere o escopo ao qual este claim pertence.",
+        "moveScopeDone": "Escopo alterado",
+        "scopeGlobal": "Global",
+        "scopeAgent": "Agente",
+        "scopeProject": "Projeto",
+        "scopeId": "ID do escopo",
+        "scopeIdPlaceholder": "id de agente ou projeto",
+        "reject": "Rejeitar",
+        "rejectTitle": "Rejeitar este claim?",
+        "rejectDesc": "O claim será arquivado e deixará de influenciar os prompts.",
+        "rejectDone": "Claim rejeitado",
+        "forget": "Esquecer",
+        "forgetTitle": "Esquecer esta memória",
+        "forgetDesc": "Pare de usar esta memória.",
+        "forgetArchive": "Arquivar",
+        "forgetArchiveDesc": "Arquiva o claim e interrompe a injeção das memórias vinculadas. As evidências são mantidas.",
+        "forgetPermanent": "Excluir permanentemente",
+        "forgetPermanentDesc": "Exclui permanentemente o claim, suas evidências e qualquer memória que ele gerenciava exclusivamente. Não pode ser desfeito.",
+        "forgetNotePlaceholder": "Motivo (opcional)",
+        "forgetConfirm": "Esquecer",
+        "forgetDone": "Memória esquecida",
+        "failed": "Ação falhou"
       }
     },
     "error": {
@@ -2250,6 +2314,8 @@
     "acpTimeout": "Tempo limite (s)",
     "activeMemoryCacheTtl": "TTL de cache (segundos)",
     "activeMemoryCandidateLimit": "Limite de candidatos",
+    "activeMemoryIncludeClaims": "Incluir afirmações estruturadas",
+    "activeMemoryIncludeClaimsDesc": "Pré-seleciona também as afirmações estruturadas do Dreaming (não apenas memórias legadas) como candidatas de recuperação. Desativado por padrão.",
     "activeMemoryDesc": "No início de cada turno do usuário, execute uma side query limitada para destilar a memória mais relevante em uma frase e injetá-la junto ao prompt do sistema. Timeouts e falhas caem silenciosamente no recall passivo — nunca bloqueiam a conversa.",
     "activeMemoryMaxChars": "Máx. caracteres do recall",
     "activeMemoryTimeout": "Timeout (ms)",
@@ -2845,7 +2911,12 @@
       "scopeDays": "Days back",
       "scopeDaysDesc": "How many days of recent memories to scan.",
       "title": "Dreaming",
-      "windowTitle": "Scan window"
+      "windowTitle": "Scan window",
+      "profileTitle": "Síntese de perfil",
+      "profileEnabled": "Sintetizar um perfil de memória",
+      "profileEnabledDesc": "Cria um perfil legível a partir dos claims ativos, em camadas por escopo. Quando ativado, substitui a seção de perfil legada no system prompt; desativado, mantém a renderização legada. Os disparos por ociosidade/cron usam uma passada barata baseada em regras; a execução manual faz uma reescrita por LLM.",
+      "profileMaxLines": "Máximo de linhas por escopo",
+      "profileMaxLinesDesc": "Limite de quantos itens de perfil são mantidos por escopo."
     },
     "embedding": {
       "reembedJob": {
@@ -3406,7 +3477,9 @@
     "memoryTabs": {
       "dreaming": "Dreaming",
       "manage": "Gerenciamento de memória",
-      "settings": "Configurações de memória"
+      "settings": "Configurações de memória",
+      "claims": "Claims",
+      "profile": "Perfil"
     },
     "memoryTags": "Tags",
     "memoryTagsPlaceholder": "Tags separadas por vírgula (opcional)",
@@ -3673,7 +3746,18 @@
     "planQuestionTimeoutDesc": "Tempo máximo para esperar resposta do usuário a perguntas do Plan Mode. Cancela automaticamente ao expirar. 0 = sem limite.",
     "planSubagent": "Modo sub-Agent do Plan",
     "planSubagentDesc": "Quando ativado, o Plan Mode usa um sub-Agent dedicado para criar o plano (contexto principal mais limpo). Quando desativado, o planejamento roda inline no Agent principal (continuidade de contexto).",
-    "profile": "Perfil",
+    "profile": {
+      "title": "Perfil de memória",
+      "desc": "O que ele sabe sobre você e seus projetos, sintetizado a partir dos claims ativos e organizado em camadas por escopo.",
+      "refresh": "Atualizar perfil",
+      "refreshing": "Sintetizando…",
+      "refreshDone": "Perfil atualizado ({{count}} snapshots)",
+      "refreshSkipped": "Síntese ignorada",
+      "refreshFailed": "Falha ao sintetizar o perfil",
+      "empty": "Ainda não há snapshot de perfil",
+      "emptyHint": "Ative a síntese de perfil na aba Dreaming e depois atualize.",
+      "version": "v{{version}}"
+    },
     "profileAgeDisplay": "{{age}} anos",
     "profileAiExpBeginner": "Iniciante — começando agora",
     "profileAiExpExpert": "Especialista — uso avançado de ferramentas de IA",
@@ -4361,6 +4445,46 @@
       "addHandler": "Adicionar handler",
       "advanced": "Avançado",
       "slowHandlerWarning": "Este handler executa um LLM / subagente em linha e atrasará cada vez que este evento de bloqueio disparar. Prefira command / http aqui, ou mova-o para um evento de observação (ex.: PostToolUse)."
+    },
+    "memoryExtractClaims": "Extrair claims (beta)",
+    "memoryExtractClaimsDesc": "Também extrai claims estruturados com evidências junto às memórias (escrita dupla).",
+    "claims": {
+      "title": "Claims",
+      "desc": "Memória estruturada de longo prazo com escopo, confiança e evidências.",
+      "list": "Claims",
+      "empty": "Ainda não há claims.",
+      "selectClaim": "Selecione um claim para ver as evidências.",
+      "confidence": "Confiança",
+      "salience": "Relevância",
+      "evidence": "Evidências",
+      "noEvidence": "Sem evidências.",
+      "links": "Memórias vinculadas",
+      "statusAll": "Todos os status",
+      "status": {
+        "active": "Ativo",
+        "superseded": "Substituído",
+        "expired": "Expirado",
+        "archived": "Arquivado",
+        "needs_review": "Requer revisão"
+      },
+      "backfill": {
+        "button": "Preencher",
+        "title": "Preencher memórias existentes",
+        "desc": "Registra as memórias existentes como claims estruturados. Apenas memórias de perfil e preferências fixadas (user/feedback) são ativadas automaticamente; o restante vai para a fila de revisão. São vinculadas de forma flexível, então a injeção atual de memória não muda.",
+        "summaryTotal": "Total de memórias",
+        "summaryLinked": "Já vinculadas",
+        "summaryCandidates": "A preencher",
+        "summaryActive": "Auto-ativadas",
+        "summaryReview": "A revisar",
+        "previewTruncated": "Mostrando {{shown}} de {{total}}",
+        "apply": "Preencher {{count}}",
+        "applying": "Preenchendo…",
+        "applied": "{{created}} claims preenchidos: {{active}} ativos, {{review}} para revisão",
+        "planFailed": "Falha ao calcular o plano de preenchimento",
+        "applyFailed": "Falha no preenchimento",
+        "empty": "Todas as memórias já estão na camada de claims.",
+        "appliedPartial": "{{created}} preenchidos, {{failed}} com falha — você pode tentar o restante novamente"
+      }
     },
     "knowledge": {
       "tab": "Conhecimento"

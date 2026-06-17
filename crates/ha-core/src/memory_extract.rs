@@ -103,6 +103,112 @@ Known memories:
 Conversation (recent):
 {MESSAGES}"#;
 
+/// Next-gen Dreaming (beta) — combined extraction that ALSO emits structured
+/// `claims`. Used when `extract_claims` is enabled (the default); users who
+/// opt out keep the legacy prompt and skip the extra tokens. The `claims`
+/// array is the structured long-term memory; legacy `facts`/`profile` continue
+/// to write `MemoryEntry` rows.
+const COMBINED_EXTRACT_WITH_CLAIMS_PROMPT: &str = r#"Output ONE JSON object with THREE arrays:
+{
+  "facts":    [{"content":"...","type":"user|feedback|project|reference","tags":["..."]}],
+  "profile":  [{"content":"...","type":"user|feedback","tags":["profile", ...]}],
+  "claims":   [{"claimType":"user_profile|preference|project_fact|standing_rule|reference|task_pattern",
+                "subject":"user|agent|project|tool:<name>","predicate":"prefers|uses|works_on|avoid|completed|deprecated|...",
+                "object":"...","content":"human-readable sentence, same language as the user",
+                "scope":{"type":"global|agent|project"},
+                "evidenceClass":"explicit_user_statement|user_confirmed|project_artifact_fact|assistant_inferred|behavioral_pattern",
+                "salience":0.0-1.0,"temporal":{"validFrom":null,"validUntil":null},
+                "tags":["..."]}]
+}
+
+"facts" rules — same as before:
+- Extract NEW information not in "Known memories"; types user/feedback/project/reference; 1–2 sentences; max 5; same language as the user.
+
+"profile" rules — reflective user traits; MUST include the "profile" tag; max 3; same language.
+
+"claims" rules (structured long-term memory):
+- One claim per durable, reusable fact. Decompose: a claim is (subject, predicate, object) + a human `content` sentence.
+- `evidenceClass` describes HOW you know it (do NOT output a confidence number — the server derives it):
+  * explicit_user_statement — the user said it directly
+  * user_confirmed — the user confirmed something you proposed
+  * project_artifact_fact — read from project files / tool output
+  * assistant_inferred — you inferred it (default if unsure)
+  * behavioral_pattern — inferred from repeated behavior
+- `scope`: "project" for project-specific facts, "global" for cross-project user preferences, "agent" for how this agent should behave.
+- Set `temporal.validUntil` (ISO8601) ONLY for time-bounded facts ("next week", "until the launch"); else null.
+- `salience` = long-term usefulness (0–1). Skip low-value chit-chat. Max 6 claims.
+- Write `content` in the SAME language the user predominantly used.
+
+If there's nothing new in any dimension, return {"facts":[],"profile":[],"claims":[]}.
+Respond ONLY with the JSON object, no markdown fences.
+
+Known memories:
+{EXISTING}
+
+Conversation (recent):
+{MESSAGES}"#;
+
+/// Next-gen Dreaming (beta) with reflection OFF: `facts` + `claims`, but NO
+/// `profile` array. When the user/agent disabled `enable_reflection`, opting
+/// into claims must NOT silently re-enable reflective user-profile extraction
+/// into the legacy `memories` table — so this variant drops `profile` entirely
+/// (the write path also filters any stray profile-tagged item as
+/// defense-in-depth).
+const COMBINED_EXTRACT_FACTS_CLAIMS_PROMPT: &str = r#"Output ONE JSON object with TWO arrays:
+{
+  "facts":    [{"content":"...","type":"user|feedback|project|reference","tags":["..."]}],
+  "claims":   [{"claimType":"user_profile|preference|project_fact|standing_rule|reference|task_pattern",
+                "subject":"user|agent|project|tool:<name>","predicate":"prefers|uses|works_on|avoid|completed|deprecated|...",
+                "object":"...","content":"human-readable sentence, same language as the user",
+                "scope":{"type":"global|agent|project"},
+                "evidenceClass":"explicit_user_statement|user_confirmed|project_artifact_fact|assistant_inferred|behavioral_pattern",
+                "salience":0.0-1.0,"temporal":{"validFrom":null,"validUntil":null},
+                "tags":["..."]}]
+}
+
+"facts" rules — same as before:
+- Extract NEW information not in "Known memories"; types user/feedback/project/reference; 1–2 sentences; max 5; same language as the user.
+- Do NOT emit reflective user-profile traits here; the user disabled reflection.
+
+"claims" rules (structured long-term memory):
+- One claim per durable, reusable fact. Decompose: a claim is (subject, predicate, object) + a human `content` sentence.
+- `evidenceClass` describes HOW you know it (do NOT output a confidence number — the server derives it):
+  * explicit_user_statement — the user said it directly
+  * user_confirmed — the user confirmed something you proposed
+  * project_artifact_fact — read from project files / tool output
+  * assistant_inferred — you inferred it (default if unsure)
+  * behavioral_pattern — inferred from repeated behavior
+- `scope`: "project" for project-specific facts, "global" for cross-project user preferences, "agent" for how this agent should behave.
+- Set `temporal.validUntil` (ISO8601) ONLY for time-bounded facts ("next week", "until the launch"); else null.
+- `salience` = long-term usefulness (0–1). Skip low-value chit-chat. Max 6 claims.
+- Write `content` in the SAME language the user predominantly used.
+
+If there's nothing new in either dimension, return {"facts":[],"claims":[]}.
+Respond ONLY with the JSON object, no markdown fences.
+
+Known memories:
+{EXISTING}
+
+Conversation (recent):
+{MESSAGES}"#;
+
+/// Pick the extraction prompt by feature flags. Pure + unit-tested so the
+/// privacy-critical invariant is locked: when reflection is OFF, no prompt
+/// variant (claims on or off) asks the model for the reflective `profile`
+/// array, so opting into claims can never silently re-open profile extraction.
+fn select_extract_prompt(claims_enabled: bool, reflect_enabled: bool) -> &'static str {
+    match (claims_enabled, reflect_enabled) {
+        // Claims beta on + reflection on: facts + profile + claims.
+        (true, true) => COMBINED_EXTRACT_WITH_CLAIMS_PROMPT,
+        // Claims beta on + reflection OFF: facts + claims, NO profile.
+        (true, false) => COMBINED_EXTRACT_FACTS_CLAIMS_PROMPT,
+        // Claims beta off + reflection on: facts + profile.
+        (false, true) => COMBINED_EXTRACT_PROMPT,
+        // Both off: legacy facts-only.
+        (false, false) => EXTRACTION_PROMPT,
+    }
+}
+
 // ── Public API ──────────────────────────────────────────────────
 
 /// Run memory extraction from recent conversation history.
@@ -191,11 +297,11 @@ async fn do_extraction(
         .and_then(|m| m.enable_reflection)
         .unwrap_or(global_extract.enable_reflection);
 
-    let prompt_template = if reflect_enabled {
-        COMBINED_EXTRACT_PROMPT
-    } else {
-        EXTRACTION_PROMPT
-    };
+    // Next-gen claim dual-write (beta, on by default). When on, use the claims-
+    // augmented combined prompt; users who opt out keep the existing prompts
+    // and skip the extra tokens.
+    let claims_enabled = global_extract.extract_claims;
+    let prompt_template = select_extract_prompt(claims_enabled, reflect_enabled);
     let prompt = prompt_template
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
@@ -258,7 +364,16 @@ async fn do_extraction(
     // Parse JSON response
     let extracted = parse_extraction_response(&response)?;
 
-    if extracted.is_empty() {
+    // Parse claim candidates up-front (beta). A claims-only turn — the model
+    // surfaced a durable claim but no loose fact/profile — must still
+    // dual-write, so claims are parsed BEFORE the empty-legacy early return.
+    let claim_candidates = if claims_enabled {
+        parse_claim_candidates(&response)
+    } else {
+        Vec::new()
+    };
+
+    if extracted.is_empty() && claim_candidates.is_empty() {
         app_info!(
             "memory",
             "auto_extract",
@@ -278,6 +393,13 @@ async fn do_extraction(
     // Save each extracted memory with dedup
     let mut saved_count = 0usize;
     for item in &extracted {
+        // Defense-in-depth: when reflection is off, never persist reflective
+        // profile-tagged items even if the model emitted them unprompted (the
+        // facts-only / facts+claims prompts don't ask for `profile`, but a
+        // model could still surface one). Mirrors the prompt selection above.
+        if !reflect_enabled && item.tags.iter().any(|t| t == "profile") {
+            continue;
+        }
         // Phase B'2: profile-tagged items get a distinct `source` so they're
         // easy to filter in Dashboard queries and in the review UI.
         let source = if item.tags.iter().any(|t| t == "profile") {
@@ -336,7 +458,135 @@ async fn do_extraction(
         }
     }
 
+    // Next-gen claim dual-write (beta). For each candidate (parsed above, so a
+    // claims-only turn still reaches here), write its legacy shadow via
+    // add_with_dedup (consuming the 3-state) + the structured claim (rule-only
+    // canonicalize) + the link.
+    if !claim_candidates.is_empty() {
+        let sid = session_id.to_string();
+        let scope_for_claims = scope.clone();
+        let linked = tokio::task::spawn_blocking(move || {
+            dual_write_claims(claim_candidates, &sid, &scope_for_claims)
+        })
+        .await
+        .unwrap_or(0);
+        app_info!(
+            "memory",
+            "claim_extract",
+            "dual-wrote {} claim(s) (session: {})",
+            linked,
+            session_id
+        );
+    }
+
     Ok(())
+}
+
+/// Map a claim type to the legacy `MemoryType` used for the dual-write shadow.
+fn claim_type_to_memory_type(claim_type: &str) -> MemoryType {
+    let s = match claim_type {
+        "user_profile" => "user",
+        "preference" | "standing_rule" => "feedback",
+        "project_fact" | "task_pattern" => "project",
+        "reference" => "reference",
+        _ => "user",
+    };
+    MemoryType::from_str(s)
+}
+
+/// Parse the `claims` array from a combined extraction response into validated
+/// candidates. Tolerant: skips malformed items; caps at 8.
+fn parse_claim_candidates(response: &str) -> Vec<crate::memory::claims::ClaimCandidate> {
+    let trimmed = response.trim();
+    let Some(span) = crate::extract_json_span(trimmed, Some('{')) else {
+        return Vec::new();
+    };
+    let Ok(obj) = serde_json::from_str::<Value>(span) else {
+        return Vec::new();
+    };
+    let Some(arr) = obj.get("claims").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|v| {
+            serde_json::from_value::<crate::memory::claims::ClaimCandidate>(v.clone()).ok()
+        })
+        .filter(|c| {
+            !c.subject.trim().is_empty()
+                && !c.predicate.trim().is_empty()
+                && !c.object.trim().is_empty()
+                && !c.content.trim().is_empty()
+        })
+        .take(8)
+        .collect()
+}
+
+/// Blocking dual-write of claim candidates: shadow `memories` row (3-state) +
+/// structured claim + link. Returns the number of claims linked. Best-effort:
+/// a per-item failure logs a warning and continues.
+fn dual_write_claims(
+    candidates: Vec<crate::memory::claims::ClaimCandidate>,
+    session_id: &str,
+    scope: &MemoryScope,
+) -> usize {
+    let Some(backend) = crate::get_memory_backend() else {
+        return 0;
+    };
+    let dedup = crate::memory::load_dedup_config();
+    let mut linked = 0usize;
+    for c in &candidates {
+        let shadow = NewMemory {
+            memory_type: claim_type_to_memory_type(&c.claim_type),
+            scope: scope.clone(),
+            content: c.content.clone(),
+            tags: c.tags.clone(),
+            source: "auto-claim".to_string(),
+            source_session_id: Some(session_id.to_string()),
+            pinned: false,
+            attachment_path: None,
+            attachment_mime: None,
+        };
+        // `managed` link = the claim OWNS this shadow row, so the shadow's
+        // injection visibility follows the claim's lifecycle (hidden once the
+        // claim expires/supersedes). Only a freshly Created shadow is owned.
+        // When dedup MERGES into a pre-existing memory (Updated/Duplicate) —
+        // possibly a manual or independent auto memory the user already had —
+        // record a `detached` link instead: the claim detail still shows the
+        // association, but the claim's lifecycle must never hide that
+        // pre-existing memory (the hidden-set query only considers `managed`
+        // links). Fixes the over-reach where a dedup hit bound an unrelated
+        // memory's visibility to a claim it never belonged to.
+        let (memory_id, sync_mode) =
+            match backend.add_with_dedup(shadow, dedup.threshold_high, dedup.threshold_merge) {
+                Ok(AddResult::Created { id }) => (id, "managed"),
+                Ok(AddResult::Updated { id }) => (id, "detached"),
+                Ok(AddResult::Duplicate { existing_id, .. }) => (existing_id, "detached"),
+                Err(e) => {
+                    app_warn!(
+                        "memory",
+                        "claim_extract",
+                        "shadow memory write failed: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+        match crate::memory::claims::write_claim_candidate(c, scope, session_id, None) {
+            Ok(outcome) => {
+                if let Err(e) = crate::memory::claims::link_claim_memory(
+                    &outcome.claim_id,
+                    memory_id,
+                    sync_mode,
+                ) {
+                    app_warn!("memory", "claim_extract", "claim link failed: {}", e);
+                } else {
+                    linked += 1;
+                }
+            }
+            Err(e) => app_warn!("memory", "claim_extract", "claim write failed: {}", e),
+        }
+    }
+    linked
 }
 
 // ── Flush Before Compact ────────────────────────────────────────
@@ -489,10 +739,19 @@ fn parse_extraction_response(response: &str) -> Result<Vec<ExtractedMemory>> {
     // to contain nested arrays that `extract_json_array` would match).
     let trimmed = response.trim();
 
-    // Prefer combined-object shape.
+    // Prefer combined-object shape. `claims` is included so a claims-only
+    // object (`{"claims":[...]}`, common when the model drops empty
+    // facts/profile arrays) enters this branch and returns NO legacy items —
+    // rather than falling through to the bracket scan below, which would match
+    // the `claims` array's `[` and mis-decode each claim's `content` as a
+    // bogus legacy memory (double-write). Claims are handled solely by
+    // `parse_claim_candidates`.
     if let Some(obj_span) = crate::extract_json_span(trimmed, Some('{')) {
         if let Ok(obj) = serde_json::from_str::<Value>(obj_span) {
-            if obj.get("facts").is_some() || obj.get("profile").is_some() {
+            if obj.get("facts").is_some()
+                || obj.get("profile").is_some()
+                || obj.get("claims").is_some()
+            {
                 let facts = obj
                     .get("facts")
                     .and_then(|v| v.as_array())
@@ -813,5 +1072,55 @@ mod tests {
         let text = r#"{"facts":[],"profile":[]}"#;
         let items = parse_extraction_response(text).unwrap();
         assert!(items.is_empty());
+    }
+
+    #[test]
+    fn claims_only_object_yields_no_legacy_items() {
+        // Model dropped empty facts/profile and returned only claims. The
+        // legacy parser must NOT fall through to the bracket scan and decode
+        // claim `content` as bogus legacy memories (the double-write bug).
+        let text = r#"{"claims":[{"claimType":"preference","subject":"user","predicate":"prefers","object":"bun","content":"User prefers Bun.","evidenceClass":"explicit_user_statement"}]}"#;
+        let items = parse_extraction_response(text).unwrap();
+        assert!(
+            items.is_empty(),
+            "claims-only object must yield 0 legacy items"
+        );
+    }
+
+    #[test]
+    fn claims_only_object_still_parses_claim_candidates() {
+        // The same claims-only payload must still produce claim candidates, so
+        // a claims-only turn dual-writes (not silently dropped).
+        let text = r#"{"facts":[],"profile":[],"claims":[{"claimType":"preference","subject":"user","predicate":"prefers","object":"bun","content":"User prefers Bun.","evidenceClass":"explicit_user_statement"}]}"#;
+        let candidates = parse_claim_candidates(text);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].object, "bun");
+    }
+
+    #[test]
+    fn claims_on_with_reflection_off_never_requests_profile() {
+        // Privacy invariant: opting into claims while reflection is OFF must
+        // pick a prompt that does NOT ask the model for the reflective
+        // `profile` array (Codex adversarial finding #1).
+        let prompt = select_extract_prompt(true, false);
+        assert!(
+            !prompt.contains("\"profile\""),
+            "claims-on + reflection-off prompt must not request a profile array"
+        );
+        assert!(prompt.contains("\"claims\""), "must still request claims");
+        assert!(prompt.contains("\"facts\""), "must still request facts");
+    }
+
+    #[test]
+    fn extract_prompt_selection_matrix() {
+        // reflection on → profile present; reflection off → profile absent.
+        assert!(select_extract_prompt(true, true).contains("\"profile\""));
+        assert!(select_extract_prompt(true, true).contains("\"claims\""));
+        assert!(select_extract_prompt(false, true).contains("\"profile\""));
+        assert!(!select_extract_prompt(false, true).contains("\"claims\""));
+        // Both off → legacy facts-only: neither profile nor claims.
+        let legacy = select_extract_prompt(false, false);
+        assert!(!legacy.contains("\"profile\""));
+        assert!(!legacy.contains("\"claims\""));
     }
 }
