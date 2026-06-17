@@ -119,33 +119,66 @@ static SESSION_IDLE_NOTIFY: std::sync::LazyLock<tokio::sync::Notify> =
 /// active, stamps it `Killed` directly so a caller is never left with an
 /// un-cancellable row. Returns true if a cancel was signalled or stamped.
 pub fn request_cancel_run(run_id: &str) -> bool {
-    // R7.2: a still-PARKED run (Queued, never launched) has no in-process cancel
-    // flag — drop its queue entry first (releases the pinned SpawnParams) so the
-    // scheduler can't promote it, then fall through to stamp it Killed below.
-    queue::remove_for_run(run_id);
-    if let Some(registry) = crate::get_subagent_cancels() {
-        if registry.cancel(run_id) {
-            return true;
-        }
+    // R7.2 promote-vs-cancel safety. The queue mutex serializes this dequeue
+    // against the scheduler's promote (`take_for_session`): exactly one side can
+    // claim a parked entry.
+    //   - We win (`Some`): the run is still PARKED and will never launch (the
+    //     scheduler can't see it anymore), so we OWN settling it terminal below.
+    //   - We lose (`None`): the scheduler already promoted it (now running), or
+    //     it was never parked. The cancel flag — registered at PARK time and
+    //     REUSED by `launch_subagent_run` — is tripped below so the running
+    //     engine aborts (`abort_on_cancel`) and settles `Killed` itself.
+    let claimed_parked = queue::remove_for_run(run_id).is_some();
+
+    // Trip the in-process cancel flag. For a claimed parked run the flag is
+    // unused (no engine will read it) — drop it so the registry doesn't leak.
+    let signalled = crate::get_subagent_cancels()
+        .map(|registry| {
+            let hit = registry.cancel(run_id);
+            if claimed_parked {
+                registry.remove(run_id);
+            }
+            hit
+        })
+        .unwrap_or(false);
+
+    // A claimed parked run won't settle itself (no engine) — stamp it terminal.
+    if claimed_parked {
+        stamp_run_killed(run_id);
+        return true;
     }
-    // No in-process flag (run already settled, or it was only parked) — fall back
-    // to stamping terminal if still active (covers the just-dequeued Queued run).
+    // Running run whose flag we just tripped — let the engine settle `Killed`.
+    if signalled {
+        return true;
+    }
+    // No queue entry, no flag (already settled, or never projected) — stamp
+    // terminal if still active so a caller is never left with an un-cancellable
+    // row.
     if let Some(db) = crate::get_session_db() {
         if let Ok(Some(run)) = db.get_subagent_run(run_id) {
             if !run.status.is_terminal() {
-                let _ = db.update_subagent_status(
-                    run_id,
-                    SubagentStatus::Killed,
-                    None,
-                    Some("Killed via background-job cancel"),
-                    None,
-                    None,
-                );
+                stamp_run_killed(run_id);
                 return true;
             }
         }
     }
     false
+}
+
+/// Stamp a sub-agent run `Killed` via the status choke point (syncs the
+/// projection). Used by [`request_cancel_run`] for runs that won't settle
+/// themselves (a never-launched parked run, or one whose flag is already gone).
+fn stamp_run_killed(run_id: &str) {
+    if let Some(db) = crate::get_session_db() {
+        let _ = db.update_subagent_status(
+            run_id,
+            SubagentStatus::Killed,
+            None,
+            Some("Killed via background-job cancel"),
+            None,
+            None,
+        );
+    }
 }
 
 // ── Re-exports ──────────────────────────────────────────────────

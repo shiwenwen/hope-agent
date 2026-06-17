@@ -303,12 +303,12 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 |------|------|
 | **队列态** | `subagent/queue.rs`：`static QUEUE: Mutex<VecDeque<PendingSubagentSpawn>>`（`PendingSubagentSpawn{params, run_id, child_session_id, effective_group_id}` 在内存钉住 live `SpawnParams`，含附件）+ `SCHED_NOTIFY: Notify`；上限 `MAX_QUEUED_SUBAGENTS = 256`，满则 `enqueue` 返 false → 调用方硬拒（界定内存）|
 | **spawn 拆分** | `spawn_subagent` = 结构校验（depth / agent-exists）→ 并发决策 `should_queue = active_count >= max_concurrent`（+ 队列满硬拒）→ `initial_status = if should_queue { Queued } else { Spawning }` → 物化（子会话 + run 行 + 投影，均带 `initial_status`）→ `if should_queue { queue::enqueue(...); return run_id }` 否则 `launch_subagent_run(...)`。发射尾（注册 cancel/mailbox + emit spawned + `SubagentStart` hook + `tokio::spawn`）抽成 `pub(crate) launch_subagent_run`，under-limit 路径与提升器共用 |
-| **调度器** | `run_subagent_scheduler()`（进程级、`AtomicBool` 幂等，镜像 `async_jobs::spawn::run_scheduler`）：`select!` 等 `SCHED_NOTIFY` + 5s 兜底 tick；per-session 取最旧 `Queued`、按各自会话的 `max_concurrent_for_agent` + 实时 `count_active_subagent_runs` 决定能否提升；提升前**重查仍为 `Queued`**（输给并发 cancel）→ `update_subagent_status(Queued→Spawning)` → `launch_subagent_run`。在 `app_init` 两条后台任务路径里随工具调度器一起 spawn |
+| **调度器** | `run_subagent_scheduler()`（进程级、`AtomicBool` 幂等，镜像 `async_jobs::spawn::run_scheduler`）：`select!` 等 `SCHED_NOTIFY` + 5s 兜底 tick；per-session 取最旧 `Queued`、按各自会话的 `max_concurrent_for_agent` + 实时 `count_active_subagent_runs` 决定能否提升；提升用 **guarded CAS** `try_transition_subagent_status(Queued→Spawning)`——no-op（行已被并发 cancel 标终态）即**不 launch、不耗槽位**，再 `launch_subagent_run`。在 `app_init` 两条后台任务路径里随工具调度器一起 spawn |
 | **唤醒** | 终态 choke point：`SessionDB::update_subagent_status` 在状态转**终态**后调 `queue::wake_subagent_scheduler()`（该会话可能空出槽位）；5s tick 兜底配置上调 / 漏唤醒 |
 
 ### 生命周期边界
 
-- **取消排队中的 run**：`request_cancel_run` **先** `queue::remove_for_run(run_id)`（丢掉钉住的 `SpawnParams`），再由既有兜底标 `Killed` + 同步投影；提升必须输给并发 cancel（提升器重查 `Queued`）
+- **取消排队中的 run（promote-vs-cancel 安全）**：cancel flag 在**入队时注册**、提升时由 `launch_subagent_run` 经 get-or-create **复用同一 flag**，故 park→launch 窗口内到达的 cancel 对最终起跑的引擎始终可见。`request_cancel_run` 用队列锁**抢占出队**（`remove_for_run` 返 `Some` = 赢得权威 → 该 run 永不 launch，直接标 `Killed`；返 `None` = 已被提升 → 触发复用 flag 让引擎 abort 自落 `Killed`）。配合提升的 guarded CAS（终态行无法转 `Spawning`），被取消的 run **绝不会被复活成运行子代理**——subagent 版的 R7.1「原子出队认领」
 - **重启**：`cleanup_orphan_subagent_runs` 的 sweep 含 `'queued'` → 排队行转 Orphaned（内存队列已失），投影同步到终态
 - **会话删除 / 无痕焚毁**：与取消活跃 run 同一路径调 `queue::purge_for_session(sid)`——注意 `list_active_subagent_runs` **排除** `Queued`，不 purge 就会漏掉排队 run；无痕会话的敏感 `SpawnParams` 只活在队列项里，丢弃即焚
 - **R5 Group**：零特例——排队的 grouped 子拿到 `kind=subagent` 投影（`Queued` 非终态）带 `group_id`，`try_complete_group` 因此**正确等待**它；提升后跑完结算再由 `sync_subagent_projection` 复查 group（优于此前「超额 batch 子直接 error 出 group」）
@@ -405,7 +405,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 | `list` | 无 | 列出当前会话所有子 Agent 运行记录 |
 | `steer` | `run_id`, `message` | 向运行中的子 Agent 推送引导消息 |
 | `kill` | `run_id` | 取消指定子 Agent |
-| `kill_all` | 无 | 取消当前会话所有活跃子 Agent |
+| `kill_all` | 无 | 取消当前会话所有活跃**及排队中**子 Agent（`cancel_all_for_session` 只覆盖 active，额外 `queue::purge_for_session` + `request_cancel_run` 收掉排队项，否则它们会在 kill_all 腾出槽位后被提升运行）|
 | `batch_spawn` | `tasks`(数组,最多10个) | 批量调用子 Agent，作为一个 **Group**（R5）fan-out——全部完成时**合并注入一轮**，返回 `group_id` |
 | `wait_all` | `run_ids`(数组), `wait_timeout`(可选,默认120s,上限600s) | 等待多个子 Agent 全部完成 |
 

@@ -31,6 +31,41 @@ pub(crate) fn subagent_capability_enabled(agent_id: &str, agent_config: &AgentCo
     }
 }
 
+/// Enforce the parent agent's sub-agent delegation gates before spawning
+/// `child_agent_id`: the Tier 3 capability toggle (`subagent_capability_enabled`)
+/// and the allowed/denied delegation list (`subagents.is_agent_allowed`). Shared
+/// by `do_spawn` AND `action_batch_spawn` so the model can't bypass the gate via
+/// `batch_spawn` (which historically skipped it entirely).
+///
+/// **Fail-closed**: if the parent agent definition can't be loaded we DENY rather
+/// than silently allow — the gate is a security boundary (AGENTS.md「执行层兜底」),
+/// and a model-writable delegation allowlist that fails open is a privilege
+/// escalation. The parent agent is the one currently running, so a load failure
+/// here is an anomaly (corrupt/half-written `agent.json`, racing delete), not a
+/// normal path.
+fn check_subagent_delegation_allowed(parent_agent_id: &str, child_agent_id: &str) -> Result<()> {
+    let def = crate::agent_loader::load_agent(parent_agent_id).map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot verify sub-agent delegation permission (failed to load agent '{}': {}); \
+             delegation denied",
+            parent_agent_id,
+            e
+        )
+    })?;
+    if !subagent_capability_enabled(parent_agent_id, &def.config) {
+        return Err(anyhow::anyhow!(
+            "Sub-agent delegation is disabled for this agent"
+        ));
+    }
+    if !def.config.subagents.is_agent_allowed(child_agent_id) {
+        return Err(anyhow::anyhow!(
+            "Agent '{}' is not in the allowed delegation list",
+            child_agent_id
+        ));
+    }
+    Ok(())
+}
+
 /// Tool handler for the `subagent` tool.
 /// Actions: spawn, check, list, result, kill, kill_all, steer
 pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -84,21 +119,9 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 
     let parent_agent_id = ctx.agent_id.as_deref().unwrap_or(DEFAULT_AGENT_ID);
 
-    // Check agent-level permission via the dispatcher (Tier 3 subagent toggle).
-    let agent_def = crate::agent_loader::load_agent(parent_agent_id).ok();
-    if let Some(ref def) = agent_def {
-        if !subagent_capability_enabled(parent_agent_id, &def.config) {
-            return Err(anyhow::anyhow!(
-                "Sub-agent delegation is disabled for this agent"
-            ));
-        }
-        if !def.config.subagents.is_agent_allowed(&agent_id) {
-            return Err(anyhow::anyhow!(
-                "Agent '{}' is not in the allowed delegation list",
-                agent_id
-            ));
-        }
-    }
+    // Enforce the parent's delegation gates (Tier 3 capability toggle + allowed
+    // delegation list). Fail-closed — see `check_subagent_delegation_allowed`.
+    check_subagent_delegation_allowed(parent_agent_id, &agent_id)?;
 
     let label = args
         .get("label")
@@ -374,7 +397,27 @@ async fn action_kill_all(ctx: &ToolExecContext) -> Result<String> {
     let session_db = get_session_db()?;
     let count = cancel_registry.cancel_all_for_session(parent_session_id, &session_db);
 
-    Ok(format!("Kill signal sent to {} active sub-agent(s)", count))
+    // R7.2: `cancel_all_for_session` only signals ACTIVE (spawning/running)
+    // runs — it reads `list_active_subagent_runs`, which excludes `Queued`. A
+    // parked spawn holds no slot, so without this it would survive kill_all and
+    // then be PROMOTED by the scheduler (killing the active runs just freed a
+    // slot) — running AFTER the user asked to kill everything. Purge the parked
+    // entries and stamp each terminal (mirrors the session-delete cascade).
+    let parked = subagent::queue::purge_for_session(parent_session_id);
+    let parked_count = parked.len();
+    for run_id in parked {
+        subagent::request_cancel_run(&run_id);
+    }
+
+    let queued_note = if parked_count > 0 {
+        format!(" and cancelled {} queued sub-agent(s)", parked_count)
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "Kill signal sent to {} active sub-agent(s){}",
+        count, queued_note
+    ))
 }
 
 async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -424,13 +467,20 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             .get("task")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Each task in batch_spawn must have a 'task' field"))?;
+        let child_agent_id = task_def
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_AGENT_ID)
+            .to_string();
+        // Enforce the delegation gates per child, up front (same as `do_spawn`)
+        // — `batch_spawn` must NOT be a bypass of the Tier 3 capability toggle /
+        // allowed-agent list. Validated here in the pre-flight loop (before the
+        // Group is created) so a denied agent fails the whole call cleanly; no
+        // `?` may run after the group's creation (see the comment above).
+        check_subagent_delegation_allowed(parent_agent_id, &child_agent_id)?;
         parsed.push(BatchTask {
             task: task.to_string(),
-            agent_id: task_def
-                .get("agent_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or(DEFAULT_AGENT_ID)
-                .to_string(),
+            agent_id: child_agent_id,
             label: task_def
                 .get("label")
                 .and_then(|v| v.as_str())
@@ -728,4 +778,26 @@ fn get_session_db() -> Result<Arc<crate::session::SessionDB>> {
 
 fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
     crate::require_subagent_cancels().map(Arc::clone)
+}
+
+#[cfg(test)]
+mod delegation_gate_tests {
+    use super::*;
+
+    #[test]
+    fn delegation_fails_closed_when_parent_agent_cant_load() {
+        // B1: if the parent agent definition can't be loaded, delegation must be
+        // DENIED, not silently allowed — a model-writable allowlist that fails
+        // open is a privilege escalation. (`do_spawn` and `action_batch_spawn`
+        // both route through this gate so `batch_spawn` can't bypass it.)
+        let root = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let err = check_subagent_delegation_allowed("__nonexistent_parent__", "helper")
+                .expect_err("a missing parent agent definition must deny delegation");
+            assert!(
+                err.to_string().contains("delegation denied"),
+                "expected fail-closed denial, got: {err}"
+            );
+        });
+    }
 }

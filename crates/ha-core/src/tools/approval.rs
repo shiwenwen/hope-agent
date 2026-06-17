@@ -939,6 +939,24 @@ pub(crate) async fn check_and_request_approval(
             crate::channel::worker::approval::drop_pending_by_request_id(&request_id).await;
             // Notify subscribers so IM and desktop clients can clear stale
             // UI and tell the user the approval expired.
+            // Compute the EFFECTIVE timeout decision FIRST. A strict reason
+            // (dangerous command / protected path) forces deny even when the
+            // configured action is `proceed` (F2/F3 enforce the actual block).
+            // BOTH the IM "timed out" notification and the unified
+            // `approval:resolved` must reflect this effective decision — emitting
+            // the raw config value told the IM user a strict-denied command
+            // "continued anyway, side effects already happened", the exact
+            // opposite of what occurred.
+            let resolved_deny = strict
+                || matches!(
+                    approval_timeout_action(),
+                    crate::config::ApprovalTimeoutAction::Deny
+                );
+            let effective_timeout_action = if resolved_deny {
+                crate::config::ApprovalTimeoutAction::Deny
+            } else {
+                crate::config::ApprovalTimeoutAction::Proceed
+            };
             if let Some(bus) = crate::globals::get_event_bus() {
                 bus.emit(
                     "approval_timed_out",
@@ -946,19 +964,13 @@ pub(crate) async fn check_and_request_approval(
                         "request_id": request_id,
                         "session_id": session_id,
                         "timeout_secs": timeout_secs,
-                        "timeout_action": approval_timeout_action(),
+                        "timeout_action": effective_timeout_action,
                     }),
                 );
             }
             // F4 (TIMEOUT-3 / SURFACE-1): also emit the unified `approval:resolved`
             // so every surface dismisses its dialog symmetrically with the submit
-            // path (G6). The effective decision mirrors what F2/F3 enforce: a
-            // strict reason OR `action=deny` resolves to deny, else proceed.
-            let resolved_deny = strict
-                || matches!(
-                    approval_timeout_action(),
-                    crate::config::ApprovalTimeoutAction::Deny
-                );
+            // path (G6).
             let (decision, resolution_source) = if resolved_deny {
                 ("deny", ApprovalResolutionSource::TimeoutDeny)
             } else {

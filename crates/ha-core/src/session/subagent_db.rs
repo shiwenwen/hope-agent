@@ -73,6 +73,40 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Guarded status transition: write `to` only when the row is currently
+    /// `from`. Returns `Ok(true)` iff a row was updated. The R7.2 promoter uses
+    /// this to flip `Queued → Spawning` atomically so it loses cleanly to a
+    /// concurrent cancel (which stamps the row terminal): a no-op transition
+    /// (`Ok(false)`) means the row already moved off `Queued`, so the promoter
+    /// must NOT launch — otherwise a killed run would be resurrected into a
+    /// running child. On a real transition it keeps the `background_jobs`
+    /// projection in lockstep, exactly like [`update_subagent_status`].
+    pub fn try_transition_subagent_status(
+        &self,
+        run_id: &str,
+        from: crate::subagent::SubagentStatus,
+        to: crate::subagent::SubagentStatus,
+    ) -> Result<bool> {
+        let changed = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "UPDATE subagent_runs SET status = ?1 WHERE run_id = ?2 AND status = ?3",
+                params![to.as_str(), run_id, from.as_str()],
+            )?
+        }; // drop the SessionDB lock before the cross-DB projection sync below.
+        if changed > 0 {
+            let became_terminal = to.is_terminal();
+            crate::async_jobs::JobManager::sync_subagent_projection(run_id, to);
+            if became_terminal {
+                crate::subagent::queue::wake_subagent_scheduler();
+            }
+        }
+        Ok(changed > 0)
+    }
+
     /// Set the finished_at timestamp for a sub-agent run.
     pub fn set_subagent_finished_at(&self, run_id: &str, finished_at: &str) -> Result<()> {
         let conn = self
@@ -369,5 +403,55 @@ mod tests {
             .find_active_run_by_child_session("child-nope")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn try_transition_subagent_status_is_a_guarded_cas() {
+        // R7.2 promote-vs-cancel core guarantee: `Queued → Spawning` is a CAS
+        // that fires at most once and NEVER resurrects a row a concurrent cancel
+        // already stamped terminal.
+        let tmp = tempfile::tempdir().unwrap();
+        let db = SessionDB::open(&tmp.path().join("s.db")).unwrap();
+        db.insert_subagent_run(&run("run-q", "child-q", SubagentStatus::Queued))
+            .unwrap();
+
+        // First Queued → Spawning succeeds and moves the row.
+        assert!(db
+            .try_transition_subagent_status(
+                "run-q",
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning
+            )
+            .unwrap());
+        assert_eq!(
+            db.get_subagent_run("run-q").unwrap().unwrap().status,
+            SubagentStatus::Spawning
+        );
+        // A second promote attempt is a no-op (row no longer Queued) — the
+        // promoter must not relaunch.
+        assert!(!db
+            .try_transition_subagent_status(
+                "run-q",
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning
+            )
+            .unwrap());
+
+        // A concurrent cancel stamped the row terminal: Queued → Spawning must
+        // NOT resurrect it (the bug this fix closes).
+        db.insert_subagent_run(&run("run-k", "child-k", SubagentStatus::Killed))
+            .unwrap();
+        assert!(!db
+            .try_transition_subagent_status(
+                "run-k",
+                SubagentStatus::Queued,
+                SubagentStatus::Spawning
+            )
+            .unwrap());
+        assert_eq!(
+            db.get_subagent_run("run-k").unwrap().unwrap().status,
+            SubagentStatus::Killed,
+            "a killed run must stay killed — never resurrected into Spawning"
+        );
     }
 }

@@ -16,14 +16,21 @@
 //! ## Lifecycle
 //! - **Park**: [`enqueue`] holds the live [`SpawnParams`] (incl. attachments) in
 //!   RAM, like the tool-job queue pins `ToolExecContext`. Bounded by
-//!   [`MAX_QUEUED_SUBAGENTS`]; a full queue makes the caller hard-reject.
+//!   [`MAX_QUEUED_SUBAGENTS`]; a full queue makes the caller hard-reject. The
+//!   cancel flag is registered HERE (at park) and REUSED on promotion, so a
+//!   cancel arriving in the park→launch window stays visible to the engine.
 //! - **Promote**: the scheduler wakes on [`wake_subagent_scheduler`] (fired from
 //!   the terminal status choke point — a slot may have freed) or a 5s fallback
 //!   tick, and for each session under its limit promotes the oldest queued spawn
-//!   (`Queued → Spawning`, then [`super::spawn::launch_subagent_run`]).
-//! - **Cancel**: [`remove_for_run`] drops the parked entry (the cancel path then
-//!   stamps `Killed`); a promote re-checks the row is still `Queued` so it loses
-//!   to a concurrent cancel.
+//!   via a guarded `Queued → Spawning` CAS, then
+//!   [`super::spawn::launch_subagent_run`].
+//! - **Cancel**: [`super::request_cancel_run`] claims the parked entry via
+//!   [`remove_for_run`] — winning the queue mutex makes it authoritative, so it
+//!   stamps `Killed`. If the scheduler already dequeued it, the reused cancel
+//!   flag is tripped so the launched engine aborts. Together with the promote's
+//!   guarded CAS (a terminal row can't transition to `Spawning`), a cancelled
+//!   run can never be resurrected into a running child — the subagent analogue of
+//!   R7.1's atomic dequeue-claim.
 //! - **Session delete / incognito burn**: [`purge_for_session`] drops every
 //!   parked entry for the session (the entry is the only place an incognito
 //!   spawn's sensitive `SpawnParams` live — dropping it IS the burn).
@@ -181,37 +188,50 @@ pub async fn run_subagent_scheduler() {
                 let Some(pending) = take_for_session(&session) else {
                     break;
                 };
-                // Re-check the row is still Queued: a concurrent cancel
-                // (remove_for_run + stamp Killed) or session delete may have
-                // raced between this dequeue and now. If it's no longer Queued,
-                // drop it WITHOUT spending a slot (don't decrement `free`).
-                match db.get_subagent_run(&pending.run_id) {
-                    Ok(Some(run)) if matches!(run.status, SubagentStatus::Queued) => {
-                        promote(pending, &db, &registry);
-                        free -= 1;
-                    }
-                    _ => {}
+                // Guarded promote: flip `Queued → Spawning` atomically, then
+                // launch. A no-op CAS means a concurrent cancel/purge already
+                // stamped the row terminal — drop the spawn WITHOUT spending a
+                // slot (don't decrement `free`), so a killed run is never
+                // resurrected into a running child. The queue mutex already
+                // serialized this dequeue against cancel's `remove_for_run`; the
+                // CAS closes the remaining promote-vs-cancel window. This is the
+                // subagent analogue of R7.1's atomic dequeue-claim in
+                // `async_jobs::slots`.
+                if promote(pending, &db, &registry) {
+                    free -= 1;
                 }
             }
         }
     }
 }
 
-/// Transition a parked spawn Queued → Spawning (syncs the projection out of
-/// `Queued`) and launch it. Runs on the scheduler task.
+/// Flip a parked spawn `Queued → Spawning` via a guarded CAS and launch it.
+/// Returns `false` (and does NOT launch) when the row is no longer `Queued` — a
+/// concurrent cancel already stamped it terminal, so launching would run a child
+/// the user already killed. Runs on the scheduler task.
 fn promote(
     pending: PendingSubagentSpawn,
     db: &std::sync::Arc<crate::session::SessionDB>,
     registry: &std::sync::Arc<super::SubagentCancelRegistry>,
-) {
-    let _ = db.update_subagent_status(
+) -> bool {
+    match db.try_transition_subagent_status(
         &pending.run_id,
+        SubagentStatus::Queued,
         SubagentStatus::Spawning,
-        None,
-        None,
-        None,
-        None,
-    );
+    ) {
+        Ok(true) => {}
+        Ok(false) => return false, // lost to a concurrent cancel/purge
+        Err(e) => {
+            crate::app_warn!(
+                "subagent",
+                "scheduler",
+                "Failed to promote queued run {}: {}",
+                pending.run_id,
+                e
+            );
+            return false;
+        }
+    }
     super::spawn::launch_subagent_run(
         pending.params,
         pending.run_id,
@@ -220,6 +240,7 @@ fn promote(
         db.clone(),
         registry.clone(),
     );
+    true
 }
 
 #[cfg(test)]

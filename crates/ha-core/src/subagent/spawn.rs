@@ -150,14 +150,24 @@ pub async fn spawn_subagent(
     // R7.2: over the concurrency limit → PARK as `Queued`; the subagent
     // scheduler promotes it when a running child settles. Otherwise launch now.
     if should_queue {
+        // Register the cancel flag NOW, at park time, so `request_cancel_run`
+        // can trip a flag that the promoted run REUSES (see
+        // `SubagentCancelRegistry::register`, which is get-or-create). Without
+        // this, a cancel arriving in the window between the scheduler's dequeue
+        // and the promoted run registering its own flag would create a fresh
+        // (untripped) flag — letting a killed run execute to completion and
+        // inject its result.
+        cancel_registry.register(&run_id);
         if !queue::enqueue(queue::PendingSubagentSpawn {
             params,
             run_id: run_id.clone(),
             child_session_id,
             effective_group_id,
         }) {
-            // Lost the cap race after the earlier check — settle the row so we
-            // never leave a dangling `Queued` run with no queue entry.
+            // Lost the cap race after the earlier check — settle the row and
+            // drop the just-registered flag so we never leave a dangling
+            // `Queued` run with no queue entry.
+            cancel_registry.remove(&run_id);
             let _ = session_db.update_subagent_status(
                 &run_id,
                 SubagentStatus::Killed,
