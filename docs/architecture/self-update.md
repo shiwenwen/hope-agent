@@ -118,9 +118,11 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 ### macOS 桌面 updater 的 EXDEV 守卫
 
-上面的 `atomic_replace_binary` 只覆盖 **headless `SelfContained`** 路径。**桌面 `Tauri`** 路径的 swap 由 `tauri-plugin-updater` 自己做：它把新 `.app` 解压进 `std::env::temp_dir()`（`$TMPDIR`）再 `std::fs::rename` 覆盖安装位置。当应用运行在与 `$TMPDIR` 不同的卷（外置 / 独立数据卷、DMG 直跑等）时，该 rename 返回 `EXDEV`（"Cross-device link (os error 18)"）导致更新中断。插件无 per-update 临时目录开关，且 macOS 路径**没有** Linux AppImage 路径那种「多候选目录 + 同 `dev()` 校验」兜底。
+上面的 `atomic_replace_binary` 只覆盖 **headless `SelfContained`** 路径。**桌面 `Tauri`** 路径的 swap 由 `tauri-plugin-updater` 自己做：它把新 `.app` 解压进 `std::env::temp_dir()`（`$TMPDIR`）下的临时目录，再用 `std::fs::rename` 把旧 bundle 移到备份、把新 bundle 移到安装位置（`updater.rs::install_inner`）。当应用运行在与 `$TMPDIR` 不同的卷（外置 / 独立数据卷等）时，**第一步 rename 就返回 `EXDEV`**（"Cross-device link (os error 18)"）导致更新中断——插件把任何非 `PermissionDenied` 的 rename 错误都当致命错误（`EXDEV` **不会**触发 AppleScript / copy 兜底），且 macOS 路径不像 Linux AppImage 路径那样有「多候选目录 + 同 `dev()` 校验」兜底。
 
-防御在启动早期（`src-tauri/src/lib.rs::run()` 顶部、`init_runtime` 之前——POSIX `setenv` 非线程安全，必须在任何线程 spawn 前）调用 [`platform::redirect_updater_tmpdir_if_cross_volume`](../../crates/ha-core/src/platform/mod.rs)：macOS 上若 `.app` 所在卷 ≠ `$TMPDIR` 卷，则把 `$TMPDIR` 重定向到 `.app` 父目录下的 `.hope-agent-updater-tmp`，使插件的 rename 留在同卷内。该失败模式下父目录必可写（插件唯一会撞 raw `rename` 的非提权 swap 路径只在父目录可写时才走，否则它升级到 AppleScript `mv` 跨卷复制、不会 EXDEV）。同卷 / 非 `.app` bundle / 非 macOS 一律 no-op。
+防御在启动早期（`src-tauri/src/lib.rs::run()` 顶部、`init_runtime` 之前——POSIX `setenv` 非线程安全，必须在任何线程 spawn 前；进程内 once 守卫使 `run()` panic-restart 重入成 no-op）调用 [`platform::redirect_updater_tmpdir_if_cross_volume`](../../crates/ha-core/src/platform/mod.rs)：macOS 上若 `.app` 所在卷（比 `dev()`）≠ `$TMPDIR` 卷，则把 `$TMPDIR` 重定向到 `.app` 父目录下的 `.hope-agent-updater-tmp` 并**复核该目录 `dev()` 确实落在 bundle 卷**，使插件两次 rename 都留在同卷内。返回三态 `UpdaterTmpdir`：`Redirected`（已改）/ `Unchanged`（同卷 / 非 bundle / 非 macOS）/ `CrossVolumeUnfixable`（跨卷但无法在同卷建临时目录——只读挂载如 DMG、或父目录不可写；此时无能为力，`run()` 落一条 warn 面包屑提示用户装到 `/Applications`）。
+
+**为何 startup 全局而非包在某次更新外**：桌面更新有两个入口都驱动插件的 Rust install 命令——GUI「检查更新」菜单走 JS（[`desktopUpdater.ts`](../../src/lib/desktopUpdater.ts)）、`app_update` 工具走 `update_bridge`；只包其中一个 call site 覆盖不到另一个，故在启动设一次进程 `$TMPDIR`。普通装在引导卷（= `$TMPDIR` 同卷）一律 no-op，「全进程 temp 改道到 app 卷」的代价只由罕见的跨卷用户承担。
 
 ## Service restart 契约
 

@@ -84,19 +84,23 @@ pub(crate) use shortcuts::toggle_quickchat_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // macOS desktop-updater EXDEV guard. tauri-plugin-updater extracts the new
-    // `.app` into `$TMPDIR` then renames it over the installed bundle; when the
+    // macOS desktop-updater EXDEV guard. tauri-plugin-updater stages the new
+    // `.app` under `$TMPDIR` then renames it over the installed bundle; when the
     // app runs from a different volume than `$TMPDIR` that rename fails with
     // "Cross-device link (os error 18)" and the update aborts. Redirect `$TMPDIR`
     // onto the bundle's own volume so the rename stays intra-volume. MUST run
     // before any threads spawn (POSIX setenv is not thread-safe) — hence at the
     // very top, ahead of `init_runtime`. No-op off macOS / non-bundle / same-volume.
     // NOTE: log::* is intentional here — AppLogger is not yet initialized.
-    if let Some(dir) = ha_core::platform::redirect_updater_tmpdir_if_cross_volume() {
-        log::warn!(
-            "desktop updater: app volume differs from $TMPDIR; redirected TMPDIR to {} to avoid cross-device rename (EXDEV) during update",
+    match ha_core::platform::redirect_updater_tmpdir_if_cross_volume() {
+        ha_core::platform::UpdaterTmpdir::Redirected(dir) => log::warn!(
+            "desktop updater: app volume differs from $TMPDIR; redirected TMPDIR to {} to keep the update rename intra-volume (avoids EXDEV)",
             dir.display()
-        );
+        ),
+        ha_core::platform::UpdaterTmpdir::CrossVolumeUnfixable => log::warn!(
+            "desktop updater: app volume differs from $TMPDIR but no same-volume temp dir could be staged (read-only mount or unwritable parent); a desktop self-update may fail with a cross-device (EXDEV) error — install to /Applications to resolve"
+        ),
+        ha_core::platform::UpdaterTmpdir::Unchanged => {}
     }
 
     // Initialize directory structure
