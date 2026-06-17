@@ -995,8 +995,27 @@ async fn finalize_job(
 ) {
     let (status, preview, path, error_text) = match result {
         Ok(output) => {
-            let (preview, path) = persist_result(job_id, &output, preview_bytes, incognito);
-            (JobStatus::Completed, Some(preview), path, None)
+            let persisted = persist_result(job_id, &output, preview_bytes, incognito);
+            let mut preview = persisted.preview;
+            // N4: the tool SUCCEEDED, but its full output was too big to inline
+            // AND the disk spill failed — only a truncated preview survives.
+            // Keep `Completed` (the work + side effects really happened), but tell
+            // the model the complete result is unrecoverable so it doesn't act on
+            // a silently-truncated answer; it can re-run if it needs the rest.
+            if persisted.full_output_lost {
+                app_error!(
+                    "async_jobs",
+                    "finalize",
+                    "job {} full output ({} bytes) could not be spooled to disk; only a truncated preview survives",
+                    job_id,
+                    output.len()
+                );
+                preview.push_str(&format!(
+                    "\n\n[⚠️ The full output ({} bytes) could not be saved to disk and is unavailable — only the truncated preview above remains. Re-run the tool if you need the complete result.]",
+                    output.len()
+                ));
+            }
+            (JobStatus::Completed, Some(preview), persisted.path, None)
         }
         Err(job_err) => {
             // Typed terminal status — no more re-parsing the error message
@@ -1093,21 +1112,38 @@ async fn finalize_job(
 /// Returning a stable output file lets the parent agent decide when to spend a
 /// `read` call on detailed output instead of embedding arbitrary tool text in
 /// the notification envelope.
+/// Outcome of persisting a finished job's output. `full_output_lost` is `true`
+/// only when the output was TOO BIG for the inline preview AND spooling it to
+/// disk failed — i.e. the truncated preview is all that survives and the
+/// complete result is unrecoverable. (Incognito preview-only is by design and
+/// NOT a loss; a small output that fits inline is fully preserved in `preview`.)
+struct PersistedResult {
+    preview: String,
+    path: Option<String>,
+    full_output_lost: bool,
+}
+
 fn persist_result(
     job_id: &str,
     output: &str,
     max_bytes: usize,
     incognito: bool,
-) -> (String, Option<String>) {
-    let preview = if output.len() <= max_bytes {
-        output.to_string()
-    } else {
+) -> PersistedResult {
+    let truncated = output.len() > max_bytes;
+    let preview = if truncated {
         truncate_preview(output, max_bytes)
+    } else {
+        output.to_string()
     };
     // E4 (INCOG-2): incognito jobs keep only the bounded inline preview — never
-    // spool the full output to disk, so burn-on-close leaves no spool file.
+    // spool the full output to disk, so burn-on-close leaves no spool file. This
+    // is intentional, not a loss.
     if incognito {
-        return (preview, None);
+        return PersistedResult {
+            preview,
+            path: None,
+            full_output_lost: false,
+        };
     }
     let path = match crate::paths::background_job_result_path(job_id) {
         Ok(p) => p,
@@ -1119,7 +1155,11 @@ fn persist_result(
                 job_id,
                 e
             );
-            return (preview, None);
+            return PersistedResult {
+                preview,
+                path: None,
+                full_output_lost: truncated,
+            };
         }
     };
     if let Some(parent) = path.parent() {
@@ -1141,9 +1181,17 @@ fn persist_result(
             job_id,
             e
         );
-        return (preview, None);
+        return PersistedResult {
+            preview,
+            path: None,
+            full_output_lost: truncated,
+        };
     }
-    (preview, Some(path.to_string_lossy().to_string()))
+    PersistedResult {
+        preview,
+        path: Some(path.to_string_lossy().to_string()),
+        full_output_lost: false,
+    }
 }
 
 fn truncate_preview(output: &str, max_bytes: usize) -> String {
@@ -1210,14 +1258,40 @@ mod tests {
         // E4 (INCOG-2): even a large output must never spool to disk for an
         // incognito job — only the bounded inline preview is kept, with no path.
         let big = "x".repeat(10_000);
-        let (preview, path) = persist_result("job_incognito", &big, 100, true);
+        let persisted = persist_result("job_incognito", &big, 100, true);
         assert!(
-            path.is_none(),
+            persisted.path.is_none(),
             "incognito job must not produce a spool path"
         );
         assert!(
-            preview.len() < big.len(),
+            persisted.preview.len() < big.len(),
             "preview should be truncated to the inline budget"
+        );
+        // Incognito preview-only is by design — NOT a data-loss (N4).
+        assert!(
+            !persisted.full_output_lost,
+            "incognito preview-only must not be flagged as lost"
+        );
+    }
+
+    #[test]
+    fn persist_result_never_false_flags_loss_when_output_preserved() {
+        // N4: `full_output_lost` must be false whenever the COMPLETE output
+        // survives — a false positive would scare the model off a perfectly good
+        // result. Two preserving cases, both robust regardless of HA_DATA_DIR:
+        //   - output fits inline → preview IS the full output (truncated=false,
+        //     so lost is false even if the spool path can't be resolved);
+        //   - incognito preview-only → returns before any spool, by design.
+        let small = persist_result("job_small", "tiny", 100, false);
+        assert_eq!(small.preview, "tiny");
+        assert!(!small.full_output_lost, "inline-fit output is never lost");
+
+        let big = "x".repeat(10_000);
+        let incog = persist_result("job_incognito_big", &big, 100, true);
+        assert!(incog.path.is_none());
+        assert!(
+            !incog.full_output_lost,
+            "incognito preview-only is intentional, never flagged lost"
         );
     }
 
