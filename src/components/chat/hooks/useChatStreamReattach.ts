@@ -27,6 +27,16 @@ const EVENT_CHAT_TURN_STARTED = "chat:turn_started"
 // reporting `active: true`, so this never clears a genuinely-busy session.
 const STREAM_STATE_RECONCILE_INTERVAL_MS = 15_000
 
+// Before clearing a "stuck" loading flag we re-confirm the inactive state after
+// this delay. `useChatStream` adds a session to `loadingSessionsRef` (optimistic
+// "running") BEFORE awaiting `startChat`, so there is a brief window where a
+// freshly-sent turn is flagged loading while the backend still reports the
+// PREVIOUS turn as terminal. A genuinely-ended turn stays inactive across this
+// delay; a just-starting turn flips to active and aborts the clear.
+const STREAM_STATE_RECONCILE_CONFIRM_MS = 2_000
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
 export interface UseChatStreamReattachDeps {
   currentSessionId: string | null
   currentSessionIdRef: React.MutableRefObject<string | null>
@@ -250,9 +260,20 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         if (cancelled || currentSessionIdRef.current !== sid) return
         if (state.active || !loadingSessionsRef.current.has(sid)) return
 
+        // Re-confirm after a short delay so we don't mistake a just-sent turn
+        // (loading flagged before the backend registered it) for a finished one.
+        await delay(STREAM_STATE_RECONCILE_CONFIRM_MS)
+        if (cancelled || currentSessionIdRef.current !== sid) return
+        if (!loadingSessionsRef.current.has(sid)) return // cleared by stream_end meanwhile
+        const recheck = await getTransport().call<SessionStreamState>("get_session_stream_state", {
+          sessionId: sid,
+        })
+        if (cancelled || currentSessionIdRef.current !== sid) return
+        if (recheck.active || !loadingSessionsRef.current.has(sid)) return
+
         // Terminal but the stream_end never landed → run the same teardown.
-        if (state.streamId) endedStreamIdsRef.current.set(sid, state.streamId)
-        onTurnEnded?.(sid, state.status ?? state.lastTerminalStatus ?? null, state.interruptReason ?? null)
+        if (recheck.streamId) endedStreamIdsRef.current.set(sid, recheck.streamId)
+        onTurnEnded?.(sid, recheck.status ?? recheck.lastTerminalStatus ?? null, recheck.interruptReason ?? null)
         discardPendingStreamDeltas(sid, deltaBuffersRef)
         loadingSessionsRef.current.delete(sid)
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
