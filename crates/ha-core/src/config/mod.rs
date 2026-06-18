@@ -12,7 +12,8 @@ mod persistence;
 #[cfg(test)]
 pub use persistence::replace_cache_for_test;
 pub use persistence::{
-    cached_config, load_config, mutate_config, reload_cache_from_disk, save_config,
+    cached_config, config_health, load_config, mutate_config, reload_cache_from_disk, save_config,
+    ConfigHealth,
 };
 
 use serde::{Deserialize, Serialize};

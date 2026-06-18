@@ -973,6 +973,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `get_crash_recovery_info` | `GET /api/crash/recovery-info` | ✅ |
+| `get_config_health` | `GET /api/settings/config-health` | ✅ |
 | `get_crash_history` | `GET /api/crash/history` | ✅ |
 | `clear_crash_history` | `DELETE /api/crash/history` | ✅ |
 | `list_backups_cmd` | `GET /api/crash/backups` | ✅ |

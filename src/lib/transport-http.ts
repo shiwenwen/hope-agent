@@ -707,6 +707,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Crash / Recovery --
   get_crash_recovery_info:         { method: "GET",    path: "/api/crash/recovery-info" },
+  get_config_health:               { method: "GET",    path: "/api/settings/config-health" },
   get_crash_history:               { method: "GET",    path: "/api/crash/history" },
   clear_crash_history:             { method: "DELETE", path: "/api/crash/history" },
   list_backups_cmd:                { method: "GET",    path: "/api/crash/backups" },

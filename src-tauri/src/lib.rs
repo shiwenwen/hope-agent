@@ -702,6 +702,7 @@ pub fn run() {
             commands::team::dissolve_team,
             // Crash recovery & backup
             commands::crash::get_crash_recovery_info,
+            commands::crash::get_config_health,
             commands::crash::get_crash_history,
             commands::crash::clear_crash_history,
             commands::crash::request_app_restart,

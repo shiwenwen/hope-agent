@@ -1451,6 +1451,10 @@ fn build_router_with_cors(
             "/crash/recovery-info",
             get(routes::crash::get_crash_recovery_info),
         )
+        .route(
+            "/settings/config-health",
+            get(routes::crash::get_config_health),
+        )
         .route("/crash/history", get(routes::crash::get_crash_history))
         .route("/crash/history", delete(routes::crash::clear_crash_history))
         .route("/crash/backups", get(routes::crash::list_backups))
