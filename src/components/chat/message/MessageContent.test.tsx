@@ -76,7 +76,7 @@ function tool(callId: string, name = "read", result = "ok"): ToolCall {
 
 function renderContentBlocks(
   contentBlocks: ContentBlock[],
-  props: Partial<{ loading: boolean; isLast: boolean }> = {},
+  props: Partial<{ loading: boolean; isLast: boolean; displayMode: "bubble" | "timeline" }> = {},
 ) {
   const msg: Message = {
     role: "assistant",
@@ -89,6 +89,7 @@ function renderContentBlocks(
       msg={msg}
       loading={props.loading ?? false}
       isLast={props.isLast ?? false}
+      displayMode={props.displayMode ?? "bubble"}
     />,
   )
 }
@@ -152,7 +153,7 @@ describe("AssistantContentBlocks processed grouping", () => {
     expect(screen.getByTestId("tool-block").textContent).toBe("read:call-1")
   })
 
-  test("does not fold while the current assistant message is streaming", () => {
+  test("folds the completed prefix while streaming, leaving the live tail unfolded", () => {
     renderContentBlocks(
       [
         { type: "thinking", content: "first thought" },
@@ -163,8 +164,77 @@ describe("AssistantContentBlocks processed grouping", () => {
       { loading: true, isLast: true },
     )
 
-    expect(screen.queryByRole("button", { name: /已处理/ })).toBeNull()
-    expect(screen.getAllByTestId("thinking-block")).toHaveLength(2)
+    // First thought + the two completed tools fold into one 已处理 group; the
+    // trailing thinking block is the live tail and stays expanded.
+    const processed = screen.getByRole("button", { name: /已处理/ })
+    expect(processed.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.getByTestId("thinking-block").textContent).toBe("second thought")
+    expect(screen.queryByTestId("tool-group")).toBeNull()
+
+    fireEvent.click(processed)
+    // first thought + tool group live inside the folded prefix.
     expect(screen.getByTestId("tool-group").textContent).toBe("call-1,call-2")
+    expect(screen.getAllByTestId("thinking-block")).toHaveLength(2)
+  })
+
+  test("folds a fully-completed run even while the message is flagged streaming", () => {
+    // Mirrors an abnormally interrupted turn: `loading` stays stuck true after
+    // the stream_end was missed, but every step has already finished. Folding
+    // must not depend on the loading flag — the completed steps still collapse.
+    renderContentBlocks(
+      [
+        { type: "thinking", content: "first thought" },
+        { type: "tool_call", tool: tool("call-1") },
+        { type: "tool_call", tool: tool("call-2") },
+        { type: "tool_call", tool: tool("call-3") },
+      ],
+      { loading: true, isLast: true },
+    )
+
+    // Last block is a tool_call → a non-complete `__loading__` tail unit is
+    // appended, so the three tools + thinking fold into one 已处理 group.
+    screen.getByRole("button", { name: /已处理/ })
+    expect(screen.queryByTestId("tool-group")).toBeNull()
+  })
+
+  test("folds a single completed tool while streaming and keeps the live text tail visible", () => {
+    // Exercises the single-tool gating change (no longer gated on the
+    // whole-message streaming flag) AND that a streaming trailing text block —
+    // the live answer — never folds.
+    renderContentBlocks(
+      [
+        { type: "tool_call", tool: tool("call-1") },
+        { type: "thinking", content: "mid thought" },
+        { type: "text", content: "partial answer" },
+      ],
+      { loading: true, isLast: true },
+    )
+
+    // call-1 (a lone completed tool) + the thinking fold into 已处理; the text
+    // stays visible as the live tail.
+    const processed = screen.getByRole("button", { name: /已处理/ })
+    expect(screen.getByTestId("markdown").textContent).toBe("partial answer")
+
+    fireEvent.click(processed)
+    expect(screen.getByTestId("tool-block").textContent).toBe("read:call-1")
+    expect(screen.getByTestId("thinking-block").textContent).toBe("mid thought")
+  })
+
+  test("folds the completed prefix in timeline mode while streaming", () => {
+    renderContentBlocks(
+      [
+        { type: "thinking", content: "first thought" },
+        { type: "tool_call", tool: tool("call-1") },
+        { type: "tool_call", tool: tool("call-2") },
+        { type: "thinking", content: "second thought" },
+      ],
+      { loading: true, isLast: true, displayMode: "timeline" },
+    )
+
+    // Same folding as bubble mode: completed prefix → one 已处理 timeline item,
+    // trailing thinking stays as the live tail.
+    screen.getByRole("button", { name: /已处理/ })
+    expect(screen.getByTestId("thinking-block").textContent).toBe("second thought")
+    expect(screen.queryByTestId("tool-group")).toBeNull()
   })
 })
