@@ -29,6 +29,7 @@ import type { SettingsSection } from "@/components/settings/types"
 import { parseOpenSettingsSection } from "@/components/settings/openSettingsEvent"
 import OnboardingWizard from "@/components/onboarding"
 import { CURRENT_ONBOARDING_VERSION } from "@/components/onboarding/version"
+import ConfigRecoveryScreen, { type ConfigHealth } from "@/components/config/ConfigRecoveryScreen"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen, { type ChatInsert } from "@/components/chat/ChatScreen"
 import StarrySky from "@/components/common/StarrySky"
@@ -50,6 +51,7 @@ export default function App() {
   const { t, i18n } = useTranslation()
   const [view, setView] = useState<
     | "loading"
+    | "configRecovery"
     | "onboarding"
     | "setup"
     | "chat"
@@ -75,6 +77,7 @@ export default function App() {
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [currentChatProjectId, setCurrentChatProjectId] = useState<string | null>(null)
+  const [configHealth, setConfigHealth] = useState<ConfigHealth | null>(null)
   // PlansView pushes `@plan:<short_id>:v<n>` tokens here; KnowledgeView pushes
   // `[[note]]` refs (with a KB to auto-attach). ChatScreen appends + clears.
   const [pendingChatInsert, setPendingChatInsert] = useState<ChatInsert | undefined>(undefined)
@@ -109,14 +112,14 @@ export default function App() {
   })
 
   // Load user avatar
-  async function fetchUserAvatar() {
+  const fetchUserAvatar = useCallback(async () => {
     try {
       const config = await getTransport().call<{ avatar?: string | null }>("get_user_config")
       return config.avatar ?? null
     } catch {
       return null
     }
-  }
+  }, [])
 
   // Reload avatar when switching back to chat
   useEffect(() => {
@@ -129,19 +132,29 @@ export default function App() {
         cancelled = true
       }
     }
-  }, [view])
+  }, [view, fetchUserAvatar])
+
+  const keepConfigRecoveryView = useCallback(() => {
+    if (configHealth?.ok === false) {
+      setView("configRecovery")
+      return true
+    }
+    return false
+  }, [configHealth])
 
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
   const handleOpenSettings = useCallback((section?: SettingsSection) => {
+    if (keepConfigRecoveryView()) return
     setSettingsInitialSection(section)
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
-  }, [])
+  }, [keepConfigRecoveryView])
   const handleOpenDashboard = useCallback((tab?: string, reportId?: string | null) => {
+    if (keepConfigRecoveryView()) return
     setDashboardInitialTab(tab)
     setDashboardInitialReportId(reportId ?? null)
     setView("dashboard")
-  }, [])
+  }, [keepConfigRecoveryView])
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
@@ -159,6 +172,7 @@ export default function App() {
       handleOpenSettings(parseOpenSettingsSection(raw))
     })
     const unlistenNewSession = getTransport().listen("new-session", () => {
+      if (keepConfigRecoveryView()) return
       setView("chat")
     })
     // macOS app menu's "Check for Updates..." emits this alongside
@@ -179,7 +193,7 @@ export default function App() {
       unlistenTheme()
       unlistenNotification()
     }
-  }, [handleOpenSettings])
+  }, [handleOpenSettings, keepConfigRecoveryView])
 
   // Track window focus state for background-aware OS notifications.
   // App-level singleton — listeners stay registered for the process
@@ -194,7 +208,7 @@ export default function App() {
   useDesktopAlerts()
 
   useEffect(() => {
-    if (view === "loading" || view === "onboarding" || view === "setup") return
+    if (view === "loading" || view === "configRecovery" || view === "onboarding" || view === "setup") return
 
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
@@ -238,7 +252,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (view === "loading" || view === "onboarding" || view === "setup") return
+    if (view === "loading" || view === "configRecovery" || view === "onboarding" || view === "setup") return
 
     const handler = (raw: unknown) => {
       const report = parsePayload<{
@@ -278,7 +292,7 @@ export default function App() {
   const updateCheckRef = useRef(false)
   useEffect(() => {
     if (updateCheckRef.current) return
-    if (view === "loading" || view === "onboarding" || view === "setup") return
+    if (view === "loading" || view === "configRecovery" || view === "onboarding" || view === "setup") return
     updateCheckRef.current = true
 
     autoCheckForUpdate()
@@ -298,40 +312,64 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
 
-  // Try to restore previous session on mount
-  useEffect(() => {
-    ;(async () => {
+  const bootstrapApp = useCallback(async () => {
+    setView("loading")
+    try {
+      const health = await getTransport().call<ConfigHealth>("get_config_health")
+      if (!health.ok) {
+        setConfigHealth(health)
+        setView("configRecovery")
+        return
+      }
+      setConfigHealth(null)
+
+      // Load language preference from backend config.json
+      await initLanguageFromConfig()
+      await initThemeFromConfig()
+      const avatar = await fetchUserAvatar()
+      setUserAvatar(avatar)
+      // Decide initial view in this order:
+      //   1. Onboarding wizard outstanding → "onboarding"
+      //   2. Prior session restorable → "chat"
+      //   3. Has a provider configured (legacy users) → "chat"
+      //   4. Otherwise → "setup" (the old provider-only fallback)
+      let onboarding: { completedVersion?: number }
       try {
-        // Load language preference from backend config.json
-        await initLanguageFromConfig()
-        await initThemeFromConfig()
-        const avatar = await fetchUserAvatar()
-        setUserAvatar(avatar)
-        // Decide initial view in this order:
-        //   1. Onboarding wizard outstanding → "onboarding"
-        //   2. Prior session restorable → "chat"
-        //   3. Has a provider configured (legacy users) → "chat"
-        //   4. Otherwise → "setup" (the old provider-only fallback)
-        const onboarding = await getTransport()
-          .call<{ completedVersion?: number }>("get_onboarding_state")
-          .catch(() => ({ completedVersion: 0 }))
-        if ((onboarding.completedVersion ?? 0) < CURRENT_ONBOARDING_VERSION) {
-          setView("onboarding")
+        onboarding = await getTransport().call<{ completedVersion?: number }>(
+          "get_onboarding_state",
+        )
+      } catch (e) {
+        const refreshed = await getTransport()
+          .call<ConfigHealth>("get_config_health")
+          .catch(() => null)
+        if (refreshed && !refreshed.ok) {
+          setConfigHealth(refreshed)
+          setView("configRecovery")
           return
         }
-        const restored = await getTransport().call<boolean>("try_restore_session")
-        if (restored) {
-          setView("chat")
-        } else {
-          const has = await getTransport().call<boolean>("has_providers")
-          setView(has ? "chat" : "setup")
-        }
-      } catch (e) {
-        logger.error("app", "App::init", "Failed to restore session", e)
-        setView("setup")
+        throw e
       }
-    })()
-  }, [])
+      if ((onboarding.completedVersion ?? 0) < CURRENT_ONBOARDING_VERSION) {
+        setView("onboarding")
+        return
+      }
+      const restored = await getTransport().call<boolean>("try_restore_session")
+      if (restored) {
+        setView("chat")
+      } else {
+        const has = await getTransport().call<boolean>("has_providers")
+        setView(has ? "chat" : "setup")
+      }
+    } catch (e) {
+      logger.error("app", "App::init", "Failed to restore session", e)
+      setView("setup")
+    }
+  }, [fetchUserAvatar])
+
+  // Try to restore previous session on mount
+  useEffect(() => {
+    void bootstrapApp()
+  }, [bootstrapApp])
 
   // Codex OAuth — auth only, no view switch. Callers decide what to do
   // next (setup screen jumps to chat; onboarding advances to the next step).
@@ -371,6 +409,19 @@ export default function App() {
           <StarrySky />
           <AuthRequiredDialog />
           <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+        </div>
+      </TooltipProvider>
+    )
+  }
+
+  if (view === "configRecovery") {
+    return (
+      <TooltipProvider>
+        <div className="min-h-screen overflow-y-auto bg-surface-app">
+          <StarrySky />
+          <Toaster />
+          <AuthRequiredDialog />
+          <ConfigRecoveryScreen health={configHealth} onRecovered={bootstrapApp} />
         </div>
       </TooltipProvider>
     )

@@ -32,6 +32,11 @@ pub async fn get_crash_recovery_info() -> Result<serde_json::Value, CmdError> {
 }
 
 #[tauri::command]
+pub async fn get_config_health() -> Result<ha_core::config::ConfigHealth, CmdError> {
+    Ok(ha_core::config::config_health())
+}
+
+#[tauri::command]
 pub async fn get_crash_history() -> Result<serde_json::Value, CmdError> {
     let path = paths::crash_journal_path()?;
     let journal = crash_journal::CrashJournal::load(&path);

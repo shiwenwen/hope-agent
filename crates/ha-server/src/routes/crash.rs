@@ -32,6 +32,11 @@ pub async fn get_crash_recovery_info() -> Result<Json<Value>, AppError> {
     Ok(Json(info))
 }
 
+/// `GET /api/settings/config-health`
+pub async fn get_config_health() -> Result<Json<ha_core::config::ConfigHealth>, AppError> {
+    Ok(Json(ha_core::config::config_health()))
+}
+
 /// `GET /api/crash/history`
 pub async fn get_crash_history() -> Result<Json<Value>, AppError> {
     let path = paths::crash_journal_path()?;

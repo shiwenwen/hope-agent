@@ -233,8 +233,10 @@ interface TimelineRenderItem {
  * Timeline layout: same collapsing as {@link collapseProcessedUnits}, but each
  * run of ≥2 completed units folds into a SINGLE timeline item (one dot) holding
  * a ProcessedBlockGroup — so a finished tool/thinking sequence reads as one
- * "processed" entry. Grouping only kicks in once complete, so the streaming
- * active dot never lands on a group.
+ * "processed" entry. Per-unit completion drives folding (not a whole-message
+ * streaming flag), so the completed prefix folds even mid-turn; only the live
+ * trailing unit (a streaming text/thinking block or the `__loading__` dots)
+ * stays unfolded and carries the active dot.
  */
 function collapseProcessedTimelineUnits(
   units: RenderUnit[],
@@ -359,7 +361,11 @@ export function AssistantContentBlocks({
       const isLastBlock = i === blocks.length - 1
       units.push({
         key: `thinking-${i}`,
-        isProcessComplete: !isStreamingMessage,
+        // A thinking block is "done" the moment a later block exists after it.
+        // Only the block actively streaming at the tail stays unfolded — this
+        // is what lets the completed prefix fold into 已处理 even mid-turn
+        // (and after an abnormal interruption that left `loading` stuck true).
+        isProcessComplete: !(isStreamingMessage && isLastBlock),
         elapsedMs: block.durationMs,
         node: (
           <ThinkingBlock
@@ -558,7 +564,12 @@ export function AssistantContentBlocks({
         units.push({
           key: `grp-${tools[0].callId}`,
           processTools: tools,
-          isProcessComplete: !isStreamingMessage && processUnitToolsComplete(tools),
+          // Fold once every tool in the group has finished, regardless of
+          // whether the message is still streaming. While streaming, the live
+          // tail is carried by the `__loading__` unit (last block is a
+          // tool_call) or the actively-streaming trailing text/thinking unit,
+          // so a completed tool group is never the active item.
+          isProcessComplete: processUnitToolsComplete(tools),
           elapsedMs: getToolsWallClockMs(tools),
           node: (
             <ToolCallGroup
@@ -574,8 +585,7 @@ export function AssistantContentBlocks({
         units.push({
           key: block.tool.callId,
           processTools: [block.tool],
-          isProcessComplete:
-            !isStreamingMessage && getToolExecutionState(block.tool) !== "running",
+          isProcessComplete: getToolExecutionState(block.tool) !== "running",
           elapsedMs: block.tool.durationMs,
           node: (
             <ToolCallBlock
@@ -613,9 +623,10 @@ export function AssistantContentBlocks({
 
   if (displayMode === "timeline") {
     const activeIndex = isStreamingMessage ? units.length - 1 : -1
-    // Once complete, fold consecutive tool/thinking steps into one "processed"
-    // timeline entry (matches the bubble layout); while streaming, items stay
-    // 1:1 so the live active dot tracks the last step.
+    // Fold consecutive completed tool/thinking steps into one "processed"
+    // timeline entry (matches the bubble layout). The trailing unit while
+    // streaming is non-complete by construction, so it stays 1:1 and the live
+    // active dot tracks the last step.
     const items = collapseProcessedTimelineUnits(units, activeIndex)
     return (
       <MessageTimeline>

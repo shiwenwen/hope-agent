@@ -471,7 +471,7 @@ flowchart TD
 |------|------|------|
 | **1. Explicit** | `args.run_in_background = true` | 立即 detach，模型主动 opt-in |
 | **2. Policy Forced** | `AgentConfig.capabilities.async_tool_policy = "always-background"` | 立即 detach，无视 args；完成仍靠 `<task-notification>` 自动注入，`job_status` 只做偶发状态快照 |
-| **3. Auto-Background** | `model-decide` 策略 + `asyncTools.autoBackgroundSecs > 0`（默认 30s） | 先同步跑，超预算再 detach，结果不丢 |
+| **3. Auto-Background** | `model-decide` 策略 + `asyncTools.autoBackgroundSecs > 0`（默认 0，关闭） | 先同步跑，超预算再 detach，结果不丢 |
 
 `job_timeout_secs` 是 async-capable 工具 schema 自动注入的可选单次参数，只控制外层 async job 的最长运行时长。`0` 或省略表示沿用用户配置；当 `asyncTools.maxJobSecs = 0` 时，正数 `job_timeout_secs` 可给本次 job 设置外层超时；当 `asyncTools.maxJobSecs > 0` 时，`job_timeout_secs` 只能比用户配置更短，不能放宽它。该字段在递归执行真实工具前会被剥离，不会传给 `exec` / `web_search` / `image_generate` 本体。
 
@@ -693,7 +693,7 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 | 字段 | 默认 | 含义 |
 |------|------|------|
 | `enabled` | `true` | 总开关，关闭后所有 async-capable 工具退化为纯同步执行，`job_status` 工具也不注入 |
-| `autoBackgroundSecs` | `30` | Tier 3 同步预算。`0` 关闭自动后台化，仅保留 Tier 1/2 |
+| `autoBackgroundSecs` | `0` | Tier 3 同步预算。`0` 关闭自动后台化，仅保留 Tier 1/2 |
 | `maxJobSecs` | `0`（不限时） | 后台 job 的用户硬上限；超时 → status=`timed_out` 并注入失败消息。`0` = async job 层默认不限时；具体工具仍可有自己的内部超时（如正数 `exec.timeout`；`exec.timeout=0` 也表示不限）。当全局为 `0` 时，模型单次 `job_timeout_secs > 0` 可为本次 job 设置外层超时；当全局为正数时，`job_timeout_secs` 只能收紧这个上限，不能放宽 |
 | `maxConcurrentJobs` | 硬件推导 `clamp(逻辑核数-2,4,16)`（`0` = 不限） | 显式后台路径（`run_in_background` / `always-background`）并发上限，见上「并发上限与排队」节。达上限时新作业**排队**（`Queued`），每进程调度器 per-session 轮转提升；等待队列（`maxQueuedJobs`，默认 256）也满才拒绝。只闸显式路径（per-process cap），auto-background 不计入 |
 | `inlineResultBytes` | `4096` | 注入消息内联 preview 上限；超过时 spool 到磁盘并注入路径引用 |

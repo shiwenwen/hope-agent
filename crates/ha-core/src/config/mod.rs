@@ -12,7 +12,8 @@ mod persistence;
 #[cfg(test)]
 pub use persistence::replace_cache_for_test;
 pub use persistence::{
-    cached_config, load_config, mutate_config, reload_cache_from_disk, save_config,
+    cached_config, config_health, load_config, mutate_config, reload_cache_from_disk, save_config,
+    ConfigHealth,
 };
 
 use serde::{Deserialize, Serialize};
@@ -202,8 +203,8 @@ pub struct AsyncToolsConfig {
     /// When a sync call exceeds this many seconds, the still-running future
     /// is transferred to a background async job and a synthetic job_id is
     /// returned to the model so the conversation can continue. The real
-    /// result is delivered later via auto-injection. Default: 30. Set to 0
-    /// to disable auto-backgrounding.
+    /// result is delivered later via auto-injection. Default: 0 (disabled).
+    /// Set a positive value to enable auto-backgrounding.
     #[serde(default = "default_async_auto_background_secs")]
     pub auto_background_secs: u64,
     /// Maximum time (seconds) a single backgrounded job *attempt* may run before
@@ -332,7 +333,7 @@ pub struct AsyncToolsConfig {
 }
 
 fn default_async_auto_background_secs() -> u64 {
-    30
+    0
 }
 fn default_async_max_job_secs() -> u64 {
     0
@@ -1235,6 +1236,11 @@ mod async_tools_defaults_tests {
             AsyncToolsConfig::default().max_concurrent_jobs,
             default_async_max_concurrent_jobs()
         );
+        assert_eq!(
+            AsyncToolsConfig::default().auto_background_secs,
+            default_async_auto_background_secs()
+        );
+        assert_eq!(default_async_auto_background_secs(), 0);
         assert_eq!(
             AsyncToolsConfig::default().completion_merge_window_secs,
             default_async_completion_merge_window_secs()
