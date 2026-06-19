@@ -2958,6 +2958,37 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Save context only if the DB value still matches the caller's snapshot.
+    pub fn save_context_if_unchanged(
+        &self,
+        session_id: &str,
+        expected_context_json: Option<&str>,
+        context_json: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let current = conn
+            .query_row(
+                "SELECT context_json FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+        let Some(current) = current else {
+            return Ok(false);
+        };
+        if current.as_deref() != expected_context_json {
+            return Ok(false);
+        }
+        let changed = conn.execute(
+            "UPDATE sessions SET context_json = ?1 WHERE id = ?2",
+            params![context_json, session_id],
+        )?;
+        Ok(changed > 0)
+    }
+
     /// Load the agent's conversation_history JSON for a session.
     /// Returns None if the session has no saved context.
     pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
@@ -3913,6 +3944,50 @@ mod tests {
             loaded.title_source,
             crate::session_title::TITLE_SOURCE_MANUAL
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn save_context_if_unchanged_rejects_stale_snapshot() {
+        let db_path = temp_db_path("session-context-cas");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        db.save_context(&created.id, r#"["old"]"#)
+            .expect("seed context");
+        let saved = db
+            .save_context_if_unchanged(&created.id, Some(r#"["old"]"#), r#"["compact"]"#)
+            .expect("guarded save");
+        assert!(saved);
+        assert_eq!(
+            db.load_context(&created.id)
+                .expect("load context")
+                .as_deref(),
+            Some(r#"["compact"]"#)
+        );
+
+        db.save_context(&created.id, r#"["new turn"]"#)
+            .expect("simulate concurrent turn");
+        let stale = db
+            .save_context_if_unchanged(&created.id, Some(r#"["compact"]"#), r#"["stale"]"#)
+            .expect("stale save should not error");
+        assert!(!stale);
+        assert_eq!(
+            db.load_context(&created.id)
+                .expect("load context")
+                .as_deref(),
+            Some(r#"["new turn"]"#)
+        );
+
+        let missing = db
+            .save_context_if_unchanged("missing-session", None, "[]")
+            .expect("missing row should not error");
+        assert!(!missing);
 
         let _ = std::fs::remove_file(&db_path);
     }

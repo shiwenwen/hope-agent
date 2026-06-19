@@ -317,6 +317,14 @@ pub async fn compact_session_now(
         event_sink,
     } = params;
 
+    let _active_turn_guard = super::active_turn::try_acquire(
+        &session_id,
+        source,
+        format!("manual-compact-{}", uuid::Uuid::new_v4()),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+    .map_err(|e| e.to_string())?;
+
     let provider = providers
         .iter()
         .find(|p| p.id == model.provider_id)
@@ -367,14 +375,35 @@ pub async fn compact_session_now(
         kb_access_source(source),
         None,
     );
-    restore_agent_context(&session_db, &session_id, &agent);
+    let original_context_json = session_db
+        .load_context(&session_id)
+        .map_err(|e| format!("Cannot load context for manual compaction: {e}"))?;
+    if let Some(json_str) = original_context_json.as_deref() {
+        restore_agent_context_from_json(&session_id, json_str, &agent);
+    }
 
     let emit = |delta: &str| {
         let _ = emit_stream_event(&session_db, &event_sink, &session_id, source, None, delta);
     };
     let compact_result = agent.compact_conversation_now(&emit).await;
 
-    save_agent_context(&session_db, &session_id, &agent);
+    let compacted_context_json = serde_json::to_string(&agent.get_conversation_history())
+        .map_err(|e| format!("Cannot serialize compacted context: {e}"))?;
+    if original_context_json.as_deref() != Some(compacted_context_json.as_str()) {
+        let saved = session_db
+            .save_context_if_unchanged(
+                &session_id,
+                original_context_json.as_deref(),
+                &compacted_context_json,
+            )
+            .map_err(|e| format!("Cannot save compacted context: {e}"))?;
+        if !saved {
+            return Err(
+                "Session context changed during manual compaction; skipped stale compacted snapshot"
+                    .to_string(),
+            );
+        }
+    }
     app_info!(
         "context",
         "compact::manual",
