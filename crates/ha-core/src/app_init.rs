@@ -1573,7 +1573,7 @@ mod tests {
     }
 
     #[test]
-    fn primary_startup_recovery_marks_stale_state_and_clears_active_turns() {
+    fn primary_startup_recovery_marks_stale_state_recovers_rows_and_clears_active_turns() {
         with_temp_data_dir(|db| {
             let _lock = crate::chat_engine::active_turn::test_lock();
             let session = db
@@ -1610,7 +1610,7 @@ mod tests {
             let messages = db
                 .load_session_messages(&session.id)
                 .expect("load messages");
-            assert_eq!(messages[0].stream_status.as_deref(), Some("orphaned"));
+            assert_eq!(messages[0].stream_status.as_deref(), Some("recovered"));
             assert!(crate::chat_engine::active_turn::current(&session.id).is_none());
 
             // Ensure the dropped guard cannot resurrect a cleared entry.
