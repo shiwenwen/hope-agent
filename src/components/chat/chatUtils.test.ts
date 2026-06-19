@@ -15,6 +15,30 @@ function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
   }
 }
 
+describe("parseSessionMessages events", () => {
+  test("only collapses duplicate startup recovery events within one user turn", () => {
+    const notice = "上次会话异常中断,已保留中断前的内容"
+    const parsed = parseSessionMessages([
+      sessionMessage({ id: 1, role: "event", content: notice }),
+      sessionMessage({ id: 2, role: "assistant", content: "partial answer" }),
+      sessionMessage({ id: 3, role: "event", content: notice }),
+      sessionMessage({ id: 4, role: "event", content: "另一个事件" }),
+      sessionMessage({ id: 5, role: "event", content: "另一个事件" }),
+      sessionMessage({ id: 6, role: "user", content: "下一轮" }),
+      sessionMessage({ id: 7, role: "event", content: notice }),
+    ])
+
+    expect(parsed.map((msg) => `${msg.role}:${msg.content}`)).toEqual([
+      `event:${notice}`,
+      "assistant:partial answer",
+      "event:另一个事件",
+      "event:另一个事件",
+      "user:下一轮",
+      `event:${notice}`,
+    ])
+  })
+})
+
 describe("parseSessionMessages user attachments", () => {
   test("restores image attachments from user attachments metadata", () => {
     const parsed = parseSessionMessages([

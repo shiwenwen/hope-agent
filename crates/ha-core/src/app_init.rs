@@ -1437,6 +1437,52 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
         if covered_sessions.contains(&session_id) {
             continue;
         }
+        let reason = cause.to_termination_reason();
+        let startup_notices = [
+            crate::chat_engine::finalize::copy::user_notice(
+                &crate::chat_engine::finalize::TerminationReason::Crash,
+            ),
+            crate::chat_engine::finalize::copy::user_notice(
+                &crate::chat_engine::finalize::TerminationReason::Shutdown,
+            ),
+        ];
+        let already_finalized = startup_notices.iter().try_fold(false, |found, notice| {
+            if found {
+                Ok(true)
+            } else {
+                db_arc.current_turn_orphaned_has_later_event(&session_id, notice)
+            }
+        });
+        match already_finalized {
+            Ok(true) => {
+                match db_arc.mark_current_turn_orphaned_rows_recovered(&session_id) {
+                    Ok(0) => {}
+                    Ok(n) => app_info!(
+                        "session",
+                        "startup_recovery",
+                        "marked {} previously-finalized orphaned row(s) recovered for session {}",
+                        n,
+                        session_id
+                    ),
+                    Err(e) => app_warn!(
+                        "session",
+                        "startup_recovery",
+                        "failed to mark orphaned rows recovered for session {}: {}",
+                        session_id,
+                        e
+                    ),
+                }
+                continue;
+            }
+            Ok(false) => {}
+            Err(e) => app_warn!(
+                "session",
+                "startup_recovery",
+                "current_turn_orphaned_has_later_event failed for session {}: {}",
+                session_id,
+                e
+            ),
+        }
         let provider_kind =
             crate::chat_engine::finalize::rebuild::resolve_provider_kind_for_session(
                 &db_arc,
@@ -1453,7 +1499,6 @@ fn recover_startup_session_state(session_db: &Arc<SessionDB>, tier: crate::runti
             // empty sessions.
             continue;
         }
-        let reason = cause.to_termination_reason();
         let outcome = crate::chat_engine::finalize::finalize_turn_context_blocking(
             &db_arc,
             &session_id,

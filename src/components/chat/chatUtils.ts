@@ -68,6 +68,17 @@ export function isUserAlignedMessage(msg: Message): boolean {
   return msg.role === "user" || msg.slashEvent?.displayAs === "user"
 }
 
+function isInterruptedStreamStatus(status: SessionMessage["streamStatus"]): boolean {
+  return status === "orphaned" || status === "recovered" || status === "streaming"
+}
+
+function isStartupRecoveryNotice(content: string): boolean {
+  return (
+    content === "上次会话异常中断,已保留中断前的内容" ||
+    content === "应用已关闭,中断前的内容已保留"
+  )
+}
+
 /** Format token count: ≥10000 → "12.3k", else "1,234". */
 export function formatTokens(n: number): string {
   if (n >= 10000) return `${(n / 1000).toFixed(1)}k`
@@ -369,8 +380,10 @@ export function parseSessionMessages(
   const pendingTools: ToolCall[] = []
   const pendingBlocks: ContentBlock[] = []
   let firstUserSeen = false
+  const seenPlainEventContentSinceLastUser = new Set<string>()
   for (const msg of msgs) {
     if (msg.role === "user") {
+      seenPlainEventContentSinceLastUser.clear()
       // Detect sub-agent result / cron trigger / plan trigger messages via attachments_meta marker
       let isSubagentResult = false
       let subagentResultAgentId: string | undefined
@@ -504,7 +517,7 @@ export function parseSessionMessages(
     } else if (msg.role === "thinking_block") {
       // Intermediate thinking emitted before tool calls — preserve multi-round thinking ordering
       if (msg.content) {
-        const interrupted = msg.streamStatus === "orphaned" || msg.streamStatus === "streaming"
+        const interrupted = isInterruptedStreamStatus(msg.streamStatus)
         pendingBlocks.push({
           type: "thinking",
           content: msg.content,
@@ -515,7 +528,7 @@ export function parseSessionMessages(
     } else if (msg.role === "text_block") {
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
-        const interrupted = msg.streamStatus === "orphaned" || msg.streamStatus === "streaming"
+        const interrupted = isInterruptedStreamStatus(msg.streamStatus)
         pendingBlocks.push({ type: "text", content: msg.content, interrupted: interrupted || undefined })
       }
     } else if (msg.role === "assistant") {
@@ -577,6 +590,12 @@ export function parseSessionMessages(
         } catch {
           /* ignore */
         }
+      }
+      if (!slashEvent && isStartupRecoveryNotice(msg.content)) {
+        if (seenPlainEventContentSinceLastUser.has(msg.content)) {
+          continue
+        }
+        seenPlainEventContentSinceLastUser.add(msg.content)
       }
       displayMessages.push({
         role: "event",

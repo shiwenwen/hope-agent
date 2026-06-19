@@ -412,10 +412,11 @@ export interface SessionMessage {
    * Streaming persistence state for thinking_block / text_block rows that
    * were inserted incrementally before the turn finalized. `streaming` =
    * write in progress; `completed` = clean finalize; `orphaned` = a previous
-   * run died mid-stream and startup sweep marked it. Absent on legacy rows
-   * (treat as `completed`).
+   * run died mid-stream and startup sweep has not consumed it yet; `recovered`
+   * = startup finalize already preserved that interrupted partial. Absent on
+   * legacy rows (treat as `completed`).
    */
-  streamStatus?: "streaming" | "completed" | "orphaned" | null
+  streamStatus?: "streaming" | "completed" | "orphaned" | "recovered" | null
 }
 
 /**

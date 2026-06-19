@@ -271,9 +271,10 @@ pub struct SessionMessage {
     /// Streaming persistence state for thinking_block / text_block rows that
     /// were inserted incrementally (placeholder + throttled UPDATE) before the
     /// turn finalized. `streaming` = currently being written; `completed` =
-    /// finalized cleanly; `orphaned` = a previous run died mid-stream and
-    /// startup sweep marked it. `None` covers legacy rows pre-migration and
-    /// is treated as `completed` by readers.
+    /// finalized cleanly; `orphaned` = a previous run died mid-stream and still
+    /// needs startup finalize; `recovered` = startup finalize already preserved
+    /// that interrupted partial. `None` covers legacy rows pre-migration and is
+    /// treated as `completed` by readers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_status: Option<String>,
 }

@@ -278,9 +278,10 @@ impl SessionDB {
         // Migration: streaming-state column for crash-resilient placeholder
         // rows. `streaming` = being written by an active turn; `completed` =
         // finalized cleanly; `orphaned` = startup sweep saw a leftover
-        // streaming row from a previous (crashed) run. NULL is the legacy
-        // value for rows written before this column existed and is treated
-        // as `completed` by all readers.
+        // streaming row from a previous (crashed) run and has not finalized it
+        // yet; `recovered` = startup finalize already preserved that partial.
+        // NULL is the legacy value for rows written before this column existed
+        // and is treated as `completed` by all readers.
         let has_stream_status = conn
             .prepare("SELECT stream_status FROM messages LIMIT 1")
             .is_ok();
@@ -2121,7 +2122,12 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT DISTINCT session_id FROM messages
-             WHERE stream_status = 'orphaned'",
+             WHERE stream_status = 'orphaned'
+               AND id > COALESCE(
+                   (SELECT MAX(u.id) FROM messages u
+                    WHERE u.session_id = messages.session_id AND u.role = 'user'),
+                   0
+               )",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut out = Vec::new();
@@ -2145,6 +2151,72 @@ impl SessionDB {
             [],
         )?;
         Ok(n)
+    }
+
+    /// Mark the current turn's already-finalized orphaned stream rows as
+    /// `recovered`.
+    ///
+    /// `orphaned` is the startup-sweep input signal. Once finalize has written
+    /// the context marker + user-facing event row, keeping the same status makes
+    /// the next launch process the same partial again. `recovered` preserves the
+    /// UI meaning ("this block came from an interrupted run") without keeping it
+    /// in the recovery queue.
+    pub fn mark_current_turn_orphaned_rows_recovered(&self, session_id: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "UPDATE messages
+             SET stream_status = 'recovered'
+             WHERE session_id = ?1
+               AND stream_status = 'orphaned'
+               AND id > COALESCE(
+                   (SELECT MAX(id) FROM messages
+                    WHERE session_id = ?1 AND role = 'user'),
+                   0
+               )",
+            params![session_id],
+        )?;
+        Ok(n)
+    }
+
+    /// True when an orphaned row in the current turn already has a later
+    /// finalize event with the given body. Used by startup recovery to repair
+    /// data written before `orphaned` rows were consumed after finalize.
+    pub fn current_turn_orphaned_has_later_event(
+        &self,
+        session_id: &str,
+        event_content: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1
+                 FROM messages o
+                 WHERE o.session_id = ?1
+                   AND o.stream_status = 'orphaned'
+                   AND o.id > COALESCE(
+                       (SELECT MAX(id) FROM messages
+                        WHERE session_id = ?1 AND role = 'user'),
+                       0
+                   )
+                   AND EXISTS (
+                       SELECT 1
+                       FROM messages e
+                       WHERE e.session_id = o.session_id
+                         AND e.role = 'event'
+                         AND e.content = ?2
+                         AND e.id > o.id
+                   )
+             )",
+            params![session_id, event_content],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
     }
 
     /// Check whether this session already has a `user` row whose
@@ -3622,6 +3694,103 @@ mod tests {
             .load_session_messages(&session.id)
             .expect("read via pool");
         assert_eq!(msgs.len(), 1, "read pool must see the committed append");
+    }
+
+    #[test]
+    fn orphaned_recovery_queue_only_tracks_unrecovered_current_turn_rows() {
+        let db_path = temp_db_path("session-orphaned-recovered");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        db.append_message(&session.id, &crate::session::NewMessage::user("old turn"))
+            .expect("append old user");
+        let mut old_orphan = crate::session::NewMessage::text_block("old partial");
+        old_orphan.stream_status = Some("orphaned".to_string());
+        db.append_message(&session.id, &old_orphan)
+            .expect("append old orphan");
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::user("current turn"),
+        )
+        .expect("append current user");
+
+        assert!(
+            db.sessions_with_orphaned_rows()
+                .expect("list orphan sessions")
+                .is_empty(),
+            "orphaned rows before the latest user should not re-trigger startup finalize"
+        );
+
+        let mut current_orphan = crate::session::NewMessage::text_block("current partial");
+        current_orphan.stream_status = Some("orphaned".to_string());
+        db.append_message(&session.id, &current_orphan)
+            .expect("append current orphan");
+
+        assert_eq!(
+            db.sessions_with_orphaned_rows()
+                .expect("list orphan sessions"),
+            vec![session.id.clone()]
+        );
+        assert_eq!(
+            db.mark_current_turn_orphaned_rows_recovered(&session.id)
+                .expect("mark recovered"),
+            1
+        );
+        assert!(db
+            .sessions_with_orphaned_rows()
+            .expect("list orphan sessions after recover")
+            .is_empty());
+
+        let rows = db
+            .load_current_turn_tail(&session.id)
+            .expect("load current tail");
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.content == "current partial")
+                .and_then(|row| row.stream_status.as_deref()),
+            Some("recovered")
+        );
+        assert!(
+            rows.iter().all(|row| row.content != "old partial"),
+            "old-turn rows are outside load_current_turn_tail"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn current_turn_orphaned_has_later_event_detects_existing_finalize_notice() {
+        let db_path = temp_db_path("session-orphaned-later-event");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        db.append_message(&session.id, &crate::session::NewMessage::user("hello"))
+            .expect("append user");
+        let mut orphan = crate::session::NewMessage::text_block("partial");
+        orphan.stream_status = Some("orphaned".to_string());
+        db.append_message(&session.id, &orphan)
+            .expect("append orphan");
+
+        let notice = "上次会话异常中断,已保留中断前的内容";
+        assert!(!db
+            .current_turn_orphaned_has_later_event(&session.id, notice)
+            .expect("detect before event"));
+
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::error_event(notice),
+        )
+        .expect("append event");
+
+        assert!(db
+            .current_turn_orphaned_has_later_event(&session.id, notice)
+            .expect("detect after event"));
+
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
