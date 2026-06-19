@@ -2108,6 +2108,8 @@
     "removeLogo": "제거",
     "replaceLogo": "교체",
     "sessionsInProject": "{{count}}개 세션",
+    "showLess": "접기",
+    "showMore": "더 보기",
     "tabFiles": "파일",
     "tabInstructions": "지침",
     "tabMemories": "메모리",

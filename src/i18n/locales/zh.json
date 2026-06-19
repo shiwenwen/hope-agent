@@ -2108,6 +2108,8 @@
     "removeLogo": "移除",
     "replaceLogo": "更换",
     "sessionsInProject": "{{count}} 个会话",
+    "showLess": "折叠显示",
+    "showMore": "展开显示",
     "tabFiles": "文件",
     "tabInstructions": "指令",
     "tabMemories": "记忆",

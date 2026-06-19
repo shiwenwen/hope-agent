@@ -2108,6 +2108,8 @@
     "removeLogo": "Удалить",
     "replaceLogo": "Заменить",
     "sessionsInProject": "{{count}} сессий",
+    "showLess": "Свернуть",
+    "showMore": "Показать ещё",
     "tabFiles": "Файлы",
     "tabInstructions": "Инструкции",
     "tabMemories": "Память",

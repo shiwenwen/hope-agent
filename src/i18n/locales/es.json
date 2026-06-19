@@ -2108,6 +2108,8 @@
     "removeLogo": "Quitar",
     "replaceLogo": "Reemplazar",
     "sessionsInProject": "{{count}} sesión(es)",
+    "showLess": "Mostrar menos",
+    "showMore": "Mostrar más",
     "tabFiles": "Archivos",
     "tabInstructions": "Instrucciones",
     "tabMemories": "Memorias",
