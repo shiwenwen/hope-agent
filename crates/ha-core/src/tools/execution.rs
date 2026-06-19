@@ -2125,9 +2125,12 @@ fn persist_large_result(
     session_id: Option<&str>,
     tool_name: &str,
 ) -> anyhow::Result<String> {
-    let base_dir = crate::paths::root_dir()?
-        .join("tool_results")
-        .join(crate::paths::sanitize_path_segment(session_id.unwrap_or("_global")));
+    let base_dir =
+        crate::paths::root_dir()?
+            .join("tool_results")
+            .join(crate::paths::sanitize_path_segment(
+                session_id.unwrap_or("_global"),
+            ));
     std::fs::create_dir_all(&base_dir)?;
 
     let ts = std::time::SystemTime::now()

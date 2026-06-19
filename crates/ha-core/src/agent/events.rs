@@ -600,7 +600,10 @@ mod tests {
 
         let expanded = expand_responses_image_markers_for_api(&history);
 
-        assert!(expanded.len() >= 2, "expected rewritten output + image item");
+        assert!(
+            expanded.len() >= 2,
+            "expected rewritten output + image item"
+        );
         let output = expanded[0]["output"]
             .as_str()
             .expect("function_call_output output is a string");

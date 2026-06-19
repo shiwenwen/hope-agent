@@ -836,7 +836,7 @@ Screenshot captured (...)
 | 文件 | 职责 |
 | --- | --- |
 | `crates/ha-core/src/tools/image_markers.rs` | 解析/校验 `__IMAGE_BASE64__` 与 `__IMAGE_FILE__`，文件路径安全检查，按需读取并编码图片 |
-| `crates/ha-core/src/agent/events.rs` | 把图片 marker 转换为各 Provider 的标准图片输入；解析失败时降级普通文本 |
+| `crates/ha-core/src/agent/events.rs` | 把图片 marker 转换为各 Provider 的标准图片输入；解析失败、或编码失败（文件丢失 / 过大 / mime 不符）时降级为文本说明，绝不把内部 marker 回灌模型 |
 | `crates/ha-core/src/tools/execution.rs` | 大工具结果落盘；普通会话内联图片 marker 物化；对图片 marker 做完整性保护，避免截断后继续作为图片发送 |
 | `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 截断时保护图片 marker，避免压缩阶段制造半截图片载荷 |
 | `crates/ha-core/src/tools/browser/snapshot.rs` | browser 截图保存为 session attachment，并用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
