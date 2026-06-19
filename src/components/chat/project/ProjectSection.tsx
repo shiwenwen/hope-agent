@@ -7,6 +7,13 @@
  * shows the same actions plus archive. Below the row, when expanded, the
  * project's sessions render with `SessionItem` indented one level.
  *
+ * Each project paginates **independently** — `useProjectSessions` fetches that
+ * project's own sessions on demand (`list_project_sessions_cmd`), starting at
+ * `PROJECT_SESSION_PAGE_SIZE` with "show more" / "show less" controls — rather
+ * than slicing the shared global session array (which only holds the most
+ * recent page and would hide older project sessions). The global array is still
+ * passed in as a cheap realtime change-signal for refetching.
+ *
  * The mainline `SessionList` keeps showing **unassigned** sessions only —
  * see [src/components/chat/sidebar/ChatSidebar.tsx](sidebar/ChatSidebar.tsx).
  */
@@ -15,6 +22,9 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
   MessageSquarePlus,
   Plus,
   Settings,
@@ -44,10 +54,15 @@ import type { SidebarDisplayMode } from "../sidebar/types"
 import SessionItem from "../sidebar/SessionItem"
 import SidebarSectionHeader from "../sidebar/SidebarSectionHeader"
 import ProjectIcon from "./ProjectIcon"
+import { PROJECT_SESSION_PAGE_SIZE } from "../hooks/constants"
+import { useProjectSessions } from "./hooks/useProjectSessions"
 
 interface ProjectSectionProps {
   projects: ProjectMeta[]
-  /** Sessions list — used to render the children of each project group. */
+  /** Global session array (live overlay). No longer rendered directly under
+   *  projects — each group fetches its own page via `useProjectSessions` — but
+   *  still used for the `SessionItem` parent lookup and as a realtime
+   *  change-signal that drives per-project refetches. */
   sessions: SessionMeta[]
   agents: AgentSummaryForSidebar[]
   currentSessionId: string | null
@@ -290,6 +305,37 @@ function ProjectGroup({
   )
   const projectUnreadCount = Math.max(0, project.unreadCount - currentSessionUnreadCount)
 
+  // Fingerprint of the project's slice of the live global session array. Any
+  // visible change (create / delete / rename / reorder / read / pin) flips it
+  // and triggers the independent per-project refetch below.
+  const changeSignal = useMemo(
+    () =>
+      projectSessions
+        .map(
+          (s) =>
+            `${s.id}:${s.updatedAt}:${s.pinnedAt ?? ""}:${s.unreadCount}:${s.title ?? ""}:${s.pendingInteractionCount}`,
+        )
+        .join("|"),
+    [projectSessions],
+  )
+
+  const {
+    sessions: childSessions,
+    total: childTotal,
+    loading: childLoading,
+    loadingMore: childLoadingMore,
+    hasMore: childHasMore,
+    canCollapse: childCanCollapse,
+    showMore: childShowMore,
+    showLess: childShowLess,
+  } = useProjectSessions({
+    projectId: project.id,
+    expanded: groupExpanded,
+    changeSignal,
+    sessionCount: project.sessionCount,
+  })
+  const showPaginationFooter = childTotal > PROJECT_SESSION_PAGE_SIZE
+
   const handleMarkProjectRead = useCallback(async () => {
     if (project.unreadCount === 0) return
     try {
@@ -454,7 +500,11 @@ function ProjectGroup({
             displayMode === "compact" ? "space-y-1" : "space-y-0.5",
           )}
         >
-          {projectSessions.length === 0 ? (
+          {childLoading ? (
+            <div className="flex justify-center py-3">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            </div>
+          ) : childSessions.length === 0 ? (
             archivedView ? (
               <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
                 {t("project.sessionsInProject", { count: 0 })}
@@ -468,32 +518,58 @@ function ProjectGroup({
               </button>
             )
           ) : (
-            projectSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                sessions={sessions}
-                agent={getAgentInfo(session.agentId)}
-                projects={projects}
-                isActive={session.id === currentSessionId}
-                isLoading={loadingSessionIds.has(session.id)}
-                renamingSessionId={renamingSessionId}
-                renameValue={renameValue}
-                renameInputRef={renameInputRef}
-                onSwitchSession={onSwitchSession}
-                onDeleteClick={onDeleteSession}
-                onStartRename={onStartRename}
-                onRenameValueChange={onRenameValueChange}
-                onCommitRename={onCommitRename}
-                onCancelRename={onCancelRename}
-                onMarkAllRead={onMarkAllRead}
-                onMoveToProject={onMoveSessionToProject}
-                onTogglePinned={onToggleSessionPinned}
-                getAgentInfo={getAgentInfo}
-                formatRelativeTime={formatRelativeTime}
-                displayMode={displayMode}
-              />
-            ))
+            <>
+              {childSessions.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  sessions={sessions}
+                  agent={getAgentInfo(session.agentId)}
+                  projects={projects}
+                  isActive={session.id === currentSessionId}
+                  isLoading={loadingSessionIds.has(session.id)}
+                  renamingSessionId={renamingSessionId}
+                  renameValue={renameValue}
+                  renameInputRef={renameInputRef}
+                  onSwitchSession={onSwitchSession}
+                  onDeleteClick={onDeleteSession}
+                  onStartRename={onStartRename}
+                  onRenameValueChange={onRenameValueChange}
+                  onCommitRename={onCommitRename}
+                  onCancelRename={onCancelRename}
+                  onMarkAllRead={onMarkAllRead}
+                  onMoveToProject={onMoveSessionToProject}
+                  onTogglePinned={onToggleSessionPinned}
+                  getAgentInfo={getAgentInfo}
+                  formatRelativeTime={formatRelativeTime}
+                  displayMode={displayMode}
+                />
+              ))}
+              {showPaginationFooter && (
+                <div className="flex items-center justify-center gap-3 px-2 pt-0.5 pb-1">
+                  <button
+                    onClick={childShowMore}
+                    disabled={!childHasMore || childLoadingMore}
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    {childLoadingMore ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )}
+                    {t("project.showMore")}
+                  </button>
+                  <button
+                    onClick={childShowLess}
+                    disabled={!childCanCollapse}
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronUp className="h-3 w-3" />
+                    {t("project.showLess")}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </AnimatedCollapse>

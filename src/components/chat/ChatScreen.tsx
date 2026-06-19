@@ -787,6 +787,13 @@ export default function ChatScreen({
       try {
         await getTransport().call("rename_session_cmd", { sessionId, title })
         reloadSessions()
+        // Per-project session lists paginate independently and may show sessions
+        // older than the global window; a rename bumps neither `updated_at` nor
+        // `session_count`, so their refetch triggers don't fire. Nudge them with
+        // the new title directly (see useProjectSessions).
+        window.dispatchEvent(
+          new CustomEvent("hope:session-renamed", { detail: { id: sessionId, title } }),
+        )
       } catch (err) {
         logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
       }
