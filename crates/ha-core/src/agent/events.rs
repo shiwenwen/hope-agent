@@ -106,7 +106,7 @@ pub(super) fn emit_tool_result(
 }
 
 /// Build tool result content for Anthropic Messages API.
-/// Detects `__IMAGE_BASE64__` markers and returns a content array with image + text blocks.
+/// Detects internal image markers and returns a content array with image + text blocks.
 pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
     let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
         return json!(result);
@@ -117,23 +117,29 @@ pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::V
         content.push(json!({"type": "text", "text": parsed.leading_text}));
     }
     for m in &parsed.markers {
-        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
-            return json!(result);
-        };
-        content.push(json!({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": m.mime,
-                "data": b64
-            }
-        }));
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
             &m.text
         };
-        content.push(json!({"type": "text", "text": text}));
+        match crate::tools::image_markers::encode_marker_image(m) {
+            Ok(b64) => {
+                content.push(json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": m.mime,
+                        "data": b64
+                    }
+                }));
+                content.push(json!({"type": "text", "text": text}));
+            }
+            // Image bytes are unavailable (e.g. a materialized `__IMAGE_FILE__`
+            // was removed/moved on disk). Degrade to the marker's text note
+            // rather than returning the raw `result` string, which would leak
+            // the internal marker into the prompt and silently drop vision.
+            Err(_) => content.push(json!({"type": "text", "text": text})),
+        }
     }
     json!(content)
 }
@@ -174,20 +180,24 @@ pub(super) fn build_openai_chat_tool_result_content(
         content.push(json!({"type": "text", "text": parsed.leading_text}));
     }
     for m in &parsed.markers {
-        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
-            return json!(result);
-        };
-        let data_uri = format!("data:{};base64,{}", m.mime, b64);
-        content.push(json!({
-            "type": "image_url",
-            "image_url": { "url": data_uri }
-        }));
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
             &m.text
         };
-        content.push(json!({"type": "text", "text": text}));
+        match crate::tools::image_markers::encode_marker_image(m) {
+            Ok(b64) => {
+                let data_uri = format!("data:{};base64,{}", m.mime, b64);
+                content.push(json!({
+                    "type": "image_url",
+                    "image_url": { "url": data_uri }
+                }));
+                content.push(json!({"type": "text", "text": text}));
+            }
+            // Image bytes unavailable — degrade to text rather than leaking the
+            // raw marker string back to the model.
+            Err(_) => content.push(json!({"type": "text", "text": text})),
+        }
     }
     json!(content)
 }
@@ -220,7 +230,10 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
     let mut image_items = Vec::new();
     for (i, m) in parsed.markers.iter().enumerate() {
         let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
-            return (result.to_string(), Vec::new());
+            // Image bytes unavailable — skip this image item. `combined_text`
+            // already carries the marker's text note (no raw marker), so the
+            // model still gets the description without a leak or a dropped turn.
+            continue;
         };
         let data_uri = format!("data:{};base64,{}", m.mime, b64);
         let label = if m.text.is_empty() {

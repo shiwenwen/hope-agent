@@ -213,9 +213,9 @@ const TOOL_DESC_SESSIONS_SEND: &str = "\
   - Use wait=true to block until the other session responds";
 
 const TOOL_DESC_IMAGE: &str = "\
-- image: Analyze an image file and return base64-encoded data for visual analysis.\n\
-  - Supports PNG, JPEG, GIF, WebP, BMP, TIFF\n\
-  - Use prompt param to specify what to analyze (e.g., \"describe the UI layout\")";
+- image: Attach local/URL/clipboard/screenshot images as visual input for the next model round.\n\
+  - The tool itself does not analyze images; use task/question to say what the vision model should inspect\n\
+  - Supports PNG, JPEG, GIF, WebP, BMP, TIFF; prefer images[].label for multi-image references";
 
 const TOOL_DESC_IMAGE_GENERATE: &str = "\
 - image_generate: Generate images from text descriptions using AI image generation models.\n\

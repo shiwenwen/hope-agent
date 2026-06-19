@@ -1400,9 +1400,9 @@
           "running": "正在搜尋文字"
         },
         "image": {
-          "completed": "已分析圖像",
-          "failed": "圖像分析出錯",
-          "running": "正在分析圖像"
+          "completed": "已附加視覺輸入",
+          "failed": "視覺輸入處理出錯",
+          "running": "正在附加視覺輸入"
         },
         "image_generate": {
           "completed": "已生成圖片",
@@ -3291,8 +3291,8 @@
     "logsSelectFile": "選擇左側文件查看內容",
     "logsStructured": "結構化",
     "logsTotal": "總計",
-    "maxImages": "圖片分析最大數量",
-    "maxImagesDesc": "單次 image 工具調用允許的最大圖片數（上限 20）",
+    "maxImages": "視覺輸入最大圖片數",
+    "maxImagesDesc": "單次視覺輸入工具調用允許的最大圖片數（上限 20）",
     "maxPdfs": "PDF 分析最大數量",
     "maxPdfsDesc": "單次 pdf 工具調用允許的最大 PDF 數（上限 10）",
     "maxVisionPages": "PDF 視覺渲染最大頁數",
@@ -4274,10 +4274,10 @@
     "toolGetWeatherName": "查詢天氣",
     "toolGrepDesc": "按正則或文本搜索文件內容",
     "toolGrepName": "搜索內容",
-    "toolImageDesc": "視覺分析圖片（支援本機路徑 / URL / 剪貼簿 / 螢幕截圖）",
+    "toolImageDesc": "將圖片作為視覺輸入傳給模型（支援本機路徑 / URL / 剪貼簿 / 螢幕截圖）",
     "toolImageGenerateDesc": "文字生圖 / 圖片生圖，支援多 provider 自動降級",
     "toolImageGenerateName": "生成圖片",
-    "toolImageName": "圖像分析",
+    "toolImageName": "視覺輸入",
     "toolLimits": "工具數量限制",
     "toolListSettingsBackupsDesc": "列出已儲存的設定備份",
     "toolListSettingsBackupsName": "設定備份列表",
@@ -4937,7 +4937,7 @@
     "get_settings": "讀取設置",
     "get_weather": "查詢天氣",
     "grep": "搜索內容",
-    "image": "圖像分析",
+    "image": "視覺輸入",
     "image_generate": "生成圖片",
     "list_settings_backups": "列出設置備份",
     "loadingSkill": "加載技能: {{name}}",

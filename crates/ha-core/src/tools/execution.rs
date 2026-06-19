@@ -287,8 +287,8 @@ pub struct ToolExecContext {
     /// background work unexpectedly.
     pub suppress_global_tool_timeout: bool,
     /// Internal flag for async tool jobs. They persist the final result through
-    /// `async_jobs::spawn::persist_result`, so the generic large-result
-    /// preview layer must not wrap the output first and turn the async
+    /// `async_jobs::spawn::persist_result`, so the generic result layer must
+    /// not wrap the output first, materialize image markers, or turn the async
     /// output-file into a pointer to a second file.
     pub suppress_result_disk_persistence: bool,
     /// Whether the owning session is incognito (`sessions.incognito`). Resolved
@@ -1848,9 +1848,10 @@ pub async fn execute_tool_with_context(
     }
 }
 
-// ── Large result disk persistence ────────────────────────────────
-// If the result exceeds the threshold, write it to disk and return a preview
-// with a path reference so the model can `read` the full file.
+// ── Result disk persistence ──────────────────────────────────────
+// In normal sessions, inline image markers are first materialized into managed
+// `__IMAGE_FILE__` references. Other large results are written to disk and
+// replaced with a preview plus a path the model can `read`.
 fn maybe_persist_large_tool_result(
     name: &str,
     output: String,
@@ -1858,20 +1859,46 @@ fn maybe_persist_large_tool_result(
 ) -> anyhow::Result<String> {
     // E3 (INCOG-5): incognito sessions never spill tool output to disk — keep it
     // inline (in-memory) so the burn-on-close leaves no `tool_results/` trace.
-    if ctx.suppress_result_disk_persistence
-        || ctx.incognito
-        || !should_persist_large_result(&output)
-    {
+    if ctx.suppress_result_disk_persistence || ctx.incognito {
         return Ok(output);
     }
     if crate::tools::image_markers::has_valid_image_markers(&output) {
-        app_info!(
-            "tool",
-            "disk_persist",
-            "Tool '{}' result {}B contains valid image marker; preserving inline for provider vision",
-            name,
-            output.len()
-        );
+        match crate::tools::image_markers::materialize_base64_image_markers(
+            &output,
+            ctx.session_id.as_deref(),
+        ) {
+            Ok(Some(materialized)) => {
+                app_info!(
+                    "tool",
+                    "disk_persist",
+                    "Tool '{}' result {}B materialized image markers for provider vision",
+                    name,
+                    output.len()
+                );
+                return Ok(materialized);
+            }
+            Ok(None) => {
+                app_info!(
+                    "tool",
+                    "disk_persist",
+                    "Tool '{}' result {}B contains valid image file marker; preserving provider vision",
+                    name,
+                    output.len()
+                );
+            }
+            Err(e) => {
+                app_warn!(
+                    "tool",
+                    "disk_persist",
+                    "Failed to materialize image markers for '{}': {}; preserving inline for provider vision",
+                    name,
+                    e
+                );
+            }
+        }
+        return Ok(output);
+    }
+    if !should_persist_large_result(&output) {
         return Ok(output);
     }
     match persist_large_result(&output, ctx.session_id.as_deref(), name) {
@@ -2072,7 +2099,9 @@ pub fn purge_tool_results_for_session(session_id: &str) {
         return;
     }
     let dir = match crate::paths::root_dir() {
-        Ok(root) => root.join("tool_results").join(session_id),
+        Ok(root) => root
+            .join("tool_results")
+            .join(crate::paths::sanitize_path_segment(session_id)),
         Err(_) => return,
     };
     if !dir.exists() {
@@ -2098,7 +2127,7 @@ fn persist_large_result(
 ) -> anyhow::Result<String> {
     let base_dir = crate::paths::root_dir()?
         .join("tool_results")
-        .join(session_id.unwrap_or("_global"));
+        .join(crate::paths::sanitize_path_segment(session_id.unwrap_or("_global")));
     std::fs::create_dir_all(&base_dir)?;
 
     let ts = std::time::SystemTime::now()
@@ -2115,14 +2144,17 @@ fn persist_large_result(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_persisted_large_result_preview, mcp_server_auto_approves_config,
-        needs_permission_engine, should_run_exec_reorder_gate, tool_timeout, AsyncDecision,
-        JobOrigin, ToolExecContext,
+        build_persisted_large_result_preview, maybe_persist_large_tool_result,
+        mcp_server_auto_approves_config, needs_permission_engine, should_run_exec_reorder_gate,
+        tool_timeout, AsyncDecision, JobOrigin, ToolExecContext,
     };
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    use crate::tools::image_markers::IMAGE_FILE_PREFIX;
+    use base64::Engine as _;
     use serde_json::json;
     use std::collections::BTreeMap;
+    use std::io::Cursor;
     use std::path::Path;
 
     fn mcp_cfg(auto_approve: bool, trust_level: McpTrustLevel) -> McpServerConfig {
@@ -2204,6 +2236,84 @@ mod tests {
         assert!(crate::tools::image_markers::has_valid_image_markers(
             &output
         ));
+    }
+
+    fn large_test_image_marker() -> String {
+        let mut image = image::RgbImage::new(512, 512);
+        for (x, y, pixel) in image.enumerate_pixels_mut() {
+            let seed = x
+                .wrapping_mul(1_103_515_245)
+                .wrapping_add(y.wrapping_mul(12_345));
+            *pixel = image::Rgb([
+                (seed & 0xff) as u8,
+                ((seed >> 8) & 0xff) as u8,
+                ((seed >> 16) & 0xff) as u8,
+            ]);
+        }
+        let mut buf = Cursor::new(Vec::new());
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 95);
+        image::DynamicImage::ImageRgb8(image)
+            .write_with_encoder(encoder)
+            .expect("encode test image");
+        let jpeg = buf.into_inner();
+        assert!(jpeg.len() > 50_000);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(jpeg);
+        format!("{IMAGE_BASE64_PREFIX}image/jpeg__{b64}__\nScreenshot captured.")
+    }
+
+    #[test]
+    fn image_marker_results_materialize_to_file_markers() {
+        let root = tempfile::tempdir().expect("tempdir");
+
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let output = format!(
+                "{}image/png__{}__\nScreenshot captured.",
+                IMAGE_BASE64_PREFIX,
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lT5cWQAAAABJRU5ErkJggg=="
+            );
+            let ctx = ToolExecContext {
+                session_id: Some("session/../x".to_string()),
+                ..ToolExecContext::default()
+            };
+
+            let result = maybe_persist_large_tool_result("image", output, &ctx)
+                .expect("persist large image marker");
+
+            assert!(result.contains(IMAGE_FILE_PREFIX));
+            assert!(!result.contains(IMAGE_BASE64_PREFIX));
+            assert!(result.contains("Screenshot captured."));
+            assert!(result.contains("session____x"));
+
+            let spec_line = result
+                .strip_prefix(IMAGE_FILE_PREFIX)
+                .and_then(|rest| rest.split_once('\n').map(|(spec, _)| spec))
+                .expect("file marker JSON line");
+            let spec: serde_json::Value =
+                serde_json::from_str(spec_line).expect("file marker JSON");
+            let path = spec
+                .get("path")
+                .and_then(|v| v.as_str())
+                .expect("path in marker");
+            assert!(Path::new(path).starts_with(root.path().join("tool_results/session____x")));
+            assert!(std::fs::metadata(path).expect("materialized file").len() > 0);
+        });
+    }
+
+    #[test]
+    fn incognito_large_image_marker_results_stay_inline() {
+        let output = large_test_image_marker();
+        let ctx = ToolExecContext {
+            incognito: true,
+            session_id: Some("secret-session".to_string()),
+            ..ToolExecContext::default()
+        };
+
+        let result = maybe_persist_large_tool_result("image", output.clone(), &ctx)
+            .expect("incognito image marker");
+
+        assert_eq!(result, output);
+        assert!(result.contains(IMAGE_BASE64_PREFIX));
+        assert!(!result.contains(IMAGE_FILE_PREFIX));
     }
 
     #[test]

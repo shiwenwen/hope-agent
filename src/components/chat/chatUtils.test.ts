@@ -37,6 +37,37 @@ describe("parseSessionMessages events", () => {
       `event:${notice}`,
     ])
   })
+
+  test("coalesces context compaction notices while assistant blocks are pending", () => {
+    const summary = JSON.stringify({
+      type: "context_compacted",
+      data: {
+        tier_applied: 3,
+        description: "summarized",
+        messages_affected: 17,
+      },
+    })
+    const syncCleanup = JSON.stringify({
+      type: "context_compacted",
+      data: {
+        tier_applied: 2,
+        description: "summarization_not_applied_sync_compaction_only",
+        messages_affected: 9,
+      },
+    })
+    const parsed = parseSessionMessages([
+      sessionMessage({ id: 1, role: "user", content: "检查交付物" }),
+      sessionMessage({ id: 2, role: "text_block", content: "先看目录。" }),
+      sessionMessage({ id: 3, role: "event", content: summary }),
+      sessionMessage({ id: 4, role: "text_block", content: "继续检查。" }),
+      sessionMessage({ id: 5, role: "event", content: syncCleanup }),
+      sessionMessage({ id: 6, role: "assistant", content: "最终结论。" }),
+    ])
+
+    expect(parsed.map((msg) => msg.role)).toEqual(["user", "event", "assistant"])
+    expect(JSON.parse(parsed[1]!.content).data.description).toBe("summarized")
+    expect(parsed[2]?.contentBlocks?.map((block) => block.type)).toEqual(["text", "text", "text"])
+  })
 })
 
 describe("parseSessionMessages user attachments", () => {

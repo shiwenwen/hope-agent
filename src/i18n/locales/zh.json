@@ -1400,9 +1400,9 @@
           "running": "正在搜索文本"
         },
         "image": {
-          "completed": "已分析图像",
-          "failed": "图像分析出错",
-          "running": "正在分析图像"
+          "completed": "已附加视觉输入",
+          "failed": "视觉输入处理出错",
+          "running": "正在附加视觉输入"
         },
         "image_generate": {
           "completed": "已生成图片",
@@ -3291,8 +3291,8 @@
     "logsSelectFile": "选择左侧文件查看内容",
     "logsStructured": "结构化",
     "logsTotal": "总计",
-    "maxImages": "图片分析最大数量",
-    "maxImagesDesc": "单次 image 工具调用允许的最大图片数（上限 20）",
+    "maxImages": "视觉输入最大图片数",
+    "maxImagesDesc": "单次视觉输入工具调用允许的最大图片数（上限 20）",
     "maxPdfs": "PDF 分析最大数量",
     "maxPdfsDesc": "单次 pdf 工具调用允许的最大 PDF 数（上限 10）",
     "maxVisionPages": "PDF 视觉渲染最大页数",
@@ -4274,10 +4274,10 @@
     "toolGetWeatherName": "查询天气",
     "toolGrepDesc": "按正则或文本搜索文件内容",
     "toolGrepName": "搜索内容",
-    "toolImageDesc": "视觉分析图片（支持本地路径 / URL / 剪贴板 / 屏幕截图）",
+    "toolImageDesc": "将图片作为视觉输入传给模型（支持本地路径 / URL / 剪贴板 / 屏幕截图）",
     "toolImageGenerateDesc": "文生图 / 图生图，支持多 provider 自动降级",
     "toolImageGenerateName": "生成图片",
-    "toolImageName": "图像分析",
+    "toolImageName": "视觉输入",
     "toolLimits": "工具数量限制",
     "toolListSettingsBackupsDesc": "列出已保存的设置备份",
     "toolListSettingsBackupsName": "设置备份列表",
@@ -4937,7 +4937,7 @@
     "get_settings": "读取设置",
     "get_weather": "查询天气",
     "grep": "搜索内容",
-    "image": "图像分析",
+    "image": "视觉输入",
     "image_generate": "生成图片",
     "list_settings_backups": "列出设置备份",
     "loadingSkill": "加载技能: {{name}}",

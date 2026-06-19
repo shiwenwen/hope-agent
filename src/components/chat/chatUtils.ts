@@ -11,6 +11,11 @@ import type {
   MessageUsage,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
+import {
+  isContextCompactionPayload,
+  parseEventPayload,
+  shouldReplaceContextCompactionNotice,
+} from "./contextCompactionEvents"
 import { hasToolError } from "./message/executionStatus"
 import { MAX_MESSAGES, KEEP_AFTER_CAP } from "./hooks/constants"
 
@@ -79,6 +84,26 @@ function isStartupRecoveryNotice(content: string): boolean {
   )
 }
 
+function upsertContextCompactionEventMessage(
+  displayMessages: Message[],
+  nextMessage: Message,
+): boolean {
+  const nextPayload = parseEventPayload(nextMessage.content)
+  if (!isContextCompactionPayload(nextPayload)) return false
+
+  const previous = displayMessages[displayMessages.length - 1]
+  const previousPayload =
+    previous?.role === "event" ? parseEventPayload(previous.content) : null
+  if (!isContextCompactionPayload(previousPayload)) {
+    displayMessages.push(nextMessage)
+    return true
+  }
+  if (shouldReplaceContextCompactionNotice(previousPayload, nextPayload)) {
+    displayMessages[displayMessages.length - 1] = nextMessage
+  }
+  return true
+}
+
 /** Format token count: ≥10000 → "12.3k", else "1,234". */
 export function formatTokens(n: number): string {
   if (n >= 10000) return `${(n / 1000).toFixed(1)}k`
@@ -137,6 +162,27 @@ export interface ContextUsageInfo {
  * Single source of truth shared by the status popover, the workspace session
  * card, and the input-dock bottom bar so all three never drift.
  */
+/**
+ * Build a `ContextUsageInfo` from a raw used-token count and a context window.
+ * Single source of truth for the usedK/ctxK/pct derivation, shared by
+ * `computeContextUsage` (latest-assistant scan) and the manual-compaction usage
+ * override in ChatScreen. Returns null when the window is unknown / non-positive.
+ */
+export function formatContextUsage(
+  usedTokens: number,
+  contextWindow: number | null | undefined,
+): ContextUsageInfo | null {
+  if (!contextWindow || contextWindow <= 0) return null
+  const safeUsedTokens = Math.max(0, usedTokens)
+  return {
+    usedTokens: safeUsedTokens,
+    contextWindow,
+    usedK: Math.round(safeUsedTokens / 1000),
+    ctxK: Math.round(contextWindow / 1000),
+    pct: Math.round((safeUsedTokens / contextWindow) * 100),
+  }
+}
+
 export function computeContextUsage(
   messages: Message[],
   contextWindow: number | null | undefined,
@@ -152,13 +198,7 @@ export function computeContextUsage(
       break
     }
   }
-  return {
-    usedTokens,
-    contextWindow,
-    usedK: Math.round(usedTokens / 1000),
-    ctxK: Math.round(contextWindow / 1000),
-    pct: Math.round((usedTokens / contextWindow) * 100),
-  }
+  return formatContextUsage(usedTokens, contextWindow)
 }
 
 // Pure color/level helpers live in a dependency-free leaf module so the input
@@ -597,13 +637,17 @@ export function parseSessionMessages(
         }
         seenPlainEventContentSinceLastUser.add(msg.content)
       }
-      displayMessages.push({
+      const eventMessage: Message = {
         role: "event",
         content: msg.content,
         timestamp: msg.timestamp,
         slashEvent,
         dbId: msg.id,
-      })
+      }
+      if (upsertContextCompactionEventMessage(displayMessages, eventMessage)) {
+        continue
+      }
+      displayMessages.push(eventMessage)
     }
   }
   // Mid-stream load: if the loop ended with accumulated tool calls / interim

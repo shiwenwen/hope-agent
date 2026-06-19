@@ -10,7 +10,7 @@ use super::read::{detect_image_mime, resize_image_if_needed};
 /// Default maximum number of images per single tool call.
 const DEFAULT_MAX_IMAGES: usize = 10;
 /// Hard cap on max images (user cannot exceed this).
-const CAP_MAX_IMAGES: usize = 20;
+pub(crate) const CAP_MAX_IMAGES: usize = 20;
 /// Maximum bytes to download for a remote image (10 MB).
 const IMAGE_MAX_FETCH_BYTES: usize = 10 * 1024 * 1024;
 /// HTTP timeout for fetching remote images.
@@ -39,13 +39,25 @@ impl Default for ImageToolConfig {
     }
 }
 
-/// Load image tool config from the global config store, clamped to hard caps.
+/// Load image tool config from the cached config snapshot, clamped to hard caps.
 fn load_image_config() -> ImageToolConfig {
-    let mut cfg = crate::config::load_config()
-        .map(|s| s.image)
-        .unwrap_or_default();
+    let mut cfg = crate::config::cached_config().image.clone();
     cfg.max_images = cfg.max_images.min(CAP_MAX_IMAGES);
     cfg
+}
+
+/// Effective per-call image cap: the configured value clamped to the hard cap.
+///
+/// Single source of truth shared by the tool schema (advertised `maxItems` /
+/// "max N" text) and runtime enforcement (`normalize_sources`). Without this,
+/// the schema advertising `CAP_MAX_IMAGES` while `normalize_sources` enforces
+/// the (lower) configured default makes the model send more images than the
+/// tool will accept and hit a hard "Too many images" rejection.
+pub(crate) fn effective_max_images() -> usize {
+    crate::config::cached_config()
+        .image
+        .max_images
+        .min(CAP_MAX_IMAGES)
 }
 
 // ── Image Source Types ───────────────────────────────────────────────
@@ -59,16 +71,34 @@ fn load_image_config() -> ImageToolConfig {
 enum ImageSource {
     File {
         path: String,
+        label: Option<String>,
     },
     Url {
         url: String,
+        label: Option<String>,
     },
     #[cfg(feature = "desktop-tools")]
-    Clipboard,
+    Clipboard {
+        label: Option<String>,
+    },
     #[cfg(feature = "desktop-tools")]
     Screenshot {
         monitor: Option<usize>,
+        label: Option<String>,
     },
+}
+
+impl ImageSource {
+    /// The optional caller-supplied label, independent of the source variant.
+    fn label(&self) -> Option<&str> {
+        match self {
+            ImageSource::File { label, .. } | ImageSource::Url { label, .. } => label.as_deref(),
+            #[cfg(feature = "desktop-tools")]
+            ImageSource::Clipboard { label } => label.as_deref(),
+            #[cfg(feature = "desktop-tools")]
+            ImageSource::Screenshot { label, .. } => label.as_deref(),
+        }
+    }
 }
 
 /// Parse tool arguments into a list of image sources.
@@ -80,6 +110,12 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
     if let Some(arr) = args.get("images").and_then(|v| v.as_array()) {
         for item in arr {
             let src_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("file");
+            let label = item
+                .get("label")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
             match src_type {
                 "file" => {
                     let path = item
@@ -88,6 +124,7 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
                         .ok_or_else(|| anyhow!("images[].type='file' requires 'path'"))?;
                     sources.push(ImageSource::File {
                         path: path.to_string(),
+                        label,
                     });
                 }
                 "url" => {
@@ -97,11 +134,12 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
                         .ok_or_else(|| anyhow!("images[].type='url' requires 'url'"))?;
                     sources.push(ImageSource::Url {
                         url: url.to_string(),
+                        label,
                     });
                 }
                 "clipboard" => {
                     #[cfg(feature = "desktop-tools")]
-                    sources.push(ImageSource::Clipboard);
+                    sources.push(ImageSource::Clipboard { label });
                     #[cfg(not(feature = "desktop-tools"))]
                     return Err(anyhow!(
                         "image source 'clipboard' is not available in this build (desktop-tools feature disabled — likely a headless / container deployment)"
@@ -114,7 +152,7 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
                             .get("monitor")
                             .and_then(|v| v.as_u64())
                             .map(|n| n as usize);
-                        sources.push(ImageSource::Screenshot { monitor });
+                        sources.push(ImageSource::Screenshot { monitor, label });
                     }
                     #[cfg(not(feature = "desktop-tools"))]
                     return Err(anyhow!(
@@ -137,6 +175,7 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
         {
             sources.push(ImageSource::File {
                 path: path.to_string(),
+                label: None,
             });
         }
     }
@@ -146,6 +185,7 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
         if let Some(url) = args.get("url").and_then(|v| v.as_str()) {
             sources.push(ImageSource::Url {
                 url: url.to_string(),
+                label: None,
             });
         }
     }
@@ -324,20 +364,43 @@ fn resolve_screenshot(monitor_index: Option<usize>) -> Result<(Vec<u8>, String)>
     Ok((buf.into_inner(), label))
 }
 
+fn non_empty_string_field<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn vision_task(args: &Value) -> Option<&str> {
+    non_empty_string_field(args, "task")
+        .or_else(|| non_empty_string_field(args, "question"))
+        // Backward-compatible alias. The tool no longer treats this as a
+        // separate analyzer prompt; it is the task text attached to the vision
+        // input for the next model round.
+        .or_else(|| non_empty_string_field(args, "prompt"))
+}
+
+fn with_label(source_label: String, label: Option<&str>) -> String {
+    match label {
+        Some(label) => format!("{label} - {source_label}"),
+        None => source_label,
+    }
+}
+
 // ── Main Tool Entry ──────────────────────────────────────────────────
 
-/// Tool: image — analyze one or more images from files, URLs, clipboard, or screenshot.
-/// Returns base64-encoded image markers for LLM vision.
+/// Tool: image / vision input: attach one or more images from files, URLs,
+/// clipboard, or screenshot to the next model round as visual input.
 pub(crate) async fn tool_image(args: &Value) -> Result<String> {
     let config = load_image_config();
     let sources = normalize_sources(args, config.max_images)?;
-    let prompt = args.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let task = vision_task(args);
     let total = sources.len();
     let mut result_parts: Vec<String> = Vec::new();
     let mut success_count = 0usize;
 
-    if !prompt.is_empty() {
-        result_parts.push(format!("Image analysis prompt: {}\n", prompt));
+    if let Some(task) = task {
+        result_parts.push(format!("Vision task: {}\n", task));
     }
 
     for (i, source) in sources.iter().enumerate() {
@@ -350,16 +413,17 @@ pub(crate) async fn tool_image(args: &Value) -> Result<String> {
 
         // Resolve image bytes
         let resolve_result = match source {
-            ImageSource::File { path } => resolve_file(path),
-            ImageSource::Url { url } => resolve_url(url).await,
+            ImageSource::File { path, .. } => resolve_file(path),
+            ImageSource::Url { url, .. } => resolve_url(url).await,
             #[cfg(feature = "desktop-tools")]
-            ImageSource::Clipboard => resolve_clipboard(),
+            ImageSource::Clipboard { .. } => resolve_clipboard(),
             #[cfg(feature = "desktop-tools")]
-            ImageSource::Screenshot { monitor } => resolve_screenshot(*monitor),
+            ImageSource::Screenshot { monitor, .. } => resolve_screenshot(*monitor),
         };
 
         match resolve_result {
-            Ok((data, source_label)) => {
+            Ok((data, raw_source_label)) => {
+                let source_label = with_label(raw_source_label, source.label());
                 // Validate image format
                 let mime = match detect_image_mime(&data) {
                     Some(m) => m,
@@ -414,7 +478,8 @@ pub(crate) async fn tool_image(args: &Value) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::url_label;
+    use super::{normalize_sources, url_label, vision_task, ImageSource};
+    use serde_json::json;
 
     #[test]
     fn url_label_truncates_on_utf8_boundary() {
@@ -422,5 +487,55 @@ mod tests {
         let label = url_label(&url);
         assert!(std::str::from_utf8(label.as_bytes()).is_ok());
         assert!(label.ends_with("..."));
+    }
+
+    #[test]
+    fn vision_task_prefers_task_then_question_then_legacy_prompt() {
+        assert_eq!(
+            vision_task(&json!({"task": "inspect layout"})),
+            Some("inspect layout")
+        );
+        assert_eq!(
+            vision_task(&json!({"question": "what is shown?"})),
+            Some("what is shown?")
+        );
+        assert_eq!(
+            vision_task(&json!({"prompt": "legacy prompt"})),
+            Some("legacy prompt")
+        );
+        assert_eq!(
+            vision_task(&json!({"task": "  ", "question": "fallback"})),
+            Some("fallback")
+        );
+        assert_eq!(vision_task(&json!({"task": "  "})), None);
+    }
+
+    #[test]
+    fn normalize_sources_preserves_optional_labels() {
+        let sources = normalize_sources(
+            &json!({
+                "images": [
+                    {"type": "file", "path": "/tmp/a.png", "label": "report page 1"},
+                    {"type": "url", "url": "https://example.com/b.png", "label": "reference"}
+                ]
+            }),
+            10,
+        )
+        .expect("sources");
+
+        match &sources[0] {
+            ImageSource::File { path, label } => {
+                assert_eq!(path, "/tmp/a.png");
+                assert_eq!(label.as_deref(), Some("report page 1"));
+            }
+            _ => panic!("expected file source"),
+        }
+        match &sources[1] {
+            ImageSource::Url { url, label } => {
+                assert_eq!(url, "https://example.com/b.png");
+                assert_eq!(label.as_deref(), Some("reference"));
+            }
+            _ => panic!("expected url source"),
+        }
     }
 }
