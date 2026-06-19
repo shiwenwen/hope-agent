@@ -2108,6 +2108,8 @@
     "removeLogo": "削除",
     "replaceLogo": "差し替え",
     "sessionsInProject": "{{count}} 件のセッション",
+    "showLess": "折りたたむ",
+    "showMore": "もっと表示",
     "tabFiles": "ファイル",
     "tabInstructions": "指示",
     "tabMemories": "メモリ",

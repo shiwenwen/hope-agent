@@ -1,6 +1,11 @@
 export const PAGE_SIZE = 100
 export const SESSION_PAGE_SIZE = 50
 
+/** Per-project session page size in the sidebar. Each project group fetches
+ *  its own sessions independently (`list_project_sessions_cmd`), starting at
+ *  this count; "show more" loads another page, "show less" returns to one. */
+export const PROJECT_SESSION_PAGE_SIZE = 15
+
 /** Cap on the result set returned by `search_sessions_cmd` /
  *  `search_session_messages_cmd`. Beyond this the UI shows a "refine the
  *  query" hint. Shared between the sidebar global search and the in-chat
