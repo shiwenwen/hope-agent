@@ -5,7 +5,7 @@ use crate::agent::{AssistantAgent, PlanResolvedContext};
 use crate::attachments::MediaItem;
 use crate::chat_engine::stream_broadcast::EVENT_CHANNEL_STREAM_DELTA;
 use crate::chat_engine::stream_seq::ChatSource;
-use crate::context_compact::CompactConfig;
+use crate::context_compact::{CompactConfig, CompactResult};
 use crate::provider::{ActiveModel, ProviderConfig};
 use crate::session::SessionDB;
 
@@ -570,6 +570,25 @@ pub struct ChatEngineResult {
     pub model_used: Option<ActiveModel>,
     /// The agent instance after chat (for UI chat to update State).
     pub agent: Option<AssistantAgent>,
+}
+
+/// Parameters for a user-requested compaction outside a chat turn.
+pub struct CompactSessionParams {
+    pub session_id: String,
+    pub agent_id: String,
+    pub session_db: Arc<SessionDB>,
+    pub model: ActiveModel,
+    pub providers: Vec<ProviderConfig>,
+    pub codex_token: Option<(String, String)>,
+    pub resolved_temperature: Option<f64>,
+    pub compact_config: CompactConfig,
+    pub source: ChatSource,
+    pub event_sink: Arc<dyn EventSink>,
+}
+
+pub struct CompactSessionResult {
+    pub compact_result: CompactResult,
+    pub agent: AssistantAgent,
 }
 
 #[cfg(test)]

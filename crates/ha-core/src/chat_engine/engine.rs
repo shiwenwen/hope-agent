@@ -295,6 +295,103 @@ fn emit_stream_event_unchecked(
     sink_registry::sink_registry().emit(session_id, &payload);
 }
 
+/// Run a user-requested context compaction for a stored session.
+///
+/// HTTP/server mode uses this path so manual compaction restores persisted
+/// context, bypasses cache throttles, forces Tier 3 summarization when
+/// possible, saves the compacted history, and emits the same compaction events
+/// as the chat engine.
+pub async fn compact_session_now(
+    params: CompactSessionParams,
+) -> Result<CompactSessionResult, String> {
+    let CompactSessionParams {
+        session_id,
+        agent_id,
+        session_db,
+        model,
+        providers,
+        codex_token,
+        resolved_temperature,
+        compact_config,
+        source,
+        event_sink,
+    } = params;
+
+    let provider = providers
+        .iter()
+        .find(|p| p.id == model.provider_id)
+        .ok_or_else(|| format!("Provider {} not found", model.provider_id))?;
+    let provider_label = provider.name.clone();
+
+    let mut codex_token = codex_token;
+    if provider.api_type == ApiType::Codex {
+        let current = codex_token.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+        if let Some(pair) = crate::oauth::ensure_fresh_codex_token(current).await {
+            codex_token = Some(pair);
+        }
+    }
+
+    let mut agent = build_agent_from_snapshot(
+        &model,
+        &providers,
+        codex_token,
+        &compact_config,
+        None,
+        &session_id,
+    )
+    .await
+    .map_err(|e| {
+        format!(
+            "Cannot build agent for manual compaction on {}::{}: {}",
+            model.provider_id, model.model_id, e
+        )
+    })?;
+
+    let plan_resolved = crate::chat_engine::resolve_plan_context_for_session(&session_id).await;
+    configure_agent(
+        &mut agent,
+        &agent_id,
+        &session_id,
+        resolved_temperature,
+        None,
+        &[],
+        &[],
+        None,
+        0,
+        None,
+        plan_resolved,
+        false,
+        false,
+        true,
+        source,
+        kb_access_source(source),
+        None,
+    );
+    restore_agent_context(&session_db, &session_id, &agent);
+
+    let emit = |delta: &str| {
+        let _ = emit_stream_event(&session_db, &event_sink, &session_id, source, None, delta);
+    };
+    let compact_result = agent.compact_conversation_now(&emit).await;
+
+    save_agent_context(&session_db, &session_id, &agent);
+    app_info!(
+        "context",
+        "compact::manual",
+        "Manual compaction: provider={}, tier={}, {} → {} tokens, {} affected",
+        provider_label,
+        compact_result.tier_applied,
+        compact_result.tokens_before,
+        compact_result.tokens_after,
+        compact_result.messages_affected
+    );
+
+    Ok(CompactSessionResult {
+        compact_result,
+        agent,
+    })
+}
+
 // ── Core Chat Engine ────────────────────────────────────────────────
 
 /// Run the shared chat execution engine.
