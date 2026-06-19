@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **主动上下文压缩在桌面 / HTTP Server / IM 中行为对齐**：`compact_context_now` 与 `/compact` 不再在 HTTP/server 模式返回「不支持」或仅做同步清理，而是会按会话模型恢复历史、绕过节流并尽量执行 Tier 3 摘要；桌面端压缩期间不再临时清空全局 Agent，避免并发入口误报「No active agent」。主动压缩失败 / 无消息 / 取消等提示也补齐多语言文案。
+- **主动上下文压缩在桌面 / HTTP Server / IM 中行为对齐**：`compact_context_now` 与 `/compact` 不再在 HTTP/server 模式返回「不支持」或仅做同步清理，而是会按会话模型恢复历史、绕过节流并尽量执行 Tier 3 摘要；桌面端压缩期间不再临时清空全局 Agent，避免并发入口误报「No active agent」，且同会话并发回合不会被旧压缩快照覆盖。主动压缩失败 / 无消息 / 取消等提示也补齐多语言文案。
 - **异常中断恢复提示不再反复刷屏**：启动恢复已处理过的中断流式片段后，会把相关消息标记为 recovered；再次打开同一会话不再重复追加「上次会话异常中断」提示，前端也会在同一轮内折叠重复的恢复提示。
 - **个人资料设置入口不再显示 i18n key 错误**：修复 `settings.profile` 同时被记忆画像对象占用后，设置侧栏、个人资料页标题和左侧头像 tooltip 显示 `key 'settings.profile'...` 的问题。
 - **记忆断言回填弹层不再横向溢出**：回填历史记忆的预览弹层现在限制在视口内，说明文字自动换行，统计卡响应式排列，候选列表长内容截断并在弹层内滚动。

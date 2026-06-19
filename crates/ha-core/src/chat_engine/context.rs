@@ -55,16 +55,17 @@ pub(super) async fn build_agent_from_snapshot(
 /// at turn-termination time (either runtime convergence in `engine.rs`
 /// or the startup sweep in `app_init`). Restore just loads what's
 /// there and hands it to the agent.
-pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
-    let Ok(Some(json_str)) = db.load_context(session_id) else {
-        return;
-    };
+pub fn restore_agent_context_from_json(
+    session_id: &str,
+    json_str: &str,
+    agent: &AssistantAgent,
+) -> bool {
     let history: Vec<serde_json::Value> = match serde_json::from_str(&json_str) {
         Ok(v) => v,
-        Err(_) => return,
+        Err(_) => return false,
     };
     if history.is_empty() {
-        return;
+        return false;
     }
     app_debug!(
         "session",
@@ -74,6 +75,14 @@ pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assi
         session_id
     );
     agent.set_conversation_history(history);
+    true
+}
+
+pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
+    let Ok(Some(json_str)) = db.load_context(session_id) else {
+        return;
+    };
+    restore_agent_context_from_json(session_id, &json_str, agent);
 }
 
 /// Save the agent's conversation history to DB.
