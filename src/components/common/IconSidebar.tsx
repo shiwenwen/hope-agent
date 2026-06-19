@@ -101,7 +101,7 @@ export default function IconSidebar({
         <div className="w-full pt-10 flex flex-col items-center gap-1.5" data-tauri-drag-region>
           {/* User avatar (if set) */}
           {userAvatar && (
-            <IconTip label={t("settings.profile")} side="right">
+            <IconTip label={t("settings.profileSettings")} side="right">
               <button
                 className="w-9 h-9 rounded-full overflow-hidden ring-1 ring-primary/20 hover:ring-primary/40 transition-all cursor-pointer shrink-0"
                 onClick={onOpenProfile}
@@ -344,7 +344,7 @@ export default function IconSidebar({
               conflicts, high WS load, etc. without opening Settings. */}
           <ServerStatusIndicator onOpen={() => onOpenSettings("server")} />
           {/* Profile */}
-          <IconTip label={t("settings.profile")} side="right">
+          <IconTip label={t("settings.profileSettings")} side="right">
             <Button
               variant="ghost"
               size="icon"

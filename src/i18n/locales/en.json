@@ -3775,6 +3775,7 @@
       "emptyHint": "Enable profile synthesis under the Dreaming tab, then refresh.",
       "version": "v{{version}}"
     },
+    "profileSettings": "Profile",
     "profileAgeDisplay": "{{age}} years old",
     "profileAiExpBeginner": "Beginner — just getting started",
     "profileAiExpExpert": "Expert — deep user of AI tools",

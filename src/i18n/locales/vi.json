@@ -3775,6 +3775,7 @@
       "emptyHint": "Bật tổng hợp hồ sơ trong tab Dreaming, rồi làm mới.",
       "version": "v{{version}}"
     },
+    "profileSettings": "Hồ sơ",
     "profileAgeDisplay": "{{age}} tuổi",
     "profileAiExpBeginner": "Mới bắt đầu — vừa tiếp xúc AI",
     "profileAiExpExpert": "Chuyên gia — sử dụng AI chuyên sâu",

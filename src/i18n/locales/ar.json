@@ -3775,6 +3775,7 @@
       "emptyHint": "فعّل توليف الملف الشخصي في تبويب Dreaming، ثم حدّث.",
       "version": "v{{version}}"
     },
+    "profileSettings": "الملف الشخصي",
     "profileAgeDisplay": "{{age}} سنة",
     "profileAiExpBeginner": "مبتدئ — بدأ للتو",
     "profileAiExpExpert": "خبير — مستخدم متعمق لأدوات الذكاء الاصطناعي",

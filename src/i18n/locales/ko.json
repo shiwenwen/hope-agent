@@ -3775,6 +3775,7 @@
       "emptyHint": "Dreaming 탭에서 프로필 합성을 켠 다음 새로고침하세요.",
       "version": "v{{version}}"
     },
+    "profileSettings": "프로필",
     "profileAgeDisplay": "{{age}} 세",
     "profileAiExpBeginner": "초급 — AI 입문",
     "profileAiExpExpert": "전문가 — AI 도구 심층 사용자",

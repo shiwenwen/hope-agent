@@ -3775,6 +3775,7 @@
       "emptyHint": "Dreaming sekmesinde profil sentezini etkinleştirin, ardından yenileyin.",
       "version": "v{{version}}"
     },
+    "profileSettings": "Profil",
     "profileAgeDisplay": "{{age}} yaşında",
     "profileAiExpBeginner": "Başlangıç — yeni başlıyor",
     "profileAiExpExpert": "Uzman — AI araçlarının yoğun kullanıcısı",

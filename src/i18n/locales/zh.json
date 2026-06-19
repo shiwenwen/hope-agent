@@ -3775,6 +3775,7 @@
       "emptyHint": "在「梦境」标签页开启画像合成，然后刷新。",
       "version": "v{{version}}"
     },
+    "profileSettings": "个人资料",
     "profileAgeDisplay": "{{age}} 岁",
     "profileAiExpBeginner": "入门 — 刚开始接触 AI",
     "profileAiExpExpert": "熟练 — 深度使用各类 AI 工具",

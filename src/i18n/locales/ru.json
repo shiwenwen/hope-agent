@@ -3775,6 +3775,7 @@
       "emptyHint": "Включите синтез профиля на вкладке Dreaming, затем обновите.",
       "version": "v{{version}}"
     },
+    "profileSettings": "Профиль",
     "profileAgeDisplay": "{{age}} лет",
     "profileAiExpBeginner": "Начинающий — только начинаю",
     "profileAiExpExpert": "Эксперт — глубокий пользователь ИИ",

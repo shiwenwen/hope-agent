@@ -3775,6 +3775,7 @@
       "emptyHint": "在夢境（Dreaming）分頁啟用 Profile 合成，然後重新整理。",
       "version": "v{{version}}"
     },
+    "profileSettings": "個人資料",
     "profileAgeDisplay": "{{age}} 歲",
     "profileAiExpBeginner": "入門 — 剛開始接觸 AI",
     "profileAiExpExpert": "熟練 — 深度使用各類 AI 工具",

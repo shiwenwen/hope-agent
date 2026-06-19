@@ -3775,6 +3775,7 @@
       "emptyHint": "Dayakan sintesis profil di bawah tab Dreaming, kemudian muat semula.",
       "version": "v{{version}}"
     },
+    "profileSettings": "Profil",
     "profileAgeDisplay": "{{age}} tahun",
     "profileAiExpBeginner": "Pemula — baru bermula",
     "profileAiExpExpert": "Pakar — pengguna AI yang mendalam",

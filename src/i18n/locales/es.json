@@ -3775,6 +3775,7 @@
       "emptyHint": "Activa la síntesis del perfil en la pestaña Dreaming y luego actualiza.",
       "version": "v{{version}}"
     },
+    "profileSettings": "Perfil",
     "profileAgeDisplay": "{{age}} años",
     "profileAiExpBeginner": "Principiante — recién empezando",
     "profileAiExpExpert": "Experto — uso avanzado de herramientas IA",
