@@ -24,7 +24,7 @@ export default function SidebarSectionHeader({
     <div className={cn("mb-2 flex items-center gap-1", className)}>
       <button
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] font-semibold tracking-normal text-muted-foreground/80 transition-colors hover:text-foreground"
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] font-bold tracking-normal text-foreground/75 transition-colors hover:text-foreground"
       >
         <ChevronRight
           className={cn(

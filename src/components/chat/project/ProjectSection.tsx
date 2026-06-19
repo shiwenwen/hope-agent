@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -177,7 +178,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
         }
       />
 
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="space-y-0.5 px-3 pb-1 pt-1">
           {visibleProjects.length === 0 && (
             <button
@@ -217,7 +218,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
                   {archivedProjects.length}
                 </span>
               </button>
-              {archivedExpanded && (
+              <AnimatedCollapse open={archivedExpanded}>
                 <div className="mt-0.5 space-y-0.5">
                   {archivedProjects.map((project) => (
                     <ProjectGroup
@@ -231,11 +232,11 @@ export default function ProjectSection(props: ProjectSectionProps) {
                     />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }
@@ -446,7 +447,7 @@ function ProjectGroup({
         </ContextMenuContent>
       </ContextMenu>
 
-      {groupExpanded && (
+      <AnimatedCollapse open={groupExpanded}>
         <div
           className={cn(
             "pl-3 pr-1 mt-0.5",
@@ -495,7 +496,7 @@ function ProjectGroup({
             ))
           )}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }
