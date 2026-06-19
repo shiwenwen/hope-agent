@@ -988,7 +988,7 @@ pub async fn mark_all_sessions_read(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// `POST /api/sessions/:id/compact` — stub: manual context compaction.
+/// `POST /api/sessions/:id/compact` — manual context compaction.
 ///
 /// In the Tauri desktop shell this runs against the live in-memory agent.
 /// The HTTP server is stateless (each `POST /api/chat` spins up a fresh
@@ -997,17 +997,76 @@ pub async fn mark_all_sessions_read(
 /// uses camelCase to match `ha_core::context_compact::CompactResult`'s
 /// `#[serde(rename_all = "camelCase")]`.
 pub async fn compact_context_now(
-    State(_ctx): State<Arc<AppContext>>,
-    Path(_id): Path<String>,
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({
-        "tierApplied": 0,
-        "tokensBefore": 0,
-        "tokensAfter": 0,
-        "messagesAffected": 0,
-        "description": "not_supported_in_server_mode",
-        "details": null,
-    })))
+    let meta = ctx
+        .session_db
+        .get_session(&id)?
+        .ok_or_else(|| AppError::not_found("session not found"))?;
+    let agent_id = meta.agent_id.clone();
+
+    let store = ha_core::config::cached_config();
+    let agent_def = ha_core::agent_loader::load_agent(&agent_id).ok();
+    let agent_model_config = agent_def
+        .as_ref()
+        .map(|def| def.config.model.clone())
+        .unwrap_or_default();
+
+    let pinned = match (meta.provider_id.as_deref(), meta.model_id.as_deref()) {
+        (Some(provider_id), Some(model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
+            Some(format!("{provider_id}::{model_id}"))
+        }
+        _ => None,
+    };
+
+    let (primary, fallbacks) = if let Some(pinned) = pinned {
+        let mut cfg = agent_model_config.clone();
+        cfg.primary = Some(pinned);
+        ha_core::provider::resolve_model_chain(&cfg, &store)
+    } else {
+        ha_core::provider::resolve_model_chain(&agent_model_config, &store)
+    };
+
+    let mut model_chain = Vec::new();
+    if let Some(model) = primary {
+        model_chain.push(model);
+    }
+    for model in fallbacks {
+        if !model_chain
+            .iter()
+            .any(|m| m.provider_id == model.provider_id && m.model_id == model.model_id)
+        {
+            model_chain.push(model);
+        }
+    }
+    let model = model_chain
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::bad_request("No model configured for manual compaction"))?;
+
+    let resolved_temperature = agent_def
+        .as_ref()
+        .and_then(|def| def.config.model.temperature)
+        .or(store.temperature);
+
+    let result =
+        ha_core::chat_engine::compact_session_now(ha_core::chat_engine::CompactSessionParams {
+            session_id: id,
+            agent_id,
+            session_db: ctx.session_db.clone(),
+            model,
+            providers: store.providers.clone(),
+            codex_token: None,
+            resolved_temperature,
+            compact_config: store.compact.clone(),
+            source: ha_core::chat_engine::ChatSource::Http,
+            event_sink: Arc::new(ha_core::chat_engine::NoopEventSink),
+        })
+        .await
+        .map_err(AppError::bad_request)?;
+
+    Ok(Json(serde_json::to_value(result.compact_result)?))
 }
 
 /// `GET /api/sessions/:id/awareness-config` — read per-session override JSON.

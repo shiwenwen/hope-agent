@@ -1772,6 +1772,17 @@ impl AssistantAgent {
         self.context_window
     }
 
+    /// Provider label + model id for non-chat call sites that need to build the
+    /// same prompt shape as a normal turn, such as manual context compaction.
+    pub fn current_model_for_compaction(&self) -> (&'static str, String) {
+        match &self.provider {
+            LlmProvider::Anthropic { model, .. } => ("Anthropic", model.clone()),
+            LlmProvider::OpenAIChat { model, .. } => ("OpenAIChat", model.clone()),
+            LlmProvider::OpenAIResponses { model, .. } => ("OpenAIResponses", model.clone()),
+            LlmProvider::Codex { model, .. } => ("Codex", model.clone()),
+        }
+    }
+
     /// Set the compact config (called from lib.rs after agent construction).
     pub fn set_compact_config(&mut self, mut config: crate::context_compact::CompactConfig) {
         config.clamp();
