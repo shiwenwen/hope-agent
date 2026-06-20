@@ -10,7 +10,9 @@ export type SidebarDisplayMode = "compact" | "detailed"
 export const DEFAULT_SIDEBAR_DISPLAY_MODE: SidebarDisplayMode = "compact"
 
 export function normalizeSidebarDisplayMode(value: unknown): SidebarDisplayMode {
-  return value === "compact" ? "compact" : DEFAULT_SIDEBAR_DISPLAY_MODE
+  return value === "compact" || value === "detailed"
+    ? value
+    : DEFAULT_SIDEBAR_DISPLAY_MODE
 }
 
 export interface ChatSidebarProps {
