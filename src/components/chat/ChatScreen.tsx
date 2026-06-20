@@ -28,6 +28,7 @@ import type {
   SessionMode,
 } from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { CommandResult } from "./slash-commands/types"
 import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
@@ -431,6 +432,11 @@ export default function ChatScreen({
   // useChatStream when `session_created` lands, then cleared via the
   // `currentSessionId` transition effect below (mirrors draftWorkingDir).
   const [draftKbAttachments, setDraftKbAttachments] = useState<KbDraftAttachment[]>([])
+  // Project bound to a not-yet-materialized chat (lazy project session). Mirrors
+  // draftWorkingDir/draftKbAttachments: set when entering a project draft, ridden
+  // into the new session via the `chat` command's `projectId` on first send, then
+  // cleared once the real session meta catches up (see the transition effect).
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
@@ -495,7 +501,15 @@ export default function ChatScreen({
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
-  const incognitoDisabledReason: IncognitoDisabledReason | undefined = currentSessionMeta?.projectId
+  // Single source for "which project is this chat in" across draft + materialized
+  // states. Prefer the loaded session meta the moment it exists (so switching to a
+  // plain session never leaks a stale draft binding); fall back to draftProjectId
+  // only while the meta is absent — covers both the pure draft and the brief
+  // post-materialization window before the sessions list reloads (no badge flicker).
+  const effectiveProjectId = currentSessionMeta
+    ? (currentSessionMeta.projectId ?? null)
+    : draftProjectId
+  const incognitoDisabledReason: IncognitoDisabledReason | undefined = effectiveProjectId
     ? "project"
     : currentSessionMeta?.channelInfo
       ? "channel"
@@ -503,7 +517,6 @@ export default function ChatScreen({
   const reloadSessions = session.reloadSessions
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
-  const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
   const displayMode = defaultDisplayMode
   const setAgentName = session.setAgentName
@@ -552,29 +565,52 @@ export default function ChatScreen({
     [handleEffortChange, session.currentAgentId, session.currentSessionId, updateSessionMeta],
   )
 
+  // Enter a project draft (lazy project session): no DB row yet — resolve the
+  // project's agent for display, reset draft state, and remember `draftProjectId`.
+  // The session materializes inside the project on first send via the `chat`
+  // command's `projectId`. Project + incognito are mutually exclusive, so
+  // incognito is forced off here (and coerced server-side).
+  const handleNewChatInProject = useCallback(
+    async (projectId: string, defaultAgentId?: string | null) => {
+      const project = projects.find((p) => p.id === projectId)
+      let agentId = (defaultAgentId && defaultAgentId.trim()) || project?.defaultAgentId || null
+      if (!agentId) {
+        agentId =
+          (await getTransport().call<string | null>("get_default_agent_id").catch(() => null)) ||
+          DEFAULT_AGENT_ID
+      }
+      setDraftIncognito(false)
+      setDraftKbAttachments([])
+      setDraftWorkingDir(null)
+      setDraftProjectId(projectId)
+      await handleNewChat(agentId)
+    },
+    [projects, handleNewChat],
+  )
+
   const handleStartNewChat = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
       setDraftIncognito(opts?.incognito ?? false)
       setDraftKbAttachments([])
+      // Leaving any project draft → drop the project / working-dir binding so it
+      // can't leak into this plain draft (the currentSessionId transition effect
+      // only fires on draft→materialized, not draft→draft).
+      setDraftWorkingDir(null)
+      setDraftProjectId(null)
       await handleNewChat(agentId)
     },
     [handleNewChat],
   )
 
   const handleStartNewChatFromCurrentContext = useCallback(async () => {
-    const projectId = currentSessionMeta?.projectId
-    if (projectId) {
-      setDraftIncognito(false)
-      await handleNewChatInProject(projectId, currentAgentId, false)
+    // Cmd+N from a project (materialized or draft) stays in that project.
+    // (handleNewChatInProject resets draft state incl. incognito-off.)
+    if (effectiveProjectId) {
+      await handleNewChatInProject(effectiveProjectId, currentAgentId)
       return
     }
     await handleStartNewChat(currentAgentId)
-  }, [
-    currentAgentId,
-    currentSessionMeta?.projectId,
-    handleNewChatInProject,
-    handleStartNewChat,
-  ])
+  }, [currentAgentId, effectiveProjectId, handleNewChatInProject, handleStartNewChat])
 
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
@@ -733,15 +769,20 @@ export default function ChatScreen({
 
   const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
   const currentProject = useMemo(
-    () =>
-      currentSessionMeta?.projectId
-        ? (projects.find((p) => p.id === currentSessionMeta.projectId) ?? null)
-        : null,
-    [projects, currentSessionMeta?.projectId],
+    () => (effectiveProjectId ? (projects.find((p) => p.id === effectiveProjectId) ?? null) : null),
+    [projects, effectiveProjectId],
   )
   useEffect(() => {
-    onCurrentProjectChange?.(currentSessionMeta?.projectId ?? null)
-  }, [currentSessionMeta?.projectId, onCurrentProjectChange])
+    onCurrentProjectChange?.(effectiveProjectId)
+  }, [effectiveProjectId, onCurrentProjectChange])
+  // Hygiene: once the materialized session's meta is available the row is the
+  // source of truth, so drop the now-redundant draft binding. effectiveProjectId
+  // already prefers the meta the instant it loads, so this never causes a flicker.
+  useEffect(() => {
+    if (session.currentSessionId && currentSessionMeta && draftProjectId !== null) {
+      setDraftProjectId(null)
+    }
+  }, [session.currentSessionId, currentSessionMeta, draftProjectId])
   const projectWorkingDir = useMemo(
     () => currentProject?.workingDir ?? null,
     [currentProject],
@@ -855,12 +896,15 @@ export default function ChatScreen({
   const handleIncognitoChange = useCallback(
     (enabled: boolean) => {
       if (session.currentSessionId) return
+      // Project + incognito are mutually exclusive — a project draft can't go
+      // incognito (the toggle is also grayed via incognitoDisabledReason).
+      if (draftProjectId) return
       setDraftIncognito(enabled)
       // Incognito = zero KB (D10). Drop any staged attaches so they can't ride
       // into the new incognito session or strand the now-disabled picker badge.
       if (enabled) setDraftKbAttachments([])
     },
-    [session.currentSessionId],
+    [session.currentSessionId, draftProjectId],
   )
 
   const handleWorkingDirChange = useCallback(
@@ -1124,6 +1168,7 @@ export default function ChatScreen({
     reasoningEffort,
     incognitoEnabled,
     draftWorkingDir,
+    draftProjectId,
     draftKbAttachments,
   })
 
@@ -1430,7 +1475,7 @@ export default function ChatScreen({
           }
           break
         case "setToolPermission":
-          stream.setPermissionMode(action.mode)
+          stream.setPermissionModeByUser(action.mode)
           break
         case "displayOnly":
           // Already handled above by adding event message
@@ -1497,16 +1542,14 @@ export default function ChatScreen({
           break
         }
         case "enterProject": {
-          setDraftIncognito(false)
-          void handleNewChatInProject(action.projectId, undefined, false)
+          void handleNewChatInProject(action.projectId)
           break
         }
         case "assignProject": {
           // IM-mode action — desktop falls back to the "create new chat in
           // project" flow so users still get a usable outcome if they
           // somehow reach this branch from the GUI.
-          setDraftIncognito(false)
-          void handleNewChatInProject(action.projectId, undefined, false)
+          void handleNewChatInProject(action.projectId)
           break
         }
         case "showSessionPicker": {
@@ -2061,13 +2104,11 @@ export default function ChatScreen({
         onLoadMoreSessions={session.handleLoadMoreSessions}
         onOpenProjectSettings={openProjectOverview}
         onAddProject={openCreateProject}
-        onNewChatInProject={(projectId, opts) => {
-          // Project + incognito are mutually exclusive — backend coerces to
-          // false anyway; we strip here for UI consistency. Using the
-          // project's default_agent (resolved server-side) by passing
-          // `undefined` to handleNewChatInProject.
-          setDraftIncognito(false)
-          void handleNewChatInProject(projectId, undefined, opts?.incognito ?? false)
+        onNewChatInProject={(projectId) => {
+          // Enter a project draft (lazy creation). Agent resolution, draft reset
+          // and incognito-off (project + incognito are mutually exclusive) all
+          // live in handleNewChatInProject.
+          void handleNewChatInProject(projectId)
         }}
         onArchiveProject={(projectId, archived) => {
           void archiveProject(projectId, archived)
@@ -2103,8 +2144,7 @@ export default function ChatScreen({
           if (archived) setProjectOverviewOpen(false)
         }}
         onNewSessionInProject={(projectId, defaultAgentId) => {
-          setDraftIncognito(false)
-          void handleNewChatInProject(projectId, defaultAgentId, false)
+          void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => session.handleSwitchSession(sid)}
         onUpdateProject={updateProject}
@@ -2192,11 +2232,7 @@ export default function ChatScreen({
           searchOpen={searchBarOpen}
           effectiveWorkingDir={effectiveWorkingDir}
           workingDirSource={workingDirSource}
-          project={
-            session.currentSessionId
-              ? (projects.find((p) => p.id === currentSessionMeta?.projectId) ?? null)
-              : null
-          }
+          project={currentProject}
           onOpenProjectSettings={openProjectOverview}
           onOpenHandover={(sid) => setHandoverSessionId(sid)}
           agents={session.agents}
@@ -2385,22 +2421,30 @@ export default function ChatScreen({
                       currentAgentId={session.currentAgentId}
                       onCommandAction={handleCommandAction}
                       permissionMode={stream.permissionMode}
-                      onPermissionModeChange={stream.setPermissionMode}
+                      onPermissionModeChange={stream.setPermissionModeByUser}
                       sessionTemperature={sessionTemperature}
                       onSessionTemperatureChange={setSessionTemperature}
                       incognitoEnabled={incognitoEnabled}
-                      projectId={currentSessionMeta?.projectId ?? null}
+                      projectId={effectiveProjectId}
                       draftKbAttachments={draftKbAttachments}
                       onDraftKbAttachChange={setDraftKbAttachments}
                       enableNoteMention
                       enableSkillMention
-                      workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
+                      workingDir={
+                        session.currentSessionId
+                          ? effectiveWorkingDir
+                          : (draftWorkingDir ?? projectWorkingDir)
+                      }
                       workingDirInherited={
-                        session.currentSessionId ? workingDirSource === "project" : false
+                        session.currentSessionId
+                          ? workingDirSource === "project"
+                          : draftWorkingDir
+                            ? false
+                            : !!projectWorkingDir
                       }
                       workingDirSaving={workingDirSaving}
                       onWorkingDirChange={
-                        currentSessionMeta?.projectId ? undefined : handleWorkingDirChange
+                        effectiveProjectId ? undefined : handleWorkingDirChange
                       }
                       planState={planMode.planState}
                       onEnterPlanMode={planMode.enterPlanMode}
@@ -2475,8 +2519,12 @@ export default function ChatScreen({
               toggled via `visible`, so a popped-out window survives panel
               switches / collapses. */}
           <FileBrowserPanel
-            scope="session"
-            scopeId={session.currentSessionId}
+            scope={!session.currentSessionId && currentProject ? "project" : "session"}
+            scopeId={
+              !session.currentSessionId && currentProject
+                ? currentProject.id
+                : session.currentSessionId
+            }
             rootPath={effectiveWorkingDir}
             sessionId={session.currentSessionId}
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}

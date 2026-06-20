@@ -81,6 +81,12 @@ pub struct ChatRequest {
     /// KB chat thread.
     #[serde(default)]
     pub kb_anchor_note: Option<String>,
+    /// Lazy project binding: when a project draft sends its first message the
+    /// client carries the project id here so the auto-create branch materializes
+    /// the session inside the project. Ignored when `session_id` is set; mutually
+    /// exclusive with incognito (coerced in `create_session_with_project`).
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,6 +246,16 @@ pub async fn chat(
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty());
+    // Normalize the lazy project binding once (trim + empty→None) so a blank
+    // project_id neither resolves a bogus project agent nor persists a
+    // non-matching project_id (which would orphan the session and wrongly coerce
+    // incognito off). Used for both agent resolution and create.
+    let project_id = body
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|pid| !pid.is_empty())
+        .map(str::to_owned);
     let agent_id = if let Some(id) = explicit_agent_id {
         id
     } else if let Some(session_id) = existing_session_id {
@@ -247,7 +263,12 @@ pub async fn chat(
             .map(|session| session.agent_id)
             .unwrap_or_else(|| ha_core::agent::resolver::resolve_default_agent_id(None, None))
     } else {
-        ha_core::agent::resolver::resolve_default_agent_id(None, None)
+        // New session: resolve via the project's default-agent chain when a
+        // lazy project binding is present, mirroring the create_session route.
+        let project = project_id
+            .as_deref()
+            .and_then(|pid| ctx.project_db.get(pid).ok().flatten());
+        ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
     };
 
     // Resolve or create session
@@ -255,7 +276,10 @@ pub async fn chat(
     let sid = match body.session_id {
         Some(id) if !id.is_empty() => id,
         _ => {
-            let meta = db.create_session_with_project(&agent_id, None, body.incognito)?;
+            // `project_id` binds the new session to a project on this lazy-create
+            // branch; incognito is coerced off when a project is set.
+            let meta =
+                db.create_session_with_project(&agent_id, project_id.as_deref(), body.incognito)?;
             new_session_created = true;
             meta.id
         }
@@ -928,5 +952,21 @@ mod tests {
         }];
 
         assert!(validate_http_chat_attachments("missing-session", &attachments).is_ok());
+    }
+
+    #[test]
+    fn chat_request_accepts_project_id_camel_case() {
+        // The lazy project-session flow sends `projectId` on the first message so
+        // the auto-create branch can bind the new session to the project.
+        let body = serde_json::json!({
+            "message": "hi",
+            "projectId": "proj-123",
+        });
+        let req: ChatRequest = serde_json::from_value(body).expect("deserialize chat request");
+        assert_eq!(req.project_id.as_deref(), Some("proj-123"));
+        // Omitted project_id defaults to None (plain chats are unaffected).
+        let plain: ChatRequest =
+            serde_json::from_value(serde_json::json!({ "message": "hi" })).expect("deserialize");
+        assert_eq!(plain.project_id, None);
     }
 }

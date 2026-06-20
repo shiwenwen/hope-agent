@@ -150,6 +150,8 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 | `set_session_project(session_id, project_id)` | 搬迁会话到另一个项目或 unassign（`/project` IM 路由、`move_session_to_project` 共用） |
 | `list_sessions_paged(agent_id, project_filter, limit, offset)` | `ProjectFilter`：`All` / `Unassigned` / `InProject(id)` |
 
+**项目会话懒创建（desktop / HTTP 交互入口）**：进项目「新建对话」**不再**预先 `create_session_cmd` 落库，而是停在草稿态（`currentSessionId=null`），前端用 `draftProjectId` 记住项目（仿 `draftWorkingDir`），首条消息发送时通过 `chat` 命令的 `projectId` 走 `create_session_with_project` 才落库——与普通对话对称，进项目不再产生未发消息的空会话行，且草稿态走与普通对话相同的模型 / 权限模式 seeding。`chat` 在 `agent_id` 缺省时按 `project.default_agent_id` 解析 agent（对齐 `create_session_cmd`），`project_id` 与 `incognito` 互斥（后端强制 off）。**仅交互入口懒创建**——IM 入站 / cron / subagent 仍 eager `create_session_with_project`（消息必须立即落库）。前端 `effectiveProjectId = 已加载会话 meta.projectId ?? draftProjectId` 是「当前在哪个项目」的单一来源（覆盖草稿态 + 落库过渡窗口，避免 badge 闪烁与切到普通会话时的陈旧泄漏）。
+
 ## 文件浏览器 API
 
 项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../crates/ha-core/src/filesystem/workspace.rs)（`for_session` / `for_project` / `for_path` 三入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败闭合；`for_path` 是只读 worktree 跳转，写操作经 `resolve_writable` 一律拒绝）。核心 ops 在 [`filesystem/ops.rs`](../../crates/ha-core/src/filesystem/ops.rs)：list / read_text / extract（PDF 逐页 PNG、Office 文本+图片，复用 `file_extract`）/ write_text / delete / rename / mkdir / upload。

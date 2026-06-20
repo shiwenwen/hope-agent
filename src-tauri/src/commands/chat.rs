@@ -205,6 +205,12 @@ pub async fn chat(
     // Only honored on the auto-create branch (mirrors `working_dir` /
     // `kb_attachments`) — promotes the new session into a KB chat thread.
     kb_anchor_note: Option<String>,
+    // Lazy project binding: when the frontend opens a project draft (no session
+    // yet), the first message carries the project id here so the auto-create
+    // branch materializes the session inside the project. Ignored when
+    // `session_id` is set (existing sessions keep their project). Mutually
+    // exclusive with incognito (coerced in `create_session_with_project`).
+    project_id: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
@@ -216,6 +222,16 @@ pub async fn chat(
     let logger = state.logger.clone();
     // NOTE: _chat_session_guard is set later after session_id is resolved
 
+    // Normalize the lazy project binding once: trim and treat empty/whitespace as
+    // "no project" so a blank `project_id` neither resolves a bogus project agent
+    // nor persists a non-matching `project_id` (which would orphan the session and
+    // wrongly coerce incognito off). Used for both agent resolution and create.
+    let project_id = project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+
     // Resolve or create session — prefer explicit agent_id from frontend
     let current_agent_id = match agent_id {
         Some(id) => {
@@ -223,14 +239,30 @@ pub async fn chat(
             *state.current_agent_id.lock().await = id.clone();
             id
         }
-        None => state.current_agent_id.lock().await.clone(),
+        // No explicit agent. For a lazy project draft (no session yet) resolve
+        // via the project's default-agent chain so the materialized session
+        // matches what `create_session_cmd` / the resolver would pick;
+        // otherwise fall back to the last-used agent in global state.
+        None => match project_id.as_deref() {
+            Some(pid) => {
+                let project = state.project_db.get(pid).ok().flatten();
+                ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
+            }
+            None => state.current_agent_id.lock().await.clone(),
+        },
     };
     let mut new_session_created: Option<String> = None;
     let sid = match session_id {
         Some(id) if !id.is_empty() => id,
         _ => {
-            // Auto-create a new session; emit session_created after auto_title is set
-            let meta = db.create_session_with_project(&current_agent_id, None, incognito)?;
+            // Auto-create a new session; emit session_created after auto_title is set.
+            // `project_id` binds the session to a project on this lazy-create
+            // branch (None for plain chats); incognito is coerced off when set.
+            let meta = db.create_session_with_project(
+                &current_agent_id,
+                project_id.as_deref(),
+                incognito,
+            )?;
             new_session_created = Some(meta.id.clone());
             meta.id
         }

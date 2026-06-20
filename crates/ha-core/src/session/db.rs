@@ -1022,14 +1022,27 @@ impl SessionDB {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
+        // New sessions inherit the agent's configured default permission mode
+        // (`capabilities.default_session_permission_mode`). This is the single
+        // source of truth for the initial mode and applies to *all* creation
+        // paths — pre-materialized project / cron / subagent sessions as well as
+        // drafts. (The chat input also seeds drafts from the same field for the
+        // pre-INSERT UI, but that path is skipped once a session row exists, so
+        // pre-materialized sessions relied entirely on this.) Falls back to
+        // `Default` when the agent config is missing or the field is unset.
+        let initial_permission_mode = crate::agent_loader::load_agent(agent_id)
+            .ok()
+            .and_then(|def| def.config.capabilities.default_session_permission_mode)
+            .unwrap_or_default();
+
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![id, agent_id, now, now, parent_session_id, project_id, incognito],
+            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, permission_mode, incognito)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, agent_id, now, now, parent_session_id, project_id, initial_permission_mode.as_str(), incognito],
         )?;
 
         Ok(SessionMeta {
@@ -1051,7 +1064,7 @@ impl SessionDB {
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: crate::plan::PlanModeState::Off,
-            permission_mode: crate::permission::SessionMode::Default,
+            permission_mode: initial_permission_mode,
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
             incognito,
@@ -4044,6 +4057,43 @@ mod tests {
             !updated.incognito,
             "updated session should persist incognito=false"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn create_session_in_project_binds_and_coerces_incognito() {
+        // Backs the lazy project-session flow: the first message's `chat`
+        // command auto-creates the session with `project_id`. Verify the binding
+        // persists and that a requested incognito is coerced off (project +
+        // incognito are mutually exclusive — the single source of that rule).
+        let db_path = temp_db_path("session-project-incognito-coerce");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some("proj-123"),
+                Some(true),
+            )
+            .expect("create project session");
+        assert_eq!(
+            created.project_id.as_deref(),
+            Some("proj-123"),
+            "returned meta should carry the project binding"
+        );
+        assert!(
+            !created.incognito,
+            "a project binding must coerce incognito off"
+        );
+
+        let loaded = db
+            .get_session(&created.id)
+            .expect("get session")
+            .expect("session exists");
+        assert_eq!(loaded.project_id.as_deref(), Some("proj-123"));
+        assert!(!loaded.incognito, "stored session must not be incognito");
 
         let _ = std::fs::remove_file(&db_path);
     }

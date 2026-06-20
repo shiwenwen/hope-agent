@@ -252,7 +252,7 @@ export default function QuickChatDialog({
             currentAgentId={session.currentAgentId}
             onCommandAction={handleCommandAction}
             permissionMode={stream.permissionMode}
-            onPermissionModeChange={stream.setPermissionMode}
+            onPermissionModeChange={stream.setPermissionModeByUser}
           />
         </div>
       </div>
