@@ -24,6 +24,8 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  Folder,
+  FolderOpen,
   Loader2,
   MessageSquarePlus,
   Plus,
@@ -335,6 +337,7 @@ function ProjectGroup({
     sessionCount: project.sessionCount,
   })
   const showPaginationFooter = childTotal > PROJECT_SESSION_PAGE_SIZE
+  const ProjectToggleIcon = groupExpanded ? FolderOpen : Folder
 
   const handleMarkProjectRead = useCallback(async () => {
     if (project.unreadCount === 0) return
@@ -373,12 +376,7 @@ function ProjectGroup({
               }
             }}
           >
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform duration-150",
-                groupExpanded && "rotate-90",
-              )}
-            />
+            <ProjectToggleIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-colors duration-150" />
             {displayMode === "detailed" && (
               <div className="relative shrink-0">
                 <ProjectIcon project={project} size="sm" withColorChip />
