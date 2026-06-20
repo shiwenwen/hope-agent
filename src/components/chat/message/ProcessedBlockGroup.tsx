@@ -30,7 +30,7 @@ export default function ProcessedBlockGroup({
   const elapsedText = totalElapsedMs != null && totalElapsedMs > 0 ? formatDuration(totalElapsedMs) : null
 
   return (
-    <div className="my-1 text-xs">
+    <div className="my-1 text-xs animate-in fade-in-0 duration-200 motion-reduce:animate-none">
       <button
         type="button"
         aria-expanded={expanded}
