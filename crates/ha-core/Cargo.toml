@@ -117,6 +117,13 @@ objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSErro
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 
 # Not a code dependency — the WeChat media crypto moved to the pure-Rust `aes`
 # + `md-5` crates above. On Linux, `native-tls` (reqwest / tokio-tungstenite)

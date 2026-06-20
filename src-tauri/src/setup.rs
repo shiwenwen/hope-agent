@@ -30,6 +30,19 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 std::env::set_var("HOPE_AGENT_BUNDLED_SKILLS_DIR", &skills_dir);
             }
         }
+        let host_name = if cfg!(windows) {
+            "ha-browser-host.exe"
+        } else {
+            "ha-browser-host"
+        };
+        if let Ok(host_path) = app.path().resolve(
+            format!("browser-host/{host_name}"),
+            tauri::path::BaseDirectory::Resource,
+        ) {
+            if host_path.is_file() {
+                std::env::set_var("HOPE_AGENT_BROWSER_HOST_PATH", &host_path);
+            }
+        }
     }
     if cfg!(debug_assertions) {
         app.handle().plugin(

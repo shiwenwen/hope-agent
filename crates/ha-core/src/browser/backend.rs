@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,9 +68,8 @@ pub struct ScreenshotParams {
     pub format: ImageFormat,
     pub full_page: bool,
     pub quality: Option<u8>,
-    /// Reserved for future per-element cropping (`Page.captureScreenshot`
-    /// `clip`). The current CDP backend ignores this field — the tool
-    /// schema does not expose `ref` for `snapshot.format=screenshot`.
+    /// Optional element ref crop (`Page.captureScreenshot` `clip`) for
+    /// `snapshot.format=screenshot ref=<id>`.
     pub ref_id: Option<u32>,
 }
 
@@ -165,6 +164,12 @@ pub struct WaitParams {
 }
 
 #[derive(Debug, Clone)]
+pub struct RawCdpParams {
+    pub method: String,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone)]
 pub struct ScrollParams {
     pub direction: ScrollDirection,
     pub amount: i64,
@@ -189,6 +194,7 @@ pub enum ObserveKind {
     Console,
     Network,
     PageErrors,
+    Downloads,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +216,8 @@ pub struct BackendStatus {
     pub backend: String,
     pub active_target_id: Option<String>,
     pub tabs: Vec<TabInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Value>,
 }
 
 // ── The trait ────────────────────────────────────────────────────────────
@@ -271,7 +279,19 @@ pub trait BrowserBackend: Send + Sync {
     /// Implementations must validate `url` through SSRF policy when set.
     async fn new_page(&self, url: Option<&str>) -> Result<TabInfo>;
     async fn select_page(&self, target_id: &str) -> Result<()>;
+    async fn claim_page(&self, target_id: &str, steal: bool) -> Result<()> {
+        if steal {
+            bail!("This browser backend does not support stealing tab leases")
+        }
+        self.select_page(target_id).await
+    }
     async fn close_page(&self, target_id: &str) -> Result<()>;
+    async fn release_page(&self, _target_id: &str) -> Result<String> {
+        bail!("This browser backend does not support releasing claimed user tabs")
+    }
+    async fn finalize_pages(&self, _keep: &[String]) -> Result<String> {
+        bail!("This browser backend does not support finalizing claimed tabs")
+    }
 
     // ── Navigation ──────────────────────────────────────────────────────
     /// Caller has already validated URL through SSRF before calling.
@@ -297,6 +317,12 @@ pub trait BrowserBackend: Send + Sync {
 
     // ── Control ─────────────────────────────────────────────────────────
     async fn evaluate(&self, script: &str) -> Result<Value>;
+    async fn raw_cdp(&self, _params: RawCdpParams) -> Result<Value> {
+        bail!("This browser backend does not support raw CDP commands")
+    }
+    async fn cancel_download(&self, _download_id: i64) -> Result<String> {
+        bail!("This browser backend does not support controlling Chrome downloads")
+    }
     async fn wait_for(&self, params: WaitParams) -> Result<String>;
     async fn handle_dialog(&self, action: DialogAction, prompt: Option<&str>) -> Result<String>;
     async fn resize(&self, width: u32, height: u32) -> Result<String>;

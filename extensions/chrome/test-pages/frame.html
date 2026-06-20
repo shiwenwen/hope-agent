@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hope Cross Origin Frame</title>
+    <style>
+      body {
+        color: #111827;
+        font-family: system-ui, sans-serif;
+        margin: 16px;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .drag {
+        background: #ede9fe;
+        border: 1px solid #7c3aed;
+        cursor: grab;
+        margin: 12px 0;
+        padding: 10px;
+      }
+      .drop {
+        background: #eff6ff;
+        border: 2px dashed #2563eb;
+        min-height: 64px;
+        padding: 10px;
+      }
+      .crop-target {
+        background: #fdf2f8;
+        border: 1px solid #db2777;
+        margin-top: 12px;
+        padding: 14px;
+      }
+    </style>
+  </head>
+  <body data-hope-smoke-page="cross-origin-frame">
+    <h2>Cross-Origin Frame</h2>
+    <div class="toolbar" role="toolbar" aria-label="Cross Frame Toolbar">
+      <button id="cross-frame-action" aria-label="Cross Frame Action Button">Cross Frame Action</button>
+      <input id="cross-frame-input" aria-label="Cross Frame Text Input" placeholder="cross frame" />
+      <select id="cross-frame-select" aria-label="Cross Frame Select">
+        <option value="alpha">Alpha</option>
+        <option value="beta">Beta</option>
+      </select>
+    </div>
+    <div id="cross-frame-drag" class="drag" draggable="true" role="button" aria-label="Cross Frame Drag Source">
+      Cross frame drag source
+    </div>
+    <div id="cross-frame-drop" class="drop" role="region" aria-label="Cross Frame Drop Target">
+      Cross frame drop target
+    </div>
+    <div id="cross-frame-crop" class="crop-target" role="img" aria-label="Cross Frame Crop Target">
+      Cross frame crop target with stable bounds
+    </div>
+    <script>
+      window.__hopeSmokeCrossFrame = true
+      document.querySelector("#cross-frame-action").addEventListener("click", (event) => {
+        event.currentTarget.textContent = "Cross Frame Clicked"
+      })
+      document.querySelector("#cross-frame-drag").addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("text/plain", "cross-frame-drag")
+      })
+      document.querySelector("#cross-frame-drop").addEventListener("dragover", (event) => {
+        event.preventDefault()
+      })
+      document.querySelector("#cross-frame-drop").addEventListener("drop", (event) => {
+        event.preventDefault()
+        event.currentTarget.textContent = `Dropped ${event.dataTransfer?.getData("text/plain") || "item"}`
+      })
+    </script>
+  </body>
+</html>

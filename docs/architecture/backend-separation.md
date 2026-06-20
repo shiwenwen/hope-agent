@@ -305,7 +305,7 @@ sequenceDiagram
 
 | 事件名 | 来源 | 用途 |
 |--------|------|------|
-| `async_tool_job:updated` / `async_tool_job:completed` / `async_tool_job:mark_injected_failed` | async_jobs/* | 异步工具后台任务进度与回写信号 |
+| `job:created` / `job:updated` / `job:progress` / `job:completed` / `job:mark_injected_failed` | async_jobs/* | 后台工具与 group 任务生命周期；subagent 仍走 `subagent:*` 流 |
 | `local_model_job:created` / `:updated` / `:log` / `:completed` (`EVENT_LOCAL_MODEL_JOB_*`) | local_model_jobs.rs | Ollama 安装 / pull / 模型加载等后台任务，进度自带 250 ms / phase-change 节流 |
 
 #### 斜杠 / Canvas / Session

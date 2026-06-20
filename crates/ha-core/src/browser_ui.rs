@@ -326,6 +326,20 @@ pub async fn get_status() -> Result<BrowserStatus> {
     })
 }
 
+pub fn extension_status() -> crate::browser::BrowserExtensionStatus {
+    crate::browser::current_status()
+}
+
+pub fn install_native_host_manifest(
+    request: crate::browser::NativeHostInstallRequest,
+) -> Result<crate::browser::NativeHostInstallResult> {
+    crate::browser::install_native_host_manifest(request)
+}
+
+pub async fn stop_extension_control() -> crate::browser::BrowserExtensionStopResult {
+    crate::browser::stop_all_extension_control().await
+}
+
 pub async fn launch(opts: LaunchOptions) -> Result<BrowserStatus> {
     if let Some(p) = opts.profile.as_deref() {
         validate_profile_name(p)?;

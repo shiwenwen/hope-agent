@@ -93,6 +93,14 @@
         "body": "Thao tác trình duyệt này sẽ chạy JavaScript tùy ý trong tab đang hoạt động. Chế độ Smart có thể tự động cho phép bằng thẻ độ tin cậy cao hoặc mô hình giám khảo.",
         "title": "JavaScript trình duyệt"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Thao tác Mac Control",
         "body": "Lệnh điều khiển macOS này thay đổi tiêu điểm/trạng thái màn hình. Hãy xác nhận trước khi Hope Agent kích hoạt ứng dụng khác."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "Tác vụ Mac Control nguy hiểm",
         "body": "Lệnh điều khiển macOS này có thể đóng cửa sổ, thoát ứng dụng, xác nhận hộp thoại hoặc kích hoạt menu phá hủy. Cần xác nhận từng lần; không thể dùng Luôn cho phép."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "Điều phối lệnh",
     "skillContentPreview": "Xem trước Markdown",
     "skillContentRaw": "Nội dung gốc",
+    "skillCurrentOs": "Hệ điều hành hiện tại",
     "skillDisabled": "Đã tắt",
     "skillEnabled": "Đã bật",
     "skillEnvClear": "Xóa",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "Tệp tin",
     "skillHealth": "Sức khỏe",
-    "skillCurrentOs": "Hệ điều hành hiện tại",
     "skillHardBlocked": "Không tương thích",
-    "skillMissingAnyBins": "Cần một tệp nhị phân",
-    "skillMissingBins": "Thiếu tệp nhị phân",
-    "skillMissingConfig": "Thiếu cài đặt",
-    "skillMissingEnv": "Thiếu biến môi trường",
-    "skillNeedsSetup": "Cần thiết lập",
-    "skillSupportedOs": "Hệ điều hành hỗ trợ",
     "skillInstall": "Cài đặt",
     "skillInstallFailed": "Cài đặt thất bại",
     "skillInstallSuccess": "Đã cài đặt thành công",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "Chính sách gọi",
     "skillMaxChars": "Ký tự prompt tối đa",
     "skillMaxCount": "Số skill tối đa trong prompt",
+    "skillMissingAnyBins": "Cần một tệp nhị phân",
+    "skillMissingBins": "Thiếu tệp nhị phân",
+    "skillMissingConfig": "Thiếu cài đặt",
+    "skillMissingEnv": "Thiếu biến môi trường",
     "skillModelInvocable": "Mô hình có thể gọi",
+    "skillNeedsSetup": "Cần thiết lập",
     "skillSkipsRequirements": "Bỏ qua kiểm tra phụ thuộc",
     "skillStatusBlocked": "Bị chặn bởi danh sách cho phép",
     "skillStatusDisabled": "Đã vô hiệu",
     "skillStatusEligible": "Khả dụng",
     "skillStatusMissing": "Thiếu phụ thuộc",
+    "skillSupportedOs": "Hệ điều hành hỗ trợ",
     "skillUserInvocable": "Người dùng có thể gọi",
     "skills": "Kỹ năng",
     "skillsAutoReview": {

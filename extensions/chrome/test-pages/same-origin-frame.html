@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hope Same Origin Frame</title>
+    <style>
+      body {
+        color: #111827;
+        font-family: system-ui, sans-serif;
+        margin: 16px;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      .drag {
+        background: #fef3c7;
+        border: 1px solid #d97706;
+        cursor: grab;
+        margin: 10px 0;
+        padding: 10px;
+      }
+      .drop {
+        background: #f0fdf4;
+        border: 2px dashed #16a34a;
+        min-height: 56px;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body data-hope-smoke-page="same-origin-frame">
+    <h2>Same-Origin Frame</h2>
+    <button id="same-frame-action" aria-label="Same Frame Action Button">Same Frame Action</button>
+    <label>
+      Same frame input
+      <input id="same-frame-input" aria-label="Same Frame Text Input" placeholder="same frame" />
+    </label>
+    <div id="same-frame-drag" class="drag" draggable="true" role="button" aria-label="Same Frame Drag Source">
+      Same frame drag source
+    </div>
+    <div id="same-frame-drop" class="drop" role="region" aria-label="Same Frame Drop Target">
+      Same frame drop target
+    </div>
+    <script>
+      window.__hopeSmokeSameFrame = true
+      document.querySelector("#same-frame-drag").addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("text/plain", "same-frame-drag")
+      })
+      document.querySelector("#same-frame-drop").addEventListener("dragover", (event) => {
+        event.preventDefault()
+      })
+      document.querySelector("#same-frame-drop").addEventListener("drop", (event) => {
+        event.preventDefault()
+        event.currentTarget.textContent = `Dropped ${event.dataTransfer?.getData("text/plain") || "item"}`
+      })
+    </script>
+  </body>
+</html>

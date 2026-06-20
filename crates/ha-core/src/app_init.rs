@@ -867,6 +867,10 @@ pub async fn start_background_tasks() {
     // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
 
+    // Tier-agnostic: local Chrome Extension broker. It only binds loopback and
+    // writes a rebuildable discovery file for the Native Messaging host.
+    crate::browser::BrowserExtensionBroker::spawn_global();
+
     // Tier-agnostic: session-lifecycle cleanup fan-out (delete/purge → deny
     // pending approvals, cancel jobs, drop IM pending, clear rules). NOT inside
     // spawn_channel_listeners — server / ACP have no channel registry but still
@@ -1230,6 +1234,10 @@ pub async fn start_minimal_background_tasks() {
 
     // EventBus listeners — multi-subscriber-safe, tier-agnostic.
     spawn_channel_listeners();
+
+    // Local Chrome Extension broker. Short-lived ACP processes may not need it,
+    // but starting it here keeps browser owner-plane diagnostics consistent.
+    crate::browser::BrowserExtensionBroker::spawn_global();
 
     // Session-lifecycle cleanup fan-out — tier-agnostic, required in
     // server / ACP too (they delete sessions but have no channel registry).

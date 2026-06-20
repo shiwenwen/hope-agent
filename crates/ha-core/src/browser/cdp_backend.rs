@@ -149,7 +149,9 @@ const SNAPSHOT_JS: &str = r#"(() => {
         selector: buildUniqueSelector(el),
         cx: Math.round(rect.x + rect.width / 2),
         cy: Math.round(rect.y + rect.height / 2),
-        attrs: {}
+        attrs: {
+          bounds: [rect.left, rect.top, rect.width, rect.height].map(n => Math.round(n)).join(',')
+        }
       };
       if (el.href) info.attrs.url = el.href;
       if (el.value !== undefined && el.value !== '') info.attrs.value = String(el.value);
@@ -230,6 +232,59 @@ pub(super) fn clear_subscribed_pages() {
     if let Ok(mut set) = subscribed_pages().lock() {
         set.clear();
     }
+}
+
+#[derive(Debug)]
+struct ElementClip {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+async fn element_clip_for_page(page: &Page, selector: &str) -> Result<ElementClip> {
+    let selector = serde_json::to_string(selector)?;
+    let script = format!(
+        r#"(() => {{
+          const el = document.querySelector({selector});
+          if (!el) throw new Error("Element not found for selector");
+          el.scrollIntoView({{block: "center", inline: "center"}});
+          const rect = el.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) throw new Error("Element has empty bounds");
+          return {{
+            x: Math.max(0, rect.left + window.scrollX),
+            y: Math.max(0, rect.top + window.scrollY),
+            width: Math.max(1, rect.width),
+            height: Math.max(1, rect.height)
+          }};
+        }})()"#
+    );
+    let value: Value = page
+        .evaluate(script)
+        .await
+        .map_err(|e| anyhow!("Element screenshot clip evaluation failed: {}", e))?
+        .into_value()
+        .map_err(|e| anyhow!("Element screenshot clip returned non-JSON: {}", e))?;
+    let x = clip_coord(&value, "x")?;
+    let y = clip_coord(&value, "y")?;
+    let width = clip_coord(&value, "width")?;
+    let height = clip_coord(&value, "height")?;
+    if width <= 0.0 || height <= 0.0 {
+        return Err(anyhow!("Element screenshot clip has empty bounds"));
+    }
+    Ok(ElementClip {
+        x,
+        y,
+        width,
+        height,
+    })
+}
+
+fn clip_coord(value: &Value, key: &str) -> Result<f64> {
+    value
+        .get(key)
+        .and_then(Value::as_f64)
+        .ok_or_else(|| anyhow!("Element screenshot clip returned invalid {key} coordinate"))
 }
 
 /// Idempotently install console / network / runtime-exception subscribers on
@@ -579,6 +634,7 @@ impl BrowserBackend for CdpBackend {
             backend: self.backend_name().to_string(),
             active_target_id,
             tabs,
+            diagnostics: None,
         })
     }
 
@@ -863,6 +919,21 @@ impl BrowserBackend for CdpBackend {
                 y: 0.0,
                 width: css.width,
                 height: css.height,
+                scale: 1.0,
+            });
+            cdp.capture_beyond_viewport = Some(true);
+        }
+        if let Some(ref_id) = params.ref_id {
+            let selector = {
+                let state = get_browser_state().lock().await;
+                state.find_ref(ref_id)?.selector.clone()
+            };
+            let clip = element_clip_for_page(&page, &selector).await?;
+            cdp.clip = Some(Viewport {
+                x: clip.x,
+                y: clip.y,
+                width: clip.width,
+                height: clip.height,
                 scale: 1.0,
             });
             cdp.capture_beyond_viewport = Some(true);
@@ -1398,5 +1469,13 @@ mod tests {
                 "expected stale-ref classify for: {msg}"
             );
         }
+    }
+
+    #[test]
+    fn clip_coord_reads_numeric_coordinate() {
+        let clip = serde_json::json!({ "x": 3.5, "width": 20 });
+        assert_eq!(clip_coord(&clip, "x").unwrap(), 3.5);
+        assert_eq!(clip_coord(&clip, "width").unwrap(), 20.0);
+        assert!(clip_coord(&serde_json::json!({ "x": "3" }), "x").is_err());
     }
 }

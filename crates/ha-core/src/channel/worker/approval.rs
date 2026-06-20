@@ -184,6 +184,9 @@ fn reason_line(reason: Option<&ApprovalReasonPayload>) -> String {
         ApprovalReasonKind::AgentCustomList => "⚙ Agent Policy",
         ApprovalReasonKind::SmartJudge => "💭 Smart Judge",
         ApprovalReasonKind::BrowserEvaluate => "🌐 Browser JS",
+        ApprovalReasonKind::BrowserRawCdp => "⚠ Browser CDP",
+        ApprovalReasonKind::BrowserChromeAccess => "🌐 Real Chrome",
+        ApprovalReasonKind::BrowserDownloadAction => "⚠ Browser Download",
         ApprovalReasonKind::MacControlAction => "🖥 Mac Control",
         ApprovalReasonKind::MacControlDangerousAction => "⚠ Mac Control",
         ApprovalReasonKind::PlanModeAsk => "🧭 Plan Mode",
@@ -204,6 +207,9 @@ fn reason_line(reason: Option<&ApprovalReasonPayload>) -> String {
             .map(ToOwned::to_owned)
             .or_else(|| Some("no rationale returned; asking for approval".to_string())),
         ApprovalReasonKind::BrowserEvaluate => prefixed_detail("script", &r.detail),
+        ApprovalReasonKind::BrowserRawCdp => prefixed_detail("CDP method", &r.detail),
+        ApprovalReasonKind::BrowserChromeAccess => prefixed_detail("Chrome action", &r.detail),
+        ApprovalReasonKind::BrowserDownloadAction => prefixed_detail("download action", &r.detail),
         ApprovalReasonKind::MacControlAction => prefixed_detail("action", &r.detail),
         ApprovalReasonKind::MacControlDangerousAction => {
             prefixed_detail("potentially dangerous action", &r.detail)
@@ -1107,6 +1113,16 @@ mod tests {
                 ApprovalReasonKind::BrowserEvaluate,
                 Some("document.title"),
                 "\n🌐 Browser JS: script: document.title",
+            ),
+            (
+                ApprovalReasonKind::BrowserRawCdp,
+                Some("Accessibility.getFullAXTree"),
+                "\n⚠ Browser CDP: CDP method: Accessibility.getFullAXTree",
+            ),
+            (
+                ApprovalReasonKind::BrowserDownloadAction,
+                Some("cancel download 7"),
+                "\n⚠ Browser Download: download action: cancel download 7",
             ),
             (
                 ApprovalReasonKind::MacControlAction,

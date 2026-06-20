@@ -154,6 +154,15 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         if let Some(reason) = check_browser_evaluate(ctx) {
             log_yolo_warn(ctx, &reason);
         }
+        if let Some(reason) = check_browser_raw_cdp(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
+        if let Some(reason) = check_browser_chrome_access(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
+        if let Some(reason) = check_browser_download_action(ctx) {
+            log_yolo_warn(ctx, &reason);
+        }
         return Decision::Allow;
     }
 
@@ -166,7 +175,6 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
     if let Some(reason) = check_mac_control_action(ctx).filter(AskReason::forbids_allow_always) {
         return Decision::Ask { reason };
     }
-
     if super::allowlist::allows_tool_call(
         ctx.tool_name,
         ctx.args,
@@ -237,8 +245,17 @@ fn resolve_edit_layer(ctx: &ResolveContext<'_>) -> Decision {
     Decision::Allow
 }
 
-fn resolve_browser_evaluate_layer(ctx: &ResolveContext<'_>) -> Decision {
+fn resolve_browser_control_approval_layer(ctx: &ResolveContext<'_>) -> Decision {
     if let Some(reason) = check_browser_evaluate(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Some(reason) = check_browser_raw_cdp(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Some(reason) = check_browser_chrome_access(ctx) {
+        return Decision::Ask { reason };
+    }
+    if let Some(reason) = check_browser_download_action(ctx) {
         return Decision::Ask { reason };
     }
     Decision::Allow
@@ -248,7 +265,7 @@ fn resolve_soft_approval_layer(ctx: &ResolveContext<'_>) -> Decision {
     if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
         return Decision::Ask { reason };
     }
-    if let Decision::Ask { reason } = resolve_browser_evaluate_layer(ctx) {
+    if let Decision::Ask { reason } = resolve_browser_control_approval_layer(ctx) {
         return Decision::Ask { reason };
     }
     Decision::Allow
@@ -511,6 +528,103 @@ fn check_browser_evaluate(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     })
 }
 
+fn check_browser_raw_cdp(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+        return None;
+    }
+    let action = json_string_or_text(ctx.args.get("action"))?;
+    let op = json_string_or_text(ctx.args.get("op"))?;
+    if action != "control" || op != "raw_cdp" {
+        return None;
+    }
+    let method = ctx
+        .args
+        .get("method")
+        .and_then(|v| json_string_or_text(Some(v)))?;
+    Some(AskReason::BrowserRawCdp {
+        method: method.to_string(),
+    })
+}
+
+fn check_browser_chrome_access(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+        return None;
+    }
+    let action = json_string_or_text(ctx.args.get("action"))?;
+    match action {
+        "tabs" => {
+            let op = json_string_or_text(ctx.args.get("op"))?;
+            let label = match op {
+                "open_user_tabs" => "list real Chrome tabs".to_string(),
+                "claim" => {
+                    let target = ctx
+                        .args
+                        .get("target_id")
+                        .or_else(|| ctx.args.get("page_id"))
+                        .and_then(|v| json_string_or_text(Some(v)));
+                    target
+                        .map(|target| format!("claim real Chrome tab {target}"))
+                        .unwrap_or_else(|| "claim real Chrome tab".to_string())
+                }
+                "select" => {
+                    let target = ctx
+                        .args
+                        .get("target_id")
+                        .or_else(|| ctx.args.get("page_id"))
+                        .and_then(|v| json_string_or_text(Some(v)));
+                    let target = target?;
+                    if target.parse::<i64>().is_err() {
+                        return None;
+                    }
+                    format!("select or control real Chrome tab {target}")
+                }
+                _ => return None,
+            };
+            Some(AskReason::BrowserChromeAccess { action: label })
+        }
+        "observe" => {
+            let kind = ctx
+                .args
+                .get("kind")
+                .and_then(|v| json_string_or_text(Some(v)))
+                .unwrap_or("console");
+            if matches!(kind, "downloads" | "download") {
+                Some(AskReason::BrowserChromeAccess {
+                    action: "read Chrome download activity".to_string(),
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn check_browser_download_action(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_BROWSER {
+        return None;
+    }
+    let action = json_string_or_text(ctx.args.get("action"))?;
+    let op = json_string_or_text(ctx.args.get("op"))?;
+    if action != "control" || op != "download_cancel" {
+        return None;
+    }
+    let download_id = ctx
+        .args
+        .get("download_id")
+        .or_else(|| ctx.args.get("downloadId"))
+        .or_else(|| ctx.args.get("id"))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| json_string_or_text(Some(v)).and_then(|s| s.parse::<i64>().ok()))
+        });
+    let action = match download_id {
+        Some(id) => format!("cancel download {id}"),
+        None => "cancel download".to_string(),
+    };
+    Some(AskReason::BrowserDownloadAction { action })
+}
+
 fn json_string_or_text(value: Option<&Value>) -> Option<&str> {
     value
         .and_then(|v| {
@@ -679,6 +793,9 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
         BrowserEvaluate { script_preview } => {
             format!("browser control.evaluate JavaScript '{}'", script_preview)
         }
+        BrowserRawCdp { method } => format!("browser raw CDP method '{method}'"),
+        BrowserChromeAccess { action } => format!("real Chrome access '{action}'"),
+        BrowserDownloadAction { action } => format!("browser download action '{action}'"),
         MacControlAction { action } => format!("macOS control action '{action}'"),
         MacControlDangerousAction { action } => {
             format!("dangerous macOS control action '{action}'")
@@ -824,6 +941,43 @@ mod tests {
     }
 
     #[test]
+    fn plan_whitelisted_browser_download_cancel_still_asks() {
+        let args = json!({
+            "action": "control",
+            "op": "download_cancel",
+            "download_id": 7,
+        });
+        let plan: Vec<String> = vec!["browser".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        c.plan_mode = true;
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::BrowserDownloadAction { .. },
+            } => {}
+            other => panic!("expected BrowserDownloadAction under plan, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plan_whitelisted_browser_real_chrome_access_still_asks() {
+        let args = json!({
+            "action": "tabs",
+            "op": "open_user_tabs",
+        });
+        let plan: Vec<String> = vec!["browser".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        c.plan_mode = true;
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::BrowserChromeAccess { .. },
+            } => {}
+            other => panic!("expected BrowserChromeAccess under plan, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn plan_ask_tools_list_pops_dialog() {
         // Default plan agent puts `exec` in ask_tools so each command is
         // explicitly confirmed during planning.
@@ -933,6 +1087,76 @@ mod tests {
     }
 
     #[test]
+    fn browser_raw_cdp_default_asks_normally() {
+        let args = json!({
+            "action": "control",
+            "op": "raw_cdp",
+            "method": "Accessibility.getFullAXTree",
+            "params": {},
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserRawCdp { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_download_cancel_default_asks_normally() {
+        let args = json!({
+            "action": "control",
+            "op": "download_cancel",
+            "download_id": 7,
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserDownloadAction { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn browser_real_chrome_tab_access_default_asks_normally() {
+        for args in [
+            json!({"action": "tabs", "op": "open_user_tabs"}),
+            json!({"action": "tabs", "op": "claim", "target_id": "123"}),
+            json!({"action": "tabs", "op": "select", "target_id": "123"}),
+            json!({"action": "observe", "kind": "downloads"}),
+        ] {
+            let plan: Vec<String> = vec![];
+            let custom: Vec<String> = vec![];
+            let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+            assert!(matches!(
+                resolve(&c),
+                Decision::Ask {
+                    reason: AskReason::BrowserChromeAccess { .. }
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn browser_cdp_style_tab_select_default_allows() {
+        let args = json!({
+            "action": "tabs",
+            "op": "select",
+            "target_id": "A7F9B4369E6A447C9CE2B7C3DA4B4E24",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Default, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
     fn browser_non_evaluate_control_default_allows() {
         let args = json!({
             "action": "control",
@@ -951,6 +1175,32 @@ mod tests {
             "action": "control",
             "op": "evaluate",
             "expression": "document.title",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Yolo, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn browser_raw_cdp_yolo_allows_with_audit_layer() {
+        let args = json!({
+            "action": "control",
+            "op": "raw_cdp",
+            "method": "Accessibility.getFullAXTree",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("browser", &args, SessionMode::Yolo, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn browser_download_cancel_yolo_allows_with_audit_layer() {
+        let args = json!({
+            "action": "control",
+            "op": "download_cancel",
+            "download_id": 7,
         });
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
@@ -1184,6 +1434,46 @@ mod tests {
                 reason: AskReason::BrowserEvaluate { .. }
             }
         ));
+    }
+
+    #[test]
+    fn browser_raw_cdp_smart_high_confidence_allows() {
+        let args = json!({
+            "action": "control",
+            "op": "raw_cdp",
+            "method": "Accessibility.getFullAXTree",
+            "_confidence": "high",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::SelfConfidence,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("browser", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn browser_download_cancel_smart_high_confidence_allows() {
+        let args = json!({
+            "action": "control",
+            "op": "download_cancel",
+            "download_id": 7,
+            "_confidence": "high",
+        });
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::SelfConfidence,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("browser", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert_eq!(resolve(&c), Decision::Allow);
     }
 
     #[test]
@@ -1771,6 +2061,38 @@ mod tests {
         let edit_args = json!({"path": "/tmp/x"});
         let edit_ctx = ctx("write", &edit_args, SessionMode::Default, &plan, &custom);
         match resolve(&edit_ctx) {
+            Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+        let raw_cdp_args = json!({
+            "action": "control",
+            "op": "raw_cdp",
+            "method": "Network.getCookies",
+        });
+        let raw_cdp_ctx = ctx(
+            "browser",
+            &raw_cdp_args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        match resolve(&raw_cdp_ctx) {
+            Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+        let download_args = json!({
+            "action": "control",
+            "op": "download_cancel",
+            "download_id": 7,
+        });
+        let download_ctx = ctx(
+            "browser",
+            &download_args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        match resolve(&download_ctx) {
             Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
             other => panic!("expected Ask, got {:?}", other),
         }

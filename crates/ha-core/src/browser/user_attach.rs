@@ -178,7 +178,7 @@ pub async fn spawn_user_chrome(args: SpawnUserChromeArgs) -> Result<SpawnUserChr
     // (1) `needs_cleanup` (not `is_connected`) so a dead-ws Chrome still
     // gets reaped; (2) `reset_backend` clears `ACTIVE_BACKEND` /
     // `observe_buffer` / subscribed-pages so the new session doesn't see
-    // leftover events from the previous launch; (3) `acquire_backend`
+    // leftover events from the previous launch; (3) `acquire_backend_for`
     // re-initialises a fresh CdpBackend for the new Chrome.
     {
         let mut state = crate::browser_state::get_browser_state().lock().await;
@@ -188,7 +188,11 @@ pub async fn spawn_user_chrome(args: SpawnUserChromeArgs) -> Result<SpawnUserChr
         state.spawn_chrome_and_connect(spec).await?;
     }
     crate::browser::reset_backend().await;
-    let _ = crate::browser::acquire_backend().await;
+    let _ = crate::browser::acquire_backend_for(
+        crate::browser::BrowserBackendContext::default(),
+        crate::browser::BrowserBackendRequirement::CdpAllowed,
+    )
+    .await;
 
     app_info!(
         "browser",

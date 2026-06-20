@@ -7,6 +7,25 @@ pub async fn browser_get_status() -> Result<browser_ui::BrowserStatus, CmdError>
 }
 
 #[tauri::command]
+pub async fn browser_extension_status() -> Result<ha_core::browser::BrowserExtensionStatus, CmdError>
+{
+    Ok(browser_ui::extension_status())
+}
+
+#[tauri::command]
+pub async fn browser_install_native_host_manifest(
+    request: ha_core::browser::NativeHostInstallRequest,
+) -> Result<ha_core::browser::NativeHostInstallResult, CmdError> {
+    browser_ui::install_native_host_manifest(request).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn browser_extension_stop_control(
+) -> Result<ha_core::browser::BrowserExtensionStopResult, CmdError> {
+    Ok(browser_ui::stop_extension_control().await)
+}
+
+#[tauri::command]
 pub async fn browser_list_profiles() -> Result<Vec<browser_ui::BrowserProfileInfo>, CmdError> {
     browser_ui::list_profiles().await.map_err(Into::into)
 }

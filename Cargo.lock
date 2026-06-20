@@ -3016,6 +3016,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-browser-host"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "serde",
+ "serde_json",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "ha-core"
 version = "0.10.0"
 dependencies = [
@@ -3093,6 +3104,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "which",
+ "windows-sys 0.52.0",
  "winreg 0.52.0",
  "wiremock",
  "xcap",

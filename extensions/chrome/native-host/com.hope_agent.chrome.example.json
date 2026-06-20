@@ -1,0 +1,9 @@
+{
+  "name": "com.hope_agent.chrome",
+  "description": "Hope Agent Chrome Native Messaging Host",
+  "path": "/absolute/path/to/ha-browser-host",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://YOUR_EXTENSION_ID/"
+  ]
+}

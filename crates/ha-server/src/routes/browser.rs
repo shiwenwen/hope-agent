@@ -11,6 +11,32 @@ pub async fn get_status() -> Result<Json<browser_ui::BrowserStatus>, AppError> {
     Ok(Json(browser_ui::get_status().await?))
 }
 
+/// `GET /api/browser/extension/status`
+pub async fn extension_status() -> Result<Json<ha_core::browser::BrowserExtensionStatus>, AppError>
+{
+    Ok(Json(browser_ui::extension_status()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InstallNativeHostBody {
+    pub request: ha_core::browser::NativeHostInstallRequest,
+}
+
+/// `POST /api/browser/extension/install-native-host`
+pub async fn install_native_host_manifest(
+    Json(body): Json<InstallNativeHostBody>,
+) -> Result<Json<ha_core::browser::NativeHostInstallResult>, AppError> {
+    browser_ui::install_native_host_manifest(body.request)
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+/// `POST /api/browser/extension/stop-control`
+pub async fn stop_extension_control(
+) -> Result<Json<ha_core::browser::BrowserExtensionStopResult>, AppError> {
+    Ok(Json(browser_ui::stop_extension_control().await))
+}
+
 /// `GET /api/browser/profiles`
 pub async fn list_profiles() -> Result<Json<Vec<browser_ui::BrowserProfileInfo>>, AppError> {
     Ok(Json(browser_ui::list_profiles().await?))

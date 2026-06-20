@@ -31,6 +31,26 @@ HTTP 入口的 `ChatEngineParams.auto_approve_tools` 在桌面 Web GUI 客户端
 
 进程态、不持久化。启动时 stderr 打一行红字 banner，同时 `init_runtime` 后会再写一条 `app_warn!` 进 `~/.hope-agent/logs.db`，便于事后 agent 自主排查时看到此次启动是否开了 auto-approve。
 
+### 浏览器扩展与 Native Host
+
+Chrome Extension + Native Messaging Host 是浏览器控制的 owner 平面能力，Tauri 桌面和 HTTP/WS server 走同一套 `ha-core` broker，但 UI 入口不同：
+
+| 能力 | Tauri 桌面 | HTTP/WS server |
+| --- | --- | --- |
+| 扩展状态 | `browser_extension_status` | `GET /api/browser/extension/status` |
+| 安装/修复 native host manifest | `browser_install_native_host_manifest` | `POST /api/browser/extension/install-native-host` |
+| 停止 Hope-controlled tabs | `browser_extension_stop_control` | `POST /api/browser/extension/stop-control` |
+| BrowserPanel frame | `browser_capture_frame` | `POST /api/browser/capture-frame` |
+
+这些入口只服务本机用户 / API key 信任的 owner 平面；agent 工具面不会静默安装扩展或 native host。扩展本身也不能由 App 静默安装，Settings 只能打开 Chrome Web Store 或 `chrome://extensions` unpacked 向导，用户必须在 Chrome UI 中确认。
+
+运行模式差异：
+
+- 桌面 GUI：Settings 可安装/修复 user-level native host、打开扩展安装页、复制 unpacked extension 路径，并通过 Tauri EventBus bridge 接收 `browser:*` 事件。
+- Server Web GUI：同样暴露 HTTP owner route，适合本机 server；远程 server 只能控制安装了 native host 且能连接该 server broker 的那台机器上的 Chrome。
+- Docker/headless：默认不能控制宿主 Chrome；真实 Chrome tab 能力通常不可用，普通浏览任务走 CDP/headless Chromium fallback。
+- ACP stdio：不经过前端 Transport；浏览器 owner 安装操作不应由模型自行触发，除非用户明确要求并通过权限引擎。
+
 ```mermaid
 flowchart TD
     UI["React UI"] --> TP["getTransport()"]
@@ -74,6 +94,7 @@ flowchart TD
 | 图片选择 | 原生文件选择器，返回 Tauri asset URL。 | 隐藏 `<input type="file">`，返回 `blob:` URL 和 `File`。 |
 | 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；`listServerDirectory()` 也可走 Tauri 命令供 `@` mention 使用。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
 | 文件搜索 | `fs_search_files` Tauri 命令。 | `/api/filesystem/search-files`。 |
+| 浏览器扩展 owner 操作 | `browser_extension_status` / `browser_install_native_host_manifest` / `browser_extension_stop_control`。 | `/api/browser/extension/status` / `install-native-host` / `stop-control`。 |
 
 新增前端能力时必须同时检查两套实现。如果能力只适合桌面或只适合 HTTP，需要在 UI 上按 `Transport` 能力降级，而不是让业务组件直接拼底层协议。
 
@@ -154,9 +175,13 @@ Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/se
 | Memory | `core_memory_updated` / `memory_extracted` | 手动或自动记忆变更。 |
 | Memory | `dreaming:cycle_complete` | Dreaming 离线固化周期完成。 |
 | Cron | `cron:run_completed` | 定时任务运行完成。 |
-| Async Tools | `async_tool_job:completed` / `async_tool_job:updated` / `async_tool_job:mark_injected_failed` | 后台工具任务完成、状态变化或结果注入失败。 |
+| Background Jobs | `job:created` / `job:updated` / `job:progress` / `job:completed` | 后台工具与 group 任务生命周期；subagent 仍走独立 `subagent:*` 流。 |
 | Config | `config:changed` | `mutate_config()` 或 user config 写入后广播。 |
 | Notifications | `agent:send_notification` | Agent 触发系统通知。 |
+| Browser | `browser:frame` | BrowserPanel 实时帧；ExtensionBackend 优先真实 claimed tab，CDP fallback 保持旧路径。 |
+| Browser | `browser:extension_required` | 某次真实 Chrome 状态相关动作需要扩展但扩展不可用，UI 显示安装引导。 |
+| Browser | `browser:control_stopped` | 用户 Stop、lease 被 steal、tab 关闭或 session cleanup 导致 Hope Agent 停止控制某个 tab。 |
+| Browser | `browser:chromium_download_progress` | CDP fallback Chromium runtime 下载进度。 |
 | ACP | `acp_control_event` | ACP 运行生命周期。 |
 | Skills | `skills:auto_review_complete` / `skills:curator_proposals_ready` | Skill draft 自动审核完成；auto-curator 周期扫描产出草稿合并建议。 |
 | Recap | `recap_progress` | 深度复盘进度。 |

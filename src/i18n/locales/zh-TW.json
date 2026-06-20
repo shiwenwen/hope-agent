@@ -93,6 +93,14 @@
         "body": "這次瀏覽器操作會在目前分頁執行任意 JavaScript。Smart 模式可由高信心標記或判官模型自動放行。",
         "title": "瀏覽器執行腳本"
       },
+      "browser_raw_cdp": {
+        "title": "進階瀏覽器 CDP 命令",
+        "body": "這次瀏覽器操作會向真實 Chrome 分頁傳送原始 Chrome DevTools Protocol 命令。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
+      },
+      "browser_download_action": {
+        "title": "瀏覽器下載操作",
+        "body": "這次瀏覽器操作會讀取或中斷 Chrome 下載活動。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
+      },
       "mac_control_action": {
         "title": "Mac 控制操作",
         "body": "這次 macOS 控制會改變桌面焦點/狀態。Hope Agent 啟用其他 App 前需要你確認。"
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "危險 Mac 控制動作",
         "body": "這次 macOS 控制呼叫可能關閉視窗、結束應用程式、確認對話框或觸發破壞性選單。必須逐次確認，不能使用永遠允許。"
+      },
+      "browser_chrome_access": {
+        "title": "真實 Chrome 存取",
+        "body": "這次瀏覽器操作會透過擴充功能讀取或控制使用者真實 Chrome 狀態。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "命令分發",
     "skillContentPreview": "Markdown 預覽",
     "skillContentRaw": "原始內容",
+    "skillCurrentOs": "目前 OS",
     "skillDisabled": "已禁用",
     "skillEnabled": "已啟用",
     "skillEnvClear": "清除",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "文件列表",
     "skillHealth": "健康狀態",
-    "skillCurrentOs": "目前 OS",
     "skillHardBlocked": "不相容",
-    "skillMissingAnyBins": "需要以下任一工具",
-    "skillMissingBins": "缺少命令列工具",
-    "skillMissingConfig": "缺少設定項",
-    "skillMissingEnv": "缺少環境變數",
-    "skillNeedsSetup": "需要設定",
-    "skillSupportedOs": "支援的 OS",
     "skillInstall": "安裝",
     "skillInstallFailed": "安裝失敗",
     "skillInstallSuccess": "安裝成功",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "調用策略",
     "skillMaxChars": "提示詞最大字符數",
     "skillMaxCount": "提示詞中最大技能數",
+    "skillMissingAnyBins": "需要以下任一工具",
+    "skillMissingBins": "缺少命令列工具",
+    "skillMissingConfig": "缺少設定項",
+    "skillMissingEnv": "缺少環境變數",
     "skillModelInvocable": "模型可調用",
+    "skillNeedsSetup": "需要設定",
     "skillSkipsRequirements": "跳過依賴檢查",
     "skillStatusBlocked": "被允許列表限制",
     "skillStatusDisabled": "已禁用",
     "skillStatusEligible": "可用",
     "skillStatusMissing": "缺少依賴",
+    "skillSupportedOs": "支援的 OS",
     "skillUserInvocable": "用戶可調用",
     "skills": "技能",
     "skillsAutoReview": {

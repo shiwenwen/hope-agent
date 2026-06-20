@@ -199,7 +199,8 @@ pub fn status() -> DangerousModeStatus;
 | 调用点 | Policy 解析 | 文件 |
 |---|---|---|
 | `web_fetch` | `ssrf_cfg.web_fetch()`；`ssrf_protection: false` legacy 字段降级到 `AllowPrivate`；redirect callback 走 `check_host_blocking_sync` | [`tools/web_fetch.rs:382-411`](../../crates/ha-core/src/tools/web_fetch.rs) |
-| `browser` (navigation / new-page) | `ssrf_cfg.browser()` | [`tools/browser/navigation.rs:12,131`](../../crates/ha-core/src/tools/browser/navigation.rs) |
+| `browser` 高层 URL 操作（`navigate.go` / `tabs.new` / `profile.connect` / `control.evaluate` 字面量） | `ssrf_cfg.browser()`；`raw_cdp` 不做 payload SSRF 扫描，风险交给统一 tool approval | [`tools/browser/mod.rs`](../../crates/ha-core/src/tools/browser/mod.rs)、[`browser/mod.rs::validate_cdp_endpoint_url`](../../crates/ha-core/src/browser/mod.rs) |
+| `browser` Chromium runtime 下载 | `ssrf_cfg.browser()`，固定 Google Chromium snapshots host，下载后 zip-slip 防护 + smoke test | [`browser/runtime.rs`](../../crates/ha-core/src/browser/runtime.rs) |
 | `image_generate` URL 下载 | `ssrf_cfg.image_generate()`，封顶 10 MB | [`tools/image_generate/helpers.rs:98,128`](../../crates/ha-core/src/tools/image_generate/helpers.rs) |
 | `url_preview` | `ssrf_cfg.url_preview()` | [`url_preview.rs:252`](../../crates/ha-core/src/url_preview.rs) |
 | `web_search` (Bocha / Brave / Google / Grok / SearXNG) | `ssrf_cfg.default_policy`（无 per-tool override） | [`tools/web_search/helpers.rs:16`](../../crates/ha-core/src/tools/web_search/helpers.rs) |

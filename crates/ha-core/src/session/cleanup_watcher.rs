@@ -182,6 +182,19 @@ async fn cleanup_session(
     // shouldn't linger. Incognito wakeups are in-memory only; this aborts them.
     crate::wakeup::purge_for_session(session_id);
 
+    // Browser Extension backend: release user-tab leases and close unkept
+    // agent-created tabs owned by this session. This mirrors tool-level
+    // `tabs.finalize` so deleting or burning a session cannot leave stale
+    // browser-control ownership behind.
+    let browser_cleanup = crate::browser::cleanup_extension_session(session_id).await;
+    app_debug!(
+        "session",
+        "cleanup_watcher",
+        "browser cleanup for {}: {}",
+        session_id,
+        browser_cleanup
+    );
+
     // R7.2: drop any parked (`Queued`) subagent spawns for this session. Projected
     // ones were already cancelled+dequeued by `cancel_for_session` above; this
     // catches incognito/unprojected parked spawns (the in-memory entry is the only

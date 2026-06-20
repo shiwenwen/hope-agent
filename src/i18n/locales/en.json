@@ -93,6 +93,14 @@
         "body": "This browser action will run arbitrary JavaScript in the active tab. Smart mode may auto-allow it via a high-confidence tag or judge model.",
         "title": "Browser JavaScript"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Mac Control action",
         "body": "This macOS control call changes desktop focus/state. Confirm before Hope Agent activates another app."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "Dangerous Mac Control action",
         "body": "This macOS control call may close windows, quit apps, confirm dialogs, or trigger destructive menus. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",

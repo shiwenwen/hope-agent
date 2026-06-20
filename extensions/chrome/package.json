@@ -1,0 +1,14 @@
+{
+  "name": "@hope-agent/chrome-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "package:webstore": "node scripts/package-webstore.mjs && node scripts/verify-webstore-package.mjs",
+    "smoke-pages": "node scripts/smoke-pages.mjs",
+    "smoke-pages:check": "node scripts/smoke-pages.mjs --check",
+    "verify:webstore": "node scripts/verify-webstore-package.mjs"
+  },
+  "devDependencies": {}
+}

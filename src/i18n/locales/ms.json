@@ -93,6 +93,14 @@
         "body": "Tindakan pelayar ini akan menjalankan JavaScript sewenang-wenangnya dalam tab aktif. Mod Smart boleh membenarkannya secara automatik melalui tag keyakinan tinggi atau model hakim.",
         "title": "JavaScript pelayar"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Tindakan Mac Control",
         "body": "Panggilan kawalan macOS ini menukar fokus/keadaan desktop. Sahkan sebelum Hope Agent mengaktifkan app lain."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "Tindakan Mac Control berbahaya",
         "body": "Panggilan kawalan macOS ini boleh menutup tetingkap, keluar daripada aplikasi, mengesahkan dialog atau mencetuskan menu yang memusnahkan. Pengesahan diperlukan setiap kali; Benarkan Sentiasa tidak tersedia."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "Penghantaran arahan",
     "skillContentPreview": "Pratonton Markdown",
     "skillContentRaw": "Kandungan mentah",
+    "skillCurrentOs": "OS semasa",
     "skillDisabled": "Dilumpuhkan",
     "skillEnabled": "Didayakan",
     "skillEnvClear": "Kosongkan",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "Fail",
     "skillHealth": "Kesihatan",
-    "skillCurrentOs": "OS semasa",
     "skillHardBlocked": "Tidak serasi",
-    "skillMissingAnyBins": "Perlukan satu binari",
-    "skillMissingBins": "Binari tiada",
-    "skillMissingConfig": "Tetapan tiada",
-    "skillMissingEnv": "Pembolehubah persekitaran tiada",
-    "skillNeedsSetup": "Perlukan persediaan",
-    "skillSupportedOs": "OS disokong",
     "skillInstall": "Pasang",
     "skillInstallFailed": "Pemasangan gagal",
     "skillInstallSuccess": "Berjaya dipasang",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "Polisi panggilan",
     "skillMaxChars": "Aksara maksimum prompt",
     "skillMaxCount": "Skill maksimum dalam prompt",
+    "skillMissingAnyBins": "Perlukan satu binari",
+    "skillMissingBins": "Binari tiada",
+    "skillMissingConfig": "Tetapan tiada",
+    "skillMissingEnv": "Pembolehubah persekitaran tiada",
     "skillModelInvocable": "Boleh dipanggil model",
+    "skillNeedsSetup": "Perlukan persediaan",
     "skillSkipsRequirements": "Langkau semakan kebergantungan",
     "skillStatusBlocked": "Disekat oleh allowlist",
     "skillStatusDisabled": "Dilumpuhkan",
     "skillStatusEligible": "Tersedia",
     "skillStatusMissing": "Kebergantungan hilang",
+    "skillSupportedOs": "OS disokong",
     "skillUserInvocable": "Boleh dipanggil pengguna",
     "skills": "Kemahiran",
     "skillsAutoReview": {

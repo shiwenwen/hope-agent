@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Hope Agent Browser Control",
+  "version": "0.1.0",
+  "description": "Controls Chrome tabs through Hope Agent's local Native Messaging host.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA37N8lhc6y9uoV/64yn6MwtA3BSNdvnXtjybtfgVzdcklJ6E7GQf6dA1DrHHc1EU7k2dFRtLmFRWVSqIR+E+oAHWxWFLop6Q4uvgySaL5pzpgk2tSYVhrCfOKo6A2xf+DhAB9JwEaS2B30EXEX8rMuNhyBZb2aWmeF4dK4vpjzpyCtcdb5Y3Gi3RBuxiG96UFRnO8ms6GoKH/uCSYipO2c3YWm/DZbj1WxJFolCoMlXyL0/XkroM1UVTLtmuKCGV6jbz98ouHL+DeZ9l909HOmxWckcE3ffR0wSF9NPOGQk/aiSA7LXQcrw4brG4iVgrkD4NRMFwAuCjn/dsUG2cHvQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "downloads",
+    "nativeMessaging",
+    "scripting",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "service_worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Hope Agent Browser Control",
+    "default_popup": "popup.html"
+  }
+}

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hope Agent Browser Control Smoke Root</title>
+    <style>
+      body {
+        color: #111827;
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+      }
+      main {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: minmax(260px, 360px) 1fr;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      iframe {
+        border: 1px solid #9ca3af;
+        height: 360px;
+        width: 100%;
+      }
+      .panel {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 14px;
+      }
+      .drag {
+        background: #dbeafe;
+        border: 1px solid #2563eb;
+        cursor: grab;
+        margin: 10px 0;
+        padding: 12px;
+      }
+      .drop {
+        align-items: center;
+        background: #ecfdf5;
+        border: 2px dashed #059669;
+        display: flex;
+        min-height: 72px;
+        padding: 12px;
+      }
+      .frames {
+        display: grid;
+        gap: 16px;
+      }
+    </style>
+  </head>
+  <body data-hope-smoke-page="root">
+    <h1>Hope Agent Browser Control Smoke Root</h1>
+    <main>
+      <section class="panel" aria-label="Root controls">
+        <button id="root-action" aria-label="Root Action Button">Root Action</button>
+        <label>
+          Root text input
+          <input id="root-input" aria-label="Root Text Input" placeholder="type here" />
+        </label>
+        <div id="root-drag" class="drag" draggable="true" role="button" aria-label="Root Drag Source">
+          Root drag source
+        </div>
+        <div id="root-drop" class="drop" role="region" aria-label="Root Drop Target">
+          Root drop target
+        </div>
+      </section>
+      <section class="frames" aria-label="Frame smoke area">
+        <iframe
+          id="same-origin-frame"
+          title="Hope Same Origin Frame"
+          src="/same-origin-frame.html"
+        ></iframe>
+        <iframe
+          id="cross-origin-frame"
+          title="Hope Cross Origin Frame"
+          src="__CROSS_ORIGIN__/frame.html"
+        ></iframe>
+      </section>
+    </main>
+    <script>
+      window.__hopeSmokeRoot = true
+      for (const el of document.querySelectorAll("[draggable=true]")) {
+        el.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("text/plain", el.id)
+        })
+      }
+      document.querySelector("#root-drop").addEventListener("dragover", (event) => {
+        event.preventDefault()
+      })
+      document.querySelector("#root-drop").addEventListener("drop", (event) => {
+        event.preventDefault()
+        event.currentTarget.textContent = `Dropped ${event.dataTransfer?.getData("text/plain") || "item"}`
+      })
+    </script>
+  </body>
+</html>

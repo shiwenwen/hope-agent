@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "lib": ["ES2022", "DOM"],
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noImplicitAny": false,
+    "strict": true,
+    "target": "ES2022",
+    "types": []
+  },
+  "include": ["chrome.d.ts", "service_worker.js", "popup.js"]
+}

@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-30
+> 更新时间：2026-06-19
 
 ## 目录
 
@@ -44,7 +44,7 @@ graph TD
     Yolo{"Global / Session<br/>YOLO?"}
     Strict{"Protected Path /<br/>Dangerous Command?"}
     Mode{"session_mode"}
-    Default["Default 模式<br/>edit-class + edit-command<br/>browser.evaluate<br/>+ custom_approval_tools"]
+    Default["Default 模式<br/>edit-class + edit-command<br/>browser control<br/>+ custom_approval_tools"]
     Smart["Smart 模式<br/>_confidence + judge_model<br/>+ soft approval floor"]
     Decision["Allow / Ask / Deny"]
 
@@ -115,7 +115,7 @@ Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,f
 |---|------|------|------------|
 | 1 | **Plan Mode** | 不在白名单 → `Deny`；在白名单 → 继续过 Internal / strict / ask_tools / soft approval 门禁，跳过 YOLO / AllowAlways / Session fallback | ❌ 最高 |
 | 2 | **Internal Tools** | `ToolDefinition.internal=true` 的工具直接 `Allow` | 仅次于 Plan |
-| 3 | **YOLO**（global / session） | 全部 `Allow`；保护路径/危险命令/macOS 控制动作/browser.evaluate 命中只 warn | 仅 Plan 能压 |
+| 3 | **YOLO**（global / session） | 全部 `Allow`；保护路径/危险命令/macOS 控制动作/browser.evaluate/browser.raw_cdp/browser.real_chrome_access/browser.download_cancel 命中只 warn | 仅 Plan 能压 |
 | 4 | **保护路径** | 非 YOLO 时强制 `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
 | 5 | **危险命令** | 非 YOLO 时强制 `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
 | 6 | **macOS 控制动作** | `mac_control` 普通/隐私动作 → `Ask`；高风险动作 → `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
@@ -123,9 +123,9 @@ Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,f
 | 8 | **Session 模式 preset** | Default / Smart 各自展开 | — |
 | 9 | **兜底** | `Decision::Allow` | — |
 
-**Default 模式展开**：edit-class 工具（`write/edit/apply_patch`）→ `Ask`；`exec` 命中编辑命令 → `Ask`；`browser.control.evaluate` → `AskReason::BrowserEvaluate`；`agent_custom_approval_enabled && tool ∈ custom_approval_tools` → `Ask`。
+**Default 模式展开**：edit-class 工具（`write/edit/apply_patch`）→ `Ask`；`exec` 命中编辑命令 → `Ask`；`browser.control.evaluate/raw_cdp/download_cancel`、`browser.tabs.open_user_tabs/claim/select(数字 extension tab id)`、`browser.observe.downloads` → 对应浏览器 AskReason；`agent_custom_approval_enabled && tool ∈ custom_approval_tools` → `Ask`。
 
-**Smart 模式展开**：① `_confidence:"high"`（仅 SelfConfidence/Both 策略） → `Allow`；② **确定性信任范围**——`write/edit/apply_patch` 的所有目标路径都是本会话已编辑过的文件 → `Allow`（与策略无关，不依赖模型自报；工作目录**不**单独给确定性放行）；③ 否则走"soft approval floor"（edit-class / edit-command / browser.evaluate，与 Default 共享但**不消费 custom_approval_tools**）→ `Ask`；async wrapper 在非 strict Ask 时调 judge_model 看是否升级为 Allow / Deny。保护路径 / 危险命令在模式分发**之前**已拦截，故工作目录内的 `.env` 写入等仍强制弹窗。
+**Smart 模式展开**：① `_confidence:"high"`（仅 SelfConfidence/Both 策略） → `Allow`；② **确定性信任范围**——`write/edit/apply_patch` 的所有目标路径都是本会话已编辑过的文件 → `Allow`（与策略无关，不依赖模型自报；工作目录**不**单独给确定性放行）；③ 否则走"soft approval floor"（edit-class / edit-command / browser.evaluate/raw_cdp/real_chrome_access/download_cancel，与 Default 共享但**不消费 custom_approval_tools**）→ `Ask`；async wrapper 在非 strict Ask 时调 judge_model 看是否升级为 Allow / Deny。保护路径 / 危险命令在模式分发**之前**已拦截，故工作目录内的 `.env` 写入等仍强制弹窗。
 
 ---
 
@@ -168,6 +168,9 @@ pub enum AskReason {
     AgentCustomList,
     SmartJudge { rationale: String },
     BrowserEvaluate { script_preview: String },   // browser control.evaluate 执行任意 JS
+    BrowserRawCdp { method: String },              // browser control.raw_cdp 发送原始 CDP 命令
+    BrowserChromeAccess { action: String },        // browser 读取/接管真实 Chrome 状态
+    BrowserDownloadAction { action: String },      // browser control.download_cancel 中断真实 Chrome 下载
     MacControlAction { action: String },
     MacControlDangerousAction { action: String },
     PlanModeAsk,
@@ -179,7 +182,10 @@ impl AskReason {
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
             self,
-            ProtectedPath { .. } | DangerousCommand { .. } | MacControlDangerousAction { .. } | PlanModeAsk
+            ProtectedPath { .. }
+                | DangerousCommand { .. }
+                | MacControlDangerousAction { .. }
+                | PlanModeAsk
         )
     }
 }
@@ -303,8 +309,9 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision
 - **engine 不依赖 AssistantAgent**：通过 `judge.rs` 内部调 `AssistantAgent::judge_one_shot` 静态方法，从 `cached_config().providers` 拿 ProviderConfig 自建 LLM 调用，不用主对话的 cache snapshot
 - **保护路径 / 危险命令在 sync 路径**：让 hot path 在 LLM 不可用时仍能正确强制审批
 - **macOS 控制动作在 sync 路径**：`mac_control` 的风险由 `action/op/path` 纯参数判断；普通/隐私动作弹审批，高风险动作禁用 AllowAlways
-- **浏览器 JS 在 soft approval floor**：`browser` 只有 `action=control && op=evaluate` 进入 `AskReason::BrowserEvaluate`；其它浏览器动作不因此弹审批。Smart 的 `_confidence` / judge_model 可以自动放行该 soft Ask；SSRF 扫描仍由浏览器工具内部执行，不受审批模式影响
-- **YOLO 内仍跑风险检查**：保护路径 / 危险命令 / macOS 控制 / browser.evaluate 只为打 `app_warn!` 审计日志，不改决策
+- **浏览器控制在 soft approval floor**：`browser` 的 `action=control && op=evaluate/raw_cdp/download_cancel`、`action=tabs && op=open_user_tabs|claim|select(数字 extension tab id)`、`action=observe && kind=downloads` 进入对应 AskReason；Smart 的 `_confidence` / judge_model 可以自动放行这些 soft Ask；`evaluate` 的 SSRF 扫描仍由浏览器工具内部执行，不受审批模式影响
+- **浏览器强能力不再自建 strict 硬闸**：raw CDP 和 download cancel 走普通审批、AllowAlways、Smart、Yolo、timeout/unattended policy，与其它工具能力一致。
+- **YOLO 内仍跑风险检查**：保护路径 / 危险命令 / macOS 控制 / browser.evaluate / browser.raw_cdp / browser.real_chrome_access / browser.download_cancel 只为打 `app_warn!` 审计日志，不改决策
 
 ---
 
@@ -442,6 +449,8 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 | `write` / `edit` / `apply_patch` | 编辑类工具 |
 | `exec` 命中编辑命令模式 | 编辑命令 |
 | `browser` 的 `control.evaluate` | 浏览器任意 JavaScript |
+| `browser` 的 `control.raw_cdp` / `control.download_cancel` | 浏览器强能力 |
+| `browser` 的 `tabs.open_user_tabs/claim/select(数字 id)`、`observe.downloads` | 真实 Chrome 状态访问 |
 | `mac_control` 普通/隐私动作 | macOS 桌面控制 |
 | `mac_control` 高风险动作 | macOS 桌面控制（禁用 AllowAlways） |
 
@@ -693,7 +702,7 @@ useEffect(() => {
 
 | 文件 | 覆盖 |
 |------|------|
-| `crates/ha-core/src/permission/engine.rs` (`#[cfg(test)] mod tests`) | 31 个 sync + async resolve 测试 |
+| `crates/ha-core/src/permission/engine.rs` (`#[cfg(test)] mod tests`) | sync + async resolve 测试，含 browser.evaluate/raw_cdp/real_chrome_access/download_cancel soft Ask |
 | `crates/ha-core/src/permission/judge.rs` (tests) | parse_response + cache 行为 |
 | `crates/ha-core/src/permission/{protected_paths,dangerous_commands,edit_commands,pattern_match,mode,rules,allowlist}.rs` | 模块自身的边界覆盖 |
 | 合计 | **50+ 个 permission unit test** |

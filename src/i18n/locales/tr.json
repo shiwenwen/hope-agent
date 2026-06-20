@@ -93,6 +93,14 @@
         "body": "Bu tarayıcı işlemi etkin sekmede rastgele JavaScript çalıştırır. Smart modu bunu yüksek güven etiketi veya yargıç modeliyle otomatik olarak izinli sayabilir.",
         "title": "Tarayıcı JavaScript"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Mac Control işlemi",
         "body": "Bu macOS kontrol çağrısı masaüstü odağını/durumunu değiştirir. Hope Agent başka bir uygulamayı etkinleştirmeden önce onaylayın."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "Tehlikeli Mac Control eylemi",
         "body": "Bu macOS kontrol çağrısı pencereleri kapatabilir, uygulamalardan çıkabilir, iletişim kutularını onaylayabilir veya yıkıcı menüleri tetikleyebilir. Her çağrı için onay gerekir; Her zaman izin ver kullanılamaz."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "Komut dağıtımı",
     "skillContentPreview": "Markdown önizlemesi",
     "skillContentRaw": "Ham içerik",
+    "skillCurrentOs": "Geçerli OS",
     "skillDisabled": "Devre Dışı",
     "skillEnabled": "Etkin",
     "skillEnvClear": "Temizle",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "Dosyalar",
     "skillHealth": "Sağlık",
-    "skillCurrentOs": "Geçerli OS",
     "skillHardBlocked": "Uyumsuz",
-    "skillMissingAnyBins": "Bir ikili dosya gerekir",
-    "skillMissingBins": "Eksik ikili dosyalar",
-    "skillMissingConfig": "Eksik ayarlar",
-    "skillMissingEnv": "Eksik ortam değişkenleri",
-    "skillNeedsSetup": "Kurulum gerekiyor",
-    "skillSupportedOs": "Desteklenen OS",
     "skillInstall": "Yükle",
     "skillInstallFailed": "Yükleme başarısız",
     "skillInstallSuccess": "Başarıyla yüklendi",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "Çağrı politikası",
     "skillMaxChars": "Maksimum prompt karakteri",
     "skillMaxCount": "Prompt'taki maksimum skill",
+    "skillMissingAnyBins": "Bir ikili dosya gerekir",
+    "skillMissingBins": "Eksik ikili dosyalar",
+    "skillMissingConfig": "Eksik ayarlar",
+    "skillMissingEnv": "Eksik ortam değişkenleri",
     "skillModelInvocable": "Model tarafından çağrılabilir",
+    "skillNeedsSetup": "Kurulum gerekiyor",
     "skillSkipsRequirements": "Bağımlılık denetimlerini atlar",
     "skillStatusBlocked": "İzin listesi tarafından engellendi",
     "skillStatusDisabled": "Devre dışı",
     "skillStatusEligible": "Uygun",
     "skillStatusMissing": "Eksik bağımlılıklar",
+    "skillSupportedOs": "Desteklenen OS",
     "skillUserInvocable": "Kullanıcı tarafından çağrılabilir",
     "skills": "Beceriler",
     "skillsAutoReview": {

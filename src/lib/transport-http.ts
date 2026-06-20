@@ -640,6 +640,9 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Embedded browser --
   browser_get_status:              { method: "GET",    path: "/api/browser/status" },
+  browser_extension_status:         { method: "GET",    path: "/api/browser/extension/status" },
+  browser_install_native_host_manifest:{ method: "POST", path: "/api/browser/extension/install-native-host" },
+  browser_extension_stop_control:   { method: "POST",   path: "/api/browser/extension/stop-control" },
   browser_list_profiles:           { method: "GET",    path: "/api/browser/profiles" },
   browser_create_profile:          { method: "POST",   path: "/api/browser/profiles" },
   browser_delete_profile:          { method: "DELETE", path: "/api/browser/profiles/{name}" },

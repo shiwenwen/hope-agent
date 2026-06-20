@@ -186,6 +186,18 @@ pub fn share_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("share"))
 }
 
+/// Quarantined browser downloads managed by the Chrome Extension backend:
+/// ~/.hope-agent/downloads/
+pub fn browser_downloads_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("downloads"))
+}
+
+/// Temporary large-object store for Chrome Extension native-messaging blobs:
+/// ~/.hope-agent/browser-extension/blobs/
+pub fn browser_extension_blobs_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser-extension").join("blobs"))
+}
+
 // ── Cron ────────────────────────────────────────────────────────
 
 /// Cron database path: ~/.hope-agent/cron.db
@@ -326,6 +338,26 @@ pub fn browser_managed_runner_dir() -> Result<PathBuf> {
 /// single workspace-wide revision isn't representable).
 pub fn browser_runtime_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("browser").join("runtime"))
+}
+
+/// Chrome Extension integration runtime directory:
+/// `~/.hope-agent/browser-extension/`.
+pub fn browser_extension_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser-extension"))
+}
+
+/// Discovery file read by the Native Messaging host to find the local Core
+/// broker. Rebuildable runtime state, rewritten on broker startup.
+pub fn browser_extension_broker_discovery_path() -> Result<PathBuf> {
+    Ok(browser_extension_dir()?.join("broker.json"))
+}
+
+pub fn browser_extension_broker_socket_path() -> Result<PathBuf> {
+    Ok(browser_extension_dir()?.join("broker.sock"))
+}
+
+pub fn browser_extension_registry_path() -> Result<PathBuf> {
+    Ok(browser_extension_dir()?.join("registry.json"))
 }
 
 /// Per-revision Chromium runtime directory:
@@ -540,6 +572,7 @@ pub fn ensure_dirs() -> Result<()> {
         logs_dir()?,
         models_cache_dir()?,
         browser_profiles_dir()?,
+        browser_extension_dir()?,
         backups_dir()?,
         generated_images_dir()?,
         canvas_dir()?,

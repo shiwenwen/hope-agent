@@ -224,6 +224,16 @@ function makeClientEventMessage(message: ClientEventMessage): Message {
   }
 }
 
+type BrowserExtensionRequiredPayload = {
+  requirement?: string
+  reason?: string
+  statusKind?: string
+  statusMessage?: string
+  nextAction?: string
+  sessionId?: string
+  source?: string
+}
+
 export default function ChatScreen({
   onOpenAgentSettings,
   onCodexReauth,
@@ -1882,6 +1892,34 @@ export default function ChatScreen({
       }
     }
   }, [])
+
+  useEffect(() => {
+    const unlisten = getTransport().listen("browser:extension_required", (raw) => {
+      const payload = parsePayload<BrowserExtensionRequiredPayload>(raw)
+      if (!payload) return
+      if (payload.sessionId && payload.sessionId !== session.currentSessionId) return
+      const reason = payload.reason || payload.statusMessage
+      const next = payload.nextAction
+        ? t("chat.browserExtensionRequired.nextAction", {
+            defaultValue: "Next action: {{nextAction}}",
+            nextAction: payload.nextAction,
+          })
+        : t("chat.browserExtensionRequired.openSettings", {
+            defaultValue: "Open Settings > Browser to install or enable the extension.",
+          })
+      toast(t("chat.browserExtensionRequired.title", { defaultValue: "Chrome extension required" }), {
+        id: "browser-extension-required",
+        description: [reason, next].filter(Boolean).join("\n"),
+      })
+    })
+    return () => {
+      try {
+        unlisten?.()
+      } catch {
+        // ignore
+      }
+    }
+  }, [session.currentSessionId, t])
 
   useEffect(() => {
     const unlisten = getTransport().listen("mac_control:frame", (raw) => {

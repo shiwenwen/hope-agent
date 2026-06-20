@@ -19,6 +19,7 @@
 pub mod backend;
 pub mod backend_select;
 pub mod cdp_backend;
+pub mod extension;
 pub mod frame;
 pub mod launch_circuit;
 pub mod observe_buffer;
@@ -30,10 +31,18 @@ pub mod user_attach;
 
 pub use backend::{
     ActKind, ActParams, BackendStatus, BrowserBackend, DialogAction, ElementRef, ImageFormat,
-    ObserveEntry, ObserveKind, PdfParams, ScreenshotParams, ScrollDirection, ScrollParams,
-    Snapshot, SnapshotFormat, TabInfo, WaitParams,
+    ObserveEntry, ObserveKind, PdfParams, RawCdpParams, ScreenshotParams, ScrollDirection,
+    ScrollParams, Snapshot, SnapshotFormat, TabInfo, WaitParams,
 };
-pub use backend_select::{acquire_backend, peek_active, reset_backend};
+pub use backend_select::{acquire_backend, acquire_backend_for, peek_active, reset_backend};
+pub use extension::{
+    cleanup_extension_session, current_status, install_native_host_manifest,
+    schedule_extension_turn_finalize, stop_all_extension_control, BrowserBackendContext,
+    BrowserBackendRequirement, BrowserBrokerDiscovery, BrowserExtensionBroker,
+    BrowserExtensionConfig, BrowserExtensionStatus, BrowserExtensionStatusKind,
+    BrowserExtensionStopResult, ExtensionBackend, NativeHostInstallRequest,
+    NativeHostInstallResult,
+};
 
 // Shared "give me Console / Network / Exception events on the active
 // Chrome" entry points. They physically live in `cdp_backend` because
@@ -216,6 +225,18 @@ pub enum BrowserMode {
     UserAttach,
 }
 
+/// Browser backend preference. `ExtensionFirst` is the product default:
+/// use the Chrome Extension backend when it is connected, and fall back to
+/// CDP only for actions that do not require the user's real Chrome state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserBackendPreference {
+    #[default]
+    ExtensionFirst,
+    CdpOnly,
+    ExtensionOnly,
+}
+
 /// Persisted browser configuration. Stored under `AppConfig.browser`.
 ///
 /// All fields are optional so omitting the block in `config.json` yields
@@ -232,6 +253,12 @@ pub enum BrowserMode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserConfig {
+    /// Runtime backend preference. `None` = `ExtensionFirst`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_preference: Option<BrowserBackendPreference>,
+    /// Chrome Extension + Native Messaging integration config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension: Option<BrowserExtensionConfig>,
     /// UI-only opening tab. `None` = `Managed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<BrowserMode>,

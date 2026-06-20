@@ -795,6 +795,9 @@ pub fn run() {
             commands::url_preview::fetch_url_previews,
             // Embedded browser
             commands::browser::browser_get_status,
+            commands::browser::browser_extension_status,
+            commands::browser::browser_install_native_host_manifest,
+            commands::browser::browser_extension_stop_control,
             commands::browser::browser_list_profiles,
             commands::browser::browser_create_profile,
             commands::browser::browser_delete_profile,

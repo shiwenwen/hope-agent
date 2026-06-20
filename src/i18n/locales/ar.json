@@ -93,6 +93,14 @@
         "body": "سيشغّل إجراء المتصفح هذا JavaScript عشوائيًا في علامة التبويب النشطة. قد يسمح وضع Smart به تلقائيًا عبر وسم ثقة عالية أو نموذج حكم.",
         "title": "JavaScript في المتصفح"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "إجراء Mac Control",
         "body": "سيغيّر استدعاء التحكم في macOS هذا تركيز/حالة سطح المكتب. أكّد قبل أن يفعّل Hope Agent تطبيقًا آخر."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "إجراء Mac Control خطير",
         "body": "قد يؤدي استدعاء التحكم في macOS هذا إلى إغلاق النوافذ أو إنهاء التطبيقات أو تأكيد مربعات الحوار أو تشغيل قوائم مدمرة. يلزم التأكيد في كل مرة؛ خيار السماح دائمًا غير متاح."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "إرسال الأمر",
     "skillContentPreview": "معاينة Markdown",
     "skillContentRaw": "المحتوى الخام",
+    "skillCurrentOs": "نظام التشغيل الحالي",
     "skillDisabled": "معطّل",
     "skillEnabled": "مفعّل",
     "skillEnvClear": "مسح",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "الملفات",
     "skillHealth": "الصحة",
-    "skillCurrentOs": "نظام التشغيل الحالي",
     "skillHardBlocked": "غير متوافق",
-    "skillMissingAnyBins": "يحتاج إلى أداة واحدة",
-    "skillMissingBins": "أدوات تنفيذية مفقودة",
-    "skillMissingConfig": "إعدادات مفقودة",
-    "skillMissingEnv": "متغيرات بيئة مفقودة",
-    "skillNeedsSetup": "يحتاج إلى إعداد",
-    "skillSupportedOs": "أنظمة التشغيل المدعومة",
     "skillInstall": "تثبيت",
     "skillInstallFailed": "فشل التثبيت",
     "skillInstallSuccess": "تم التثبيت بنجاح",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "سياسة الاستدعاء",
     "skillMaxChars": "الحد الأقصى لأحرف البرومبت",
     "skillMaxCount": "الحد الأقصى لـ skills في البرومبت",
+    "skillMissingAnyBins": "يحتاج إلى أداة واحدة",
+    "skillMissingBins": "أدوات تنفيذية مفقودة",
+    "skillMissingConfig": "إعدادات مفقودة",
+    "skillMissingEnv": "متغيرات بيئة مفقودة",
     "skillModelInvocable": "يمكن للنموذج استدعاؤها",
+    "skillNeedsSetup": "يحتاج إلى إعداد",
     "skillSkipsRequirements": "يتجاوز فحوصات الاعتماديات",
     "skillStatusBlocked": "محجوبة بقائمة السماح",
     "skillStatusDisabled": "معطلة",
     "skillStatusEligible": "متاحة",
     "skillStatusMissing": "تعذر العثور على المتطلبات",
+    "skillSupportedOs": "أنظمة التشغيل المدعومة",
     "skillUserInvocable": "يمكن للمستخدم استدعاؤها",
     "skills": "المهارات",
     "skillsAutoReview": {

@@ -93,6 +93,14 @@
         "body": "Это действие браузера выполнит произвольный JavaScript в активной вкладке. Режим Smart может автоматически разрешить его по метке высокой уверенности или решению модели-судьи.",
         "title": "JavaScript в браузере"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Действие Mac Control",
         "body": "Этот вызов управления macOS изменяет фокус или состояние рабочего стола. Подтвердите, прежде чем Hope Agent активирует другое приложение."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "Опасное действие Mac Control",
         "body": "Этот вызов управления macOS может закрывать окна, завершать приложения, подтверждать диалоги или запускать разрушительные пункты меню. Требуется подтверждение каждого вызова; «Всегда разрешать» недоступно."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "Диспатч команд",
     "skillContentPreview": "Предпросмотр Markdown",
     "skillContentRaw": "Исходное содержимое",
+    "skillCurrentOs": "Текущая ОС",
     "skillDisabled": "Отключено",
     "skillEnabled": "Включено",
     "skillEnvClear": "Очистить",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "Файлы",
     "skillHealth": "Состояние",
-    "skillCurrentOs": "Текущая ОС",
     "skillHardBlocked": "Несовместимо",
-    "skillMissingAnyBins": "Нужен один исполняемый файл",
-    "skillMissingBins": "Отсутствуют исполняемые файлы",
-    "skillMissingConfig": "Отсутствуют настройки",
-    "skillMissingEnv": "Отсутствуют переменные окружения",
-    "skillNeedsSetup": "Требуется настройка",
-    "skillSupportedOs": "Поддерживаемые ОС",
     "skillInstall": "Установить",
     "skillInstallFailed": "Ошибка установки",
     "skillInstallSuccess": "Успешно установлено",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "Политика вызова",
     "skillMaxChars": "Макс. символов в prompt",
     "skillMaxCount": "Макс. skills в prompt",
+    "skillMissingAnyBins": "Нужен один исполняемый файл",
+    "skillMissingBins": "Отсутствуют исполняемые файлы",
+    "skillMissingConfig": "Отсутствуют настройки",
+    "skillMissingEnv": "Отсутствуют переменные окружения",
     "skillModelInvocable": "Вызывается моделью",
+    "skillNeedsSetup": "Требуется настройка",
     "skillSkipsRequirements": "Пропускает проверки зависимостей",
     "skillStatusBlocked": "Заблокирована allowlist",
     "skillStatusDisabled": "Отключена",
     "skillStatusEligible": "Доступна",
     "skillStatusMissing": "Отсутствуют зависимости",
+    "skillSupportedOs": "Поддерживаемые ОС",
     "skillUserInvocable": "Вызывается пользователем",
     "skills": "Навыки",
     "skillsAutoReview": {

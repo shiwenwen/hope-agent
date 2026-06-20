@@ -67,6 +67,14 @@ pub enum AskReason {
     /// Browser `control.evaluate` is about to execute arbitrary JavaScript in
     /// the active tab.
     BrowserEvaluate { script_preview: String },
+    /// Browser `control.raw_cdp` is about to send a raw Chrome DevTools
+    /// Protocol method to a real Chrome tab.
+    BrowserRawCdp { method: String },
+    /// Browser control is about to inspect or take control of the user's real
+    /// Chrome state through the extension backend.
+    BrowserChromeAccess { action: String },
+    /// Browser control is about to interrupt or mutate a real Chrome download.
+    BrowserDownloadAction { action: String },
     /// Native macOS control action that mutates desktop focus/state.
     MacControlAction { action: String },
     /// Native macOS control action with destructive potential.

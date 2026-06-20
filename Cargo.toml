@@ -3,6 +3,7 @@ members = [
     "src-tauri",
     "crates/ha-core",
     "crates/ha-server",
+    "crates/ha-browser-host",
 ]
 resolver = "2"
 

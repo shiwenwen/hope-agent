@@ -1,4 +1,4 @@
-//! Ring buffer for browser observability events (console / network / errors).
+//! Ring buffer for browser observability events (console / network / errors / downloads).
 //!
 //! Single global instance per process. CDP backend feeds it directly from
 //! `Console.messageAdded` / `Network.responseReceived` / `Runtime.exceptionThrown`
@@ -17,6 +17,7 @@ struct Buffers {
     console: VecDeque<ObserveEntry>,
     network: VecDeque<ObserveEntry>,
     errors: VecDeque<ObserveEntry>,
+    downloads: VecDeque<ObserveEntry>,
 }
 
 impl Buffers {
@@ -25,6 +26,7 @@ impl Buffers {
             console: VecDeque::with_capacity(RING_CAPACITY),
             network: VecDeque::with_capacity(RING_CAPACITY),
             errors: VecDeque::with_capacity(RING_CAPACITY),
+            downloads: VecDeque::with_capacity(RING_CAPACITY),
         }
     }
 }
@@ -49,6 +51,7 @@ pub fn push(kind: ObserveKind, entry: ObserveEntry) {
             ObserveKind::Console => push_into(&mut buf.console, entry),
             ObserveKind::Network => push_into(&mut buf.network, entry),
             ObserveKind::PageErrors => push_into(&mut buf.errors, entry),
+            ObserveKind::Downloads => push_into(&mut buf.downloads, entry),
         }
     }
 }
@@ -62,6 +65,7 @@ pub fn snapshot(kind: ObserveKind, since: Option<i64>) -> Vec<ObserveEntry> {
         ObserveKind::Console => &buf.console,
         ObserveKind::Network => &buf.network,
         ObserveKind::PageErrors => &buf.errors,
+        ObserveKind::Downloads => &buf.downloads,
     };
     let cutoff = since.unwrap_or(i64::MIN);
     deque.iter().filter(|e| e.at > cutoff).cloned().collect()
@@ -74,5 +78,6 @@ pub fn clear_all() {
         buf.console.clear();
         buf.network.clear();
         buf.errors.clear();
+        buf.downloads.clear();
     }
 }

@@ -93,6 +93,14 @@
         "body": "Esta ação do navegador executará JavaScript arbitrário na aba ativa. O modo Smart pode permitir automaticamente via etiqueta de alta confiança ou modelo juiz.",
         "title": "JavaScript do navegador"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Ação do Mac Control",
         "body": "Esta chamada de controle do macOS altera o foco/estado da área de trabalho. Confirme antes que o Hope Agent ative outro app."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "Ação perigosa do Mac Control",
         "body": "Esta chamada de controle do macOS pode fechar janelas, encerrar apps, confirmar diálogos ou acionar menus destrutivos. É necessária confirmação a cada chamada; Permitir sempre não está disponível."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "Despacho por comando",
     "skillContentPreview": "Pré-visualização Markdown",
     "skillContentRaw": "Conteúdo bruto",
+    "skillCurrentOs": "SO atual",
     "skillDisabled": "Desativado",
     "skillEnabled": "Ativado",
     "skillEnvClear": "Limpar",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "Arquivos",
     "skillHealth": "Saúde",
-    "skillCurrentOs": "SO atual",
     "skillHardBlocked": "Incompatível",
-    "skillMissingAnyBins": "Precisa de um binário",
-    "skillMissingBins": "Binários ausentes",
-    "skillMissingConfig": "Configurações ausentes",
-    "skillMissingEnv": "Variáveis de ambiente ausentes",
-    "skillNeedsSetup": "Requer configuração",
-    "skillSupportedOs": "SOs compatíveis",
     "skillInstall": "Instalar",
     "skillInstallFailed": "Falha na instalação",
     "skillInstallSuccess": "Instalado com sucesso",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "Política de invocação",
     "skillMaxChars": "Máx. caracteres no prompt",
     "skillMaxCount": "Máx. skills no prompt",
+    "skillMissingAnyBins": "Precisa de um binário",
+    "skillMissingBins": "Binários ausentes",
+    "skillMissingConfig": "Configurações ausentes",
+    "skillMissingEnv": "Variáveis de ambiente ausentes",
     "skillModelInvocable": "Invocável pelo modelo",
+    "skillNeedsSetup": "Requer configuração",
     "skillSkipsRequirements": "Ignora verificações de dependências",
     "skillStatusBlocked": "Bloqueada por allowlist",
     "skillStatusDisabled": "Desativada",
     "skillStatusEligible": "Disponível",
     "skillStatusMissing": "Dependências faltando",
+    "skillSupportedOs": "SOs compatíveis",
     "skillUserInvocable": "Invocável pelo usuário",
     "skills": "Habilidades",
     "skillsAutoReview": {

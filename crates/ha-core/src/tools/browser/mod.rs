@@ -12,9 +12,12 @@
 //!
 //! Each handler grabs the active [`crate::browser::BrowserBackend`] via
 //! [`crate::browser::acquire_backend`] and formats a string result for the
-//! LLM. SSRF checks for any URL field happen *before* the backend call so the
-//! CDP layer never sees a URL that policy rejected.
+//! LLM. High-level URL actions run SSRF checks *before* the backend call.
+//! `control.raw_cdp` is the advanced escape hatch: it goes through normal tool
+//! approval and then forwards well-formed CDP methods to Chrome without payload
+//! scanning.
 
+use std::io::Cursor;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
@@ -23,8 +26,9 @@ use serde_json::Value;
 use crate::agent::MEDIA_ITEMS_PREFIX;
 use crate::attachments::{self, MediaItem, MediaKind};
 use crate::browser::{
-    self, acquire_backend, reset_backend, ActKind, ActParams, BrowserBackend, DialogAction,
-    ImageFormat, ObserveKind, PdfParams, ScreenshotParams, ScrollDirection, ScrollParams,
+    self, acquire_backend_for, reset_backend, ActKind, ActParams, BrowserBackend,
+    BrowserBackendContext, BrowserBackendRequirement, DialogAction, ImageFormat, ObserveKind,
+    PdfParams, RawCdpParams, ScreenshotParams, ScrollDirection, ScrollParams, Snapshot,
     SnapshotFormat, WaitParams,
 };
 use crate::tools::image_markers;
@@ -42,12 +46,12 @@ pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> 
     match action {
         "status" => action_status(args).await,
         "profile" => action_profile(args, session_id).await,
-        "tabs" => action_tabs(args).await,
-        "navigate" => action_navigate(args).await,
+        "tabs" => action_tabs(args, session_id).await,
+        "navigate" => action_navigate(args, session_id).await,
         "snapshot" => action_snapshot(args, session_id).await,
-        "act" => action_act(args).await,
-        "observe" => action_observe(args).await,
-        "control" => action_control(args).await,
+        "act" => action_act(args, session_id).await,
+        "observe" => action_observe(args, session_id).await,
+        "control" => action_control(args, session_id).await,
         other => Err(anyhow!(
             "Unknown browser action: '{}'. Valid: status / profile / tabs / navigate / snapshot / act / observe / control",
             other
@@ -118,21 +122,34 @@ async fn check_url_via_ssrf(url: &str) -> Result<()> {
 async fn action_status(_args: &Value) -> Result<String> {
     // We avoid forcing a backend creation here — `status` should be cheap and
     // honest about "not connected yet".
+    let extension_status = browser::current_status();
     let active = browser::peek_active().await;
     let Some(backend) = active else {
-        return Ok(
-            "Browser disconnected. Use `profile.op=launch` to start a managed Chrome, \
-             or `profile.op=connect` to attach to an existing Chrome on a CDP port."
-                .to_string(),
-        );
+        return Ok(format!(
+            "Browser disconnected.\nExtension: {:?} — {}\nNext action: {}\nUse `profile.op=launch` to start an isolated CDP Chrome, or install/enable the extension for real Chrome tabs and logged-in sessions.",
+            extension_status.kind,
+            extension_status.message,
+            extension_status.next_action.as_deref().unwrap_or("none")
+        ));
     };
     let status = backend.status().await?;
     let mut out = format!(
         "Backend: {}\nConnected: {}\n",
         status.backend, status.connected
     );
+    if status.backend == "cdp" && !extension_status.backend_available {
+        out.push_str(&format!(
+            "Extension: {:?} — {}\nFallback: CDP is active for actions that allow isolated-browser fallback.\n",
+            extension_status.kind, extension_status.message
+        ));
+    }
     if let Some(active_id) = &status.active_target_id {
         out.push_str(&format!("Active tab: {}\n", active_id));
+    }
+    if let Some(diagnostics) = &status.diagnostics {
+        if let Some(flat) = format_flat_session_diagnostics(diagnostics) {
+            out.push_str(&flat);
+        }
     }
     if !status.tabs.is_empty() {
         out.push_str(&format!("Tabs ({}):\n", status.tabs.len()));
@@ -145,6 +162,74 @@ async fn action_status(_args: &Value) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+fn format_flat_session_diagnostics(diagnostics: &Value) -> Option<String> {
+    let sessions = diagnostics.get("sessions").and_then(Value::as_array)?;
+    let enabled = diagnostics
+        .get("flatSessionEnabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut out = format!(
+        "Flat sessions: {}{}\n",
+        sessions.len(),
+        if enabled { " (enabled)" } else { " (disabled)" }
+    );
+    if let Some(frame_tree) = diagnostics.get("frameTree") {
+        let frames = frame_tree
+            .get("frames")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let available = frame_tree
+            .get("available")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        out.push_str(&format!(
+            "Frame tree: {} frame(s){}\n",
+            frames,
+            if available {
+                ""
+            } else {
+                " (webNavigation unavailable)"
+            }
+        ));
+    }
+    for session in sessions.iter().take(8) {
+        let session_id = session
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let target = session.get("targetInfo").unwrap_or(&Value::Null);
+        let kind = target
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let url = target.get("url").and_then(Value::as_str).unwrap_or("");
+        let mut suffix = String::new();
+        if let Some(matched) = session.get("matchedFrame") {
+            let status = matched
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            if status == "matched" {
+                if let Some(frame_id) = matched.get("frameId").and_then(Value::as_i64) {
+                    suffix.push_str(&format!(" frameId={frame_id}"));
+                }
+                if let Some(parent_frame_id) = matched.get("parentFrameId").and_then(Value::as_i64)
+                {
+                    suffix.push_str(&format!(" parentFrameId={parent_frame_id}"));
+                }
+                if let Some(document_id) = matched.get("documentId").and_then(Value::as_str) {
+                    suffix.push_str(&format!(" documentId={document_id}"));
+                }
+            } else {
+                suffix.push_str(&format!(" frameMatch={status}"));
+            }
+        }
+        out.push_str(&format!("  - {session_id} {kind} {url}{suffix}\n"));
+    }
+    Some(out)
 }
 
 // ── profile ──────────────────────────────────────────────────────────────
@@ -248,7 +333,7 @@ async fn profile_launch(args: &Value, session_id: Option<&str>) -> Result<String
     drop(state);
 
     reset_backend().await;
-    let _ = acquire_backend().await?;
+    let _ = acquire_cdp_backend().await?;
 
     let persistent_note = if resolved.persistent {
         " (persistent profile — cookies / logins survive disconnect)"
@@ -284,7 +369,7 @@ async fn profile_connect(args: &Value) -> Result<String> {
     drop(state);
 
     reset_backend().await;
-    let _ = acquire_backend().await?;
+    let _ = acquire_cdp_backend().await?;
 
     Ok(format!(
         "Connected to Chrome at {}. Found {} page(s). Active page: {}",
@@ -354,24 +439,31 @@ async fn profile_install_runtime() -> Result<String> {
 
 // ── tabs ─────────────────────────────────────────────────────────────────
 
-async fn action_tabs(args: &Value) -> Result<String> {
-    let op = get_str(args, "op")
-        .ok_or_else(|| anyhow!("tabs requires 'op' parameter (list / new / select / close)"))?;
+async fn action_tabs(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let op = get_str(args, "op").ok_or_else(|| {
+        anyhow!(
+            "tabs requires 'op' parameter (list / new / select / close / open_user_tabs / claim / release / finalize)"
+        )
+    })?;
 
     match op {
-        "list" => tabs_list().await,
-        "new" => tabs_new(args).await,
-        "select" => tabs_select(args).await,
-        "close" => tabs_close(args).await,
+        "list" => tabs_list(session_id).await,
+        "new" => tabs_new(args, session_id).await,
+        "select" => tabs_select(args, session_id).await,
+        "close" => tabs_close(args, session_id).await,
+        "open_user_tabs" => tabs_open_user_tabs(args, session_id).await,
+        "claim" => tabs_claim(args, session_id).await,
+        "release" => tabs_release(args, session_id).await,
+        "finalize" => tabs_finalize(args, session_id).await,
         other => Err(anyhow!(
-            "Unknown tabs.op: '{}'. Valid: list / new / select / close",
+            "Unknown tabs.op: '{}'. Valid: list / new / select / close / open_user_tabs / claim / release / finalize",
             other
         )),
     }
 }
 
-async fn tabs_list() -> Result<String> {
-    let backend = acquire_backend().await?;
+async fn tabs_list(session_id: Option<&str>) -> Result<String> {
+    let backend = acquire_browser_backend(session_id, "tabs.list").await?;
     let tabs = backend.list_pages().await?;
     if tabs.is_empty() {
         return Ok("No pages open.".to_string());
@@ -387,14 +479,14 @@ async fn tabs_list() -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-async fn tabs_new(args: &Value) -> Result<String> {
+async fn tabs_new(args: &Value, session_id: Option<&str>) -> Result<String> {
     let url = get_str(args, "url");
     if let Some(u) = url {
         if u != "about:blank" {
             check_url_via_ssrf(u).await?;
         }
     }
-    let backend = acquire_backend().await?;
+    let backend = acquire_browser_backend(session_id, "tabs.new").await?;
     let mut tab = backend.new_page(url).await?;
     // The backend's `new_page` may return a blank tab even when a URL was
     // requested (e.g. when Chrome opens its new-tab page first). Only follow
@@ -432,30 +524,76 @@ fn tab_url_indicates_blank_load(tab_url: &str) -> bool {
     ) || trimmed.starts_with("data:,")
 }
 
-async fn tabs_select(args: &Value) -> Result<String> {
+async fn tabs_select(args: &Value, session_id: Option<&str>) -> Result<String> {
     let target = get_str(args, "target_id")
         .or_else(|| get_str(args, "page_id"))
         .ok_or_else(|| anyhow!("tabs.select requires 'target_id'"))?;
-    let backend = acquire_backend().await?;
+    let backend = acquire_browser_backend(session_id, "tabs.select").await?;
     backend.select_page(target).await?;
     browser::frame::emit_frame_async();
     Ok(format!("Switched to page: {}", target))
 }
 
-async fn tabs_close(args: &Value) -> Result<String> {
+async fn tabs_close(args: &Value, session_id: Option<&str>) -> Result<String> {
     let target = get_str(args, "target_id")
         .or_else(|| get_str(args, "page_id"))
         .ok_or_else(|| anyhow!("tabs.close requires 'target_id'"))?;
-    let backend = acquire_backend().await?;
+    let backend = acquire_browser_backend(session_id, "tabs.close").await?;
     backend.close_page(target).await?;
     Ok(format!("Page '{}' closed.", target))
 }
 
+async fn tabs_open_user_tabs(_args: &Value, session_id: Option<&str>) -> Result<String> {
+    let backend = require_extension_tabs("tabs.open_user_tabs", session_id).await?;
+    let tabs = backend.list_pages().await?;
+    if tabs.is_empty() {
+        return Ok("No user Chrome tabs are currently visible to the extension.".to_string());
+    }
+    let mut lines = vec![format!("User Chrome tabs ({}):", tabs.len())];
+    for tab in &tabs {
+        let marker = if tab.is_active { " [active]" } else { "" };
+        lines.push(format!(
+            "  - {} {} \"{}\"{}",
+            tab.target_id, tab.url, tab.title, marker
+        ));
+    }
+    Ok(lines.join("\n"))
+}
+
+async fn tabs_claim(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let target = get_str(args, "target_id")
+        .or_else(|| get_str(args, "page_id"))
+        .ok_or_else(|| anyhow!("tabs.claim requires 'target_id'"))?;
+    let steal = get_bool(args, "steal").unwrap_or(false);
+    let backend = require_extension_tabs("tabs.claim", session_id).await?;
+    backend.claim_page(target, steal).await?;
+    browser::frame::emit_frame_async();
+    Ok(if steal {
+        format!("Claimed user Chrome tab with lease steal: {}", target)
+    } else {
+        format!("Claimed user Chrome tab: {}", target)
+    })
+}
+
+async fn tabs_release(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let target = get_str(args, "target_id")
+        .or_else(|| get_str(args, "page_id"))
+        .ok_or_else(|| anyhow!("tabs.release requires 'target_id'"))?;
+    let backend = require_extension_tabs("tabs.release", session_id).await?;
+    backend.release_page(target).await
+}
+
+async fn tabs_finalize(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let keep = get_str_array(args, "keep").unwrap_or_default();
+    let backend = require_extension_tabs("tabs.finalize", session_id).await?;
+    backend.finalize_pages(&keep).await
+}
+
 // ── navigate ─────────────────────────────────────────────────────────────
 
-async fn action_navigate(args: &Value) -> Result<String> {
+async fn action_navigate(args: &Value, session_id: Option<&str>) -> Result<String> {
     let op = get_str(args, "op").unwrap_or("go");
-    let backend = acquire_backend().await?;
+    let backend = acquire_browser_backend(session_id, "navigate").await?;
     let result = match op {
         "go" => {
             let url = get_str(args, "url").ok_or_else(|| anyhow!("navigate.go requires 'url'"))?;
@@ -482,7 +620,7 @@ async fn action_navigate(args: &Value) -> Result<String> {
 
 async fn action_snapshot(args: &Value, session_id: Option<&str>) -> Result<String> {
     let format = get_str(args, "format").unwrap_or("role");
-    let backend = acquire_backend().await?;
+    let backend = acquire_browser_backend(session_id, "snapshot").await?;
 
     match format {
         "role" | "aria" => snapshot_role(&*backend).await,
@@ -503,7 +641,12 @@ async fn snapshot_role(backend: &dyn BrowserBackend) -> Result<String> {
     );
     for el in &snap.elements {
         let indent = "  ".repeat(el.depth.min(10) as usize);
-        let mut line = format!("{}[ref={}] {}", indent, el.ref_id, el.role);
+        let readonly = el.attrs.get("readonly").map(String::as_str) == Some("true");
+        let mut line = if readonly {
+            format!("{}[ax={}] {}", indent, el.ref_id, el.role)
+        } else {
+            format!("{}[ref={}] {}", indent, el.ref_id, el.role)
+        };
         if !el.text.is_empty() {
             line.push_str(&format!(" \"{}\"", el.text));
         }
@@ -521,6 +664,9 @@ async fn snapshot_role(backend: &dyn BrowserBackend) -> Result<String> {
         }
         if el.attrs.get("disabled").map(String::as_str) == Some("true") {
             line.push_str(" [disabled]");
+        }
+        if readonly {
+            line.push_str(" [read-only]");
         }
         out.push_str(&line);
         out.push('\n');
@@ -544,21 +690,63 @@ async fn snapshot_screenshot(
         _ => ImageFormat::Png,
     };
     let full_page = get_bool(args, "full_page").unwrap_or(false);
-    let bytes = backend
+    let ref_id = get_u32(args, "ref");
+    let annotate = get_bool(args, "annotate")
+        .or_else(|| get_bool(args, "annotated"))
+        .unwrap_or(false)
+        && ref_id.is_none();
+    let snapshot_for_annotation = if annotate {
+        Some(backend.take_snapshot(SnapshotFormat::Role).await?)
+    } else {
+        None
+    };
+    let mut bytes = backend
         .take_screenshot(ScreenshotParams {
             format,
             full_page,
             quality: None,
-            ref_id: None,
+            ref_id,
         })
         .await?;
+    let annotation_count = if let Some(snapshot) = snapshot_for_annotation.as_ref() {
+        match annotate_screenshot_bytes(&bytes, format, snapshot) {
+            Ok(Some((annotated, count))) => {
+                bytes = annotated;
+                count
+            }
+            Ok(None) => 0,
+            Err(e) => {
+                app_warn!(
+                    "tool",
+                    "browser",
+                    "Failed to annotate browser screenshot: {}",
+                    e
+                );
+                0
+            }
+        }
+    } else {
+        0
+    };
     let mime = format.mime();
     let ext = format.extension();
-    let display_filename = format!("browser_screenshot.{ext}");
+    let display_filename = if annotation_count > 0 {
+        format!("browser_screenshot_annotated.{ext}")
+    } else {
+        format!("browser_screenshot.{ext}")
+    };
     let caption = format!(
-        "Screenshot captured (format: {}{})",
+        "Screenshot captured (format: {}{}{}{})",
         ext,
-        if full_page { ", full page" } else { "" }
+        if full_page { ", full page" } else { "" },
+        ref_id
+            .map(|id| format!(", ref={id} crop"))
+            .unwrap_or_default(),
+        if annotation_count > 0 {
+            format!(", annotated refs={annotation_count}")
+        } else {
+            String::new()
+        }
     );
     match attachments::save_attachment_bytes(session_id, &display_filename, &bytes) {
         Ok(saved_path) => {
@@ -589,6 +777,194 @@ async fn snapshot_screenshot(
             ))
         }
     }
+}
+
+fn annotate_screenshot_bytes(
+    bytes: &[u8],
+    format: ImageFormat,
+    snapshot: &Snapshot,
+) -> Result<Option<(Vec<u8>, usize)>> {
+    let viewport_w = snapshot.viewport.0.max(1) as f32;
+    let mut image = image::load_from_memory(bytes)
+        .map_err(|e| anyhow!("decode screenshot for annotation: {e}"))?
+        .to_rgba8();
+    let scale = image.width() as f32 / viewport_w;
+    let mut count = 0usize;
+    for element in snapshot.elements.iter().take(160) {
+        let Some(bounds) = element
+            .attrs
+            .get("bounds")
+            .and_then(|raw| parse_bounds(raw))
+        else {
+            continue;
+        };
+        if bounds.2 < 4.0 || bounds.3 < 4.0 {
+            continue;
+        }
+        let x = (bounds.0 * scale).round() as i32;
+        let y = (bounds.1 * scale).round() as i32;
+        let w = (bounds.2 * scale).round().max(1.0) as i32;
+        let h = (bounds.3 * scale).round().max(1.0) as i32;
+        if x >= image.width() as i32 || y >= image.height() as i32 || x + w <= 0 || y + h <= 0 {
+            continue;
+        }
+        let color = if element.attrs.get("readonly").map(String::as_str) == Some("true") {
+            image::Rgba([130, 130, 130, 255])
+        } else {
+            image::Rgba([255, 42, 91, 255])
+        };
+        draw_rect_outline(&mut image, x, y, w, h, color);
+        draw_ref_label(&mut image, element.ref_id, x.max(0), y.max(0), color);
+        count += 1;
+    }
+    if count == 0 {
+        return Ok(None);
+    }
+
+    let mut out = Cursor::new(Vec::new());
+    let dynamic = image::DynamicImage::ImageRgba8(image);
+    let output_format = match format {
+        ImageFormat::Png => image::ImageFormat::Png,
+        ImageFormat::Jpeg => image::ImageFormat::Jpeg,
+    };
+    dynamic
+        .write_to(&mut out, output_format)
+        .map_err(|e| anyhow!("encode annotated screenshot: {e}"))?;
+    Ok(Some((out.into_inner(), count)))
+}
+
+fn parse_bounds(raw: &str) -> Option<(f32, f32, f32, f32)> {
+    let parts = raw
+        .split(',')
+        .map(str::trim)
+        .map(str::parse::<f32>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if parts.len() != 4 {
+        return None;
+    }
+    Some((parts[0], parts[1], parts[2], parts[3]))
+}
+
+fn draw_rect_outline(
+    image: &mut image::RgbaImage,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: image::Rgba<u8>,
+) {
+    for stroke in 0..2 {
+        draw_hline(image, x, y + stroke, w, color);
+        draw_hline(image, x, y + h - 1 - stroke, w, color);
+        draw_vline(image, x + stroke, y, h, color);
+        draw_vline(image, x + w - 1 - stroke, y, h, color);
+    }
+}
+
+fn draw_hline(image: &mut image::RgbaImage, x: i32, y: i32, w: i32, color: image::Rgba<u8>) {
+    if y < 0 || y >= image.height() as i32 {
+        return;
+    }
+    let start = x.max(0);
+    let end = (x + w).min(image.width() as i32);
+    for px in start..end {
+        image.put_pixel(px as u32, y as u32, color);
+    }
+}
+
+fn draw_vline(image: &mut image::RgbaImage, x: i32, y: i32, h: i32, color: image::Rgba<u8>) {
+    if x < 0 || x >= image.width() as i32 {
+        return;
+    }
+    let start = y.max(0);
+    let end = (y + h).min(image.height() as i32);
+    for py in start..end {
+        image.put_pixel(x as u32, py as u32, color);
+    }
+}
+
+fn draw_ref_label(
+    image: &mut image::RgbaImage,
+    ref_id: u32,
+    x: i32,
+    y: i32,
+    color: image::Rgba<u8>,
+) {
+    let text = ref_id.to_string();
+    let scale = 2i32;
+    let digit_w = 3 * scale;
+    let digit_h = 5 * scale;
+    let gap = scale;
+    let pad = 2;
+    let width = text.len() as i32 * digit_w + (text.len().saturating_sub(1) as i32 * gap) + pad * 2;
+    let height = digit_h + pad * 2;
+    fill_rect(image, x, y, width, height, image::Rgba([20, 20, 20, 220]));
+    for (index, ch) in text.chars().enumerate() {
+        if let Some(pattern) = digit_pattern(ch) {
+            draw_digit(
+                image,
+                pattern,
+                x + pad + index as i32 * (digit_w + gap),
+                y + pad,
+                scale,
+                color,
+            );
+        }
+    }
+}
+
+fn fill_rect(image: &mut image::RgbaImage, x: i32, y: i32, w: i32, h: i32, color: image::Rgba<u8>) {
+    let start_x = x.max(0);
+    let end_x = (x + w).min(image.width() as i32);
+    let start_y = y.max(0);
+    let end_y = (y + h).min(image.height() as i32);
+    for py in start_y..end_y {
+        for px in start_x..end_x {
+            image.put_pixel(px as u32, py as u32, color);
+        }
+    }
+}
+
+fn draw_digit(
+    image: &mut image::RgbaImage,
+    pattern: [&str; 5],
+    x: i32,
+    y: i32,
+    scale: i32,
+    color: image::Rgba<u8>,
+) {
+    for (row, line) in pattern.iter().enumerate() {
+        for (col, bit) in line.chars().enumerate() {
+            if bit != '1' {
+                continue;
+            }
+            fill_rect(
+                image,
+                x + col as i32 * scale,
+                y + row as i32 * scale,
+                scale,
+                scale,
+                color,
+            );
+        }
+    }
+}
+
+fn digit_pattern(ch: char) -> Option<[&'static str; 5]> {
+    Some(match ch {
+        '0' => ["111", "101", "101", "101", "111"],
+        '1' => ["010", "110", "010", "010", "111"],
+        '2' => ["111", "001", "111", "100", "111"],
+        '3' => ["111", "001", "111", "001", "111"],
+        '4' => ["101", "101", "111", "001", "001"],
+        '5' => ["111", "100", "111", "001", "111"],
+        '6' => ["111", "100", "111", "101", "111"],
+        '7' => ["111", "001", "001", "010", "010"],
+        '8' => ["111", "101", "111", "101", "111"],
+        '9' => ["111", "101", "111", "001", "111"],
+        _ => return None,
+    })
 }
 
 async fn snapshot_pdf(args: &Value, backend: &dyn BrowserBackend) -> Result<String> {
@@ -625,7 +1001,7 @@ async fn snapshot_pdf(args: &Value, backend: &dyn BrowserBackend) -> Result<Stri
 
 // ── act ──────────────────────────────────────────────────────────────────
 
-async fn action_act(args: &Value) -> Result<String> {
+async fn action_act(args: &Value, session_id: Option<&str>) -> Result<String> {
     let kind_str = get_str(args, "kind").ok_or_else(|| anyhow!("act requires 'kind' parameter"))?;
     let kind = ActKind::parse(kind_str)
         .ok_or_else(|| anyhow!(
@@ -643,7 +1019,7 @@ async fn action_act(args: &Value) -> Result<String> {
         file_path: get_str(args, "file_path").map(String::from),
         values: get_str_array(args, "values"),
     };
-    let backend = acquire_backend().await?;
+    let backend = acquire_browser_backend(session_id, "act").await?;
     let result = backend.act(kind, params).await;
     // Always emit a frame after an act attempt — even on failure the page
     // state may have changed (partial fill, click that did nothing, etc.).
@@ -653,21 +1029,26 @@ async fn action_act(args: &Value) -> Result<String> {
 
 // ── observe ──────────────────────────────────────────────────────────────
 
-async fn action_observe(args: &Value) -> Result<String> {
+async fn action_observe(args: &Value, session_id: Option<&str>) -> Result<String> {
     let kind_str = get_str(args, "kind").unwrap_or("console");
     let kind = match kind_str {
         "console" => ObserveKind::Console,
         "network" => ObserveKind::Network,
         "page_errors" | "errors" => ObserveKind::PageErrors,
+        "downloads" | "download" => ObserveKind::Downloads,
         other => {
             return Err(anyhow!(
-                "Unknown observe.kind: '{}'. Valid: console / network / page_errors",
+                "Unknown observe.kind: '{}'. Valid: console / network / page_errors / downloads",
                 other
             ))
         }
     };
     let since = get_i64(args, "since");
-    let backend = acquire_backend().await?;
+    let backend = if kind == ObserveKind::Downloads {
+        require_extension_tabs("observe.downloads", session_id).await?
+    } else {
+        acquire_browser_backend(session_id, "observe").await?
+    };
     let entries = backend.observe(kind, since).await?;
     if entries.is_empty() {
         return Ok(format!(
@@ -693,11 +1074,19 @@ async fn action_observe(args: &Value) -> Result<String> {
 
 // ── control ──────────────────────────────────────────────────────────────
 
-async fn action_control(args: &Value) -> Result<String> {
+async fn action_control(args: &Value, session_id: Option<&str>) -> Result<String> {
     let op = get_str(args, "op").ok_or_else(|| {
-        anyhow!("control requires 'op' (resize / scroll / wait_for / handle_dialog / evaluate)")
+        anyhow!(
+            "control requires 'op' (resize / scroll / wait_for / handle_dialog / evaluate / raw_cdp / download_cancel)"
+        )
     })?;
-    let backend = acquire_backend().await?;
+    if op == "raw_cdp" {
+        return control_raw_cdp(args, session_id).await;
+    }
+    if op == "download_cancel" {
+        return control_download_cancel(args, session_id).await;
+    }
+    let backend = acquire_browser_backend(session_id, "control").await?;
     match op {
         "resize" => {
             let width = get_u32(args, "width")
@@ -755,10 +1144,84 @@ async fn action_control(args: &Value) -> Result<String> {
             Ok(format!("Result: {}", display))
         }
         other => Err(anyhow!(
-            "Unknown control.op: '{}'. Valid: resize / scroll / wait_for / handle_dialog / evaluate",
+            "Unknown control.op: '{}'. Valid: resize / scroll / wait_for / handle_dialog / evaluate / raw_cdp / download_cancel",
             other
         )),
     }
+}
+
+async fn control_download_cancel(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let download_id = get_i64(args, "download_id")
+        .or_else(|| get_i64(args, "downloadId"))
+        .or_else(|| get_i64(args, "id"))
+        .ok_or_else(|| anyhow!("control.download_cancel requires 'download_id'"))?;
+    if download_id < 0 {
+        return Err(anyhow!(
+            "control.download_cancel requires a non-negative download_id"
+        ));
+    }
+    let backend = require_extension_tabs("control.download_cancel", session_id).await?;
+    backend.cancel_download(download_id).await
+}
+
+async fn control_raw_cdp(args: &Value, session_id: Option<&str>) -> Result<String> {
+    let method = get_str(args, "method")
+        .ok_or_else(|| anyhow!("control.raw_cdp requires 'method'"))?
+        .to_string();
+    let params = args
+        .get("params")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !params.is_object() {
+        return Err(anyhow!("control.raw_cdp 'params' must be a JSON object"));
+    }
+    let backend = require_extension_tabs("control.raw_cdp", session_id).await?;
+    let result = backend
+        .raw_cdp(RawCdpParams {
+            method: method.clone(),
+            params,
+        })
+        .await?;
+    let display = serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+    Ok(format!("Raw CDP `{method}` result:\n{display}"))
+}
+
+async fn acquire_cdp_backend() -> Result<std::sync::Arc<dyn BrowserBackend>> {
+    acquire_backend_for(
+        BrowserBackendContext::default(),
+        BrowserBackendRequirement::CdpAllowed,
+    )
+    .await
+}
+
+fn browser_backend_context(session_id: Option<&str>, source: &str) -> BrowserBackendContext {
+    BrowserBackendContext {
+        session_id: session_id.map(ToString::to_string),
+        source: Some(source.to_string()),
+        ..BrowserBackendContext::default()
+    }
+}
+
+async fn acquire_browser_backend(
+    session_id: Option<&str>,
+    source: &str,
+) -> Result<std::sync::Arc<dyn BrowserBackend>> {
+    acquire_backend_for(
+        browser_backend_context(session_id, source),
+        BrowserBackendRequirement::ExtensionPreferred,
+    )
+    .await
+}
+
+async fn require_extension_tabs(
+    op: &str,
+    session_id: Option<&str>,
+) -> Result<std::sync::Arc<dyn BrowserBackend>> {
+    acquire_backend_for(
+        browser_backend_context(session_id, op),
+        BrowserBackendRequirement::ExtensionRequired,
+    )
+    .await
 }
 
 /// Best-effort SSRF scan over a JS evaluation payload. Catches URL literals
@@ -831,6 +1294,19 @@ mod tests {
         assert!(evaluate_with_ssrf_scan(script).await.is_ok());
     }
 
+    #[tokio::test]
+    async fn download_cancel_rejects_negative_id_before_backend() {
+        let args = serde_json::json!({
+            "download_id": -1,
+        });
+        let res = control_download_cancel(&args, Some("test-session")).await;
+        assert!(res.is_err());
+        assert!(
+            res.unwrap_err().to_string().contains("non-negative"),
+            "negative download ids should fail during argument validation"
+        );
+    }
+
     #[test]
     fn tab_url_indicates_blank_load_for_empty_and_about_blank() {
         assert!(tab_url_indicates_blank_load(""));
@@ -860,5 +1336,84 @@ mod tests {
             "https://example.com/auth?token=abc"
         ));
         assert!(!tab_url_indicates_blank_load("https://www.lingotech.xyz/"));
+    }
+
+    #[test]
+    fn annotate_screenshot_draws_ref_boxes() {
+        let mut image = image::RgbaImage::new(80, 60);
+        for pixel in image.pixels_mut() {
+            *pixel = image::Rgba([255, 255, 255, 255]);
+        }
+        let mut input = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut input, image::ImageFormat::Png)
+            .unwrap();
+
+        let mut attrs = std::collections::HashMap::new();
+        attrs.insert("bounds".to_string(), "10,8,30,20".to_string());
+        let snapshot = Snapshot {
+            url: "https://example.test".to_string(),
+            title: "Example".to_string(),
+            viewport: (80, 60),
+            elements: vec![crate::browser::backend::ElementRef {
+                ref_id: 12,
+                role: "button".to_string(),
+                text: "Pay".to_string(),
+                locator: "#pay".to_string(),
+                depth: 0,
+                attrs,
+            }],
+            truncated: false,
+        };
+        let input_bytes = input.into_inner();
+        let (annotated, count) =
+            annotate_screenshot_bytes(&input_bytes, ImageFormat::Png, &snapshot)
+                .unwrap()
+                .expect("annotated image");
+        assert_eq!(count, 1);
+        assert_ne!(annotated, input_bytes);
+        assert!(image::load_from_memory(&annotated).is_ok());
+    }
+
+    #[test]
+    fn formats_flat_session_diagnostics() {
+        let diagnostics = serde_json::json!({
+            "tabId": 7,
+            "flatSessionEnabled": true,
+            "frameTree": {
+                "available": true,
+                "frames": [
+                    { "frameId": 0, "parentFrameId": -1, "url": "https://page.example/" },
+                    {
+                        "frameId": 17,
+                        "parentFrameId": 0,
+                        "url": "https://frame.example/",
+                        "documentId": "doc-1"
+                    }
+                ]
+            },
+            "sessions": [
+                {
+                    "sessionId": "session-1",
+                    "targetInfo": {
+                        "type": "iframe",
+                        "url": "https://frame.example/"
+                    },
+                    "matchedFrame": {
+                        "status": "matched",
+                        "frameId": 17,
+                        "parentFrameId": 0,
+                        "documentId": "doc-1",
+                        "url": "https://frame.example/"
+                    }
+                }
+            ]
+        });
+        let formatted = format_flat_session_diagnostics(&diagnostics).unwrap();
+        assert!(formatted.contains("Flat sessions: 1 (enabled)"));
+        assert!(formatted.contains("Frame tree: 2 frame(s)"));
+        assert!(formatted.contains(
+            "session-1 iframe https://frame.example/ frameId=17 parentFrameId=0 documentId=doc-1"
+        ));
     }
 }

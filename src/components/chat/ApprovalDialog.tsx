@@ -11,9 +11,9 @@ export interface ApprovalRequest {
   /** Backend wire field used to keep approvals scoped to their chat session. */
   session_id?: string | null
   /**
-   * Optional human-readable reason emitted by the engine when the approval
-   * is forced by a protected-path / dangerous-command match. When set, the
-   * dialog renders a red warning bar and disables the AllowAlways button.
+   * Optional human-readable reason emitted by the permission engine. Strict
+   * reasons render a red warning bar and disable AllowAlways; soft reasons use
+   * the normal approval flow.
    */
   reason?: {
     kind:
@@ -24,6 +24,9 @@ export interface ApprovalRequest {
       | "agent_custom_list"
       | "smart_judge"
       | "browser_evaluate"
+      | "browser_raw_cdp"
+      | "browser_chrome_access"
+      | "browser_download_action"
       | "mac_control_action"
       | "mac_control_dangerous_action"
       | "plan_mode_ask"
@@ -161,7 +164,7 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           )}
         </div>
 
-        {/* Reason banner (protected path / dangerous / edit / agent custom) */}
+        {/* Reason banner */}
         {reason && (
           <ReasonBanner kind={reason.kind} detail={reason.detail} t={t} />
         )}

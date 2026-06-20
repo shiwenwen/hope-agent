@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "beforeBuildCommand": "pnpm prepare:browser-host && pnpm build"
   },
   "app": {
     "macOSPrivateApi": true,
@@ -47,6 +47,7 @@
     "createUpdaterArtifacts": true,
     "targets": "all",
     "resources": {
+      "resources/browser-host": "browser-host",
       "../skills": "skills"
     },
     "shortDescription": "Local-first AI assistant with cross-device sessions and IM channel routing",

@@ -923,6 +923,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                     turn.error.clone(),
                                 );
                                 stream_lifecycle.finish();
+                                crate::browser::schedule_extension_turn_finalize(&session_id);
                                 return Ok(ChatEngineResult {
                                     response,
                                     model_used: Some(model_ref.clone()),
@@ -960,6 +961,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             .unwrap_or(session::ChatTurnStatus::Interrupted);
                         stream_lifecycle.set_terminal(terminal, outcome.interrupt_reason, None);
                         stream_lifecycle.finish();
+                        crate::browser::schedule_extension_turn_finalize(&session_id);
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: None,
@@ -1038,6 +1040,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             .unwrap_or(session::ChatTurnStatus::Interrupted);
                         stream_lifecycle.set_terminal(terminal, outcome.interrupt_reason, None);
                         stream_lifecycle.finish();
+                        crate::browser::schedule_extension_turn_finalize(&session_id);
                         return Ok(ChatEngineResult {
                             response,
                             model_used: Some(model_ref.clone()),
@@ -1078,6 +1081,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     }
                     stream_lifecycle.set_terminal(terminal_status, interrupt_reason, None);
                     stream_lifecycle.finish();
+                    crate::browser::schedule_extension_turn_finalize(&session_id);
 
                     // Stop hook: the agent finished responding (normal
                     // completion, or a user-initiated stop that still drained
@@ -1211,6 +1215,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     {
                         stream_lifecycle.set_terminal(status, interrupt, error);
                         stream_lifecycle.finish();
+                        crate::browser::schedule_extension_turn_finalize(&session_id);
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: Some(model_ref.clone()),
@@ -1357,6 +1362,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     {
                         stream_lifecycle.set_terminal(status, interrupt, error);
                         stream_lifecycle.finish();
+                        crate::browser::schedule_extension_turn_finalize(&session_id);
                         return Ok(ChatEngineResult {
                             response: String::new(),
                             model_used: Some(model_ref.clone()),
@@ -1598,6 +1604,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     if matches!(reason, TerminationReason::UserStop) && !abort_on_cancel {
         stream_lifecycle.finish();
+        crate::browser::schedule_extension_turn_finalize(&session_id);
         return Ok(ChatEngineResult {
             response: String::new(),
             model_used: None,
@@ -1605,6 +1612,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         });
     }
 
+    crate::browser::schedule_extension_turn_finalize(&session_id);
     Err(final_error)
 }
 

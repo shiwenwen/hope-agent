@@ -1482,6 +1482,18 @@ fn build_router_with_cors(
         // Embedded browser
         .route("/browser/status", get(routes::browser::get_status))
         .route(
+            "/browser/extension/status",
+            get(routes::browser::extension_status),
+        )
+        .route(
+            "/browser/extension/install-native-host",
+            post(routes::browser::install_native_host_manifest),
+        )
+        .route(
+            "/browser/extension/stop-control",
+            post(routes::browser::stop_extension_control),
+        )
+        .route(
             "/browser/profiles",
             get(routes::browser::list_profiles).post(routes::browser::create_profile),
         )

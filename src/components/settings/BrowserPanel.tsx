@@ -42,6 +42,8 @@ import {
   AlertTriangle,
   Sparkles,
   Download,
+  Copy,
+  FolderOpen,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
@@ -72,6 +74,36 @@ interface BrowserStatus {
   connectionUrl: string | null
   profilesDir: string
   tabs: BrowserTabInfo[]
+}
+
+interface BrowserExtensionStatus {
+  kind: string
+  backendAvailable: boolean
+  nativeHostName: string
+  nativeHostManifestPath?: string | null
+  nativeHostManifestExists: boolean
+  extensionConnected: boolean
+  extensionProtocolVersion?: number | null
+  extensionVersion?: string | null
+  extensionIds: string[]
+  storeUrl?: string | null
+  unpackedExtensionPath?: string | null
+  nativeHostBinaryHint?: string | null
+  message: string
+  nextAction?: string | null
+}
+
+interface NativeHostInstallResult {
+  nativeHostName: string
+  hostPath: string
+  manifestPath: string
+  allowedOrigin: string
+  windowsRegistryKey?: string | null
+}
+
+interface BrowserExtensionStopResult {
+  stoppedTabs: number
+  message: string
 }
 
 interface LaunchOptions {
@@ -141,10 +173,19 @@ function formatRelative(
 export default function BrowserPanel() {
   const { t } = useTranslation()
   const [status, setStatus] = useState<BrowserStatus | null>(null)
+  const [extensionStatus, setExtensionStatus] = useState<BrowserExtensionStatus | null>(null)
+  const [extensionIdInput, setExtensionIdInput] = useState<string>("")
+  const [nativeHostPathInput, setNativeHostPathInput] = useState<string>("")
   const [profiles, setProfiles] = useState<BrowserProfileInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<
-    null | "launch" | "connect" | "disconnect" | "spawn-user-chrome"
+    | null
+    | "launch"
+    | "connect"
+    | "disconnect"
+    | "spawn-user-chrome"
+    | "install-native-host"
+    | "stop-extension-control"
   >(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -184,16 +225,22 @@ export default function BrowserPanel() {
     // Critical path: status / profiles / config must render even if the
     // best-effort doctor probe fails. Use `allSettled` so a 2s probe timeout
     // or a `pgrep` hiccup can't blank the whole panel.
-    const [st, pf, cfg, doc] = await Promise.allSettled([
+    const [st, pf, cfg, doc, ext] = await Promise.allSettled([
       getTransport().call<BrowserStatus>("browser_get_status"),
       getTransport().call<BrowserProfileInfo[]>("browser_list_profiles"),
       getTransport().call<BrowserConfig>("browser_get_config"),
       getTransport().call<BrowserDoctorReport>("browser_doctor"),
+      getTransport().call<BrowserExtensionStatus>("browser_extension_status"),
     ])
     const firstError = [st, pf, cfg, doc].find(
       (r): r is PromiseRejectedResult => r.status === "rejected",
     )
     if (st.status === "fulfilled") setStatus(st.value)
+    if (ext.status === "fulfilled") {
+      setExtensionStatus(ext.value)
+      setExtensionIdInput((prev) => prev || ext.value.extensionIds[0] || "")
+      setNativeHostPathInput((prev) => prev || ext.value.nativeHostBinaryHint || "")
+    }
     if (pf.status === "fulfilled") setProfiles(pf.value)
     if (cfg.status === "fulfilled") {
       // Keep the full config snapshot so unrelated fields (profiles,
@@ -420,6 +467,100 @@ export default function BrowserPanel() {
     }
   }
 
+  const onInstallNativeHost = async () => {
+    const extensionId = extensionIdInput.trim()
+    const hostPath = nativeHostPathInput.trim()
+    if (!extensionId) {
+      toast.error("Chrome extension id is required")
+      return
+    }
+    setBusy("install-native-host")
+    setError(null)
+    try {
+      const result = await getTransport().call<NativeHostInstallResult>(
+        "browser_install_native_host_manifest",
+        {
+          request: {
+            extensionId,
+            hostPath: hostPath || null,
+            nativeHostName: extensionStatus?.nativeHostName || null,
+          },
+        },
+      )
+      toast.success("Native host manifest installed", {
+        description: result.manifestPath,
+      })
+      await refresh()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      logger.error("settings", "BrowserPanel", `install-native-host failed: ${msg}`)
+      setError(msg)
+      toast.error("Native host install failed", { description: msg })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const onStopExtensionControl = async () => {
+    setBusy("stop-extension-control")
+    setError(null)
+    try {
+      const result = await getTransport().call<BrowserExtensionStopResult>(
+        "browser_extension_stop_control",
+      )
+      toast.success("Browser control stopped", {
+        description: result.message,
+      })
+      await refresh()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      logger.error("settings", "BrowserPanel", `stop-extension-control failed: ${msg}`)
+      setError(msg)
+      toast.error("Stop browser control failed", { description: msg })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const openChromeExtensions = async () => {
+    try {
+      await getTransport().call("open_url", { url: "chrome://extensions/" })
+    } catch {
+      window.open("chrome://extensions/", "_blank", "noopener,noreferrer")
+    }
+  }
+
+  const openExtensionStore = async () => {
+    const url = extensionStatus?.storeUrl
+    if (!url) return
+    try {
+      await getTransport().call("open_url", { url })
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer")
+    }
+  }
+
+  const copyInstallValue = useCallback(async (label: string, value?: string | null) => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(`${label} copied`)
+    } catch (e) {
+      logger.error("settings", "BrowserPanel", `copy ${label} failed: ${e}`)
+      toast.error(`Copy ${label} failed`)
+    }
+  }, [])
+
+  const revealInstallPath = useCallback(async (label: string, path?: string | null) => {
+    if (!path) return
+    try {
+      await getTransport().call("reveal_in_folder", { path })
+    } catch (e) {
+      logger.error("settings", "BrowserPanel", `reveal ${label} failed: ${e}`)
+      toast.error(`Reveal ${label} failed`)
+    }
+  }, [])
+
   const connected = status?.connected ?? false
 
   const statusText = useMemo(() => {
@@ -484,6 +625,337 @@ export default function BrowserPanel() {
               </Button>
             )}
           </div>
+
+          {extensionStatus && (
+            <div
+              className={cn(
+                "rounded-lg border px-4 py-3 flex items-start gap-3",
+                extensionStatus.backendAvailable
+                  ? "border-green-500/40 bg-green-500/10"
+                  : "border-amber-500/40 bg-amber-500/10",
+              )}
+            >
+              {extensionStatus.backendAvailable ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="text-sm font-medium">
+                  Chrome Extension · {extensionStatus.kind}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {extensionStatus.message}
+                </p>
+                <p className="text-[11px] text-muted-foreground font-mono truncate">
+                  {extensionStatus.nativeHostManifestPath || extensionStatus.nativeHostName}
+                </p>
+                {extensionStatus.extensionConnected && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Extension {extensionStatus.extensionVersion || "unknown"} · protocol{" "}
+                    {extensionStatus.extensionProtocolVersion ?? "unknown"}
+                  </p>
+                )}
+                {extensionStatus.unpackedExtensionPath && (
+                  <p className="text-[11px] text-muted-foreground font-mono truncate">
+                    Load unpacked: {extensionStatus.unpackedExtensionPath}
+                  </p>
+                )}
+                <div className="pt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={onStopExtensionControl}
+                    disabled={busy !== null}
+                  >
+                    {busy === "stop-extension-control" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Power className="h-3.5 w-3.5" />
+                    )}
+                    <span className="ml-1.5">Stop browser control</span>
+                  </Button>
+                </div>
+                {!extensionStatus.backendAvailable && (
+                  <div className="pt-3 space-y-3 border-t border-amber-500/20">
+                    <div className="space-y-2 text-xs">
+                      {extensionStatus.storeUrl ? (
+                        <>
+                          <div className="flex gap-2">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-500/40 text-[11px] font-medium">
+                              1
+                            </span>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="font-medium text-foreground">
+                                Install the Chrome extension
+                              </div>
+                              <div className="text-muted-foreground">
+                                Use the Chrome Web Store page, then return here and refresh.
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={openExtensionStore}
+                                disabled={busy !== null}
+                                className="h-7 px-2"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                <span className="ml-1.5">Open Chrome Web Store</span>
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-500/40 text-[11px] font-medium">
+                              2
+                            </span>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="font-medium text-foreground">
+                                Install the native host
+                              </div>
+                              <div className="font-mono text-[11px] text-muted-foreground truncate">
+                                {extensionStatus.nativeHostBinaryHint ||
+                                  "Native host path unavailable"}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void revealInstallPath(
+                                      "native host",
+                                      extensionStatus.nativeHostBinaryHint,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.nativeHostBinaryHint}
+                                  className="h-7 px-2"
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Show host</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void copyInstallValue(
+                                      "Native host path",
+                                      extensionStatus.nativeHostBinaryHint,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.nativeHostBinaryHint}
+                                  className="h-7 px-2"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Copy host path</span>
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                          {extensionStatus.unpackedExtensionPath && (
+                            <div className="rounded-md border border-border/70 px-3 py-2 space-y-2">
+                              <div className="font-medium text-foreground">
+                                Alpha fallback: load unpacked
+                              </div>
+                              <div className="font-mono text-[11px] text-muted-foreground truncate">
+                                {extensionStatus.unpackedExtensionPath}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={openChromeExtensions}
+                                  disabled={busy !== null}
+                                  className="h-7 px-2"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Open chrome://extensions</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void revealInstallPath(
+                                      "extension folder",
+                                      extensionStatus.unpackedExtensionPath,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.unpackedExtensionPath}
+                                  className="h-7 px-2"
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Show folder</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void copyInstallValue(
+                                      "Extension path",
+                                      extensionStatus.unpackedExtensionPath,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.unpackedExtensionPath}
+                                  className="h-7 px-2"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Copy path</span>
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex gap-2">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-500/40 text-[11px] font-medium">
+                              1
+                            </span>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="font-medium text-foreground">
+                                Open Chrome extensions
+                              </div>
+                              <div className="text-muted-foreground">
+                                Enable Developer mode, then use Load unpacked.
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={openChromeExtensions}
+                                disabled={busy !== null}
+                                className="h-7 px-2"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                <span className="ml-1.5">Open chrome://extensions</span>
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-500/40 text-[11px] font-medium">
+                              2
+                            </span>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="font-medium text-foreground">
+                                Load the unpacked extension
+                              </div>
+                              <div className="font-mono text-[11px] text-muted-foreground truncate">
+                                {extensionStatus.unpackedExtensionPath ||
+                                  "Extension path unavailable"}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void revealInstallPath(
+                                      "extension folder",
+                                      extensionStatus.unpackedExtensionPath,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.unpackedExtensionPath}
+                                  className="h-7 px-2"
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Show folder</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void copyInstallValue(
+                                      "Extension path",
+                                      extensionStatus.unpackedExtensionPath,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.unpackedExtensionPath}
+                                  className="h-7 px-2"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Copy path</span>
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-500/40 text-[11px] font-medium">
+                              3
+                            </span>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="font-medium text-foreground">
+                                Install the native host
+                              </div>
+                              <div className="font-mono text-[11px] text-muted-foreground truncate">
+                                {extensionStatus.nativeHostBinaryHint ||
+                                  "Native host path unavailable"}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void revealInstallPath(
+                                      "native host",
+                                      extensionStatus.nativeHostBinaryHint,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.nativeHostBinaryHint}
+                                  className="h-7 px-2"
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Show host</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    void copyInstallValue(
+                                      "Native host path",
+                                      extensionStatus.nativeHostBinaryHint,
+                                    )
+                                  }
+                                  disabled={busy !== null || !extensionStatus.nativeHostBinaryHint}
+                                  className="h-7 px-2"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                  <span className="ml-1.5">Copy host path</span>
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Input
+                        value={extensionIdInput}
+                        placeholder="Chrome extension id"
+                        onChange={(e) => setExtensionIdInput(e.target.value)}
+                      />
+                      <Input
+                        value={nativeHostPathInput}
+                        placeholder="ha-browser-host absolute path"
+                        onChange={(e) => setNativeHostPathInput(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={onInstallNativeHost}
+                        disabled={busy !== null || !extensionIdInput.trim()}
+                      >
+                        {busy === "install-native-host" ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plug className="h-3.5 w-3.5" />
+                      )}
+                      <span className="ml-1.5">Install native host</span>
+                    </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">

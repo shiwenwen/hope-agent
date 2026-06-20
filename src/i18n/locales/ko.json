@@ -93,6 +93,14 @@
         "body": "이 브라우저 작업은 활성 탭에서 임의의 JavaScript를 실행합니다. Smart 모드는 높은 신뢰도 태그나 판정 모델로 자동 허용할 수 있습니다.",
         "title": "브라우저 JavaScript"
       },
+      "browser_raw_cdp": {
+        "title": "Advanced browser CDP command",
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
+      "browser_download_action": {
+        "title": "Browser download action",
+        "body": "This browser action will read or interrupt Chrome download activity. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+      },
       "mac_control_action": {
         "title": "Mac 제어 작업",
         "body": "이 macOS 제어 호출은 데스크톱 포커스/상태를 변경합니다. Hope Agent가 다른 앱을 활성화하기 전에 확인해 주세요."
@@ -100,6 +108,10 @@
       "mac_control_dangerous_action": {
         "title": "위험한 Mac 제어 동작",
         "body": "이 macOS 제어 호출은 창을 닫거나, 앱을 종료하거나, 대화상자를 확인하거나, 파괴적인 메뉴를 실행할 수 있습니다. 매번 확인이 필요하며 항상 허용은 사용할 수 없습니다."
+      },
+      "browser_chrome_access": {
+        "title": "Real Chrome access",
+        "body": "This browser action will read or control the user's real Chrome state through the extension. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
       }
     },
     "title": "Command Approval Required",
@@ -3923,6 +3935,7 @@
     "skillCommandDispatch": "명령 디스패치",
     "skillContentPreview": "Markdown 미리보기",
     "skillContentRaw": "원본 내용",
+    "skillCurrentOs": "현재 OS",
     "skillDisabled": "비활성화됨",
     "skillEnabled": "활성화됨",
     "skillEnvClear": "지우기",
@@ -3939,14 +3952,7 @@
     },
     "skillFiles": "파일 목록",
     "skillHealth": "상태",
-    "skillCurrentOs": "현재 OS",
     "skillHardBlocked": "호환되지 않음",
-    "skillMissingAnyBins": "바이너리 하나 필요",
-    "skillMissingBins": "누락된 바이너리",
-    "skillMissingConfig": "누락된 설정",
-    "skillMissingEnv": "누락된 환경 변수",
-    "skillNeedsSetup": "설정 필요",
-    "skillSupportedOs": "지원 OS",
     "skillInstall": "설치",
     "skillInstallFailed": "설치 실패",
     "skillInstallSuccess": "설치 성공",
@@ -3954,12 +3960,18 @@
     "skillInvocationPolicy": "호출 정책",
     "skillMaxChars": "프롬프트 최대 문자",
     "skillMaxCount": "프롬프트 내 최대 스킬",
+    "skillMissingAnyBins": "바이너리 하나 필요",
+    "skillMissingBins": "누락된 바이너리",
+    "skillMissingConfig": "누락된 설정",
+    "skillMissingEnv": "누락된 환경 변수",
     "skillModelInvocable": "모델 호출 가능",
+    "skillNeedsSetup": "설정 필요",
     "skillSkipsRequirements": "의존성 검사 건너뛰기",
     "skillStatusBlocked": "허용 목록에 의해 차단",
     "skillStatusDisabled": "비활성화",
     "skillStatusEligible": "사용 가능",
     "skillStatusMissing": "종속성 누락",
+    "skillSupportedOs": "지원 OS",
     "skillUserInvocable": "사용자 호출 가능",
     "skills": "스킬",
     "skillsAutoReview": {

@@ -74,6 +74,9 @@ pub enum ApprovalReasonKind {
     AgentCustomList,
     SmartJudge,
     BrowserEvaluate,
+    BrowserRawCdp,
+    BrowserChromeAccess,
+    BrowserDownloadAction,
     MacControlAction,
     MacControlDangerousAction,
     PlanModeAsk,
@@ -130,6 +133,18 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
             BrowserEvaluate { script_preview } => Self {
                 kind: ApprovalReasonKind::BrowserEvaluate,
                 detail: Some(script_preview.clone()),
+            },
+            BrowserRawCdp { method } => Self {
+                kind: ApprovalReasonKind::BrowserRawCdp,
+                detail: Some(method.clone()),
+            },
+            BrowserChromeAccess { action } => Self {
+                kind: ApprovalReasonKind::BrowserChromeAccess,
+                detail: Some(action.clone()),
+            },
+            BrowserDownloadAction { action } => Self {
+                kind: ApprovalReasonKind::BrowserDownloadAction,
+                detail: Some(action.clone()),
             },
             MacControlAction { action } => Self {
                 kind: ApprovalReasonKind::MacControlAction,
@@ -1083,6 +1098,15 @@ mod tests {
             },
             AskReason::BrowserEvaluate {
                 script_preview: "x".into(),
+            },
+            AskReason::BrowserRawCdp {
+                method: "Accessibility.getFullAXTree".into(),
+            },
+            AskReason::BrowserChromeAccess {
+                action: "claim real Chrome tab".into(),
+            },
+            AskReason::BrowserDownloadAction {
+                action: "cancel download 7".into(),
             },
             AskReason::MacControlAction {
                 action: "click".into(),

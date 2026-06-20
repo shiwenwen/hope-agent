@@ -1,0 +1,20 @@
+[package]
+name = "ha-browser-host"
+version = "0.10.0"
+description = "Hope Agent Chrome Native Messaging host"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem"] }
+
+[lints]
+workspace = true
