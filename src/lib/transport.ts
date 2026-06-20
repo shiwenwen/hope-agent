@@ -50,6 +50,11 @@ export interface ChatStartArgs {
    *  render PlanCommentBubble instead of the markdown displayText. */
   planComment?: { selectedText: string; comment: string };
   workingDir?: string | null;
+  /** Lazy project binding. When a project draft (no session yet) sends its first
+   *  message, this carries the project id so the backend auto-create branch
+   *  materializes the session inside the project. Ignored for existing-session
+   *  sends; mutually exclusive with incognito (coerced server-side). */
+  projectId?: string | null;
   /** Composer-staged KB attaches. The backend applies them on the auto-create
    *  branch (mirrors workingDir), before the first turn runs, so the first
    *  message already sees the access. Ignored for existing-session sends. */
