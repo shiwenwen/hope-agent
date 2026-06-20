@@ -250,6 +250,9 @@ export interface UseChatStreamReturn {
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   permissionMode: SessionMode
   setPermissionMode: React.Dispatch<React.SetStateAction<SessionMode>>
+  /** User-initiated permission-mode change (switcher / `/permission`). Marks the
+   *  draft dirty so a new session's first send carries the chosen mode. */
+  setPermissionModeByUser: React.Dispatch<React.SetStateAction<SessionMode>>
   handleSend: (directText?: string, options?: SendOptions) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
@@ -454,13 +457,15 @@ export function useChatStream({
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
   const permissionModeRef = useRef<SessionMode>("default")
-  // The agent default seeded into `permissionMode` for the current draft (null
-  // until seeding settles / on a fresh draft). For a new session we send
-  // `permissionMode` ONLY when it differs from this seed — i.e. the user really
-  // changed it. Otherwise we omit it so the backend's create-time agent default
-  // (create_session_full) stays authoritative and isn't clobbered by a value
-  // sent before seeding settled (which could be stale from the prior session).
-  const seededPermissionModeRef = useRef<SessionMode | null>(null)
+  // Whether the user explicitly changed the permission mode in the current draft
+  // (via the switcher / `/permission`), vs. it being seeded from the agent
+  // default or set programmatically (restore / events). For a NEW session we send
+  // `permissionMode` only when this is true; otherwise we omit it so the backend's
+  // create-time agent default (create_session_full) stays authoritative. Set only
+  // through `setPermissionModeByUser`; reset on each fresh draft. Independent of
+  // seeding timing, so a user override made (or a config fetch that fails) before
+  // seeding settles is still honored.
+  const permissionModeDirtyRef = useRef(false)
   const [executionStateBySession, setExecutionStateBySession] = useState<
     Map<string, ChatTurnStatus>
   >(() => new Map())
@@ -499,6 +504,20 @@ export function useChatStream({
       return next
     })
   }, [currentSessionIdRef])
+
+  // User-initiated permission-mode change (switcher / `/permission`). Marks the
+  // draft "dirty" so a new session's first send carries the chosen mode, then
+  // delegates to the persist/state logic. Programmatic callers (seeding, restore,
+  // backend events) must use `setPermissionMode` so they don't mark the draft.
+  const setPermissionModeByUser = useCallback<
+    React.Dispatch<React.SetStateAction<SessionMode>>
+  >(
+    (value) => {
+      permissionModeDirtyRef.current = true
+      setPermissionMode(value)
+    },
+    [setPermissionMode],
+  )
 
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)
@@ -590,20 +609,19 @@ export function useChatStream({
   // choice intact across navigation — only "new chat" or agent swap re-seeds.
   useEffect(() => {
     if (currentSessionId || messages.length > 0 || !currentAgentId) return
-    // Fresh draft (or agent swap): the seed is not settled yet. Until it is, a
-    // send omits permissionMode (backend agent default stands).
-    seededPermissionModeRef.current = null
+    // Fresh draft (or agent swap): the user hasn't chosen a mode yet.
+    permissionModeDirtyRef.current = false
     let cancelled = false
     void (async () => {
       try {
         const config = await getTransport().call<{
           capabilities?: { defaultSessionPermissionMode?: SessionMode | null }
         }>("get_agent_config", { id: currentAgentId })
-        if (cancelled) return
+        // Don't clobber a mode the user changed while the fetch was in flight.
+        if (cancelled || permissionModeDirtyRef.current) return
         const fallback =
           (config?.capabilities?.defaultSessionPermissionMode as SessionMode | undefined) ??
           "default"
-        seededPermissionModeRef.current = fallback
         setPermissionModeState(fallback)
       } catch (e) {
         logger.error(
@@ -1044,12 +1062,11 @@ export function useChatStream({
           modelOverride,
           agentId: currentAgentId,
           // Existing session: always send (the title-bar switcher persisted it).
-          // New session: only send when the user changed it from the seeded agent
-          // default — otherwise omit so the backend's create-time default wins.
+          // New session: only send when the user explicitly changed it — otherwise
+          // omit so the backend's create-time agent default (create_session_full)
+          // wins instead of a seeded/stale value sent before seeding settled.
           permissionMode:
-            currentSessionId ||
-            (seededPermissionModeRef.current !== null &&
-              permissionModeRef.current !== seededPermissionModeRef.current)
+            currentSessionId || permissionModeDirtyRef.current
               ? permissionModeRef.current
               : undefined,
           planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
@@ -1452,6 +1469,7 @@ export function useChatStream({
     setShowCodexAuthExpired,
     permissionMode,
     setPermissionMode,
+    setPermissionModeByUser,
     handleSend,
     handleStop,
     handleApprovalResponse,

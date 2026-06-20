@@ -1475,7 +1475,7 @@ export default function ChatScreen({
           }
           break
         case "setToolPermission":
-          stream.setPermissionMode(action.mode)
+          stream.setPermissionModeByUser(action.mode)
           break
         case "displayOnly":
           // Already handled above by adding event message
@@ -2421,7 +2421,7 @@ export default function ChatScreen({
                       currentAgentId={session.currentAgentId}
                       onCommandAction={handleCommandAction}
                       permissionMode={stream.permissionMode}
-                      onPermissionModeChange={stream.setPermissionMode}
+                      onPermissionModeChange={stream.setPermissionModeByUser}
                       sessionTemperature={sessionTemperature}
                       onSessionTemperatureChange={setSessionTemperature}
                       incognitoEnabled={incognitoEnabled}
