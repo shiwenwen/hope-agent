@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **侧边栏会话列表默认简约模式**：会话列表默认改为单行简约视图，更紧凑、一屏可见更多会话（可在设置中切回详细模式）；简约模式下鼠标悬停会话项时，会就地淡入显示其所属 Agent 的头像与名称；每个会话的右键菜单新增「删除」项。
 - **记忆梦境（Dreaming）确定性评测基座**：新增离线 golden-fixture 评测，以无 LLM 的确定性测试守护结构化记忆的安全红线——作用域隔离、过期抑制、证据可追溯、冲突进待审、旧记忆联动隐藏、证据展开 fail-closed，纳入默认 CI 防回归。 (#289)
 - **记忆梦境（Dreaming）用户纠错闭环（Lucid Review）**：Dashboard → 记忆梦境新增「待审核」队列，列出整理流程标记 needs_review 的结构化 claim，可逐条批准 / 编辑 / 驳回 / 标记过时 / 移动作用域 / 钉住 / 忘记；「记忆 → Claims」详情也接入同款纠错工具栏。每个操作都写入审计决策日志（以 user_correction 运行出现在运行历史），并即时影响下一轮提示——批准 / 编辑会把 claim 标为用户确认并提权、编辑内容自动重嵌；忘记可选归档（保留证据、停止注入关联旧记忆）或永久删除（连同证据与仅其独管的旧记忆）。新增 `claim_update` / `claim_forget` 接口（Tauri + HTTP）。 (#288)
 - **结构化记忆（Claims）智能检索**：结构化 claim 现在支持 FTS5 全文 + 向量混合检索（RRF 融合），算法与历史记忆同源但独立存储；claim 向量复用记忆嵌入模型，随嵌入模型切换自动重嵌。为 Context Pack 与主动召回的 claim 检索打底。 (#287)

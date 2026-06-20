@@ -297,6 +297,25 @@ export default function SessionItem({
                           </span>
                         </IconTip>
                       )}
+                      {/* hover 时在原行右侧就地显示 agent 头像 + 名称（替换时间），不弹浮层 */}
+                      <span className="hidden min-w-0 items-center gap-1 group-hover:flex animate-in fade-in-0 slide-in-from-right-1 duration-200">
+                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-[8px] text-primary">
+                          {agent?.avatar ? (
+                            <img
+                              src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
+                              className="h-full w-full object-cover"
+                              alt=""
+                            />
+                          ) : agent?.emoji ? (
+                            <span>{agent.emoji}</span>
+                          ) : (
+                            <Bot className="h-2 w-2" />
+                          )}
+                        </span>
+                        <span className="max-w-[88px] truncate text-[10px] font-normal text-muted-foreground/70">
+                          {agent?.name || session.agentId}
+                        </span>
+                      </span>
                       <span className="text-right text-[10px] font-normal text-muted-foreground/60 group-hover:hidden">
                         {formatRelativeTime(session.updatedAt)}
                       </span>
@@ -454,6 +473,14 @@ export default function SessionItem({
               </ContextMenuSub>
             </>
           )}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onClick={(e) => onDeleteClick(session.id, e)}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          {t("common.delete")}
+        </ContextMenuItem>
       </ContextMenuContent>
       {exportOpen && (
         <ExportSessionDialog
