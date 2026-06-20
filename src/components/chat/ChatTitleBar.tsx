@@ -30,7 +30,12 @@ import {
 import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDisplay"
-import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "./chatUtils"
+import {
+  computeContextUsage,
+  contextUsageBarClass,
+  formatMessageTime,
+  type ContextUsageInfo,
+} from "./chatUtils"
 import {
   compactContextNow,
   compactResultMessage,
@@ -64,6 +69,7 @@ interface ChatTitleBarProps {
   currentSessionId: string | null
   sessions: SessionMeta[]
   messages: Message[]
+  contextUsageOverride?: ContextUsageInfo | null
   activeModel: ActiveModel | null
   availableModels: AvailableModel[]
   reasoningEffort: string
@@ -146,6 +152,7 @@ export default function ChatTitleBar({
   currentSessionId,
   sessions,
   messages,
+  contextUsageOverride,
   activeModel,
   availableModels,
   reasoningEffort,
@@ -624,9 +631,9 @@ export default function ChatTitleBar({
               {/* Context window usage. See `getContextUsageTokens` for the
                *  cumulative-vs-last-round rule. */}
               {(() => {
-                const usage = currentModel
+                const usage = contextUsageOverride ?? (currentModel
                   ? computeContextUsage(messages, currentModel.contextWindow)
-                  : null
+                  : null)
                 if (!usage) return null
                 const { usedTokens, usedK, ctxK, pct } = usage
                 const barColor = contextUsageBarClass(pct)

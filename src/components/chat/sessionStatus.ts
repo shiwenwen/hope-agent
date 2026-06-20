@@ -53,9 +53,24 @@ export interface CompactResult {
   description?: string
 }
 
+export const COMPACT_CONTEXT_UPDATED_EVENT = "hope:compact-context-updated"
+
+export interface CompactContextUpdatedDetail {
+  sessionId: string
+  result: CompactResult
+}
+
 /** Run the manual context compaction for a session. */
-export function compactContextNow(sessionId: string): Promise<CompactResult> {
-  return getTransport().call<CompactResult>("compact_context_now", { sessionId })
+export async function compactContextNow(sessionId: string): Promise<CompactResult> {
+  const result = await getTransport().call<CompactResult>("compact_context_now", { sessionId })
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent<CompactContextUpdatedDetail>(COMPACT_CONTEXT_UPDATED_EVENT, {
+        detail: { sessionId, result },
+      }),
+    )
+  }
+  return result
 }
 
 /** Toast message describing a compaction result (saved tokens / affected turns). */

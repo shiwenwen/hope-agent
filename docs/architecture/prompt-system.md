@@ -250,7 +250,7 @@ The following project context files have been loaded:
 |              | session_status     | `TOOL_DESC_SESSION_STATUS`     | 会话详细状态                                             |
 |              | sessions_history   | `TOOL_DESC_SESSIONS_HISTORY`   | 分页历史记录                                             |
 |              | sessions_send      | `TOOL_DESC_SESSIONS_SEND`      | 跨会话消息发送                                           |
-| **媒体**     | image              | `TOOL_DESC_IMAGE`              | 图片分析；prompt 指定分析目标                            |
+| **媒体**     | image              | `TOOL_DESC_IMAGE`              | 视觉输入；把图片附件带入下一轮模型并用 task/question 指定目标 |
 |              | image_generate     | `TOOL_DESC_IMAGE_GENERATE`     | AI 图片生成；failover                                    |
 |              | pdf                | `TOOL_DESC_PDF`                | PDF 文本提取；大文件必须分页                             |
 | **其他**     | canvas             | `TOOL_DESC_CANVAS`             | 富内容制品                                               |

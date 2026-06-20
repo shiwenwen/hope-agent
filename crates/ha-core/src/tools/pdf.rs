@@ -279,7 +279,7 @@ fn build_text_output(
 
 // ── Vision Rendering ────────────────────────────────────────────────
 
-/// Render PDF pages to `__IMAGE_BASE64__` markers for LLM vision.
+/// Render PDF pages to image transport markers for LLM vision.
 fn build_vision_output(
     data: &[u8],
     page_filter: Option<&[usize]>,

@@ -324,6 +324,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 项目是侧边栏一等节点，每个项目渲染为可折叠的 `ProjectGroup`：
 
 - 展开后嵌套该项目下的会话列表（复用 `SessionItem`）；展开状态按单条 `localStorage` 键 `ha:project-expanded`（一条 JSON 存所有项目的展开集，`ProjectSection.tsx` 内联，非 `useTreeExpansion`）持久化
+- **每个项目独立分页**（[`useProjectSessions`](../../src/components/chat/project/hooks/useProjectSessions.ts)）：展开时按需调 `list_project_sessions_cmd` 拉自己的会话（**而非**从共享全局会话数组里筛——全局数组只持最近一页，会漏掉项目里较早的会话），默认 `PROJECT_SESSION_PAGE_SIZE`（15）；底部「展开显示 / 折叠显示」按钮增减一页。采用 **window-refetch 模型**（恒 `offset:0`、`limit:windowSize`），分页 ≤15 条对本地 SQLite 成本极低，且免去 append/dedup 竞态。实时刷新复用 ChatScreen 既有机制：以该项目在全局会话数组中切片的指纹（`changeSignal`，含 id/updatedAt/pinnedAt/unread/title/pending）+ `ProjectMeta.session_count` 作为 refetch 触发，**指纹仅作触发、绝不用于渲染**
 - Hover「新建对话」+「设置」；右键菜单 新建 / 设置 / 归档
 - 主区 `SessionList` 自动排除 `projectId` 非空会话，避免与树状项目下会话重复
 - 项目名后追加 `working_dir` 摘要

@@ -2969,23 +2969,22 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let current = conn
-            .query_row(
-                "SELECT context_json FROM sessions WHERE id = ?1",
-                params![session_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?;
-        let Some(current) = current else {
-            return Ok(false);
+        let changed = if let Some(expected) = expected_context_json {
+            conn.execute(
+                "UPDATE sessions
+                 SET context_json = ?1
+                 WHERE id = ?2 AND context_json = ?3",
+                params![context_json, session_id, expected],
+            )?
+        } else {
+            conn.execute(
+                "UPDATE sessions
+                 SET context_json = ?1
+                 WHERE id = ?2 AND context_json IS NULL",
+                params![context_json, session_id],
+            )?
         };
-        if current.as_deref() != expected_context_json {
-            return Ok(false);
-        }
-        let changed = conn.execute(
-            "UPDATE sessions SET context_json = ?1 WHERE id = ?2",
-            params![context_json, session_id],
-        )?;
+
         Ok(changed > 0)
     }
 
@@ -3988,6 +3987,26 @@ mod tests {
             .save_context_if_unchanged("missing-session", None, "[]")
             .expect("missing row should not error");
         assert!(!missing);
+
+        let empty = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session without context");
+        let initial = db
+            .save_context_if_unchanged(&empty.id, None, r#"["initial"]"#)
+            .expect("initial guarded save");
+        assert!(initial);
+        assert_eq!(
+            db.load_context(&empty.id).expect("load context").as_deref(),
+            Some(r#"["initial"]"#)
+        );
+        let unexpected_null = db
+            .save_context_if_unchanged(&empty.id, None, r#"["overwrite"]"#)
+            .expect("non-null context should not match null expectation");
+        assert!(!unexpected_null);
+        assert_eq!(
+            db.load_context(&empty.id).expect("load context").as_deref(),
+            Some(r#"["initial"]"#)
+        );
 
         let _ = std::fs::remove_file(&db_path);
     }

@@ -63,8 +63,14 @@ import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
-import { computeContextUsage } from "./chatUtils"
-import { resolveCurrentModel } from "./sessionStatus"
+import { computeContextUsage, formatContextUsage } from "./chatUtils"
+import {
+  COMPACT_CONTEXT_UPDATED_EVENT,
+  compactContextNow,
+  compactResultMessage,
+  resolveCurrentModel,
+  type CompactContextUpdatedDetail,
+} from "./sessionStatus"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
@@ -123,6 +129,25 @@ interface ChatScreenProps {
   pendingChatInsert?: ChatInsert
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
+}
+
+interface ManualCompactOverride {
+  sessionId: string
+  tokensAfter: number
+  usageFingerprint: string | null
+}
+
+function latestAssistantUsageFingerprint(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role !== "assistant" || !msg.usage) continue
+    return JSON.stringify({
+      dbId: msg.dbId ?? null,
+      timestamp: msg.timestamp ?? null,
+      usage: msg.usage,
+    })
+  }
+  return null
 }
 
 type ExclusiveRightPanel =
@@ -373,6 +398,9 @@ export default function ChatScreen({
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
+  const [manualCompactOverride, setManualCompactOverride] = useState<ManualCompactOverride | null>(
+    null,
+  )
 
   // In-session "find in page" search bar state
   const [searchBarOpen, setSearchBarOpen] = useState(false)
@@ -481,6 +509,29 @@ export default function ChatScreen({
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
   const handleSwitchSession = session.handleSwitchSession
+  const latestMessagesRef = useRef<Message[]>(session.messages)
+
+  useEffect(() => {
+    latestMessagesRef.current = session.messages
+  }, [session.messages])
+
+  useEffect(() => {
+    const handleManualCompactUsage = (event: Event) => {
+      const detail = (event as CustomEvent<CompactContextUpdatedDetail>).detail
+      if (!detail?.sessionId || !detail.result) return
+      // Single most-recent override (not a per-session map): the post-compaction
+      // number is a transient correction for the session being compacted, so it
+      // never needs to accumulate across sessions or outlive the next compaction.
+      setManualCompactOverride({
+        sessionId: detail.sessionId,
+        tokensAfter: detail.result.tokensAfter,
+        usageFingerprint: latestAssistantUsageFingerprint(latestMessagesRef.current),
+      })
+    }
+
+    window.addEventListener(COMPACT_CONTEXT_UPDATED_EVENT, handleManualCompactUsage)
+    return () => window.removeEventListener(COMPACT_CONTEXT_UPDATED_EVENT, handleManualCompactUsage)
+  }, [])
 
   // Ambient file-action wiring for the message tree (preview opener + session).
   const fileActionsValue = useMemo<FileActionsContextValue>(
@@ -787,6 +838,13 @@ export default function ChatScreen({
       try {
         await getTransport().call("rename_session_cmd", { sessionId, title })
         reloadSessions()
+        // Per-project session lists paginate independently and may show sessions
+        // older than the global window; a rename bumps neither `updated_at` nor
+        // `session_count`, so their refetch triggers don't fire. Nudge them with
+        // the new title directly (see useProjectSessions).
+        window.dispatchEvent(
+          new CustomEvent("hope:session-renamed", { detail: { id: sessionId, title } }),
+        )
       } catch (err) {
         logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
       }
@@ -1179,10 +1237,35 @@ export default function ChatScreen({
   // Context-window fullness for the input-dock bottom bar. Derived from the
   // active model's window + the latest assistant usage (shared helper, same
   // numbers as the status popover / workspace session card).
+  const currentModelForUsage = useMemo(
+    () => resolveCurrentModel(activeModel, availableModels),
+    [activeModel, availableModels],
+  )
   const contextUsage = useMemo(() => {
-    const model = resolveCurrentModel(activeModel, availableModels)
-    return model ? computeContextUsage(session.messages, model.contextWindow) : null
-  }, [activeModel, availableModels, session.messages])
+    if (!currentModelForUsage) return null
+
+    const baseUsage = computeContextUsage(session.messages, currentModelForUsage.contextWindow)
+    const currentOverride =
+      manualCompactOverride && manualCompactOverride.sessionId === session.currentSessionId
+        ? manualCompactOverride
+        : null
+    if (!currentOverride) return baseUsage
+
+    const latestUsageFingerprint = latestAssistantUsageFingerprint(session.messages)
+    if (latestUsageFingerprint !== currentOverride.usageFingerprint) {
+      return baseUsage
+    }
+
+    return (
+      formatContextUsage(currentOverride.tokensAfter, currentModelForUsage.contextWindow) ??
+      baseUsage
+    )
+  }, [
+    currentModelForUsage,
+    manualCompactOverride,
+    session.currentSessionId,
+    session.messages,
+  ])
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -1303,11 +1386,11 @@ export default function ChatScreen({
           if (session.currentSessionId) {
             setCompacting(true)
             try {
-              await getTransport().call("compact_context_now", {
-                sessionId: session.currentSessionId,
-              })
+              const result = await compactContextNow(session.currentSessionId)
+              toast.success(compactResultMessage(t, result))
             } catch (e) {
               logger.error("ui", "ChatScreen::slashCompact", "Compact failed", e)
+              toast.error(t("chat.compactFailed"))
             } finally {
               setCompacting(false)
             }
@@ -2094,6 +2177,7 @@ export default function ChatScreen({
           currentSessionId={session.currentSessionId}
           sessions={session.sessions}
           messages={session.messages}
+          contextUsageOverride={contextUsage}
           activeModel={activeModel}
           availableModels={availableModels}
           reasoningEffort={reasoningEffort}
@@ -2479,6 +2563,7 @@ export default function ChatScreen({
                 taskSnapshot={taskProgressSnapshot}
                 taskExecutionState={workspaceTaskExecutionState}
                 messages={session.messages}
+                contextUsageOverride={contextUsage}
                 onOpenDiff={diffPanel.openDiff}
                 onPreviewFile={filePreview.openPreview}
                 sessionId={session.currentSessionId}

@@ -840,13 +840,16 @@ function parseDispositionFilename(disposition: string): string | null {
 
 function normalizeCommandResponse(command: string, value: unknown): unknown {
   if (
-    command === "list_sessions_cmd" &&
+    (command === "list_sessions_cmd" || command === "list_project_sessions_cmd") &&
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     "sessions" in value &&
     "total" in value
   ) {
+    // HTTP returns `{ sessions, total }` (PaginatedSessions); the Tauri command
+    // returns the `[sessions, total]` tuple. Normalize both to the tuple so the
+    // frontend stays transport-agnostic.
     const paginated = value as { sessions: unknown; total: unknown };
     return [paginated.sessions, paginated.total];
   }

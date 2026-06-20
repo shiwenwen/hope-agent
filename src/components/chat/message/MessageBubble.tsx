@@ -436,6 +436,7 @@ function MessageBubbleInner({
       return (
         <ContextBreakdownCard
           data={msg.contextBreakdownData}
+          sessionId={sessionId}
           onViewSystemPrompt={onViewSystemPrompt}
         />
       )

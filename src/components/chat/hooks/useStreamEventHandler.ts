@@ -1,5 +1,12 @@
 import type React from "react"
 import type { ContentBlock, FallbackEvent, MediaItem, Message, ToolMetadata } from "@/types/chat"
+import {
+  contextCompactionData,
+  isContextCompactionPayload,
+  isContextCompactionStartPayload,
+  parseEventPayload,
+  shouldReplaceContextCompactionNotice,
+} from "../contextCompactionEvents"
 import { mergeUsageFromEvent, parseUserAttachmentsMeta } from "../chatUtils"
 import { hasToolError } from "../message/executionStatus"
 
@@ -216,22 +223,9 @@ function stringField(event: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : ""
 }
 
-function objectField(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null
-  return value as Record<string, unknown>
-}
-
 function eventPayloadFromMessage(message: Message): Record<string, unknown> | null {
   if (message.role !== "event") return null
-  try {
-    return objectField(JSON.parse(message.content))
-  } catch {
-    return null
-  }
-}
-
-function contextCompactionData(event: Record<string, unknown>): Record<string, unknown> {
-  return objectField(event.data) ?? {}
+  return parseEventPayload(message.content)
 }
 
 function isContextCompactionStartDescription(description: unknown): boolean {
@@ -255,10 +249,21 @@ function isContextCompactionLiveNotice(message: Message): boolean {
   return isContextCompactionStartDescription(contextCompactionData(payload).description)
 }
 
+function isContextCompactionNotice(message: Message): boolean {
+  return isContextCompactionPayload(eventPayloadFromMessage(message))
+}
+
 function contextCompactionStartNoticeIndex(messages: Message[]): number {
   let idx = messages.length - 1
   if (messages[idx]?.role === "assistant") idx -= 1
   if (idx >= 0 && isContextCompactionLiveNotice(messages[idx])) return idx
+  return -1
+}
+
+function contextCompactionNoticeIndex(messages: Message[]): number {
+  let idx = messages.length - 1
+  if (messages[idx]?.role === "assistant") idx -= 1
+  if (idx >= 0 && isContextCompactionNotice(messages[idx])) return idx
   return -1
 }
 
@@ -411,6 +416,20 @@ export function handleStreamEvent(
                 : mergeWithContextCompactionStart(previousNotice, event),
           }
           return updated
+        }
+        if (event.type === "context_compacted" && !isContextCompactionStartPayload(event)) {
+          const noticeIdx = contextCompactionNoticeIndex(prev)
+          if (noticeIdx >= 0) {
+            const previousNotice = prev[noticeIdx]
+            if (!previousNotice) return prev
+            const previousPayload = eventPayloadFromMessage(previousNotice)
+            if (!shouldReplaceContextCompactionNotice(previousPayload, event)) {
+              return prev
+            }
+            const updated = [...prev]
+            updated[noticeIdx] = notice
+            return updated
+          }
         }
       }
       const last = prev[prev.length - 1]

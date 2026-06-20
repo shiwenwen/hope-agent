@@ -102,6 +102,7 @@ pub use boundary::{
     MessageRound, RecentBoundary, RoundKind,
 };
 pub use compact::{compact_if_needed, emergency_compact, microcompact};
+pub(crate) use compact::{compact_oversized_recovered_tool_results, RecoveredToolCleanup};
 pub use config::CompactConfig;
 pub use engine::{
     CompactionContext, CompactionProvider, ContextEngine, DefaultContextEngine,

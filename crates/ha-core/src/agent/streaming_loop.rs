@@ -743,6 +743,16 @@ impl AssistantAgent {
                 break;
             }
 
+            // The turn will run at least one more round (tool calls are
+            // pending). Emit an interim usage snapshot so the context-usage
+            // gauge reflects this round's input immediately, instead of only
+            // updating once the whole tool loop finishes at `emit_usage` below.
+            // `ttft` is omitted — it is a turn-level metric surfaced once with
+            // the final usage event. The streaming assistant message is still
+            // the latest message at this point, so the frontend (which only
+            // applies usage onto a trailing assistant) picks it up.
+            emit_usage(on_delta, &total_usage, model, None, false);
+
             // Estimate current token usage for adaptive tool output sizing.
             let estimated_used = crate::context_compact::estimate_request_tokens(
                 &system_prompt,
@@ -1039,7 +1049,7 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = messages;
 
-        emit_usage(on_delta, &total_usage, model, first_ttft_ms);
+        emit_usage(on_delta, &total_usage, model, first_ttft_ms, true);
 
         // Log chat completion summary.
         if let Some(logger) = crate::get_logger() {

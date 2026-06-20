@@ -182,6 +182,47 @@ fn sync_tier_from_compact_result(result: &crate::context_compact::CompactResult)
     }
 }
 
+fn record_manual_recovered_tool_cleanup(
+    result: &mut crate::context_compact::CompactResult,
+    cleanup: crate::context_compact::RecoveredToolCleanup,
+) {
+    if !cleanup.changed() {
+        return;
+    }
+
+    result.messages_affected = result
+        .messages_affected
+        .saturating_add(cleanup.messages_affected());
+    if let Some(details) = result.details.as_mut() {
+        details.tool_results_soft_trimmed = details
+            .tool_results_soft_trimmed
+            .saturating_add(cleanup.image_markers_materialized);
+        details.tool_results_hard_cleared = details
+            .tool_results_hard_cleared
+            .saturating_add(cleanup.hard_cleared);
+    }
+    if let Some(manifest) = result.manifest.as_mut() {
+        manifest.tool_results_soft_trimmed = manifest
+            .tool_results_soft_trimmed
+            .saturating_add(cleanup.image_markers_materialized);
+        manifest.tool_results_hard_cleared = manifest
+            .tool_results_hard_cleared
+            .saturating_add(cleanup.hard_cleared);
+        if cleanup.hard_cleared > 0 {
+            manifest.warnings.push(format!(
+                "manual_recovered_tool_results_cleared:{}",
+                cleanup.hard_cleared
+            ));
+        }
+        if cleanup.image_markers_materialized > 0 {
+            manifest.warnings.push(format!(
+                "manual_recovered_image_markers_materialized:{}",
+                cleanup.image_markers_materialized
+            ));
+        }
+    }
+}
+
 impl AssistantAgent {
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
@@ -581,10 +622,36 @@ impl AssistantAgent {
                         .warnings
                         .push("tier3_summary_skipped_by_policy".to_string());
                 }
-            } else if let Some(split) =
+            } else if let Some(mut split) =
                 context_compact::split_for_summarization(messages, compact_config)
             {
                 let is_incognito = self.session_is_incognito();
+                if options.force_summary {
+                    let preserved_start = split.preserved_start_index.min(messages.len());
+                    let recovered_tool_cleanup =
+                        context_compact::compact_oversized_recovered_tool_results(
+                            &mut messages[preserved_start..],
+                            compact_config.soft_trim_max_chars,
+                            self.session_id.as_deref(),
+                            !is_incognito,
+                        );
+                    if recovered_tool_cleanup.changed() {
+                        split.preserved = messages[preserved_start..].to_vec();
+                        record_manual_recovered_tool_cleanup(
+                            &mut compact_result,
+                            recovered_tool_cleanup,
+                        );
+                        run_outcome.changed_history = true;
+                        app_info!(
+                            "context",
+                            "compact",
+                            "Manual compaction cleaned oversized recovered tool results: hard_cleared={}, image_markers_materialized={}",
+                            recovered_tool_cleanup.hard_cleared,
+                            recovered_tool_cleanup.image_markers_materialized
+                        );
+                    }
+                }
+
                 let runtime_ledger_snapshot = if is_incognito {
                     context_compact::RuntimeLedgerSnapshot::default()
                 } else {

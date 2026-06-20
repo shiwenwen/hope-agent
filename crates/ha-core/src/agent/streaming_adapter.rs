@@ -87,8 +87,10 @@ pub(crate) struct RoundOutcome {
 /// `media_items` and `is_error` are intentionally not surfaced here — the
 /// orchestrator already used them to fire `emit_tool_result` events before
 /// constructing this struct. Adapters store `clean_result` verbatim in history;
-/// any `__IMAGE_BASE64__` / `__IMAGE_FILE__` marker expansion happens only on
-/// the outgoing API request so persisted history never holds expanded base64.
+/// normal tool execution has already materialized inline image markers where
+/// appropriate, and any remaining `__IMAGE_BASE64__` / `__IMAGE_FILE__`
+/// expansion happens only on the outgoing API request so persisted history
+/// never holds provider-specific image blocks.
 pub(crate) struct ExecutedTool {
     pub call_id: String,
     pub name: String,

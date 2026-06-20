@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Loader2, Zap, FileText, Eye } from "lucide-react"
-import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ContextBreakdown } from "@/components/chat/slash-commands/types"
+import { compactContextNow, compactResultMessage } from "@/components/chat/sessionStatus"
 
 interface ContextBreakdownCardProps {
   data: ContextBreakdown
+  sessionId?: string | null
   onCompactDone?: () => void
   onViewSystemPrompt?: () => void
 }
@@ -36,6 +38,7 @@ function formatDuration(secs: number): string {
 
 export default function ContextBreakdownCard({
   data,
+  sessionId,
   onCompactDone,
   onViewSystemPrompt,
 }: ContextBreakdownCardProps) {
@@ -117,17 +120,18 @@ export default function ContextBreakdownCard({
   const pct = Math.round(data.usagePct)
   const pctColor =
     pct < 50 ? "text-green-500" : pct < 80 ? "text-yellow-500" : "text-red-500"
-  const canCompact = (cooldown == null || cooldown <= 0) && !compacting
+  const canCompact = !!sessionId && (cooldown == null || cooldown <= 0) && !compacting
 
   const handleCompact = async () => {
+    if (!sessionId) return
     setCompacting(true)
     try {
-      await getTransport().call("compact_context_now", {
-        sessionId: null, // backend resolves from locked agent
-      })
+      const result = await compactContextNow(sessionId)
+      toast.success(compactResultMessage(t, result))
       onCompactDone?.()
     } catch (e) {
       logger.error("ui", "ContextBreakdownCard::compact", "Compact failed", e)
+      toast.error(t("chat.compactFailed"))
     } finally {
       setCompacting(false)
     }
