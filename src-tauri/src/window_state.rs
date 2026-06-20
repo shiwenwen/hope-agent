@@ -313,7 +313,7 @@ fn restore_position(
 ) -> PhysicalPosition<i32> {
     if available_monitors
         .iter()
-        .any(|monitor| position_is_in_work_area(&position, monitor))
+        .any(|monitor| window_rect_is_in_work_area(&position, state, monitor))
     {
         return position;
     }
@@ -322,6 +322,40 @@ fn restore_position(
         return position;
     };
     clamp_position_to_monitor(position, state, monitor)
+}
+
+fn window_rect_is_in_work_area(
+    position: &PhysicalPosition<i32>,
+    state: MainWindowState,
+    monitor: &tauri::Monitor,
+) -> bool {
+    let scale_factor = monitor.scale_factor();
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return false;
+    }
+    let width = logical_dimension_to_physical(state.width, scale_factor);
+    let height = logical_dimension_to_physical(state.height, scale_factor);
+    let work_area = monitor.work_area();
+    rect_fits_in_area(position, width, height, work_area.position, work_area.size)
+}
+
+fn rect_fits_in_area(
+    position: &PhysicalPosition<i32>,
+    width: i32,
+    height: i32,
+    area_position: PhysicalPosition<i32>,
+    area_size: PhysicalSize<u32>,
+) -> bool {
+    let left = i64::from(area_position.x);
+    let top = i64::from(area_position.y);
+    let right = left + i64::from(area_size.width);
+    let bottom = top + i64::from(area_size.height);
+    let x = i64::from(position.x);
+    let y = i64::from(position.y);
+    let window_right = x + i64::from(width.max(1));
+    let window_bottom = y + i64::from(height.max(1));
+
+    x >= left && y >= top && window_right <= right && window_bottom <= bottom
 }
 
 fn clamp_position_to_monitor(
@@ -482,5 +516,26 @@ mod tests {
             state.sanitized().and_then(MainWindowState::saved_position),
             Some(position)
         );
+    }
+
+    #[test]
+    fn rect_fit_requires_entire_window_inside_area() {
+        let area_position = PhysicalPosition::new(0, 0);
+        let area_size = PhysicalSize::new(1000, 800);
+
+        assert!(rect_fits_in_area(
+            &PhysicalPosition::new(100, 100),
+            600,
+            400,
+            area_position,
+            area_size,
+        ));
+        assert!(!rect_fits_in_area(
+            &PhysicalPosition::new(900, 700),
+            300,
+            200,
+            area_position,
+            area_size,
+        ));
     }
 }
