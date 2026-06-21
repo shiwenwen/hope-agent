@@ -651,13 +651,13 @@ export default function BrowserPanel() {
     host_missing: t("settings.browser.extension.kindHostMissing"),
     broker_unavailable: t("settings.browser.extension.kindBrokerUnavailable"),
     version_mismatch: t("settings.browser.extension.kindVersionMismatch"),
-    not_connected: t("settings.browser.extension.kindNotConnected"),
+    extension_missing: t("settings.browser.extension.kindExtensionMissing"),
   }
   const extKindMessage: Record<string, string> = {
     ready: t("settings.browser.extension.statusReady"),
     host_missing: t("settings.browser.extension.statusHostMissing"),
     broker_unavailable: t("settings.browser.extension.statusBrokerUnavailable"),
-    not_connected: t("settings.browser.extension.statusNotConnected"),
+    extension_missing: t("settings.browser.extension.statusExtensionMissing"),
   }
 
   return (
