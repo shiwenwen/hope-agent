@@ -130,7 +130,7 @@ export default function ContextCompactPanel() {
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
-  const [pruningOpen, setPruningOpen] = useState(true)
+  const [pruningOpen, setPruningOpen] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [availableTools, setAvailableTools] = useState<{ name: string; description: string }[]>([])
