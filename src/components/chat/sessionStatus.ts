@@ -50,23 +50,54 @@ export interface CompactResult {
   tokensBefore: number
   tokensAfter: number
   messagesAffected: number
+  description?: string
+}
+
+export const COMPACT_CONTEXT_UPDATED_EVENT = "hope:compact-context-updated"
+
+export interface CompactContextUpdatedDetail {
+  sessionId: string
+  result: CompactResult
 }
 
 /** Run the manual context compaction for a session. */
-export function compactContextNow(sessionId: string): Promise<CompactResult> {
-  return getTransport().call<CompactResult>("compact_context_now", { sessionId })
+export async function compactContextNow(sessionId: string): Promise<CompactResult> {
+  const result = await getTransport().call<CompactResult>("compact_context_now", { sessionId })
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent<CompactContextUpdatedDetail>(COMPACT_CONTEXT_UPDATED_EVENT, {
+        detail: { sessionId, result },
+      }),
+    )
+  }
+  return result
 }
 
 /** Toast message describing a compaction result (saved tokens / affected turns). */
 export function compactResultMessage(t: TFunction, result: CompactResult): string {
-  return result.messagesAffected > 0
-    ? String(
-        t("chat.compactDone", {
-          saved: result.tokensBefore - result.tokensAfter,
-          affected: result.messagesAffected,
-        }),
+  if (result.messagesAffected > 0) {
+    return String(
+      t("chat.compactDone", {
+        saved: result.tokensBefore - result.tokensAfter,
+        affected: result.messagesAffected,
+      }),
+    )
+  }
+
+  switch (result.description) {
+    case "no_messages":
+      return String(t("chat.compactNoMessages", "There are no messages to compress"))
+    case "summarization_not_applied":
+      return String(t("chat.compactSummaryNotApplied", "Summary was needed, but was not completed"))
+    case "summarization_not_applied_sync_compaction_only":
+      return String(
+        t("chat.compactSummaryNotAppliedSync", "Cleaned up context, but summary was not completed"),
       )
-    : String(t("chat.compactNoChange"))
+    case "cancelled":
+      return String(t("chat.compactCancelled", "Compression was cancelled"))
+    default:
+      return String(t("chat.compactNoChange"))
+  }
 }
 
 /**

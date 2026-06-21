@@ -10,6 +10,7 @@ import InterruptedMark from "./InterruptedMark"
 
 interface ThinkingBlockProps {
   content: string
+  compact?: boolean
   isStreaming?: boolean
   /** Persisted duration from DB (ms), used to display elapsed time after restart */
   durationMs?: number
@@ -20,6 +21,7 @@ interface ThinkingBlockProps {
 
 export default function ThinkingBlock({
   content,
+  compact,
   isStreaming,
   durationMs,
   interrupted,
@@ -77,10 +79,13 @@ export default function ThinkingBlock({
   if (!content) return null
 
   return (
-    <div className="mb-3">
+    <div className={cn(compact ? "mb-1" : "mb-3")}>
       <button
         onClick={() => setManualOpen((prev) => !(prev ?? (isStreaming ? autoExpand : false)))}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 group"
+        className={cn(
+          "flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group",
+          compact ? "py-0.5" : "py-1",
+        )}
       >
         <ChevronRight
           className={cn("h-3.5 w-3.5 transition-transform duration-200", isOpen && "rotate-90")}

@@ -6,6 +6,7 @@ use super::estimation::{
     get_tool_result_text, is_tool_result, set_tool_result_text,
 };
 use super::pruning::prune_old_context_with_boundary;
+use super::round_grouping::{is_recovered_round, ROUND_KEY};
 use super::truncation::truncate_tool_results;
 use super::types::{CompactDetails, CompactResult};
 use super::{
@@ -79,6 +80,84 @@ fn microcompact_with_boundary(
     }
 
     cleared
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RecoveredToolCleanup {
+    pub(crate) hard_cleared: usize,
+    pub(crate) image_markers_materialized: usize,
+}
+
+impl RecoveredToolCleanup {
+    pub(crate) fn messages_affected(self) -> usize {
+        self.hard_cleared
+            .saturating_add(self.image_markers_materialized)
+    }
+
+    pub(crate) fn changed(self) -> bool {
+        self.messages_affected() > 0
+    }
+}
+
+pub(crate) fn compact_oversized_recovered_tool_results(
+    messages: &mut [Value],
+    min_content_chars: usize,
+    session_id: Option<&str>,
+    materialize_image_markers: bool,
+) -> RecoveredToolCleanup {
+    let threshold = min_content_chars.max(8 * 1024);
+    let mut cleanup = RecoveredToolCleanup::default();
+
+    for msg in messages {
+        let recovered = msg
+            .get(ROUND_KEY)
+            .and_then(|v| v.as_str())
+            .is_some_and(is_recovered_round);
+        if !recovered || !is_tool_result(msg) {
+            continue;
+        }
+
+        let Some(text) = get_tool_result_text(msg) else {
+            continue;
+        };
+        if text.len() <= threshold {
+            continue;
+        }
+
+        if crate::tools::image_markers::contains_image_marker(&text) {
+            if crate::tools::image_markers::has_valid_image_markers(&text) {
+                if materialize_image_markers {
+                    if let Ok(Some(compacted)) =
+                        crate::tools::image_markers::materialize_base64_image_markers(
+                            &text, session_id,
+                        )
+                    {
+                        set_tool_result_text(msg, &compacted);
+                        cleanup.image_markers_materialized =
+                            cleanup.image_markers_materialized.saturating_add(1);
+                    }
+                }
+                continue;
+            }
+
+            let placeholder = format!(
+                "[Invalid or truncated recovered image tool result cleared during manual context compaction: original content was {} chars. Re-run the tool if exact output is needed.]",
+                text.len()
+            );
+            set_tool_result_text(msg, &placeholder);
+            cleanup.hard_cleared = cleanup.hard_cleared.saturating_add(1);
+            continue;
+        }
+
+        let placeholder = format!(
+            "[Recovered tool result cleared during manual context compaction: original content was {} chars. Re-run the tool if exact output is needed.]",
+            text.len()
+        );
+        set_tool_result_text(msg, &placeholder);
+        cleanup.hard_cleared = cleanup.hard_cleared.saturating_add(1);
+    }
+
+    cleanup
 }
 
 // ── Tier 4: Emergency Compaction ──
@@ -324,6 +403,7 @@ pub fn compact_if_needed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine as _;
     use serde_json::json;
 
     #[test]
@@ -380,5 +460,97 @@ mod tests {
             messages.len() < before,
             "emergency_compact must shrink history even when the boundary fail-closes"
         );
+    }
+
+    #[test]
+    fn manual_recovered_cleanup_clears_large_recovered_tool_result() {
+        let mut messages = vec![
+            json!({
+                "role": "tool",
+                "_oc_round": "recovered-123",
+                "content": "x".repeat(12_000),
+            }),
+            json!({
+                "role": "tool",
+                "_oc_round": "r0",
+                "content": "x".repeat(12_000),
+            }),
+            json!({
+                "role": "tool",
+                "_oc_round": "recovered-456",
+                "content": "small",
+            }),
+        ];
+
+        let cleanup =
+            compact_oversized_recovered_tool_results(&mut messages, 8_000, Some("s1"), false);
+
+        assert_eq!(cleanup.hard_cleared, 1);
+        assert_eq!(cleanup.image_markers_materialized, 0);
+        assert_eq!(cleanup.messages_affected(), 1);
+        let cleared_text = messages[0].get("content").and_then(|v| v.as_str()).unwrap();
+        assert!(cleared_text.contains("Recovered tool result cleared"));
+        assert_eq!(
+            messages[1]
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap()
+                .len(),
+            12_000
+        );
+        assert_eq!(
+            messages[2].get("content").and_then(|v| v.as_str()),
+            Some("small")
+        );
+    }
+
+    #[test]
+    fn manual_recovered_cleanup_preserves_valid_image_markers_when_not_materializing() {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(vec![0_u8; 9_000]);
+        let image_marker = crate::tools::image_markers::build_image_base64_marker(
+            "image/png",
+            &b64,
+            "Screenshot captured.",
+        );
+        let mut messages = vec![json!({
+            "role": "tool",
+            "_oc_round": "recovered-image",
+            "content": image_marker,
+        })];
+        let original = messages[0]
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string();
+
+        let cleanup =
+            compact_oversized_recovered_tool_results(&mut messages, 8_000, Some("s1"), false);
+
+        assert_eq!(cleanup, RecoveredToolCleanup::default());
+        assert_eq!(
+            messages[0].get("content").and_then(|v| v.as_str()),
+            Some(original.as_str())
+        );
+    }
+
+    #[test]
+    fn manual_recovered_cleanup_clears_truncated_image_markers() {
+        let truncated_marker = format!(
+            "{}image/png__{}",
+            crate::tools::browser::IMAGE_BASE64_PREFIX,
+            "a".repeat(12_000)
+        );
+        let mut messages = vec![json!({
+            "role": "tool",
+            "_oc_round": "recovered-image",
+            "content": truncated_marker,
+        })];
+
+        let cleanup =
+            compact_oversized_recovered_tool_results(&mut messages, 8_000, Some("s1"), false);
+
+        assert_eq!(cleanup.hard_cleared, 1);
+        let cleared_text = messages[0].get("content").and_then(|v| v.as_str()).unwrap();
+        assert!(cleared_text.contains("Invalid or truncated recovered image tool result cleared"));
     }
 }

@@ -1321,10 +1321,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
-        // ── Image Analysis ──────────────────────────────────────
+        // ── Vision Input ────────────────────────────────────────
         ToolDefinition {
             name: TOOL_IMAGE.into(),
-            description: "Analyze one or more images for visual understanding. Supports multiple sources: local files, HTTP/HTTPS URLs, data URIs, system clipboard, and desktop screenshots. Up to 10 images per call — each image is sent directly to the model as raw vision data for maximum quality. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized.".into(),
+            description: "Attach one or more images as visual input for the next model round. The tool itself does not analyze images; it packages local files, URLs/data URIs, clipboard images, or desktop screenshots so the vision-capable model can inspect them together with the supplied task/question. Use this when visual layout, screenshots, charts, rendered pages, or image content must be seen rather than read as text. Supports PNG, JPEG, GIF, WebP, BMP, TIFF; oversized images are auto-resized.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
             concurrent_safe: true,
@@ -1342,8 +1342,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "images": {
                         "type": "array",
-                        "description": "Array of image sources (max 10). Use this for multi-image analysis.",
-                        "maxItems": 10,
+                        "description": format!("Array of image sources (max {}). Use this for multiple visual inputs. Add label when helpful so the next model round can refer to each image precisely.", crate::tools::image::effective_max_images()),
+                        "maxItems": crate::tools::image::effective_max_images(),
                         "items": {
                             "type": "object",
                             "properties": {
@@ -1363,14 +1363,26 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                                 "monitor": {
                                     "type": "integer",
                                     "description": "Monitor index for screenshot (default: 0 = primary)"
+                                },
+                                "label": {
+                                    "type": "string",
+                                    "description": "Optional human-readable label, e.g. 'report page 1' or 'before screenshot'."
                                 }
                             },
                             "required": ["type"]
                         }
                     },
+                    "task": {
+                        "type": "string",
+                        "description": "Preferred. The visual task/question for the next model round, e.g. 'check whether text is clipped or charts overflow'."
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "Alias for task. Use when phrasing the visual request as a question."
+                    },
                     "prompt": {
                         "type": "string",
-                        "description": "What to analyze or describe about the image(s)"
+                        "description": "Deprecated alias for task. Kept for backward compatibility."
                     }
                 },
                 "additionalProperties": false
@@ -1404,7 +1416,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "mode": {
                         "type": "string",
                         "enum": ["auto", "text", "vision"],
-                        "description": "Processing mode. 'auto' (default): text extraction, auto-fallback to vision for scanned PDFs. 'text': pure text extraction. 'vision': render pages as images for visual analysis."
+                        "description": "Processing mode. 'auto' (default): text extraction, auto-fallback to vision for scanned PDFs. 'text': pure text extraction. 'vision': render pages as images for model vision input."
                     },
                     "pages": {
                         "type": "string",
@@ -2269,5 +2281,42 @@ mod tests {
         assert!(tool.parameters["properties"].get("annotate").is_some());
         assert!(tool.parameters["properties"].get("uiMapLimit").is_some());
         assert!(tool.parameters["properties"].get("axAction").is_some());
+    }
+
+    #[test]
+    fn image_schema_describes_vision_input_not_standalone_analysis() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_IMAGE)
+            .expect("image schema");
+
+        assert!(tool.description.contains("Attach one or more images"));
+        assert!(tool.description.contains("does not analyze images"));
+        // The advertised `maxItems` must equal the effective runtime cap (the
+        // configured value clamped to the hard cap), never the hard cap alone —
+        // otherwise the model is told it may send more images than
+        // `normalize_sources` will accept.
+        let effective_cap = crate::tools::image::effective_max_images();
+        assert!(effective_cap <= crate::tools::image::CAP_MAX_IMAGES);
+        assert_eq!(
+            tool.parameters["properties"]["images"]["maxItems"].as_u64(),
+            Some(effective_cap as u64)
+        );
+        assert!(tool.parameters["properties"]["images"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(&format!("max {effective_cap}")));
+        assert!(tool.parameters["properties"].get("task").is_some());
+        assert!(tool.parameters["properties"].get("question").is_some());
+        assert!(tool.parameters["properties"].get("prompt").is_some());
+        assert!(tool.parameters["properties"]["prompt"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Deprecated alias"));
+        assert!(
+            tool.parameters["properties"]["images"]["items"]["properties"]
+                .get("label")
+                .is_some()
+        );
     }
 }

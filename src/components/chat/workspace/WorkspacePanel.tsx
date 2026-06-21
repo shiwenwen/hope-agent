@@ -62,7 +62,12 @@ import {
 } from "@/types/background-jobs"
 import { BackgroundJobStatusChip } from "../background-jobs/jobDisplay"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
-import { computeContextUsage, contextUsageBarClass, formatMessageTime } from "../chatUtils"
+import {
+  computeContextUsage,
+  contextUsageBarClass,
+  formatMessageTime,
+  type ContextUsageInfo,
+} from "../chatUtils"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
 import {
   compactContextNow,
@@ -107,6 +112,7 @@ interface WorkspacePanelProps {
   taskExecutionState?: WorkspaceTaskExecutionState
   /** 会话消息 —— 当前轮 live tail 在面板内部聚合,与后端历史全量合并。 */
   messages: Message[]
+  contextUsageOverride?: ContextUsageInfo | null
   /** 改写类文件「查看 diff」→ 右侧 diff 面板。 */
   onOpenDiff: (payload: FileChangeMetadata) => void
   /** 预览文件 → 右侧预览面板（与下挂文件 / Markdown 链接同一策略）。 */
@@ -433,6 +439,7 @@ function SessionSection({
   activeModel,
   availableModels,
   messages,
+  contextUsageOverride,
   currentAgentId,
   turnActive,
   onCommandAction,
@@ -446,6 +453,7 @@ function SessionSection({
   activeModel?: ActiveModel | null
   availableModels?: AvailableModel[]
   messages: Message[]
+  contextUsageOverride?: ContextUsageInfo | null
   currentAgentId?: string
   turnActive?: boolean
   onCommandAction?: (result: CommandResult) => void
@@ -468,8 +476,10 @@ function SessionSection({
     [activeModel, availableModels],
   )
   const usage = useMemo(
-    () => (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null),
-    [currentModel, messages],
+    () =>
+      contextUsageOverride ??
+      (currentModel ? computeContextUsage(messages, currentModel.contextWindow) : null),
+    [contextUsageOverride, currentModel, messages],
   )
   const cache = useMemo(() => computeCacheStats(messages), [messages])
 
@@ -1099,6 +1109,7 @@ export default function WorkspacePanel({
   taskSnapshot,
   taskExecutionState = "idle",
   messages,
+  contextUsageOverride,
   onOpenDiff,
   onPreviewFile,
   sessionId,
@@ -1169,6 +1180,7 @@ export default function WorkspacePanel({
           activeModel={activeModel}
           availableModels={availableModels}
           messages={messages}
+          contextUsageOverride={contextUsageOverride}
           currentAgentId={currentAgentId}
           turnActive={turnActive}
           onCommandAction={onCommandAction}

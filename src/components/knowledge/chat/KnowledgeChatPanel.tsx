@@ -400,7 +400,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
             permissionMode={stream.permissionMode}
-            onPermissionModeChange={stream.setPermissionMode}
+            onPermissionModeChange={stream.setPermissionModeByUser}
             enableNoteMention
             draftKbAttachments={draftKbAttachments}
             onDraftKbAttachChange={handleDraftKbChange}

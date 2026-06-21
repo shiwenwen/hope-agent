@@ -7,6 +7,13 @@
  * shows the same actions plus archive. Below the row, when expanded, the
  * project's sessions render with `SessionItem` indented one level.
  *
+ * Each project paginates **independently** — `useProjectSessions` fetches that
+ * project's own sessions on demand (`list_project_sessions_cmd`), starting at
+ * `PROJECT_SESSION_PAGE_SIZE` with "show more" / "show less" controls — rather
+ * than slicing the shared global session array (which only holds the most
+ * recent page and would hide older project sessions). The global array is still
+ * passed in as a cheap realtime change-signal for refetching.
+ *
  * The mainline `SessionList` keeps showing **unassigned** sessions only —
  * see [src/components/chat/sidebar/ChatSidebar.tsx](sidebar/ChatSidebar.tsx).
  */
@@ -15,6 +22,11 @@ import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Folder,
+  FolderOpen,
+  Loader2,
   MessageSquarePlus,
   Plus,
   Settings,
@@ -24,6 +36,7 @@ import {
 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -43,10 +56,15 @@ import type { SidebarDisplayMode } from "../sidebar/types"
 import SessionItem from "../sidebar/SessionItem"
 import SidebarSectionHeader from "../sidebar/SidebarSectionHeader"
 import ProjectIcon from "./ProjectIcon"
+import { PROJECT_SESSION_PAGE_SIZE } from "../hooks/constants"
+import { useProjectSessions } from "./hooks/useProjectSessions"
 
 interface ProjectSectionProps {
   projects: ProjectMeta[]
-  /** Sessions list — used to render the children of each project group. */
+  /** Global session array (live overlay). No longer rendered directly under
+   *  projects — each group fetches its own page via `useProjectSessions` — but
+   *  still used for the `SessionItem` parent lookup and as a realtime
+   *  change-signal that drives per-project refetches. */
   sessions: SessionMeta[]
   agents: AgentSummaryForSidebar[]
   currentSessionId: string | null
@@ -177,7 +195,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
         }
       />
 
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className="space-y-0.5 px-3 pb-1 pt-1">
           {visibleProjects.length === 0 && (
             <button
@@ -217,7 +235,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
                   {archivedProjects.length}
                 </span>
               </button>
-              {archivedExpanded && (
+              <AnimatedCollapse open={archivedExpanded}>
                 <div className="mt-0.5 space-y-0.5">
                   {archivedProjects.map((project) => (
                     <ProjectGroup
@@ -231,11 +249,11 @@ export default function ProjectSection(props: ProjectSectionProps) {
                     />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }
@@ -289,6 +307,38 @@ function ProjectGroup({
   )
   const projectUnreadCount = Math.max(0, project.unreadCount - currentSessionUnreadCount)
 
+  // Fingerprint of the project's slice of the live global session array. Any
+  // visible change (create / delete / rename / reorder / read / pin) flips it
+  // and triggers the independent per-project refetch below.
+  const changeSignal = useMemo(
+    () =>
+      projectSessions
+        .map(
+          (s) =>
+            `${s.id}:${s.updatedAt}:${s.pinnedAt ?? ""}:${s.unreadCount}:${s.title ?? ""}:${s.pendingInteractionCount}`,
+        )
+        .join("|"),
+    [projectSessions],
+  )
+
+  const {
+    sessions: childSessions,
+    total: childTotal,
+    loading: childLoading,
+    loadingMore: childLoadingMore,
+    hasMore: childHasMore,
+    canCollapse: childCanCollapse,
+    showMore: childShowMore,
+    showLess: childShowLess,
+  } = useProjectSessions({
+    projectId: project.id,
+    expanded: groupExpanded,
+    changeSignal,
+    sessionCount: project.sessionCount,
+  })
+  const showPaginationFooter = childTotal > PROJECT_SESSION_PAGE_SIZE
+  const ProjectToggleIcon = groupExpanded ? FolderOpen : Folder
+
   const handleMarkProjectRead = useCallback(async () => {
     if (project.unreadCount === 0) return
     try {
@@ -312,8 +362,9 @@ function ProjectGroup({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              "group/project flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 transition-colors text-left cursor-pointer",
-              displayMode === "compact" && "gap-1.5 py-1",
+              "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/35",
+              "cursor-pointer",
+              displayMode === "compact" && "min-h-8 gap-1.5 px-2 py-1",
             )}
             onClick={handleToggleExpanded}
             role="button"
@@ -325,12 +376,7 @@ function ProjectGroup({
               }
             }}
           >
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform duration-150",
-                groupExpanded && "rotate-90",
-              )}
-            />
+            <ProjectToggleIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-colors duration-150" />
             {displayMode === "detailed" && (
               <div className="relative shrink-0">
                 <ProjectIcon project={project} size="sm" withColorChip />
@@ -344,61 +390,68 @@ function ProjectGroup({
               </div>
             )}
 
-            <div className="flex-1 min-w-0">
-              <div className={cn("truncate text-foreground/90", displayMode === "compact" ? "text-[12.5px]" : "text-sm")}>
+            <div className="min-w-0 flex-1 pr-12">
+              <div
+                title={project.name}
+                className={cn(
+                  "truncate font-semibold text-foreground",
+                  displayMode === "compact" ? "text-[12.5px]" : "text-sm",
+                )}
+              >
                 {project.name}
               </div>
             </div>
             {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
                 the two sections feel consistent. */}
-            {!archivedView && (
-              <IconTip label={t("project.newChatInProject")}>
+            <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
+              {!archivedView && (
+                <IconTip label={t("project.newChatInProject")}>
+                  <button
+                    className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onNewChatInProject(project.id)
+                    }}
+                  >
+                    <MessageSquarePlus className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+              )}
+              <IconTip label={t("project.openProjectSettings")}>
                 <button
-                  className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
+                  className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onNewChatInProject(project.id)
+                    onOpenProjectSettings(project)
                   }}
                 >
-                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                  <Settings className="h-3.5 w-3.5" />
                 </button>
               </IconTip>
-            )}
-            <IconTip label={t("project.openProjectSettings")}>
-              <button
-                className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onOpenProjectSettings(project)
-                }}
-              >
-                <Settings className="h-3.5 w-3.5" />
-              </button>
-            </IconTip>
-            {archivedView && (
-              <IconTip label={t("project.unarchiveProject")}>
-                <button
-                  className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/project:text-muted-foreground/60 hover:!text-primary transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onArchiveProject(project.id, false)
-                  }}
-                >
-                  <ArchiveRestore className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-            )}
+              {archivedView && (
+                <IconTip label={t("project.unarchiveProject")}>
+                  <button
+                    className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onArchiveProject(project.id, false)
+                    }}
+                  >
+                    <ArchiveRestore className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+              )}
+            </div>
             {displayMode === "compact" && projectUnreadCount > 0 && (
-              <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums">
+              <span className="absolute right-3 top-1/2 inline-flex h-[15px] min-w-[15px] -translate-y-1/2 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0">
                 {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
               </span>
             )}
-            {project.sessionCount > 0 && (
+            {project.sessionCount > 0 && !(displayMode === "compact" && projectUnreadCount > 0) && (
               <span
                 className={cn(
-                  "text-[10px] tabular-nums shrink-0",
-                  // Hide the badge while hover buttons are showing to avoid clutter.
-                  "text-muted-foreground/70 group-hover/project:hidden",
+                  "absolute right-3 top-1/2 -translate-y-1/2 text-[10px] tabular-nums transition-opacity",
+                  "text-muted-foreground/70 group-hover/project:opacity-0 group-focus-within/project:opacity-0",
                 )}
               >
                 {project.sessionCount}
@@ -438,14 +491,18 @@ function ProjectGroup({
         </ContextMenuContent>
       </ContextMenu>
 
-      {groupExpanded && (
+      <AnimatedCollapse open={groupExpanded}>
         <div
           className={cn(
             "pl-3 pr-1 mt-0.5",
             displayMode === "compact" ? "space-y-1" : "space-y-0.5",
           )}
         >
-          {projectSessions.length === 0 ? (
+          {childLoading ? (
+            <div className="flex justify-center py-3">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            </div>
+          ) : childSessions.length === 0 ? (
             archivedView ? (
               <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
                 {t("project.sessionsInProject", { count: 0 })}
@@ -459,35 +516,61 @@ function ProjectGroup({
               </button>
             )
           ) : (
-            projectSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                sessions={sessions}
-                agent={getAgentInfo(session.agentId)}
-                projects={projects}
-                isActive={session.id === currentSessionId}
-                isLoading={loadingSessionIds.has(session.id)}
-                renamingSessionId={renamingSessionId}
-                renameValue={renameValue}
-                renameInputRef={renameInputRef}
-                onSwitchSession={onSwitchSession}
-                onDeleteClick={onDeleteSession}
-                onStartRename={onStartRename}
-                onRenameValueChange={onRenameValueChange}
-                onCommitRename={onCommitRename}
-                onCancelRename={onCancelRename}
-                onMarkAllRead={onMarkAllRead}
-                onMoveToProject={onMoveSessionToProject}
-                onTogglePinned={onToggleSessionPinned}
-                getAgentInfo={getAgentInfo}
-                formatRelativeTime={formatRelativeTime}
-                displayMode={displayMode}
-              />
-            ))
+            <>
+              {childSessions.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  sessions={sessions}
+                  agent={getAgentInfo(session.agentId)}
+                  projects={projects}
+                  isActive={session.id === currentSessionId}
+                  isLoading={loadingSessionIds.has(session.id)}
+                  renamingSessionId={renamingSessionId}
+                  renameValue={renameValue}
+                  renameInputRef={renameInputRef}
+                  onSwitchSession={onSwitchSession}
+                  onDeleteClick={onDeleteSession}
+                  onStartRename={onStartRename}
+                  onRenameValueChange={onRenameValueChange}
+                  onCommitRename={onCommitRename}
+                  onCancelRename={onCancelRename}
+                  onMarkAllRead={onMarkAllRead}
+                  onMoveToProject={onMoveSessionToProject}
+                  onTogglePinned={onToggleSessionPinned}
+                  getAgentInfo={getAgentInfo}
+                  formatRelativeTime={formatRelativeTime}
+                  displayMode={displayMode}
+                />
+              ))}
+              {showPaginationFooter && (
+                <div className="flex items-center justify-center gap-3 px-2 pt-0.5 pb-1">
+                  <button
+                    onClick={childShowMore}
+                    disabled={!childHasMore || childLoadingMore}
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    {childLoadingMore ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )}
+                    {t("project.showMore")}
+                  </button>
+                  <button
+                    onClick={childShowLess}
+                    disabled={!childCanCollapse}
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronUp className="h-3 w-3" />
+                    {t("project.showLess")}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   )
 }

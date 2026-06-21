@@ -1,4 +1,4 @@
-use crate::chat_engine::save_agent_context;
+use crate::agent_loader;
 use crate::commands::CmdError;
 use crate::context_compact;
 use crate::paths;
@@ -229,105 +229,80 @@ pub async fn save_image_generate_config(
     .map_err(Into::into)
 }
 
-/// Core logic for manual context compaction. Usable from both Tauri commands
-/// and internal callers (e.g. channel worker).
+/// Core logic for desktop manual context compaction.
 pub(crate) async fn compact_context_now_core(
     session_id: &str,
     state: &AppState,
 ) -> Result<context_compact::CompactResult, CmdError> {
-    let agent = state.agent.lock().await;
-    let agent = agent
-        .as_ref()
-        .ok_or_else(|| CmdError::msg("No active agent"))?;
-
-    let mut history = agent.get_conversation_history();
-    if history.is_empty() {
-        return Ok(context_compact::CompactResult {
-            tier_applied: 0,
-            tokens_before: 0,
-            tokens_after: 0,
-            messages_affected: 0,
-            description: "no_messages".to_string(),
-            details: None,
-            manifest: None,
-        });
-    }
-
     let store = ha_core::config::load_config()?;
-    let compact_config = store.compact;
+    let meta = state
+        .session_db
+        .get_session(session_id)?
+        .ok_or_else(|| CmdError::msg("session not found"))?;
+    let agent_id = meta.agent_id.clone();
+    let agent_def = agent_loader::load_agent(&agent_id).ok();
+    let agent_model_config = agent_def
+        .as_ref()
+        .map(|def| def.config.model.clone())
+        .unwrap_or_default();
 
-    let system_prompt_estimate = "system";
-    let max_tokens: u32 = 16384;
-
-    // Run Tier 1 + Tier 2
-    let result = context_compact::compact_if_needed(
-        &mut history,
-        system_prompt_estimate,
-        agent.get_context_window(),
-        max_tokens,
-        &compact_config,
-    );
-
-    // If thresholds not reached, force compaction with lowered thresholds
-    if result.tier_applied == 0 {
-        let mut forced_config = compact_config;
-        forced_config.soft_trim_ratio = 0.0;
-        forced_config.hard_clear_ratio = 0.0;
-
-        let forced_result = context_compact::compact_if_needed(
-            &mut history,
-            system_prompt_estimate,
-            agent.get_context_window(),
-            max_tokens,
-            &forced_config,
-        );
-
-        if forced_result.messages_affected > 0 {
-            agent.set_conversation_history(history);
-            save_agent_context(&state.session_db, session_id, agent);
-
-            if let Some(logger) = crate::get_logger() {
-                logger.log(
-                    "info",
-                    "context",
-                    "compact::manual",
-                    &format!(
-                        "Manual compaction: {} → {} tokens, {} affected",
-                        forced_result.tokens_before,
-                        forced_result.tokens_after,
-                        forced_result.messages_affected
-                    ),
-                    None,
-                    None,
-                    None,
-                );
-            }
+    let pinned = match (meta.provider_id.as_deref(), meta.model_id.as_deref()) {
+        (Some(provider_id), Some(model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
+            Some(format!("{provider_id}::{model_id}"))
         }
-        return Ok(forced_result);
+        _ => None,
+    };
+
+    let (primary, fallbacks) = if let Some(pinned) = pinned {
+        let mut cfg = agent_model_config.clone();
+        cfg.primary = Some(pinned);
+        provider::resolve_model_chain(&cfg, &store)
+    } else {
+        provider::resolve_model_chain(&agent_model_config, &store)
+    };
+
+    let mut model_chain = Vec::new();
+    if let Some(model) = primary {
+        model_chain.push(model);
     }
-
-    agent.set_conversation_history(history);
-    save_agent_context(&state.session_db, session_id, agent);
-
-    if let Some(logger) = crate::get_logger() {
-        logger.log(
-            "info",
-            "context",
-            "compact::manual",
-            &format!(
-                "Manual compaction: tier={}, {} → {} tokens, {} affected",
-                result.tier_applied,
-                result.tokens_before,
-                result.tokens_after,
-                result.messages_affected
-            ),
-            None,
-            None,
-            None,
-        );
+    for model in fallbacks {
+        if !model_chain
+            .iter()
+            .any(|m| m.provider_id == model.provider_id && m.model_id == model.model_id)
+        {
+            model_chain.push(model);
+        }
     }
+    let model = model_chain
+        .into_iter()
+        .next()
+        .ok_or_else(|| CmdError::msg("No model configured for manual compaction"))?;
 
-    Ok(result)
+    let resolved_temperature = agent_def
+        .as_ref()
+        .and_then(|def| def.config.model.temperature)
+        .or(store.temperature);
+    let codex_token = state.codex_token.lock().await.clone();
+
+    let result =
+        crate::chat_engine::compact_session_now(crate::chat_engine::CompactSessionParams {
+            session_id: session_id.to_string(),
+            agent_id,
+            session_db: state.session_db.clone(),
+            model,
+            providers: store.providers.clone(),
+            codex_token,
+            resolved_temperature,
+            compact_config: store.compact.clone(),
+            source: crate::chat_engine::ChatSource::Desktop,
+            event_sink: std::sync::Arc::new(crate::chat_engine::NoopEventSink),
+        })
+        .await
+        .map_err(CmdError::msg)?;
+
+    let compact_result = result.compact_result;
+    *state.agent.lock().await = Some(result.agent);
+    Ok(compact_result)
 }
 
 /// Manually trigger context compaction on the current session.

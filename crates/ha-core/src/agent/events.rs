@@ -106,7 +106,7 @@ pub(super) fn emit_tool_result(
 }
 
 /// Build tool result content for Anthropic Messages API.
-/// Detects `__IMAGE_BASE64__` markers and returns a content array with image + text blocks.
+/// Detects internal image markers and returns a content array with image + text blocks.
 pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
     let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
         return json!(result);
@@ -117,23 +117,29 @@ pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::V
         content.push(json!({"type": "text", "text": parsed.leading_text}));
     }
     for m in &parsed.markers {
-        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
-            return json!(result);
-        };
-        content.push(json!({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": m.mime,
-                "data": b64
-            }
-        }));
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
             &m.text
         };
-        content.push(json!({"type": "text", "text": text}));
+        match crate::tools::image_markers::encode_marker_image(m) {
+            Ok(b64) => {
+                content.push(json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": m.mime,
+                        "data": b64
+                    }
+                }));
+                content.push(json!({"type": "text", "text": text}));
+            }
+            // Image bytes are unavailable (e.g. a materialized `__IMAGE_FILE__`
+            // was removed/moved on disk). Degrade to the marker's text note
+            // rather than returning the raw `result` string, which would leak
+            // the internal marker into the prompt and silently drop vision.
+            Err(_) => content.push(json!({"type": "text", "text": text})),
+        }
     }
     json!(content)
 }
@@ -174,20 +180,24 @@ pub(super) fn build_openai_chat_tool_result_content(
         content.push(json!({"type": "text", "text": parsed.leading_text}));
     }
     for m in &parsed.markers {
-        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
-            return json!(result);
-        };
-        let data_uri = format!("data:{};base64,{}", m.mime, b64);
-        content.push(json!({
-            "type": "image_url",
-            "image_url": { "url": data_uri }
-        }));
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
             &m.text
         };
-        content.push(json!({"type": "text", "text": text}));
+        match crate::tools::image_markers::encode_marker_image(m) {
+            Ok(b64) => {
+                let data_uri = format!("data:{};base64,{}", m.mime, b64);
+                content.push(json!({
+                    "type": "image_url",
+                    "image_url": { "url": data_uri }
+                }));
+                content.push(json!({"type": "text", "text": text}));
+            }
+            // Image bytes unavailable — degrade to text rather than leaking the
+            // raw marker string back to the model.
+            Err(_) => content.push(json!({"type": "text", "text": text})),
+        }
     }
     json!(content)
 }
@@ -220,7 +230,10 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
     let mut image_items = Vec::new();
     for (i, m) in parsed.markers.iter().enumerate() {
         let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
-            return (result.to_string(), Vec::new());
+            // Image bytes unavailable — skip this image item. `combined_text`
+            // already carries the marker's text note (no raw marker), so the
+            // model still gets the description without a leak or a dropped turn.
+            continue;
         };
         let data_uri = format!("data:{};base64,{}", m.mime, b64);
         let label = if m.text.is_empty() {
@@ -375,13 +388,17 @@ pub(super) fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<V
         if item.get("type").and_then(|t| t.as_str()) == Some("function_call_output") {
             if let Some(result) = item.get("output").and_then(|o| o.as_str()) {
                 let (text_output, image_items) = build_responses_tool_result(result);
-                if !image_items.is_empty() {
-                    let mut output_item = item.clone();
-                    output_item["output"] = json!(text_output);
-                    expanded.push(output_item);
-                    expanded.extend(image_items);
-                    continue;
-                }
+                // Always substitute `text_output`. When markers were present but
+                // all failed to encode (file moved/deleted), `image_items` is
+                // empty yet `text_output` is the marker-free note — gating on a
+                // non-empty `image_items` here would push the original item and
+                // leak the raw `__IMAGE_*__` marker to the model. With no
+                // markers, `text_output == result`, so the rewrite is a no-op.
+                let mut output_item = item.clone();
+                output_item["output"] = json!(text_output);
+                expanded.push(output_item);
+                expanded.extend(image_items);
+                continue;
             }
         }
         expanded.push(item.clone());
@@ -433,6 +450,7 @@ pub(super) fn emit_usage(
     usage: &ChatUsage,
     model: &str,
     ttft_ms: Option<u64>,
+    log_summary: bool,
 ) {
     let mut event = json!({
         "type": "usage",
@@ -450,7 +468,12 @@ pub(super) fn emit_usage(
     }
     emit_event(on_delta, &event);
 
-    // Structured logging for LLM usage
+    // Structured logging for LLM usage — only on the final per-turn emit so a
+    // long tool loop does not write one `agent::usage` row per round (the
+    // interim per-round emits exist only to refresh the live usage gauge).
+    if !log_summary {
+        return;
+    }
     if let Some(logger) = crate::get_logger() {
         logger.log(
             "info",
@@ -558,6 +581,53 @@ mod tests {
 
         assert_eq!(text_output, result);
         assert!(image_items.is_empty());
+    }
+
+    #[test]
+    fn responses_expand_rewrites_valid_marker_to_clean_text_plus_image() {
+        // Happy path through the now-ungated caller: a valid marker yields a
+        // rewritten function_call_output whose `output` is the marker-free note
+        // plus a separate input_image item.
+        let marker = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+        let history = vec![json!({
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": marker,
+        })];
+
+        let expanded = expand_responses_image_markers_for_api(&history);
+
+        assert!(
+            expanded.len() >= 2,
+            "expected rewritten output + image item"
+        );
+        let output = expanded[0]["output"]
+            .as_str()
+            .expect("function_call_output output is a string");
+        assert!(!output.contains(IMAGE_BASE64_PREFIX));
+        assert!(output.contains("Screenshot captured."));
+        assert!(expanded
+            .iter()
+            .any(|it| it["content"][0]["type"] == "input_image"));
+    }
+
+    #[test]
+    fn responses_expand_leaves_marker_free_output_unchanged() {
+        // Removing the `!image_items.is_empty()` gate must not alter non-marker
+        // function_call_output items (text_output == original result → no-op).
+        let history = vec![json!({
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "plain tool result, no images",
+        })];
+
+        let expanded = expand_responses_image_markers_for_api(&history);
+
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0]["output"], "plain tool result, no images");
     }
 
     #[test]

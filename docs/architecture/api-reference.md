@@ -349,6 +349,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 
 新会话尚未 materialize 时也允许选目录：前端把选择存为 `draftWorkingDir`，首条消息发送时通过 `chat` 命令的可选 `workingDir` 字段（Tauri / `POST /api/chat` 同名）随请求带过去；后端只在自动创建 session 的分支应用，复用 `update_session_working_dir` 的 canonicalize + `is_dir` 校验，无效路径直接 400。已有 sessionId 的 `chat` 调用会忽略此字段，避免覆盖现成的工作目录设置。
 
+**项目会话懒创建**：进项目「新建对话」不再预先 `create_session_cmd` 落库，而是停在草稿态（`currentSessionId=null`，前端记 `draftProjectId`），与普通对话对称。首条消息发送时通过 `chat` 命令的可选 `projectId` 字段（Tauri / `POST /api/chat` 同名 camelCase）把项目绑定带过去；后端只在自动创建 session 的分支用它 `create_session_with_project(agent, project_id, …)`，并在 `agent_id` 缺省时按 `project.default_agent_id` 解析 agent（对齐 `create_session_cmd`）。已有 sessionId 的调用忽略此字段；`project_id` 与 `incognito` 互斥（后端强制 incognito off）。好处：进项目不再产生未发消息的空会话行，且草稿态走与普通对话相同的模型 / 权限模式 seeding。
+
 `chat` 命令还有两个知识空间侧边栏对话用的可选字段（Tauri / `POST /api/chat` 同名 camelCase）：`toolScope: "knowledge"` 把本轮注入工具集收窄到笔记 / 检索 / 记忆白名单（与 source / `effective_kb_access` 正交，只动 schema 可见性）；`kbAnchorNote` 仅在自动创建 session 的分支生效——配合单条 `kbAttachments`(write) 把新会话提升为 `kind=knowledge` 的对话线程并锚定该笔记。已有 sessionId 的调用忽略 `kbAnchorNote`。
 
 ### Chat

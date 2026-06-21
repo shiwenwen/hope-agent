@@ -278,9 +278,10 @@ impl SessionDB {
         // Migration: streaming-state column for crash-resilient placeholder
         // rows. `streaming` = being written by an active turn; `completed` =
         // finalized cleanly; `orphaned` = startup sweep saw a leftover
-        // streaming row from a previous (crashed) run. NULL is the legacy
-        // value for rows written before this column existed and is treated
-        // as `completed` by all readers.
+        // streaming row from a previous (crashed) run and has not finalized it
+        // yet; `recovered` = startup finalize already preserved that partial.
+        // NULL is the legacy value for rows written before this column existed
+        // and is treated as `completed` by all readers.
         let has_stream_status = conn
             .prepare("SELECT stream_status FROM messages LIMIT 1")
             .is_ok();
@@ -1021,14 +1022,27 @@ impl SessionDB {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
+        // New sessions inherit the agent's configured default permission mode
+        // (`capabilities.default_session_permission_mode`). This is the single
+        // source of truth for the initial mode and applies to *all* creation
+        // paths — pre-materialized project / cron / subagent sessions as well as
+        // drafts. (The chat input also seeds drafts from the same field for the
+        // pre-INSERT UI, but that path is skipped once a session row exists, so
+        // pre-materialized sessions relied entirely on this.) Falls back to
+        // `Default` when the agent config is missing or the field is unset.
+        let initial_permission_mode = crate::agent_loader::load_agent(agent_id)
+            .ok()
+            .and_then(|def| def.config.capabilities.default_session_permission_mode)
+            .unwrap_or_default();
+
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![id, agent_id, now, now, parent_session_id, project_id, incognito],
+            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, permission_mode, incognito)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, agent_id, now, now, parent_session_id, project_id, initial_permission_mode.as_str(), incognito],
         )?;
 
         Ok(SessionMeta {
@@ -1050,7 +1064,7 @@ impl SessionDB {
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: crate::plan::PlanModeState::Off,
-            permission_mode: crate::permission::SessionMode::Default,
+            permission_mode: initial_permission_mode,
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
             incognito,
@@ -2121,7 +2135,12 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT DISTINCT session_id FROM messages
-             WHERE stream_status = 'orphaned'",
+             WHERE stream_status = 'orphaned'
+               AND id > COALESCE(
+                   (SELECT MAX(u.id) FROM messages u
+                    WHERE u.session_id = messages.session_id AND u.role = 'user'),
+                   0
+               )",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut out = Vec::new();
@@ -2145,6 +2164,72 @@ impl SessionDB {
             [],
         )?;
         Ok(n)
+    }
+
+    /// Mark the current turn's already-finalized orphaned stream rows as
+    /// `recovered`.
+    ///
+    /// `orphaned` is the startup-sweep input signal. Once finalize has written
+    /// the context marker + user-facing event row, keeping the same status makes
+    /// the next launch process the same partial again. `recovered` preserves the
+    /// UI meaning ("this block came from an interrupted run") without keeping it
+    /// in the recovery queue.
+    pub fn mark_current_turn_orphaned_rows_recovered(&self, session_id: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "UPDATE messages
+             SET stream_status = 'recovered'
+             WHERE session_id = ?1
+               AND stream_status = 'orphaned'
+               AND id > COALESCE(
+                   (SELECT MAX(id) FROM messages
+                    WHERE session_id = ?1 AND role = 'user'),
+                   0
+               )",
+            params![session_id],
+        )?;
+        Ok(n)
+    }
+
+    /// True when an orphaned row in the current turn already has a later
+    /// finalize event with the given body. Used by startup recovery to repair
+    /// data written before `orphaned` rows were consumed after finalize.
+    pub fn current_turn_orphaned_has_later_event(
+        &self,
+        session_id: &str,
+        event_content: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1
+                 FROM messages o
+                 WHERE o.session_id = ?1
+                   AND o.stream_status = 'orphaned'
+                   AND o.id > COALESCE(
+                       (SELECT MAX(id) FROM messages
+                        WHERE session_id = ?1 AND role = 'user'),
+                       0
+                   )
+                   AND EXISTS (
+                       SELECT 1
+                       FROM messages e
+                       WHERE e.session_id = o.session_id
+                         AND e.role = 'event'
+                         AND e.content = ?2
+                         AND e.id > o.id
+                   )
+             )",
+            params![session_id, event_content],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
     }
 
     /// Check whether this session already has a `user` row whose
@@ -2886,6 +2971,36 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Save context only if the DB value still matches the caller's snapshot.
+    pub fn save_context_if_unchanged(
+        &self,
+        session_id: &str,
+        expected_context_json: Option<&str>,
+        context_json: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = if let Some(expected) = expected_context_json {
+            conn.execute(
+                "UPDATE sessions
+                 SET context_json = ?1
+                 WHERE id = ?2 AND context_json = ?3",
+                params![context_json, session_id, expected],
+            )?
+        } else {
+            conn.execute(
+                "UPDATE sessions
+                 SET context_json = ?1
+                 WHERE id = ?2 AND context_json IS NULL",
+                params![context_json, session_id],
+            )?
+        };
+
+        Ok(changed > 0)
+    }
+
     /// Load the agent's conversation_history JSON for a session.
     /// Returns None if the session has no saved context.
     pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
@@ -3625,6 +3740,103 @@ mod tests {
     }
 
     #[test]
+    fn orphaned_recovery_queue_only_tracks_unrecovered_current_turn_rows() {
+        let db_path = temp_db_path("session-orphaned-recovered");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        db.append_message(&session.id, &crate::session::NewMessage::user("old turn"))
+            .expect("append old user");
+        let mut old_orphan = crate::session::NewMessage::text_block("old partial");
+        old_orphan.stream_status = Some("orphaned".to_string());
+        db.append_message(&session.id, &old_orphan)
+            .expect("append old orphan");
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::user("current turn"),
+        )
+        .expect("append current user");
+
+        assert!(
+            db.sessions_with_orphaned_rows()
+                .expect("list orphan sessions")
+                .is_empty(),
+            "orphaned rows before the latest user should not re-trigger startup finalize"
+        );
+
+        let mut current_orphan = crate::session::NewMessage::text_block("current partial");
+        current_orphan.stream_status = Some("orphaned".to_string());
+        db.append_message(&session.id, &current_orphan)
+            .expect("append current orphan");
+
+        assert_eq!(
+            db.sessions_with_orphaned_rows()
+                .expect("list orphan sessions"),
+            vec![session.id.clone()]
+        );
+        assert_eq!(
+            db.mark_current_turn_orphaned_rows_recovered(&session.id)
+                .expect("mark recovered"),
+            1
+        );
+        assert!(db
+            .sessions_with_orphaned_rows()
+            .expect("list orphan sessions after recover")
+            .is_empty());
+
+        let rows = db
+            .load_current_turn_tail(&session.id)
+            .expect("load current tail");
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.content == "current partial")
+                .and_then(|row| row.stream_status.as_deref()),
+            Some("recovered")
+        );
+        assert!(
+            rows.iter().all(|row| row.content != "old partial"),
+            "old-turn rows are outside load_current_turn_tail"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn current_turn_orphaned_has_later_event_detects_existing_finalize_notice() {
+        let db_path = temp_db_path("session-orphaned-later-event");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        db.append_message(&session.id, &crate::session::NewMessage::user("hello"))
+            .expect("append user");
+        let mut orphan = crate::session::NewMessage::text_block("partial");
+        orphan.stream_status = Some("orphaned".to_string());
+        db.append_message(&session.id, &orphan)
+            .expect("append orphan");
+
+        let notice = "上次会话异常中断,已保留中断前的内容";
+        assert!(!db
+            .current_turn_orphaned_has_later_event(&session.id, notice)
+            .expect("detect before event"));
+
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::error_event(notice),
+        )
+        .expect("append event");
+
+        assert!(db
+            .current_turn_orphaned_has_later_event(&session.id, notice)
+            .expect("detect after event"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn tool_media_items_persist_in_attachments_meta() {
         let db_path = temp_db_path("session-tool-media-items");
         let db = SessionDB::open(&db_path).expect("open session db");
@@ -3749,6 +3961,70 @@ mod tests {
     }
 
     #[test]
+    fn save_context_if_unchanged_rejects_stale_snapshot() {
+        let db_path = temp_db_path("session-context-cas");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        db.save_context(&created.id, r#"["old"]"#)
+            .expect("seed context");
+        let saved = db
+            .save_context_if_unchanged(&created.id, Some(r#"["old"]"#), r#"["compact"]"#)
+            .expect("guarded save");
+        assert!(saved);
+        assert_eq!(
+            db.load_context(&created.id)
+                .expect("load context")
+                .as_deref(),
+            Some(r#"["compact"]"#)
+        );
+
+        db.save_context(&created.id, r#"["new turn"]"#)
+            .expect("simulate concurrent turn");
+        let stale = db
+            .save_context_if_unchanged(&created.id, Some(r#"["compact"]"#), r#"["stale"]"#)
+            .expect("stale save should not error");
+        assert!(!stale);
+        assert_eq!(
+            db.load_context(&created.id)
+                .expect("load context")
+                .as_deref(),
+            Some(r#"["new turn"]"#)
+        );
+
+        let missing = db
+            .save_context_if_unchanged("missing-session", None, "[]")
+            .expect("missing row should not error");
+        assert!(!missing);
+
+        let empty = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session without context");
+        let initial = db
+            .save_context_if_unchanged(&empty.id, None, r#"["initial"]"#)
+            .expect("initial guarded save");
+        assert!(initial);
+        assert_eq!(
+            db.load_context(&empty.id).expect("load context").as_deref(),
+            Some(r#"["initial"]"#)
+        );
+        let unexpected_null = db
+            .save_context_if_unchanged(&empty.id, None, r#"["overwrite"]"#)
+            .expect("non-null context should not match null expectation");
+        assert!(!unexpected_null);
+        assert_eq!(
+            db.load_context(&empty.id).expect("load context").as_deref(),
+            Some(r#"["initial"]"#)
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn create_and_update_session_roundtrip_incognito() {
         let db_path = temp_db_path("session-incognito-roundtrip");
         let db = SessionDB::open(&db_path).expect("open session db");
@@ -3781,6 +4057,43 @@ mod tests {
             !updated.incognito,
             "updated session should persist incognito=false"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn create_session_in_project_binds_and_coerces_incognito() {
+        // Backs the lazy project-session flow: the first message's `chat`
+        // command auto-creates the session with `project_id`. Verify the binding
+        // persists and that a requested incognito is coerced off (project +
+        // incognito are mutually exclusive — the single source of that rule).
+        let db_path = temp_db_path("session-project-incognito-coerce");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some("proj-123"),
+                Some(true),
+            )
+            .expect("create project session");
+        assert_eq!(
+            created.project_id.as_deref(),
+            Some("proj-123"),
+            "returned meta should carry the project binding"
+        );
+        assert!(
+            !created.incognito,
+            "a project binding must coerce incognito off"
+        );
+
+        let loaded = db
+            .get_session(&created.id)
+            .expect("get session")
+            .expect("session exists");
+        assert_eq!(loaded.project_id.as_deref(), Some("proj-123"));
+        assert!(!loaded.incognito, "stored session must not be incognito");
 
         let _ = std::fs::remove_file(&db_path);
     }

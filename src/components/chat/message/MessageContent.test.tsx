@@ -120,18 +120,20 @@ describe("AssistantContentBlocks processed grouping", () => {
     expect(screen.queryByTestId("tool-block")).toBeNull()
   })
 
-  test("folds multiple completed process units and mounts details only after expand", () => {
+  test("folds multiple completed process units after text arrives", () => {
     renderContentBlocks([
       { type: "thinking", content: "first thought" },
       { type: "tool_call", tool: tool("call-1") },
       { type: "tool_call", tool: tool("call-2") },
       { type: "thinking", content: "second thought" },
+      { type: "text", content: "visible answer" },
     ])
 
     const processed = screen.getByRole("button", { name: /已处理/ })
     expect(processed.getAttribute("aria-expanded")).toBe("false")
     expect(screen.queryByTestId("thinking-block")).toBeNull()
     expect(screen.queryByTestId("tool-group")).toBeNull()
+    expect(screen.getByTestId("markdown").textContent).toBe("visible answer")
 
     fireEvent.click(processed)
 
@@ -153,7 +155,7 @@ describe("AssistantContentBlocks processed grouping", () => {
     expect(screen.getByTestId("tool-block").textContent).toBe("read:call-1")
   })
 
-  test("folds the completed prefix while streaming, leaving the live tail unfolded", () => {
+  test("keeps completed process units visible while streaming before text arrives", () => {
     renderContentBlocks(
       [
         { type: "thinking", content: "first thought" },
@@ -164,23 +166,40 @@ describe("AssistantContentBlocks processed grouping", () => {
       { loading: true, isLast: true },
     )
 
-    // First thought + the two completed tools fold into one 已处理 group; the
-    // trailing thinking block is the live tail and stays expanded.
+    // No text_delta has arrived yet, so completing the tools/thinking should
+    // not replace the visible steps with an 已处理 header.
+    expect(screen.queryByRole("button", { name: /已处理/ })).toBeNull()
+    expect(screen.getAllByTestId("thinking-block")).toHaveLength(2)
+    expect(screen.getByTestId("tool-group").textContent).toBe("call-1,call-2")
+  })
+
+  test("folds the completed prefix while streaming once text arrives", () => {
+    renderContentBlocks(
+      [
+        { type: "thinking", content: "first thought" },
+        { type: "tool_call", tool: tool("call-1") },
+        { type: "tool_call", tool: tool("call-2") },
+        { type: "thinking", content: "second thought" },
+        { type: "text", content: "partial answer" },
+      ],
+      { loading: true, isLast: true },
+    )
+
     const processed = screen.getByRole("button", { name: /已处理/ })
     expect(processed.getAttribute("aria-expanded")).toBe("false")
-    expect(screen.getByTestId("thinking-block").textContent).toBe("second thought")
+    expect(screen.getByTestId("markdown").textContent).toBe("partial answer")
     expect(screen.queryByTestId("tool-group")).toBeNull()
 
     fireEvent.click(processed)
-    // first thought + tool group live inside the folded prefix.
     expect(screen.getByTestId("tool-group").textContent).toBe("call-1,call-2")
     expect(screen.getAllByTestId("thinking-block")).toHaveLength(2)
   })
 
-  test("folds a fully-completed run even while the message is flagged streaming", () => {
+  test("does not fold a completed run while the message is flagged streaming without text", () => {
     // Mirrors an abnormally interrupted turn: `loading` stays stuck true after
     // the stream_end was missed, but every step has already finished. Folding
-    // must not depend on the loading flag — the completed steps still collapse.
+    // still waits for assistant text so completed tool events do not cause a
+    // one-frame collapse flash.
     renderContentBlocks(
       [
         { type: "thinking", content: "first thought" },
@@ -191,10 +210,9 @@ describe("AssistantContentBlocks processed grouping", () => {
       { loading: true, isLast: true },
     )
 
-    // Last block is a tool_call → a non-complete `__loading__` tail unit is
-    // appended, so the three tools + thinking fold into one 已处理 group.
-    screen.getByRole("button", { name: /已处理/ })
-    expect(screen.queryByTestId("tool-group")).toBeNull()
+    expect(screen.queryByRole("button", { name: /已处理/ })).toBeNull()
+    expect(screen.getByTestId("thinking-block").textContent).toBe("first thought")
+    expect(screen.getByTestId("tool-group").textContent).toBe("call-1,call-2,call-3")
   })
 
   test("folds a single completed tool while streaming and keeps the live text tail visible", () => {
@@ -220,7 +238,7 @@ describe("AssistantContentBlocks processed grouping", () => {
     expect(screen.getByTestId("thinking-block").textContent).toBe("mid thought")
   })
 
-  test("folds the completed prefix in timeline mode while streaming", () => {
+  test("does not fold the completed prefix in timeline mode before text arrives", () => {
     renderContentBlocks(
       [
         { type: "thinking", content: "first thought" },
@@ -231,10 +249,25 @@ describe("AssistantContentBlocks processed grouping", () => {
       { loading: true, isLast: true, displayMode: "timeline" },
     )
 
-    // Same folding as bubble mode: completed prefix → one 已处理 timeline item,
-    // trailing thinking stays as the live tail.
+    expect(screen.queryByRole("button", { name: /已处理/ })).toBeNull()
+    expect(screen.getAllByTestId("thinking-block")).toHaveLength(2)
+    expect(screen.getByTestId("tool-group").textContent).toBe("call-1,call-2")
+  })
+
+  test("folds the completed prefix in timeline mode once text arrives", () => {
+    renderContentBlocks(
+      [
+        { type: "thinking", content: "first thought" },
+        { type: "tool_call", tool: tool("call-1") },
+        { type: "tool_call", tool: tool("call-2") },
+        { type: "thinking", content: "second thought" },
+        { type: "text", content: "partial answer" },
+      ],
+      { loading: true, isLast: true, displayMode: "timeline" },
+    )
+
     screen.getByRole("button", { name: /已处理/ })
-    expect(screen.getByTestId("thinking-block").textContent).toBe("second thought")
+    expect(screen.getByTestId("markdown").textContent).toBe("partial answer")
     expect(screen.queryByTestId("tool-group")).toBeNull()
   })
 })

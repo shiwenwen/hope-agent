@@ -28,6 +28,7 @@ import type {
   SessionMode,
 } from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { CommandResult } from "./slash-commands/types"
 import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
@@ -63,8 +64,14 @@ import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
-import { computeContextUsage } from "./chatUtils"
-import { resolveCurrentModel } from "./sessionStatus"
+import { computeContextUsage, formatContextUsage } from "./chatUtils"
+import {
+  COMPACT_CONTEXT_UPDATED_EVENT,
+  compactContextNow,
+  compactResultMessage,
+  resolveCurrentModel,
+  type CompactContextUpdatedDetail,
+} from "./sessionStatus"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
@@ -123,6 +130,25 @@ interface ChatScreenProps {
   pendingChatInsert?: ChatInsert
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
+}
+
+interface ManualCompactOverride {
+  sessionId: string
+  tokensAfter: number
+  usageFingerprint: string | null
+}
+
+function latestAssistantUsageFingerprint(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role !== "assistant" || !msg.usage) continue
+    return JSON.stringify({
+      dbId: msg.dbId ?? null,
+      timestamp: msg.timestamp ?? null,
+      usage: msg.usage,
+    })
+  }
+  return null
 }
 
 type ExclusiveRightPanel =
@@ -383,6 +409,9 @@ export default function ChatScreen({
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
+  const [manualCompactOverride, setManualCompactOverride] = useState<ManualCompactOverride | null>(
+    null,
+  )
 
   // In-session "find in page" search bar state
   const [searchBarOpen, setSearchBarOpen] = useState(false)
@@ -413,6 +442,11 @@ export default function ChatScreen({
   // useChatStream when `session_created` lands, then cleared via the
   // `currentSessionId` transition effect below (mirrors draftWorkingDir).
   const [draftKbAttachments, setDraftKbAttachments] = useState<KbDraftAttachment[]>([])
+  // Project bound to a not-yet-materialized chat (lazy project session). Mirrors
+  // draftWorkingDir/draftKbAttachments: set when entering a project draft, ridden
+  // into the new session via the `chat` command's `projectId` on first send, then
+  // cleared once the real session meta catches up (see the transition effect).
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
@@ -477,7 +511,15 @@ export default function ChatScreen({
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
-  const incognitoDisabledReason: IncognitoDisabledReason | undefined = currentSessionMeta?.projectId
+  // Single source for "which project is this chat in" across draft + materialized
+  // states. Prefer the loaded session meta the moment it exists (so switching to a
+  // plain session never leaks a stale draft binding); fall back to draftProjectId
+  // only while the meta is absent — covers both the pure draft and the brief
+  // post-materialization window before the sessions list reloads (no badge flicker).
+  const effectiveProjectId = currentSessionMeta
+    ? (currentSessionMeta.projectId ?? null)
+    : draftProjectId
+  const incognitoDisabledReason: IncognitoDisabledReason | undefined = effectiveProjectId
     ? "project"
     : currentSessionMeta?.channelInfo
       ? "channel"
@@ -485,12 +527,34 @@ export default function ChatScreen({
   const reloadSessions = session.reloadSessions
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
-  const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
   const displayMode = defaultDisplayMode
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
   const handleSwitchSession = session.handleSwitchSession
+  const latestMessagesRef = useRef<Message[]>(session.messages)
+
+  useEffect(() => {
+    latestMessagesRef.current = session.messages
+  }, [session.messages])
+
+  useEffect(() => {
+    const handleManualCompactUsage = (event: Event) => {
+      const detail = (event as CustomEvent<CompactContextUpdatedDetail>).detail
+      if (!detail?.sessionId || !detail.result) return
+      // Single most-recent override (not a per-session map): the post-compaction
+      // number is a transient correction for the session being compacted, so it
+      // never needs to accumulate across sessions or outlive the next compaction.
+      setManualCompactOverride({
+        sessionId: detail.sessionId,
+        tokensAfter: detail.result.tokensAfter,
+        usageFingerprint: latestAssistantUsageFingerprint(latestMessagesRef.current),
+      })
+    }
+
+    window.addEventListener(COMPACT_CONTEXT_UPDATED_EVENT, handleManualCompactUsage)
+    return () => window.removeEventListener(COMPACT_CONTEXT_UPDATED_EVENT, handleManualCompactUsage)
+  }, [])
 
   // Ambient file-action wiring for the message tree (preview opener + session).
   const fileActionsValue = useMemo<FileActionsContextValue>(
@@ -511,29 +575,52 @@ export default function ChatScreen({
     [handleEffortChange, session.currentAgentId, session.currentSessionId, updateSessionMeta],
   )
 
+  // Enter a project draft (lazy project session): no DB row yet — resolve the
+  // project's agent for display, reset draft state, and remember `draftProjectId`.
+  // The session materializes inside the project on first send via the `chat`
+  // command's `projectId`. Project + incognito are mutually exclusive, so
+  // incognito is forced off here (and coerced server-side).
+  const handleNewChatInProject = useCallback(
+    async (projectId: string, defaultAgentId?: string | null) => {
+      const project = projects.find((p) => p.id === projectId)
+      let agentId = (defaultAgentId && defaultAgentId.trim()) || project?.defaultAgentId || null
+      if (!agentId) {
+        agentId =
+          (await getTransport().call<string | null>("get_default_agent_id").catch(() => null)) ||
+          DEFAULT_AGENT_ID
+      }
+      setDraftIncognito(false)
+      setDraftKbAttachments([])
+      setDraftWorkingDir(null)
+      setDraftProjectId(projectId)
+      await handleNewChat(agentId)
+    },
+    [projects, handleNewChat],
+  )
+
   const handleStartNewChat = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
       setDraftIncognito(opts?.incognito ?? false)
       setDraftKbAttachments([])
+      // Leaving any project draft → drop the project / working-dir binding so it
+      // can't leak into this plain draft (the currentSessionId transition effect
+      // only fires on draft→materialized, not draft→draft).
+      setDraftWorkingDir(null)
+      setDraftProjectId(null)
       await handleNewChat(agentId)
     },
     [handleNewChat],
   )
 
   const handleStartNewChatFromCurrentContext = useCallback(async () => {
-    const projectId = currentSessionMeta?.projectId
-    if (projectId) {
-      setDraftIncognito(false)
-      await handleNewChatInProject(projectId, currentAgentId, false)
+    // Cmd+N from a project (materialized or draft) stays in that project.
+    // (handleNewChatInProject resets draft state incl. incognito-off.)
+    if (effectiveProjectId) {
+      await handleNewChatInProject(effectiveProjectId, currentAgentId)
       return
     }
     await handleStartNewChat(currentAgentId)
-  }, [
-    currentAgentId,
-    currentSessionMeta?.projectId,
-    handleNewChatInProject,
-    handleStartNewChat,
-  ])
+  }, [currentAgentId, effectiveProjectId, handleNewChatInProject, handleStartNewChat])
 
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
@@ -692,15 +779,20 @@ export default function ChatScreen({
 
   const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
   const currentProject = useMemo(
-    () =>
-      currentSessionMeta?.projectId
-        ? (projects.find((p) => p.id === currentSessionMeta.projectId) ?? null)
-        : null,
-    [projects, currentSessionMeta?.projectId],
+    () => (effectiveProjectId ? (projects.find((p) => p.id === effectiveProjectId) ?? null) : null),
+    [projects, effectiveProjectId],
   )
   useEffect(() => {
-    onCurrentProjectChange?.(currentSessionMeta?.projectId ?? null)
-  }, [currentSessionMeta?.projectId, onCurrentProjectChange])
+    onCurrentProjectChange?.(effectiveProjectId)
+  }, [effectiveProjectId, onCurrentProjectChange])
+  // Hygiene: once the materialized session's meta is available the row is the
+  // source of truth, so drop the now-redundant draft binding. effectiveProjectId
+  // already prefers the meta the instant it loads, so this never causes a flicker.
+  useEffect(() => {
+    if (session.currentSessionId && currentSessionMeta && draftProjectId !== null) {
+      setDraftProjectId(null)
+    }
+  }, [session.currentSessionId, currentSessionMeta, draftProjectId])
   const projectWorkingDir = useMemo(
     () => currentProject?.workingDir ?? null,
     [currentProject],
@@ -797,6 +889,13 @@ export default function ChatScreen({
       try {
         await getTransport().call("rename_session_cmd", { sessionId, title })
         reloadSessions()
+        // Per-project session lists paginate independently and may show sessions
+        // older than the global window; a rename bumps neither `updated_at` nor
+        // `session_count`, so their refetch triggers don't fire. Nudge them with
+        // the new title directly (see useProjectSessions).
+        window.dispatchEvent(
+          new CustomEvent("hope:session-renamed", { detail: { id: sessionId, title } }),
+        )
       } catch (err) {
         logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
       }
@@ -807,12 +906,15 @@ export default function ChatScreen({
   const handleIncognitoChange = useCallback(
     (enabled: boolean) => {
       if (session.currentSessionId) return
+      // Project + incognito are mutually exclusive — a project draft can't go
+      // incognito (the toggle is also grayed via incognitoDisabledReason).
+      if (draftProjectId) return
       setDraftIncognito(enabled)
       // Incognito = zero KB (D10). Drop any staged attaches so they can't ride
       // into the new incognito session or strand the now-disabled picker badge.
       if (enabled) setDraftKbAttachments([])
     },
-    [session.currentSessionId],
+    [session.currentSessionId, draftProjectId],
   )
 
   const handleWorkingDirChange = useCallback(
@@ -1076,6 +1178,7 @@ export default function ChatScreen({
     reasoningEffort,
     incognitoEnabled,
     draftWorkingDir,
+    draftProjectId,
     draftKbAttachments,
   })
 
@@ -1189,10 +1292,35 @@ export default function ChatScreen({
   // Context-window fullness for the input-dock bottom bar. Derived from the
   // active model's window + the latest assistant usage (shared helper, same
   // numbers as the status popover / workspace session card).
+  const currentModelForUsage = useMemo(
+    () => resolveCurrentModel(activeModel, availableModels),
+    [activeModel, availableModels],
+  )
   const contextUsage = useMemo(() => {
-    const model = resolveCurrentModel(activeModel, availableModels)
-    return model ? computeContextUsage(session.messages, model.contextWindow) : null
-  }, [activeModel, availableModels, session.messages])
+    if (!currentModelForUsage) return null
+
+    const baseUsage = computeContextUsage(session.messages, currentModelForUsage.contextWindow)
+    const currentOverride =
+      manualCompactOverride && manualCompactOverride.sessionId === session.currentSessionId
+        ? manualCompactOverride
+        : null
+    if (!currentOverride) return baseUsage
+
+    const latestUsageFingerprint = latestAssistantUsageFingerprint(session.messages)
+    if (latestUsageFingerprint !== currentOverride.usageFingerprint) {
+      return baseUsage
+    }
+
+    return (
+      formatContextUsage(currentOverride.tokensAfter, currentModelForUsage.contextWindow) ??
+      baseUsage
+    )
+  }, [
+    currentModelForUsage,
+    manualCompactOverride,
+    session.currentSessionId,
+    session.messages,
+  ])
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -1313,11 +1441,11 @@ export default function ChatScreen({
           if (session.currentSessionId) {
             setCompacting(true)
             try {
-              await getTransport().call("compact_context_now", {
-                sessionId: session.currentSessionId,
-              })
+              const result = await compactContextNow(session.currentSessionId)
+              toast.success(compactResultMessage(t, result))
             } catch (e) {
               logger.error("ui", "ChatScreen::slashCompact", "Compact failed", e)
+              toast.error(t("chat.compactFailed"))
             } finally {
               setCompacting(false)
             }
@@ -1357,7 +1485,7 @@ export default function ChatScreen({
           }
           break
         case "setToolPermission":
-          stream.setPermissionMode(action.mode)
+          stream.setPermissionModeByUser(action.mode)
           break
         case "displayOnly":
           // Already handled above by adding event message
@@ -1424,16 +1552,14 @@ export default function ChatScreen({
           break
         }
         case "enterProject": {
-          setDraftIncognito(false)
-          void handleNewChatInProject(action.projectId, undefined, false)
+          void handleNewChatInProject(action.projectId)
           break
         }
         case "assignProject": {
           // IM-mode action — desktop falls back to the "create new chat in
           // project" flow so users still get a usable outcome if they
           // somehow reach this branch from the GUI.
-          setDraftIncognito(false)
-          void handleNewChatInProject(action.projectId, undefined, false)
+          void handleNewChatInProject(action.projectId)
           break
         }
         case "showSessionPicker": {
@@ -2016,13 +2142,11 @@ export default function ChatScreen({
         onLoadMoreSessions={session.handleLoadMoreSessions}
         onOpenProjectSettings={openProjectOverview}
         onAddProject={openCreateProject}
-        onNewChatInProject={(projectId, opts) => {
-          // Project + incognito are mutually exclusive — backend coerces to
-          // false anyway; we strip here for UI consistency. Using the
-          // project's default_agent (resolved server-side) by passing
-          // `undefined` to handleNewChatInProject.
-          setDraftIncognito(false)
-          void handleNewChatInProject(projectId, undefined, opts?.incognito ?? false)
+        onNewChatInProject={(projectId) => {
+          // Enter a project draft (lazy creation). Agent resolution, draft reset
+          // and incognito-off (project + incognito are mutually exclusive) all
+          // live in handleNewChatInProject.
+          void handleNewChatInProject(projectId)
         }}
         onArchiveProject={(projectId, archived) => {
           void archiveProject(projectId, archived)
@@ -2058,8 +2182,7 @@ export default function ChatScreen({
           if (archived) setProjectOverviewOpen(false)
         }}
         onNewSessionInProject={(projectId, defaultAgentId) => {
-          setDraftIncognito(false)
-          void handleNewChatInProject(projectId, defaultAgentId, false)
+          void handleNewChatInProject(projectId, defaultAgentId)
         }}
         onOpenSession={(sid) => session.handleSwitchSession(sid)}
         onUpdateProject={updateProject}
@@ -2132,6 +2255,7 @@ export default function ChatScreen({
           currentSessionId={session.currentSessionId}
           sessions={session.sessions}
           messages={session.messages}
+          contextUsageOverride={contextUsage}
           activeModel={activeModel}
           availableModels={availableModels}
           reasoningEffort={reasoningEffort}
@@ -2146,11 +2270,7 @@ export default function ChatScreen({
           searchOpen={searchBarOpen}
           effectiveWorkingDir={effectiveWorkingDir}
           workingDirSource={workingDirSource}
-          project={
-            session.currentSessionId
-              ? (projects.find((p) => p.id === currentSessionMeta?.projectId) ?? null)
-              : null
-          }
+          project={currentProject}
           onOpenProjectSettings={openProjectOverview}
           onOpenHandover={(sid) => setHandoverSessionId(sid)}
           agents={session.agents}
@@ -2339,22 +2459,30 @@ export default function ChatScreen({
                       currentAgentId={session.currentAgentId}
                       onCommandAction={handleCommandAction}
                       permissionMode={stream.permissionMode}
-                      onPermissionModeChange={stream.setPermissionMode}
+                      onPermissionModeChange={stream.setPermissionModeByUser}
                       sessionTemperature={sessionTemperature}
                       onSessionTemperatureChange={setSessionTemperature}
                       incognitoEnabled={incognitoEnabled}
-                      projectId={currentSessionMeta?.projectId ?? null}
+                      projectId={effectiveProjectId}
                       draftKbAttachments={draftKbAttachments}
                       onDraftKbAttachChange={setDraftKbAttachments}
                       enableNoteMention
                       enableSkillMention
-                      workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
+                      workingDir={
+                        session.currentSessionId
+                          ? effectiveWorkingDir
+                          : (draftWorkingDir ?? projectWorkingDir)
+                      }
                       workingDirInherited={
-                        session.currentSessionId ? workingDirSource === "project" : false
+                        session.currentSessionId
+                          ? workingDirSource === "project"
+                          : draftWorkingDir
+                            ? false
+                            : !!projectWorkingDir
                       }
                       workingDirSaving={workingDirSaving}
                       onWorkingDirChange={
-                        currentSessionMeta?.projectId ? undefined : handleWorkingDirChange
+                        effectiveProjectId ? undefined : handleWorkingDirChange
                       }
                       planState={planMode.planState}
                       onEnterPlanMode={planMode.enterPlanMode}
@@ -2429,8 +2557,12 @@ export default function ChatScreen({
               toggled via `visible`, so a popped-out window survives panel
               switches / collapses. */}
           <FileBrowserPanel
-            scope="session"
-            scopeId={session.currentSessionId}
+            scope={!session.currentSessionId && currentProject ? "project" : "session"}
+            scopeId={
+              !session.currentSessionId && currentProject
+                ? currentProject.id
+                : session.currentSessionId
+            }
             rootPath={effectiveWorkingDir}
             sessionId={session.currentSessionId}
             visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "files"}
@@ -2517,6 +2649,7 @@ export default function ChatScreen({
                 taskSnapshot={taskProgressSnapshot}
                 taskExecutionState={workspaceTaskExecutionState}
                 messages={session.messages}
+                contextUsageOverride={contextUsage}
                 onOpenDiff={diffPanel.openDiff}
                 onPreviewFile={filePreview.openPreview}
                 sessionId={session.currentSessionId}

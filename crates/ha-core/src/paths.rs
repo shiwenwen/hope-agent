@@ -538,7 +538,14 @@ pub fn session_plans_dir(agent_id: &str, session_id: &str) -> Result<PathBuf> {
         .join(sanitize_path_segment(session_id)))
 }
 
-fn sanitize_path_segment(s: &str) -> String {
+/// Sanitize an untrusted id (agent / session / version / kb) into a bare path
+/// segment: ASCII alphanumerics plus `-` / `_`, with everything else (including
+/// `.` and `/`) collapsed to `_`, defanging `..` / separator traversal. Shared
+/// by `paths.rs`, `tools::execution` (large-result spill + `tool_results` purge)
+/// and `tools::image_markers` (materialized vision files) so all three derive
+/// the same `tool_results/<segment>/` directory for a given session — otherwise
+/// materialization and purge can diverge into different directories.
+pub(crate) fn sanitize_path_segment(s: &str) -> String {
     s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {

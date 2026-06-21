@@ -390,6 +390,25 @@ fn apply_finalize(
             e
         ),
     }
+    if outcome.event_row_id.is_some() {
+        match db.mark_current_turn_orphaned_rows_recovered(session_id) {
+            Ok(0) => {}
+            Ok(n) => app_info!(
+                "chat_engine",
+                "finalize",
+                "marked {} orphaned stream row(s) recovered for session {}",
+                n,
+                session_id
+            ),
+            Err(e) => app_warn!(
+                "chat_engine",
+                "finalize",
+                "failed to mark orphaned stream rows recovered for session {}: {}",
+                session_id,
+                e
+            ),
+        }
+    }
 
     let turn_status = reason.to_chat_turn_status();
     let interrupt = reason.to_chat_turn_interrupt_reason();

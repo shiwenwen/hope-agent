@@ -430,7 +430,7 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 | 任务管理 | `task_create` `task_update` `task_list` |
 | 记忆 | `save_memory` `recall_memory` `memory_get` `update_memory` `delete_memory` `update_core_memory` |
 | 文档/通知 | `canvas` `send_notification` |
-| 多模态分析 | `pdf` `image`(分析) `get_weather` |
+| 多模态输入 | `pdf` `image`(视觉输入) `get_weather` |
 | Cron 管理 | `manage_cron` |
 | Subagent / Team | `subagent` `team` |
 | Meta | `tool_search` `skill` `job_status` `runtime_cancel` `mcp_resource` `mcp_prompt` |

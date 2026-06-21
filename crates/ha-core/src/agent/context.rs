@@ -11,6 +11,7 @@ const MID_LOOP_MIN_ROUNDS_BETWEEN_SUMMARIES: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CompactionRunTrigger {
+    Manual,
     TurnStart,
     ToolLoopCheckpoint,
 }
@@ -18,6 +19,7 @@ pub(super) enum CompactionRunTrigger {
 impl CompactionRunTrigger {
     fn hook_trigger(self) -> crate::hooks::CompactTrigger {
         match self {
+            Self::Manual => crate::hooks::CompactTrigger::Manual,
             Self::TurnStart => crate::hooks::CompactTrigger::Auto,
             Self::ToolLoopCheckpoint => crate::hooks::CompactTrigger::ToolLoop,
         }
@@ -25,6 +27,7 @@ impl CompactionRunTrigger {
 
     fn manifest_trigger(self) -> &'static str {
         match self {
+            Self::Manual => "manual",
             Self::TurnStart => "turn_start",
             Self::ToolLoopCheckpoint => "tool_loop",
         }
@@ -38,6 +41,7 @@ pub(super) struct CompactionRunOptions {
     pub emit_start_event: bool,
     pub allow_memory_flush: bool,
     pub allow_summarization: bool,
+    pub force_summary: bool,
     pub cancel: Option<Arc<AtomicBool>>,
 }
 
@@ -49,7 +53,20 @@ impl CompactionRunOptions {
             emit_start_event: true,
             allow_memory_flush: true,
             allow_summarization: true,
+            force_summary: false,
             cancel,
+        }
+    }
+
+    fn manual() -> Self {
+        Self {
+            trigger: CompactionRunTrigger::Manual,
+            bypass_cache_ttl: true,
+            emit_start_event: true,
+            allow_memory_flush: true,
+            allow_summarization: true,
+            force_summary: true,
+            cancel: None,
         }
     }
 }
@@ -61,6 +78,7 @@ pub(super) struct CompactionRunOutcome {
     pub summary_applied: bool,
     pub tokens_after: u32,
     pub cancelled: bool,
+    pub compact_result: Option<crate::context_compact::CompactResult>,
 }
 
 impl CompactionRunOutcome {
@@ -164,6 +182,47 @@ fn sync_tier_from_compact_result(result: &crate::context_compact::CompactResult)
     }
 }
 
+fn record_manual_recovered_tool_cleanup(
+    result: &mut crate::context_compact::CompactResult,
+    cleanup: crate::context_compact::RecoveredToolCleanup,
+) {
+    if !cleanup.changed() {
+        return;
+    }
+
+    result.messages_affected = result
+        .messages_affected
+        .saturating_add(cleanup.messages_affected());
+    if let Some(details) = result.details.as_mut() {
+        details.tool_results_soft_trimmed = details
+            .tool_results_soft_trimmed
+            .saturating_add(cleanup.image_markers_materialized);
+        details.tool_results_hard_cleared = details
+            .tool_results_hard_cleared
+            .saturating_add(cleanup.hard_cleared);
+    }
+    if let Some(manifest) = result.manifest.as_mut() {
+        manifest.tool_results_soft_trimmed = manifest
+            .tool_results_soft_trimmed
+            .saturating_add(cleanup.image_markers_materialized);
+        manifest.tool_results_hard_cleared = manifest
+            .tool_results_hard_cleared
+            .saturating_add(cleanup.hard_cleared);
+        if cleanup.hard_cleared > 0 {
+            manifest.warnings.push(format!(
+                "manual_recovered_tool_results_cleared:{}",
+                cleanup.hard_cleared
+            ));
+        }
+        if cleanup.image_markers_materialized > 0 {
+            manifest.warnings.push(format!(
+                "manual_recovered_image_markers_materialized:{}",
+                cleanup.image_markers_materialized
+            ));
+        }
+    }
+}
+
 impl AssistantAgent {
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
@@ -179,6 +238,64 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// User-requested compaction: bypass throttles and force the Tier 3
+    /// summarization path whenever there is an older prefix to summarize.
+    pub async fn compact_conversation_now(
+        &self,
+        on_delta: &(impl Fn(&str) + Send),
+    ) -> crate::context_compact::CompactResult {
+        use crate::context_compact::{estimate_request_tokens, CompactResult};
+
+        let mut history = self.get_conversation_history();
+        if history.is_empty() {
+            return CompactResult {
+                tier_applied: 0,
+                tokens_before: 0,
+                tokens_after: 0,
+                messages_affected: 0,
+                description: "no_messages".to_string(),
+                details: None,
+                manifest: None,
+            };
+        }
+
+        const MANUAL_COMPACT_MAX_OUTPUT_TOKENS: u32 = 16_384;
+        let (provider_label, model) = self.current_model_for_compaction();
+        let system_prompt = self.build_merged_system_prompt(&model, provider_label);
+        let tokens_before =
+            estimate_request_tokens(&system_prompt, &history, MANUAL_COMPACT_MAX_OUTPUT_TOKENS);
+        let original_history = history.clone();
+
+        let outcome = self
+            .run_compaction_with_options(
+                &mut history,
+                &system_prompt,
+                &model,
+                MANUAL_COMPACT_MAX_OUTPUT_TOKENS,
+                on_delta,
+                CompactionRunOptions::manual(),
+            )
+            .await;
+
+        if outcome.changed_history || history != original_history {
+            self.set_conversation_history(history);
+        }
+
+        outcome.compact_result.unwrap_or_else(|| CompactResult {
+            tier_applied: outcome.tier_applied,
+            tokens_before,
+            tokens_after: outcome.tokens_after,
+            messages_affected: 0,
+            description: if outcome.cancelled {
+                "cancelled".to_string()
+            } else {
+                "no_action_needed".to_string()
+            },
+            details: None,
+            manifest: None,
+        })
     }
 
     /// Compute trailing-slice stats under a single lock — avoids cloning
@@ -287,16 +404,32 @@ impl AssistantAgent {
         /// Usage ratio that overrides cache-TTL throttle to prevent ContextOverflow → Tier 4.
         const CACHE_TTL_EMERGENCY_RATIO: f64 = 0.95;
 
+        let forced_config;
+        let compact_config = if options.force_summary {
+            forced_config = {
+                let mut cfg = self.compact_config.clone();
+                cfg.enabled = true;
+                cfg.soft_trim_ratio = 0.0;
+                // Keep hard-clear at the configured pressure threshold so a
+                // manual summary can still see old tool output when possible.
+                cfg.summarization_threshold = 0.0;
+                cfg
+            };
+            &forced_config
+        } else {
+            &self.compact_config
+        };
+
         // Pre-compute cache-TTL throttle state as two booleans for CompactionContext.
         let (cache_ttl_throttled, cache_ttl_emergency) = if options.bypass_cache_ttl {
             (false, false)
-        } else if self.compact_config.cache_ttl_secs > 0 {
+        } else if compact_config.cache_ttl_secs > 0 {
             let within_ttl = {
                 let guard = self
                     .last_tier2_compaction_at
                     .lock()
                     .unwrap_or_else(|e| e.into_inner());
-                matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
+                matches!(*guard, Some(ts) if ts.elapsed().as_secs() < compact_config.cache_ttl_secs)
             };
             if within_ttl {
                 let tokens_now =
@@ -344,7 +477,9 @@ impl AssistantAgent {
             // compaction is actually plausible, so it precedes a real
             // compaction instead of firing every idle turn.
             let sid = self.session_id.clone().unwrap_or_default();
-            if usage_now >= self.compact_config.reactive_trigger_ratio {
+            if usage_now >= compact_config.reactive_trigger_ratio
+                || matches!(options.trigger, CompactionRunTrigger::Manual)
+            {
                 let input = crate::hooks::HookInput::PreCompact {
                     common: self.hook_common_input("PreCompact"),
                     trigger: options.trigger.hook_trigger(),
@@ -408,7 +543,7 @@ impl AssistantAgent {
             system_prompt,
             context_window: self.context_window,
             max_output_tokens: max_tokens,
-            config: &self.compact_config,
+            config: compact_config,
             cache_ttl_throttled,
             cache_ttl_emergency,
         };
@@ -420,6 +555,7 @@ impl AssistantAgent {
         if compact_result.tier_applied == 0 {
             return CompactionRunOutcome {
                 tokens_after: compact_result.tokens_after,
+                compact_result: Some(compact_result),
                 ..CompactionRunOutcome::default()
             };
         }
@@ -429,6 +565,7 @@ impl AssistantAgent {
             summary_applied: false,
             tokens_after: compact_result.tokens_after,
             cancelled: false,
+            compact_result: None,
         };
 
         // Touch timer after synchronous Tier 2 completes.
@@ -485,10 +622,36 @@ impl AssistantAgent {
                         .warnings
                         .push("tier3_summary_skipped_by_policy".to_string());
                 }
-            } else if let Some(split) =
-                context_compact::split_for_summarization(messages, &self.compact_config)
+            } else if let Some(mut split) =
+                context_compact::split_for_summarization(messages, compact_config)
             {
                 let is_incognito = self.session_is_incognito();
+                if options.force_summary {
+                    let preserved_start = split.preserved_start_index.min(messages.len());
+                    let recovered_tool_cleanup =
+                        context_compact::compact_oversized_recovered_tool_results(
+                            &mut messages[preserved_start..],
+                            compact_config.soft_trim_max_chars,
+                            self.session_id.as_deref(),
+                            !is_incognito,
+                        );
+                    if recovered_tool_cleanup.changed() {
+                        split.preserved = messages[preserved_start..].to_vec();
+                        record_manual_recovered_tool_cleanup(
+                            &mut compact_result,
+                            recovered_tool_cleanup,
+                        );
+                        run_outcome.changed_history = true;
+                        app_info!(
+                            "context",
+                            "compact",
+                            "Manual compaction cleaned oversized recovered tool results: hard_cleared={}, image_markers_materialized={}",
+                            recovered_tool_cleanup.hard_cleared,
+                            recovered_tool_cleanup.image_markers_materialized
+                        );
+                    }
+                }
+
                 let runtime_ledger_snapshot = if is_incognito {
                     context_compact::RuntimeLedgerSnapshot::default()
                 } else {
@@ -606,11 +769,11 @@ impl AssistantAgent {
                 let prompt = context_compact::build_summarization_prompt(
                     &prompt_messages,
                     previous_summary.as_deref(),
-                    &self.compact_config,
+                    compact_config,
                 );
 
                 let summary_future = tokio::time::timeout(
-                    std::time::Duration::from_secs(self.compact_config.summarization_timeout_secs),
+                    std::time::Duration::from_secs(compact_config.summarization_timeout_secs),
                     self.summarize_with_model(&prompt),
                 );
                 let summary_result = if let Some(cancel) = options.cancel.clone() {
@@ -651,7 +814,7 @@ impl AssistantAgent {
                 match summary_result {
                     Ok(Ok(summary)) => {
                         let injection_budget_chars = ((self.context_window as f64
-                            * self.compact_config.max_compaction_injected_context_share)
+                            * compact_config.max_compaction_injected_context_share)
                             .round()
                             as usize)
                             .saturating_mul(context_compact::CHARS_PER_TOKEN);
@@ -659,9 +822,22 @@ impl AssistantAgent {
                             messages,
                             &summary,
                             split.preserved_start_index,
-                            &self.compact_config,
+                            compact_config,
                             Some(injection_budget_chars),
                         );
+                        let summarized_count = split.summarizable.len();
+                        let summary_tokens = ((summary.len() + context_compact::CHARS_PER_TOKEN
+                            - 1)
+                            / context_compact::CHARS_PER_TOKEN)
+                            as u32;
+                        compact_result.messages_affected = compact_result
+                            .messages_affected
+                            .saturating_add(summarized_count);
+                        compact_result.description = "summarized".to_string();
+                        if let Some(details) = compact_result.details.as_mut() {
+                            details.messages_summarized = summarized_count;
+                            details.summary_tokens = Some(summary_tokens);
+                        }
                         run_outcome.summary_applied = true;
                         run_outcome.changed_history = true;
                         // Update cache-TTL timer after successful Tier 3 summarization
@@ -738,7 +914,7 @@ impl AssistantAgent {
                                 session_working_dir: recovery_cwd.as_deref(),
                                 tokens_freed,
                                 max_total_bytes: Some(recovery_budget),
-                                config: &self.compact_config,
+                                config: compact_config,
                             };
                             context_compact::build_recovery_message(
                                 &split.summarizable,
@@ -853,7 +1029,7 @@ impl AssistantAgent {
                                 "compact",
                                 &format!(
                                     "Tier 3 summarization timed out after {}s",
-                                    self.compact_config.summarization_timeout_secs
+                                    compact_config.summarization_timeout_secs
                                 ),
                                 None,
                                 None,
@@ -892,6 +1068,8 @@ impl AssistantAgent {
             if sync_tier == 0 {
                 run_outcome.tokens_after =
                     context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+                compact_result.tokens_after = run_outcome.tokens_after;
+                run_outcome.compact_result = Some(compact_result);
                 return run_outcome;
             }
         }
@@ -902,6 +1080,7 @@ impl AssistantAgent {
         if let Some(manifest) = compact_result.manifest.as_mut() {
             manifest.tokens_after = tokens_after;
         }
+        compact_result.tokens_after = tokens_after;
 
         // PostCompact + SessionStart(compact) hooks (observation): fire after a
         // real compaction (tier ≥ 2; tier 0 returned early above). Queues any
@@ -918,19 +1097,21 @@ impl AssistantAgent {
 
         if let Ok(event) = serde_json::to_string(&json!({
             "type": "context_compacted",
-            "data": {
-                "tier_applied": compact_result.tier_applied,
-                "tokens_before": compact_result.tokens_before,
-                "tokens_after": tokens_after,
-                "messages_affected": compact_result.messages_affected,
-                "description": compact_result.description,
-                "manifest": compact_result.manifest,
-            }
+                "data": {
+                    "tier_applied": compact_result.tier_applied,
+                    "tokens_before": compact_result.tokens_before,
+                    "tokens_after": tokens_after,
+                    "messages_affected": compact_result.messages_affected,
+                    "description": compact_result.description,
+                    "manifest": compact_result.manifest.clone(),
+                }
         })) {
             on_delta(&event);
         }
         run_outcome.tokens_after = tokens_after;
         run_outcome.tier_applied = compact_result.tier_applied;
+        run_outcome.changed_history |= compact_result.messages_affected > 0;
+        run_outcome.compact_result = Some(compact_result);
         run_outcome
     }
 
@@ -1092,6 +1273,7 @@ impl AssistantAgent {
                     emit_start_event: true,
                     allow_memory_flush: false,
                     allow_summarization,
+                    force_summary: false,
                     cancel: Some(cancel),
                 },
             )

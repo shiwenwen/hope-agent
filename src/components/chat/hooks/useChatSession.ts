@@ -89,17 +89,6 @@ export interface UseChatSessionReturn {
     opts?: { targetMessageId?: number; highlightTerms?: string[] },
   ) => Promise<void>
   handleNewChat: (agentId: string) => Promise<void>
-  /**
-   * Create a new session inside a Project. Pre-materializes the session via
-   * `create_session_cmd` so project context (memories, files, instructions)
-   * is wired in immediately — the subsequent first message reuses the
-   * existing sessionId instead of auto-creating an unassigned one.
-   */
-  handleNewChatInProject: (
-    projectId: string,
-    defaultAgentId?: string | null,
-    incognito?: boolean,
-  ) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
   handleLoadMoreAfter: () => Promise<void>
@@ -855,79 +844,11 @@ export function useChatSession({
     ],
   )
 
-  // Create a new session inside a Project and materialize it immediately
-  // so project context is active for the first message.
-  const handleNewChatInProject = useCallback(
-    async (projectId: string, defaultAgentId?: string | null, incognito = false) => {
-      try {
-        // When the caller does not supply an explicit agentId, leave it
-        // undefined so `create_session_cmd` runs the resolver chain
-        // (project.default_agent_id → AppConfig.default_agent_id →
-        // hardcoded "ha-main"). Falling back to the in-UI `currentAgentId`
-        // here would pin the new session to whichever agent the user happened
-        // to be chatting with last, bypassing project / global defaults.
-        const explicitAgent =
-          defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : undefined
-        const created = await getTransport().call<SessionMeta>("create_session_cmd", {
-          agentId: explicitAgent,
-          projectId,
-          // Project + incognito are mutually exclusive; backend coerces but
-          // we strip here too so the optimistic UI stays consistent.
-          incognito: projectId ? false : incognito,
-        })
-        setMessages([])
-        setCurrentSessionId(created.id)
-        setSessions((prev) =>
-          prev.some((s) => s.id === created.id) ? prev : [created, ...prev],
-        )
-        onSidebarAggregatesChanged?.()
-        setLoading(false)
-        setHasMore(false)
-        setHasMoreAfter(false)
-        setCurrentAgentId(created.agentId)
-        const agent = agents.find((a) => a.id === created.agentId)
-        if (agent) setAgentName(agent.name)
-        // Apply the agent's configured model. If the agent has no preferred
-        // model (or it's not currently available), fall back to the global
-        // active model so the title bar still shows something sensible.
-        let appliedAgentModel = false
-        try {
-          const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
-            id: created.agentId,
-          })
-          const primary = agentConfig.model.primary
-          if (primary) {
-            const modelExists = availableModels.some(
-              (m) => `${m.providerId}::${m.modelId}` === primary,
-            )
-            if (modelExists) {
-              applyModelForDisplay(primary)
-              appliedAgentModel = true
-            }
-          }
-        } catch {
-          // ignore
-        }
-        if (!appliedAgentModel && globalActiveModelRef.current) {
-          setActiveModel(globalActiveModelRef.current)
-        }
-      } catch (e) {
-        logger.warn("chat", "useChatSession", "handleNewChatInProject failed", e)
-        notify(t("common.saveFailed"), String(e))
-      }
-    },
-    [
-      agents,
-      availableModels,
-      applyModelForDisplay,
-      globalActiveModelRef,
-      onSidebarAggregatesChanged,
-      setActiveModel,
-      setHasMore,
-      setHasMoreAfter,
-      t,
-    ],
-  )
+  // Note: entering a Project no longer pre-materializes a session. The chat now
+  // stays in draft (currentSessionId=null) with the project remembered as
+  // `draftProjectId` in ChatScreen, and the session is created — bound to the
+  // project — on first send via the `chat` command's `projectId`. See the
+  // `handleNewChatInProject` wrapper in ChatScreen.tsx.
 
   // Delete a session
   const handleDeleteSession = useCallback(
@@ -1004,7 +925,6 @@ export function useChatSession({
     handleReorderAgents,
     handleSwitchSession,
     handleNewChat,
-    handleNewChatInProject,
     handleDeleteSession,
     handleLoadMore,
     handleLoadMoreAfter,

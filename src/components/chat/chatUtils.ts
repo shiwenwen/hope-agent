@@ -11,6 +11,11 @@ import type {
   MessageUsage,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
+import {
+  isContextCompactionPayload,
+  parseEventPayload,
+  shouldReplaceContextCompactionNotice,
+} from "./contextCompactionEvents"
 import { hasToolError } from "./message/executionStatus"
 import { MAX_MESSAGES, KEEP_AFTER_CAP } from "./hooks/constants"
 
@@ -66,6 +71,37 @@ export function isCenteredSystemMessage(msg: Message): boolean {
 /** True when a message should align and style like a human user bubble. */
 export function isUserAlignedMessage(msg: Message): boolean {
   return msg.role === "user" || msg.slashEvent?.displayAs === "user"
+}
+
+function isInterruptedStreamStatus(status: SessionMessage["streamStatus"]): boolean {
+  return status === "orphaned" || status === "recovered" || status === "streaming"
+}
+
+function isStartupRecoveryNotice(content: string): boolean {
+  return (
+    content === "上次会话异常中断,已保留中断前的内容" ||
+    content === "应用已关闭,中断前的内容已保留"
+  )
+}
+
+function upsertContextCompactionEventMessage(
+  displayMessages: Message[],
+  nextMessage: Message,
+): boolean {
+  const nextPayload = parseEventPayload(nextMessage.content)
+  if (!isContextCompactionPayload(nextPayload)) return false
+
+  const previous = displayMessages[displayMessages.length - 1]
+  const previousPayload =
+    previous?.role === "event" ? parseEventPayload(previous.content) : null
+  if (!isContextCompactionPayload(previousPayload)) {
+    displayMessages.push(nextMessage)
+    return true
+  }
+  if (shouldReplaceContextCompactionNotice(previousPayload, nextPayload)) {
+    displayMessages[displayMessages.length - 1] = nextMessage
+  }
+  return true
 }
 
 /** Format token count: ≥10000 → "12.3k", else "1,234". */
@@ -126,6 +162,27 @@ export interface ContextUsageInfo {
  * Single source of truth shared by the status popover, the workspace session
  * card, and the input-dock bottom bar so all three never drift.
  */
+/**
+ * Build a `ContextUsageInfo` from a raw used-token count and a context window.
+ * Single source of truth for the usedK/ctxK/pct derivation, shared by
+ * `computeContextUsage` (latest-assistant scan) and the manual-compaction usage
+ * override in ChatScreen. Returns null when the window is unknown / non-positive.
+ */
+export function formatContextUsage(
+  usedTokens: number,
+  contextWindow: number | null | undefined,
+): ContextUsageInfo | null {
+  if (!contextWindow || contextWindow <= 0) return null
+  const safeUsedTokens = Math.max(0, usedTokens)
+  return {
+    usedTokens: safeUsedTokens,
+    contextWindow,
+    usedK: Math.round(safeUsedTokens / 1000),
+    ctxK: Math.round(contextWindow / 1000),
+    pct: Math.round((safeUsedTokens / contextWindow) * 100),
+  }
+}
+
 export function computeContextUsage(
   messages: Message[],
   contextWindow: number | null | undefined,
@@ -141,13 +198,7 @@ export function computeContextUsage(
       break
     }
   }
-  return {
-    usedTokens,
-    contextWindow,
-    usedK: Math.round(usedTokens / 1000),
-    ctxK: Math.round(contextWindow / 1000),
-    pct: Math.round((usedTokens / contextWindow) * 100),
-  }
+  return formatContextUsage(usedTokens, contextWindow)
 }
 
 // Pure color/level helpers live in a dependency-free leaf module so the input
@@ -369,8 +420,10 @@ export function parseSessionMessages(
   const pendingTools: ToolCall[] = []
   const pendingBlocks: ContentBlock[] = []
   let firstUserSeen = false
+  const seenPlainEventContentSinceLastUser = new Set<string>()
   for (const msg of msgs) {
     if (msg.role === "user") {
+      seenPlainEventContentSinceLastUser.clear()
       // Detect sub-agent result / cron trigger / plan trigger messages via attachments_meta marker
       let isSubagentResult = false
       let subagentResultAgentId: string | undefined
@@ -504,7 +557,7 @@ export function parseSessionMessages(
     } else if (msg.role === "thinking_block") {
       // Intermediate thinking emitted before tool calls — preserve multi-round thinking ordering
       if (msg.content) {
-        const interrupted = msg.streamStatus === "orphaned" || msg.streamStatus === "streaming"
+        const interrupted = isInterruptedStreamStatus(msg.streamStatus)
         pendingBlocks.push({
           type: "thinking",
           content: msg.content,
@@ -515,7 +568,7 @@ export function parseSessionMessages(
     } else if (msg.role === "text_block") {
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
-        const interrupted = msg.streamStatus === "orphaned" || msg.streamStatus === "streaming"
+        const interrupted = isInterruptedStreamStatus(msg.streamStatus)
         pendingBlocks.push({ type: "text", content: msg.content, interrupted: interrupted || undefined })
       }
     } else if (msg.role === "assistant") {
@@ -578,13 +631,23 @@ export function parseSessionMessages(
           /* ignore */
         }
       }
-      displayMessages.push({
+      if (!slashEvent && isStartupRecoveryNotice(msg.content)) {
+        if (seenPlainEventContentSinceLastUser.has(msg.content)) {
+          continue
+        }
+        seenPlainEventContentSinceLastUser.add(msg.content)
+      }
+      const eventMessage: Message = {
         role: "event",
         content: msg.content,
         timestamp: msg.timestamp,
         slashEvent,
         dbId: msg.id,
-      })
+      }
+      if (upsertContextCompactionEventMessage(displayMessages, eventMessage)) {
+        continue
+      }
+      displayMessages.push(eventMessage)
     }
   }
   // Mid-stream load: if the loop ended with accumulated tool calls / interim

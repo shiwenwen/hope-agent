@@ -79,7 +79,7 @@ const SECTIONS: SettingsSectionItem[] = [
   {
     id: "profile",
     icon: <User className="h-4 w-4" />,
-    labelKey: "settings.profile",
+    labelKey: "settings.profileSettings",
   },
   {
     id: "general",

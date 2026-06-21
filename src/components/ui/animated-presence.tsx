@@ -159,11 +159,12 @@ export function AnimatedCollapse({
   if (!present && !open && unmountOnExit) return null
 
   const allowOverflow = overflow === "visible-when-open" && visible
+  const timingFunction = visible ? UI_EASING.emphasized : UI_EASING.accelerate
 
   return (
     <div
       className={cn(
-        "transition-[height,opacity] ease-out motion-reduce:transition-none",
+        "transition-[height,opacity] motion-reduce:transition-none",
         allowOverflow ? "overflow-visible" : "overflow-hidden",
         visible ? "opacity-100" : "opacity-0 pointer-events-none",
         className,
@@ -171,6 +172,8 @@ export function AnimatedCollapse({
       style={{
         height: height === "auto" ? "auto" : `${height}px`,
         transitionDuration: `${durationMs}ms`,
+        transitionTimingFunction: timingFunction,
+        willChange: "height, opacity",
       }}
       aria-hidden={open ? undefined : true}
       inert={open ? undefined : true}

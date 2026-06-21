@@ -843,13 +843,16 @@ function parseDispositionFilename(disposition: string): string | null {
 
 function normalizeCommandResponse(command: string, value: unknown): unknown {
   if (
-    command === "list_sessions_cmd" &&
+    (command === "list_sessions_cmd" || command === "list_project_sessions_cmd") &&
     value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     "sessions" in value &&
     "total" in value
   ) {
+    // HTTP returns `{ sessions, total }` (PaginatedSessions); the Tauri command
+    // returns the `[sessions, total]` tuple. Normalize both to the tuple so the
+    // frontend stays transport-agnostic.
     const paginated = value as { sessions: unknown; total: unknown };
     return [paginated.sessions, paginated.total];
   }
@@ -1261,6 +1264,16 @@ export class HttpTransport implements Transport {
     if (avatarMatch) {
       return stamped(
         `${this.baseUrl}/api/avatars/${encodeURIComponent(avatarMatch[1])}`,
+      );
+    }
+
+    // Session attachments: `~/.hope-agent/attachments/{sessionId}/{file}` →
+    // `/api/attachments/{sessionId}/{file}`. Used by image-tool preview
+    // markers and by persisted tool attachments.
+    const attachmentMatch = path.match(/[\\/]attachments[\\/]([^\\/]+)[\\/]([^\\/]+)$/);
+    if (attachmentMatch) {
+      return stamped(
+        `${this.baseUrl}/api/attachments/${encodeURIComponent(attachmentMatch[1])}/${encodeURIComponent(attachmentMatch[2])}`,
       );
     }
 

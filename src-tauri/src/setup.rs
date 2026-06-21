@@ -94,7 +94,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     }
 
     crate::macos_control::register();
-    crate::window_state::restore_main_window_size(app);
+    crate::window_state::restore_main_window_state(app);
 
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]

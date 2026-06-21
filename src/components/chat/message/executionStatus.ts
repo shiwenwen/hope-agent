@@ -3,6 +3,7 @@ import type { ToolCall } from "@/types/chat"
 import { parseMcpToolName } from "@/lib/mcp"
 import i18n from "@/i18n/i18n"
 import { toolDisplayNameFallback } from "@/types/tools"
+import { toolHasImagePreviewMarkers } from "@/components/chat/message/imageToolMarkers"
 
 export type ExecutionState = "running" | "completed" | "failed"
 export type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
@@ -107,7 +108,7 @@ export function getFailedToolCount(tools: ToolCall[]): number {
 
 /** A tool whose result carries renderable media (generated images, attachments). */
 export function toolHasMedia(tool: ToolCall): boolean {
-  return !!(tool.mediaItems?.length || tool.mediaUrls?.length)
+  return !!(tool.mediaItems?.length || tool.mediaUrls?.length || toolHasImagePreviewMarkers(tool))
 }
 
 /**

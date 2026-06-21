@@ -2,7 +2,7 @@ export const UI_MOTION = {
   popover: 220,
   popoverEnter: 220,
   popoverExit: 180,
-  collapse: 200,
+  collapse: 240,
   panelWidth: 250,
   panelSurface: 300,
   panelContentEnter: 200,

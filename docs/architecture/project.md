@@ -150,6 +150,8 @@ CREATE INDEX IF NOT EXISTS idx_projects_archived
 | `set_session_project(session_id, project_id)` | 搬迁会话到另一个项目或 unassign（`/project` IM 路由、`move_session_to_project` 共用） |
 | `list_sessions_paged(agent_id, project_filter, limit, offset)` | `ProjectFilter`：`All` / `Unassigned` / `InProject(id)` |
 
+**项目会话懒创建（desktop / HTTP 交互入口）**：进项目「新建对话」**不再**预先 `create_session_cmd` 落库，而是停在草稿态（`currentSessionId=null`），前端用 `draftProjectId` 记住项目（仿 `draftWorkingDir`），首条消息发送时通过 `chat` 命令的 `projectId` 走 `create_session_with_project` 才落库——与普通对话对称，进项目不再产生未发消息的空会话行，且草稿态走与普通对话相同的模型 / 权限模式 seeding。`chat` 在 `agent_id` 缺省时按 `project.default_agent_id` 解析 agent（对齐 `create_session_cmd`），`project_id` 与 `incognito` 互斥（后端强制 off）。**仅交互入口懒创建**——IM 入站 / cron / subagent 仍 eager `create_session_with_project`（消息必须立即落库）。前端 `effectiveProjectId = 已加载会话 meta.projectId ?? draftProjectId` 是「当前在哪个项目」的单一来源（覆盖草稿态 + 落库过渡窗口，避免 badge 闪烁与切到普通会话时的陈旧泄漏）。
+
 ## 文件浏览器 API
 
 项目文件由 workspace-scoped 文件管理 API 读写，全部经 [`filesystem::WorkspaceScope`](../../crates/ha-core/src/filesystem/workspace.rs)（`for_session` / `for_project` / `for_path` 三入口 → canonicalize 根 → 每次操作 canonicalize 目标 + `starts_with` 校验，失败闭合；`for_path` 是只读 worktree 跳转，写操作经 `resolve_writable` 一律拒绝）。核心 ops 在 [`filesystem/ops.rs`](../../crates/ha-core/src/filesystem/ops.rs)：list / read_text / extract（PDF 逐页 PNG、Office 文本+图片，复用 `file_extract`）/ write_text / delete / rename / mkdir / upload。
@@ -324,6 +326,7 @@ canonicalize `dir` + canonicalize `projects_root`，`starts_with(canonical_root)
 项目是侧边栏一等节点，每个项目渲染为可折叠的 `ProjectGroup`：
 
 - 展开后嵌套该项目下的会话列表（复用 `SessionItem`）；展开状态按单条 `localStorage` 键 `ha:project-expanded`（一条 JSON 存所有项目的展开集，`ProjectSection.tsx` 内联，非 `useTreeExpansion`）持久化
+- **每个项目独立分页**（[`useProjectSessions`](../../src/components/chat/project/hooks/useProjectSessions.ts)）：展开时按需调 `list_project_sessions_cmd` 拉自己的会话（**而非**从共享全局会话数组里筛——全局数组只持最近一页，会漏掉项目里较早的会话），默认 `PROJECT_SESSION_PAGE_SIZE`（15）；底部「展开显示 / 折叠显示」按钮增减一页。采用 **window-refetch 模型**（恒 `offset:0`、`limit:windowSize`），分页 ≤15 条对本地 SQLite 成本极低，且免去 append/dedup 竞态。实时刷新复用 ChatScreen 既有机制：以该项目在全局会话数组中切片的指纹（`changeSignal`，含 id/updatedAt/pinnedAt/unread/title/pending）+ `ProjectMeta.session_count` 作为 refetch 触发，**指纹仅作触发、绝不用于渲染**
 - Hover「新建对话」+「设置」；右键菜单 新建 / 设置 / 归档
 - 主区 `SessionList` 自动排除 `projectId` 非空会话，避免与树状项目下会话重复
 - 项目名后追加 `working_dir` 摘要

@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import FileCard from "@/components/chat/message/FileCard"
 import { MediaHoistContext } from "@/components/chat/message/mediaHoistContext"
+import { extractImageToolMarkers } from "@/components/chat/message/imageToolMarkers"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 
@@ -18,6 +19,7 @@ interface Props {
  * Two sources:
  *   - `mediaItems` — the post-migration generic attachment channel (any tool).
  *   - `mediaUrls`  — legacy `image_generate` absolute paths from old DB rows.
+ *   - `image` tool file markers — preview-only inputs, not outbound media.
  */
 export default function ToolMediaPreview({ tool, className }: Props) {
   const { openLightbox } = useLightbox()
@@ -26,7 +28,12 @@ export default function ToolMediaPreview({ tool, className }: Props) {
   const hoisted = useContext(MediaHoistContext)
   const hasMediaItems = !!tool.mediaItems?.length
   const hasLegacyUrls = !hasMediaItems && !!tool.mediaUrls?.length
-  if (hoisted || (!hasMediaItems && !hasLegacyUrls)) return null
+  const imageMarkers =
+    !hasMediaItems && !hasLegacyUrls && tool.name === "image"
+      ? extractImageToolMarkers(tool.result)
+      : []
+  const hasImageMarkers = imageMarkers.length > 0
+  if (hoisted || (!hasMediaItems && !hasLegacyUrls && !hasImageMarkers)) return null
 
   return (
     <div className={cn("mt-1.5 mb-1 flex flex-wrap gap-2", className)}>
@@ -35,6 +42,26 @@ export default function ToolMediaPreview({ tool, className }: Props) {
           if (item.kind !== "image") return <FileCard key={i} item={item} />
           const src = getTransport().resolveMediaUrl(item)
           if (!src) return <FileCard key={i} item={item} />
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => openLightbox(src, item.name)}
+              className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors cursor-zoom-in"
+            >
+              <img
+                src={src}
+                alt={item.name}
+                className="max-w-72 max-h-72 object-contain bg-secondary/30"
+                loading="lazy"
+              />
+            </button>
+          )
+        })}
+      {hasImageMarkers &&
+        imageMarkers.map((item, i) => {
+          const src = getTransport().resolveAssetUrl(item.path)
+          if (!src) return null
           return (
             <button
               key={i}

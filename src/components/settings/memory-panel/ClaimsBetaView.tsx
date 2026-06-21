@@ -237,8 +237,8 @@ export default function ClaimsBetaView() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
           <div className="text-sm font-medium flex items-center gap-1.5">
             {t("settings.claims.title")}
             <span className="text-[9px] uppercase tracking-wide rounded bg-primary/15 text-primary px-1 py-0.5">
@@ -272,6 +272,27 @@ export default function ClaimsBetaView() {
               </SelectItem>
             </SelectContent>
           </Select>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/60 bg-secondary/20 px-3 py-3">
+        <div className="text-xs font-medium text-foreground">
+          {t("settings.claims.explainer.title")}
+        </div>
+        <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {t("settings.claims.explainer.intro")}
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          {(["affects", "review", "backfill"] as const).map((item) => (
+            <div key={item} className="min-w-0">
+              <div className="text-[11px] font-medium text-foreground">
+                {t(`settings.claims.explainer.${item}Title`)}
+              </div>
+              <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                {t(`settings.claims.explainer.${item}Desc`)}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -399,76 +420,80 @@ export default function ClaimsBetaView() {
           if (!applying) setBackfillOpen(o)
         }}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader className="min-w-0 pr-6">
             <DialogTitle>{t("settings.claims.backfill.title")}</DialogTitle>
-            <DialogDescription>{t("settings.claims.backfill.desc")}</DialogDescription>
+            <DialogDescription className="break-words leading-relaxed">
+              {t("settings.claims.backfill.desc")}
+            </DialogDescription>
           </DialogHeader>
 
-          {planLoading ? (
-            <div className="py-10 text-center text-xs text-muted-foreground inline-flex items-center justify-center gap-1.5 w-full">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("common.loading")}
-            </div>
-          ) : plan ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-5 gap-2 text-center">
-                {(
-                  [
-                    ["summaryTotal", plan.summary.totalMemories],
-                    ["summaryLinked", plan.summary.alreadyLinked],
-                    ["summaryCandidates", plan.summary.candidates],
-                    ["summaryActive", plan.summary.autoActive],
-                    ["summaryReview", plan.summary.needsReview],
-                  ] as const
-                ).map(([key, value]) => (
-                  <div key={key} className="rounded-lg border border-border/60 px-2 py-2">
-                    <div className="text-sm font-semibold tabular-nums">{value}</div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">
-                      {t(`settings.claims.backfill.${key}`)}
-                    </div>
-                  </div>
-                ))}
+          <div className="min-h-0 min-w-0 overflow-y-auto pr-1">
+            {planLoading ? (
+              <div className="py-10 text-center text-xs text-muted-foreground inline-flex items-center justify-center gap-1.5 w-full">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("common.loading")}
               </div>
-
-              <div className="border border-border/60 rounded-lg max-h-[300px] overflow-y-auto">
-                {plan.candidates.length === 0 ? (
-                  <div className="px-3 py-8 text-xs text-muted-foreground text-center">
-                    {t("settings.claims.backfill.empty")}
-                  </div>
-                ) : (
-                  plan.candidates.map((c) => (
-                    <div
-                      key={c.memoryId}
-                      className="px-3 py-2 text-xs border-b border-border/30 last:border-0"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[c.proposedStatus] ?? "bg-muted-foreground/50"}`}
-                        />
-                        <span className="truncate">{c.content}</span>
-                      </div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-                        {c.claimType} · {scopeLabel(c)} ·{" "}
-                        {t(`settings.claims.status.${c.proposedStatus}`)}
-                        {c.pinned ? " · pinned" : ""}
+            ) : plan ? (
+              <div className="min-w-0 space-y-3">
+                <div className="grid min-w-0 grid-cols-2 gap-2 text-center sm:grid-cols-5">
+                  {(
+                    [
+                      ["summaryTotal", plan.summary.totalMemories],
+                      ["summaryLinked", plan.summary.alreadyLinked],
+                      ["summaryCandidates", plan.summary.candidates],
+                      ["summaryActive", plan.summary.autoActive],
+                      ["summaryReview", plan.summary.needsReview],
+                    ] as const
+                  ).map(([key, value]) => (
+                    <div key={key} className="min-w-0 rounded-lg border border-border/60 px-2 py-2">
+                      <div className="text-sm font-semibold tabular-nums">{value}</div>
+                      <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                        {t(`settings.claims.backfill.${key}`)}
                       </div>
                     </div>
-                  ))
+                  ))}
+                </div>
+
+                <div className="max-h-[42vh] min-w-0 overflow-y-auto overflow-x-hidden rounded-lg border border-border/60 sm:max-h-[360px]">
+                  {plan.candidates.length === 0 ? (
+                    <div className="px-3 py-8 text-xs text-muted-foreground text-center">
+                      {t("settings.claims.backfill.empty")}
+                    </div>
+                  ) : (
+                    plan.candidates.map((c) => (
+                      <div
+                        key={c.memoryId}
+                        className="min-w-0 px-3 py-2 text-xs border-b border-border/30 last:border-0"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[c.proposedStatus] ?? "bg-muted-foreground/50"}`}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{c.content}</span>
+                        </div>
+                        <div className="mt-0.5 min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+                          {c.claimType} · {scopeLabel(c)} ·{" "}
+                          {t(`settings.claims.status.${c.proposedStatus}`)}
+                          {c.pinned ? " · pinned" : ""}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {plan.previewTruncated && (
+                  <div className="text-[10px] text-muted-foreground text-center">
+                    {t("settings.claims.backfill.previewTruncated", {
+                      shown: plan.candidates.length,
+                      total: plan.summary.candidates,
+                    })}
+                  </div>
                 )}
               </div>
-              {plan.previewTruncated && (
-                <div className="text-[10px] text-muted-foreground text-center">
-                  {t("settings.claims.backfill.previewTruncated", {
-                    shown: plan.candidates.length,
-                    total: plan.summary.candidates,
-                  })}
-                </div>
-              )}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button
               variant="ghost"
               size="sm"

@@ -166,7 +166,7 @@ CREATE INDEX idx_canvas_projects_session    ON canvas_projects(session_id, updat
 
 - **content_type 不可变**：`update` / `restore` 不接受 `content_type` 参数，强制沿用 `create` 时的设置（[`tools/canvas/project.rs:84-92`](../../crates/ha-core/src/tools/canvas/project.rs#L84-L92)）。如果 LLM 要换类型只能 `delete` + `create`
 - **restore 不是回退**：是从历史版本生成一个**新**的 v(N+1)，原版本 1..N 都不动；这样 prune 只看 `version_number` 倒序数 N，不会因为 restore 把"曾经的最新版"挤出窗口
-- **snapshot 的返回值**走 [`IMAGE_BASE64_PREFIX`](../../crates/ha-core/src/tools/browser/mod.rs)（与 browser 截图共用），LLM 端会自动当多模态 image 处理
+- **snapshot 的返回值**走 [`IMAGE_BASE64_PREFIX`](../../crates/ha-core/src/tools/browser/mod.rs)（与 browser 截图共用）；工具执行层会在普通会话里把内联图片 marker 物化为受管 `__IMAGE_FILE__`，Provider 请求前再作为多模态 image 输入
 - **export 的 PNG 格式**未实现：tool schema 列了 `enum: ["html", "markdown", "png"]` 但 `action_export` 只处理 html / markdown 两个分支，传 png 会 `Unsupported export format` 报错
 
 ### 创建路径详解

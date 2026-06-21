@@ -281,24 +281,26 @@ pub(super) async fn dispatch_slash_for_channel(
         }
 
         // ── Compact — run compaction ──
-        Some(CommandAction::Compact) => match compact_context_now_core(session_id).await {
-            Ok(r) => {
-                let msg = format!(
-                    "Compacted: {} → {} tokens ({} messages affected)",
-                    r.tokens_before, r.tokens_after, r.messages_affected
-                );
-                Ok(ChannelSlashOutcome::Reply {
-                    content: msg,
+        Some(CommandAction::Compact) => {
+            match compact_context_now_core(session_id, agent_id).await {
+                Ok(r) => {
+                    let msg = format!(
+                        "Compacted: {} → {} tokens ({} messages affected)",
+                        r.tokens_before, r.tokens_after, r.messages_affected
+                    );
+                    Ok(ChannelSlashOutcome::Reply {
+                        content: msg,
+                        new_session_id: None,
+                        buttons: vec![],
+                    })
+                }
+                Err(e) => Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Compaction failed: {}", e),
                     new_session_id: None,
                     buttons: vec![],
-                })
+                }),
             }
-            Err(e) => Ok(ChannelSlashOutcome::Reply {
-                content: format!("Compaction failed: {}", e),
-                new_session_id: None,
-                buttons: vec![],
-            }),
-        },
+        }
 
         // ── Session cleared — notify frontend ──
         Some(CommandAction::SessionCleared) => {
@@ -671,85 +673,77 @@ async fn set_reasoning_effort_core(effort: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Manual context compaction. Equivalent to the old `commands::config::compact_context_now_core`.
+/// Manual context compaction for IM/channel slash commands.
 async fn compact_context_now_core(
     session_id: &str,
+    agent_id: &str,
 ) -> Result<crate::context_compact::CompactResult, String> {
-    use crate::chat_engine::save_agent_context;
-    use crate::context_compact;
-
     let session_db = crate::require_session_db().map_err(|e| e.to_string())?;
-    let cached_agent = crate::require_cached_agent().map_err(|e| e.to_string())?;
-    let agent = cached_agent.lock().await;
-    let agent = agent.as_ref().ok_or("No active agent")?;
+    let store = crate::config::cached_config();
+    let agent_def = crate::agent_loader::load_agent(agent_id).ok();
+    let agent_model_config = agent_def
+        .as_ref()
+        .map(|def| def.config.model.clone())
+        .unwrap_or_default();
 
-    let mut history = agent.get_conversation_history();
-    if history.is_empty() {
-        return Ok(context_compact::CompactResult {
-            tier_applied: 0,
-            tokens_before: 0,
-            tokens_after: 0,
-            messages_affected: 0,
-            description: "no_messages".to_string(),
-            details: None,
-            manifest: None,
+    let pinned = session_db
+        .get_session(session_id)
+        .map_err(|e| e.to_string())?
+        .and_then(|meta| match (meta.provider_id, meta.model_id) {
+            (Some(provider_id), Some(model_id))
+                if !provider_id.is_empty() && !model_id.is_empty() =>
+            {
+                Some(format!("{provider_id}::{model_id}"))
+            }
+            _ => None,
         });
+
+    let (primary, fallbacks) = if let Some(pinned) = pinned {
+        let mut cfg = agent_model_config.clone();
+        cfg.primary = Some(pinned);
+        crate::provider::resolve_model_chain(&cfg, &store)
+    } else {
+        crate::provider::resolve_model_chain(&agent_model_config, &store)
+    };
+
+    let mut model_chain = Vec::new();
+    if let Some(model) = primary {
+        model_chain.push(model);
     }
-
-    let compact_config = crate::config::cached_config().compact.clone();
-
-    let system_prompt_estimate = "system";
-    let max_tokens: u32 = 16384;
-
-    let result = context_compact::compact_if_needed(
-        &mut history,
-        system_prompt_estimate,
-        agent.get_context_window(),
-        max_tokens,
-        &compact_config,
-    );
-
-    if result.tier_applied == 0 {
-        let mut forced_config = compact_config;
-        forced_config.soft_trim_ratio = 0.0;
-        forced_config.hard_clear_ratio = 0.0;
-
-        let forced_result = context_compact::compact_if_needed(
-            &mut history,
-            system_prompt_estimate,
-            agent.get_context_window(),
-            max_tokens,
-            &forced_config,
-        );
-
-        if forced_result.messages_affected > 0 {
-            agent.set_conversation_history(history);
-            save_agent_context(session_db, session_id, agent);
-            app_info!(
-                "context",
-                "compact::manual",
-                "Manual compaction: {} → {} tokens, {} affected",
-                forced_result.tokens_before,
-                forced_result.tokens_after,
-                forced_result.messages_affected
-            );
+    for model in fallbacks {
+        if !model_chain
+            .iter()
+            .any(|m| m.provider_id == model.provider_id && m.model_id == model.model_id)
+        {
+            model_chain.push(model);
         }
-        return Ok(forced_result);
     }
+    let model = model_chain
+        .into_iter()
+        .next()
+        .ok_or_else(|| "No model configured for manual compaction".to_string())?;
 
-    agent.set_conversation_history(history);
-    save_agent_context(session_db, session_id, agent);
-    app_info!(
-        "context",
-        "compact::manual",
-        "Manual compaction: tier={}, {} → {} tokens, {} affected",
-        result.tier_applied,
-        result.tokens_before,
-        result.tokens_after,
-        result.messages_affected
-    );
+    let resolved_temperature = agent_def
+        .as_ref()
+        .and_then(|def| def.config.model.temperature)
+        .or(store.temperature);
 
-    Ok(result)
+    let result =
+        crate::chat_engine::compact_session_now(crate::chat_engine::CompactSessionParams {
+            session_id: session_id.to_string(),
+            agent_id: agent_id.to_string(),
+            session_db: session_db.clone(),
+            model,
+            providers: store.providers.clone(),
+            codex_token: None,
+            resolved_temperature,
+            compact_config: store.compact.clone(),
+            source: crate::chat_engine::ChatSource::Channel,
+            event_sink: Arc::new(crate::chat_engine::NoopEventSink),
+        })
+        .await?;
+
+    Ok(result.compact_result)
 }
 
 fn is_model_active(

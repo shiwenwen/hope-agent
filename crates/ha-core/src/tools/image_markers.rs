@@ -2,6 +2,7 @@ use base64::Engine as _;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::browser::IMAGE_BASE64_PREFIX;
 
@@ -146,6 +147,76 @@ pub(crate) fn build_image_base64_marker(mime: &str, b64: &str, text: &str) -> St
     format!("{IMAGE_BASE64_PREFIX}{mime}__{b64}__\n{text}")
 }
 
+pub(crate) fn materialize_base64_image_markers(
+    result: &str,
+    session_id: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let Some(parsed) = parse_image_markers(result) else {
+        return Ok(None);
+    };
+
+    let mut changed = false;
+    let mut written_paths: Vec<String> = Vec::new();
+    let mut rebuilt = Vec::with_capacity(parsed.markers.len() + 1);
+    if !parsed.leading_text.is_empty() {
+        rebuilt.push(parsed.leading_text);
+    }
+
+    for (idx, marker) in parsed.markers.iter().enumerate() {
+        let marker_text = match &marker.payload {
+            ImageMarkerPayload::Base64(b64) => {
+                match materialize_one_base64(session_id, idx, b64, &marker.text) {
+                    Ok((path, file_marker)) => {
+                        written_paths.push(path);
+                        changed = true;
+                        file_marker
+                    }
+                    // Partial failure: remove the files already written this
+                    // call so a bailed multi-image result never leaves orphaned
+                    // bytes in `tool_results/` (the caller keeps the inline
+                    // result on Err).
+                    Err(e) => {
+                        for path in &written_paths {
+                            let _ = std::fs::remove_file(path);
+                        }
+                        return Err(e);
+                    }
+                }
+            }
+            ImageMarkerPayload::FilePath(path) => {
+                build_image_file_marker(&marker.mime, path, &marker.text)
+            }
+        };
+        rebuilt.push(marker_text);
+    }
+
+    if changed {
+        Ok(Some(rebuilt.join("\n")))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Decode one base64 image marker, verify it is a real image, write the bytes
+/// under `tool_results/<session>/` and return `(written_path, file_marker)`.
+fn materialize_one_base64(
+    session_id: Option<&str>,
+    marker_index: usize,
+    b64: &str,
+    marker_text: &str,
+) -> anyhow::Result<(String, String)> {
+    let bytes = base64::engine::general_purpose::STANDARD.decode(b64)?;
+    let sniffed_mime = crate::attachments::sniff_mime_magic(&bytes)
+        .ok_or_else(|| anyhow::anyhow!("base64 image marker MIME could not be verified"))?;
+    if !sniffed_mime.starts_with("image/") {
+        anyhow::bail!("base64 image marker is not an image: {}", sniffed_mime);
+    }
+    let path =
+        save_materialized_image_bytes(session_id, marker_index, sniffed_mime, bytes.as_slice())?;
+    let file_marker = build_image_file_marker(sniffed_mime, path.as_str(), marker_text);
+    Ok((path, file_marker))
+}
+
 pub(crate) fn contains_image_marker(result: &str) -> bool {
     result.contains(IMAGE_BASE64_PREFIX) || result.contains(IMAGE_FILE_PREFIX)
 }
@@ -261,13 +332,65 @@ fn is_valid_standard_base64(data: &str) -> bool {
         .is_ok()
 }
 
+fn save_materialized_image_bytes(
+    session_id: Option<&str>,
+    marker_index: usize,
+    mime: &str,
+    bytes: &[u8],
+) -> anyhow::Result<String> {
+    let session_segment = session_id
+        .map(crate::paths::sanitize_path_segment)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "_global".to_string());
+    let dir = crate::paths::root_dir()?
+        .join("tool_results")
+        .join(session_segment);
+    std::fs::create_dir_all(&dir)?;
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let ext = image_extension_for_mime(mime);
+    let path = dir.join(format!("vision_input_{nanos}_{marker_index}.{ext}",));
+    std::fs::write(&path, bytes)?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn image_extension_for_mime(mime: &str) -> String {
+    let raw_subtype = mime.strip_prefix("image/").unwrap_or("bin");
+    let subtype = raw_subtype
+        .split_once('+')
+        .map(|(base, _)| base)
+        .unwrap_or(raw_subtype);
+    let ext = match subtype {
+        "jpeg" | "pjpeg" => "jpg",
+        "svg" => "svg",
+        other => other,
+    };
+    let sanitized = ext
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "bin".to_string()
+    } else {
+        sanitized
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_image_file_marker, is_under_managed_media_root_for_root, parse_image_markers,
-        IMAGE_FILE_PREFIX,
+        build_image_base64_marker, build_image_file_marker, is_under_managed_media_root_for_root,
+        materialize_base64_image_markers, parse_image_markers, IMAGE_FILE_PREFIX,
     };
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    use base64::Engine as _;
+    use std::path::Path;
+
+    const PNG_1X1_B64: &str =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lT5cWQAAAABJRU5ErkJggg==";
 
     #[test]
     fn parses_valid_image_marker() {
@@ -315,6 +438,51 @@ mod tests {
         assert!(marker.starts_with(IMAGE_FILE_PREFIX));
         assert!(marker.contains("\"mime\":\"image/png\""));
         assert!(marker.contains("\"path\":\"/definitely/not/a/managed/file.png\""));
+    }
+
+    #[test]
+    fn sanitized_session_segment_cannot_escape_tool_results_dir() {
+        assert_eq!(crate::paths::sanitize_path_segment(".."), "__");
+        assert_eq!(
+            crate::paths::sanitize_path_segment("session/../x"),
+            "session____x"
+        );
+    }
+
+    #[test]
+    fn materializes_base64_marker_to_tool_results_file() {
+        let root = tempfile::tempdir().expect("tempdir");
+
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let marker = build_image_base64_marker("image/png", PNG_1X1_B64, "Screenshot.");
+
+            let materialized = materialize_base64_image_markers(&marker, Some("session/../x"))
+                .expect("materialize marker")
+                .expect("base64 marker should be replaced");
+
+            assert!(materialized.starts_with(IMAGE_FILE_PREFIX));
+            assert!(materialized.contains("\"mime\":\"image/png\""));
+            assert!(materialized.contains("Screenshot."));
+            assert!(materialized.contains("session____x"));
+            assert!(!materialized.contains(PNG_1X1_B64));
+
+            let spec_line = materialized
+                .strip_prefix(IMAGE_FILE_PREFIX)
+                .and_then(|rest| rest.split_once('\n').map(|(spec, _)| spec))
+                .expect("file marker JSON line");
+            let spec: serde_json::Value =
+                serde_json::from_str(spec_line).expect("file marker JSON");
+            let path = spec
+                .get("path")
+                .and_then(|v| v.as_str())
+                .expect("path in marker");
+            assert!(Path::new(path).starts_with(root.path().join("tool_results/session____x")));
+            let written = std::fs::read(path).expect("materialized image file");
+            let original = base64::engine::general_purpose::STANDARD
+                .decode(PNG_1X1_B64)
+                .expect("test PNG base64");
+            assert_eq!(written, original);
+        });
     }
 
     #[test]

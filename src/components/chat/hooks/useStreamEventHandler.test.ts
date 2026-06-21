@@ -201,4 +201,86 @@ describe("handleStreamEvent context compaction notices", () => {
 
     expect(messagesRef.current.map((m) => m.role)).toEqual(["user", "assistant"])
   })
+
+  test("coalesces repeated final compaction notices before the active assistant", () => {
+    const messagesRef = {
+      current: [
+        { role: "user", content: "continue" },
+        { role: "assistant", content: "" },
+      ] satisfies Message[],
+    }
+    const deps = createDeps(messagesRef)
+
+    handleStreamEvent(
+      {
+        type: "context_compacted",
+        data: {
+          tier_applied: 3,
+          description: "summarized",
+          messages_affected: 17,
+        },
+      },
+      "s1",
+      deps,
+    )
+    handleStreamEvent(
+      {
+        type: "context_compacted",
+        data: {
+          tier_applied: 2,
+          description: "summarization_not_applied_sync_compaction_only",
+          messages_affected: 9,
+        },
+      },
+      "s1",
+      deps,
+    )
+
+    expect(messagesRef.current.map((m) => m.role)).toEqual(["user", "event", "assistant"])
+    const event = parseEvent(messagesRef.current[1])
+    const data = event.data as Record<string, unknown>
+    expect(data.description).toBe("summarized")
+    expect(data.messages_affected).toBe(17)
+  })
+
+  test("replaces repeated sync compaction notices with the latest one", () => {
+    const messagesRef = {
+      current: [
+        { role: "user", content: "continue" },
+        { role: "assistant", content: "" },
+      ] satisfies Message[],
+    }
+    const deps = createDeps(messagesRef)
+
+    handleStreamEvent(
+      {
+        type: "context_compacted",
+        data: {
+          tier_applied: 2,
+          description: "summarization_not_applied_sync_compaction_only",
+          messages_affected: 1,
+        },
+      },
+      "s1",
+      deps,
+    )
+    handleStreamEvent(
+      {
+        type: "context_compacted",
+        data: {
+          tier_applied: 2,
+          description: "context_pruned",
+          messages_affected: 9,
+        },
+      },
+      "s1",
+      deps,
+    )
+
+    expect(messagesRef.current.map((m) => m.role)).toEqual(["user", "event", "assistant"])
+    const event = parseEvent(messagesRef.current[1])
+    const data = event.data as Record<string, unknown>
+    expect(data.description).toBe("context_pruned")
+    expect(data.messages_affected).toBe(9)
+  })
 })
