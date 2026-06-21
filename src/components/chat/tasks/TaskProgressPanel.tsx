@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 import { AlertCircle, ChevronRight, CirclePause, ListChecks, PanelRight, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -42,31 +42,15 @@ export default function TaskProgressPanel({
 }: TaskProgressPanelProps) {
   const { t } = useTranslation()
   const allTasksCompleted = snapshot.total > 0 && snapshot.completed === snapshot.total
-  const [expanded, setExpanded] = useState(
-    () => defaultExpanded && !workspaceOpen && !allTasksCompleted,
-  )
-  const previousWorkspaceOpenRef = useRef(workspaceOpen)
-  const previousAllCompletedRef = useRef(allTasksCompleted)
+  const expansionKey = `${allTasksCompleted ? "completed" : "active"}:${
+    workspaceOpen ? "workspace" : "chat"
+  }`
+  const defaultPanelExpanded = defaultExpanded && !workspaceOpen && !allTasksCompleted
+  const [expandedByKey, setExpandedByKey] = useState<Record<string, boolean>>({})
+  const expanded = expandedByKey[expansionKey] ?? defaultPanelExpanded
   // Per-row in-flight set so a slow RPC on task A doesn't disable the
   // controls on tasks B/C/D — matters most on HTTP transport latency.
   const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
-
-  useEffect(() => {
-    const wasAllCompleted = previousAllCompletedRef.current
-    if (allTasksCompleted) {
-      setExpanded(false)
-    } else if (wasAllCompleted && defaultExpanded && !workspaceOpen) {
-      setExpanded(true)
-    }
-    previousAllCompletedRef.current = allTasksCompleted
-  }, [allTasksCompleted, defaultExpanded, workspaceOpen])
-
-  useEffect(() => {
-    if (workspaceOpen && !previousWorkspaceOpenRef.current) {
-      setExpanded(false)
-    }
-    previousWorkspaceOpenRef.current = workspaceOpen
-  }, [workspaceOpen])
 
   async function withBusy(id: number, op: () => Promise<unknown>, label: string) {
     if (busyIds.has(id)) return
@@ -133,7 +117,12 @@ export default function TaskProgressPanel({
           aria-expanded={expanded}
           aria-label={`${taskLabel} ${progressLabel}`}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() =>
+            setExpandedByKey((prev) => ({
+              ...prev,
+              [expansionKey]: !expanded,
+            }))
+          }
         >
           <ListChecks className="h-4 w-4 shrink-0 text-blue-500" />
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">

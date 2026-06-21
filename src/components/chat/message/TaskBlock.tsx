@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import { AlertCircle, ChevronRight, CirclePause, ListChecks } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -58,48 +58,35 @@ function getTaskBlockSummaryText(
   return getTaskProgressSummaryText(snapshot, t)
 }
 
-export default function TaskBlock({ tool, executionState }: TaskBlockProps) {
-  const { t } = useTranslation()
-
-  const rawTasks = useMemo(() => parseTaskToolResult(tool.result), [tool.result])
-  const snapshot = useMemo(() => createCurrentTaskProgressSnapshot(rawTasks), [rawTasks])
-  const tasks = snapshot.tasks
-  const allTasksCompleted = tasks.length > 0 && snapshot.completed === snapshot.total
-  const [expanded, setExpanded] = useState(() => !allTasksCompleted)
-  const previousAllCompletedRef = useRef(allTasksCompleted)
-  const taskExecutionState = normalizeExecutionState(executionState)
-  const summaryText = useMemo(
-    () => getTaskBlockSummaryText(snapshot, t, taskExecutionState),
-    [snapshot, t, taskExecutionState],
-  )
-
-  useEffect(() => {
-    const wasAllCompleted = previousAllCompletedRef.current
-    if (allTasksCompleted) {
-      setExpanded(false)
-    } else if (wasAllCompleted) {
-      setExpanded(true)
-    }
-    previousAllCompletedRef.current = allTasksCompleted
-  }, [allTasksCompleted])
-
-  if (tasks.length === 0) {
-    return (
-      <div className="my-1.5 flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
-        <ListChecks className="h-3.5 w-3.5 shrink-0" />
-        <span>{summaryText}</span>
-      </div>
-    )
-  }
-
-  const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
+function TaskBlockList({
+  tasks,
+  summaryText,
+  taskExecutionState,
+  fallbackTaskLabel,
+  expansionKey,
+  defaultExpanded,
+}: {
+  tasks: TaskProgressSnapshot["tasks"]
+  summaryText: string
+  taskExecutionState: TaskExecutionState
+  fallbackTaskLabel: string
+  expansionKey: string
+  defaultExpanded: boolean
+}) {
+  const [expandedByKey, setExpandedByKey] = useState<Record<string, boolean>>({})
+  const expanded = expandedByKey[expansionKey] ?? defaultExpanded
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/40 text-xs">
       <button
         aria-expanded={expanded}
         className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-secondary/70"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() =>
+          setExpandedByKey((prev) => ({
+            ...prev,
+            [expansionKey]: !expanded,
+          }))
+        }
       >
         <ChevronRight
           className={cn(
@@ -153,5 +140,42 @@ export default function TaskBlock({ tool, executionState }: TaskBlockProps) {
         </ul>
       </AnimatedCollapse>
     </div>
+  )
+}
+
+export default function TaskBlock({ tool, executionState }: TaskBlockProps) {
+  const { t } = useTranslation()
+
+  const rawTasks = useMemo(() => parseTaskToolResult(tool.result), [tool.result])
+  const snapshot = useMemo(() => createCurrentTaskProgressSnapshot(rawTasks), [rawTasks])
+  const tasks = snapshot.tasks
+  const allTasksCompleted = tasks.length > 0 && snapshot.completed === snapshot.total
+  const taskExecutionState = normalizeExecutionState(executionState)
+  const summaryText = useMemo(
+    () => getTaskBlockSummaryText(snapshot, t, taskExecutionState),
+    [snapshot, t, taskExecutionState],
+  )
+
+  if (tasks.length === 0) {
+    return (
+      <div className="my-1.5 flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+        <ListChecks className="h-3.5 w-3.5 shrink-0" />
+        <span>{summaryText}</span>
+      </div>
+    )
+  }
+
+  const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
+  const expansionKey = allTasksCompleted ? "completed" : "active"
+
+  return (
+    <TaskBlockList
+      tasks={tasks}
+      summaryText={summaryText}
+      taskExecutionState={taskExecutionState}
+      fallbackTaskLabel={fallbackTaskLabel}
+      expansionKey={expansionKey}
+      defaultExpanded={!allTasksCompleted}
+    />
   )
 }
