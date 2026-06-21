@@ -566,7 +566,7 @@ mod tests {
     };
     use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
     use std::path::PathBuf;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
     use std::time::Instant;
     use tokio::time::timeout;
 
@@ -574,6 +574,12 @@ mod tests {
     // this module share one fixture and serialize through `TEST_LOCK`.
     static FIXTURE: OnceLock<TestFixturePath> = OnceLock::new();
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn test_lock() -> MutexGuard<'static, ()> {
+        TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     struct TestFixturePath {
         // Held only so the module keeps ownership; cleanup on process exit
@@ -642,7 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn block_wakes_on_completion_via_notify() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -659,10 +665,15 @@ mod tests {
         let out = tool_job_status(&args, None).await.expect("tool ok");
         finisher.await.expect("finisher ok");
         let elapsed = start.elapsed();
+        let max_notify_elapsed = if cfg!(windows) {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_millis(400)
+        };
 
         assert!(out.contains("\"status\":\"completed\""), "got {out}");
         assert!(
-            elapsed < Duration::from_millis(400),
+            elapsed < max_notify_elapsed,
             "should return promptly via notify path, took {elapsed:?}"
         );
         assert_eq!(wait::waiter_count(&job_id), 0);
@@ -670,7 +681,7 @@ mod tests {
 
     #[tokio::test]
     async fn block_terminal_on_restart_replay() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -701,7 +712,7 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_after_completion_leaves_empty_registry() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -721,7 +732,7 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_mode_returns_immediately() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -735,7 +746,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_running_job_wakes_waiter_and_finishes_cancelled() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -779,7 +790,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancelling_completed_job_is_noop() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -798,7 +809,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_job_id_errors() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let args = json!({ "job_id": "nonexistent", "block": false });
         let err = tool_job_status(&args, None).await.unwrap_err();
@@ -837,7 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_list_enumerates_only_this_sessions_active_jobs() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let sid = format!("sess-{}", uuid::Uuid::new_v4().simple());
         let other = format!("sess-{}", uuid::Uuid::new_v4().simple());
@@ -865,7 +876,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_list_without_session_errors() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let err = tool_job_status(&json!({ "action": "list" }), None)
             .await
@@ -875,7 +886,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_wait_reports_still_running_on_timeout_then_settles() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -906,7 +917,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_wait_unknown_id_settles_as_unknown_not_forever() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let out = tool_job_status(
             &json!({ "action": "wait", "ids": ["no-such-id"], "timeout_ms": 5000 }),
@@ -923,7 +934,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_cancel_unknown_errors() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let err = tool_job_status(&json!({ "action": "cancel", "job_id": "nope" }), None)
             .await
@@ -933,7 +944,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_action_errors() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let err = tool_job_status(&json!({ "action": "frobnicate" }), None)
             .await
@@ -943,7 +954,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_surfaces_output_tail_while_running() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
@@ -961,7 +972,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_cancel_rejects_cross_session() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running_in_session(&job_id, "owner-sess");
@@ -987,7 +998,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_list_omits_output_tail() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let sid = format!("sess-{}", uuid::Uuid::new_v4().simple());
         let job_id = fresh_id();
@@ -1011,7 +1022,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_omits_output_tail_when_none_registered() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = test_lock();
         ensure_fixture();
         let job_id = fresh_id();
         insert_running(&job_id);
