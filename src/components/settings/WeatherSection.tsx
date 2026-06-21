@@ -315,6 +315,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                   value={config.weatherLatitude}
                   integer={false}
                   onValueCommit={(value) => update("weatherLatitude", value)}
+                  onEmptyCommit={() => update("weatherLatitude", null)}
                   className="h-8 text-sm"
                 />
               </div>
@@ -329,6 +330,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                   value={config.weatherLongitude}
                   integer={false}
                   onValueCommit={(value) => update("weatherLongitude", value)}
+                  onEmptyCommit={() => update("weatherLongitude", null)}
                   className="h-8 text-sm"
                 />
               </div>

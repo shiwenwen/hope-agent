@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps } from "react"
+import { useState, type ComponentProps } from "react"
 import { Input } from "@/components/ui/input"
 
 type InputProps = ComponentProps<typeof Input>
@@ -10,6 +10,7 @@ interface DeferredNumberInputProps
   max?: number
   integer?: boolean
   onValueCommit: (value: number) => void
+  onEmptyCommit?: () => void
 }
 
 export function DeferredNumberInput({
@@ -18,6 +19,7 @@ export function DeferredNumberInput({
   max,
   integer = true,
   onValueCommit,
+  onEmptyCommit,
   onFocus,
   onBlur,
   onKeyDown,
@@ -25,21 +27,28 @@ export function DeferredNumberInput({
 }: DeferredNumberInputProps) {
   const formatValue = (nextValue: number | null | undefined) =>
     nextValue == null ? "" : String(nextValue)
-  const [draft, setDraft] = useState(formatValue(value))
+  const [draft, setDraft] = useState("")
   const [editing, setEditing] = useState(false)
-
-  useEffect(() => {
-    if (!editing) {
-      setDraft(formatValue(value))
-    }
-  }, [editing, value])
+  const displayValue = editing ? draft : formatValue(value)
 
   const commitDraft = () => {
     const raw = draft.trim()
     const parsed = Number(raw)
 
     setEditing(false)
-    if (raw === "" || !Number.isFinite(parsed)) {
+    if (raw === "") {
+      if (!onEmptyCommit) {
+        setDraft(formatValue(value))
+        return
+      }
+      setDraft("")
+      if (value != null) {
+        onEmptyCommit()
+      }
+      return
+    }
+
+    if (!Number.isFinite(parsed)) {
       setDraft(formatValue(value))
       return
     }
@@ -59,8 +68,9 @@ export function DeferredNumberInput({
       type="number"
       min={min}
       max={max}
-      value={draft}
+      value={displayValue}
       onFocus={(event) => {
+        setDraft(formatValue(value))
         setEditing(true)
         onFocus?.(event)
       }}

@@ -12,6 +12,7 @@ import type {
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
 import {
+  contextCompactionData,
   isContextCompactionPayload,
   parseEventPayload,
   shouldReplaceContextCompactionNotice,
@@ -191,11 +192,25 @@ export function computeContextUsage(
   let usedTokens = 0
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
-    if (m.role !== "assistant") continue
-    const tok = getContextUsageTokens(m.usage)
-    if (tok) {
-      usedTokens = tok
-      break
+    if (m.role === "event") {
+      const payload = parseEventPayload(m.content)
+      if (payload?.type === "context_compacted" && isContextCompactionPayload(payload)) {
+        const data = contextCompactionData(payload)
+        const tokensAfter = data.tokens_after
+        if (typeof tokensAfter === "number") {
+          usedTokens = tokensAfter
+          break
+        }
+      }
+      continue
+    }
+
+    if (m.role === "assistant") {
+      const tok = getContextUsageTokens(m.usage)
+      if (tok != null) {
+        usedTokens = tok
+        break
+      }
     }
   }
   return formatContextUsage(usedTokens, contextWindow)
