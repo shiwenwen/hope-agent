@@ -402,12 +402,12 @@ fn image_extension_for_mime(mime: &str) -> &'static str {
     }
 }
 
-fn display_filename(idx: usize, total: usize, mime: &str) -> String {
+fn display_filename(call_id: &str, idx: usize, total: usize, mime: &str) -> String {
     let ext = image_extension_for_mime(mime);
     if total > 1 {
-        format!("view_image_{}.{}", idx, ext)
+        format!("view_image_{}_{}.{}", call_id, idx, ext)
     } else {
-        format!("view_image.{}", ext)
+        format!("view_image_{}.{}", call_id, ext)
     }
 }
 
@@ -418,11 +418,12 @@ fn build_marker_with_optional_preview_file(
     final_mime: &str,
     b64: &str,
     marker_text: &str,
+    preview_call_id: &str,
 ) -> String {
     if can_emit_preview_media(ctx) {
         match base64::engine::general_purpose::STANDARD.decode(b64) {
             Ok(bytes) => {
-                let display_name = display_filename(idx, total, final_mime);
+                let display_name = display_filename(preview_call_id, idx, total, final_mime);
                 match crate::attachments::save_attachment_bytes(
                     ctx.session_id.as_deref(),
                     &display_name,
@@ -463,6 +464,7 @@ pub(crate) async fn tool_image(args: &Value, ctx: &ToolExecContext) -> Result<St
     let sources = normalize_sources(args, effective_max_images())?;
     let task = vision_task(args);
     let total = sources.len();
+    let preview_call_id = uuid::Uuid::new_v4().simple().to_string();
     let mut result_parts: Vec<String> = Vec::new();
     let mut success_count = 0usize;
 
@@ -520,6 +522,7 @@ pub(crate) async fn tool_image(args: &Value, ctx: &ToolExecContext) -> Result<St
                             final_mime,
                             &b64,
                             &marker_text,
+                            &preview_call_id,
                         );
                         result_parts.push(marker);
                         success_count += 1;
