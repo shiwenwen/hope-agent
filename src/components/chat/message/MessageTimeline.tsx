@@ -10,6 +10,8 @@ export type MessageTimelineTone =
   | "tool"
   | "user"
 
+export type MessageTimelineMarkerAlign = "control" | "text"
+
 const DOT_TONE_CLASSES: Record<MessageTimelineTone, string> = {
   assistant: "bg-teal-500",
   failed: "bg-red-500",
@@ -53,6 +55,8 @@ interface MessageTimelineItemProps {
   className?: string
   contentClassName?: string
   active?: boolean
+  dense?: boolean
+  markerAlign?: MessageTimelineMarkerAlign
   tone?: MessageTimelineTone
 }
 
@@ -61,19 +65,38 @@ export function MessageTimelineItem({
   className,
   contentClassName,
   active = false,
+  dense = false,
+  markerAlign = "text",
   tone = "assistant",
 }: MessageTimelineItemProps) {
+  const markerOffsetClass =
+    dense && markerAlign === "control"
+      ? "pt-[0.625rem]"
+      : dense
+        ? "pt-[0.375rem]"
+        : "pt-[0.45rem]"
+  const lineStartClass =
+    dense && markerAlign === "control"
+      ? "top-[1.225rem]"
+      : dense
+        ? "top-[0.975rem]"
+        : "top-[1.1rem]"
+
   return (
     <div
       className={cn(
-        "group relative col-span-2 grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-x-3 py-1.5",
+        "group relative col-span-2 grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-x-3",
+        dense ? "py-0.5" : "py-1.5",
         className,
       )}
     >
-      <div className="relative flex justify-center pt-[0.45rem]">
+      <div className={cn("relative flex justify-center", markerOffsetClass)}>
         <span
           aria-hidden
-          className="pointer-events-none absolute bottom-0 left-1/2 top-[1.1rem] w-px -translate-x-1/2 bg-sky-500/18 dark:bg-sky-300/12 group-last:hidden"
+          className={cn(
+            "pointer-events-none absolute bottom-0 left-1/2 w-px -translate-x-1/2 bg-sky-500/18 dark:bg-sky-300/12 group-last:hidden",
+            lineStartClass,
+          )}
         />
         <span className="relative flex h-2.5 w-2.5 items-center justify-center">
           {active && (
@@ -103,7 +126,8 @@ export function MessageTimelineItem({
       </div>
       <div
         className={cn(
-          "min-w-0 break-words pb-2 text-sm leading-relaxed text-foreground/85 select-text",
+          "message-markdown-content min-w-0 break-words text-sm leading-relaxed text-foreground/85 select-text",
+          dense ? "pb-0.5" : "pb-2",
           contentClassName,
         )}
       >

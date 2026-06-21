@@ -14,6 +14,7 @@ import {
 import {
   MessageTimeline,
   MessageTimelineItem,
+  type MessageTimelineMarkerAlign,
   type MessageTimelineTone,
 } from "./MessageTimeline"
 import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
@@ -150,6 +151,7 @@ function synthesizeBlocks(msg: Message): ContentBlock[] {
 
 interface RenderUnit {
   key: string
+  markerAlign: MessageTimelineMarkerAlign
   node: React.ReactNode
   processTools?: ToolCall[]
   isProcessComplete?: boolean
@@ -272,6 +274,7 @@ function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
 interface TimelineRenderItem {
   key: string
   tone: MessageTimelineTone
+  markerAlign: MessageTimelineMarkerAlign
   active: boolean
   node: React.ReactNode
 }
@@ -294,7 +297,13 @@ function collapseProcessedTimelineUnits(
   while (i < units.length) {
     const unit = units[i]
     if (!unit.isProcessComplete) {
-      items.push({ key: unit.key, tone: getTimelineTone(unit), active: i === activeIndex, node: unit.node })
+      items.push({
+        key: unit.key,
+        tone: getTimelineTone(unit),
+        markerAlign: unit.markerAlign,
+        active: i === activeIndex,
+        node: unit.node,
+      })
       i++
       continue
     }
@@ -308,9 +317,21 @@ function collapseProcessedTimelineUnits(
 
     if (group.length >= 2) {
       const built = buildProcessedGroup(group)
-      items.push({ key: `processed-${group[0].key}`, tone: built.tone, active: false, node: built.node })
+      items.push({
+        key: `processed-${group[0].key}`,
+        tone: built.tone,
+        markerAlign: "control",
+        active: false,
+        node: built.node,
+      })
     } else {
-      items.push({ key: unit.key, tone: getTimelineTone(unit), active: i === activeIndex, node: unit.node })
+      items.push({
+        key: unit.key,
+        tone: getTimelineTone(unit),
+        markerAlign: unit.markerAlign,
+        active: i === activeIndex,
+        node: unit.node,
+      })
     }
 
     i = j
@@ -367,7 +388,9 @@ export function AssistantContentBlocks({
       if (displayMode === "timeline") {
         return (
           <MessageTimeline>
-            <MessageTimelineItem tone="running">{node}</MessageTimelineItem>
+            <MessageTimelineItem tone="running" dense>
+              {node}
+            </MessageTimelineItem>
           </MessageTimeline>
         )
       }
@@ -378,6 +401,7 @@ export function AssistantContentBlocks({
 
   const units: RenderUnit[] = []
   const isStreamingMessage = loading && isLast
+  const isTimelineDisplay = displayMode === "timeline"
   const taskExecutionState = executionState ?? (isStreamingMessage ? "running" : "idle")
 
   // Pre-compute first task_* position + latest task_* tool with a result,
@@ -408,6 +432,7 @@ export function AssistantContentBlocks({
       const hasLaterText = hasTextFrom(blocks, i + 1)
       units.push({
         key: `thinking-${i}`,
+        markerAlign: "text",
         // Fold thinking/tool work only once the assistant has begun emitting
         // text after it. This keeps completed tool rounds visible while the
         // model is between tool_result and the next text_delta.
@@ -417,6 +442,7 @@ export function AssistantContentBlocks({
           <ThinkingBlock
             key={i}
             content={block.content}
+            compact={isTimelineDisplay}
             isStreaming={loading && isLast && isLastBlock}
             durationMs={block.durationMs}
             interrupted={block.interrupted}
@@ -427,6 +453,7 @@ export function AssistantContentBlocks({
     } else if (block.type === "text") {
       units.push({
         key: `text-${i}`,
+        markerAlign: "text",
         node: (
           <div key={i}>
             {contentRenderMode === "markdown" ? (
@@ -450,6 +477,7 @@ export function AssistantContentBlocks({
       if (block.tool.name === "ask_user_question") {
         units.push({
           key: block.tool.callId,
+          markerAlign: "control",
           node: (
             <AskUserQuestionResult
               key={block.tool.callId}
@@ -465,6 +493,7 @@ export function AssistantContentBlocks({
         if (i === firstTaskIdx && latestTaskTool) {
           units.push({
             key: latestTaskTool.callId,
+            markerAlign: "control",
             processTools: [latestTaskTool],
             node: (
               <TaskBlock
@@ -488,6 +517,7 @@ export function AssistantContentBlocks({
         } catch { /* ignore */ }
         units.push({
           key: block.tool.callId,
+          markerAlign: "control",
           node: (
             <SubmitPlanResult
               key={block.tool.callId}
@@ -508,6 +538,7 @@ export function AssistantContentBlocks({
         const isLastTool = loading && isLast && i === blocks.length - 1
         units.push({
           key: block.tool.callId,
+          markerAlign: "control",
           node: (
             <SkillProgressBlock key={block.tool.callId} tool={block.tool} shimmer={isLastTool} />
           ),
@@ -539,6 +570,7 @@ export function AssistantContentBlocks({
             const groupKey = `sgrp-${runs.map((r) => r.runId).join("|")}`
             units.push({
               key: groupKey,
+              markerAlign: "control",
               node: (
                 <SubagentGroup key={groupKey} runs={runs} onSwitchSession={onSwitchSession} />
               ),
@@ -551,6 +583,7 @@ export function AssistantContentBlocks({
             const run = runs[0]
             units.push({
               key: run.runId,
+              markerAlign: "control",
               node: (
                 <SubagentBlock
                   key={run.runId}
@@ -571,6 +604,7 @@ export function AssistantContentBlocks({
         // group below.
         units.push({
           key: block.tool.callId,
+          markerAlign: "control",
           node: (
             <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />
           ),
@@ -581,6 +615,7 @@ export function AssistantContentBlocks({
       if (NO_GROUP_TOOLS.has(block.tool.name)) {
         units.push({
           key: block.tool.callId,
+          markerAlign: "control",
           node: (
             <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />
           ),
@@ -610,6 +645,7 @@ export function AssistantContentBlocks({
         )
         units.push({
           key: `grp-${tools[0].callId}`,
+          markerAlign: "control",
           processTools: tools,
           isProcessComplete: hasLaterText && processUnitToolsComplete(tools),
           elapsedMs: getToolsWallClockMs(tools),
@@ -626,6 +662,7 @@ export function AssistantContentBlocks({
         // Single tool — render individually
         units.push({
           key: block.tool.callId,
+          markerAlign: "control",
           processTools: [block.tool],
           isProcessComplete:
             hasLaterText && getToolExecutionState(block.tool) !== "running",
@@ -653,6 +690,7 @@ export function AssistantContentBlocks({
     if (lastBlock?.type === "tool_call") {
       units.push({
         key: "__loading__",
+        markerAlign: "text",
         node: (
           <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
             <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
@@ -673,7 +711,13 @@ export function AssistantContentBlocks({
     return (
       <MessageTimeline>
         {items.map((item) => (
-          <MessageTimelineItem key={item.key} active={item.active} tone={item.tone}>
+          <MessageTimelineItem
+            key={item.key}
+            active={item.active}
+            dense
+            markerAlign={item.markerAlign}
+            tone={item.tone}
+          >
             {item.node}
           </MessageTimelineItem>
         ))}
