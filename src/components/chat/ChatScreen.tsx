@@ -67,11 +67,19 @@ import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import { computeContextUsage, formatContextUsage } from "./chatUtils"
 import {
   COMPACT_CONTEXT_UPDATED_EVENT,
+  type CompactResult,
   compactContextNow,
   compactResultMessage,
   resolveCurrentModel,
   type CompactContextUpdatedDetail,
 } from "./sessionStatus"
+import {
+  contextCompactionData,
+  isContextCompactionPayload,
+  isContextCompactionStartPayload,
+  parseEventPayload,
+  shouldReplaceContextCompactionNotice,
+} from "./contextCompactionEvents"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useFilePreview } from "./files/useFilePreview"
@@ -250,6 +258,113 @@ function makeClientEventMessage(message: ClientEventMessage): Message {
   }
 }
 
+function makeCompactProgressEvent(): Record<string, unknown> {
+  return {
+    type: "context_compaction_progress",
+    data: {
+      phase: "preparing",
+      kind: "summary",
+    },
+  }
+}
+
+function makeCompactResultEvent(result: CompactResult): Record<string, unknown> {
+  return {
+    type: "context_compacted",
+    data: {
+      tier_applied: result.tierApplied,
+      tokens_before: result.tokensBefore,
+      tokens_after: result.tokensAfter,
+      messages_affected: result.messagesAffected,
+      description: result.description ?? "no_action_needed",
+      kind: result.tierApplied >= 4 ? "emergency" : "summary",
+    },
+  }
+}
+
+function makeCompactFailedEvent(): Record<string, unknown> {
+  return {
+    type: "context_compaction_progress",
+    data: {
+      phase: "failed",
+      kind: "summary",
+    },
+  }
+}
+
+function makeCompactNoticeMessage(event: Record<string, unknown>, clientId?: string): Message {
+  return {
+    role: "event",
+    content: JSON.stringify(event),
+    timestamp: new Date().toISOString(),
+    _clientId: clientId ?? generateClientId(),
+  }
+}
+
+function compactNoticePayload(message: Message): Record<string, unknown> | null {
+  if (message.role !== "event") return null
+  const payload = parseEventPayload(message.content)
+  return isContextCompactionPayload(payload) ? payload : null
+}
+
+function isLiveContextCompactionNotice(message: Message): boolean {
+  const payload = compactNoticePayload(message)
+  if (!payload) return false
+  return payload.type === "context_compaction_progress" || isContextCompactionStartPayload(payload)
+}
+
+function latestLiveCompactNoticeIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (isLiveContextCompactionNotice(messages[i])) return i
+  }
+  return -1
+}
+
+function latestCompactNoticeIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (compactNoticePayload(messages[i])) return i
+  }
+  return -1
+}
+
+function upsertManualCompactNotice(
+  messages: Message[],
+  event: Record<string, unknown>,
+  clientId: string,
+): Message[] {
+  const notice = makeCompactNoticeMessage(event, clientId)
+  const sameClientIdx = messages.findIndex((message) => message._clientId === clientId)
+  if (sameClientIdx >= 0) {
+    const next = [...messages]
+    next[sameClientIdx] = notice
+    return next
+  }
+
+  if (event.type === "context_compaction_progress") {
+    const data = contextCompactionData(event)
+    if (data.phase !== "failed") return [...messages, notice]
+  }
+
+  const liveIdx = latestLiveCompactNoticeIndex(messages)
+  if (liveIdx >= 0) {
+    const next = [...messages]
+    next[liveIdx] = notice
+    return next
+  }
+
+  const noticeIdx = latestCompactNoticeIndex(messages)
+  if (noticeIdx >= 0) {
+    const previousPayload = compactNoticePayload(messages[noticeIdx])
+    if (previousPayload && shouldReplaceContextCompactionNotice(previousPayload, event)) {
+      const next = [...messages]
+      next[noticeIdx] = notice
+      return next
+    }
+  }
+
+  return [...messages, notice]
+}
+
 export default function ChatScreen({
   onOpenAgentSettings,
   onCodexReauth,
@@ -399,9 +514,13 @@ export default function ChatScreen({
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
+  const compactingRef = useRef(false)
   const [manualCompactOverride, setManualCompactOverride] = useState<ManualCompactOverride | null>(
     null,
   )
+  useEffect(() => {
+    compactingRef.current = compacting
+  }, [compacting])
 
   // In-session "find in page" search bar state
   const [searchBarOpen, setSearchBarOpen] = useState(false)
@@ -1350,6 +1469,34 @@ export default function ChatScreen({
     }
   }, [session.currentAgentId])
 
+  const runCompactContextForCurrentSession = useCallback(async (): Promise<CompactResult | null> => {
+    const sid = session.currentSessionId
+    if (!sid || compactingRef.current) return null
+
+    const noticeId = `manual-compact:${sid}:${Date.now()}`
+    compactingRef.current = true
+    setCompacting(true)
+    session.updateSessionMessages(sid, (prev) =>
+      upsertManualCompactNotice(prev, makeCompactProgressEvent(), noticeId),
+    )
+
+    try {
+      const result = await compactContextNow(sid)
+      session.updateSessionMessages(sid, (prev) =>
+        upsertManualCompactNotice(prev, makeCompactResultEvent(result), noticeId),
+      )
+      return result
+    } catch (e) {
+      session.updateSessionMessages(sid, (prev) =>
+        upsertManualCompactNotice(prev, makeCompactFailedEvent(), noticeId),
+      )
+      throw e
+    } finally {
+      compactingRef.current = false
+      setCompacting(false)
+    }
+  }, [session])
+
   // ── Slash Command Action Handler ──────────────────────────────
   const handleCommandAction = useCallback(
     async (result: CommandResult) => {
@@ -1368,7 +1515,8 @@ export default function ChatScreen({
         action?.type === "showProjectPicker" ||
         action?.type === "showSessionPicker" ||
         action?.type === "recapCard" ||
-        action?.type === "skillFork"
+        action?.type === "skillFork" ||
+        action?.type === "compact"
       const shouldAppendResultContent = result.content && !actionRendersResult
       const slashHistoryMessages: Message[] = []
       if (shouldShowSlashHistory && result._slashCommandText) {
@@ -1398,7 +1546,14 @@ export default function ChatScreen({
         )
       }
       if (slashHistoryMessages.length > 0) {
-        session.setMessages((prev) => [...prev, ...slashHistoryMessages])
+        if (session.currentSessionId) {
+          session.updateSessionMessages(session.currentSessionId, (prev) => [
+            ...prev,
+            ...slashHistoryMessages,
+          ])
+        } else {
+          session.setMessages((prev) => [...prev, ...slashHistoryMessages])
+        }
       }
 
       if (!action) return
@@ -1429,15 +1584,14 @@ export default function ChatScreen({
           break
         case "compact":
           if (session.currentSessionId) {
-            setCompacting(true)
             try {
-              const result = await compactContextNow(session.currentSessionId)
-              toast.success(compactResultMessage(t, result))
+              const result = await runCompactContextForCurrentSession()
+              if (result) {
+                toast.success(compactResultMessage(t, result))
+              }
             } catch (e) {
               logger.error("ui", "ChatScreen::slashCompact", "Compact failed", e)
               toast.error(t("chat.compactFailed"))
-            } finally {
-              setCompacting(false)
             }
           }
           break
@@ -1671,6 +1825,7 @@ export default function ChatScreen({
       handleNewChatInProject,
       refreshUnreadState,
       onOpenDashboardTab,
+      runCompactContextForCurrentSession,
       t,
     ],
   )
@@ -2223,7 +2378,7 @@ export default function ChatScreen({
           reasoningEffort={reasoningEffort}
           loading={session.loading}
           compacting={compacting}
-          setCompacting={setCompacting}
+          onCompactContext={runCompactContextForCurrentSession}
           onRenameSession={handleRenameSession}
           onViewSystemPrompt={loadSystemPrompt}
           systemPromptLoading={systemPromptLoading}
@@ -2328,6 +2483,8 @@ export default function ChatScreen({
                 planSubagentRunning={planMode.planSubagentRunning}
                 onSwitchModel={handleMessageSwitchModel}
                 onViewSystemPrompt={loadSystemPrompt}
+                compacting={compacting}
+                onCompactContext={runCompactContextForCurrentSession}
                 onOpenDashboardTab={onOpenDashboardTab}
                 onSwitchSession={(sid) => {
                   void session.handleSwitchSession(sid)
@@ -2626,6 +2783,8 @@ export default function ChatScreen({
                 reasoningEffort={reasoningEffort}
                 availableModels={availableModels}
                 currentAgentId={session.currentAgentId}
+                compacting={compacting}
+                onCompactContext={runCompactContextForCurrentSession}
                 onCommandAction={handleCommandAction}
                 onViewSystemPrompt={loadSystemPrompt}
                 systemPromptLoading={systemPromptLoading}

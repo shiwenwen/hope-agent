@@ -313,6 +313,8 @@
     "compactNoChange": "Bağlamın sıkıştırılmasına gerek yok",
     "compactSummaryNotApplied": "Özet gerekliydi ancak tamamlanmadı",
     "compactSummaryNotAppliedSync": "Eşzamanlı temizlik tamamlandı, ancak özet tamamlanmadı",
+    "compactSummaryTimedOut": "Özet oluşturma zaman aşımına uğradı",
+    "compactSummaryTimedOutSync": "Eşzamanlı temizlik tamamlandı, ancak özet oluşturma zaman aşımına uğradı",
     "compactCancelled": "Sıkıştırma iptal edildi",
     "compactNow": "Bağlamı sıkıştır",
     "compacting": "Sıkıştırılıyor...",

@@ -313,6 +313,8 @@
     "compactNoChange": "Контекст не нуждается в сжатии",
     "compactSummaryNotApplied": "Требовалось резюме, но оно не было завершено",
     "compactSummaryNotAppliedSync": "Синхронная очистка выполнена, но резюме не завершено",
+    "compactSummaryTimedOut": "Генерация резюме превысила время ожидания",
+    "compactSummaryTimedOutSync": "Синхронная очистка выполнена, но генерация резюме превысила время ожидания",
     "compactCancelled": "Сжатие отменено",
     "compactNow": "Сжать контекст",
     "compacting": "Сжатие...",

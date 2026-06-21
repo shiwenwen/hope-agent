@@ -70,7 +70,7 @@ import {
 } from "../chatUtils"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
 import {
-  compactContextNow,
+  type CompactResult,
   compactResultMessage,
   computeCacheStats,
   resolveCurrentModel,
@@ -135,6 +135,8 @@ interface WorkspacePanelProps {
   currentAgentId?: string
   /** 「查看上下文」把 `/context` 结果回派给 ChatScreen（与悬浮窗共用入口）。 */
   onCommandAction?: (result: CommandResult) => void
+  compacting?: boolean
+  onCompactContext?: () => Promise<CompactResult | null>
   /** 「查看系统提示词」—— 复用 ChatScreen 的 loadSystemPrompt。 */
   onViewSystemPrompt?: () => void
   systemPromptLoading?: boolean
@@ -442,6 +444,8 @@ function SessionSection({
   contextUsageOverride,
   currentAgentId,
   turnActive,
+  compacting = false,
+  onCompactContext,
   onCommandAction,
   onViewSystemPrompt,
   systemPromptLoading,
@@ -456,13 +460,14 @@ function SessionSection({
   contextUsageOverride?: ContextUsageInfo | null
   currentAgentId?: string
   turnActive?: boolean
+  compacting?: boolean
+  onCompactContext?: () => Promise<CompactResult | null>
   onCommandAction?: (result: CommandResult) => void
   onViewSystemPrompt?: () => void
   systemPromptLoading?: boolean
 }) {
   const { t } = useTranslation()
   const [showMore, setShowMore] = useState(false)
-  const [compacting, setCompacting] = useState(false)
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Clear the "copied" reset timer on unmount so it can't fire after the card
@@ -508,16 +513,16 @@ function SessionSection({
 
   const handleCompact = useCallback(async () => {
     if (!sessionId) return
-    setCompacting(true)
     try {
-      toast.success(compactResultMessage(t, await compactContextNow(sessionId)))
+      const result = await onCompactContext?.()
+      if (result) {
+        toast.success(compactResultMessage(t, result))
+      }
     } catch (e) {
       logger.error("ui", "WorkspaceSession::compact", "Compact failed", e)
       toast.error(t("chat.compactFailed"))
-    } finally {
-      setCompacting(false)
     }
-  }, [sessionId, t])
+  }, [sessionId, onCompactContext, t])
 
   const handleViewContext = useCallback(async () => {
     if (!sessionId) return
@@ -1124,6 +1129,8 @@ export default function WorkspacePanel({
   reasoningEffort,
   availableModels,
   currentAgentId,
+  compacting = false,
+  onCompactContext,
   onCommandAction,
   onViewSystemPrompt,
   systemPromptLoading,
@@ -1183,6 +1190,8 @@ export default function WorkspacePanel({
           contextUsageOverride={contextUsageOverride}
           currentAgentId={currentAgentId}
           turnActive={turnActive}
+          compacting={compacting}
+          onCompactContext={onCompactContext}
           onCommandAction={onCommandAction}
           onViewSystemPrompt={onViewSystemPrompt}
           systemPromptLoading={systemPromptLoading}

@@ -313,6 +313,8 @@
     "compactNoChange": "コンテキストの圧縮は不要です",
     "compactSummaryNotApplied": "要約が必要でしたが完了しませんでした",
     "compactSummaryNotAppliedSync": "同期クリーンアップは完了しましたが、要約は完了しませんでした",
+    "compactSummaryTimedOut": "要約生成がタイムアウトしました",
+    "compactSummaryTimedOutSync": "同期クリーンアップは完了しましたが、要約生成はタイムアウトしました",
     "compactCancelled": "圧縮をキャンセルしました",
     "compactNow": "コンテキストを圧縮",
     "compacting": "圧縮中...",

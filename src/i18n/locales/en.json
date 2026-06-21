@@ -313,6 +313,8 @@
     "compactNoChange": "Context does not need compression",
     "compactSummaryNotApplied": "Summary was needed, but was not completed",
     "compactSummaryNotAppliedSync": "Cleaned up context, but summary was not completed",
+    "compactSummaryTimedOut": "Summary generation timed out",
+    "compactSummaryTimedOutSync": "Cleaned up context, but summary generation timed out",
     "compactCancelled": "Compression was cancelled",
     "compactNow": "Compress Context",
     "compacting": "Compressing...",

@@ -33,6 +33,10 @@ export default function ContextCompactedBanner({
     typeof event.messages_affected === "number" && event.messages_affected > 0
       ? event.messages_affected
       : undefined
+  const savedTokens =
+    typeof event.tokens_before === "number" && typeof event.tokens_after === "number"
+      ? Math.max(0, event.tokens_before - event.tokens_after)
+      : 0
   const msgs =
     isRunning || event.tier_applied === 3
       ? summarizedMsgs ?? affectedMsgs
@@ -51,6 +55,21 @@ export default function ContextCompactedBanner({
       return t("chat.contextCompaction.preparing")
     }
     if (isEmergency) return t("chat.contextCompaction.emergencyDone")
+    if (event.description === "no_messages") return t("chat.compactNoMessages")
+    if (event.description === "no_action_needed") return t("chat.compactNoChange")
+    if (event.description === "summarization_timed_out") {
+      return t("chat.compactSummaryTimedOut")
+    }
+    if (event.description === "summarization_timed_out_sync_compaction_only") {
+      return t("chat.compactSummaryTimedOutSync")
+    }
+    if (event.description === "summarization_not_applied") {
+      return t("chat.compactSummaryNotApplied")
+    }
+    if (event.description === "summarization_not_applied_sync_compaction_only") {
+      return t("chat.compactSummaryNotAppliedSync")
+    }
+    if (event.description === "cancelled") return t("chat.compactCancelled")
     if (event.tier_applied === 3 || event.description === "summarization_needed") {
       return t("chat.contextCompaction.summaryDone")
     }
@@ -64,6 +83,9 @@ export default function ContextCompactedBanner({
     }
     if (typeof event.files_recovered === "number" && event.files_recovered > 0) {
       parts.push(t("chat.contextCompaction.filesRecovered", { count: event.files_recovered }))
+    }
+    if (!isRunning && !isFailed && savedTokens > 0) {
+      parts.push(t("chat.contextCompaction.savedTokens", { count: savedTokens }))
     }
     return parts.join(" · ")
   })()

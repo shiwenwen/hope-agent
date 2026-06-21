@@ -76,6 +76,7 @@ pub(super) struct CompactionRunOutcome {
     pub tier_applied: u8,
     pub changed_history: bool,
     pub summary_applied: bool,
+    pub summary_timed_out: bool,
     pub tokens_after: u32,
     pub cancelled: bool,
     pub compact_result: Option<crate::context_compact::CompactResult>,
@@ -563,6 +564,7 @@ impl AssistantAgent {
             tier_applied: compact_result.tier_applied,
             changed_history: compact_result.messages_affected > 0,
             summary_applied: false,
+            summary_timed_out: false,
             tokens_after: compact_result.tokens_after,
             cancelled: false,
             compact_result: None,
@@ -1022,6 +1024,7 @@ impl AssistantAgent {
                         );
                     }
                     Err(_) => {
+                        run_outcome.summary_timed_out = true;
                         if let Some(logger) = crate::get_logger() {
                             logger.log(
                                 "warn",
@@ -1052,16 +1055,27 @@ impl AssistantAgent {
         if compact_result.description == "summarization_needed" && !run_outcome.summary_applied {
             let sync_tier = sync_tier_from_compact_result(&compact_result);
             compact_result.tier_applied = sync_tier;
-            compact_result.description = if sync_tier > 0 {
+            compact_result.description = if run_outcome.summary_timed_out {
+                if sync_tier > 0 {
+                    "summarization_timed_out_sync_compaction_only".to_string()
+                } else {
+                    "summarization_timed_out".to_string()
+                }
+            } else if sync_tier > 0 {
                 "summarization_not_applied_sync_compaction_only".to_string()
             } else {
                 "summarization_not_applied".to_string()
             };
             if let Some(manifest) = compact_result.manifest.as_mut() {
                 manifest.tier = sync_tier;
-                manifest
-                    .warnings
-                    .push("tier3_summary_not_applied".to_string());
+                manifest.warnings.push(
+                    if run_outcome.summary_timed_out {
+                        "tier3_summary_timed_out"
+                    } else {
+                        "tier3_summary_not_applied"
+                    }
+                    .to_string(),
+                );
             }
             run_outcome.tier_applied = sync_tier;
             run_outcome.changed_history = sync_tier > 0 && compact_result.messages_affected > 0;

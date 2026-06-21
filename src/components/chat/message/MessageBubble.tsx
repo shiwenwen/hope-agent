@@ -49,6 +49,7 @@ import type {
 } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
+import type { CompactResult } from "@/components/chat/sessionStatus"
 import RecapProgressCard from "@/components/chat/RecapProgressCard"
 import SkillForkStatusCard from "@/components/chat/SkillForkStatusCard"
 import {
@@ -82,6 +83,8 @@ export interface MessageBubbleProps {
   onSwitchModel?: (providerId: string, modelId: string) => void
   // View system prompt (triggered from context breakdown card)
   onViewSystemPrompt?: () => void
+  compacting?: boolean
+  onCompactContext?: () => Promise<CompactResult | null>
   // Open a dashboard tab from structured slash command cards.
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   // Open the right-side diff panel for a file change payload.
@@ -252,6 +255,8 @@ function MessageBubbleInner({
   onSwitchSession,
   onSwitchModel,
   onViewSystemPrompt,
+  compacting,
+  onCompactContext,
   onOpenDashboardTab,
   onOpenDiff,
   onResume,
@@ -437,6 +442,8 @@ function MessageBubbleInner({
         <ContextBreakdownCard
           data={msg.contextBreakdownData}
           sessionId={sessionId}
+          compacting={compacting}
+          onCompactContext={onCompactContext}
           onViewSystemPrompt={onViewSystemPrompt}
         />
       )

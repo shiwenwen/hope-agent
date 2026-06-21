@@ -313,6 +313,8 @@
     "compactNoChange": "當前上下文無需壓縮",
     "compactSummaryNotApplied": "需要摘要，但本次摘要未完成",
     "compactSummaryNotAppliedSync": "已完成同步清理，但摘要未完成",
+    "compactSummaryTimedOut": "摘要生成逾時",
+    "compactSummaryTimedOutSync": "已完成同步清理，但摘要生成逾時",
     "compactCancelled": "壓縮已取消",
     "compactNow": "壓縮上下文",
     "compacting": "壓縮中...",

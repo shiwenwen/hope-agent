@@ -6,11 +6,17 @@ import { IconTip } from "@/components/ui/tooltip"
 import { Loader2, Zap, FileText, Eye } from "lucide-react"
 import { logger } from "@/lib/logger"
 import type { ContextBreakdown } from "@/components/chat/slash-commands/types"
-import { compactContextNow, compactResultMessage } from "@/components/chat/sessionStatus"
+import {
+  type CompactResult,
+  compactContextNow,
+  compactResultMessage,
+} from "@/components/chat/sessionStatus"
 
 interface ContextBreakdownCardProps {
   data: ContextBreakdown
   sessionId?: string | null
+  compacting?: boolean
+  onCompactContext?: () => Promise<CompactResult | null>
   onCompactDone?: () => void
   onViewSystemPrompt?: () => void
 }
@@ -39,6 +45,8 @@ function formatDuration(secs: number): string {
 export default function ContextBreakdownCard({
   data,
   sessionId,
+  compacting: externalCompacting = false,
+  onCompactContext,
   onCompactDone,
   onViewSystemPrompt,
 }: ContextBreakdownCardProps) {
@@ -47,6 +55,10 @@ export default function ContextBreakdownCard({
   const [cooldown, setCooldown] = useState<number | null>(
     data.nextCompactAllowedInSecs ?? null,
   )
+
+  useEffect(() => {
+    setCooldown(data.nextCompactAllowedInSecs ?? null)
+  }, [data])
 
   // Tick cooldown countdown once per second.
   useEffect(() => {
@@ -120,15 +132,20 @@ export default function ContextBreakdownCard({
   const pct = Math.round(data.usagePct)
   const pctColor =
     pct < 50 ? "text-green-500" : pct < 80 ? "text-yellow-500" : "text-red-500"
-  const canCompact = !!sessionId && (cooldown == null || cooldown <= 0) && !compacting
+  const compactBusy = externalCompacting || compacting
+  const canCompact = !!sessionId && (cooldown == null || cooldown <= 0) && !compactBusy
 
   const handleCompact = async () => {
     if (!sessionId) return
     setCompacting(true)
     try {
-      const result = await compactContextNow(sessionId)
-      toast.success(compactResultMessage(t, result))
-      onCompactDone?.()
+      const result = onCompactContext
+        ? await onCompactContext()
+        : await compactContextNow(sessionId)
+      if (result) {
+        toast.success(compactResultMessage(t, result))
+        onCompactDone?.()
+      }
     } catch (e) {
       logger.error("ui", "ContextBreakdownCard::compact", "Compact failed", e)
       toast.error(t("chat.compactFailed"))
@@ -241,12 +258,12 @@ export default function ContextBreakdownCard({
           disabled={!canCompact}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border/60 hover:bg-secondary/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {compacting ? (
+          {compactBusy ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
             <Zap className="w-3.5 h-3.5" />
           )}
-          {compacting
+          {compactBusy
             ? t("chat.compacting", "Compacting…")
             : t("chat.compactNow", "Compact now")}
         </button>
