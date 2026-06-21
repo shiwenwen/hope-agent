@@ -107,6 +107,33 @@ function NumberField({
   max?: number
   onChange: (v: number) => void
 }) {
+  const [draft, setDraft] = useState(String(value))
+  const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(String(value))
+    }
+  }, [editing, value])
+
+  const commitDraft = () => {
+    const raw = draft.trim()
+    const parsed = Number(raw)
+
+    setEditing(false)
+    if (raw === "" || !Number.isFinite(parsed)) {
+      setDraft(String(value))
+      return
+    }
+
+    const upperBounded = max == null ? parsed : Math.min(max, parsed)
+    const next = Math.max(min, upperBounded)
+    setDraft(String(next))
+    if (next !== value) {
+      onChange(next)
+    }
+  }
+
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
@@ -116,12 +143,13 @@ function NumberField({
           min={min}
           max={max}
           className="h-7 w-24 text-sm text-right"
-          value={value}
-          onChange={(e) => {
-            const v = Number(e.target.value)
-            if (!isNaN(v)) {
-              const upperBounded = max == null ? v : Math.min(max, v)
-              onChange(Math.max(min, upperBounded))
+          value={draft}
+          onFocus={() => setEditing(true)}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur()
             }
           }}
         />
@@ -454,6 +482,7 @@ export default function ContextCompactPanel() {
                   label={t("settings.contextCompactTimeout")}
                   value={config.summarizationTimeoutSecs}
                   min={10}
+                  max={10000}
                   onChange={(v) => update({ summarizationTimeoutSecs: v })}
                 />
                 <NumberField
