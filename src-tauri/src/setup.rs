@@ -334,6 +334,13 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         });
     }
 
+    // Best-effort: auto-register the Chrome native messaging host manifest so a
+    // packaged build needs no manual "Install native host" step. Desktop-only,
+    // idempotent, and a no-op until a Chrome extension id is known.
+    tauri::async_runtime::spawn_blocking(|| {
+        ha_core::browser::ensure_native_host_registered();
+    });
+
     // Bridge ha-core EventBus → Tauri frontend (app_handle.emit).
     // Without this, events like `ask_user_request` / `plan_submitted` emitted
     // from ha-core never reach the WebView.

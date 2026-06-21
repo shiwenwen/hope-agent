@@ -205,6 +205,250 @@ pub fn install_native_host_manifest(
     })
 }
 
+/// Chrome Web Store extension IDs shipped with released builds. Empty until the
+/// extension is published; once it has a stable store ID, add it here so a
+/// packaged install can auto-register the native messaging host with no user
+/// input. Each must be a valid 32-char (a–p) Chrome extension id.
+pub const KNOWN_STORE_EXTENSION_IDS: &[&str] = &[];
+
+/// Best-effort startup auto-registration of the native messaging host manifest
+/// for the Chromium-family browsers the user has installed, so a packaged build
+/// needs no manual "Install native host" step. Desktop-only, idempotent (skips
+/// when the on-disk manifest is already current), and never panics — every
+/// failure is logged and swallowed. Returns the number of manifests (re)written.
+///
+/// No-op when the extension backend is disabled, when no Chrome extension id is
+/// known yet (alpha / unpacked with an unstable id and nothing configured), or
+/// when the host binary can't be resolved.
+pub fn ensure_native_host_registered() -> usize {
+    let cfg = crate::config::cached_config()
+        .browser
+        .as_ref()
+        .and_then(|b| b.extension.clone())
+        .unwrap_or_default();
+    if !cfg.enabled() {
+        return 0;
+    }
+
+    let host_name = cfg.native_host_name().to_string();
+    if validate_native_host_name(&host_name).is_err() {
+        app_warn!(
+            "browser",
+            "auto_register",
+            "invalid native host name '{}', skipping auto-register",
+            host_name
+        );
+        return 0;
+    }
+
+    // Extension ids we may authorize: configured + detected unpacked + known
+    // store ids, keeping only well-formed ones.
+    let mut extension_ids: Vec<String> = Vec::new();
+    for id in effective_extension_ids(&cfg.extension_ids) {
+        if validate_extension_id(&id).is_ok() {
+            push_unique_extension_id(&mut extension_ids, id);
+        }
+    }
+    for id in KNOWN_STORE_EXTENSION_IDS {
+        if validate_extension_id(id).is_ok() {
+            push_unique_extension_id(&mut extension_ids, (*id).to_string());
+        }
+    }
+    if extension_ids.is_empty() {
+        app_info!(
+            "browser",
+            "auto_register",
+            "no known Chrome extension id yet; skipping native host auto-register"
+        );
+        return 0;
+    }
+
+    let host_path = match resolve_host_path(None) {
+        Ok(path) if path.is_absolute() && path.exists() => path,
+        Ok(path) => {
+            app_info!(
+                "browser",
+                "auto_register",
+                "native host binary not found at {}; skipping auto-register",
+                path.display()
+            );
+            return 0;
+        }
+        Err(e) => {
+            app_info!(
+                "browser",
+                "auto_register",
+                "native host binary unresolved; skipping auto-register: {:#}",
+                e
+            );
+            return 0;
+        }
+    };
+
+    let dirs = native_host_manifest_dirs();
+    if dirs.is_empty() {
+        app_info!(
+            "browser",
+            "auto_register",
+            "no Chromium-family browser directories found; skipping native host auto-register"
+        );
+        return 0;
+    }
+
+    let mut written = 0usize;
+    for dir in dirs {
+        let manifest_path = dir.join(format!("{host_name}.json"));
+        match write_manifest_if_changed(&manifest_path, &host_name, &host_path, &extension_ids) {
+            Ok(true) => written += 1,
+            Ok(false) => {}
+            Err(e) => app_warn!(
+                "browser",
+                "auto_register",
+                "failed writing native host manifest {}: {:#}",
+                manifest_path.display(),
+                e
+            ),
+        }
+    }
+
+    // Windows points browsers at the manifest via the registry, not a
+    // per-browser directory. Reuse the existing Chrome registry pointer; Edge /
+    // Brave registry keys on Windows are a follow-up.
+    #[cfg(windows)]
+    if let Some(manifest_path) = native_host_manifest_path(&host_name) {
+        if let Err(e) = register_windows_native_host(&host_name, &manifest_path) {
+            app_warn!(
+                "browser",
+                "auto_register",
+                "windows native host registry registration failed: {:#}",
+                e
+            );
+        }
+    }
+
+    if written > 0 {
+        app_info!(
+            "browser",
+            "auto_register",
+            "native host manifest auto-registered ({} written) for {} extension id(s)",
+            written,
+            extension_ids.len()
+        );
+    }
+    written
+}
+
+/// NativeMessagingHosts directories to register into, one per installed
+/// Chromium-family browser. macOS / Linux only include browsers whose profile
+/// base directory exists (so uninstalled browsers don't get stray trees);
+/// Windows uses the single shared manifest directory referenced from the
+/// registry.
+#[cfg(target_os = "macos")]
+fn native_host_manifest_dirs() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let support = home.join("Library").join("Application Support");
+    [
+        support.join("Google").join("Chrome"),
+        support.join("Google").join("Chrome Beta"),
+        support.join("Google").join("Chrome Dev"),
+        support.join("Google").join("Chrome Canary"),
+        support.join("Chromium"),
+        support.join("Microsoft Edge"),
+        support.join("BraveSoftware").join("Brave-Browser"),
+    ]
+    .into_iter()
+    .filter(|base| base.is_dir())
+    .map(|base| base.join("NativeMessagingHosts"))
+    .collect()
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn native_host_manifest_dirs() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let config = home.join(".config");
+    [
+        config.join("google-chrome"),
+        config.join("google-chrome-beta"),
+        config.join("google-chrome-unstable"),
+        config.join("chromium"),
+        config.join("microsoft-edge"),
+        config.join("BraveSoftware").join("Brave-Browser"),
+    ]
+    .into_iter()
+    .filter(|base| base.is_dir())
+    .map(|base| base.join("NativeMessagingHosts"))
+    .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn native_host_manifest_dirs() -> Vec<PathBuf> {
+    native_host_manifest_path(DEFAULT_NATIVE_HOST_NAME)
+        .and_then(|p| p.parent().map(PathBuf::from))
+        .into_iter()
+        .collect()
+}
+
+/// Write the native host manifest at `manifest_path` unless it's already current
+/// (same host path and already authorizing every desired extension id). Existing
+/// `allowed_origins` are preserved (unioned) so a manually-added id isn't
+/// clobbered. Returns whether a write happened.
+fn write_manifest_if_changed(
+    manifest_path: &std::path::Path,
+    host_name: &str,
+    host_path: &std::path::Path,
+    extension_ids: &[String],
+) -> Result<bool> {
+    let host_path_str = host_path.to_string_lossy().to_string();
+    let mut origins: Vec<String> = extension_ids
+        .iter()
+        .map(|id| format!("chrome-extension://{id}/"))
+        .collect();
+
+    if let Ok(bytes) = std::fs::read(manifest_path) {
+        if let Ok(existing) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            let same_path =
+                existing.get("path").and_then(|v| v.as_str()) == Some(host_path_str.as_str());
+            let existing_origins: Vec<String> = existing
+                .get("allowed_origins")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if same_path && origins.iter().all(|o| existing_origins.contains(o)) {
+                return Ok(false);
+            }
+            for origin in existing_origins {
+                if !origins.contains(&origin) {
+                    origins.push(origin);
+                }
+            }
+        }
+    }
+
+    if let Some(parent) = manifest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating native host manifest dir {}", parent.display()))?;
+    }
+    let manifest = json!({
+        "name": host_name,
+        "description": "Hope Agent Chrome Native Messaging Host",
+        "path": host_path_str,
+        "type": "stdio",
+        "allowed_origins": origins,
+    });
+    let bytes = serde_json::to_vec_pretty(&manifest)?;
+    crate::platform::write_atomic(manifest_path, &bytes)
+        .with_context(|| format!("writing native host manifest {}", manifest_path.display()))?;
+    Ok(true)
+}
+
 pub fn native_host_manifest_path(host_name: &str) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {

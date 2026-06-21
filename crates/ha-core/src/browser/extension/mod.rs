@@ -17,8 +17,9 @@ pub use backend::{
 };
 pub use broker::{BrokerStatus, BrowserBrokerDiscovery, BrowserExtensionBroker};
 pub use diagnostics::{
-    current_status, install_native_host_manifest, BrowserExtensionStatus,
-    BrowserExtensionStatusKind, NativeHostInstallRequest, NativeHostInstallResult,
+    current_status, ensure_native_host_registered, install_native_host_manifest,
+    BrowserExtensionStatus, BrowserExtensionStatusKind, NativeHostInstallRequest,
+    NativeHostInstallResult,
 };
 
 /// Runtime context for a browser backend acquisition. It is intentionally
