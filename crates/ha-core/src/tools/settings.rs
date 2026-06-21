@@ -94,6 +94,10 @@ fn risk_level(category: &str) -> &'static str {
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
         | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem"
+        // Browser backend: extension.enabled / backendPreference gate whether the
+        // agent can drive the user's real logged-in Chrome; allowRawCdp toggles
+        // the raw DevTools Protocol escape hatch — HIGH, confirm before changing.
+        | "browser"
         // Autonomous maintenance can write to the user's notes (auto_approve =
         // approval policy) — treat as HIGH so the skill confirms before changes.
         | "knowledge_maintenance"
@@ -215,6 +219,14 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              Enabling auto-transcribe consumes STT API quota for every inbound voice message; \
              without `imFallbackModel` (or `stt.activeModel` as fallback), the dispatcher logs a warning per message and forwards the original audio unchanged. \
              Original audio is always kept as an attachment alongside the transcript prefix."
+        ),
+        "browser" => Some(
+            "Browser backend config. extension.enabled + backendPreference decide whether browser \
+             actions drive the user's real logged-in Chrome (extension) or an isolated CDP Chrome; \
+             extension.allowRawCdp is the kill switch for the raw DevTools Protocol escape hatch. \
+             Changes apply to subsequent browser actions. profiles / launchCircuit are complex \
+             structures better edited in the GUI Browser panel — pass only the fields you intend to \
+             change (merge is field-level)."
         ),
         _ => None,
     }
@@ -441,6 +453,7 @@ fn read_category(category: &str) -> Result<Value> {
             &cfg.web_search,
         )?)),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
+        "browser" => Ok(serde_json::to_value(&cfg.browser)?),
         "security" => Ok(json!({
             "skipAllApprovals": cfg.permission.global_yolo,
         })),
@@ -681,7 +694,8 @@ fn get_all_overview() -> Result<String> {
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
             "acp_control", "skill_env", "security", "security.ssrf",
-            "smart_mode", "mcp_global", "knowledge_maintenance", "unattended_approval", "auto_update"
+            "smart_mode", "mcp_global", "knowledge_maintenance", "unattended_approval", "auto_update",
+            "browser"
         ],
         "read_only": [
             "active_model", "fallback_models", "channels", "mcp_servers",
@@ -902,6 +916,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "proxy" => merge_field(&mut store.proxy, values)?,
         "web_search" => merge_field(&mut store.web_search, values)?,
         "web_fetch" => merge_field(&mut store.web_fetch, values)?,
+        "browser" => merge_field(&mut store.browser, values)?,
         "security" => {
             if let Some(v) = values.get("skipAllApprovals").and_then(|v| v.as_bool()) {
                 store.permission.global_yolo = v;
@@ -1329,6 +1344,7 @@ mod tests {
             "smart_mode",
             "mcp_global",
             "knowledge_maintenance",
+            "browser",
         ] {
             assert_eq!(risk_level(cat), "high", "{cat} should be high risk");
         }
@@ -1599,6 +1615,7 @@ mod tests {
             "multimodal",
             "dreaming",
             "knowledge_maintenance",
+            "browser",
         ] {
             assert!(
                 side_effect_note(cat).is_some(),

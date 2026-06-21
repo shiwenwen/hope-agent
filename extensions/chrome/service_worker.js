@@ -51,13 +51,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 })
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (!source.tabId) return
+  if (!Number.isInteger(source.tabId)) return
   handleFlatSessionEvent(source.tabId, method, params || {})
   handleDebuggerEvent(source, method, params || {})
 })
 
 chrome.debugger.onDetach.addListener((source) => {
-  if (source.tabId) {
+  if (Number.isInteger(source.tabId)) {
     attachedDebugTabs.delete(source.tabId)
     flatSessionTabs.delete(source.tabId)
     flatSessionsByTab.delete(source.tabId)
@@ -76,6 +76,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   attachedDebugTabs.delete(tabId)
   flatSessionTabs.delete(tabId)
   flatSessionsByTab.delete(tabId)
+  // Reap managed download ids that finished without a terminal onChanged delta
+  // (e.g. tab closed mid-download), so the set doesn't grow unbounded.
+  void pruneManagedDownloads()
 })
 
 if (chrome.downloads) {
@@ -118,6 +121,10 @@ function ensureNativePort() {
   if (nativePort) return nativePort
   try {
     nativePort = chrome.runtime.connectNative(HOST_NAME)
+    // Optimistic: connectNative returns a port synchronously before the host
+    // process is confirmed alive. If the host is missing/crashes, onDisconnect
+    // fires shortly after and resets this. sendNative uses the port directly and
+    // does not gate on this flag, so the brief window only affects status display.
     nativeConnected = true
     nativePort.onMessage.addListener((message) => {
       if (message && typeof message.id === "string" && pendingNative.has(message.id)) {
@@ -251,6 +258,9 @@ async function postHostBlob(port, descriptor) {
       sha256,
     },
   })
+  // No per-chunk sha256: the broker verifies the whole-blob sha256 (sent in
+  // blob.begin/end) and treats per-chunk hashes as optional. Hashing every
+  // chunk doubled the crypto work on large captures for no added safety.
   for (let index = 0; index < totalChunks; index++) {
     const offset = index * RESPONSE_BLOB_CHUNK_BYTES
     const chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + RESPONSE_BLOB_CHUNK_BYTES))
@@ -261,7 +271,6 @@ async function postHostBlob(port, descriptor) {
         index,
         offset,
         base64: base64Bytes(chunk),
-        sha256: await sha256HexBytes(chunk),
       },
     })
   }
@@ -560,9 +569,13 @@ function collectHopeFrameSnapshot(maxElements) {
     return path.join(' > ')
   }
 
-  /** @param {any} el */
-  function walk(el, depth) {
-    if (refId >= cap) return
+  // Cap real recursion depth independently of `cap` (which only bounds emitted
+  // refs): a page nesting tens of thousands of non-semantic wrappers would
+  // otherwise overflow the JS stack and abort the whole snapshot.
+  const MAX_WALK_DEPTH = 1000
+  /** @param {any} el @param {number} depth @param {number} rawDepth */
+  function walk(el, depth, rawDepth) {
+    if (refId >= cap || rawDepth > MAX_WALK_DEPTH) return
     if (!el || !el.tagName) return
     if (!isVisible(el)) return
     const tag = el.tagName.toLowerCase()
@@ -595,12 +608,12 @@ function collectHopeFrameSnapshot(maxElements) {
       })
     }
     for (const child of el.children) {
-      walk(child, depth + (interactive || semantic ? 1 : 0))
+      walk(child, depth + (interactive || semantic ? 1 : 0), rawDepth + 1)
     }
   }
 
   if (document.body) {
-    walk(document.body, 0)
+    walk(document.body, 0, 0)
   }
   return {
     url: location.href,
@@ -913,8 +926,12 @@ async function ensureDebuggerAttached(tabId, version) {
   if (!attachedDebugTabs.has(tabId)) {
     await chrome.debugger.attach({ tabId }, version)
     attachedDebugTabs.add(tabId)
+    // Enable observe domains once per attach, not on every call: re-running the
+    // three CDP `enable` commands on an already-attached tab is wasted round
+    // trips. attachedDebugTabs is cleared on detach/onRemoved, so a re-attach
+    // re-enables.
+    await enableObserveDomains(tabId)
   }
-  await enableObserveDomains(tabId)
   await enableFlatSessions(tabId)
 }
 
@@ -1207,6 +1224,22 @@ function isHopeControlledDownload(item) {
   return Number.isInteger(tabId) && (overlayTabs.has(tabId) || attachedDebugTabs.has(tabId))
 }
 
+async function pruneManagedDownloads() {
+  if (managedDownloads.size === 0 || !chrome.downloads?.search) return
+  try {
+    for (const id of [...managedDownloads]) {
+      const [item] = await chrome.downloads.search({ id })
+      // Drop entries that finished or no longer exist — they can leak if no
+      // terminal onChanged delta fired (e.g. tab closed mid-download, restart).
+      if (!item || item.state === "complete" || item.state === "interrupted") {
+        managedDownloads.delete(id)
+      }
+    }
+  } catch {
+    // best-effort cleanup
+  }
+}
+
 function plainDownloadItem(item) {
   return {
     id: item.id,
@@ -1224,10 +1257,8 @@ function plainDownloadItem(item) {
 }
 
 function formatDownloadManaged(response, item) {
-  const path = response?.result?.managedPath || response?.managedPath
-  return path
-    ? `download ${item.id} moved to Hope Agent downloads: ${path}`
-    : `download ${item.id} completed under Hope Agent control`
+  const path = response?.result?.path || response?.path || item.filename
+  return `download ${item.id} completed: ${path}`
 }
 
 async function cancelDownload(params) {
@@ -1235,6 +1266,14 @@ async function cancelDownload(params) {
     throw new Error("chrome.downloads.cancel is unavailable")
   }
   const downloadId = requiredDownloadId(params)
+  // Ownership check: only cancel downloads Hope is managing (started from a
+  // Hope-controlled tab — tracked in managedDownloads). Cancelling an arbitrary
+  // id would let the agent abort the user's unrelated downloads.
+  if (!managedDownloads.has(downloadId)) {
+    throw new Error(
+      `download ${downloadId} is not managed by Hope Agent and cannot be cancelled`
+    )
+  }
   await chrome.downloads.cancel(downloadId)
   pushObserve("downloads", {
     at: Date.now(),

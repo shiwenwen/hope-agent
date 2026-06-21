@@ -186,12 +186,6 @@ pub fn share_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("share"))
 }
 
-/// Quarantined browser downloads managed by the Chrome Extension backend:
-/// ~/.hope-agent/downloads/
-pub fn browser_downloads_dir() -> Result<PathBuf> {
-    Ok(root_dir()?.join("downloads"))
-}
-
 /// Temporary large-object store for Chrome Extension native-messaging blobs:
 /// ~/.hope-agent/browser-extension/blobs/
 pub fn browser_extension_blobs_dir() -> Result<PathBuf> {

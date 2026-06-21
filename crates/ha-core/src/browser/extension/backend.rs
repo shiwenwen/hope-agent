@@ -325,6 +325,22 @@ const BLOCKED_CDP_DOMAIN_PREFIXES: &[&str] = &[
     "Tracing.",
 ];
 
+/// Method-level blocklist for the `raw_cdp` escape hatch. `raw_cdp` deliberately
+/// bypasses [`ALLOWED_CDP_METHODS`] — its whole purpose is to reach advanced
+/// methods the curated path doesn't expose — but it must still honor the safety
+/// blocklist. The `Network.` domain is intentionally NOT in
+/// [`BLOCKED_CDP_DOMAIN_PREFIXES`] (because `Network.enable` is legitimate), so
+/// the cookie/credential-bearing `Network.*` methods are enumerated here.
+const BLOCKED_RAW_CDP_METHODS: &[&str] = &[
+    "Network.getCookies",
+    "Network.getAllCookies",
+    "Network.setCookie",
+    "Network.setCookies",
+    "Network.deleteCookies",
+    "Network.clearBrowserCookies",
+    "Page.getCookies",
+];
+
 pub struct ExtensionBackend {
     broker: Arc<BrowserExtensionBroker>,
     ctx: BrowserBackendContext,
@@ -1402,6 +1418,7 @@ impl BrowserBackend for ExtensionBackend {
     }
 
     async fn status(&self) -> Result<BackendStatus> {
+        let connected = self.is_connected().await;
         let tabs = self.list_pages().await?;
         let active_override = registry::active_tab_id(&self.ctx);
         let active_target_id = tabs
@@ -1417,7 +1434,7 @@ impl BrowserBackend for ExtensionBackend {
             None => None,
         };
         Ok(BackendStatus {
-            connected: true,
+            connected,
             backend: self.backend_name().to_string(),
             active_target_id,
             tabs,
@@ -2171,26 +2188,57 @@ async fn apply_finalize_actions(
         return "No controlled Chrome tabs to finalize.".to_string();
     }
 
-    let mut closed = Vec::new();
-    let mut released = Vec::new();
-    let mut failed = Vec::new();
-    for action in actions {
+    // Run the per-tab teardown concurrently: each tab's hide-overlay +
+    // remove/detach is an independent broker round-trip, so serializing them
+    // made finalize latency scale with tab count (up to CALL_TIMEOUT each).
+    enum Outcome {
+        Closed(i64),
+        Released {
+            id: i64,
+            detach_error: Option<String>,
+        },
+        CloseFailed(String),
+    }
+    let outcomes = futures_util::future::join_all(actions.into_iter().map(|action| async move {
         let _ = hide_overlay_with_broker(broker, action.tab_id).await;
         if action.close {
             match broker
                 .call("tabs.remove", json!({ "tabId": action.tab_id }))
                 .await
             {
-                Ok(_) => closed.push(action.tab_id),
-                Err(e) => failed.push(format!("close {}: {}", action.tab_id, e)),
+                Ok(_) => Outcome::Closed(action.tab_id),
+                Err(e) => Outcome::CloseFailed(format!("close {}: {}", action.tab_id, e)),
             }
         } else {
-            if action.owner_kind == TabOwnerKind::User {
-                if let Err(e) = detach_debugger_with_broker(broker, action.tab_id).await {
-                    failed.push(format!("detach {}: {}", action.tab_id, e));
+            let detach_error = if action.owner_kind == TabOwnerKind::User {
+                detach_debugger_with_broker(broker, action.tab_id)
+                    .await
+                    .err()
+                    .map(|e| format!("detach {}: {}", action.tab_id, e))
+            } else {
+                None
+            };
+            Outcome::Released {
+                id: action.tab_id,
+                detach_error,
+            }
+        }
+    }))
+    .await;
+
+    let mut closed = Vec::new();
+    let mut released = Vec::new();
+    let mut failed = Vec::new();
+    for outcome in outcomes {
+        match outcome {
+            Outcome::Closed(id) => closed.push(id),
+            Outcome::Released { id, detach_error } => {
+                released.push(id);
+                if let Some(e) = detach_error {
+                    failed.push(e);
                 }
             }
-            released.push(action.tab_id);
+            Outcome::CloseFailed(msg) => failed.push(msg),
         }
     }
 
@@ -2237,7 +2285,23 @@ fn validate_cdp_method(method: &str) -> Result<()> {
 }
 
 fn validate_raw_cdp_method(method: &str) -> Result<()> {
-    validate_cdp_method_name(method)
+    validate_cdp_method_name(method)?;
+    // raw_cdp bypasses the ALLOWED_CDP_METHODS whitelist on purpose, but never
+    // the safety blocklist: it must not read/forge the user's real Chrome
+    // credentials, wipe storage, intercept network traffic, or spawn targets.
+    if BLOCKED_CDP_DOMAIN_PREFIXES
+        .iter()
+        .any(|prefix| method.starts_with(prefix))
+    {
+        bail!("CDP method '{method}' is blocked by Hope Agent browser policy and cannot be used via raw_cdp");
+    }
+    if BLOCKED_RAW_CDP_METHODS.contains(&method) {
+        bail!(
+            "CDP method '{method}' is blocked by Hope Agent browser policy \
+             (cookie/credential access is not permitted via raw_cdp)"
+        );
+    }
+    Ok(())
 }
 
 fn validate_cdp_method_name(method: &str) -> Result<()> {
@@ -3434,7 +3498,7 @@ mod tests {
             first.element.attrs.get("ax_operable").map(String::as_str),
             Some("true")
         );
-        assert!(first.element.attrs.get("readonly").is_none());
+        assert!(!first.element.attrs.contains_key("readonly"));
         assert_eq!(
             first
                 .locator
@@ -3577,7 +3641,7 @@ mod tests {
             first.element.attrs.get("readonly").map(String::as_str),
             Some("true")
         );
-        assert!(first.element.attrs.get("ax_operable").is_none());
+        assert!(!first.element.attrs.contains_key("ax_operable"));
     }
 
     #[test]
@@ -3702,15 +3766,25 @@ mod tests {
     }
 
     #[test]
-    fn raw_cdp_accepts_any_well_formed_method() {
+    fn raw_cdp_allows_advanced_methods_but_enforces_blocklist() {
+        // raw_cdp bypasses the ALLOWED_CDP_METHODS whitelist, so well-formed
+        // methods outside it are accepted (that is the escape hatch's purpose).
         assert!(validate_raw_cdp_method("Accessibility.getFullAXTree").is_ok());
         assert!(validate_raw_cdp_method("DOMSnapshot.captureSnapshot").is_ok());
         assert!(validate_raw_cdp_method("Input.dispatchMouseEvent").is_ok());
-        assert!(validate_raw_cdp_method("Browser.getVersion").is_ok());
-        assert!(validate_raw_cdp_method("Target.getTargets").is_ok());
-        assert!(validate_raw_cdp_method("Network.getCookies").is_ok());
         assert!(validate_raw_cdp_method("Page.navigate").is_ok());
         assert!(validate_raw_cdp_method("Runtime.getProperties").is_ok());
+        // Network.enable is a legitimate, non-credential method and stays usable.
+        assert!(validate_raw_cdp_method("Network.enable").is_ok());
+        // The safety blocklist still applies: dangerous domains and the
+        // cookie/credential-bearing Network.* methods are rejected.
+        assert!(validate_raw_cdp_method("Browser.getVersion").is_err());
+        assert!(validate_raw_cdp_method("Target.getTargets").is_err());
+        assert!(validate_raw_cdp_method("Storage.clearDataForOrigin").is_err());
+        assert!(validate_raw_cdp_method("Fetch.enable").is_err());
+        assert!(validate_raw_cdp_method("Network.getCookies").is_err());
+        assert!(validate_raw_cdp_method("Network.getAllCookies").is_err());
+        assert!(validate_raw_cdp_method("Network.clearBrowserCookies").is_err());
     }
 
     #[test]

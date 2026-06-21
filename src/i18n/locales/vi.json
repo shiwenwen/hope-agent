@@ -2755,7 +2755,22 @@
       "statusConnected": "Trình duyệt đang chạy",
       "statusDisconnected": "Không chạy",
       "title": "Trình duyệt",
-      "untitledTab": "Không tiêu đề"
+      "untitledTab": "Không tiêu đề",
+      "advanced": {
+        "section": "Nâng cao",
+        "sectionHint": "Tùy chọn nâng cao cho backend tiện ích mở rộng Chrome. Thay đổi có hiệu lực sau khi bạn nhấn Lưu.",
+        "backendLabel": "Backend trình duyệt",
+        "backendExtensionFirst": "Ưu tiên tiện ích mở rộng (mặc định)",
+        "backendExtensionFirstDesc": "Điều khiển Chrome thật của bạn qua tiện ích mở rộng khi khả dụng; nếu không thì quay về CDP biệt lập.",
+        "backendCdpOnly": "Chỉ CDP biệt lập",
+        "backendCdpOnlyDesc": "Chỉ dùng một Chrome mới, biệt lập; không bao giờ chạm vào trình duyệt thật của bạn.",
+        "backendExtensionOnly": "Chỉ tiện ích mở rộng",
+        "backendExtensionOnlyDesc": "Chỉ dùng Chrome thật của bạn; báo lỗi ngay khi tiện ích mở rộng không khả dụng.",
+        "enableLabel": "Bật backend tiện ích mở rộng Chrome",
+        "enableHint": "Cho phép AI điều khiển Chrome thật đã đăng nhập của bạn (bao gồm toàn bộ Cookie và phiên) qua tiện ích mở rộng.",
+        "rawCdpLabel": "Cho phép raw CDP (nâng cao)",
+        "rawCdpHint": "Cho phép AI gửi lệnh DevTools Protocol tùy ý đến Chrome thật của bạn. Mỗi lần gọi vẫn cần phê duyệt riêng và các phương thức nguy hiểm (đọc Cookie, v.v.) đã bị chặn; hãy giữ tắt trừ khi bạn thực sự cần."
+      }
     },
     "bytes": "byte",
     "canvas": "Canvas",

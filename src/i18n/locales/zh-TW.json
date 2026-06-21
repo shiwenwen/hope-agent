@@ -2755,7 +2755,22 @@
       "statusConnected": "瀏覽器執行中",
       "statusDisconnected": "未執行",
       "title": "瀏覽器",
-      "untitledTab": "未命名"
+      "untitledTab": "未命名",
+      "advanced": {
+        "section": "進階",
+        "sectionHint": "針對 Chrome 擴充功能後端的進階選項；修改後點擊儲存生效。",
+        "backendLabel": "瀏覽器後端",
+        "backendExtensionFirst": "擴充功能優先（預設）",
+        "backendExtensionFirstDesc": "有擴充功能時透過擴充功能驅動你的真實 Chrome，否則回退到隔離 CDP。",
+        "backendCdpOnly": "僅隔離 CDP",
+        "backendCdpOnlyDesc": "僅使用隔離的全新 Chrome，絕不接觸你的真實瀏覽器。",
+        "backendExtensionOnly": "僅擴充功能",
+        "backendExtensionOnlyDesc": "僅使用你的真實 Chrome，擴充功能無法使用時直接報錯。",
+        "enableLabel": "啟用 Chrome 擴充功能後端",
+        "enableHint": "允許 AI 透過擴充功能驅動你已登入的真實 Chrome（包含全部 Cookie 與工作階段）。",
+        "rawCdpLabel": "允許 raw CDP（進階）",
+        "rawCdpHint": "允許 AI 向你的真實 Chrome 發送任意 DevTools 協定命令。每次呼叫仍需逐次核准，且危險方法（讀取 Cookie 等）已被攔截；如非必要，建議保持關閉。"
+      }
     },
     "bytes": "位元組",
     "canvas": "畫布",

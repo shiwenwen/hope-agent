@@ -2755,7 +2755,22 @@
       "statusConnected": "Navegador en ejecución",
       "statusDisconnected": "No en ejecución",
       "title": "Navegador",
-      "untitledTab": "Sin título"
+      "untitledTab": "Sin título",
+      "advanced": {
+        "section": "Avanzado",
+        "sectionHint": "Opciones avanzadas para el backend de la extensión de Chrome. Los cambios se aplican después de hacer clic en Guardar.",
+        "backendLabel": "Backend del navegador",
+        "backendExtensionFirst": "Extensión primero (predeterminado)",
+        "backendExtensionFirstDesc": "Controla tu Chrome real a través de la extensión cuando esté disponible; de lo contrario, recurre a CDP aislado.",
+        "backendCdpOnly": "Solo CDP aislado",
+        "backendCdpOnlyDesc": "Usa solo un Chrome nuevo y aislado; nunca toca tu navegador real.",
+        "backendExtensionOnly": "Solo extensión",
+        "backendExtensionOnlyDesc": "Usa solo tu Chrome real; falla directamente cuando la extensión no está disponible.",
+        "enableLabel": "Habilitar el backend de la extensión de Chrome",
+        "enableHint": "Permite que la IA controle tu Chrome real con la sesión iniciada (incluidas todas las cookies y sesiones) a través de la extensión.",
+        "rawCdpLabel": "Permitir raw CDP (avanzado)",
+        "rawCdpHint": "Permite que la IA envíe comandos arbitrarios del DevTools Protocol a tu Chrome real. Cada llamada sigue requiriendo aprobación por uso y los métodos peligrosos (leer cookies, etc.) están bloqueados; mantenlo desactivado a menos que realmente lo necesites."
+      }
     },
     "bytes": "bytes",
     "canvas": "Canvas",

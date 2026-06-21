@@ -44,6 +44,8 @@ import {
   Download,
   Copy,
   FolderOpen,
+  Save,
+  Check,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
@@ -113,6 +115,10 @@ interface LaunchOptions {
 }
 
 type BrowserMode = "managed" | "user_attach"
+
+// Mirrors `BrowserBackendPreference` (snake_case serde) in
+// `crates/ha-core/src/browser/mod.rs`. `None`/unset on the wire = `extension_first`.
+type BrowserBackendPreference = "extension_first" | "cdp_only" | "extension_only"
 
 // Browser config is partly UI-managed (`defaultMode` lives here only as a
 // remembered tab preference) and partly opaque to this panel — `profiles`,
@@ -209,6 +215,19 @@ export default function BrowserPanel() {
     defaultMode: "managed",
   })
   const [savingCfg, setSavingCfg] = useState<boolean>(false)
+
+  // Advanced extension-backend settings — a local draft committed via an
+  // explicit three-state Save button (these are HIGH-risk knobs, so no
+  // optimistic auto-save like the mode tabs). Defaults mirror the backend:
+  // backend preference unset = extension_first; extension.enabled / allowRawCdp
+  // unset = true.
+  const [advBackendPref, setAdvBackendPref] =
+    useState<BrowserBackendPreference>("extension_first")
+  const [advExtEnabled, setAdvExtEnabled] = useState<boolean>(true)
+  const [advAllowRawCdp, setAdvAllowRawCdp] = useState<boolean>(true)
+  const [advSaving, setAdvSaving] = useState<boolean>(false)
+  const [advSaveStatus, setAdvSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
   const [doctor, setDoctor] = useState<BrowserDoctorReport | null>(null)
   // `null` when closed; carries the at-open snapshot of `chromeAlreadyRunning`
   // so the modal copy doesn't flicker if the user takes their time confirming.
@@ -250,6 +269,14 @@ export default function BrowserPanel() {
         ...cfg.value,
         defaultMode: (cfg.value.defaultMode ?? "managed") as BrowserMode,
       })
+      // Re-seed the advanced draft from the server snapshot so the controls
+      // reflect persisted values after every refresh.
+      setAdvBackendPref(
+        (cfg.value.backendPreference ?? "extension_first") as BrowserBackendPreference,
+      )
+      const ext = (cfg.value.extension ?? {}) as Record<string, unknown>
+      setAdvExtEnabled(ext.enabled !== false)
+      setAdvAllowRawCdp(ext.allowRawCdp !== false)
     }
     if (doc.status === "fulfilled") setDoctor(doc.value)
     if (pf.status === "fulfilled" && !selectedProfile && pf.value.length > 0) {
@@ -434,6 +461,41 @@ export default function BrowserPanel() {
 
   const onModeChange = (mode: BrowserMode) => {
     void persistCfg({ ...browserCfg, defaultMode: mode })
+  }
+
+  // Has the advanced draft diverged from the persisted snapshot?
+  const advDirty =
+    advBackendPref !== ((browserCfg.backendPreference ?? "extension_first") as string) ||
+    advExtEnabled !== (browserCfg.extension?.enabled !== false) ||
+    advAllowRawCdp !== (browserCfg.extension?.allowRawCdp !== false)
+
+  const onSaveAdvanced = async () => {
+    setAdvSaving(true)
+    setError(null)
+    // Merge into the full snapshot so unrelated fields (profiles, launchCircuit,
+    // nativeHostName, extensionIds, …) survive the wholesale `browser_set_config`.
+    const next: BrowserConfig = {
+      ...browserCfg,
+      backendPreference: advBackendPref,
+      extension: {
+        ...(browserCfg.extension ?? {}),
+        enabled: advExtEnabled,
+        allowRawCdp: advAllowRawCdp,
+      },
+    }
+    try {
+      await getTransport().call("browser_set_config", { config: next })
+      setBrowserCfg(next)
+      setAdvSaveStatus("saved")
+      setTimeout(() => setAdvSaveStatus("idle"), 2000)
+    } catch (e) {
+      logger.error("settings", "BrowserPanel", `save advanced config failed: ${e}`)
+      setError(String(e))
+      setAdvSaveStatus("failed")
+      setTimeout(() => setAdvSaveStatus("idle"), 2000)
+    } finally {
+      setAdvSaving(false)
+    }
   }
 
   const openConfirmSpawn = () => {
@@ -1284,6 +1346,116 @@ export default function BrowserPanel() {
           </div>
             </TabsContent>
           </Tabs>
+
+          {/* Advanced extension-backend settings — global (not mode-specific),
+              committed via an explicit three-state Save button. */}
+          <div className="space-y-4 border-t border-border pt-6">
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                {t("settings.browser.advanced.section")}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                {t("settings.browser.advanced.sectionHint")}
+              </p>
+            </div>
+
+            {/* Backend preference */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                {t("settings.browser.advanced.backendLabel")}
+              </label>
+              <Select
+                value={advBackendPref}
+                onValueChange={(v) => setAdvBackendPref(v as BrowserBackendPreference)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="extension_first">
+                    {t("settings.browser.advanced.backendExtensionFirst")}
+                  </SelectItem>
+                  <SelectItem value="cdp_only">
+                    {t("settings.browser.advanced.backendCdpOnly")}
+                  </SelectItem>
+                  <SelectItem value="extension_only">
+                    {t("settings.browser.advanced.backendExtensionOnly")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  {
+                    extension_first: "settings.browser.advanced.backendExtensionFirstDesc",
+                    cdp_only: "settings.browser.advanced.backendCdpOnlyDesc",
+                    extension_only: "settings.browser.advanced.backendExtensionOnlyDesc",
+                  }[advBackendPref],
+                )}
+              </p>
+            </div>
+
+            {/* Enable extension backend */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 pr-4">
+                <span className="text-sm font-medium">
+                  {t("settings.browser.advanced.enableLabel")}
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.browser.advanced.enableHint")}
+                </p>
+              </div>
+              <Switch checked={advExtEnabled} onCheckedChange={setAdvExtEnabled} />
+            </div>
+
+            {/* Allow raw CDP (HIGH risk) */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 pr-4">
+                <span className="text-sm font-medium">
+                  {t("settings.browser.advanced.rawCdpLabel")}
+                </span>
+                <p className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-500">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{t("settings.browser.advanced.rawCdpHint")}</span>
+                </p>
+              </div>
+              <Switch
+                checked={advAllowRawCdp}
+                onCheckedChange={setAdvAllowRawCdp}
+                disabled={!advExtEnabled}
+              />
+            </div>
+
+            {/* Three-state save */}
+            <Button
+              onClick={() => void onSaveAdvanced()}
+              disabled={!advDirty || advSaving}
+              className={cn(
+                advSaveStatus === "saved" &&
+                  "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+                advSaveStatus === "failed" &&
+                  "bg-destructive/10 text-destructive hover:bg-destructive/20",
+              )}
+            >
+              {advSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("common.saving")}
+                </>
+              ) : advSaveStatus === "saved" ? (
+                <>
+                  <Check className="mr-2 h-4 w-4" />
+                  {t("common.saved")}
+                </>
+              ) : advSaveStatus === "failed" ? (
+                t("common.saveFailed")
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  {t("common.save")}
+                </>
+              )}
+            </Button>
+          </div>
 
           {/* Runtime status — surfaces system Chrome / cached Chromium / "no binary" state.
               Hidden once Chrome is connected: the doctor info is purely about whether

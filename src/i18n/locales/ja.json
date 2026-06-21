@@ -2755,7 +2755,22 @@
       "statusConnected": "ブラウザ実行中",
       "statusDisconnected": "実行されていません",
       "title": "ブラウザ",
-      "untitledTab": "無題"
+      "untitledTab": "無題",
+      "advanced": {
+        "section": "詳細設定",
+        "sectionHint": "Chrome 拡張機能バックエンドの詳細オプション。変更は保存をクリックすると反映されます。",
+        "backendLabel": "ブラウザバックエンド",
+        "backendExtensionFirst": "拡張機能優先（デフォルト）",
+        "backendExtensionFirstDesc": "拡張機能が使える場合はそれを介して実際の Chrome を操作し、使えない場合は隔離された CDP にフォールバックします。",
+        "backendCdpOnly": "隔離 CDP のみ",
+        "backendCdpOnlyDesc": "新規の隔離された Chrome のみを使用し、実際のブラウザには一切触れません。",
+        "backendExtensionOnly": "拡張機能のみ",
+        "backendExtensionOnlyDesc": "実際の Chrome のみを使用し、拡張機能が利用できない場合は即座にエラーになります。",
+        "enableLabel": "Chrome 拡張機能バックエンドを有効にする",
+        "enableHint": "拡張機能を介して、ログイン済みの実際の Chrome（すべての Cookie とセッションを含む）を AI に操作させます。",
+        "rawCdpLabel": "raw CDP を許可（詳細）",
+        "rawCdpHint": "AI が実際の Chrome に任意の DevTools プロトコルコマンドを送信できるようになります。各呼び出しは引き続き個別の承認が必要で、危険なメソッド（Cookie の読み取りなど）はブロックされます。必要な場合を除き、オフのままにしてください。"
+      }
     },
     "bytes": "バイト",
     "canvas": "キャンバス",

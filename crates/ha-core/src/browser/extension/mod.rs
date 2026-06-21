@@ -34,11 +34,12 @@ pub struct BrowserBackendContext {
 /// Whether a browser action may fall back to CDP when the Chrome Extension is
 /// missing. Real user-Chrome state must never silently fall back to a managed
 /// CDP profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BrowserBackendRequirement {
     /// Needs real Chrome tabs / logged-in user state.
     ExtensionRequired,
     /// Prefer real Chrome, but CDP is semantically acceptable.
+    #[default]
     ExtensionPreferred,
     /// CDP-specific lifecycle work such as profile launch/connect.
     CdpAllowed,
@@ -51,12 +52,6 @@ impl BrowserBackendRequirement {
             Self::ExtensionPreferred => "extension_preferred",
             Self::CdpAllowed => "cdp_allowed",
         }
-    }
-}
-
-impl Default for BrowserBackendRequirement {
-    fn default() -> Self {
-        Self::ExtensionPreferred
     }
 }
 
@@ -103,6 +98,13 @@ impl BrowserExtensionConfig {
         self.native_host_name
             .as_deref()
             .unwrap_or(DEFAULT_NATIVE_HOST_NAME)
+    }
+
+    /// Whether the `control.raw_cdp` escape hatch is permitted. Defaults to
+    /// `true` when unset. Setting it to `false` is a hard kill switch enforced
+    /// in `control_raw_cdp` — the agent cannot send raw DevTools Protocol at all.
+    pub fn allow_raw_cdp(&self) -> bool {
+        self.allow_raw_cdp.unwrap_or(true)
     }
 }
 

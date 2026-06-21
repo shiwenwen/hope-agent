@@ -1510,7 +1510,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "description": "Settings category to read. Use 'all' for an overview (includes risk-level groupings).",
                         "enum": [
                             "all", "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "proxy",
-                            "web_search", "web_fetch", "compact", "session_title", "notification", "startup_notification",
+                            "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
                             "temperature", "tool_timeout", "approval", "unattended_approval",
                             "image_generate", "canvas", "image", "pdf",
                             "async_tools", "deferred_tools",
@@ -1551,10 +1551,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Update application settings for a category. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global, unattended_approval, auto_update — require explicit user confirmation first. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch; `unattended_approval` decides whether approvals with no human surface (cron / headless / ACP / subagent) auto-deny or auto-proceed.",
+                        "description": "Update application settings for a category. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global, unattended_approval, auto_update, browser — require explicit user confirmation first. `browser` gates whether the agent drives the user's real logged-in Chrome (extension backend) and toggles the raw-CDP escape hatch (extension.allowRawCdp). `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch; `unattended_approval` decides whether approvals with no human surface (cron / headless / ACP / subagent) auto-deny or auto-proceed.",
                         "enum": [
                             "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "proxy",
-                            "web_search", "web_fetch", "compact", "session_title", "notification", "startup_notification",
+                            "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
                             "temperature", "tool_timeout", "approval", "unattended_approval",
                             "image_generate", "canvas", "image", "pdf",
                             "async_tools", "deferred_tools",

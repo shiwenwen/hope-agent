@@ -2755,7 +2755,22 @@
       "statusConnected": "浏览器运行中",
       "statusDisconnected": "未运行",
       "title": "浏览器",
-      "untitledTab": "未命名"
+      "untitledTab": "未命名",
+      "advanced": {
+        "section": "高级",
+        "sectionHint": "面向 Chrome 扩展后端的高级选项；修改后点击保存生效。",
+        "backendLabel": "浏览器后端",
+        "backendExtensionFirst": "扩展优先（默认）",
+        "backendExtensionFirstDesc": "有扩展时通过扩展驱动你的真实 Chrome，否则回退到隔离 CDP。",
+        "backendCdpOnly": "仅隔离 CDP",
+        "backendCdpOnlyDesc": "仅使用隔离的全新 Chrome，从不接触你的真实浏览器。",
+        "backendExtensionOnly": "仅扩展",
+        "backendExtensionOnlyDesc": "仅使用你的真实 Chrome，扩展不可用时直接报错。",
+        "enableLabel": "启用 Chrome 扩展后端",
+        "enableHint": "允许 AI 通过扩展驱动你已登录的真实 Chrome（包含全部 Cookie 与会话）。",
+        "rawCdpLabel": "允许 raw CDP（高级）",
+        "rawCdpHint": "允许 AI 向你的真实 Chrome 发送任意 DevTools 协议命令。每次调用仍需逐次审批，且危险方法（读取 Cookie 等）已被拦截；如非必要，建议保持关闭。"
+      }
     },
     "bytes": "字节",
     "canvas": "画布",

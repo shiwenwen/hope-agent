@@ -2755,7 +2755,22 @@
       "statusConnected": "Pelayar sedang berjalan",
       "statusDisconnected": "Tidak berjalan",
       "title": "Pelayar",
-      "untitledTab": "Tanpa tajuk"
+      "untitledTab": "Tanpa tajuk",
+      "advanced": {
+        "section": "Lanjutan",
+        "sectionHint": "Pilihan lanjutan untuk backend sambungan Chrome. Perubahan berkuat kuasa selepas anda klik Simpan.",
+        "backendLabel": "Backend pelayar",
+        "backendExtensionFirst": "Sambungan dahulu (lalai)",
+        "backendExtensionFirstDesc": "Pacu Chrome sebenar anda melalui sambungan apabila tersedia; jika tidak, kembali kepada CDP terpencil.",
+        "backendCdpOnly": "CDP terpencil sahaja",
+        "backendCdpOnlyDesc": "Guna Chrome baharu yang terpencil sahaja; jangan sekali-kali menyentuh pelayar sebenar anda.",
+        "backendExtensionOnly": "Sambungan sahaja",
+        "backendExtensionOnlyDesc": "Guna Chrome sebenar anda sahaja; terus gagal apabila sambungan tidak tersedia.",
+        "enableLabel": "Dayakan backend sambungan Chrome",
+        "enableHint": "Benarkan AI memacu Chrome sebenar anda yang telah dilog masuk (termasuk semua Cookie dan sesi) melalui sambungan.",
+        "rawCdpLabel": "Benarkan raw CDP (lanjutan)",
+        "rawCdpHint": "Membenarkan AI menghantar sebarang arahan DevTools Protocol kepada Chrome sebenar anda. Setiap panggilan masih memerlukan kelulusan bagi setiap penggunaan dan kaedah berbahaya (membaca Cookie, dll.) disekat; biarkan ini dimatikan melainkan anda memang memerlukannya."
+      }
     },
     "bytes": "bait",
     "canvas": "Canvas",

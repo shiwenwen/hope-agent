@@ -103,6 +103,12 @@ fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(|| Mutex::new(load_persisted_registry()))
 }
 
+// Tab-ownership scope key. Agent browser tool calls always carry a non-empty
+// session_id (set by the engine), so they map to "session:{id}". The turn_id
+// branch is currently inert (no caller populates turn_id) and the "global"
+// fallback only applies to session-less internal probes (e.g. status), which
+// are not concurrent multi-session tool dispatch — so the shared "global" scope
+// cannot cross-contaminate real agent sessions.
 pub(super) fn scope_key(ctx: &BrowserBackendContext) -> String {
     if let Some(session_id) = ctx.session_id.as_deref().filter(|s| !s.is_empty()) {
         return format!("session:{session_id}");
@@ -194,17 +200,39 @@ fn persist_registry(registry: &Registry) {
 
 #[cfg(not(test))]
 fn persist_registry_inner(registry: &Registry) -> Result<()> {
-    use anyhow::Context as _;
-
     let path = crate::paths::browser_extension_registry_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let snapshot = snapshot_from_registry(registry, now_unix_secs());
     let bytes = serde_json::to_vec_pretty(&snapshot)?;
-    crate::platform::write_atomic(&path, &bytes)
-        .with_context(|| format!("writing {}", path.display()))?;
+    // Offload the fsync off the registry mutex: serialize under the caller's
+    // lock (cheap), then write on a blocking thread so a slow disk doesn't
+    // serialize every other session's claim/finalize behind the lock. The
+    // registry file is a drop-rebuildable cache, so a last-writer outcome under
+    // burst writes is acceptable.
+    spawn_registry_write(path, bytes);
     Ok(())
+}
+
+#[cfg(not(test))]
+fn spawn_registry_write(path: std::path::PathBuf, bytes: Vec<u8>) {
+    let write = move || {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = crate::platform::write_atomic(&path, &bytes) {
+            app_warn!(
+                "browser",
+                "extension_registry",
+                "failed to persist browser registry: {}",
+                e
+            );
+        }
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            handle.spawn_blocking(write);
+        }
+        Err(_) => write(),
+    }
 }
 
 fn snapshot_from_registry(registry: &Registry, saved_at: i64) -> PersistedRegistry {
@@ -330,9 +358,17 @@ pub(super) fn claim_user_tab(
         Vec::new()
     };
     let state = registry.scopes.entry(scope).or_default();
+    // Preserve existing Agent ownership: selecting/claiming a tab the agent
+    // already created (via tabs.new) must not downgrade it to User, or turn-end
+    // finalize would leave it open — `close` only fires for Agent-owned tabs —
+    // instead of closing the agent's own tab.
+    let owner_kind = match state.controlled_tabs.get(&tab_id) {
+        Some(existing) if existing.owner_kind == TabOwnerKind::Agent => TabOwnerKind::Agent,
+        _ => TabOwnerKind::User,
+    };
     state
         .controlled_tabs
-        .insert(tab_id, new_controlled_tab(TabOwnerKind::User, url, title));
+        .insert(tab_id, new_controlled_tab(owner_kind, url, title));
     state.active_tab_id = Some(tab_id);
     state.element_refs.clear();
     state.snapshot_url = None;

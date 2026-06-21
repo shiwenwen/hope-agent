@@ -303,12 +303,9 @@ fn native_host_binary_hint() -> Option<PathBuf> {
     } else {
         "ha-browser-host"
     };
-    for path in native_host_binary_candidates(exe_name) {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    None
+    native_host_binary_candidates(exe_name)
+        .into_iter()
+        .find(|path| path.is_file())
 }
 
 fn resolve_host_path(input: Option<String>) -> Result<PathBuf> {

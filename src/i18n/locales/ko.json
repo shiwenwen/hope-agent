@@ -2755,7 +2755,22 @@
       "statusConnected": "브라우저 실행 중",
       "statusDisconnected": "실행되지 않음",
       "title": "브라우저",
-      "untitledTab": "제목 없음"
+      "untitledTab": "제목 없음",
+      "advanced": {
+        "section": "고급",
+        "sectionHint": "Chrome 확장 프로그램 백엔드를 위한 고급 옵션입니다. 변경 사항은 저장을 클릭한 후 적용됩니다.",
+        "backendLabel": "브라우저 백엔드",
+        "backendExtensionFirst": "확장 프로그램 우선（기본값）",
+        "backendExtensionFirstDesc": "확장 프로그램이 있으면 이를 통해 실제 Chrome을 구동하고, 없으면 격리된 CDP로 대체합니다.",
+        "backendCdpOnly": "격리된 CDP만 사용",
+        "backendCdpOnlyDesc": "새로 격리된 Chrome만 사용하며, 실제 브라우저는 절대 건드리지 않습니다.",
+        "backendExtensionOnly": "확장 프로그램만 사용",
+        "backendExtensionOnlyDesc": "실제 Chrome만 사용하며, 확장 프로그램을 사용할 수 없으면 바로 오류를 표시합니다.",
+        "enableLabel": "Chrome 확장 프로그램 백엔드 사용",
+        "enableHint": "AI가 확장 프로그램을 통해 로그인된 실제 Chrome（모든 Cookie 및 세션 포함）을 구동하도록 허용합니다.",
+        "rawCdpLabel": "raw CDP 허용（고급）",
+        "rawCdpHint": "AI가 실제 Chrome에 임의의 DevTools 프로토콜 명령을 보낼 수 있게 합니다. 각 호출은 여전히 매번 승인이 필요하며 위험한 메서드（Cookie 읽기 등）는 차단됩니다. 꼭 필요한 경우가 아니면 꺼 두세요."
+      }
     },
     "bytes": "바이트",
     "canvas": "캔버스",

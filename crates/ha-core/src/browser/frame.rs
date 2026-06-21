@@ -52,6 +52,10 @@ pub struct BrowserFramePayload {
 /// backend is active (we don't want to force-launch Chrome just to take a
 /// frame — the panel will show its empty state instead).
 pub async fn capture_frame() -> Result<Option<BrowserFramePayload>> {
+    // Uses peek_active (the cached backend), not status_backend: a live UI frame
+    // needs the session's active tab, but the per-session ExtensionBackend is
+    // never cached. So in extension-only mode this returns None (no panel frame)
+    // — a known limitation; `status` still reports tabs via status_backend.
     let Some(backend) = peek_active().await else {
         return Ok(None);
     };

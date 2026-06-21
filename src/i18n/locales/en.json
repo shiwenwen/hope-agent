@@ -2755,7 +2755,22 @@
       "statusConnected": "Browser running",
       "statusDisconnected": "Not running",
       "title": "Browser",
-      "untitledTab": "Untitled"
+      "untitledTab": "Untitled",
+      "advanced": {
+        "section": "Advanced",
+        "sectionHint": "Advanced options for the Chrome extension backend. Changes take effect after you click Save.",
+        "backendLabel": "Browser backend",
+        "backendExtensionFirst": "Extension first (default)",
+        "backendExtensionFirstDesc": "Drive your real Chrome through the extension when available; otherwise fall back to isolated CDP.",
+        "backendCdpOnly": "Isolated CDP only",
+        "backendCdpOnlyDesc": "Use a fresh, isolated Chrome only; never touch your real browser.",
+        "backendExtensionOnly": "Extension only",
+        "backendExtensionOnlyDesc": "Use your real Chrome only; fail outright when the extension is unavailable.",
+        "enableLabel": "Enable Chrome extension backend",
+        "enableHint": "Let the AI drive your signed-in real Chrome (including all cookies and sessions) through the extension.",
+        "rawCdpLabel": "Allow raw CDP (advanced)",
+        "rawCdpHint": "Lets the AI send arbitrary DevTools Protocol commands to your real Chrome. Each call still requires per-use approval and dangerous methods (reading cookies, etc.) are blocked; keep this off unless you specifically need it."
+      }
     },
     "bytes": "bytes",
     "canvas": "Canvas",

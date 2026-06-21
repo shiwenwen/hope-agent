@@ -175,6 +175,15 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
     if let Some(reason) = check_mac_control_action(ctx).filter(AskReason::forbids_allow_always) {
         return Decision::Ask { reason };
     }
+    // Raw CDP against the user's real Chrome is strict (see
+    // `AskReason::forbids_allow_always`): a single AllowAlways rule or a
+    // smart-mode self-confidence tag must never grant standing access to
+    // arbitrary DevTools Protocol on the logged-in browser. Gate it here —
+    // above the AllowAlways accumulator and the per-mode resolvers — so every
+    // non-YOLO mode forces a fresh per-call prompt, mirroring protected paths.
+    if let Some(reason) = check_browser_raw_cdp(ctx) {
+        return Decision::Ask { reason };
+    }
     if super::allowlist::allows_tool_call(
         ctx.tool_name,
         ctx.args,
@@ -567,6 +576,12 @@ fn check_browser_chrome_access(ctx: &ResolveContext<'_>) -> Option<AskReason> {
                         .unwrap_or_else(|| "claim real Chrome tab".to_string())
                 }
                 "select" => {
+                    // Heuristic: a numeric target_id is an extension/real-Chrome
+                    // tab id (parse_tab_id requires i64); CDP target ids are hex
+                    // and fail to parse, so they need no real-Chrome approval.
+                    // This couples the gate to the id format — if extension tab
+                    // ids ever become non-numeric, revisit so select still
+                    // prompts for real Chrome access.
                     let target = ctx
                         .args
                         .get("target_id")
@@ -1437,7 +1452,10 @@ mod tests {
     }
 
     #[test]
-    fn browser_raw_cdp_smart_high_confidence_allows() {
+    fn browser_raw_cdp_smart_high_confidence_still_asks_strict() {
+        // raw_cdp is strict: even a smart-mode high-confidence self-tag must not
+        // bypass the per-call prompt (unlike download_cancel / evaluate, which
+        // stay non-strict and honor self-confidence).
         let args = json!({
             "action": "control",
             "op": "raw_cdp",
@@ -1453,7 +1471,12 @@ mod tests {
         };
         let mut c = ctx("browser", &args, SessionMode::Smart, &plan, &custom);
         c.smart_config = Some(&smart_cfg);
-        assert_eq!(resolve(&c), Decision::Allow);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserRawCdp { .. }
+            }
+        ));
     }
 
     #[test]
@@ -2057,13 +2080,10 @@ mod tests {
             other => panic!("expected Ask, got {:?}", other),
         }
 
-        // Non-strict reasons must NOT forbid AllowAlways.
-        let edit_args = json!({"path": "/tmp/x"});
-        let edit_ctx = ctx("write", &edit_args, SessionMode::Default, &plan, &custom);
-        match resolve(&edit_ctx) {
-            Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
-            other => panic!("expected Ask, got {:?}", other),
-        }
+        // raw_cdp drives arbitrary DevTools Protocol against the user's real
+        // Chrome — strict, no AllowAlways (mirrors protected paths / dangerous
+        // commands). The method itself is also rejected downstream; here we only
+        // assert the approval reason is strict.
         let raw_cdp_args = json!({
             "action": "control",
             "op": "raw_cdp",
@@ -2077,6 +2097,14 @@ mod tests {
             &custom,
         );
         match resolve(&raw_cdp_ctx) {
+            Decision::Ask { reason } => assert!(reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+
+        // Non-strict reasons must NOT forbid AllowAlways.
+        let edit_args = json!({"path": "/tmp/x"});
+        let edit_ctx = ctx("write", &edit_args, SessionMode::Default, &plan, &custom);
+        match resolve(&edit_ctx) {
             Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
             other => panic!("expected Ask, got {:?}", other),
         }

@@ -2755,7 +2755,22 @@
       "statusConnected": "المتصفح قيد التشغيل",
       "statusDisconnected": "لا يعمل",
       "title": "المتصفح",
-      "untitledTab": "بدون عنوان"
+      "untitledTab": "بدون عنوان",
+      "advanced": {
+        "section": "خيارات متقدمة",
+        "sectionHint": "خيارات متقدمة لخلفية إضافة Chrome. تسري التغييرات بعد النقر على حفظ.",
+        "backendLabel": "خلفية المتصفح",
+        "backendExtensionFirst": "الإضافة أولاً (افتراضي)",
+        "backendExtensionFirstDesc": "تشغيل متصفح Chrome الحقيقي عبر الإضافة عند توفرها؛ وإلا الرجوع إلى CDP المعزول.",
+        "backendCdpOnly": "CDP المعزول فقط",
+        "backendCdpOnlyDesc": "استخدام متصفح Chrome جديد ومعزول فقط؛ دون المساس بمتصفحك الحقيقي إطلاقاً.",
+        "backendExtensionOnly": "الإضافة فقط",
+        "backendExtensionOnlyDesc": "استخدام متصفح Chrome الحقيقي فقط؛ والفشل مباشرةً عند عدم توفر الإضافة.",
+        "enableLabel": "تفعيل خلفية إضافة Chrome",
+        "enableHint": "السماح للذكاء الاصطناعي بتشغيل متصفح Chrome الحقيقي المسجَّل دخولك فيه (بما في ذلك جميع ملفات Cookie والجلسات) عبر الإضافة.",
+        "rawCdpLabel": "السماح بـ raw CDP (متقدم)",
+        "rawCdpHint": "يتيح للذكاء الاصطناعي إرسال أوامر DevTools Protocol عشوائية إلى متصفح Chrome الحقيقي. لا يزال كل استدعاء يتطلب موافقة لكل استخدام، والطرق الخطيرة (قراءة ملفات Cookie وما إلى ذلك) محجوبة؛ أبقِ هذا الخيار معطلاً ما لم تكن بحاجة إليه تحديداً."
+      }
     },
     "bytes": "بايت",
     "canvas": "اللوحة",

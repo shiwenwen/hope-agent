@@ -265,7 +265,22 @@
         "installRuntime": "Chromium ランタイムをインストール",
         "installRuntimeRunning": "Chromium をダウンロード中… {{percent}}%",
         "installRuntimeReady": "Chromium ランタイムをインストールしました",
-        "installRuntimeFailed": "Chromium のダウンロードに失敗しました: {{error}}"
+        "installRuntimeFailed": "Chromium のダウンロードに失敗しました: {{error}}",
+        "advanced": {
+          "section": "詳細設定",
+          "sectionHint": "Chrome 拡張機能バックエンドの詳細オプション。変更は保存をクリックすると反映されます。",
+          "backendLabel": "ブラウザバックエンド",
+          "backendExtensionFirst": "拡張機能優先（デフォルト）",
+          "backendExtensionFirstDesc": "拡張機能が使える場合はそれを介して実際の Chrome を操作し、使えない場合は隔離された CDP にフォールバックします。",
+          "backendCdpOnly": "隔離 CDP のみ",
+          "backendCdpOnlyDesc": "新規の隔離された Chrome のみを使用し、実際のブラウザには一切触れません。",
+          "backendExtensionOnly": "拡張機能のみ",
+          "backendExtensionOnlyDesc": "実際の Chrome のみを使用し、拡張機能が利用できない場合は即座にエラーになります。",
+          "enableLabel": "Chrome 拡張機能バックエンドを有効にする",
+          "enableHint": "拡張機能を介して、ログイン済みの実際の Chrome（すべての Cookie とセッションを含む）を AI に操作させます。",
+          "rawCdpLabel": "raw CDP を許可（詳細）",
+          "rawCdpHint": "AI が実際の Chrome に任意の DevTools プロトコルコマンドを送信できるようになります。各呼び出しは引き続き個別の承認が必要で、危険なメソッド（Cookie の読み取りなど）はブロックされます。必要な場合を除き、オフのままにしてください。"
+        }
       },
       "security": "セキュリティポリシー",
       "ssrfDesc": "ブラウザ、web fetch、画像生成、リンクプレビュー等の外向きリクエストがプライベートネットワークやクラウド metadata エンドポイントに到達するのを制限し、SSRF 攻撃を防ぎます。",
@@ -1626,7 +1641,22 @@
         "installRuntime": "Chromium 런타임 설치",
         "installRuntimeRunning": "Chromium 다운로드 중… {{percent}}%",
         "installRuntimeReady": "Chromium 런타임 설치 완료",
-        "installRuntimeFailed": "Chromium 다운로드 실패: {{error}}"
+        "installRuntimeFailed": "Chromium 다운로드 실패: {{error}}",
+        "advanced": {
+          "section": "고급",
+          "sectionHint": "Chrome 확장 프로그램 백엔드를 위한 고급 옵션입니다. 변경 사항은 저장을 클릭한 후 적용됩니다.",
+          "backendLabel": "브라우저 백엔드",
+          "backendExtensionFirst": "확장 프로그램 우선（기본값）",
+          "backendExtensionFirstDesc": "확장 프로그램이 있으면 이를 통해 실제 Chrome을 구동하고, 없으면 격리된 CDP로 대체합니다.",
+          "backendCdpOnly": "격리된 CDP만 사용",
+          "backendCdpOnlyDesc": "새로 격리된 Chrome만 사용하며, 실제 브라우저는 절대 건드리지 않습니다.",
+          "backendExtensionOnly": "확장 프로그램만 사용",
+          "backendExtensionOnlyDesc": "실제 Chrome만 사용하며, 확장 프로그램을 사용할 수 없으면 바로 오류를 표시합니다.",
+          "enableLabel": "Chrome 확장 프로그램 백엔드 사용",
+          "enableHint": "AI가 확장 프로그램을 통해 로그인된 실제 Chrome（모든 Cookie 및 세션 포함）을 구동하도록 허용합니다.",
+          "rawCdpLabel": "raw CDP 허용（고급）",
+          "rawCdpHint": "AI가 실제 Chrome에 임의의 DevTools 프로토콜 명령을 보낼 수 있게 합니다. 각 호출은 여전히 매번 승인이 필요하며 위험한 메서드（Cookie 읽기 등）는 차단됩니다. 꼭 필요한 경우가 아니면 꺼 두세요."
+        }
       },
       "security": "보안 정책",
       "ssrfDesc": "브라우저, web fetch, 이미지 생성, 링크 미리보기 도구의 아웃바운드 요청이 사설 네트워크와 클라우드 메타데이터 엔드포인트에 도달하지 못하도록 제한하여 SSRF 공격을 방어합니다.",
@@ -2987,7 +3017,22 @@
         "installRuntime": "安裝 Chromium 執行環境",
         "installRuntimeRunning": "正在下載 Chromium… {{percent}}%",
         "installRuntimeReady": "Chromium 執行環境已安裝",
-        "installRuntimeFailed": "Chromium 下載失敗：{{error}}"
+        "installRuntimeFailed": "Chromium 下載失敗：{{error}}",
+        "advanced": {
+          "section": "進階",
+          "sectionHint": "針對 Chrome 擴充功能後端的進階選項；修改後點擊儲存生效。",
+          "backendLabel": "瀏覽器後端",
+          "backendExtensionFirst": "擴充功能優先（預設）",
+          "backendExtensionFirstDesc": "有擴充功能時透過擴充功能驅動你的真實 Chrome，否則回退到隔離 CDP。",
+          "backendCdpOnly": "僅隔離 CDP",
+          "backendCdpOnlyDesc": "僅使用隔離的全新 Chrome，絕不接觸你的真實瀏覽器。",
+          "backendExtensionOnly": "僅擴充功能",
+          "backendExtensionOnlyDesc": "僅使用你的真實 Chrome，擴充功能無法使用時直接報錯。",
+          "enableLabel": "啟用 Chrome 擴充功能後端",
+          "enableHint": "允許 AI 透過擴充功能驅動你已登入的真實 Chrome（包含全部 Cookie 與工作階段）。",
+          "rawCdpLabel": "允許 raw CDP（進階）",
+          "rawCdpHint": "允許 AI 向你的真實 Chrome 發送任意 DevTools 協定命令。每次呼叫仍需逐次核准，且危險方法（讀取 Cookie 等）已被攔截；如非必要，建議保持關閉。"
+        }
       },
       "security": "安全策略",
       "ssrfDesc": "限制瀏覽器、網頁抓取、圖片生成、連結預覽等工具的外送請求存取私有網路與雲端 metadata 介面，防禦 SSRF 攻擊。",
@@ -4331,7 +4376,22 @@
         "installRuntime": "Chromium çalışma ortamını yükle",
         "installRuntimeRunning": "Chromium indiriliyor… {{percent}}%",
         "installRuntimeReady": "Chromium çalışma ortamı yüklendi",
-        "installRuntimeFailed": "Chromium indirme başarısız: {{error}}"
+        "installRuntimeFailed": "Chromium indirme başarısız: {{error}}",
+        "advanced": {
+          "section": "Gelişmiş",
+          "sectionHint": "Chrome uzantı arka ucu için gelişmiş seçenekler. Değişiklikler Kaydet'e tıkladıktan sonra geçerli olur.",
+          "backendLabel": "Tarayıcı arka ucu",
+          "backendExtensionFirst": "Önce uzantı (varsayılan)",
+          "backendExtensionFirstDesc": "Mümkün olduğunda gerçek Chrome'unuzu uzantı üzerinden çalıştırır; aksi halde yalıtılmış CDP'ye geri döner.",
+          "backendCdpOnly": "Yalnızca yalıtılmış CDP",
+          "backendCdpOnlyDesc": "Yalnızca yeni, yalıtılmış bir Chrome kullanır; gerçek tarayıcınıza asla dokunmaz.",
+          "backendExtensionOnly": "Yalnızca uzantı",
+          "backendExtensionOnlyDesc": "Yalnızca gerçek Chrome'unuzu kullanır; uzantı kullanılamadığında doğrudan hata verir.",
+          "enableLabel": "Chrome uzantı arka ucunu etkinleştir",
+          "enableHint": "Yapay zekânın, oturum açtığınız gerçek Chrome'unuzu (tüm Cookie ve oturumlar dahil) uzantı üzerinden çalıştırmasına izin verir.",
+          "rawCdpLabel": "raw CDP'ye izin ver (gelişmiş)",
+          "rawCdpHint": "Yapay zekânın gerçek Chrome'unuza rastgele DevTools Protocol komutları göndermesine izin verir. Her çağrı yine de kullanım başına onay gerektirir ve tehlikeli yöntemler (Cookie okuma vb.) engellenir; özellikle ihtiyacınız olmadıkça bunu kapalı tutun."
+        }
       },
       "security": "Güvenlik Politikası",
       "ssrfDesc": "Tarayıcı, web fetch, görüntü üretimi ve bağlantı önizlemesi araçlarından çıkan isteklerin özel ağlara ve bulut metadata uç noktalarına ulaşmasını kısıtlayarak SSRF saldırılarına karşı savunur.",
@@ -5692,7 +5752,22 @@
         "installRuntime": "Cài đặt Chromium runtime",
         "installRuntimeRunning": "Đang tải Chromium… {{percent}}%",
         "installRuntimeReady": "Đã cài đặt Chromium runtime",
-        "installRuntimeFailed": "Tải Chromium thất bại: {{error}}"
+        "installRuntimeFailed": "Tải Chromium thất bại: {{error}}",
+        "advanced": {
+          "section": "Nâng cao",
+          "sectionHint": "Tùy chọn nâng cao cho backend tiện ích mở rộng Chrome. Thay đổi có hiệu lực sau khi bạn nhấn Lưu.",
+          "backendLabel": "Backend trình duyệt",
+          "backendExtensionFirst": "Ưu tiên tiện ích mở rộng (mặc định)",
+          "backendExtensionFirstDesc": "Điều khiển Chrome thật của bạn qua tiện ích mở rộng khi khả dụng; nếu không thì quay về CDP biệt lập.",
+          "backendCdpOnly": "Chỉ CDP biệt lập",
+          "backendCdpOnlyDesc": "Chỉ dùng một Chrome mới, biệt lập; không bao giờ chạm vào trình duyệt thật của bạn.",
+          "backendExtensionOnly": "Chỉ tiện ích mở rộng",
+          "backendExtensionOnlyDesc": "Chỉ dùng Chrome thật của bạn; báo lỗi ngay khi tiện ích mở rộng không khả dụng.",
+          "enableLabel": "Bật backend tiện ích mở rộng Chrome",
+          "enableHint": "Cho phép AI điều khiển Chrome thật đã đăng nhập của bạn (bao gồm toàn bộ Cookie và phiên) qua tiện ích mở rộng.",
+          "rawCdpLabel": "Cho phép raw CDP (nâng cao)",
+          "rawCdpHint": "Cho phép AI gửi lệnh DevTools Protocol tùy ý đến Chrome thật của bạn. Mỗi lần gọi vẫn cần phê duyệt riêng và các phương thức nguy hiểm (đọc Cookie, v.v.) đã bị chặn; hãy giữ tắt trừ khi bạn thực sự cần."
+        }
       },
       "security": "Chính sách bảo mật",
       "ssrfDesc": "Hạn chế các yêu cầu đi từ công cụ trình duyệt, web fetch, tạo ảnh và xem trước liên kết chạm vào mạng nội bộ và endpoint metadata của cloud để phòng chống SSRF.",
@@ -7053,7 +7128,22 @@
         "installRuntime": "Instalar runtime do Chromium",
         "installRuntimeRunning": "Baixando Chromium… {{percent}}%",
         "installRuntimeReady": "Runtime do Chromium instalado",
-        "installRuntimeFailed": "Falha no download do Chromium: {{error}}"
+        "installRuntimeFailed": "Falha no download do Chromium: {{error}}",
+        "advanced": {
+          "section": "Avançado",
+          "sectionHint": "Opções avançadas para o backend da extensão do Chrome. As alterações entram em vigor após clicar em Salvar.",
+          "backendLabel": "Backend do navegador",
+          "backendExtensionFirst": "Extensão primeiro (padrão)",
+          "backendExtensionFirstDesc": "Controla o seu Chrome real pela extensão quando disponível; caso contrário, recorre ao CDP isolado.",
+          "backendCdpOnly": "Apenas CDP isolado",
+          "backendCdpOnlyDesc": "Usa apenas um Chrome novo e isolado; nunca toca no seu navegador real.",
+          "backendExtensionOnly": "Apenas extensão",
+          "backendExtensionOnlyDesc": "Usa apenas o seu Chrome real; falha imediatamente quando a extensão está indisponível.",
+          "enableLabel": "Ativar backend da extensão do Chrome",
+          "enableHint": "Permite que a IA controle o seu Chrome real com sessão iniciada (incluindo todos os Cookies e sessões) pela extensão.",
+          "rawCdpLabel": "Permitir raw CDP (avançado)",
+          "rawCdpHint": "Permite que a IA envie comandos arbitrários do DevTools Protocol ao seu Chrome real. Cada chamada ainda exige aprovação individual e métodos perigosos (ler Cookies, etc.) são bloqueados; mantenha desativado, a menos que precise especificamente."
+        }
       },
       "security": "Política de Segurança",
       "ssrfDesc": "Restringe requisições de saída do navegador, web fetch, geração de imagens e pré-visualização de links para que não alcancem redes privadas e endpoints de metadados de nuvem, defendendo-se contra ataques SSRF.",
@@ -8414,7 +8504,22 @@
         "installRuntime": "Установить среду Chromium",
         "installRuntimeRunning": "Загрузка Chromium… {{percent}}%",
         "installRuntimeReady": "Среда Chromium установлена",
-        "installRuntimeFailed": "Не удалось загрузить Chromium: {{error}}"
+        "installRuntimeFailed": "Не удалось загрузить Chromium: {{error}}",
+        "advanced": {
+          "section": "Дополнительно",
+          "sectionHint": "Дополнительные параметры бэкенда расширения Chrome. Изменения вступают в силу после нажатия «Сохранить».",
+          "backendLabel": "Бэкенд браузера",
+          "backendExtensionFirst": "Сначала расширение (по умолчанию)",
+          "backendExtensionFirstDesc": "Управлять вашим настоящим Chrome через расширение, когда оно доступно; иначе переключаться на изолированный CDP.",
+          "backendCdpOnly": "Только изолированный CDP",
+          "backendCdpOnlyDesc": "Использовать только новый изолированный Chrome; никогда не затрагивать ваш настоящий браузер.",
+          "backendExtensionOnly": "Только расширение",
+          "backendExtensionOnlyDesc": "Использовать только ваш настоящий Chrome; при недоступности расширения сразу выдавать ошибку.",
+          "enableLabel": "Включить бэкенд расширения Chrome",
+          "enableHint": "Разрешить ИИ управлять вашим настоящим Chrome с активной сессией (включая все Cookie и сессии) через расширение.",
+          "rawCdpLabel": "Разрешить raw CDP (дополнительно)",
+          "rawCdpHint": "Позволяет ИИ отправлять произвольные команды протокола DevTools вашему настоящему Chrome. Каждый вызов по-прежнему требует отдельного подтверждения, а опасные методы (чтение Cookie и т. п.) заблокированы; не включайте это без особой необходимости."
+        }
       },
       "security": "Политика безопасности",
       "ssrfDesc": "Ограничивает исходящие запросы браузера, web fetch, генерации изображений и предпросмотра ссылок от обращения к частным сетям и cloud metadata, защищая от атак SSRF.",
@@ -9775,7 +9880,22 @@
         "installRuntime": "تثبيت وقت تشغيل Chromium",
         "installRuntimeRunning": "جارٍ تنزيل Chromium… {{percent}}%",
         "installRuntimeReady": "تم تثبيت وقت تشغيل Chromium",
-        "installRuntimeFailed": "فشل تنزيل Chromium: {{error}}"
+        "installRuntimeFailed": "فشل تنزيل Chromium: {{error}}",
+        "advanced": {
+          "section": "خيارات متقدمة",
+          "sectionHint": "خيارات متقدمة لخلفية إضافة Chrome. تسري التغييرات بعد النقر على حفظ.",
+          "backendLabel": "خلفية المتصفح",
+          "backendExtensionFirst": "الإضافة أولاً (افتراضي)",
+          "backendExtensionFirstDesc": "تشغيل متصفح Chrome الحقيقي عبر الإضافة عند توفرها؛ وإلا الرجوع إلى CDP المعزول.",
+          "backendCdpOnly": "CDP المعزول فقط",
+          "backendCdpOnlyDesc": "استخدام متصفح Chrome جديد ومعزول فقط؛ دون المساس بمتصفحك الحقيقي إطلاقاً.",
+          "backendExtensionOnly": "الإضافة فقط",
+          "backendExtensionOnlyDesc": "استخدام متصفح Chrome الحقيقي فقط؛ والفشل مباشرةً عند عدم توفر الإضافة.",
+          "enableLabel": "تفعيل خلفية إضافة Chrome",
+          "enableHint": "السماح للذكاء الاصطناعي بتشغيل متصفح Chrome الحقيقي المسجَّل دخولك فيه (بما في ذلك جميع ملفات Cookie والجلسات) عبر الإضافة.",
+          "rawCdpLabel": "السماح بـ raw CDP (متقدم)",
+          "rawCdpHint": "يتيح للذكاء الاصطناعي إرسال أوامر DevTools Protocol عشوائية إلى متصفح Chrome الحقيقي. لا يزال كل استدعاء يتطلب موافقة لكل استخدام، والطرق الخطيرة (قراءة ملفات Cookie وما إلى ذلك) محجوبة؛ أبقِ هذا الخيار معطلاً ما لم تكن بحاجة إليه تحديداً."
+        }
       },
       "security": "سياسة الأمان",
       "ssrfDesc": "قيّد الطلبات الصادرة من أدوات المتصفح وجلب الويب وتوليد الصور ومعاينة الروابط من الوصول إلى الشبكات الخاصة ونقاط النهاية الوصفية السحابية للدفاع ضد هجمات SSRF.",
@@ -11136,7 +11256,22 @@
         "installRuntime": "Instalar runtime de Chromium",
         "installRuntimeRunning": "Descargando Chromium… {{percent}}%",
         "installRuntimeReady": "Runtime de Chromium instalado",
-        "installRuntimeFailed": "Descarga de Chromium fallida: {{error}}"
+        "installRuntimeFailed": "Descarga de Chromium fallida: {{error}}",
+        "advanced": {
+          "section": "Avanzado",
+          "sectionHint": "Opciones avanzadas para el backend de la extensión de Chrome. Los cambios se aplican después de hacer clic en Guardar.",
+          "backendLabel": "Backend del navegador",
+          "backendExtensionFirst": "Extensión primero (predeterminado)",
+          "backendExtensionFirstDesc": "Controla tu Chrome real a través de la extensión cuando esté disponible; de lo contrario, recurre a CDP aislado.",
+          "backendCdpOnly": "Solo CDP aislado",
+          "backendCdpOnlyDesc": "Usa solo un Chrome nuevo y aislado; nunca toca tu navegador real.",
+          "backendExtensionOnly": "Solo extensión",
+          "backendExtensionOnlyDesc": "Usa solo tu Chrome real; falla directamente cuando la extensión no está disponible.",
+          "enableLabel": "Habilitar el backend de la extensión de Chrome",
+          "enableHint": "Permite que la IA controle tu Chrome real con la sesión iniciada (incluidas todas las cookies y sesiones) a través de la extensión.",
+          "rawCdpLabel": "Permitir raw CDP (avanzado)",
+          "rawCdpHint": "Permite que la IA envíe comandos arbitrarios del DevTools Protocol a tu Chrome real. Cada llamada sigue requiriendo aprobación por uso y los métodos peligrosos (leer cookies, etc.) están bloqueados; mantenlo desactivado a menos que realmente lo necesites."
+        }
       },
       "security": "Política de Seguridad",
       "ssrfDesc": "Restringe las solicitudes salientes de las herramientas de navegador, web fetch, generación de imágenes y previsualización de enlaces para que no lleguen a redes privadas ni endpoints de metadatos en la nube, defendiéndose contra ataques SSRF.",
@@ -12497,7 +12632,22 @@
         "installRuntime": "Pasang runtime Chromium",
         "installRuntimeRunning": "Memuat turun Chromium… {{percent}}%",
         "installRuntimeReady": "Runtime Chromium dipasang",
-        "installRuntimeFailed": "Muat turun Chromium gagal: {{error}}"
+        "installRuntimeFailed": "Muat turun Chromium gagal: {{error}}",
+        "advanced": {
+          "section": "Lanjutan",
+          "sectionHint": "Pilihan lanjutan untuk backend sambungan Chrome. Perubahan berkuat kuasa selepas anda klik Simpan.",
+          "backendLabel": "Backend pelayar",
+          "backendExtensionFirst": "Sambungan dahulu (lalai)",
+          "backendExtensionFirstDesc": "Pacu Chrome sebenar anda melalui sambungan apabila tersedia; jika tidak, kembali kepada CDP terpencil.",
+          "backendCdpOnly": "CDP terpencil sahaja",
+          "backendCdpOnlyDesc": "Guna Chrome baharu yang terpencil sahaja; jangan sekali-kali menyentuh pelayar sebenar anda.",
+          "backendExtensionOnly": "Sambungan sahaja",
+          "backendExtensionOnlyDesc": "Guna Chrome sebenar anda sahaja; terus gagal apabila sambungan tidak tersedia.",
+          "enableLabel": "Dayakan backend sambungan Chrome",
+          "enableHint": "Benarkan AI memacu Chrome sebenar anda yang telah dilog masuk (termasuk semua Cookie dan sesi) melalui sambungan.",
+          "rawCdpLabel": "Benarkan raw CDP (lanjutan)",
+          "rawCdpHint": "Membenarkan AI menghantar sebarang arahan DevTools Protocol kepada Chrome sebenar anda. Setiap panggilan masih memerlukan kelulusan bagi setiap penggunaan dan kaedah berbahaya (membaca Cookie, dll.) disekat; biarkan ini dimatikan melainkan anda memang memerlukannya."
+        }
       },
       "security": "Dasar Keselamatan",
       "ssrfDesc": "Hadkan permintaan keluar dari alat pelayar, web fetch, penjanaan imej, dan pratonton pautan daripada mencapai rangkaian peribadi dan endpoint metadata awan untuk mempertahankan daripada serangan SSRF.",

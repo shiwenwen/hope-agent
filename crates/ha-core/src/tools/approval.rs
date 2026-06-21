@@ -97,6 +97,7 @@ impl ApprovalReasonKind {
             Self::ProtectedPath
                 | Self::DangerousCommand
                 | Self::MacControlDangerousAction
+                | Self::BrowserRawCdp
                 | Self::PlanModeAsk
         )
     }

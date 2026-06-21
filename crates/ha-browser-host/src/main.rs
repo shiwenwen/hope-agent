@@ -93,7 +93,19 @@ fn main() -> Result<()> {
     }
     let broker_writer = broker.map(|stream| Arc::new(Mutex::new(stream)));
 
-    while let Some(message) = read_native_message(&mut native_in)? {
+    loop {
+        let message = match read_native_message(&mut native_in) {
+            Ok(Some(message)) => message,
+            Ok(None) => break, // clean EOF: Chrome closed the port
+            Err(e) => {
+                // A malformed/oversized frame from Chrome corrupts the stream;
+                // log to stderr (stdout is the native-messaging channel) and
+                // exit this host instance cleanly instead of aborting with `?`.
+                // Chrome relaunches the host on the next message.
+                eprintln!("ha-browser-host: native read error: {e:#}");
+                break;
+            }
+        };
         if let Some(writer) = broker_writer.as_ref() {
             let write_result = writer
                 .lock()

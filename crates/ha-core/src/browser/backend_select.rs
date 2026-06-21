@@ -195,6 +195,39 @@ pub async fn peek_active() -> Option<Arc<dyn BrowserBackend>> {
     ACTIVE_BACKEND.lock().await.clone()
 }
 
+/// Backend for read-only status inspection (e.g. the `status` action).
+///
+/// Unlike [`peek_active`], this does not depend on a prior tool call having
+/// cached a backend. The per-session `ExtensionBackend` carries a ctx and is
+/// deliberately never cached — caching it would leak one session's tab scope
+/// into another — so when the extension is the effective backend `peek_active`
+/// returns `None` and callers would wrongly report "disconnected". Build a
+/// session-less probe for global inspection: it lists all real Chrome tabs
+/// without disturbing any cached per-session backend, and is cheap (no Chrome
+/// process is launched, unlike the CDP backend). Falls back to whatever is
+/// cached (CDP) when the extension is not the effective backend.
+pub async fn status_backend() -> Option<Arc<dyn BrowserBackend>> {
+    let cfg = crate::config::cached_config();
+    let browser_cfg = cfg.browser.as_ref();
+    let preference = browser_cfg
+        .and_then(|b| b.backend_preference)
+        .unwrap_or_default();
+    if preference != BrowserBackendPreference::CdpOnly {
+        let extension_enabled = browser_cfg
+            .and_then(|b| b.extension.as_ref())
+            .is_none_or(|ext| ext.enabled());
+        if extension_enabled && current_status().backend_available {
+            if let Some(broker) = BrowserExtensionBroker::global() {
+                return Some(Arc::new(ExtensionBackend::new(
+                    broker,
+                    BrowserBackendContext::default(),
+                )));
+            }
+        }
+    }
+    peek_active().await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

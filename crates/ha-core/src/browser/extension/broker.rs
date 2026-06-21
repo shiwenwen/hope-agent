@@ -145,6 +145,15 @@ impl BrowserExtensionBroker {
         self.state.read().await.extension_connected
     }
 
+    /// Fail every in-flight `call()` waiter, used when the host connection drops
+    /// or is superseded so callers return immediately instead of waiting out
+    /// CALL_TIMEOUT (15s). Dropping the oneshot senders makes each `rx` resolve
+    /// to "channel closed"; pending response chunks are discarded too.
+    async fn fail_all_pending(&self) {
+        self.pending.lock().await.clear();
+        self.chunks.lock().await.clear();
+    }
+
     pub async fn call(&self, method: &str, params: Value) -> Result<Value> {
         let id = format!("core-{}", self.request_seq.fetch_add(1, Ordering::Relaxed));
         let sender = {
@@ -172,6 +181,10 @@ impl BrowserExtensionBroker {
             Err(_) => {
                 let _ = self.pending.lock().await.remove(&id);
                 let _ = self.chunks.lock().await.remove(&id);
+                // A response blob that finished assembling but arrived after the
+                // timeout would otherwise sit on disk until its TTL. Prune
+                // expired blobs here so repeated timeouts don't accumulate.
+                self.blobs.lock().await.prune_expired(Instant::now());
                 bail!("Chrome Extension call timed out: {method}");
             }
         };
@@ -455,7 +468,11 @@ impl BrowserExtensionBroker {
             pid: std::process::id(),
         };
         let bytes = serde_json::to_vec_pretty(&discovery)?;
-        crate::platform::write_atomic(&path, &bytes)
+        // The discovery file carries the broker auth token, so write it 0600 via
+        // write_secure_file rather than the world-readable-by-default
+        // write_atomic. The 0700 dir is the practical barrier, but a
+        // token-bearing file must not rely on the dir mode alone.
+        crate::platform::write_secure_file(&path, &bytes)
             .with_context(|| format!("writing browser broker discovery {}", path.display()))?;
         Ok(())
     }
@@ -470,6 +487,22 @@ impl BrowserExtensionBroker {
             .await?
             .ok_or_else(|| anyhow!("host disconnected before hello"))?;
         self.validate_host_hello(&hello).await?;
+
+        // Supersede any prior connection (e.g. a second Chrome profile launching
+        // its own native host): fail the old connection's in-flight calls before
+        // swapping the sender, so they return immediately instead of being
+        // misrouted across two hosts or waiting out CALL_TIMEOUT.
+        let prior = self.state.read().await.active_connection_id;
+        if prior.is_some() {
+            app_warn!(
+                "browser",
+                "extension_broker",
+                "Superseding existing native host connection {:?} with {}",
+                prior,
+                connection_id
+            );
+            self.fail_all_pending().await;
+        }
 
         let (tx, rx) = mpsc::unbounded_channel();
         {
@@ -489,11 +522,42 @@ impl BrowserExtensionBroker {
             connection_id
         );
 
-        while let Some(message) = read_broker_message(&mut reader).await? {
-            self.handle_host_message(&message).await?;
+        // Read loop: break on clean EOF or any read error. Crucially this does
+        // NOT use `?` on the read — a malformed/oversized frame must still run
+        // the cleanup below (clearing the sender + failing pending), not skip it
+        // and leave the broker reporting a phantom "connected" host.
+        loop {
+            match read_broker_message(&mut reader).await {
+                Ok(Some(message)) => {
+                    if let Err(e) = self.handle_host_message(&message).await {
+                        app_warn!(
+                            "browser",
+                            "extension_broker",
+                            "Error handling host message on connection {}: {}",
+                            connection_id,
+                            e
+                        );
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    app_warn!(
+                        "browser",
+                        "extension_broker",
+                        "Read error on native host connection {}: {}",
+                        connection_id,
+                        e
+                    );
+                    break;
+                }
+            }
         }
 
-        {
+        // Only clear state + fail pending if THIS connection is still the active
+        // one. If a newer connection already superseded us above, leave its
+        // sender and pending intact.
+        let was_active = {
             let mut state = self.state.write().await;
             if state.active_connection_id == Some(connection_id) {
                 state.sender = None;
@@ -501,7 +565,13 @@ impl BrowserExtensionBroker {
                 state.extension_connected = false;
                 state.extension_protocol_version = None;
                 state.extension_version = None;
+                true
+            } else {
+                false
             }
+        };
+        if was_active {
+            self.fail_all_pending().await;
         }
         app_info!(
             "browser",
@@ -764,12 +834,15 @@ fn validate_unix_peer_uid(stream: &tokio::net::UnixStream) -> Result<()> {
     match unix_peer_uid(stream)? {
         Some(peer_uid) => validate_peer_uid_values(peer_uid, current_euid()),
         None => {
+            // Fail closed: an identity guard that cannot determine the peer uid
+            // must reject, not accept. The 0700 socket dir is the practical
+            // barrier on such platforms, but the guard itself never fails open.
             app_warn!(
                 "browser",
                 "extension_broker",
-                "Unix peer uid validation is unsupported on this platform"
+                "Rejecting broker connection: Unix peer uid validation is unsupported on this platform"
             );
-            Ok(())
+            bail!("cannot verify native host peer identity on this platform")
         }
     }
 }
@@ -1246,96 +1319,20 @@ fn handle_download_completed_payload(payload: &Value) -> Result<Value> {
         .or_else(|| payload.get("url"))
         .and_then(Value::as_str)
         .map(ToString::to_string);
-    let source = PathBuf::from(filename);
-    let dest_dir = crate::paths::browser_downloads_dir()?;
-    let dest = move_download_to_managed_dir(&source, &dest_dir)?;
+    // Do NOT relocate the file: a download in a controlled tab may have been
+    // started by the user, not the agent. Report the original on-disk path so
+    // the agent can read it in place (the read tool is not workspace-scoped);
+    // never move the user's file out of their downloads folder.
     push_download_observe(
-        "managed",
-        format!(
-            "download {download_id} moved to Hope Agent downloads: {}",
-            dest.to_string_lossy()
-        ),
+        "completed",
+        format!("download {download_id} completed: {filename}"),
         url.clone(),
     );
     Ok(json!({
         "downloadId": download_id,
-        "managedPath": dest.to_string_lossy(),
+        "path": filename,
         "url": url
     }))
-}
-
-fn move_download_to_managed_dir(source: &Path, dest_dir: &Path) -> Result<PathBuf> {
-    if !source.is_absolute() {
-        bail!("download filename must be absolute: {}", source.display());
-    }
-    if !source.is_file() {
-        bail!(
-            "download file does not exist or is not a regular file: {}",
-            source.display()
-        );
-    }
-    std::fs::create_dir_all(dest_dir)
-        .with_context(|| format!("creating browser downloads dir {}", dest_dir.display()))?;
-    let source_canonical = source
-        .canonicalize()
-        .with_context(|| format!("canonicalizing download file {}", source.display()))?;
-    let dest_dir_canonical = dest_dir.canonicalize().with_context(|| {
-        format!(
-            "canonicalizing browser downloads dir {}",
-            dest_dir.display()
-        )
-    })?;
-    if source_canonical
-        .parent()
-        .is_some_and(|parent| parent == dest_dir_canonical)
-    {
-        return Ok(source_canonical);
-    }
-    let file_name = source
-        .file_name()
-        .ok_or_else(|| anyhow!("download filename has no file name: {}", source.display()))?;
-    let dest = uniquify_path(dest_dir.join(file_name));
-    match std::fs::rename(source, &dest) {
-        Ok(_) => Ok(dest),
-        Err(e) if crate::platform::is_cross_device_rename(&e) => {
-            std::fs::copy(source, &dest).with_context(|| {
-                format!(
-                    "copying download {} to {}",
-                    source.display(),
-                    dest.display()
-                )
-            })?;
-            std::fs::remove_file(source)
-                .with_context(|| format!("removing original download {}", source.display()))?;
-            Ok(dest)
-        }
-        Err(e) => Err(e)
-            .with_context(|| format!("moving download {} to {}", source.display(), dest.display())),
-    }
-}
-
-fn uniquify_path(path: PathBuf) -> PathBuf {
-    if !path.exists() {
-        return path;
-    }
-    let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("download");
-    let ext = path.extension().and_then(|s| s.to_str());
-    for index in 1..10_000 {
-        let file_name = match ext {
-            Some(ext) if !ext.is_empty() => format!("{stem} ({index}).{ext}"),
-            _ => format!("{stem} ({index})"),
-        };
-        let candidate = parent.join(file_name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    path
 }
 
 fn push_download_observe(level: &str, text: String, url: Option<String>) {
@@ -1643,10 +1640,10 @@ impl BlobStore {
             {
                 bail!("response.blob mime must be application/json");
             }
-            if !completed
+            if completed
                 .purpose
                 .as_deref()
-                .is_none_or(|purpose| purpose == "response")
+                .is_some_and(|purpose| purpose != "response")
             {
                 bail!("response.blob purpose must be response");
             }
@@ -2182,41 +2179,6 @@ mod tests {
         .unwrap();
         assert!(next.is_none());
         assert_eq!(chunks.get("core-5").map(|a| a.received), Some(1));
-    }
-
-    #[test]
-    fn moves_download_to_managed_dir() {
-        let tmp = tempfile::tempdir().unwrap();
-        let source_dir = tmp.path().join("chrome-downloads");
-        let managed_dir = tmp.path().join("hope-downloads");
-        std::fs::create_dir_all(&source_dir).unwrap();
-        let source = source_dir.join("report.txt");
-        std::fs::write(&source, b"hello").unwrap();
-
-        let dest = move_download_to_managed_dir(&source, &managed_dir).unwrap();
-        assert_eq!(dest, managed_dir.join("report.txt"));
-        assert!(!source.exists());
-        assert_eq!(std::fs::read(dest).unwrap(), b"hello");
-    }
-
-    #[test]
-    fn download_policy_uniquifies_existing_destination() {
-        let tmp = tempfile::tempdir().unwrap();
-        let source_dir = tmp.path().join("chrome-downloads");
-        let managed_dir = tmp.path().join("hope-downloads");
-        std::fs::create_dir_all(&source_dir).unwrap();
-        std::fs::create_dir_all(&managed_dir).unwrap();
-        let source = source_dir.join("report.txt");
-        std::fs::write(&source, b"new").unwrap();
-        std::fs::write(managed_dir.join("report.txt"), b"old").unwrap();
-
-        let dest = move_download_to_managed_dir(&source, &managed_dir).unwrap();
-        assert_eq!(dest, managed_dir.join("report (1).txt"));
-        assert_eq!(std::fs::read(dest).unwrap(), b"new");
-        assert_eq!(
-            std::fs::read(managed_dir.join("report.txt")).unwrap(),
-            b"old"
-        );
     }
 
     #[test]

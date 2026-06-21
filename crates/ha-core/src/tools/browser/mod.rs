@@ -120,10 +120,11 @@ async fn check_url_via_ssrf(url: &str) -> Result<()> {
 // ── status ───────────────────────────────────────────────────────────────
 
 async fn action_status(_args: &Value) -> Result<String> {
-    // We avoid forcing a backend creation here — `status` should be cheap and
-    // honest about "not connected yet".
+    // `status_backend` builds a cheap session-less probe when the extension is
+    // the effective backend (it is never cached, so `peek_active` would miss it
+    // and wrongly report "disconnected"); it never force-launches a CDP Chrome.
     let extension_status = browser::current_status();
-    let active = browser::peek_active().await;
+    let active = browser::status_backend().await;
     let Some(backend) = active else {
         return Ok(format!(
             "Browser disconnected.\nExtension: {:?} — {}\nNext action: {}\nUse `profile.op=launch` to start an isolated CDP Chrome, or install/enable the extension for real Chrome tabs and logged-in sessions.",
@@ -1165,6 +1166,18 @@ async fn control_download_cancel(args: &Value, session_id: Option<&str>) -> Resu
 }
 
 async fn control_raw_cdp(args: &Value, session_id: Option<&str>) -> Result<String> {
+    // Honor the kill switch: browser.extension.allowRawCdp = false disables the
+    // raw CDP escape hatch entirely (defaults to enabled when unset).
+    let raw_cdp_enabled = crate::config::cached_config()
+        .browser
+        .as_ref()
+        .and_then(|b| b.extension.as_ref())
+        .map_or(true, |ext| ext.allow_raw_cdp());
+    if !raw_cdp_enabled {
+        return Err(anyhow!(
+            "control.raw_cdp is disabled by configuration (browser.extension.allowRawCdp = false)"
+        ));
+    }
     let method = get_str(args, "method")
         .ok_or_else(|| anyhow!("control.raw_cdp requires 'method'"))?
         .to_string();
@@ -1174,6 +1187,21 @@ async fn control_raw_cdp(args: &Value, session_id: Option<&str>) -> Result<Strin
         .unwrap_or_else(|| serde_json::json!({}));
     if !params.is_object() {
         return Err(anyhow!("control.raw_cdp 'params' must be a JSON object"));
+    }
+    // Runtime.evaluate / Runtime.callFunctionOn execute arbitrary JS in the
+    // page; apply the same SSRF scan that control.op=evaluate enforces so
+    // raw_cdp can't be used to bypass the outbound URL policy.
+    if matches!(
+        method.as_str(),
+        "Runtime.evaluate" | "Runtime.callFunctionOn"
+    ) {
+        if let Some(script) = params
+            .get("expression")
+            .or_else(|| params.get("functionDeclaration"))
+            .and_then(Value::as_str)
+        {
+            evaluate_with_ssrf_scan(script).await?;
+        }
     }
     let backend = require_extension_tabs("control.raw_cdp", session_id).await?;
     let result = backend

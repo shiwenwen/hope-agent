@@ -2755,7 +2755,22 @@
       "statusConnected": "Tarayıcı çalışıyor",
       "statusDisconnected": "Çalışmıyor",
       "title": "Tarayıcı",
-      "untitledTab": "Başlıksız"
+      "untitledTab": "Başlıksız",
+      "advanced": {
+        "section": "Gelişmiş",
+        "sectionHint": "Chrome uzantı arka ucu için gelişmiş seçenekler. Değişiklikler Kaydet'e tıkladıktan sonra geçerli olur.",
+        "backendLabel": "Tarayıcı arka ucu",
+        "backendExtensionFirst": "Önce uzantı (varsayılan)",
+        "backendExtensionFirstDesc": "Mümkün olduğunda gerçek Chrome'unuzu uzantı üzerinden çalıştırır; aksi halde yalıtılmış CDP'ye geri döner.",
+        "backendCdpOnly": "Yalnızca yalıtılmış CDP",
+        "backendCdpOnlyDesc": "Yalnızca yeni, yalıtılmış bir Chrome kullanır; gerçek tarayıcınıza asla dokunmaz.",
+        "backendExtensionOnly": "Yalnızca uzantı",
+        "backendExtensionOnlyDesc": "Yalnızca gerçek Chrome'unuzu kullanır; uzantı kullanılamadığında doğrudan hata verir.",
+        "enableLabel": "Chrome uzantı arka ucunu etkinleştir",
+        "enableHint": "Yapay zekânın, oturum açtığınız gerçek Chrome'unuzu (tüm Cookie ve oturumlar dahil) uzantı üzerinden çalıştırmasına izin verir.",
+        "rawCdpLabel": "raw CDP'ye izin ver (gelişmiş)",
+        "rawCdpHint": "Yapay zekânın gerçek Chrome'unuza rastgele DevTools Protocol komutları göndermesine izin verir. Her çağrı yine de kullanım başına onay gerektirir ve tehlikeli yöntemler (Cookie okuma vb.) engellenir; özellikle ihtiyacınız olmadıkça bunu kapalı tutun."
+      }
     },
     "bytes": "bayt",
     "canvas": "Canvas",

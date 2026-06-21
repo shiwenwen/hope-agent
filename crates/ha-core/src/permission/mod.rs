@@ -87,14 +87,18 @@ pub enum AskReason {
 }
 
 impl AskReason {
-    /// `true` if this reason forbids `Allow Always` — protected paths and
-    /// dangerous commands always need a per-call confirmation.
+    /// `true` if this reason forbids `Allow Always` — protected paths,
+    /// dangerous commands, and raw CDP against the user's real Chrome always
+    /// need a per-call confirmation. `BrowserRawCdp` is strict because a single
+    /// "Allow Always" would otherwise permanently grant arbitrary DevTools
+    /// Protocol access (cookies, storage, navigation) to the logged-in browser.
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
             self,
             AskReason::ProtectedPath { .. }
                 | AskReason::DangerousCommand { .. }
                 | AskReason::MacControlDangerousAction { .. }
+                | AskReason::BrowserRawCdp { .. }
                 | AskReason::PlanModeAsk
         )
     }
