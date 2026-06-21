@@ -41,11 +41,25 @@ export default function TaskProgressPanel({
   workspaceOpen = false,
 }: TaskProgressPanelProps) {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(() => defaultExpanded && !workspaceOpen)
+  const allTasksCompleted = snapshot.total > 0 && snapshot.completed === snapshot.total
+  const [expanded, setExpanded] = useState(
+    () => defaultExpanded && !workspaceOpen && !allTasksCompleted,
+  )
   const previousWorkspaceOpenRef = useRef(workspaceOpen)
+  const previousAllCompletedRef = useRef(allTasksCompleted)
   // Per-row in-flight set so a slow RPC on task A doesn't disable the
   // controls on tasks B/C/D — matters most on HTTP transport latency.
   const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
+
+  useEffect(() => {
+    const wasAllCompleted = previousAllCompletedRef.current
+    if (allTasksCompleted) {
+      setExpanded(false)
+    } else if (wasAllCompleted && defaultExpanded && !workspaceOpen) {
+      setExpanded(true)
+    }
+    previousAllCompletedRef.current = allTasksCompleted
+  }, [allTasksCompleted, defaultExpanded, workspaceOpen])
 
   useEffect(() => {
     if (workspaceOpen && !previousWorkspaceOpenRef.current) {

@@ -261,6 +261,22 @@ describe("ChatInput", () => {
     expect(inputDock?.className).not.toContain("overflow-hidden")
   })
 
+  test("insets the context usage bar inside the rounded input dock corners", () => {
+    const { view } = renderChatInput({
+      contextUsage: {
+        usedTokens: 12_000,
+        contextWindow: 128_000,
+        usedK: 12,
+        ctxK: 128,
+        pct: 9,
+      },
+    })
+
+    expect(view.container.querySelector(".absolute.inset-x-4.bottom-0")).toBeTruthy()
+    expect(view.container.querySelector(".h-full.rounded-full")).toBeTruthy()
+    expect(view.container.querySelector(".absolute.inset-x-0.bottom-0")).toBeNull()
+  })
+
   test.each([
     ["default", "smart"],
     ["smart", "yolo"],

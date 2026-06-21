@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { Task, ToolCall } from "@/types/chat"
 import TaskBlock from "./TaskBlock"
 
@@ -49,6 +49,53 @@ function toolWithTasks(tasks: Task[]): ToolCall {
 }
 
 describe("TaskBlock", () => {
+  test("starts collapsed when every task is completed", () => {
+    render(
+      <TaskBlock
+        tool={toolWithTasks([
+          task({ id: 1, content: "Write code", status: "completed" }),
+          task({ id: 2, content: "Run tests", status: "completed" }),
+        ])}
+      />,
+    )
+
+    const toggle = screen.getByRole("button", { name: /Completed 2\/2/ })
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText("Write code")).toBeNull()
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByText("Write code")).toBeTruthy()
+  })
+
+  test("auto-collapses when the task list becomes complete", async () => {
+    const { rerender } = render(
+      <TaskBlock
+        tool={toolWithTasks([
+          task({ id: 1, content: "Write code", status: "completed" }),
+          task({ id: 2, content: "Run tests", status: "pending" }),
+        ])}
+      />,
+    )
+
+    expect(screen.getByRole("button", { name: /Waiting 1\/2/ }).getAttribute("aria-expanded")).toBe(
+      "true",
+    )
+    expect(screen.getByText("Run tests")).toBeTruthy()
+
+    rerender(
+      <TaskBlock
+        tool={toolWithTasks([
+          task({ id: 1, content: "Write code", status: "completed" }),
+          task({ id: 2, content: "Run tests", status: "completed" }),
+        ])}
+      />,
+    )
+
+    const toggle = await screen.findByRole("button", { name: /Completed 2\/2/ })
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"))
+  })
+
   test("does not spin an in-progress task when execution is no longer running", () => {
     const { container } = render(
       <TaskBlock tool={toolWithTasks([task({})])} executionState="idle" />,
