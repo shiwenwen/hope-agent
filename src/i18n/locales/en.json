@@ -2826,7 +2826,25 @@
           "copied": "{{item}} copied",
           "copyFailed": "Copy {{item}} failed",
           "revealFailed": "Reveal {{item}} failed"
-        }
+        },
+        "fallbackLabel": "Fall back to managed Chrome",
+        "fallbackHint": "If the extension isn’t available, automatically use an isolated managed Chrome instead of failing.",
+        "setupGuide": "Setup guide"
+      },
+      "methodLabel": "Browser control method",
+      "tabCount": "{{count}} tabs",
+      "method": {
+        "extension": "Extension",
+        "managed": "Managed Chrome",
+        "attach": "Attach to Chrome",
+        "extensionDesc": "Drive your signed-in real Chrome through the extension — it shares your cookies and sessions. Recommended.",
+        "managedDesc": "Hope Agent launches and maintains its own isolated Chrome. Best for automation.",
+        "attachDesc": "Attach to a Chrome you started yourself with --remote-debugging-port."
+      },
+      "rawCdpConfirm": {
+        "title": "Allow raw CDP?",
+        "body": "This lets the AI send arbitrary DevTools Protocol commands to your real Chrome. Every call still needs your per-use approval and dangerous methods stay blocked, but only enable it if you specifically need it.",
+        "continue": "Enable"
       }
     },
     "bytes": "bytes",

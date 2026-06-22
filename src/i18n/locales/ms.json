@@ -2826,7 +2826,25 @@
           "copied": "{{item}} disalin",
           "copyFailed": "Gagal menyalin {{item}}",
           "revealFailed": "Gagal memaparkan {{item}}"
-        }
+        },
+        "fallbackLabel": "Kembali kepada Chrome terurus",
+        "fallbackHint": "Jika sambungan tidak tersedia, gunakan Chrome terurus terpencil secara automatik dan bukannya gagal.",
+        "setupGuide": "Panduan persediaan"
+      },
+      "methodLabel": "Kaedah kawalan pelayar",
+      "tabCount": "{{count}} tab",
+      "method": {
+        "extension": "Sambungan",
+        "managed": "Chrome terurus",
+        "attach": "Sambung ke Chrome",
+        "extensionDesc": "Kawal Chrome sebenar yang telah anda log masuk melalui sambungan — ia berkongsi kuki dan sesi anda. Disyorkan.",
+        "managedDesc": "Hope Agent melancarkan dan menyelenggara instans Chrome terpencil sendiri. Terbaik untuk automasi.",
+        "attachDesc": "Sambung ke Chrome yang anda lancarkan sendiri dengan --remote-debugging-port."
+      },
+      "rawCdpConfirm": {
+        "title": "Benarkan raw CDP?",
+        "body": "Ini membenarkan AI menghantar perintah DevTools Protocol sewenang-wenangnya ke Chrome sebenar anda. Setiap panggilan masih memerlukan kelulusan anda setiap kali dan kaedah berbahaya kekal disekat, tetapi dayakan hanya jika anda benar-benar memerlukannya.",
+        "continue": "Dayakan"
       }
     },
     "bytes": "bait",

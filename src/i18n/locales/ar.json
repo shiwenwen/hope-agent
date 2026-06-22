@@ -2826,7 +2826,25 @@
           "copied": "تم نسخ {{item}}",
           "copyFailed": "فشل نسخ {{item}}",
           "revealFailed": "فشل إظهار {{item}}"
-        }
+        },
+        "fallbackLabel": "الرجوع إلى Chrome المُدار",
+        "fallbackHint": "عند عدم توفّر الإضافة، استخدم تلقائيًا نسخة Chrome مُدارة ومعزولة بدلًا من الفشل.",
+        "setupGuide": "دليل الإعداد"
+      },
+      "methodLabel": "طريقة التحكم في المتصفح",
+      "tabCount": "{{count}} علامات تبويب",
+      "method": {
+        "extension": "الإضافة",
+        "managed": "Chrome مُدار",
+        "attach": "الاتصال بـ Chrome",
+        "extensionDesc": "تحكّم في متصفح Chrome الحقيقي الذي سجّلت الدخول إليه عبر الإضافة — يشارك ملفات تعريف الارتباط والجلسات. موصى به.",
+        "managedDesc": "يشغّل Hope Agent نسخة Chrome معزولة خاصة به ويحافظ عليها. الأفضل للأتمتة.",
+        "attachDesc": "الاتصال بنسخة Chrome شغّلتها بنفسك باستخدام --remote-debugging-port."
+      },
+      "rawCdpConfirm": {
+        "title": "السماح بـ raw CDP؟",
+        "body": "يتيح هذا للذكاء الاصطناعي إرسال أوامر DevTools Protocol اعتباطية إلى متصفح Chrome الحقيقي. لا يزال كل استدعاء يتطلب موافقتك في كل مرة وتبقى الطرق الخطرة محظورة، لكن فعّله فقط إذا كنت بحاجة إليه تحديدًا.",
+        "continue": "تفعيل"
       }
     },
     "bytes": "بايت",

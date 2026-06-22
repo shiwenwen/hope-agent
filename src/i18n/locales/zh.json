@@ -2826,7 +2826,25 @@
           "copied": "{{item}}已复制",
           "copyFailed": "复制{{item}}失败",
           "revealFailed": "打开{{item}}失败"
-        }
+        },
+        "fallbackLabel": "回退到托管 Chrome",
+        "fallbackHint": "扩展不可用时,自动改用独立的托管 Chrome,而不是直接失败。",
+        "setupGuide": "安装引导"
+      },
+      "methodLabel": "浏览器控制方式",
+      "tabCount": "{{count}} 个标签页",
+      "method": {
+        "extension": "扩展",
+        "managed": "托管 Chrome",
+        "attach": "连接 Chrome",
+        "extensionDesc": "通过扩展驱动你已登录的真实 Chrome——共享你的 Cookie 和会话。推荐。",
+        "managedDesc": "Hope Agent 启动并维护独立的 Chrome 实例。适合自动化。",
+        "attachDesc": "连接到你自己用 --remote-debugging-port 启动的 Chrome。"
+      },
+      "rawCdpConfirm": {
+        "title": "允许 raw CDP?",
+        "body": "这会允许 AI 向你的真实 Chrome 发送任意 DevTools 协议命令。每次调用仍需你逐次审批、危险方法仍被拦截,但请仅在确有需要时开启。",
+        "continue": "开启"
       }
     },
     "bytes": "字节",

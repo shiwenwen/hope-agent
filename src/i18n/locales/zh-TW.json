@@ -2826,7 +2826,25 @@
           "copied": "已複製{{item}}",
           "copyFailed": "複製{{item}}失敗",
           "revealFailed": "開啟{{item}}失敗"
-        }
+        },
+        "fallbackLabel": "回退至託管 Chrome",
+        "fallbackHint": "擴充功能無法使用時,自動改用獨立的託管 Chrome,而非直接失敗。",
+        "setupGuide": "安裝指南"
+      },
+      "methodLabel": "瀏覽器控制方式",
+      "tabCount": "{{count}} 個分頁",
+      "method": {
+        "extension": "擴充功能",
+        "managed": "託管 Chrome",
+        "attach": "連線 Chrome",
+        "extensionDesc": "透過擴充功能驅動你已登入的真實 Chrome——共用你的 Cookie 與工作階段。建議使用。",
+        "managedDesc": "Hope Agent 會啟動並維護獨立的 Chrome 執行個體。最適合自動化。",
+        "attachDesc": "連線到你自己以 --remote-debugging-port 啟動的 Chrome。"
+      },
+      "rawCdpConfirm": {
+        "title": "允許 raw CDP?",
+        "body": "這會允許 AI 向你的真實 Chrome 傳送任意 DevTools 協定指令。每次呼叫仍需你逐次核准、危險方法仍會被封鎖,但請僅在確有需要時啟用。",
+        "continue": "啟用"
       }
     },
     "bytes": "位元組",

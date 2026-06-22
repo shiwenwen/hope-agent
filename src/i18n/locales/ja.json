@@ -2826,7 +2826,25 @@
           "copied": "{{item}}をコピーしました",
           "copyFailed": "{{item}}のコピーに失敗しました",
           "revealFailed": "{{item}}を開けませんでした"
-        }
+        },
+        "fallbackLabel": "管理対象 Chrome にフォールバック",
+        "fallbackHint": "拡張機能が利用できない場合、失敗せずに独立した管理対象 Chrome を自動的に使用します。",
+        "setupGuide": "セットアップガイド"
+      },
+      "methodLabel": "ブラウザの制御方法",
+      "tabCount": "{{count}} 個のタブ",
+      "method": {
+        "extension": "拡張機能",
+        "managed": "管理対象 Chrome",
+        "attach": "Chrome に接続",
+        "extensionDesc": "拡張機能を通じてログイン済みの実際の Chrome を操作します。Cookie とセッションを共有します。推奨。",
+        "managedDesc": "Hope Agent が独立した Chrome インスタンスを起動・維持します。自動化に最適です。",
+        "attachDesc": "--remote-debugging-port を付けて自分で起動した Chrome に接続します。"
+      },
+      "rawCdpConfirm": {
+        "title": "raw CDP を許可しますか?",
+        "body": "AI が実際の Chrome に任意の DevTools Protocol コマンドを送信できるようになります。各呼び出しには引き続き個別の承認が必要で、危険なメソッドはブロックされたままですが、特に必要な場合のみ有効にしてください。",
+        "continue": "有効にする"
       }
     },
     "bytes": "バイト",

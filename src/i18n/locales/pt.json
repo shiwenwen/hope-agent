@@ -2826,7 +2826,25 @@
           "copied": "{{item}} copiado",
           "copyFailed": "Falha ao copiar {{item}}",
           "revealFailed": "Falha ao exibir {{item}}"
-        }
+        },
+        "fallbackLabel": "Recorrer ao Chrome gerenciado",
+        "fallbackHint": "Se a extensão não estiver disponível, use automaticamente um Chrome gerenciado e isolado em vez de falhar.",
+        "setupGuide": "Guia de configuração"
+      },
+      "methodLabel": "Método de controle do navegador",
+      "tabCount": "{{count}} abas",
+      "method": {
+        "extension": "Extensão",
+        "managed": "Chrome gerenciado",
+        "attach": "Conectar ao Chrome",
+        "extensionDesc": "Controle seu Chrome real com login pela extensão — ele compartilha seus cookies e sessões. Recomendado.",
+        "managedDesc": "O Hope Agent inicia e mantém sua própria instância isolada do Chrome. Ideal para automação.",
+        "attachDesc": "Conecte-se a um Chrome que você mesmo iniciou com --remote-debugging-port."
+      },
+      "rawCdpConfirm": {
+        "title": "Permitir CDP bruto?",
+        "body": "Isso permite que a IA envie comandos arbitrários do DevTools Protocol ao seu Chrome real. Cada chamada ainda exige sua aprovação individual e métodos perigosos permanecem bloqueados, mas ative somente se você realmente precisar.",
+        "continue": "Ativar"
       }
     },
     "bytes": "bytes",

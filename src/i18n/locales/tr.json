@@ -2826,7 +2826,25 @@
           "copied": "{{item}} kopyalandı",
           "copyFailed": "{{item}} kopyalanamadı",
           "revealFailed": "{{item}} açılamadı"
-        }
+        },
+        "fallbackLabel": "Yönetilen Chrome'a geri dön",
+        "fallbackHint": "Uzantı kullanılamıyorsa başarısız olmak yerine otomatik olarak yalıtılmış yönetilen bir Chrome kullanın.",
+        "setupGuide": "Kurulum kılavuzu"
+      },
+      "methodLabel": "Tarayıcı denetim yöntemi",
+      "tabCount": "{{count}} sekme",
+      "method": {
+        "extension": "Uzantı",
+        "managed": "Yönetilen Chrome",
+        "attach": "Chrome'a bağlan",
+        "extensionDesc": "Oturum açtığınız gerçek Chrome'u uzantı aracılığıyla yönetin; çerezlerinizi ve oturumlarınızı paylaşır. Önerilir.",
+        "managedDesc": "Hope Agent kendi yalıtılmış Chrome örneğini başlatır ve sürdürür. Otomasyon için idealdir.",
+        "attachDesc": "--remote-debugging-port ile kendiniz başlattığınız bir Chrome'a bağlanın."
+      },
+      "rawCdpConfirm": {
+        "title": "Ham CDP'ye izin verilsin mi?",
+        "body": "Bu, yapay zekânın gerçek Chrome'unuza rastgele DevTools Protocol komutları göndermesine olanak tanır. Her çağrı yine de her seferinde onayınızı gerektirir ve tehlikeli yöntemler engellenmeye devam eder, ancak yalnızca özellikle ihtiyacınız varsa etkinleştirin.",
+        "continue": "Etkinleştir"
       }
     },
     "bytes": "bayt",

@@ -2826,7 +2826,25 @@
           "copied": "Đã sao chép {{item}}",
           "copyFailed": "Sao chép {{item}} thất bại",
           "revealFailed": "Mở {{item}} thất bại"
-        }
+        },
+        "fallbackLabel": "Dự phòng bằng Chrome do ứng dụng quản lý",
+        "fallbackHint": "Khi tiện ích mở rộng không khả dụng, tự động dùng một Chrome quản lý độc lập thay vì báo lỗi.",
+        "setupGuide": "Hướng dẫn thiết lập"
+      },
+      "methodLabel": "Phương thức điều khiển trình duyệt",
+      "tabCount": "{{count}} thẻ",
+      "method": {
+        "extension": "Tiện ích mở rộng",
+        "managed": "Chrome do ứng dụng quản lý",
+        "attach": "Kết nối tới Chrome",
+        "extensionDesc": "Điều khiển Chrome thật đã đăng nhập của bạn thông qua tiện ích mở rộng — nó dùng chung cookie và phiên của bạn. Khuyến nghị.",
+        "managedDesc": "Hope Agent khởi chạy và duy trì một phiên bản Chrome riêng biệt, độc lập. Phù hợp nhất cho tự động hóa.",
+        "attachDesc": "Kết nối tới một Chrome mà bạn tự khởi chạy với --remote-debugging-port."
+      },
+      "rawCdpConfirm": {
+        "title": "Cho phép raw CDP?",
+        "body": "Việc này cho phép AI gửi các lệnh DevTools Protocol tùy ý tới Chrome thật của bạn. Mỗi lần gọi vẫn cần bạn phê duyệt riêng và các phương thức nguy hiểm vẫn bị chặn, nhưng chỉ bật khi bạn thực sự cần.",
+        "continue": "Bật"
       }
     },
     "bytes": "byte",

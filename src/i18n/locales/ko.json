@@ -2826,7 +2826,25 @@
           "copied": "{{item}} 복사됨",
           "copyFailed": "{{item}} 복사 실패",
           "revealFailed": "{{item}} 열기 실패"
-        }
+        },
+        "fallbackLabel": "관리형 Chrome으로 대체",
+        "fallbackHint": "확장 프로그램을 사용할 수 없을 때 실패하는 대신 격리된 관리형 Chrome을 자동으로 사용합니다.",
+        "setupGuide": "설치 가이드"
+      },
+      "methodLabel": "브라우저 제어 방식",
+      "tabCount": "탭 {{count}}개",
+      "method": {
+        "extension": "확장 프로그램",
+        "managed": "관리형 Chrome",
+        "attach": "Chrome에 연결",
+        "extensionDesc": "확장 프로그램을 통해 로그인된 실제 Chrome을 제어합니다. 쿠키와 세션을 공유합니다. 권장.",
+        "managedDesc": "Hope Agent가 자체 격리된 Chrome 인스턴스를 실행하고 유지합니다. 자동화에 가장 적합합니다.",
+        "attachDesc": "--remote-debugging-port로 직접 실행한 Chrome에 연결합니다."
+      },
+      "rawCdpConfirm": {
+        "title": "raw CDP를 허용하시겠습니까?",
+        "body": "AI가 실제 Chrome에 임의의 DevTools Protocol 명령을 보낼 수 있게 됩니다. 모든 호출은 여전히 매번 승인이 필요하고 위험한 메서드는 차단되지만, 꼭 필요한 경우에만 활성화하세요.",
+        "continue": "활성화"
       }
     },
     "bytes": "바이트",
