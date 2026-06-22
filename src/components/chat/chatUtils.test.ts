@@ -2,7 +2,11 @@ import { describe, expect, test, vi } from "vitest"
 import type { Message, SessionMessage } from "@/types/chat"
 import type { Transport } from "@/lib/transport"
 import { setTransport } from "@/lib/transport-provider"
-import { parseSessionMessages, reloadAndMergeSessionMessages } from "./chatUtils"
+import {
+  computeContextUsage,
+  parseSessionMessages,
+  reloadAndMergeSessionMessages,
+} from "./chatUtils"
 
 function sessionMessage(patch: Partial<SessionMessage>): SessionMessage {
   return {
@@ -67,6 +71,63 @@ describe("parseSessionMessages events", () => {
     expect(parsed.map((msg) => msg.role)).toEqual(["user", "event", "assistant"])
     expect(JSON.parse(parsed[1]!.content).data.description).toBe("summarized")
     expect(parsed[2]?.contentBlocks?.map((block) => block.type)).toEqual(["text", "text", "text"])
+  })
+})
+
+describe("computeContextUsage", () => {
+  test("uses the latest persisted compacted tokens after reload", () => {
+    const usage = computeContextUsage(
+      [
+        {
+          role: "assistant",
+          content: "before compact",
+          usage: { lastInputTokens: 64_000 },
+        },
+        {
+          role: "event",
+          content: JSON.stringify({
+            type: "context_compacted",
+            data: {
+              tier_applied: 3,
+              tokens_before: 64_000,
+              tokens_after: 12_000,
+              messages_affected: 8,
+              description: "summarized",
+            },
+          }),
+        },
+      ],
+      128_000,
+    )
+
+    expect(usage?.usedTokens).toBe(12_000)
+    expect(usage?.pct).toBe(9)
+  })
+
+  test("prefers a newer assistant usage over an older compacted event", () => {
+    const usage = computeContextUsage(
+      [
+        {
+          role: "event",
+          content: JSON.stringify({
+            type: "context_compacted",
+            data: {
+              tier_applied: 3,
+              tokens_after: 12_000,
+              description: "summarized",
+            },
+          }),
+        },
+        {
+          role: "assistant",
+          content: "after compact",
+          usage: { lastInputTokens: 18_000 },
+        },
+      ],
+      128_000,
+    )
+
+    expect(usage?.usedTokens).toBe(18_000)
   })
 })
 
