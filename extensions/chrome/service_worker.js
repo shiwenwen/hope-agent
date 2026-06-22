@@ -803,6 +803,17 @@ async function stopAllControl(source) {
 }
 
 function popupStatus() {
+  // MV3 service workers can be cold-started by the popup itself opening, before
+  // onInstalled/onStartup ever ran — so the native port may never have been
+  // opened and `nativeConnected` would read a stale `false`. Best-effort connect
+  // here (ensureNativePort is idempotent and sets the flag optimistically) so the
+  // popup reflects real connectivity. A missing host trips onDisconnect shortly
+  // after, and the popup's periodic refresh corrects the display.
+  try {
+    ensureNativePort()
+  } catch (error) {
+    console.debug("Hope Agent popup status connect attempt failed", error)
+  }
   return {
     nativeConnected,
     attachedTabs: attachedDebugTabs.size,
