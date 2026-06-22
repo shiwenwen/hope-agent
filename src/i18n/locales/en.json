@@ -608,7 +608,15 @@
         "mac": "Mac control"
       }
     },
-    "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\"."
+    "reasoningDisabledHint": "Reasoning is not enabled for this model. To adjust the reasoning depth, edit the model under Settings → Model Providers and turn on \"Reasoning\".",
+    "browserExtensionNudge": {
+      "installTitle": "Let the AI drive your real Chrome",
+      "installBody": "Install the Hope Agent extension to operate your signed-in Chrome. For now it runs in an isolated browser.",
+      "reloadTitle": "Reload the Chrome extension",
+      "reloadBody": "The installed extension doesn’t match the host. Reload it to restore control of your real Chrome.",
+      "openSettings": "Open settings",
+      "dismiss": "Don’t show again"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "Stop browser control failed",
           "copied": "{{item}} copied",
           "copyFailed": "Copy {{item}} failed",
-          "revealFailed": "Reveal {{item}} failed"
+          "revealFailed": "Reveal {{item}} failed",
+          "connected": "Extension connected — the AI can now use your real Chrome"
         },
         "fallbackLabel": "Fall back to managed Chrome",
         "fallbackHint": "If the extension isn’t available, automatically use an isolated managed Chrome instead of failing.",

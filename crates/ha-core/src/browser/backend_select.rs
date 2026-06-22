@@ -22,8 +22,9 @@ use tokio::sync::Mutex;
 use super::backend::BrowserBackend;
 use super::cdp_backend::CdpBackend;
 use super::extension::{
-    current_status, events::emit_extension_required, BrowserBackendContext,
-    BrowserBackendRequirement, BrowserExtensionBroker, ExtensionBackend,
+    current_status,
+    events::{emit_extension_fallback, emit_extension_required},
+    BrowserBackendContext, BrowserBackendRequirement, BrowserExtensionBroker, ExtensionBackend,
 };
 use super::BrowserBackendPreference;
 
@@ -142,6 +143,13 @@ pub async fn acquire_backend_for(
         {
             emit_extension_required(&ctx, requirement, &fallback_reason, &extension_status);
             return Err(extension_required_error(&fallback_reason));
+        }
+        // Soft fallback: extension preferred but unavailable, fallback to CDP
+        // allowed. Surface a one-time onboarding nudge so the user can install /
+        // reload the extension to drive their real Chrome. (CdpAllowed lifecycle
+        // ops don't nudge — they're not "the user wanted their real browser".)
+        if requirement == BrowserBackendRequirement::ExtensionPreferred {
+            emit_extension_fallback(&ctx, &extension_status);
         }
     } else if requirement == BrowserBackendRequirement::ExtensionRequired {
         let reason = "Chrome Extension backend is disabled";

@@ -608,7 +608,15 @@
         "mac": "Mac 控制"
       }
     },
-    "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度,請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。"
+    "reasoningDisabledHint": "此模型未啟用推理。如需調整推理深度,請在「設定 → 模型服務商」中編輯該模型並開啟「支援推理/思考」。",
+    "browserExtensionNudge": {
+      "installTitle": "讓 AI 操作你已登入的 Chrome",
+      "installBody": "安裝 Hope Agent 擴充功能即可操作你已登入的 Chrome;目前正使用隔離瀏覽器執行。",
+      "reloadTitle": "請重新載入 Chrome 擴充功能",
+      "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
+      "openSettings": "前往設定",
+      "dismiss": "不再顯示"
+    }
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "停止瀏覽器控制失敗",
           "copied": "已複製{{item}}",
           "copyFailed": "複製{{item}}失敗",
-          "revealFailed": "開啟{{item}}失敗"
+          "revealFailed": "開啟{{item}}失敗",
+          "connected": "擴充功能已連線——AI 現在可操作你的真實 Chrome"
         },
         "fallbackLabel": "回退至託管 Chrome",
         "fallbackHint": "擴充功能無法使用時,自動改用獨立的託管 Chrome,而非直接失敗。",

@@ -608,7 +608,15 @@
         "mac": "Mac 操作"
       }
     },
-    "reasoningDisabledHint": "このモデルでは推論が有効になっていません。推論の深さを調整するには、「設定 → モデルプロバイダー」でこのモデルを編集し、「推論/思考に対応」をオンにしてください。"
+    "reasoningDisabledHint": "このモデルでは推論が有効になっていません。推論の深さを調整するには、「設定 → モデルプロバイダー」でこのモデルを編集し、「推論/思考に対応」をオンにしてください。",
+    "browserExtensionNudge": {
+      "installTitle": "AI に実際の Chrome を操作させる",
+      "installBody": "Hope Agent 拡張機能をインストールすると、ログイン済みの Chrome を操作できます。現在は隔離されたブラウザで動作中です。",
+      "reloadTitle": "Chrome 拡張機能を再読み込み",
+      "reloadBody": "インストール済みの拡張機能がホストと一致しません。再読み込みすると実際の Chrome の操作を復元できます。",
+      "openSettings": "設定を開く",
+      "dismiss": "今後表示しない"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "ブラウザ制御の停止に失敗しました",
           "copied": "{{item}}をコピーしました",
           "copyFailed": "{{item}}のコピーに失敗しました",
-          "revealFailed": "{{item}}を開けませんでした"
+          "revealFailed": "{{item}}を開けませんでした",
+          "connected": "拡張機能が接続されました — AI が実際の Chrome を使えるようになりました"
         },
         "fallbackLabel": "管理対象 Chrome にフォールバック",
         "fallbackHint": "拡張機能が利用できない場合、失敗せずに独立した管理対象 Chrome を自動的に使用します。",

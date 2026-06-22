@@ -5,6 +5,8 @@ import { parsePayload } from "@/lib/transport"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import type { SettingsSection } from "@/components/settings/types"
+import { BrowserExtensionNudge } from "./BrowserExtensionNudge"
 import { useViewportMediaQuery } from "@/hooks/useViewportMediaQuery"
 import { cn } from "@/lib/utils"
 import {
@@ -138,6 +140,8 @@ interface ChatScreenProps {
   pendingChatInsert?: ChatInsert
   /** Called once the insert has been consumed so App can clear the pending slot. */
   onChatInsertConsumed?: () => void
+  /** Open the settings view, optionally to a specific section. */
+  onOpenSettings?: (section?: SettingsSection) => void
 }
 
 interface ManualCompactOverride {
@@ -386,6 +390,7 @@ export default function ChatScreen({
   onCurrentProjectChange,
   pendingChatInsert,
   onChatInsertConsumed,
+  onOpenSettings,
 }: ChatScreenProps) {
   const { t } = useTranslation()
 
@@ -2465,6 +2470,11 @@ export default function ChatScreen({
                 }
               : undefined
           }
+        />
+
+        <BrowserExtensionNudge
+          sessionId={session.currentSessionId}
+          onOpenSettings={onOpenSettings}
         />
 
         <div className="flex-1 flex min-h-0 overflow-hidden">

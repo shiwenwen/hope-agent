@@ -608,7 +608,15 @@
         "mac": "Điều khiển Mac"
       }
     },
-    "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\"."
+    "reasoningDisabledHint": "Mô hình này chưa bật suy luận. Để điều chỉnh độ sâu suy luận, hãy chỉnh sửa mô hình trong \"Cài đặt → Nhà cung cấp mô hình\" và bật \"Hỗ trợ suy luận/tư duy\".",
+    "browserExtensionNudge": {
+      "installTitle": "Để AI điều khiển Chrome thật của bạn",
+      "installBody": "Cài tiện ích Hope Agent để vận hành Chrome đã đăng nhập của bạn. Hiện đang chạy trong trình duyệt cách ly.",
+      "reloadTitle": "Tải lại tiện ích Chrome",
+      "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
+      "openSettings": "Mở cài đặt",
+      "dismiss": "Không hiển thị lại"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "Dừng điều khiển trình duyệt thất bại",
           "copied": "Đã sao chép {{item}}",
           "copyFailed": "Sao chép {{item}} thất bại",
-          "revealFailed": "Mở {{item}} thất bại"
+          "revealFailed": "Mở {{item}} thất bại",
+          "connected": "Đã kết nối tiện ích — AI giờ có thể dùng Chrome thật của bạn"
         },
         "fallbackLabel": "Dự phòng bằng Chrome do ứng dụng quản lý",
         "fallbackHint": "Khi tiện ích mở rộng không khả dụng, tự động dùng một Chrome quản lý độc lập thay vì báo lỗi.",

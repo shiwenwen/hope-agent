@@ -8,6 +8,7 @@ use super::{
 
 pub const EVENT_BROWSER_CONTROL_STOPPED: &str = "browser:control_stopped";
 pub const EVENT_BROWSER_EXTENSION_REQUIRED: &str = "browser:extension_required";
+pub const EVENT_BROWSER_EXTENSION_FALLBACK: &str = "browser:extension_fallback";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,6 +131,37 @@ pub fn emit_extension_required(
             "browser",
             "extension_events",
             "Failed to serialize BrowserExtensionRequiredPayload: {}",
+            e
+        ),
+    }
+}
+
+/// Emitted when an extension-*preferred* browser action silently falls back to
+/// CDP because the extension backend is unavailable (and the user hasn't forced
+/// `extension_only` / `cdp_only`). Drives a soft, dismissible onboarding nudge
+/// in the UI — distinct from [`EVENT_BROWSER_EXTENSION_REQUIRED`], which is a
+/// hard blocker for operations that cannot run without the user's real Chrome.
+pub fn emit_extension_fallback(ctx: &BrowserBackendContext, status: &BrowserExtensionStatus) {
+    let Some(bus) = crate::globals::get_event_bus() else {
+        return;
+    };
+    let payload = BrowserExtensionRequiredPayload {
+        requirement: BrowserBackendRequirement::ExtensionPreferred
+            .as_event_str()
+            .to_string(),
+        reason: status.message.clone(),
+        status_kind: status.kind,
+        status_message: status.message.clone(),
+        next_action: status.next_action.clone(),
+        session_id: ctx.session_id.clone(),
+        source: ctx.source.clone(),
+    };
+    match serde_json::to_value(&payload) {
+        Ok(value) => bus.emit(EVENT_BROWSER_EXTENSION_FALLBACK, value),
+        Err(e) => app_warn!(
+            "browser",
+            "extension_events",
+            "Failed to serialize extension-fallback payload: {}",
             e
         ),
     }

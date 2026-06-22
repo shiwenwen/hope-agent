@@ -608,7 +608,15 @@
         "mac": "Mac 제어"
       }
     },
-    "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요."
+    "reasoningDisabledHint": "이 모델은 추론이 활성화되어 있지 않습니다. 추론 강도를 조정하려면 「설정 → 모델 제공자」에서 이 모델을 편집하고 「추론/사고 지원」을 켜세요.",
+    "browserExtensionNudge": {
+      "installTitle": "AI가 실제 Chrome을 제어하도록 하기",
+      "installBody": "Hope Agent 확장 프로그램을 설치하면 로그인된 Chrome을 조작할 수 있습니다. 현재는 격리된 브라우저에서 실행 중입니다.",
+      "reloadTitle": "Chrome 확장 프로그램 다시 로드",
+      "reloadBody": "설치된 확장 프로그램이 호스트와 일치하지 않습니다. 다시 로드하면 실제 Chrome 제어가 복원됩니다.",
+      "openSettings": "설정 열기",
+      "dismiss": "다시 표시 안 함"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "브라우저 제어 중지 실패",
           "copied": "{{item}} 복사됨",
           "copyFailed": "{{item}} 복사 실패",
-          "revealFailed": "{{item}} 열기 실패"
+          "revealFailed": "{{item}} 열기 실패",
+          "connected": "확장 프로그램이 연결되었습니다 — 이제 AI가 실제 Chrome을 사용할 수 있습니다"
         },
         "fallbackLabel": "관리형 Chrome으로 대체",
         "fallbackHint": "확장 프로그램을 사용할 수 없을 때 실패하는 대신 격리된 관리형 Chrome을 자동으로 사용합니다.",

@@ -608,7 +608,15 @@
         "mac": "Control de Mac"
       }
     },
-    "reasoningDisabledHint": "El razonamiento no está activado para este modelo. Para ajustar la profundidad de razonamiento, edita el modelo en Configuración → Proveedores de modelos y activa \"Razonamiento\"."
+    "reasoningDisabledHint": "El razonamiento no está activado para este modelo. Para ajustar la profundidad de razonamiento, edita el modelo en Configuración → Proveedores de modelos y activa \"Razonamiento\".",
+    "browserExtensionNudge": {
+      "installTitle": "Deja que la IA controle tu Chrome real",
+      "installBody": "Instala la extensión de Hope Agent para operar tu Chrome con sesión iniciada. Por ahora se ejecuta en un navegador aislado.",
+      "reloadTitle": "Vuelve a cargar la extensión de Chrome",
+      "reloadBody": "La extensión instalada no coincide con el host. Vuelve a cargarla para recuperar el control de tu Chrome real.",
+      "openSettings": "Abrir ajustes",
+      "dismiss": "No volver a mostrar"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Tu token OAuth de Codex ya no es válido. Inicia sesión de nuevo para continuar.",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "Error al detener el control del navegador",
           "copied": "{{item}} copiado",
           "copyFailed": "Error al copiar {{item}}",
-          "revealFailed": "Error al mostrar {{item}}"
+          "revealFailed": "Error al mostrar {{item}}",
+          "connected": "Extensión conectada: la IA ya puede usar tu Chrome real"
         },
         "fallbackLabel": "Recurrir a Chrome gestionado",
         "fallbackHint": "Si la extensión no está disponible, usa automáticamente un Chrome gestionado y aislado en lugar de fallar.",

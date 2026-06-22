@@ -355,6 +355,19 @@ export default function BrowserPanel() {
     }
   }, [])
 
+  // Success feedback (D): when the extension backend transitions from
+  // unavailable → ready (e.g. the user just loaded/connected it), confirm once.
+  // The 5s poll above keeps `extensionStatus` fresh, so this fires without a
+  // manual refresh. `null` initial avoids a false positive on first load.
+  const prevExtAvailableRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (!extensionStatus) return
+    if (prevExtAvailableRef.current === false && extensionStatus.backendAvailable) {
+      toast.success(t("settings.browser.extension.toast.connected"))
+    }
+    prevExtAvailableRef.current = extensionStatus.backendAvailable
+  }, [extensionStatus, t])
+
   const onInstallRuntime = useCallback(async () => {
     setInstalling(true)
     setInstallError(null)

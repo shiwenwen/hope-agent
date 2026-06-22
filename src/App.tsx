@@ -653,6 +653,7 @@ export default function App() {
                   onCurrentProjectChange={setCurrentChatProjectId}
                   pendingChatInsert={pendingChatInsert}
                   onChatInsertConsumed={() => setPendingChatInsert(undefined)}
+                  onOpenSettings={handleOpenSettings}
                 />
               </div>
 

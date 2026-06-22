@@ -608,7 +608,15 @@
         "mac": "Kawalan Mac"
       }
     },
-    "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\"."
+    "reasoningDisabledHint": "Penaakulan tidak didayakan untuk model ini. Untuk melaraskan kedalaman penaakulan, edit model ini di \"Tetapan → Penyedia Model\" dan hidupkan \"Sokongan penaakulan/pemikiran\".",
+    "browserExtensionNudge": {
+      "installTitle": "Biar AI mengawal Chrome sebenar anda",
+      "installBody": "Pasang sambungan Hope Agent untuk mengendalikan Chrome yang telah anda log masuk. Buat masa ini ia berjalan dalam pelayar terpencil.",
+      "reloadTitle": "Muat semula sambungan Chrome",
+      "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
+      "openSettings": "Buka tetapan",
+      "dismiss": "Jangan tunjuk lagi"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "Gagal menghentikan kawalan pelayar",
           "copied": "{{item}} disalin",
           "copyFailed": "Gagal menyalin {{item}}",
-          "revealFailed": "Gagal memaparkan {{item}}"
+          "revealFailed": "Gagal memaparkan {{item}}",
+          "connected": "Sambungan disambungkan — AI kini boleh menggunakan Chrome sebenar anda"
         },
         "fallbackLabel": "Kembali kepada Chrome terurus",
         "fallbackHint": "Jika sambungan tidak tersedia, gunakan Chrome terurus terpencil secara automatik dan bukannya gagal.",

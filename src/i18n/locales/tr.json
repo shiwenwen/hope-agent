@@ -608,7 +608,15 @@
         "mac": "Mac kontrolü"
       }
     },
-    "reasoningDisabledHint": "Bu model için akıl yürütme etkin değil. Akıl yürütme derinliğini ayarlamak için \"Ayarlar → Model Sağlayıcıları\" bölümünden bu modeli düzenleyin ve \"Akıl yürütme/düşünme desteği\" seçeneğini açın."
+    "reasoningDisabledHint": "Bu model için akıl yürütme etkin değil. Akıl yürütme derinliğini ayarlamak için \"Ayarlar → Model Sağlayıcıları\" bölümünden bu modeli düzenleyin ve \"Akıl yürütme/düşünme desteği\" seçeneğini açın.",
+    "browserExtensionNudge": {
+      "installTitle": "Yapay zekânın gerçek Chrome'unuzu yönetmesine izin verin",
+      "installBody": "Oturum açtığınız Chrome'u kullanmak için Hope Agent uzantısını yükleyin. Şimdilik yalıtılmış bir tarayıcıda çalışıyor.",
+      "reloadTitle": "Chrome uzantısını yeniden yükleyin",
+      "reloadBody": "Yüklü uzantı ana bilgisayarla eşleşmiyor. Gerçek Chrome'unuzun denetimini geri kazanmak için yeniden yükleyin.",
+      "openSettings": "Ayarları aç",
+      "dismiss": "Tekrar gösterme"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -2825,7 +2833,8 @@
           "controlStopFailed": "Tarayıcı kontrolünü durdurma başarısız",
           "copied": "{{item}} kopyalandı",
           "copyFailed": "{{item}} kopyalanamadı",
-          "revealFailed": "{{item}} açılamadı"
+          "revealFailed": "{{item}} açılamadı",
+          "connected": "Uzantı bağlandı — yapay zekâ artık gerçek Chrome'unuzu kullanabilir"
         },
         "fallbackLabel": "Yönetilen Chrome'a geri dön",
         "fallbackHint": "Uzantı kullanılamıyorsa başarısız olmak yerine otomatik olarak yalıtılmış yönetilen bir Chrome kullanın.",
