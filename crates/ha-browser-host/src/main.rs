@@ -11,7 +11,7 @@ use std::thread;
 use anyhow::{Context, Result};
 use ha_browser_host::protocol::{read_native_message, write_native_message, PROTOCOL_VERSION};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,11 +87,23 @@ fn main() -> Result<()> {
     let mut native_in = stdin().lock();
     let native_out = Arc::new(Mutex::new(stdout()));
 
-    let broker = connect_broker().ok();
-    if let Some(stream) = broker.as_ref() {
-        start_broker_to_native(stream.try_clone()?, native_out.clone());
-    }
-    let broker_writer = broker.map(|stream| Arc::new(Mutex::new(stream)));
+    // The host's lifetime is tied to a LIVE broker connection. If the broker is
+    // unavailable at startup or drops later (e.g. the desktop app restarts), the
+    // host EXITS so Chrome closes the native port — the extension's onDisconnect
+    // then drives a reconnect, which respawns a fresh host against the (possibly
+    // restarted) broker. Staying alive in a degraded local-only mode would wedge
+    // the extension "connected" to a zombie host that can never reach the new
+    // broker, so the user would have to reload the extension by hand after every
+    // app restart. Exiting is what makes auto-recovery work.
+    let broker = match connect_broker() {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("ha-browser-host: broker unavailable at startup: {e:#}");
+            return Ok(());
+        }
+    };
+    start_broker_to_native(broker.try_clone()?, native_out);
+    let broker_writer = Arc::new(Mutex::new(broker));
 
     loop {
         let message = match read_native_message(&mut native_in) {
@@ -106,21 +118,17 @@ fn main() -> Result<()> {
                 break;
             }
         };
-        if let Some(writer) = broker_writer.as_ref() {
-            let write_result = writer
-                .lock()
-                .map_err(|_| anyhow::anyhow!("broker writer mutex poisoned"))
-                .and_then(|mut stream| write_native_message(&mut *stream, &message));
-            if write_result.is_ok() {
-                continue;
-            }
-        }
-
-        let response = handle_local_message(&message);
-        let mut out = native_out
+        let write_result = broker_writer
             .lock()
-            .map_err(|_| anyhow::anyhow!("native stdout mutex poisoned"))?;
-        write_native_message(&mut *out, &response)?;
+            .map_err(|_| anyhow::anyhow!("broker writer mutex poisoned"))
+            .and_then(|mut stream| write_native_message(&mut *stream, &message));
+        if let Err(e) = write_result {
+            // Broker connection lost mid-session (app restart). Exit so the
+            // extension reconnects against a fresh host instead of dropping
+            // commands into a dead socket and faking connectivity.
+            eprintln!("ha-browser-host: broker write failed, exiting: {e:#}");
+            break;
+        }
     }
 
     Ok(())
@@ -157,19 +165,26 @@ fn start_broker_to_native(
     mut broker_reader: BrokerStream,
     native_out: Arc<Mutex<std::io::Stdout>>,
 ) {
-    thread::spawn(move || loop {
-        match read_native_message(&mut broker_reader) {
-            Ok(Some(message)) => {
-                let Ok(mut out) = native_out.lock() else {
-                    break;
-                };
-                if write_native_message(&mut *out, &message).is_err() {
-                    break;
+    thread::spawn(move || {
+        loop {
+            match read_native_message(&mut broker_reader) {
+                Ok(Some(message)) => {
+                    let Ok(mut out) = native_out.lock() else {
+                        break;
+                    };
+                    if write_native_message(&mut *out, &message).is_err() {
+                        break;
+                    }
                 }
+                Ok(None) => break,
+                Err(_) => break,
             }
-            Ok(None) => break,
-            Err(_) => break,
         }
+        // The broker connection ended (app stopped/restarted). Terminate the
+        // whole host so Chrome closes the native port and the extension
+        // reconnects against a fresh host — instead of lingering as a zombie
+        // that holds the port open with no broker behind it.
+        std::process::exit(0);
     });
 }
 
@@ -266,42 +281,6 @@ fn discovery_path() -> Result<PathBuf> {
             .join(".hope-agent")
     };
     Ok(root.join("browser-extension").join("broker.json"))
-}
-
-fn handle_local_message(message: &Value) -> Value {
-    let id = message.get("id").cloned().unwrap_or(Value::Null);
-    let method = message
-        .get("method")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-
-    match method {
-        "hello" | "extension.hello" => json!({
-            "id": id,
-            "ok": true,
-            "type": "hello_ack",
-            "host": "ha-browser-host",
-            "protocolVersion": PROTOCOL_VERSION,
-            "coreConnected": false
-        }),
-        "status" | "extension.status" => json!({
-            "id": id,
-            "ok": true,
-            "type": "status",
-            "protocolVersion": PROTOCOL_VERSION,
-            "coreConnected": false,
-            "extensionConnected": true,
-            "reason": "core_broker_unavailable"
-        }),
-        _ => json!({
-            "id": id,
-            "ok": false,
-            "error": {
-                "code": "core_broker_unavailable",
-                "message": "Hope Agent Core broker is unavailable"
-            }
-        }),
-    }
 }
 
 #[cfg(test)]

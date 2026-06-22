@@ -8,6 +8,10 @@ Required for Chrome to grant the extension access to the currently selected tab 
 
 Required to connect the extension to the local Hope Agent native host. This is the only transport between Chrome and the desktop app.
 
+## `alarms`
+
+Required to keep the connection to the local Hope Agent native host healthy. Chrome evicts idle MV3 service workers, and the desktop app cannot dial in, so a periodic alarm wakes the service worker to re-establish the native connection after the app restarts. It is used only for this local reconnection heartbeat.
+
 ## `debugger`
 
 Required for Chrome DevTools Protocol control of user-approved tabs: navigation, screenshots, accessibility snapshots, input events, PDF generation, console/network/page-error observation, and dialog handling.

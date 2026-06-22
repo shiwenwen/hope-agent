@@ -30,6 +30,7 @@ const REQUIRED_PACKAGE_FILES = [
 ]
 const REQUIRED_PERMISSIONS = [
   "activeTab",
+  "alarms",
   "debugger",
   "downloads",
   "nativeMessaging",

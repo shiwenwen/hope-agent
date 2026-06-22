@@ -12,6 +12,56 @@ let nextMessageId = 1
 let nextBlobId = 1
 /** @type {Map<string, { resolve: (value: unknown) => void, reject: (reason: unknown) => void, timer: number }>} */
 const pendingNative = new Map()
+
+// Native-host reconnect resilience. The extension is the ONLY side that can
+// (re)initiate the native connection — Chrome owns the host process lifecycle
+// via connectNative, and the desktop app's broker cannot dial in. So when the
+// app / broker restarts (frequent in dev) the port drops and nothing recovers
+// unless we retry here. Two complementary mechanisms: exponential backoff on
+// disconnect (fast recovery while the SW is alive) + a periodic alarm that
+// wakes the SW and reconnects even after MV3 evicts the idle worker.
+/** @type {number | null} */
+let reconnectTimer = null
+let reconnectAttempts = 0
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 30000
+const KEEPALIVE_ALARM = "ha-native-keepalive"
+
+function scheduleReconnect() {
+  if (reconnectTimer || nativePort) return
+  const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts)
+  reconnectAttempts++
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    try {
+      ensureNativePort()
+    } catch {
+      scheduleReconnect()
+    }
+  }, delay)
+}
+
+function ensureKeepaliveAlarm() {
+  try {
+    chrome.alarms?.create(KEEPALIVE_ALARM, { periodInMinutes: 0.5 })
+  } catch (error) {
+    console.debug("Hope Agent keepalive alarm create failed", error)
+  }
+}
+
+// Created at top-level so the alarm is (re)registered on every SW load, and in
+// onInstalled/onStartup below for the install / browser-start lifecycle.
+ensureKeepaliveAlarm()
+
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm.name !== KEEPALIVE_ALARM) return
+  if (nativeConnected && nativePort) return
+  try {
+    ensureNativePort()
+  } catch (error) {
+    console.debug("Hope Agent keepalive reconnect failed", error)
+  }
+})
 /** @type {Set<number>} */
 const attachedDebugTabs = new Set()
 /** @type {Set<number>} */
@@ -36,10 +86,12 @@ const OBSERVE_RING_CAPACITY = 500
  */
 
 chrome.runtime.onInstalled.addListener(() => {
+  ensureKeepaliveAlarm()
   ensureNativePort()
 })
 
 chrome.runtime.onStartup.addListener(() => {
+  ensureKeepaliveAlarm()
   ensureNativePort()
 })
 
@@ -127,6 +179,13 @@ function ensureNativePort() {
     // does not gate on this flag, so the brief window only affects status display.
     nativeConnected = true
     nativePort.onMessage.addListener((message) => {
+      // Any inbound message proves the port is alive — reset backoff so the next
+      // disconnect retries promptly instead of inheriting a stale long delay.
+      reconnectAttempts = 0
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
       if (message && typeof message.id === "string" && pendingNative.has(message.id)) {
         const pending = pendingNative.get(message.id)
         pendingNative.delete(message.id)
@@ -151,6 +210,9 @@ function ensureNativePort() {
         pending.reject(new Error(err))
         pendingNative.delete(id)
       }
+      // Auto-recover: the app/broker likely restarted. Retry with backoff so the
+      // user doesn't have to reload the extension by hand.
+      scheduleReconnect()
     })
     nativePort.postMessage({
       id: `startup-${Date.now()}`,

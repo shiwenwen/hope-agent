@@ -8,6 +8,7 @@
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",
+    "alarms",
     "debugger",
     "downloads",
     "nativeMessaging",
