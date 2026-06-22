@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
+import BrowserStatusIndicator from "@/components/common/BrowserStatusIndicator"
 import type { SettingsSection } from "@/components/settings/types"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { useDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
@@ -336,6 +337,12 @@ export default function IconSidebar({
         </div>
 
         <div className="my-1 h-px w-6 bg-border-soft/60" />
+
+        {/* Browser backend — status indicator + entry to Settings → Browser.
+            Green dot when a backend is live; hover shows details. */}
+        <div className="w-full flex justify-center mt-1">
+          <BrowserStatusIndicator onOpen={() => onOpenSettings("browser")} />
+        </div>
 
         <div className="flex-1" />
 
