@@ -1,0 +1,80 @@
+{
+  "app_name": {
+    "message": "Hope Agent Tarayıcı Kontrolü",
+    "description": "Extension name shown in the toolbar, the extensions page, and the popup heading. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "app_description": {
+    "message": "Chrome'u Hope Agent ile kontrol edin.",
+    "description": "Extension description shown on the extensions page and the Chrome Web Store tile. Keep it under 132 characters. 'Hope Agent' stays untranslated."
+  },
+  "status_checking": {
+    "message": "Bağlantı denetleniyor…",
+    "description": "Initial popup status line shown while the connection to the desktop app is being read."
+  },
+  "btn_stop_current": {
+    "message": "Geçerli sekmeyi durdur",
+    "description": "Popup button that detaches Hope Agent control from the active tab."
+  },
+  "btn_stop_all": {
+    "message": "Kontrol edilen tüm sekmeleri durdur",
+    "description": "Popup button that detaches Hope Agent control from every tab it currently controls."
+  },
+  "status_native_connected": {
+    "message": "Yerel ana bilgisayar bağlandı",
+    "description": "Status fragment meaning the local desktop app is reachable. Used inside status_summary."
+  },
+  "status_native_offline": {
+    "message": "Yerel ana bilgisayar çevrimdışı — Hope Agent masaüstü uygulamasının çalıştığından emin olun.",
+    "description": "Popup status line shown when the desktop app cannot be reached. Includes an actionable hint."
+  },
+  "status_summary": {
+    "message": "$state$. Bağlı sekmeler: $attached$, katman sekmeleri: $overlay$.",
+    "description": "Popup status line when connected: connection state followed by how many tabs are controlled. Keep the placeholders; punctuation may be localized.",
+    "placeholders": {
+      "state": {
+        "content": "$1",
+        "example": "Native host connected"
+      },
+      "attached": {
+        "content": "$2",
+        "example": "3"
+      },
+      "overlay": {
+        "content": "$3",
+        "example": "1"
+      }
+    }
+  },
+  "result_stopped_tab": {
+    "message": "$tabId$ kimlikli sekmenin kontrolü durduruldu.",
+    "description": "Confirmation shown after detaching control from one tab.",
+    "placeholders": {
+      "tabId": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "result_stopped_count": {
+    "message": "Kontrolü durdurulan sekme sayısı: $count$.",
+    "description": "Confirmation shown after detaching control from all tabs. $count$ is the number stopped; phrase it count-agnostically (do not force a singular/plural form).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
+    }
+  },
+  "error_command_failed": {
+    "message": "Uzantı komutu başarısız oldu",
+    "description": "Generic fallback error when an extension command returns no specific message."
+  },
+  "error_no_active_tab": {
+    "message": "Geçerli Chrome penceresinde etkin sekme yok",
+    "description": "Error shown when 'Stop current tab' is pressed but no tab is active."
+  },
+  "error_status_unreadable": {
+    "message": "Uzantı durumu okunamıyor",
+    "description": "Status line shown when the popup cannot read the extension's state at all."
+  }
+}

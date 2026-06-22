@@ -1,0 +1,80 @@
+{
+  "app_name": {
+    "message": "التحكم في المتصفح من Hope Agent",
+    "description": "Extension name shown in the toolbar, the extensions page, and the popup heading. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "app_description": {
+    "message": "التحكم في Chrome من Hope Agent",
+    "description": "Extension description shown on the extensions page and the Chrome Web Store tile. Keep it under 132 characters. 'Hope Agent' stays untranslated."
+  },
+  "status_checking": {
+    "message": "جارٍ التحقق من الاتصال…",
+    "description": "Initial popup status line shown while the connection to the desktop app is being read."
+  },
+  "btn_stop_current": {
+    "message": "إيقاف التحكم في علامة التبويب الحالية",
+    "description": "Popup button that detaches Hope Agent control from the active tab."
+  },
+  "btn_stop_all": {
+    "message": "إيقاف التحكم في كل علامات التبويب",
+    "description": "Popup button that detaches Hope Agent control from every tab it currently controls."
+  },
+  "status_native_connected": {
+    "message": "المضيف الأصلي متصل",
+    "description": "Status fragment meaning the local desktop app is reachable. Used inside status_summary."
+  },
+  "status_native_offline": {
+    "message": "المضيف الأصلي غير متصل — تأكد من تشغيل تطبيق سطح المكتب Hope Agent.",
+    "description": "Popup status line shown when the desktop app cannot be reached. Includes an actionable hint."
+  },
+  "status_summary": {
+    "message": "$state$. علامات التبويب المرتبطة: $attached$، علامات التبويب ذات التراكب: $overlay$.",
+    "description": "Popup status line when connected: connection state followed by how many tabs are controlled. Keep the placeholders; punctuation may be localized.",
+    "placeholders": {
+      "state": {
+        "content": "$1",
+        "example": "Native host connected"
+      },
+      "attached": {
+        "content": "$2",
+        "example": "3"
+      },
+      "overlay": {
+        "content": "$3",
+        "example": "1"
+      }
+    }
+  },
+  "result_stopped_tab": {
+    "message": "تم إيقاف التحكم في علامة التبويب $tabId$.",
+    "description": "Confirmation shown after detaching control from one tab.",
+    "placeholders": {
+      "tabId": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "result_stopped_count": {
+    "message": "عدد علامات التبويب التي أُوقِف التحكم فيها: $count$.",
+    "description": "Confirmation shown after detaching control from all tabs. $count$ is the number stopped; phrase it count-agnostically (do not force a singular/plural form).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
+    }
+  },
+  "error_command_failed": {
+    "message": "فشل تنفيذ أمر الإضافة",
+    "description": "Generic fallback error when an extension command returns no specific message."
+  },
+  "error_no_active_tab": {
+    "message": "لا توجد علامة تبويب نشطة في نافذة Chrome الحالية",
+    "description": "Error shown when 'Stop current tab' is pressed but no tab is active."
+  },
+  "error_status_unreadable": {
+    "message": "تعذّرت قراءة حالة الإضافة",
+    "description": "Status line shown when the popup cannot read the extension's state at all."
+  }
+}

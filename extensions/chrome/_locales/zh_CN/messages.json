@@ -1,0 +1,80 @@
+{
+  "app_name": {
+    "message": "Hope Agent 浏览器控制",
+    "description": "Extension name shown in the toolbar, the extensions page, and the popup heading. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "app_description": {
+    "message": "用 Hope Agent 控制 Chrome",
+    "description": "Extension description shown on the extensions page and the Chrome Web Store tile. Keep it under 132 characters. 'Hope Agent' stays untranslated."
+  },
+  "status_checking": {
+    "message": "正在检查连接…",
+    "description": "Initial popup status line shown while the connection to the desktop app is being read."
+  },
+  "btn_stop_current": {
+    "message": "停止当前标签页",
+    "description": "Popup button that detaches Hope Agent control from the active tab."
+  },
+  "btn_stop_all": {
+    "message": "停止所有受控标签页",
+    "description": "Popup button that detaches Hope Agent control from every tab it currently controls."
+  },
+  "status_native_connected": {
+    "message": "本地宿主已连接",
+    "description": "Status fragment meaning the local desktop app is reachable. Used inside status_summary."
+  },
+  "status_native_offline": {
+    "message": "本地宿主离线——请确认 Hope Agent 桌面应用正在运行。",
+    "description": "Popup status line shown when the desktop app cannot be reached. Includes an actionable hint."
+  },
+  "status_summary": {
+    "message": "$state$。已接管标签页：$attached$，叠加层标签页：$overlay$。",
+    "description": "Popup status line when connected: connection state followed by how many tabs are controlled. Keep the placeholders; punctuation may be localized.",
+    "placeholders": {
+      "state": {
+        "content": "$1",
+        "example": "Native host connected"
+      },
+      "attached": {
+        "content": "$2",
+        "example": "3"
+      },
+      "overlay": {
+        "content": "$3",
+        "example": "1"
+      }
+    }
+  },
+  "result_stopped_tab": {
+    "message": "已停止对标签页 $tabId$ 的控制。",
+    "description": "Confirmation shown after detaching control from one tab.",
+    "placeholders": {
+      "tabId": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "result_stopped_count": {
+    "message": "已停止受控标签页数量：$count$。",
+    "description": "Confirmation shown after detaching control from all tabs. $count$ is the number stopped; phrase it count-agnostically (do not force a singular/plural form).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
+    }
+  },
+  "error_command_failed": {
+    "message": "扩展命令执行失败",
+    "description": "Generic fallback error when an extension command returns no specific message."
+  },
+  "error_no_active_tab": {
+    "message": "当前 Chrome 窗口没有活动标签页",
+    "description": "Error shown when 'Stop current tab' is pressed but no tab is active."
+  },
+  "error_status_unreadable": {
+    "message": "无法读取扩展状态",
+    "description": "Status line shown when the popup cannot read the extension's state at all."
+  }
+}

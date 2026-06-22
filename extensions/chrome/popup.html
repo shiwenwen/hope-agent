@@ -3,16 +3,43 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hope Agent Browser Control</title>
+    <title data-i18n="app_name">Hope Agent Browser Control</title>
     <style>
       :root {
         color-scheme: light dark;
+        /* Popup palette mirrors the desktop app's neutral tokens (src/index.css)
+           so the popup reads as part of the app, not a generic browser dialog. */
+        --bg: hsl(0 0% 100%);
+        --fg: hsl(0 0% 9%);
+        --muted-fg: hsl(0 0% 45%);
+        --border: hsl(0 0% 89%);
+        --primary: hsl(0 0% 9%);
+        --primary-fg: hsl(0 0% 100%);
+        --accent: hsl(0 0% 93%);
+        --ring: hsl(0 0% 45%);
+        --destructive: hsl(0 84% 60%);
+        --radius: 0.5rem;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: hsl(220 13% 12%);
+          --fg: hsl(210 20% 90%);
+          --muted-fg: hsl(215 15% 50%);
+          --border: hsl(220 13% 22%);
+          --primary: hsl(0 0% 100%);
+          --primary-fg: hsl(220 13% 10%);
+          --accent: hsl(220 13% 20%);
+          --ring: hsl(215 15% 50%);
+          --destructive: hsl(0 72% 51%);
+        }
+      }
       body {
+        background: var(--bg);
+        color: var(--fg);
         margin: 0;
         min-width: 280px;
-        padding: 12px;
+        padding: 14px;
       }
       .header {
         align-items: center;
@@ -20,23 +47,35 @@
         gap: 8px;
         margin-bottom: 10px;
       }
-      .dot {
-        background: #9ca3af;
-        border-radius: 999px;
-        height: 8px;
-        width: 8px;
-      }
-      .dot.connected {
-        background: #22c55e;
+      .logo {
+        flex: none;
+        height: 20px;
+        width: 20px;
       }
       h1 {
+        flex: 1 1 auto;
         font-size: 13px;
+        font-weight: 600;
         line-height: 1.2;
         margin: 0;
       }
+      .dot {
+        background: transparent;
+        border: 1.5px solid var(--muted-fg);
+        border-radius: 999px;
+        flex: none;
+        height: 9px;
+        width: 9px;
+      }
+      .dot.connected {
+        background: var(--fg);
+        border-color: var(--fg);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg) 14%, transparent);
+      }
       .status {
-        color: #6b7280;
+        color: var(--muted-fg);
         font-size: 12px;
+        line-height: 1.4;
         margin: 0 0 12px;
       }
       .actions {
@@ -46,57 +85,75 @@
       button {
         align-items: center;
         appearance: none;
-        border: 1px solid #d1d5db;
-        border-radius: 7px;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--fg);
         cursor: pointer;
         display: flex;
         font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         justify-content: center;
-        min-height: 32px;
-        padding: 0 10px;
+        min-height: 34px;
+        padding: 0 12px;
+        transition:
+          background-color 0.14s ease,
+          opacity 0.14s ease,
+          border-color 0.14s ease;
       }
       button.primary {
-        background: #111827;
-        border-color: #111827;
-        color: #f9fafb;
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--primary-fg);
       }
-      button.secondary {
-        background: transparent;
-        color: inherit;
+      button.primary:hover {
+        opacity: 0.9;
+      }
+      button.secondary:hover {
+        background: var(--accent);
+      }
+      button:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--ring) 55%, transparent);
+        outline-offset: 1px;
       }
       button:disabled {
         cursor: default;
         opacity: 0.55;
       }
       .message {
-        color: #6b7280;
+        color: var(--muted-fg);
         font-size: 11px;
-        line-height: 1.35;
+        line-height: 1.4;
         margin: 10px 0 0;
         min-height: 15px;
       }
-      @media (prefers-color-scheme: dark) {
-        .status,
-        .message {
-          color: #9ca3af;
-        }
-        button.secondary {
-          border-color: #374151;
-        }
+      .message.error {
+        color: var(--destructive);
       }
     </style>
   </head>
   <body>
     <div class="header">
-      <span id="dot" class="dot"></span>
-      <h1>Hope Agent Browser Control</h1>
+      <img
+        class="logo"
+        data-i18n-attr="alt:app_name"
+        src="icons/icon32.png"
+        alt="Hope Agent Browser Control"
+        width="20"
+        height="20"
+      />
+      <h1 data-i18n="app_name">Hope Agent Browser Control</h1>
+      <span id="dot" class="dot" aria-hidden="true"></span>
     </div>
-    <p id="status" class="status">Checking connection...</p>
+    <p id="status" class="status" data-i18n="status_checking" aria-live="polite">Checking connection…</p>
     <div class="actions">
-      <button id="stop-current" class="primary" type="button">Stop current tab</button>
-      <button id="stop-all" class="secondary" type="button">Stop all controlled tabs</button>
+      <button id="stop-current" class="primary" type="button" data-i18n="btn_stop_current">
+        Stop current tab
+      </button>
+      <button id="stop-all" class="secondary" type="button" data-i18n="btn_stop_all">
+        Stop all controlled tabs
+      </button>
     </div>
-    <p id="message" class="message"></p>
+    <p id="message" class="message" aria-live="polite"></p>
     <script src="popup.js"></script>
   </body>
 </html>

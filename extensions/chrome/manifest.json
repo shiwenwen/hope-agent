@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Hope Agent Browser Control",
+  "name": "__MSG_app_name__",
   "version": "0.1.0",
-  "description": "Control Chrome with Hope Agent.",
+  "description": "__MSG_app_description__",
+  "default_locale": "en",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA37N8lhc6y9uoV/64yn6MwtA3BSNdvnXtjybtfgVzdcklJ6E7GQf6dA1DrHHc1EU7k2dFRtLmFRWVSqIR+E+oAHWxWFLop6Q4uvgySaL5pzpgk2tSYVhrCfOKo6A2xf+DhAB9JwEaS2B30EXEX8rMuNhyBZb2aWmeF4dK4vpjzpyCtcdb5Y3Gi3RBuxiG96UFRnO8ms6GoKH/uCSYipO2c3YWm/DZbj1WxJFolCoMlXyL0/XkroM1UVTLtmuKCGV6jbz98ouHL+DeZ9l909HOmxWckcE3ffR0wSF9NPOGQk/aiSA7LXQcrw4brG4iVgrkD4NRMFwAuCjn/dsUG2cHvQIDAQAB",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -22,8 +23,20 @@
     "service_worker": "service_worker.js",
     "type": "module"
   },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_title": "Hope Agent Browser Control",
-    "default_popup": "popup.html"
+    "default_title": "__MSG_app_name__",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }

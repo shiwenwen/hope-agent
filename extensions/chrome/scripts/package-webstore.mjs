@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { LOCALE_MESSAGE_FILES } from "./locales.mjs"
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const extensionDir = path.resolve(scriptDir, "..")
@@ -18,7 +19,16 @@ const packageFiles = [
       "utf8",
     ),
   },
-  ...["service_worker.js", "popup.html", "popup.js"].map((name) => ({
+  ...[
+    "service_worker.js",
+    "popup.html",
+    "popup.js",
+    "icons/icon16.png",
+    "icons/icon32.png",
+    "icons/icon48.png",
+    "icons/icon128.png",
+    ...LOCALE_MESSAGE_FILES,
+  ].map((name) => ({
     name,
     data: readFileSync(path.join(extensionDir, name)),
   })),

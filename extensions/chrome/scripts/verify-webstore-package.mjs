@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { DEFAULT_LOCALE, LOCALE_MESSAGE_FILES } from "./locales.mjs"
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const extensionDir = path.resolve(scriptDir, "..")
@@ -16,7 +17,17 @@ const zipPath = path.join(
   `hope-agent-chrome-extension-${manifest.version}.zip`,
 )
 
-const REQUIRED_PACKAGE_FILES = ["manifest.json", "popup.html", "popup.js", "service_worker.js"]
+const REQUIRED_PACKAGE_FILES = [
+  "manifest.json",
+  "popup.html",
+  "popup.js",
+  "service_worker.js",
+  "icons/icon16.png",
+  "icons/icon32.png",
+  "icons/icon48.png",
+  "icons/icon128.png",
+  ...LOCALE_MESSAGE_FILES,
+]
 const REQUIRED_PERMISSIONS = [
   "activeTab",
   "debugger",
@@ -27,6 +38,12 @@ const REQUIRED_PERMISSIONS = [
   "webNavigation",
 ]
 const REQUIRED_HOST_PERMISSIONS = ["http://*/*", "https://*/*"]
+const REQUIRED_ICONS = {
+  16: "icons/icon16.png",
+  32: "icons/icon32.png",
+  48: "icons/icon48.png",
+  128: "icons/icon128.png",
+}
 
 const errors = []
 
@@ -57,9 +74,14 @@ function checkManifest() {
   if (manifest.minimum_chrome_version !== "116") {
     errors.push("minimum_chrome_version must stay pinned to 116 unless the runtime support matrix is updated")
   }
+  if (manifest.default_locale !== DEFAULT_LOCALE) {
+    errors.push(`manifest.default_locale must be "${DEFAULT_LOCALE}" (required once name/description use __MSG__ tokens)`)
+  }
   if (manifest.background?.service_worker !== "service_worker.js") {
     errors.push("manifest background.service_worker must be service_worker.js")
   }
+  expectSameIcons("manifest.icons", manifest.icons)
+  expectSameIcons("manifest.action.default_icon", manifest.action?.default_icon)
   expectSameSet("manifest.permissions", manifest.permissions || [], REQUIRED_PERMISSIONS)
   expectSameSet(
     "manifest.host_permissions",
@@ -121,6 +143,56 @@ function checkZipPackage() {
     packagedManifest.host_permissions || [],
     REQUIRED_HOST_PERMISSIONS,
   )
+  checkLocales(entries)
+}
+
+function checkLocales(entries) {
+  const defaultFile = `_locales/${DEFAULT_LOCALE}/messages.json`
+  const base = parseJsonEntry(entries, defaultFile)
+  if (!base || typeof base !== "object") {
+    errors.push(`default locale messages missing or invalid: ${defaultFile}`)
+    return
+  }
+  const baseKeys = Object.keys(base).sort()
+  if (baseKeys.length === 0) {
+    errors.push(`${defaultFile} defines no messages`)
+    return
+  }
+  // Placeholder tokens (e.g. $state$) the translated message MUST preserve so
+  // chrome.i18n.getMessage substitution keeps working in every language.
+  const basePlaceholders = Object.fromEntries(
+    baseKeys.map((key) => [key, Object.keys(base[key]?.placeholders || {})]),
+  )
+
+  for (const file of LOCALE_MESSAGE_FILES) {
+    const msgs = parseJsonEntry(entries, file)
+    if (!msgs || typeof msgs !== "object") {
+      errors.push(`locale messages missing or invalid: ${file}`)
+      continue
+    }
+    const keys = Object.keys(msgs).sort()
+    if (JSON.stringify(keys) !== JSON.stringify(baseKeys)) {
+      const missing = baseKeys.filter((key) => !keys.includes(key))
+      const extra = keys.filter((key) => !baseKeys.includes(key))
+      errors.push(
+        `${file} message keys differ from ${DEFAULT_LOCALE}` +
+          (missing.length ? `; missing [${missing.join(", ")}]` : "") +
+          (extra.length ? `; extra [${extra.join(", ")}]` : ""),
+      )
+    }
+    for (const key of keys) {
+      const message = msgs[key]?.message
+      if (typeof message !== "string" || message.trim() === "") {
+        errors.push(`${file} key ${key} has an empty or invalid message`)
+        continue
+      }
+      for (const placeholder of basePlaceholders[key] || []) {
+        if (!message.toLowerCase().includes(`$${placeholder.toLowerCase()}$`)) {
+          errors.push(`${file} key ${key} dropped placeholder $${placeholder}$`)
+        }
+      }
+    }
+  }
 }
 
 function readStoredZipEntries(buffer) {
@@ -169,6 +241,12 @@ function parseJsonEntry(entries, name) {
   } catch (error) {
     errors.push(`${name} in webstore zip is invalid JSON: ${error.message}`)
     return null
+  }
+}
+
+function expectSameIcons(label, actual) {
+  if (JSON.stringify(actual || null) !== JSON.stringify(REQUIRED_ICONS)) {
+    errors.push(`${label} must declare ${JSON.stringify(REQUIRED_ICONS)}`)
   }
 }
 
