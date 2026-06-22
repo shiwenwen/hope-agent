@@ -105,7 +105,7 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 - `app_update:progress` —— 下载字节进度（每 5% 或每 1s 节流，含 `phase` / `percent` / `written` / `total`）+ 阶段切换（`lifecycle` label）。
 - `app_update:completed` —— 终态时一次性发送，含 `status` + `outcome` 或 `error`。
 
-**为什么不走 `async_jobs.db`**：install 涉及 binary swap，pipeline 一旦开始就不能被外部 cancel 中断（中途断电留下 staging 半成品，重启后用户重跑即可——不需要持久化进度）。in-memory tracker 简单稳定。
+**为什么不走 `background_jobs.db`**：install 涉及 binary swap，pipeline 一旦开始就不能被外部 cancel 中断（中途断电留下 staging 半成品，重启后用户重跑即可——不需要持久化进度）。in-memory tracker 简单稳定。
 
 ## 跨平台 binary swap
 

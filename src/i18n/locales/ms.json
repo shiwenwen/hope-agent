@@ -4323,6 +4323,8 @@
     "toolSessionsHistoryName": "Sejarah Sesi",
     "toolSessionsListDesc": "Senaraikan sesi lain (tajuk, agen, model, kiraan mesej)",
     "toolSessionsListName": "Senarai Sesi",
+    "toolSessionsSearchDesc": "Cari mesej chat tersimpan dan pulangkan tetingkap konteks yang sepadan",
+    "toolSessionsSearchName": "Cari Sesi",
     "toolSessionsSendDesc": "Hantar mesej pengguna ke sesi lain (pilihan tunggu balasan)",
     "toolSessionsSendName": "Hantar ke Sesi",
     "toolSubagentDesc": "Wakilkan tugasan kepada sub-agent untuk pelaksanaan",

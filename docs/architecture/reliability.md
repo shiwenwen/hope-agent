@@ -557,7 +557,7 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 
 | kind | 含义 | id 语义 |
 |------|------|---------|
-| `AsyncJob` | async-capable 工具 detach 出去的 job | `async_jobs.db` 里的 `job_id` |
+| `AsyncJob` | async-capable 工具 detach 出去的 job | `background_jobs.db` 里的 `job_id` |
 | `Subagent` | sub-agent / team member 子会话运行 | subagent runs 表的 `run_id` |
 | `Process` | `exec` 创建的后台 PTY 会话 | `process_sessions` 的 `session_id` |
 | `Cron` | 正在执行中的某次 cron tick | `cron_jobs.id` |

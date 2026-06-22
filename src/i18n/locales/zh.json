@@ -4323,6 +4323,8 @@
     "toolSessionsHistoryName": "会话历史",
     "toolSessionsListDesc": "列出当前会话之外的会话（标题 / Agent / 模型 / 消息数）",
     "toolSessionsListName": "会话列表",
+    "toolSessionsSearchDesc": "检索持久化聊天消息，并返回命中附近的上下文窗口",
+    "toolSessionsSearchName": "检索会话",
     "toolSessionsSendDesc": "向其他会话发送 user 消息（可阻塞等待回复）",
     "toolSessionsSendName": "跨会话发送",
     "toolSubagentDesc": "调用子 Agent 执行任务",

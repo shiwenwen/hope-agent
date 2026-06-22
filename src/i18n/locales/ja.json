@@ -4323,6 +4323,8 @@
     "toolSessionsHistoryName": "セッション履歴",
     "toolSessionsListDesc": "現セッション以外のセッション（タイトル / Agent / モデル / メッセージ数）を一覧表示",
     "toolSessionsListName": "セッション一覧",
+    "toolSessionsSearchDesc": "保存済みチャットメッセージを検索し、該当箇所の文脈ウィンドウを返す",
+    "toolSessionsSearchName": "セッション検索",
     "toolSessionsSendDesc": "他のセッションに user メッセージを送信（返信を待機可能）",
     "toolSessionsSendName": "セッション間送信",
     "toolSubagentDesc": "タスクをサブ Agent に委任して実行",

@@ -4323,6 +4323,8 @@
     "toolSessionsHistoryName": "Sessions History",
     "toolSessionsListDesc": "List other sessions (title, agent, model, message count)",
     "toolSessionsListName": "Sessions List",
+    "toolSessionsSearchDesc": "Search persisted chat messages and return matched context windows",
+    "toolSessionsSearchName": "Search Sessions",
     "toolSessionsSendDesc": "Send a user message to another session (optionally wait for reply)",
     "toolSessionsSendName": "Send to Session",
     "toolSubagentDesc": "Invoke a sub-agent to execute a task",

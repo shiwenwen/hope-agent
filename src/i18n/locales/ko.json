@@ -4323,6 +4323,8 @@
     "toolSessionsHistoryName": "세션 기록",
     "toolSessionsListDesc": "현재 세션 외 다른 세션 나열 (제목 / Agent / 모델 / 메시지 수)",
     "toolSessionsListName": "세션 목록",
+    "toolSessionsSearchDesc": "저장된 채팅 메시지를 검색하고 일치한 주변 컨텍스트를 반환",
+    "toolSessionsSearchName": "세션 검색",
     "toolSessionsSendDesc": "다른 세션에 user 메시지 전송 (응답 대기 옵션)",
     "toolSessionsSendName": "세션 간 전송",
     "toolSubagentDesc": "실행을 위해 서브 Agent 에 작업 위임",

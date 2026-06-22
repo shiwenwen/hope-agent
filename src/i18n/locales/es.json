@@ -4323,6 +4323,8 @@
     "toolSessionsHistoryName": "Historial de Sesión",
     "toolSessionsListDesc": "Listar otras sesiones (título, agente, modelo, conteo de mensajes)",
     "toolSessionsListName": "Lista de Sesiones",
+    "toolSessionsSearchDesc": "Buscar mensajes de chat persistidos y devolver ventanas de contexto coincidentes",
+    "toolSessionsSearchName": "Buscar Sesiones",
     "toolSessionsSendDesc": "Enviar un mensaje de usuario a otra sesión (esperar respuesta opcional)",
     "toolSessionsSendName": "Enviar a Sesión",
     "toolSubagentDesc": "Delegar tareas a un sub-Agent para ejecución",
