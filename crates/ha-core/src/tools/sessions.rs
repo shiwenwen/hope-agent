@@ -307,6 +307,12 @@ pub(crate) async fn tool_sessions_search(
                     )
                 })?;
 
+            if ctx.incognito && ctx.session_id.as_deref() != Some(session_id.as_str()) {
+                return Ok(
+                    "Refusing to search another session from an incognito session. Search the current session explicitly instead.".to_string(),
+                );
+            }
+
             let target = db
                 .get_session(&session_id)?
                 .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session_id))?;
