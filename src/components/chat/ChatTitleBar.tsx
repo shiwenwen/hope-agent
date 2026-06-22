@@ -37,7 +37,7 @@ import {
   type ContextUsageInfo,
 } from "./chatUtils"
 import {
-  compactContextNow,
+  type CompactResult,
   compactResultMessage,
   computeCacheStats,
   resolveCurrentModel,
@@ -75,7 +75,7 @@ interface ChatTitleBarProps {
   reasoningEffort: string
   loading: boolean
   compacting: boolean
-  setCompacting: (v: boolean) => void
+  onCompactContext?: () => Promise<CompactResult | null>
   onRenameSession?: (sessionId: string, title: string) => void
   onViewSystemPrompt?: () => void
   systemPromptLoading?: boolean
@@ -158,7 +158,7 @@ export default function ChatTitleBar({
   reasoningEffort,
   loading,
   compacting,
-  setCompacting,
+  onCompactContext,
   onRenameSession,
   onViewSystemPrompt,
   systemPromptLoading,
@@ -536,9 +536,10 @@ export default function ChatTitleBar({
                 disabled={compacting || loading}
                 onClick={async () => {
                   if (!currentSessionId) return
-                  setCompacting(true)
                   try {
-                    const msg = compactResultMessage(t, await compactContextNow(currentSessionId))
+                    const result = await onCompactContext?.()
+                    if (!result) return
+                    const msg = compactResultMessage(t, result)
                     if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
                     setCompactToast({ success: true, message: msg })
                     compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
@@ -547,8 +548,6 @@ export default function ChatTitleBar({
                     if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
                     setCompactToast({ success: false, message: t("chat.compactFailed") })
                     compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
-                  } finally {
-                    setCompacting(false)
                   }
                 }}
               >
@@ -657,9 +656,9 @@ export default function ChatTitleBar({
                         disabled={compacting || loading}
                         onClick={async () => {
                           if (!currentSessionId) return
-                          setCompacting(true)
                           try {
-                            const result = await compactContextNow(currentSessionId)
+                            const result = await onCompactContext?.()
+                            if (!result) return
                             if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
                             setCompactToast({ success: true, message: compactResultMessage(t, result) })
                             compactToastTimer.current = setTimeout(
@@ -677,8 +676,6 @@ export default function ChatTitleBar({
                               () => setCompactToast(null),
                               3000,
                             )
-                          } finally {
-                            setCompacting(false)
                           }
                         }}
                       >

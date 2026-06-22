@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Loader2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { RadioPills } from "@/components/ui/radio-pills"
 import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
@@ -99,12 +99,11 @@ export default function ApprovalTimeoutSection() {
             {t("settings.approvalPanel.timeoutSeconds")}
           </label>
           <div className="flex gap-2 items-center mt-1.5">
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               max={3600}
               value={seconds}
-              onChange={(e) => setSeconds(Math.max(0, Number(e.target.value) || 0))}
+              onValueCommit={setSeconds}
               disabled={!enabled}
               className="text-xs h-8 w-32"
             />

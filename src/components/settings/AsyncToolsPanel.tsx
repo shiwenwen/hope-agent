@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
@@ -116,18 +116,11 @@ export default function AsyncToolsPanel() {
     | "orphanGraceSecs"
     | "jobStatusMaxWaitSecs"
 
-  const updateNumber = (key: NumericKey, min: number) => (raw: number) => {
+  const commitNumber = (key: NumericKey, min: number) => (raw: number) => {
     const clamped = Number.isFinite(raw) ? Math.max(min, Math.round(raw)) : min
-    setConfig((prev) => ({ ...prev, [key]: clamped }))
-  }
-
-  const commitNumber = (key: NumericKey, min: number) => () => {
-    setConfig((prev) => {
-      const clamped = Math.max(min, Math.round(prev[key]))
-      const next = { ...prev, [key]: clamped }
-      commitIfChanged(next)
-      return next
-    })
+    const next = { ...config, [key]: clamped }
+    setConfig(next)
+    commitIfChanged(next)
   }
 
   if (!loaded) return null
@@ -162,15 +155,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={10}
                 value={config.autoBackgroundSecs}
-                onChange={(e) =>
-                  updateNumber("autoBackgroundSecs", 0)(Number(e.target.value))
-                }
-                onBlur={commitNumber("autoBackgroundSecs", 0)}
+                onValueCommit={commitNumber("autoBackgroundSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -187,13 +176,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={60}
                 value={config.maxJobSecs}
-                onChange={(e) => updateNumber("maxJobSecs", 0)(Number(e.target.value))}
-                onBlur={commitNumber("maxJobSecs", 0)}
+                onValueCommit={commitNumber("maxJobSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -215,15 +202,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={1}
                 value={config.completionMergeWindowSecs}
-                onChange={(e) =>
-                  updateNumber("completionMergeWindowSecs", 0)(Number(e.target.value))
-                }
-                onBlur={commitNumber("completionMergeWindowSecs", 0)}
+                onValueCommit={commitNumber("completionMergeWindowSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -242,15 +225,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={1}
                 value={config.maxConcurrentJobs}
-                onChange={(e) =>
-                  updateNumber("maxConcurrentJobs", 0)(Number(e.target.value))
-                }
-                onBlur={commitNumber("maxConcurrentJobs", 0)}
+                onValueCommit={commitNumber("maxConcurrentJobs", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
             </div>
@@ -269,15 +248,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={1}
                 value={config.maxConcurrentJobsPerSession}
-                onChange={(e) =>
-                  updateNumber("maxConcurrentJobsPerSession", 0)(Number(e.target.value))
-                }
-                onBlur={commitNumber("maxConcurrentJobsPerSession", 0)}
+                onValueCommit={commitNumber("maxConcurrentJobsPerSession", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
             </div>
@@ -296,14 +271,12 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={4096}
                 step={1}
                 value={config.maxQueuedJobs}
-                onChange={(e) => updateNumber("maxQueuedJobs", 1)(Number(e.target.value))}
-                onBlur={commitNumber("maxQueuedJobs", 1)}
+                onValueCommit={commitNumber("maxQueuedJobs", 1)}
                 className="w-24 h-8 text-sm text-right"
               />
             </div>
@@ -342,16 +315,12 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={10}
                 step={1}
                 value={config.maxRetryAttempts}
-                onChange={(e) =>
-                  updateNumber("maxRetryAttempts", 1)(Number(e.target.value))
-                }
-                onBlur={commitNumber("maxRetryAttempts", 1)}
+                onValueCommit={commitNumber("maxRetryAttempts", 1)}
                 className="w-24 h-8 text-sm text-right"
               />
             </div>
@@ -367,15 +336,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 step={60}
                 value={config.jobStatusMaxWaitSecs}
-                onChange={(e) =>
-                  updateNumber("jobStatusMaxWaitSecs", 1)(Number(e.target.value))
-                }
-                onBlur={commitNumber("jobStatusMaxWaitSecs", 1)}
+                onValueCommit={commitNumber("jobStatusMaxWaitSecs", 1)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -392,18 +357,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={1}
                 value={Math.round(config.retentionSecs / 86400)}
-                onChange={(e) => {
-                  const days = Number(e.target.value)
-                  updateNumber("retentionSecs", 0)(
-                    Number.isFinite(days) ? Math.max(0, Math.round(days)) * 86400 : 0,
-                  )
-                }}
-                onBlur={commitNumber("retentionSecs", 0)}
+                onValueCommit={(days) => commitNumber("retentionSecs", 0)(days * 86400)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -420,18 +378,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={1}
                 value={Math.round(config.orphanGraceSecs / 3600)}
-                onChange={(e) => {
-                  const hours = Number(e.target.value)
-                  updateNumber("orphanGraceSecs", 0)(
-                    Number.isFinite(hours) ? Math.max(0, Math.round(hours)) * 3600 : 0,
-                  )
-                }}
-                onBlur={commitNumber("orphanGraceSecs", 0)}
+                onValueCommit={(hours) => commitNumber("orphanGraceSecs", 0)(hours * 3600)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -448,15 +399,11 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={1024}
                 value={config.inlineResultBytes}
-                onChange={(e) =>
-                  updateNumber("inlineResultBytes", 0)(Number(e.target.value))
-                }
-                onBlur={commitNumber("inlineResultBytes", 0)}
+                onValueCommit={commitNumber("inlineResultBytes", 0)}
                 className="w-28 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.bytes")}</span>
@@ -476,14 +423,12 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={256}
                 max={1048576}
                 step={1024}
                 value={config.outputTailBytes}
-                onChange={(e) => updateNumber("outputTailBytes", 256)(Number(e.target.value))}
-                onBlur={commitNumber("outputTailBytes", 256)}
+                onValueCommit={commitNumber("outputTailBytes", 256)}
                 className="w-28 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.bytes")}</span>
@@ -503,14 +448,12 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={10}
                 max={604800}
                 step={60}
                 value={config.wakeupMaxDelaySecs}
-                onChange={(e) => updateNumber("wakeupMaxDelaySecs", 10)(Number(e.target.value))}
-                onBlur={commitNumber("wakeupMaxDelaySecs", 10)}
+                onValueCommit={commitNumber("wakeupMaxDelaySecs", 10)}
                 className="w-28 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -532,16 +475,12 @@ export default function AsyncToolsPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={100}
                 step={1}
                 value={config.wakeupMaxPendingPerSession}
-                onChange={(e) =>
-                  updateNumber("wakeupMaxPendingPerSession", 1)(Number(e.target.value))
-                }
-                onBlur={commitNumber("wakeupMaxPendingPerSession", 1)}
+                onValueCommit={commitNumber("wakeupMaxPendingPerSession", 1)}
                 className="w-24 h-8 text-sm text-right"
               />
             </div>

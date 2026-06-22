@@ -5,6 +5,7 @@ import { CSS } from "@dnd-kit/utilities"
 import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
 import {
@@ -197,13 +198,13 @@ export function ModelEditor({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">Context Window</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             value={model.contextWindow}
-            onChange={(e) =>
+            min={0}
+            onValueCommit={(value) =>
               onChange({
                 ...model,
-                contextWindow: parseInt(e.target.value) || 0,
+                contextWindow: value,
               })
             }
             className="bg-background text-xs h-8"
@@ -211,10 +212,10 @@ export function ModelEditor({
         </div>
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">Max Tokens</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             value={model.maxTokens}
-            onChange={(e) => onChange({ ...model, maxTokens: parseInt(e.target.value) || 0 })}
+            min={0}
+            onValueCommit={(value) => onChange({ ...model, maxTokens: value })}
             className="bg-background text-xs h-8"
           />
         </div>
@@ -261,14 +262,15 @@ export function ModelEditor({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">{t("model.inputCost")}</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             step="0.01"
             value={model.costInput}
-            onChange={(e) =>
+            min={0}
+            integer={false}
+            onValueCommit={(value) =>
               onChange({
                 ...model,
-                costInput: parseFloat(e.target.value) || 0,
+                costInput: value,
               })
             }
             className="bg-background text-xs h-8"
@@ -276,14 +278,15 @@ export function ModelEditor({
         </div>
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">{t("model.outputCost")}</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             step="0.01"
             value={model.costOutput}
-            onChange={(e) =>
+            min={0}
+            integer={false}
+            onValueCommit={(value) =>
               onChange({
                 ...model,
-                costOutput: parseFloat(e.target.value) || 0,
+                costOutput: value,
               })
             }
             className="bg-background text-xs h-8"

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -62,12 +62,9 @@ export default function LogConfigSection({ config, onSaveConfig }: LogConfigSect
         </div>
         <div>
           <label className="text-xs text-muted-foreground">{t("settings.logsMaxAge")}</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             value={config.maxAgeDays}
-            onChange={(e) =>
-              onSaveConfig({ ...config, maxAgeDays: parseInt(e.target.value) || 30 })
-            }
+            onValueCommit={(value) => onSaveConfig({ ...config, maxAgeDays: value })}
             className="mt-1 h-8 text-sm"
             min={1}
             max={365}
@@ -75,12 +72,9 @@ export default function LogConfigSection({ config, onSaveConfig }: LogConfigSect
         </div>
         <div>
           <label className="text-xs text-muted-foreground">{t("settings.logsMaxSize")}</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             value={config.maxSizeMb}
-            onChange={(e) =>
-              onSaveConfig({ ...config, maxSizeMb: parseInt(e.target.value) || 100 })
-            }
+            onValueCommit={(value) => onSaveConfig({ ...config, maxSizeMb: value })}
             className="mt-1 h-8 text-sm"
             min={10}
             max={1000}
@@ -88,12 +82,9 @@ export default function LogConfigSection({ config, onSaveConfig }: LogConfigSect
         </div>
         <div>
           <label className="text-xs text-muted-foreground">{t("settings.logsFileMaxSize")}</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             value={config.fileMaxSizeMb}
-            onChange={(e) =>
-              onSaveConfig({ ...config, fileMaxSizeMb: parseInt(e.target.value) || 10 })
-            }
+            onValueCommit={(value) => onSaveConfig({ ...config, fileMaxSizeMb: value })}
             className="mt-1 h-8 text-sm"
             min={1}
             max={100}

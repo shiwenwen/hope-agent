@@ -37,7 +37,7 @@ fn default_cache_ttl_secs() -> u64 {
     300
 }
 fn default_summarization_timeout() -> u64 {
-    60
+    300
 }
 fn default_summary_max_tokens() -> u32 {
     4096
@@ -139,7 +139,7 @@ pub struct CompactConfig {
     /// Custom summarization instructions (appended to default prompt)
     #[serde(default)]
     pub custom_instructions: Option<String>,
-    /// Summarization timeout in seconds (default: 60)
+    /// Summarization timeout in seconds (default: 300)
     #[serde(default = "default_summarization_timeout")]
     pub summarization_timeout_secs: u64,
     /// Max output tokens for summarization call (default: 4096)

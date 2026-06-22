@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Label } from "@/components/ui/label"
 import type {
   MemoryBudgetConfig,
@@ -23,11 +23,6 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
   const setSection = (patch: Partial<SqliteSectionBudgets>) =>
     onChange({ ...value, sqliteSections: { ...value.sqliteSections, ...patch } })
 
-  const parseNum = (s: string, fallback: number) => {
-    const n = parseInt(s, 10)
-    return Number.isFinite(n) && n >= 0 ? n : fallback
-  }
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -35,12 +30,11 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
           <Label className="text-xs">
             {t("settings.memoryBudget.totalChars")}
           </Label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={0}
             disabled={disabled}
             value={value.totalChars}
-            onChange={(e) => setField({ totalChars: parseNum(e.target.value, value.totalChars) })}
+            onValueCommit={(next) => setField({ totalChars: next })}
           />
           <p className="text-[11px] text-muted-foreground">
             {t("settings.memoryBudget.totalCharsDesc")}
@@ -50,14 +44,11 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
           <Label className="text-xs">
             {t("settings.memoryBudget.coreMemoryFileChars")}
           </Label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={0}
             disabled={disabled}
             value={value.coreMemoryFileChars}
-            onChange={(e) =>
-              setField({ coreMemoryFileChars: parseNum(e.target.value, value.coreMemoryFileChars) })
-            }
+            onValueCommit={(next) => setField({ coreMemoryFileChars: next })}
           />
           <p className="text-[11px] text-muted-foreground">
             {t("settings.memoryBudget.coreMemoryFileCharsDesc")}
@@ -67,14 +58,11 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
           <Label className="text-xs">
             {t("settings.memoryBudget.sqliteEntryMaxChars")}
           </Label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={0}
             disabled={disabled}
             value={value.sqliteEntryMaxChars}
-            onChange={(e) =>
-              setField({ sqliteEntryMaxChars: parseNum(e.target.value, value.sqliteEntryMaxChars) })
-            }
+            onValueCommit={(next) => setField({ sqliteEntryMaxChars: next })}
           />
           <p className="text-[11px] text-muted-foreground">
             {t("settings.memoryBudget.sqliteEntryMaxCharsDesc")}
@@ -91,78 +79,55 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
             <Label className="text-[11px]">
               {t("settings.memoryBudget.sections.userProfile")}
             </Label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               disabled={disabled}
               value={value.sqliteSections.userProfile}
-              onChange={(e) =>
-                setSection({
-                  userProfile: parseNum(e.target.value, value.sqliteSections.userProfile),
-                })
-              }
+              onValueCommit={(next) => setSection({ userProfile: next })}
             />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px]">
               {t("settings.memoryBudget.sections.aboutUser")}
             </Label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               disabled={disabled}
               value={value.sqliteSections.aboutUser}
-              onChange={(e) =>
-                setSection({ aboutUser: parseNum(e.target.value, value.sqliteSections.aboutUser) })
-              }
+              onValueCommit={(next) => setSection({ aboutUser: next })}
             />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px]">
               {t("settings.memoryBudget.sections.preferences")}
             </Label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               disabled={disabled}
               value={value.sqliteSections.preferences}
-              onChange={(e) =>
-                setSection({
-                  preferences: parseNum(e.target.value, value.sqliteSections.preferences),
-                })
-              }
+              onValueCommit={(next) => setSection({ preferences: next })}
             />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px]">
               {t("settings.memoryBudget.sections.projectContext")}
             </Label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               disabled={disabled}
               value={value.sqliteSections.projectContext}
-              onChange={(e) =>
-                setSection({
-                  projectContext: parseNum(e.target.value, value.sqliteSections.projectContext),
-                })
-              }
+              onValueCommit={(next) => setSection({ projectContext: next })}
             />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px]">
               {t("settings.memoryBudget.sections.references")}
             </Label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               disabled={disabled}
               value={value.sqliteSections.references}
-              onChange={(e) =>
-                setSection({
-                  references: parseNum(e.target.value, value.sqliteSections.references),
-                })
-              }
+              onValueCommit={(next) => setSection({ references: next })}
             />
           </div>
         </div>

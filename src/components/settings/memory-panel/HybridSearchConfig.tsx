@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
@@ -59,38 +59,32 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
             <p className="text-xs text-muted-foreground">{t("settings.memoryDedupAdvancedDesc")}</p>
             <div className="flex items-center gap-3">
               <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[100px]">{t("settings.memoryDedupHigh")}</label>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 step={0.001}
                 min={0.005}
                 max={0.1}
                 value={dedupConfig.thresholdHigh}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value)
-                  if (!isNaN(val)) {
-                    const updated = { ...dedupConfig, thresholdHigh: val }
-                    setDedupConfig(updated)
-                    getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
-                  }
+                integer={false}
+                onValueCommit={(value) => {
+                  const updated = { ...dedupConfig, thresholdHigh: value }
+                  setDedupConfig(updated)
+                  getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
                 }}
                 className="h-7 text-xs w-24"
               />
             </div>
             <div className="flex items-center gap-3">
               <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[100px]">{t("settings.memoryDedupMerge")}</label>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 step={0.001}
                 min={0.005}
                 max={0.1}
                 value={dedupConfig.thresholdMerge}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value)
-                  if (!isNaN(val)) {
-                    const updated = { ...dedupConfig, thresholdMerge: val }
-                    setDedupConfig(updated)
-                    getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
-                  }
+                integer={false}
+                onValueCommit={(value) => {
+                  const updated = { ...dedupConfig, thresholdMerge: value }
+                  setDedupConfig(updated)
+                  getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
                 }}
                 className="h-7 text-xs w-24"
               />
@@ -239,17 +233,13 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="text-xs text-muted-foreground">{t("settings.memoryMultimodalMaxSize")}:</label>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={1} max={50}
                       value={Math.round(multimodalConfig.maxFileBytes / (1024 * 1024))}
-                      onChange={(e) => {
-                        const mb = parseInt(e.target.value)
-                        if (!isNaN(mb) && mb > 0) {
-                          const updated = { ...multimodalConfig, maxFileBytes: mb * 1024 * 1024 }
-                          setMultimodalConfig(updated)
-                          getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
-                        }
+                      onValueCommit={(mb) => {
+                        const updated = { ...multimodalConfig, maxFileBytes: mb * 1024 * 1024 }
+                        setMultimodalConfig(updated)
+                        getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
                       }}
                       className="h-7 text-xs w-16"
                     />
@@ -282,23 +272,14 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[140px]">
                       {t("settings.memorySelectionThreshold")}
                     </label>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={1}
                       max={50}
                       value={selectionConfig.threshold}
-                      onChange={(e) => {
-                        const raw = parseInt(e.target.value)
-                        if (!Number.isFinite(raw)) return
-                        setSelectionConfig((prev) => ({ ...prev, threshold: raw }))
-                      }}
-                      onBlur={() => {
-                        setSelectionConfig((prev) => {
-                          const clamped = Math.max(1, Math.min(50, prev.threshold || 1))
-                          const updated = { ...prev, threshold: clamped }
-                          getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
-                          return updated
-                        })
+                      onValueCommit={(threshold) => {
+                        const updated = { ...selectionConfig, threshold }
+                        setSelectionConfig(updated)
+                        getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
                       }}
                       className="h-7 text-xs w-20"
                     />
@@ -310,23 +291,14 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[140px]">
                       {t("settings.memorySelectionMaxSelected")}
                     </label>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={1}
                       max={20}
                       value={selectionConfig.maxSelected}
-                      onChange={(e) => {
-                        const raw = parseInt(e.target.value)
-                        if (!Number.isFinite(raw)) return
-                        setSelectionConfig((prev) => ({ ...prev, maxSelected: raw }))
-                      }}
-                      onBlur={() => {
-                        setSelectionConfig((prev) => {
-                          const clamped = Math.max(1, Math.min(20, prev.maxSelected || 1))
-                          const updated = { ...prev, maxSelected: clamped }
-                          getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
-                          return updated
-                        })
+                      onValueCommit={(maxSelected) => {
+                        const updated = { ...selectionConfig, maxSelected }
+                        setSelectionConfig(updated)
+                        getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
                       }}
                       className="h-7 text-xs w-20"
                     />

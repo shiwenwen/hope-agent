@@ -18,6 +18,7 @@ import {
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
@@ -454,14 +455,11 @@ function PassiveRecallSection() {
               <span className="text-xs font-medium">
                 {t("settings.knowledgePassiveRecall.topN", "Max notes")}
               </span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={20}
-                value={String(draft.topN)}
-                onChange={(e) =>
-                  setDraft({ ...draft, topN: Number.parseInt(e.target.value, 10) || draft.topN })
-                }
+                value={draft.topN}
+                onValueCommit={(value) => setDraft({ ...draft, topN: value })}
                 className="h-8 text-xs"
               />
             </label>
@@ -469,17 +467,11 @@ function PassiveRecallSection() {
               <span className="text-xs font-medium">
                 {t("settings.knowledgePassiveRecall.maxChars", "Max chars")}
               </span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={100}
                 max={4000}
-                value={String(draft.maxChars)}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    maxChars: Number.parseInt(e.target.value, 10) || draft.maxChars,
-                  })
-                }
+                value={draft.maxChars}
+                onValueCommit={(value) => setDraft({ ...draft, maxChars: value })}
                 className="h-8 text-xs"
               />
             </label>
@@ -487,16 +479,10 @@ function PassiveRecallSection() {
               <span className="text-xs font-medium">
                 {t("settings.knowledgePassiveRecall.cacheTtlSecs", "Cache (s)")}
               </span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
-                value={String(draft.cacheTtlSecs)}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    cacheTtlSecs: Number.parseInt(e.target.value, 10) || draft.cacheTtlSecs,
-                  })
-                }
+                value={draft.cacheTtlSecs}
+                onValueCommit={(value) => setDraft({ ...draft, cacheTtlSecs: value })}
                 className="h-8 text-xs"
               />
             </label>

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -89,49 +89,45 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
           {/* Token threshold */}
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractTokenThreshold")}</label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={1000}
               max={50000}
               step={1000}
               value={effectiveTokenThreshold}
-              onChange={(e) => handleUpdateTokenThreshold(parseInt(e.target.value) || 8000)}
+              onValueCommit={handleUpdateTokenThreshold}
               className="h-7 text-xs w-24"
             />
           </div>
           {/* Time threshold (displayed as minutes) */}
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractTimeThreshold")}</label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={1}
               max={60}
               value={Math.round(effectiveTimeThresholdSecs / 60)}
-              onChange={(e) => handleUpdateTimeThresholdMins(parseInt(e.target.value) || 5)}
+              onValueCommit={handleUpdateTimeThresholdMins}
               className="h-7 text-xs w-24"
             />
           </div>
           {/* Message threshold */}
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractMessageThreshold")}</label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={2}
               max={50}
               value={effectiveMessageThreshold}
-              onChange={(e) => handleUpdateMessageThreshold(parseInt(e.target.value) || 10)}
+              onValueCommit={handleUpdateMessageThreshold}
               className="h-7 text-xs w-24"
             />
           </div>
           {/* Idle timeout (displayed as minutes, 0 = disabled) */}
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractIdleTimeout")}</label>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               max={120}
               value={Math.round(effectiveIdleTimeoutSecs / 60)}
-              onChange={(e) => handleUpdateIdleTimeoutMins(parseInt(e.target.value) || 0)}
+              onValueCommit={handleUpdateIdleTimeoutMins}
               className="h-7 text-xs w-24"
             />
           </div>

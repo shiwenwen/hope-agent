@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import {
@@ -270,40 +271,37 @@ export default function AcpControlPanel() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground">{t("settings.acpMaxConcurrent", "Max Concurrent")}</Label>
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   className="h-7 text-xs"
                   value={config.maxConcurrentSessions}
                   min={1}
                   max={20}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, maxConcurrentSessions: parseInt(e.target.value) || 5 }))
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, maxConcurrentSessions: value }))
                   }
                 />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">{t("settings.acpTimeout", "Timeout (s)")}</Label>
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   className="h-7 text-xs"
                   value={config.defaultTimeoutSecs}
                   min={60}
                   max={7200}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, defaultTimeoutSecs: parseInt(e.target.value) || 600 }))
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, defaultTimeoutSecs: value }))
                   }
                 />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">{t("settings.acpIdleTtl", "Idle TTL (s)")}</Label>
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   className="h-7 text-xs"
                   value={config.runtimeTtlSecs}
                   min={60}
                   max={86400}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, runtimeTtlSecs: parseInt(e.target.value) || 1800 }))
+                  onValueCommit={(value) =>
+                    setConfig((prev) => ({ ...prev, runtimeTtlSecs: value }))
                   }
                 />
               </div>

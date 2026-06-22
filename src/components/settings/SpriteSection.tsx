@@ -4,7 +4,7 @@ import { Cat, Check, ChevronDown, Loader2 } from "lucide-react"
 
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
@@ -240,14 +240,11 @@ export default function SpriteSection() {
                 label={t("settings.sprite.idleEdit", "Speak after editing pause (s)")}
                 desc={t("settings.sprite.idleEditDesc", "Seconds of editing inactivity before it may chime in.")}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={3}
                   max={60}
                   value={cfg.idleEditSecs}
-                  onChange={(e) =>
-                    patch({ idleEditSecs: Math.min(60, Math.max(3, Number(e.target.value) || 8)) })
-                  }
+                  onValueCommit={(value) => patch({ idleEditSecs: value })}
                   className="h-7 w-16 text-xs"
                 />
               </Row>
@@ -256,16 +253,11 @@ export default function SpriteSection() {
                 label={t("settings.sprite.minChange", "Minimum change (chars)")}
                 desc={t("settings.sprite.minChangeDesc", "Only react after you've written at least this much since last time.")}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={20}
                   max={2000}
                   value={cfg.minChangeChars}
-                  onChange={(e) =>
-                    patch({
-                      minChangeChars: Math.min(2000, Math.max(20, Number(e.target.value) || 80)),
-                    })
-                  }
+                  onValueCommit={(value) => patch({ minChangeChars: value })}
                   className="h-7 w-20 text-xs"
                 />
               </Row>
@@ -274,14 +266,11 @@ export default function SpriteSection() {
                 label={t("settings.sprite.cooldown", "Cooldown (s)")}
                 desc={t("settings.sprite.cooldownDesc", "Minimum seconds between suggestions.")}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={10}
                   max={3600}
                   value={cfg.cooldownSecs}
-                  onChange={(e) =>
-                    patch({ cooldownSecs: Math.min(3600, Math.max(10, Number(e.target.value) || 45)) })
-                  }
+                  onValueCommit={(value) => patch({ cooldownSecs: value })}
                   className="h-7 w-16 text-xs"
                 />
               </Row>
@@ -290,16 +279,11 @@ export default function SpriteSection() {
                 label={t("settings.sprite.maxPerHour", "Max per hour")}
                 desc={t("settings.sprite.maxPerHourDesc", "Hard cap on LLM calls per note each hour.")}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={1}
                   max={60}
                   value={cfg.maxPerSessionPerHour}
-                  onChange={(e) =>
-                    patch({
-                      maxPerSessionPerHour: Math.min(60, Math.max(1, Number(e.target.value) || 12)),
-                    })
-                  }
+                  onValueCommit={(value) => patch({ maxPerSessionPerHour: value })}
                   className="h-7 w-16 text-xs"
                 />
               </Row>
@@ -311,14 +295,11 @@ export default function SpriteSection() {
                   "How often it may chime in during a continuous writing streak (the \"periodic\" trigger).",
                 )}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={15}
                   max={600}
                   value={cfg.periodicSecs}
-                  onChange={(e) =>
-                    patch({ periodicSecs: Math.min(600, Math.max(15, Number(e.target.value) || 120)) })
-                  }
+                  onValueCommit={(value) => patch({ periodicSecs: value })}
                   className="h-7 w-16 text-xs"
                 />
               </Row>
@@ -330,14 +311,11 @@ export default function SpriteSection() {
                   "A single insert at least this large counts as a paste and triggers immediately.",
                 )}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={40}
                   max={4000}
                   value={cfg.pasteMinChars}
-                  onChange={(e) =>
-                    patch({ pasteMinChars: Math.min(4000, Math.max(40, Number(e.target.value) || 180)) })
-                  }
+                  onValueCommit={(value) => patch({ pasteMinChars: value })}
                   className="h-7 w-20 text-xs"
                 />
               </Row>
@@ -346,14 +324,11 @@ export default function SpriteSection() {
                 label={t("settings.sprite.maxTokens", "Max tokens per suggestion")}
                 desc={t("settings.sprite.maxTokensDesc", "Upper bound on each suggestion's length (cost).")}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={64}
                   max={1200}
                   value={cfg.maxTokens}
-                  onChange={(e) =>
-                    patch({ maxTokens: Math.min(1200, Math.max(64, Number(e.target.value) || 400)) })
-                  }
+                  onValueCommit={(value) => patch({ maxTokens: value })}
                   className="h-7 w-20 text-xs"
                 />
               </Row>
@@ -362,14 +337,11 @@ export default function SpriteSection() {
                 label={t("settings.sprite.timeout", "Suggestion timeout (s)")}
                 desc={t("settings.sprite.timeoutDesc", "Give up on a suggestion that takes longer than this.")}
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={5}
                   max={60}
                   value={cfg.timeoutSecs}
-                  onChange={(e) =>
-                    patch({ timeoutSecs: Math.min(60, Math.max(5, Number(e.target.value) || 20)) })
-                  }
+                  onValueCommit={(value) => patch({ timeoutSecs: value })}
                   className="h-7 w-16 text-xs"
                 />
               </Row>

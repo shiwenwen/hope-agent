@@ -157,7 +157,8 @@ interface ChatInputProps {
  * via the shared `contextUsageBarClass` (dependency-free leaf module, so the
  * input dock stays clear of chatUtils' heavier runtime chain). Sits in the
  * toolbar's `pb-2` padding zone (no buttons there), so its hover target never
- * steals clicks. Clipped to the dock's rounded bottom corners.
+ * steals clicks. Inset horizontally so the line starts after the dock's rounded
+ * bottom corners instead of bleeding into the curved edge.
  */
 function ContextUsageBottomBar({ usage }: { usage: ContextUsageInfo }) {
   const { t } = useTranslation()
@@ -166,10 +167,10 @@ function ContextUsageBottomBar({ usage }: { usage: ContextUsageInfo }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="absolute inset-x-0 bottom-0 z-10 flex h-2 items-end">
-          <div className="h-[2px] w-full overflow-hidden rounded-b-input-dock">
+        <div className="absolute inset-x-4 bottom-0 z-10 flex h-2 items-end">
+          <div className="h-[2px] w-full overflow-hidden rounded-full">
             <div
-              className={cn("h-full transition-[width] duration-500", fill)}
+              className={cn("h-full rounded-full transition-[width] duration-500", fill)}
               style={{ width: `${width}%` }}
             />
           </div>

@@ -52,6 +52,44 @@ function task(patch: Partial<Task>): Task {
 }
 
 describe("TaskProgressPanel", () => {
+  test("starts collapsed when every task is completed", () => {
+    const snapshot = createTaskProgressSnapshot([
+      task({ id: 1, content: "Write code", status: "completed" }),
+      task({ id: 2, content: "Run tests", status: "completed" }),
+    ])
+
+    render(<TaskProgressPanel snapshot={snapshot} />)
+
+    const toggle = screen.getByRole("button", { name: /Tasks/ })
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText("Run tests")).toBeNull()
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByText("Run tests")).toBeTruthy()
+  })
+
+  test("auto-collapses when every task becomes completed", async () => {
+    const pendingSnapshot = createTaskProgressSnapshot([
+      task({ id: 1, content: "Write code", status: "completed" }),
+      task({ id: 2, content: "Run tests", status: "pending" }),
+    ])
+    const completedSnapshot = createTaskProgressSnapshot([
+      task({ id: 1, content: "Write code", status: "completed" }),
+      task({ id: 2, content: "Run tests", status: "completed" }),
+    ])
+
+    const { rerender } = render(<TaskProgressPanel snapshot={pendingSnapshot} />)
+
+    const toggle = screen.getByRole("button", { name: /Tasks/ })
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByText("Run tests")).toBeTruthy()
+
+    rerender(<TaskProgressPanel snapshot={completedSnapshot} />)
+
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"))
+  })
+
   test("renders summary and expands the task list", () => {
     const snapshot = createTaskProgressSnapshot([
       task({ id: 1, content: "Write code", status: "completed" }),

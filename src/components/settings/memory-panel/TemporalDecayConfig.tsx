@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 
 interface TemporalDecayConfigData { enabled: boolean; halfLifeDays: number }
@@ -31,17 +31,14 @@ export default function TemporalDecayConfig() {
       {decayConfig.enabled && (
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.memoryTemporalDecayHalfLife")}</label>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={1} max={365}
             value={decayConfig.halfLifeDays}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value)
-              if (!isNaN(val) && val > 0) {
-                const updated = { ...decayConfig, halfLifeDays: val }
-                setDecayConfig(updated)
-                getTransport().call("save_temporal_decay_config", { config: updated }).catch(() => {})
-              }
+            integer={false}
+            onValueCommit={(halfLifeDays) => {
+              const updated = { ...decayConfig, halfLifeDays }
+              setDecayConfig(updated)
+              getTransport().call("save_temporal_decay_config", { config: updated }).catch(() => {})
             }}
             className="h-7 text-xs w-20"
           />

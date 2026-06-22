@@ -325,6 +325,8 @@
     "compactNoChange": "Konteks tidak perlu dimampatkan",
     "compactSummaryNotApplied": "Ringkasan diperlukan, tetapi belum selesai",
     "compactSummaryNotAppliedSync": "Pembersihan segerak selesai, tetapi ringkasan belum selesai",
+    "compactSummaryTimedOut": "Penjanaan ringkasan tamat masa",
+    "compactSummaryTimedOutSync": "Pembersihan segerak selesai, tetapi penjanaan ringkasan tamat masa",
     "compactCancelled": "Pemampatan dibatalkan",
     "compactNow": "Mampatkan konteks",
     "compacting": "Memampatkan...",

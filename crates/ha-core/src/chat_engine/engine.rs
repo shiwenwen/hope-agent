@@ -269,6 +269,63 @@ fn emit_context_compaction_progress(
     emit_stream_event(db, event_sink, session_id, source, turn_id, &event)
 }
 
+fn persist_manual_context_compaction_event(
+    db: &session::SessionDB,
+    session_id: &str,
+    source: stream_seq::ChatSource,
+    event: &str,
+) {
+    let _ = db.append_message(
+        session_id,
+        &session::NewMessage::event(event).with_source(source),
+    );
+}
+
+fn persist_manual_context_compaction_failed(
+    db: &session::SessionDB,
+    session_id: &str,
+    source: stream_seq::ChatSource,
+) {
+    let Ok(event) = serde_json::to_string(&serde_json::json!({
+        "type": "context_compaction_progress",
+        "data": {
+            "phase": "failed",
+            "kind": "summary",
+        },
+    })) else {
+        return;
+    };
+    persist_manual_context_compaction_event(db, session_id, source, &event);
+}
+
+fn persist_manual_context_compacted(
+    db: &session::SessionDB,
+    session_id: &str,
+    source: stream_seq::ChatSource,
+    result: &crate::context_compact::CompactResult,
+) {
+    let kind = if result.tier_applied >= 4 {
+        "emergency"
+    } else {
+        "summary"
+    };
+    let Ok(event) = serde_json::to_string(&serde_json::json!({
+        "type": "context_compacted",
+        "data": {
+            "tier_applied": result.tier_applied,
+            "tokens_before": result.tokens_before,
+            "tokens_after": result.tokens_after,
+            "messages_affected": result.messages_affected,
+            "description": &result.description,
+            "kind": kind,
+            "manifest": &result.manifest,
+        },
+    })) else {
+        return;
+    };
+    persist_manual_context_compaction_event(db, session_id, source, &event);
+}
+
 /// Emit a stream event when the caller has *already* confirmed the turn
 /// accepts events this tick. The per-token streaming hot loop calls this after
 /// its own `turn_accepts_stream_event` guard, avoiding a second registry lock
@@ -317,18 +374,23 @@ pub async fn compact_session_now(
         event_sink,
     } = params;
 
+    let persist_failed = |message: String| {
+        persist_manual_context_compaction_failed(&session_db, &session_id, source);
+        message
+    };
+
     let _active_turn_guard = super::active_turn::try_acquire(
         &session_id,
         source,
         format!("manual-compact-{}", uuid::Uuid::new_v4()),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| persist_failed(e.to_string()))?;
 
     let provider = providers
         .iter()
         .find(|p| p.id == model.provider_id)
-        .ok_or_else(|| format!("Provider {} not found", model.provider_id))?;
+        .ok_or_else(|| persist_failed(format!("Provider {} not found", model.provider_id)))?;
     let provider_label = provider.name.clone();
 
     let mut codex_token = codex_token;
@@ -349,10 +411,10 @@ pub async fn compact_session_now(
     )
     .await
     .map_err(|e| {
-        format!(
+        persist_failed(format!(
             "Cannot build agent for manual compaction on {}::{}: {}",
             model.provider_id, model.model_id, e
-        )
+        ))
     })?;
 
     let plan_resolved = crate::chat_engine::resolve_plan_context_for_session(&session_id).await;
@@ -377,7 +439,7 @@ pub async fn compact_session_now(
     );
     let original_context_json = session_db
         .load_context(&session_id)
-        .map_err(|e| format!("Cannot load context for manual compaction: {e}"))?;
+        .map_err(|e| persist_failed(format!("Cannot load context for manual compaction: {e}")))?;
     if let Some(json_str) = original_context_json.as_deref() {
         restore_agent_context_from_json(&session_id, json_str, &agent);
     }
@@ -388,7 +450,7 @@ pub async fn compact_session_now(
     let compact_result = agent.compact_conversation_now(&emit).await;
 
     let compacted_context_json = serde_json::to_string(&agent.get_conversation_history())
-        .map_err(|e| format!("Cannot serialize compacted context: {e}"))?;
+        .map_err(|e| persist_failed(format!("Cannot serialize compacted context: {e}")))?;
     if original_context_json.as_deref() != Some(compacted_context_json.as_str()) {
         let saved = session_db
             .save_context_if_unchanged(
@@ -396,14 +458,15 @@ pub async fn compact_session_now(
                 original_context_json.as_deref(),
                 &compacted_context_json,
             )
-            .map_err(|e| format!("Cannot save compacted context: {e}"))?;
+            .map_err(|e| persist_failed(format!("Cannot save compacted context: {e}")))?;
         if !saved {
-            return Err(
+            return Err(persist_failed(
                 "Session context changed during manual compaction; skipped stale compacted snapshot"
                     .to_string(),
-            );
+            ));
         }
     }
+    persist_manual_context_compacted(&session_db, &session_id, source, &compact_result);
     app_info!(
         "context",
         "compact::manual",

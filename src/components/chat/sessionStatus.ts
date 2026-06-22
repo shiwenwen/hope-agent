@@ -75,18 +75,18 @@ export async function compactContextNow(sessionId: string): Promise<CompactResul
 
 /** Toast message describing a compaction result (saved tokens / affected turns). */
 export function compactResultMessage(t: TFunction, result: CompactResult): string {
-  if (result.messagesAffected > 0) {
-    return String(
-      t("chat.compactDone", {
-        saved: result.tokensBefore - result.tokensAfter,
-        affected: result.messagesAffected,
-      }),
-    )
-  }
-
   switch (result.description) {
     case "no_messages":
       return String(t("chat.compactNoMessages", "There are no messages to compress"))
+    case "summarization_timed_out":
+      return String(t("chat.compactSummaryTimedOut", "Summary generation timed out"))
+    case "summarization_timed_out_sync_compaction_only":
+      return String(
+        t(
+          "chat.compactSummaryTimedOutSync",
+          "Cleaned up context, but summary generation timed out",
+        ),
+      )
     case "summarization_not_applied":
       return String(t("chat.compactSummaryNotApplied", "Summary was needed, but was not completed"))
     case "summarization_not_applied_sync_compaction_only":
@@ -96,8 +96,19 @@ export function compactResultMessage(t: TFunction, result: CompactResult): strin
     case "cancelled":
       return String(t("chat.compactCancelled", "Compression was cancelled"))
     default:
-      return String(t("chat.compactNoChange"))
+      break
   }
+
+  if (result.messagesAffected > 0) {
+    return String(
+      t("chat.compactDone", {
+        saved: result.tokensBefore - result.tokensAfter,
+        affected: result.messagesAffected,
+      }),
+    )
+  }
+
+  return String(t("chat.compactNoChange"))
 }
 
 /**

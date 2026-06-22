@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -307,14 +308,14 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 <Label className="text-xs text-muted-foreground">
                   {t("settings.weatherLatitude")}
                 </Label>
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   step="0.0001"
-                  value={config.weatherLatitude ?? ""}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value)
-                    update("weatherLatitude", isNaN(v) ? null : v)
-                  }}
+                  min={-90}
+                  max={90}
+                  value={config.weatherLatitude}
+                  integer={false}
+                  onValueCommit={(value) => update("weatherLatitude", value)}
+                  onEmptyCommit={() => update("weatherLatitude", null)}
                   className="h-8 text-sm"
                 />
               </div>
@@ -322,14 +323,14 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 <Label className="text-xs text-muted-foreground">
                   {t("settings.weatherLongitude")}
                 </Label>
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   step="0.0001"
-                  value={config.weatherLongitude ?? ""}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value)
-                    update("weatherLongitude", isNaN(v) ? null : v)
-                  }}
+                  min={-180}
+                  max={180}
+                  value={config.weatherLongitude}
+                  integer={false}
+                  onValueCommit={(value) => update("weatherLongitude", value)}
+                  onEmptyCommit={() => update("weatherLongitude", null)}
                   className="h-8 text-sm"
                 />
               </div>

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -108,12 +109,7 @@ export default function SandboxPanel() {
     }
   }
 
-  const bytesToMB = (bytes: number | null) => (bytes ? (bytes / (1024 * 1024)).toFixed(0) : "")
-  const mbToBytes = (mb: string) => {
-    const num = parseInt(mb, 10)
-    if (!isNaN(num) && num > 0) return num * 1024 * 1024
-    return config.memory_limit
-  }
+  const bytesToMB = (bytes: number | null) => (bytes ? Math.round(bytes / (1024 * 1024)) : null)
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -204,42 +200,32 @@ export default function SandboxPanel() {
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.sandboxMemoryLimit")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={64}
                 value={bytesToMB(config.memory_limit)}
-                onChange={(e) =>
-                  setConfig((prev) => ({ ...prev, memory_limit: mbToBytes(e.target.value) }))
+                onValueCommit={(value) =>
+                  setConfig((prev) => ({ ...prev, memory_limit: value * 1024 * 1024 }))
                 }
               />
               <p className="text-xs text-muted-foreground">MB</p>
             </div>
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.sandboxCpuLimit")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0.1}
                 step={0.1}
                 value={config.cpu_limit ?? 1.0}
-                onChange={(e) => {
-                  const num = parseFloat(e.target.value)
-                  if (!isNaN(num) && num > 0)
-                    setConfig((prev) => ({ ...prev, cpu_limit: num }))
-                }}
+                integer={false}
+                onValueCommit={(value) => setConfig((prev) => ({ ...prev, cpu_limit: value }))}
               />
               <p className="text-xs text-muted-foreground">{t("settings.sandboxCpuLimitDesc")}</p>
             </div>
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.sandboxPidsLimit")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={16}
                 value={config.pids_limit ?? 256}
-                onChange={(e) => {
-                  const num = parseInt(e.target.value, 10)
-                  if (!isNaN(num) && num > 0)
-                    setConfig((prev) => ({ ...prev, pids_limit: num }))
-                }}
+                onValueCommit={(value) => setConfig((prev) => ({ ...prev, pids_limit: value }))}
               />
             </div>
           </div>

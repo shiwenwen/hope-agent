@@ -5,6 +5,7 @@ import { Check, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { SecretInput } from "@/components/ui/secret-input"
 import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
@@ -199,20 +200,13 @@ export default function IssueReportingPanel() {
               <span className="text-sm font-medium">
                 {t("settings.issueReportingMaxEvidenceChars")}
               </span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1000}
                 step={1000}
                 value={config.maxEvidenceChars}
-                onChange={(e) => {
-                  const n = Number(e.target.value)
-                  if (Number.isFinite(n)) {
-                    setConfig((prev) => ({
-                      ...prev,
-                      maxEvidenceChars: Math.max(1000, Math.round(n)),
-                    }))
-                  }
-                }}
+                onValueCommit={(value) =>
+                  setConfig((prev) => ({ ...prev, maxEvidenceChars: value }))
+                }
               />
             </div>
           </div>

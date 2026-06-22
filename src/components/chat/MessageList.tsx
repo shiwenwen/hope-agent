@@ -16,6 +16,7 @@ import PlanCardBlock from "./plan-mode/PlanCardBlock"
 import { findMessageRowByKey, getLatestUserTurnKey, getMessageRowKey } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
+import type { CompactResult } from "./sessionStatus"
 import type { ChatDisplayMode, ChatTurnStatus, Message, AgentSummaryForSidebar } from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 
@@ -59,6 +60,8 @@ interface MessageListProps {
   planSubagentRunning?: boolean
   onSwitchModel?: (providerId: string, modelId: string) => void
   onViewSystemPrompt?: () => void
+  compacting?: boolean
+  onCompactContext?: () => Promise<CompactResult | null>
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   onSwitchSession?: (sessionId: string) => void
   onOpenDiff?: (
@@ -124,6 +127,8 @@ export default function MessageList({
   planSubagentRunning,
   onSwitchModel,
   onViewSystemPrompt,
+  compacting,
+  onCompactContext,
   onOpenDashboardTab,
   onSwitchSession,
   onOpenDiff,
@@ -867,6 +872,8 @@ export default function MessageList({
                   onSwitchSession={onSwitchSession}
                   onSwitchModel={onSwitchModel}
                   onViewSystemPrompt={onViewSystemPrompt}
+                  compacting={compacting}
+                  onCompactContext={onCompactContext}
                   onOpenDashboardTab={onOpenDashboardTab}
                   onOpenDiff={onOpenDiff}
                   onResume={onResume}

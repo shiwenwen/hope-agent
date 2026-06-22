@@ -6,6 +6,7 @@ import { Check, ChevronDown, Loader2, Sparkles, Wand2 } from "lucide-react"
 import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
@@ -158,15 +159,14 @@ export default function KnowledgeMaintenanceSection() {
               >
                 <div className="flex items-center gap-2">
                   {cfg.idleTrigger.enabled && (
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={1}
                       value={cfg.idleTrigger.idleMinutes}
-                      onChange={(e) =>
+                      onValueCommit={(value) =>
                         patch({
                           idleTrigger: {
                             ...cfg.idleTrigger,
-                            idleMinutes: Math.max(1, Number(e.target.value) || 1),
+                            idleMinutes: value,
                           },
                         })
                       }
@@ -225,16 +225,11 @@ export default function KnowledgeMaintenanceSection() {
                 label={t("settings.knowledgeMaintenance.maxProposals", "Max suggestions per scan")}
                 desc=""
               >
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={1}
                   max={200}
                   value={cfg.maxProposalsPerCycle}
-                  onChange={(e) =>
-                    patch({
-                      maxProposalsPerCycle: Math.min(200, Math.max(1, Number(e.target.value) || 1)),
-                    })
-                  }
+                  onValueCommit={(value) => patch({ maxProposalsPerCycle: value })}
                   className="h-7 w-16 text-xs"
                 />
               </Row>

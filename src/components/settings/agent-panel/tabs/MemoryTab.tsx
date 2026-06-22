@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -158,69 +158,49 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                     <span className="text-muted-foreground">
                       {t("settings.activeMemoryTimeout")}
                     </span>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={200}
                       max={15000}
                       step={100}
                       className="h-8 text-xs"
                       value={activeMemory.timeoutMs}
-                      onChange={(e) =>
-                        updateActiveMemory({
-                          timeoutMs: Math.max(200, Math.min(15000, Number(e.target.value) || 0)),
-                        })
-                      }
+                      onValueCommit={(value) => updateActiveMemory({ timeoutMs: value })}
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-xs">
                     <span className="text-muted-foreground">
                       {t("settings.activeMemoryCacheTtl")}
                     </span>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={0}
                       max={600}
                       className="h-8 text-xs"
                       value={activeMemory.cacheTtlSecs}
-                      onChange={(e) =>
-                        updateActiveMemory({
-                          cacheTtlSecs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
-                        })
-                      }
+                      onValueCommit={(value) => updateActiveMemory({ cacheTtlSecs: value })}
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-xs">
                     <span className="text-muted-foreground">
                       {t("settings.activeMemoryMaxChars")}
                     </span>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={40}
                       max={2000}
                       className="h-8 text-xs"
                       value={activeMemory.maxChars}
-                      onChange={(e) =>
-                        updateActiveMemory({
-                          maxChars: Math.max(40, Math.min(2000, Number(e.target.value) || 0)),
-                        })
-                      }
+                      onValueCommit={(value) => updateActiveMemory({ maxChars: value })}
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-xs">
                     <span className="text-muted-foreground">
                       {t("settings.activeMemoryCandidateLimit")}
                     </span>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={1}
                       max={100}
                       className="h-8 text-xs"
                       value={activeMemory.candidateLimit}
-                      onChange={(e) =>
-                        updateActiveMemory({
-                          candidateLimit: Math.max(1, Math.min(100, Number(e.target.value) || 0)),
-                        })
-                      }
+                      onValueCommit={(value) => updateActiveMemory({ candidateLimit: value })}
                     />
                   </label>
                   <div className="col-span-2 flex items-center justify-between pt-1">

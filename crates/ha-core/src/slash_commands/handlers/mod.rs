@@ -57,7 +57,7 @@ pub async fn dispatch(
         "compact" => {
             // Return Compact action — frontend delegates to existing compact_context_now
             Ok(CommandResult {
-                content: "Compacting context...".into(),
+                content: String::new(),
                 action: Some(crate::slash_commands::types::CommandAction::Compact),
             })
         }

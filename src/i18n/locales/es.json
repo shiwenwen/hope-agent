@@ -325,6 +325,8 @@
     "compactNoChange": "No es necesario compactar el contexto",
     "compactSummaryNotApplied": "Se necesitaba un resumen, pero no se completó",
     "compactSummaryNotAppliedSync": "Se completó la limpieza síncrona, pero no el resumen",
+    "compactSummaryTimedOut": "La generación del resumen agotó el tiempo de espera",
+    "compactSummaryTimedOutSync": "Se completó la limpieza síncrona, pero la generación del resumen agotó el tiempo de espera",
     "compactCancelled": "Compactación cancelada",
     "compactNow": "Compactar contexto",
     "compacting": "Compactando...",

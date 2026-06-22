@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
@@ -104,23 +104,19 @@ function NumberField({
   desc?: string
   value: number
   min: number
-  max: number
+  max?: number
   onChange: (v: number) => void
 }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
         <label className="text-sm">{label}</label>
-        <Input
-          type="number"
+        <DeferredNumberInput
           min={min}
           max={max}
           className="h-7 w-24 text-sm text-right"
           value={value}
-          onChange={(e) => {
-            const v = Number(e.target.value)
-            if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)))
-          }}
+          onValueCommit={onChange}
         />
       </div>
       {desc && <p className="text-[10px] text-muted-foreground/60">{desc}</p>}
@@ -134,7 +130,7 @@ export default function ContextCompactPanel() {
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
-  const [pruningOpen, setPruningOpen] = useState(true)
+  const [pruningOpen, setPruningOpen] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [availableTools, setAvailableTools] = useState<{ name: string; description: string }[]>([])
@@ -451,7 +447,7 @@ export default function ContextCompactPanel() {
                   label={t("settings.contextCompactTimeout")}
                   value={config.summarizationTimeoutSecs}
                   min={10}
-                  max={300}
+                  max={10000}
                   onChange={(v) => update({ summarizationTimeoutSecs: v })}
                 />
                 <NumberField

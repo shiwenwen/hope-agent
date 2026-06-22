@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -294,14 +294,12 @@ export default function ToolGeneralPanel() {
               <div className="text-xs text-muted-foreground">{t("settings.toolTimeoutDesc")}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={30}
                 value={toolTimeout}
-                onChange={(e) => setToolTimeout(Number(e.target.value))}
-                onBlur={() => {
-                  const clamped = Math.max(0, Math.round(toolTimeout))
+                onValueCommit={(value) => {
+                  const clamped = Math.max(0, Math.round(value))
                   setToolTimeout(clamped)
                   if (clamped !== savedTimeout) saveTimeout(clamped)
                 }}
@@ -324,14 +322,12 @@ export default function ToolGeneralPanel() {
                   void saveApprovalTimeoutEnabled(checked)
                 }}
               />
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={30}
                 value={approvalTimeout}
-                onChange={(e) => setApprovalTimeout(Number(e.target.value))}
-                onBlur={() => {
-                  const clamped = Math.max(0, Math.round(approvalTimeout))
+                onValueCommit={(value) => {
+                  const clamped = Math.max(0, Math.round(value))
                   setApprovalTimeout(clamped)
                   if (clamped !== savedApprovalTimeout) saveApprovalTimeout(clamped)
                 }}
@@ -372,14 +368,12 @@ export default function ToolGeneralPanel() {
               <div className="text-xs text-muted-foreground">{t("settings.toolResultDiskThresholdDesc")}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 step={10}
                 value={diskThreshold}
-                onChange={(e) => setDiskThreshold(Number(e.target.value))}
-                onBlur={() => {
-                  const clamped = Math.max(0, Math.round(diskThreshold))
+                onValueCommit={(value) => {
+                  const clamped = Math.max(0, Math.round(value))
                   setDiskThreshold(clamped)
                   if (clamped !== savedDiskThreshold) saveDiskThreshold(clamped)
                 }}
@@ -451,13 +445,11 @@ export default function ToolGeneralPanel() {
               <div className="text-xs text-muted-foreground">{t("settings.maxImagesDesc")}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={20}
                 value={limits.maxImages}
-                onChange={(e) => updateLimit("maxImages", Number(e.target.value))}
-                onBlur={() => updateLimit("maxImages", Math.max(1, Math.min(20, Math.round(limits.maxImages))))}
+                onValueCommit={(value) => updateLimit("maxImages", value)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.items")}</span>
@@ -470,13 +462,11 @@ export default function ToolGeneralPanel() {
               <div className="text-xs text-muted-foreground">{t("settings.maxPdfsDesc")}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={10}
                 value={limits.maxPdfs}
-                onChange={(e) => updateLimit("maxPdfs", Number(e.target.value))}
-                onBlur={() => updateLimit("maxPdfs", Math.max(1, Math.min(10, Math.round(limits.maxPdfs))))}
+                onValueCommit={(value) => updateLimit("maxPdfs", value)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.items")}</span>
@@ -489,13 +479,11 @@ export default function ToolGeneralPanel() {
               <div className="text-xs text-muted-foreground">{t("settings.maxVisionPagesDesc")}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={50}
                 value={limits.maxVisionPages}
-                onChange={(e) => updateLimit("maxVisionPages", Number(e.target.value))}
-                onBlur={() => updateLimit("maxVisionPages", Math.max(1, Math.min(50, Math.round(limits.maxVisionPages))))}
+                onValueCommit={(value) => updateLimit("maxVisionPages", value)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.pages")}</span>

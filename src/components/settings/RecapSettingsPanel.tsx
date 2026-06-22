@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import {
   Select,
   SelectContent,
@@ -92,28 +92,16 @@ export default function RecapSettingsPanel() {
     [persist, savedSnapshot],
   )
 
-  const updateNumber =
+  const commitNumber =
     (key: keyof Pick<
       RecapConfig,
       "defaultRangeDays" | "maxSessionsPerReport" | "facetConcurrency" | "cacheRetentionDays"
     >, min: number) =>
     (raw: number) => {
       const clamped = Number.isFinite(raw) ? Math.max(min, Math.round(raw)) : min
-      setConfig((prev) => ({ ...prev, [key]: clamped }))
-    }
-
-  const commitNumber =
-    (key: keyof Pick<
-      RecapConfig,
-      "defaultRangeDays" | "maxSessionsPerReport" | "facetConcurrency" | "cacheRetentionDays"
-    >, min: number) =>
-    () => {
-      setConfig((prev) => {
-        const clamped = Math.max(min, Math.round(prev[key]))
-        const next = { ...prev, [key]: clamped }
-        commitIfChanged(next)
-        return next
-      })
+      const next = { ...config, [key]: clamped }
+      setConfig(next)
+      commitIfChanged(next)
     }
 
   const handleAgentChange = (value: string) => {
@@ -225,13 +213,11 @@ export default function RecapSettingsPanel() {
               {t("settings.recapDefaultRangeDaysDesc")}
             </div>
           </div>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={1}
             step={1}
             value={config.defaultRangeDays}
-            onChange={(e) => updateNumber("defaultRangeDays", 1)(Number(e.target.value))}
-            onBlur={commitNumber("defaultRangeDays", 1)}
+            onValueCommit={commitNumber("defaultRangeDays", 1)}
             className="w-24 h-8 text-sm text-right"
           />
         </div>
@@ -243,13 +229,11 @@ export default function RecapSettingsPanel() {
               {t("settings.recapMaxSessionsDesc")}
             </div>
           </div>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={1}
             step={50}
             value={config.maxSessionsPerReport}
-            onChange={(e) => updateNumber("maxSessionsPerReport", 1)(Number(e.target.value))}
-            onBlur={commitNumber("maxSessionsPerReport", 1)}
+            onValueCommit={commitNumber("maxSessionsPerReport", 1)}
             className="w-24 h-8 text-sm text-right"
           />
         </div>
@@ -261,14 +245,12 @@ export default function RecapSettingsPanel() {
               {t("settings.recapFacetConcurrencyDesc")}
             </div>
           </div>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={1}
             max={32}
             step={1}
             value={config.facetConcurrency}
-            onChange={(e) => updateNumber("facetConcurrency", 1)(Number(e.target.value))}
-            onBlur={commitNumber("facetConcurrency", 1)}
+            onValueCommit={commitNumber("facetConcurrency", 1)}
             className="w-24 h-8 text-sm text-right"
           />
         </div>
@@ -280,13 +262,11 @@ export default function RecapSettingsPanel() {
               {t("settings.recapCacheRetentionDaysDesc")}
             </div>
           </div>
-          <Input
-            type="number"
+          <DeferredNumberInput
             min={0}
             step={30}
             value={config.cacheRetentionDays}
-            onChange={(e) => updateNumber("cacheRetentionDays", 0)(Number(e.target.value))}
-            onBlur={commitNumber("cacheRetentionDays", 0)}
+            onValueCommit={commitNumber("cacheRetentionDays", 0)}
             className="w-24 h-8 text-sm text-right"
           />
         </div>

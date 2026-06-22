@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import { Check, Bot } from "lucide-react"
 import type { AgentConfig, AgentSummary } from "./types"
@@ -124,13 +124,12 @@ export default function SubagentPanel({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-sm">{t("settings.subagentMaxDepth")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 value={config.maxSpawnDepth ?? 3}
-                onChange={(e) =>
+                onValueCommit={(value) =>
                   onChange({
                     ...config,
-                    maxSpawnDepth: Math.max(1, Math.min(5, Number(e.target.value) || 3)),
+                    maxSpawnDepth: value,
                   })
                 }
                 className="w-20 text-sm"
@@ -144,13 +143,12 @@ export default function SubagentPanel({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-sm">{t("settings.subagentMaxConcurrent")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 value={config.maxConcurrent}
-                onChange={(e) =>
+                onValueCommit={(value) =>
                   onChange({
                     ...config,
-                    maxConcurrent: Math.max(1, Math.min(50, Number(e.target.value) || 8)),
+                    maxConcurrent: value,
                   })
                 }
                 className="w-20 text-sm"
@@ -164,13 +162,12 @@ export default function SubagentPanel({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-sm">{t("settings.subagentMaxBatchSize")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 value={config.maxBatchSize ?? 10}
-                onChange={(e) =>
+                onValueCommit={(value) =>
                   onChange({
                     ...config,
-                    maxBatchSize: Math.max(1, Math.min(50, Number(e.target.value) || 10)),
+                    maxBatchSize: value,
                   })
                 }
                 className="w-20 text-sm"
@@ -184,13 +181,12 @@ export default function SubagentPanel({
           <div className="space-y-1">
             <span className="text-sm">{t("settings.subagentTimeout")}</span>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 value={config.defaultTimeoutSecs}
-                onChange={(e) =>
+                onValueCommit={(value) =>
                   onChange({
                     ...config,
-                    defaultTimeoutSecs: Math.max(30, Math.min(1800, Number(e.target.value) || 300)),
+                    defaultTimeoutSecs: value,
                   })
                 }
                 className="w-24 text-sm"
@@ -207,13 +203,12 @@ export default function SubagentPanel({
           <div className="space-y-1">
             <span className="text-sm">{t("settings.subagentAnnounceTimeout")}</span>
             <div className="flex items-center gap-2">
-              <Input
-                type="number"
+              <DeferredNumberInput
                 value={config.announceTimeoutSecs ?? 120}
-                onChange={(e) =>
+                onValueCommit={(value) =>
                   onChange({
                     ...config,
-                    announceTimeoutSecs: Math.max(10, Math.min(600, Number(e.target.value) || 120)),
+                    announceTimeoutSecs: value,
                   })
                 }
                 className="w-24 text-sm"

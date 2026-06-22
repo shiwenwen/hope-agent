@@ -325,6 +325,8 @@
     "compactNoChange": "컨텍스트 압축 불필요",
     "compactSummaryNotApplied": "요약이 필요했지만 완료되지 않았습니다",
     "compactSummaryNotAppliedSync": "동기 정리는 완료됐지만 요약은 완료되지 않았습니다",
+    "compactSummaryTimedOut": "요약 생성 시간이 초과되었습니다",
+    "compactSummaryTimedOutSync": "동기 정리는 완료됐지만 요약 생성 시간이 초과되었습니다",
     "compactCancelled": "압축이 취소되었습니다",
     "compactNow": "컨텍스트 압축",
     "compacting": "압축 중...",

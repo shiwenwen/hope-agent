@@ -6,6 +6,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -420,15 +421,10 @@ function NumField({
   return (
     <div className="space-y-1">
       <label className="text-xs font-medium">{label}</label>
-      <Input
-        type="number"
+      <DeferredNumberInput
+        min={0}
         value={value}
-        onChange={(e) => {
-          const v = Number(e.target.value)
-          if (!Number.isNaN(v) && v >= 0) {
-            onChange(v)
-          }
-        }}
+        onValueCommit={onChange}
       />
     </div>
   )

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
@@ -77,19 +78,7 @@ export default function WebFetchPanel() {
     }
   }
 
-  const updateNumber = (key: keyof WebFetchConfig, value: string) => {
-    const num = parseInt(value, 10)
-    if (!isNaN(num) && num >= 0) {
-      setConfig((prev) => ({ ...prev, [key]: num }))
-    }
-  }
-
-  const bytesToMB = (bytes: number) => (bytes / 1048576).toFixed(1)
-  const mbToBytes = (mb: string) => {
-    const num = parseFloat(mb)
-    if (!isNaN(num) && num > 0) return Math.round(num * 1048576)
-    return config.maxResponseBytes
-  }
+  const bytesToMB = (bytes: number) => bytes / 1048576
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -109,22 +98,22 @@ export default function WebFetchPanel() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.webFetchMaxChars")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1000}
                 value={config.maxChars}
-                onChange={(e) => updateNumber("maxChars", e.target.value)}
+                onValueCommit={(value) => setConfig((prev) => ({ ...prev, maxChars: value }))}
               />
               <p className="text-xs text-muted-foreground">{t("settings.webFetchMaxCharsDesc")}</p>
             </div>
 
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.webFetchMaxCharsCap")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1000}
                 value={config.maxCharsCap}
-                onChange={(e) => updateNumber("maxCharsCap", e.target.value)}
+                onValueCommit={(value) =>
+                  setConfig((prev) => ({ ...prev, maxCharsCap: value }))
+                }
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.webFetchMaxCharsCapDesc")}
@@ -133,13 +122,13 @@ export default function WebFetchPanel() {
 
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.webFetchMaxResponseBytes")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0.1}
                 step={0.1}
                 value={bytesToMB(config.maxResponseBytes)}
-                onChange={(e) =>
-                  setConfig((prev) => ({ ...prev, maxResponseBytes: mbToBytes(e.target.value) }))
+                integer={false}
+                onValueCommit={(mb) =>
+                  setConfig((prev) => ({ ...prev, maxResponseBytes: Math.round(mb * 1048576) }))
                 }
               />
               <p className="text-xs text-muted-foreground">
@@ -158,23 +147,25 @@ export default function WebFetchPanel() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.webFetchTimeout")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={1}
                 max={120}
                 value={config.timeoutSeconds}
-                onChange={(e) => updateNumber("timeoutSeconds", e.target.value)}
+                onValueCommit={(value) =>
+                  setConfig((prev) => ({ ...prev, timeoutSeconds: value }))
+                }
               />
             </div>
 
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.webFetchMaxRedirects")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 min={0}
                 max={20}
                 value={config.maxRedirects}
-                onChange={(e) => updateNumber("maxRedirects", e.target.value)}
+                onValueCommit={(value) =>
+                  setConfig((prev) => ({ ...prev, maxRedirects: value }))
+                }
               />
             </div>
           </div>
@@ -197,12 +188,13 @@ export default function WebFetchPanel() {
 
           <div className="space-y-1.5">
             <span className="text-sm font-medium">{t("settings.webFetchCacheTtl")}</span>
-            <Input
-              type="number"
+            <DeferredNumberInput
               min={0}
               max={1440}
               value={config.cacheTtlMinutes}
-              onChange={(e) => updateNumber("cacheTtlMinutes", e.target.value)}
+              onValueCommit={(value) =>
+                setConfig((prev) => ({ ...prev, cacheTtlMinutes: value }))
+              }
               className="max-w-32"
             />
             <p className="text-xs text-muted-foreground">{t("settings.webFetchCacheTtlDesc")}</p>

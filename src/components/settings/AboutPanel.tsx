@@ -16,7 +16,7 @@ import {
 import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import {
@@ -457,20 +457,15 @@ export default function AboutPanel({
               </div>
               <div className="flex items-center justify-between gap-4 py-3">
                 <span className="text-sm text-foreground">{t("about.autoUpdateInterval")}</span>
-                <Input
-                  type="number"
+                <DeferredNumberInput
                   min={1}
                   max={168}
                   value={autoCfg.checkIntervalHours}
                   disabled={autoSaving || !autoCfg.checkEnabled}
                   className="h-8 w-24"
-                  onChange={(e) =>
-                    setAutoCfg({ ...autoCfg, checkIntervalHours: Number(e.target.value) || 1 })
+                  onValueCommit={(value) =>
+                    saveAutoCfg({ ...autoCfg, checkIntervalHours: value })
                   }
-                  onBlur={() => {
-                    const clamped = Math.min(168, Math.max(1, autoCfg.checkIntervalHours || 12))
-                    saveAutoCfg({ ...autoCfg, checkIntervalHours: clamped })
-                  }}
                 />
               </div>
               <div className="flex items-center justify-between gap-4 py-3">

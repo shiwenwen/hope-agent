@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Loader2, Check } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import {
   Select,
   SelectContent,
@@ -128,30 +128,23 @@ export default function CanvasSettingsPanel() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.canvasMaxProjects")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 className="w-full"
                 min={1}
                 max={1000}
                 value={config.maxProjects}
-                onChange={(e) =>
-                  setConfig((c) => ({ ...c, maxProjects: parseInt(e.target.value) || 100 }))
-                }
+                onValueCommit={(value) => setConfig((c) => ({ ...c, maxProjects: value }))}
               />
             </div>
             <div className="space-y-1.5">
               <span className="text-sm font-medium">{t("settings.canvasMaxVersions")}</span>
-              <Input
-                type="number"
+              <DeferredNumberInput
                 className="w-full"
                 min={1}
                 max={500}
                 value={config.maxVersionsPerProject}
-                onChange={(e) =>
-                  setConfig((c) => ({
-                    ...c,
-                    maxVersionsPerProject: parseInt(e.target.value) || 50,
-                  }))
+                onValueCommit={(value) =>
+                  setConfig((c) => ({ ...c, maxVersionsPerProject: value }))
                 }
               />
             </div>

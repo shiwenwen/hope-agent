@@ -5,7 +5,7 @@ import i18n from "@/i18n/i18n"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import {
   Select,
   SelectContent,
@@ -208,21 +208,17 @@ export default function WebSearchPanel({
                     <label className="text-xs font-medium text-muted-foreground">
                       {t("settings.webSearchDefaultCount")}
                     </label>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={1}
                       max={10}
                       className="h-8 text-sm"
                       value={config.defaultResultCount}
-                      onChange={(e) =>
+                      onValueCommit={(value) =>
                         setConfig((prev) =>
                           prev
                             ? {
                                 ...prev,
-                                defaultResultCount: Math.max(
-                                  1,
-                                  Math.min(10, Number(e.target.value) || 5),
-                                ),
+                                defaultResultCount: value,
                               }
                             : prev,
                         )
@@ -238,21 +234,17 @@ export default function WebSearchPanel({
                     <label className="text-xs font-medium text-muted-foreground">
                       {t("settings.webSearchTimeout")}
                     </label>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={5}
                       max={120}
                       className="h-8 text-sm"
                       value={config.timeoutSeconds}
-                      onChange={(e) =>
+                      onValueCommit={(value) =>
                         setConfig((prev) =>
                           prev
                             ? {
                                 ...prev,
-                                timeoutSeconds: Math.max(
-                                  5,
-                                  Math.min(120, Number(e.target.value) || 30),
-                                ),
+                                timeoutSeconds: value,
                               }
                             : prev,
                         )
@@ -268,21 +260,17 @@ export default function WebSearchPanel({
                     <label className="text-xs font-medium text-muted-foreground">
                       {t("settings.webSearchCacheTtl")}
                     </label>
-                    <Input
-                      type="number"
+                    <DeferredNumberInput
                       min={0}
                       max={60}
                       className="h-8 text-sm"
                       value={config.cacheTtlMinutes}
-                      onChange={(e) =>
+                      onValueCommit={(value) =>
                         setConfig((prev) =>
                           prev
                             ? {
                                 ...prev,
-                                cacheTtlMinutes: Math.max(
-                                  0,
-                                  Math.min(60, Number(e.target.value) || 0),
-                                ),
+                                cacheTtlMinutes: value,
                               }
                             : prev,
                         )

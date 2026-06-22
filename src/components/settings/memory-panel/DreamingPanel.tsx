@@ -4,7 +4,7 @@ import { AlertTriangle, Check, Loader2 } from "lucide-react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { Input } from "@/components/ui/input"
+import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
 import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
 import CronExpressionBuilder from "@/components/cron/CronExpressionBuilder"
@@ -542,19 +542,13 @@ function NumberRow({
       label={label}
       desc={desc}
       control={
-        <Input
-          type="number"
+        <DeferredNumberInput
           min={min}
           max={max}
           step={step}
           value={value}
-          onChange={(e) => {
-            const raw = Number(e.target.value)
-            if (!Number.isFinite(raw)) return
-            const rounded = isInteger ? Math.round(raw) : raw
-            const lo = Math.max(min, rounded)
-            onChange(max != null ? Math.min(max, lo) : lo)
-          }}
+          integer={isInteger}
+          onValueCommit={onChange}
           className="w-24 h-8 text-sm text-right"
         />
       }
