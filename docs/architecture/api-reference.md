@@ -900,6 +900,9 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `fetch_url_preview` | `POST /api/url-preview` | ✅ |
 | `fetch_url_previews` | `POST /api/url-preview/batch` | ✅ |
 | `browser_get_status` | `GET /api/browser/status` | ✅ |
+| `browser_extension_status` | `GET /api/browser/extension/status` | ✅ |
+| `browser_install_native_host_manifest` | `POST /api/browser/extension/install-native-host` | ✅ |
+| `browser_extension_stop_control` | `POST /api/browser/extension/stop-control` | ✅ |
 | `browser_list_profiles` | `GET /api/browser/profiles` | ✅ |
 | `browser_create_profile` | `POST /api/browser/profiles` | ✅ |
 | `browser_delete_profile` | `DELETE /api/browser/profiles/{name}` | ✅ |
