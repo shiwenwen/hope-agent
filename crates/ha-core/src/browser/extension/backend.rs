@@ -1444,7 +1444,13 @@ impl BrowserBackend for ExtensionBackend {
                     .unwrap_or(tab.is_active)
             })
             .map(|tab| tab.target_id.clone());
-        let diagnostics = match active_target_id.as_deref().map(parse_tab_id).transpose()? {
+        // Diagnostics attach the debugger (flat_session_diagnostics →
+        // attach_debugger), so only run them for a tab THIS session has already
+        // claimed (active_override). Probing the user's plain active tab here
+        // would turn a read-only status into an unapproved debugger attach —
+        // Chrome's debugging banner + lingering observe state on a tab the user
+        // never handed us. (Codex review P2.)
+        let diagnostics = match active_override {
             Some(tab_id) => self.flat_session_diagnostics(tab_id).await.ok(),
             None => None,
         };
