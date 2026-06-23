@@ -1151,7 +1151,7 @@ unsafe fn pwstr_to_string(ptr: windows_sys::core::PWSTR) -> String {
     while unsafe { *ptr.add(len) } != 0 {
         len += 1;
     }
-    String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }.as_ref())
+    String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(ptr, len) })
 }
 
 #[derive(Debug)]
