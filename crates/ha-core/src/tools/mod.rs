@@ -126,6 +126,7 @@ pub const TOOL_KNOWLEDGE_RECALL: &str = "knowledge_recall";
 pub const TOOL_SESSION_TO_NOTE: &str = "session_to_note";
 pub const TOOL_SESSIONS_LIST: &str = "sessions_list";
 pub const TOOL_SESSION_STATUS: &str = "session_status";
+pub const TOOL_SESSIONS_SEARCH: &str = "sessions_search";
 pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";
 pub const TOOL_SESSIONS_SEND: &str = "sessions_send";
 pub const TOOL_IMAGE: &str = "image";

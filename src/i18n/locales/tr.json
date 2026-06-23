@@ -4426,6 +4426,8 @@
     "toolSessionsHistoryName": "Oturum Geçmişi",
     "toolSessionsListDesc": "Diğer oturumları listele (başlık, agent, model, mesaj sayısı)",
     "toolSessionsListName": "Oturum Listesi",
+    "toolSessionsSearchDesc": "Kalıcı sohbet mesajlarında ara ve eşleşen bağlam pencerelerini döndür",
+    "toolSessionsSearchName": "Oturum Ara",
     "toolSessionsSendDesc": "Başka bir oturuma kullanıcı mesajı gönder (yanıtı bekleme isteğe bağlı)",
     "toolSessionsSendName": "Oturuma Gönder",
     "toolSubagentDesc": "Yürütme için sub-agent'a görev devret",

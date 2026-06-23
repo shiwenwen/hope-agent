@@ -11,9 +11,9 @@ use super::super::{
     TOOL_NOTE_SEARCH, TOOL_NOTE_SET_FRONTMATTER, TOOL_NOTE_SIMILAR, TOOL_NOTE_SUGGEST_LINKS,
     TOOL_NOTE_TAGS, TOOL_NOTE_UPDATE, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
-    TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_STATUS, TOOL_SESSION_TO_NOTE, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -1254,6 +1254,51 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["session_id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Sessions Search ─────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_SESSIONS_SEARCH.into(),
+            description: "Search persisted chat messages and return matched messages with surrounding context windows. Defaults to the current session; use scope='all' to search visible regular non-incognito sessions. This is the preferred way to recall specific details from compressed or older conversation history.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
+            internal: true,
+            concurrent_safe: true,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Full-text search query. Use concrete keywords, identifiers, filenames, error text, or quoted phrases."
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional target session ID. Omit to search the current session. Ignored when scope='all'."
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["session", "all"],
+                        "description": "session: search one session (default). all: search globally visible regular non-incognito sessions."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max matches to return (default 8, max 20)."
+                    },
+                    "before": {
+                        "type": "integer",
+                        "description": "Messages to include before each hit in the context window (default 4, max 20)."
+                    },
+                    "after": {
+                        "type": "integer",
+                        "description": "Messages to include after each hit in the context window (default 4, max 20)."
+                    },
+                    "include_tools": {
+                        "type": "boolean",
+                        "description": "Include tool/text/thinking block rows in context windows (default false)."
+                    }
+                },
+                "required": ["query"],
                 "additionalProperties": false
             }),
         },

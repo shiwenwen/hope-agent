@@ -200,7 +200,7 @@ graph LR
 | knowledge/index.db | `~/.hope-agent/knowledge/index.db` | 知识空间 chunk 索引（FTS5 + vec0），可重建缓存；笔记 `.md` 真相在 `knowledge/{id}/notes/` 或外部 vault，registry 在 sessions.db |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
 | cron.db | `~/.hope-agent/cron.db` | 定时任务 + 执行日志 |
-| async_jobs.db | `~/.hope-agent/async_jobs.db` | 异步工具任务（exec / web_search / image_generate 后台化） |
+| background_jobs.db | `~/.hope-agent/background_jobs.db` | 统一后台任务缓存（exec / web_search / image_generate 后台化 + subagent/group 投影） |
 | local_model_jobs.db | `~/.hope-agent/local_model_jobs.db` | 本地模型安装 / 拉取后台任务 |
 | local_llm_library_cache.db | `~/.hope-agent/local_llm_library_cache.db` | Ollama Library 搜索 / Tag 元数据缓存 |
 | recap/recap.db | `~/.hope-agent/recap/recap.db` | 会话深度复盘缓存 |

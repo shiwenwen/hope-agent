@@ -90,6 +90,7 @@ export const TOOL_I18N_KEY: Record<string, string> = {
   agents_list: "AgentsList",
   sessions_list: "SessionsList",
   session_status: "SessionStatus",
+  sessions_search: "SessionsSearch",
   sessions_history: "SessionsHistory",
   sessions_send: "SessionsSend",
   peek_sessions: "PeekSessions",

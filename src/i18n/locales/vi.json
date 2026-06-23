@@ -4426,6 +4426,8 @@
     "toolSessionsHistoryName": "Lịch Sử Phiên",
     "toolSessionsListDesc": "Liệt kê các phiên khác (tiêu đề, agent, mô hình, số lượng tin nhắn)",
     "toolSessionsListName": "Danh Sách Phiên",
+    "toolSessionsSearchDesc": "Tìm trong tin nhắn chat đã lưu và trả về các cửa sổ ngữ cảnh khớp",
+    "toolSessionsSearchName": "Tìm Phiên",
     "toolSessionsSendDesc": "Gửi tin nhắn người dùng đến phiên khác (tùy chọn chờ phản hồi)",
     "toolSessionsSendName": "Gửi Đến Phiên",
     "toolSubagentDesc": "Ủy quyền tác vụ cho sub-agent để thực thi",

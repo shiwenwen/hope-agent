@@ -4426,6 +4426,8 @@
     "toolSessionsHistoryName": "История сессии",
     "toolSessionsListDesc": "Перечислить другие сессии (заголовок, агент, модель, количество сообщений)",
     "toolSessionsListName": "Список сессий",
+    "toolSessionsSearchDesc": "Искать сохраненные сообщения чата и возвращать окна контекста совпадений",
+    "toolSessionsSearchName": "Поиск сессий",
     "toolSessionsSendDesc": "Отправить пользовательское сообщение в другую сессию (опционально дождаться ответа)",
     "toolSessionsSendName": "Отправить в сессию",
     "toolSubagentDesc": "Делегировать задачи sub-Agent на выполнение",

@@ -202,6 +202,11 @@ const TOOL_DESC_SESSION_STATUS: &str = "\
 - session_status: Query detailed status of a specific session.\n\
   - Returns session metadata, current state, and activity info";
 
+const TOOL_DESC_SESSIONS_SEARCH: &str = "\
+- sessions_search: Search persisted chat messages and return matched context windows.\n\
+  - Params: query (required), session_id (optional; defaults to current session), scope=session|all (all = regular non-incognito sessions), limit, before, after, include_tools\n\
+  - Use this first when recalling specific details from compressed, older, or cross-session conversation history";
+
 const TOOL_DESC_SESSIONS_HISTORY: &str = "\
 - sessions_history: Get paginated chat history from a specific session.\n\
   - Params: session_id (required), limit (default 50), before_id (pagination cursor), include_tools (default false)\n\
@@ -418,6 +423,7 @@ pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("agents_list", TOOL_DESC_AGENTS_LIST),
     ("sessions_list", TOOL_DESC_SESSIONS_LIST),
     ("session_status", TOOL_DESC_SESSION_STATUS),
+    ("sessions_search", TOOL_DESC_SESSIONS_SEARCH),
     ("sessions_history", TOOL_DESC_SESSIONS_HISTORY),
     ("sessions_send", TOOL_DESC_SESSIONS_SEND),
     ("image", TOOL_DESC_IMAGE),

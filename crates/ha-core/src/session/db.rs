@@ -3592,7 +3592,8 @@ impl SessionDB {
 
 #[cfg(test)]
 mod tests {
-    use super::SessionDB;
+    use super::{SessionDB, SessionTypeFilter};
+    use crate::session::{NewMessage, SessionKind};
     use rusqlite::Connection;
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
@@ -3652,6 +3653,64 @@ mod tests {
 
         drop(stmt);
         drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn search_messages_regular_filter_excludes_non_regular_sessions() {
+        let db_path = temp_db_path("session-search-regular-filter");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let regular = db.create_session("ha-main").expect("regular session");
+        let cron = db.create_session("ha-main").expect("cron session");
+        db.mark_session_cron(&cron.id).expect("mark cron");
+        let subagent = db
+            .create_session_full("ha-main", Some(&regular.id), None, false)
+            .expect("subagent session");
+        let knowledge = db.create_session("ha-main").expect("knowledge session");
+        db.set_session_kind(&knowledge.id, SessionKind::Knowledge)
+            .expect("mark knowledge");
+        let channel = db.create_session("ha-main").expect("channel session");
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO channel_conversations
+                    (channel_id, account_id, chat_id, session_id, chat_type, source, created_at, updated_at)
+                 VALUES
+                    ('slack', 'acct', 'chat', ?1, 'dm', 'inbound', ?2, ?2)",
+                rusqlite::params![channel.id, now],
+            )
+            .expect("insert channel conversation");
+        }
+
+        for sid in [
+            &regular.id,
+            &cron.id,
+            &subagent.id,
+            &knowledge.id,
+            &channel.id,
+        ] {
+            db.append_message(sid, &NewMessage::user("regular-filter-needle"))
+                .expect("append message");
+        }
+
+        let results = db
+            .search_messages(
+                "regular-filter-needle",
+                None,
+                None,
+                Some(&[SessionTypeFilter::Regular]),
+                20,
+            )
+            .expect("search");
+        let session_ids: std::collections::HashSet<_> =
+            results.iter().map(|hit| hit.session_id.as_str()).collect();
+
+        assert_eq!(session_ids.len(), 1, "got hits from {:?}", session_ids);
+        assert!(session_ids.contains(regular.id.as_str()));
+
         let _ = std::fs::remove_file(&db_path);
     }
 

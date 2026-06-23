@@ -4,7 +4,7 @@ description: "Self-understanding and issue reporting for Hope Agent itself. Use 
 license: MIT
 context: fork
 effort: high
-allowed-tools: [read, grep, find, ls, exec, get_settings, app_update, issue_report, ask_user_question, sessions_list, sessions_history, session_status]
+allowed-tools: [read, grep, find, ls, exec, get_settings, app_update, issue_report, ask_user_question, sessions_list, sessions_search, sessions_history, session_status]
 status: active
 aliases:
   - self-diagnosis
@@ -76,7 +76,7 @@ Never bypass the `issue_report(action="create")` confirmation. Never paste raw s
 Use these in order:
 
 1. Live source and docs — the working-directory checkout, or a version-matched clone under `~/.hope-agent/source-cache/` (see self-study to bootstrap one).
-2. Local runtime data under `~/.hope-agent/`: start with `logs.db` and `sessions.db`, then the subsystem-specific store — `memory.db`, `knowledge/index.db`, `cron.db`, `async_jobs.db`, `local_model_jobs.db`, `recap/recap.db`, `canvas/canvas.db` — and non-DB state like `crash_journal.json` / `config.json`.
+2. Local runtime data under `~/.hope-agent/`: start with `logs.db` and `sessions.db`, then the subsystem-specific store — `memory.db`, `knowledge/index.db`, `cron.db`, `background_jobs.db`, `local_model_jobs.db`, `recap/recap.db`, `canvas/canvas.db` — and non-DB state like `crash_journal.json` / `config.json`.
 3. Settings via `get_settings`.
 4. Bundled references in this skill:
    - `references/diagnostic-playbook.md`
