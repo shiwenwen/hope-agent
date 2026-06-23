@@ -29,7 +29,11 @@ const KEEPALIVE_ALARM = "ha-native-keepalive"
 
 function scheduleReconnect() {
   if (reconnectTimer || nativePort) return
-  const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts)
+  // Cap the exponent: during a long broker outage reconnectAttempts keeps
+  // growing (it only resets on a successful inbound message), and an uncapped
+  // `2 ** n` would reach Infinity. The delay is clamped to RECONNECT_MAX_MS
+  // regardless, so 2**10 (≫ the cap) is already well past saturation.
+  const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.min(reconnectAttempts, 10))
   reconnectAttempts++
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null

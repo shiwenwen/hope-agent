@@ -498,12 +498,26 @@ pub fn default_native_host_manifest_path() -> Option<PathBuf> {
 /// connected. Falls back to the source if the copy hasn't been made yet (before
 /// first desktop startup, or in a headless server with no copy step).
 fn unpacked_extension_path() -> Option<PathBuf> {
-    if let Ok(stable) = crate::paths::browser_extension_unpacked_dir() {
-        if stable.join("manifest.json").exists() {
+    // Use the stable copy only when the completion marker proves the last mirror
+    // finished fully. A copy interrupted partway (crash / disk full) can have
+    // manifest.json but be missing other files; without the marker we fall
+    // through to the bundled source instead of returning a broken extension.
+    if let (Ok(stable), Ok(marker)) = (
+        crate::paths::browser_extension_unpacked_dir(),
+        crate::paths::browser_extension_unpacked_marker(),
+    ) {
+        if stable_copy_is_complete(&stable, &marker) {
             return Some(stable);
         }
     }
     bundled_or_repo_extension_source()
+}
+
+/// A stable copy is usable only if BOTH the completion marker and a manifest are
+/// present — the marker proves the last mirror finished fully, guarding against
+/// a partial copy (crash / disk full mid-sync) shadowing the bundled source.
+fn stable_copy_is_complete(dir: &Path, marker: &Path) -> bool {
+    marker.exists() && dir.join("manifest.json").exists()
 }
 
 /// Copy the bundled (or repo) unpacked extension into a STABLE location under
@@ -515,12 +529,33 @@ fn unpacked_extension_path() -> Option<PathBuf> {
 pub fn ensure_local_unpacked_extension() -> Option<PathBuf> {
     let source = bundled_or_repo_extension_source()?;
     let dest = crate::paths::browser_extension_unpacked_dir().ok()?;
+    let marker = crate::paths::browser_extension_unpacked_marker().ok()?;
     // Defensive: never mirror a directory onto itself.
     if source == dest {
         return Some(dest);
     }
+    // Clear the completion marker first: while the mirror is in progress the copy
+    // may be partial, so `unpacked_extension_path` must not trust it until we
+    // re-stamp the marker on full success.
+    let _ = std::fs::remove_file(&marker);
     match mirror_extension_dir(&source, &dest) {
-        Ok(()) => Some(dest),
+        Ok(()) => {
+            // Full mirror succeeded — stamp the marker so the stable copy becomes
+            // the preferred path. If the marker write fails, report failure so
+            // callers keep using the bundled source rather than a copy we can't
+            // vouch for.
+            if let Err(e) = crate::platform::write_atomic(&marker, b"ok\n") {
+                app_warn!(
+                    "browser",
+                    "unpacked_copy",
+                    "synced extension but failed to stamp completion marker {}: {:#}",
+                    marker.display(),
+                    e
+                );
+                return None;
+            }
+            Some(dest)
+        }
         Err(e) => {
             app_warn!(
                 "browser",
@@ -823,6 +858,27 @@ mod tests {
     fn default_manifest_path_uses_host_name() {
         let path = native_host_manifest_path("com.example.test").expect("manifest path");
         assert!(path.to_string_lossy().contains("com.example.test.json"));
+    }
+
+    #[test]
+    fn stable_copy_requires_completion_marker() {
+        use std::fs;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().join("browser");
+        let marker = tmp.path().join(".browser-synced");
+        fs::create_dir_all(&dir).unwrap();
+
+        // manifest present but no marker → partial sync, NOT usable.
+        fs::write(dir.join("manifest.json"), b"{}").unwrap();
+        assert!(!stable_copy_is_complete(&dir, &marker));
+
+        // both present → usable.
+        fs::write(&marker, b"ok\n").unwrap();
+        assert!(stable_copy_is_complete(&dir, &marker));
+
+        // marker present but manifest gone → NOT usable.
+        fs::remove_file(dir.join("manifest.json")).unwrap();
+        assert!(!stable_copy_is_complete(&dir, &marker));
     }
 
     #[test]

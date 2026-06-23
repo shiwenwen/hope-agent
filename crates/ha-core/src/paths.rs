@@ -366,6 +366,18 @@ pub fn browser_extension_unpacked_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("extension").join("browser"))
 }
 
+/// Completion marker for the stable unpacked-extension copy:
+/// `~/.hope-agent/extension/.browser-synced`. Written only after a FULL mirror
+/// succeeds; readers treat the stable copy as usable only when this marker is
+/// present, so a copy interrupted partway (crash / disk full) — which may have
+/// `manifest.json` but be missing other files — never shadows the bundled
+/// source with a broken extension. Lives beside `browser/` (not inside it) so
+/// it is never pruned by the mirror and Chrome (which ignores dotfiles anyway)
+/// never sees it as part of the loaded extension.
+pub fn browser_extension_unpacked_marker() -> Result<PathBuf> {
+    Ok(root_dir()?.join("extension").join(".browser-synced"))
+}
+
 /// Per-revision Chromium runtime directory:
 /// `~/.hope-agent/browser/runtime/chromium-{revision}/`. Versioned so
 /// bumping the per-platform pinned revision doesn't collide with an

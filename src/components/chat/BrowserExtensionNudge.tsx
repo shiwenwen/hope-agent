@@ -60,6 +60,16 @@ export function BrowserExtensionNudge({
   const [kind, setKind] = useState<string | null>(null)
   const dismissedRef = useRef<boolean>(readDismissed())
   const confirmTimerRef = useRef<number | null>(null)
+  // Guards the post-await setKind: the confirm timer fires an async probe, and
+  // the component can unmount during that await. Clearing the timer on cleanup
+  // doesn't help once the callback has already entered the async body.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // Confirm-then-show: never surface immediately. Wait out the post-restart
   // reconnect window, then re-check, and only show if the extension is STILL
@@ -75,6 +85,7 @@ export function BrowserExtensionNudge({
           getTransport().call<BrowserConfigShape>("browser_get_config"),
           getTransport().call<ExtensionStatusShape>("browser_extension_status"),
         ])
+        if (!mountedRef.current) return
         const extensionIsDefault =
           cfg.backendPreference !== "cdp_only" && cfg.extension?.enabled !== false
         if (extensionIsDefault && !status.backendAvailable) {
