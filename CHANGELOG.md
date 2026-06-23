@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Chrome 扩展浏览器后端**：可选通过 MV3 扩展 + 原生消息桥驱动你已登录的真实 Chrome（含全部 Cookie 与会话）完成网页操作，适合需要登录态的任务；raw CDP 高级逃生舱默认开启但每次调用都需审批、危险方法（读取 Cookie 等）已拦截，可在「设置 → 浏览器 → 高级」关闭或切换后端偏好（扩展优先 / 仅隔离 CDP / 仅扩展）。
+- **桌面版自带 Chrome 扩展、可直接本地安装**：商店上架前，桌面安装包已随附扩展文件，可在「设置 → 浏览器」一键打开扩展目录并在 Chrome「加载已解压的扩展程序」装上，无需自行下载源码即可驱动真实 Chrome。
 
 ## [0.11.0] - 2026-06-21
 

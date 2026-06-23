@@ -493,10 +493,43 @@ pub fn default_native_host_manifest_path() -> Option<PathBuf> {
 }
 
 fn unpacked_extension_path() -> Option<PathBuf> {
-    // Look for the unpacked extension in the working directory and a few of its
-    // ancestors, plus the executable directory's ancestors. `pnpm tauri dev`
-    // runs the binary with cwd = `src-tauri/`, so a bare `cwd/extensions` lookup
-    // misses the repo-root `extensions/chrome`; walking up one level finds it.
+    // 1) Bundled resource (packaged / release installs). The extension's runtime
+    //    files are staged into the Tauri resources tree by
+    //    `scripts/prepare-chrome-extension.mjs` and shipped at a platform-
+    //    specific location relative to the executable (mirrors how the native
+    //    host binary is resolved in `native_host_binary_candidates`). This is
+    //    what makes local ("unpacked") install work from a packaged app, where
+    //    there is no repo checkout to fall back to.
+    let mut bundle_candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Linux / Windows: resources sit next to the executable.
+            bundle_candidates.push(dir.join("chrome-extension"));
+            // macOS .app: exe in Contents/MacOS, resources in Contents/Resources.
+            bundle_candidates.push(dir.join("..").join("Resources").join("chrome-extension"));
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        // Local `tauri build` staging output before bundling.
+        bundle_candidates.push(
+            cwd.join("src-tauri")
+                .join("resources")
+                .join("chrome-extension"),
+        );
+    }
+    for candidate in &bundle_candidates {
+        if candidate.join("manifest.json").exists() {
+            // Canonicalize so the path shown / copied in the install card is
+            // clean (resolves the macOS `../Resources` hop and any symlinks).
+            return Some(candidate.canonicalize().unwrap_or_else(|_| candidate.clone()));
+        }
+    }
+
+    // 2) Repo checkout (dev / `pnpm tauri dev`). Look in the working directory
+    //    and a few of its ancestors, plus the executable directory's ancestors.
+    //    `pnpm tauri dev` runs the binary with cwd = `src-tauri/`, so a bare
+    //    `cwd/extensions` lookup misses the repo-root `extensions/chrome`;
+    //    walking up one level finds it.
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
         roots.push(cwd);

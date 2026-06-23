@@ -29,6 +29,7 @@
     "sync:version": "node scripts/sync-version.mjs",
     "prepare:browser-host": "node scripts/prepare-browser-host.mjs",
     "dev:browser-host": "node scripts/prepare-browser-host.mjs --dev",
+    "prepare:chrome-extension": "node scripts/prepare-chrome-extension.mjs",
     "release:verify": "node scripts/verify-release-version.mjs",
     "check:release-paths": "node scripts/check-release-paths.mjs",
     "chrome:extension:package": "pnpm --dir extensions/chrome package:webstore",

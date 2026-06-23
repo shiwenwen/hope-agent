@@ -14,6 +14,7 @@ src-tauri/target/
 src-tauri/WixTools/
 src-tauri/resources/vc_redist.x64.exe
 src-tauri/resources/browser-host/
+src-tauri/resources/chrome-extension/
 
 # Python (skill-creator scripts, eval helpers)
 __pycache__/
