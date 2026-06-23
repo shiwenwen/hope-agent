@@ -590,7 +590,8 @@ fn copy_into_dir(src_dir: &Path, dst_dir: &Path) -> Result<()> {
             std::fs::create_dir_all(&dst).with_context(|| format!("creating {}", dst.display()))?;
             copy_into_dir(&src, &dst)?;
         } else {
-            let bytes = std::fs::read(&src).with_context(|| format!("reading {}", src.display()))?;
+            let bytes =
+                std::fs::read(&src).with_context(|| format!("reading {}", src.display()))?;
             let differs = std::fs::read(&dst).map(|cur| cur != bytes).unwrap_or(true);
             if differs {
                 crate::platform::write_atomic(&dst, &bytes)
@@ -655,7 +656,11 @@ fn bundled_or_repo_extension_source() -> Option<PathBuf> {
         if candidate.join("manifest.json").exists() {
             // Canonicalize so the path shown / copied in the install card is
             // clean (resolves the macOS `../Resources` hop and any symlinks).
-            return Some(candidate.canonicalize().unwrap_or_else(|_| candidate.clone()));
+            return Some(
+                candidate
+                    .canonicalize()
+                    .unwrap_or_else(|_| candidate.clone()),
+            );
         }
     }
 
