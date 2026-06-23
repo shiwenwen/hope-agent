@@ -31,23 +31,38 @@
     "message": "$state$. Attached tabs: $attached$, overlay tabs: $overlay$.",
     "description": "Popup status line when connected: connection state followed by how many tabs are controlled. Keep the placeholders; punctuation may be localized.",
     "placeholders": {
-      "state": { "content": "$1", "example": "Native host connected" },
-      "attached": { "content": "$2", "example": "3" },
-      "overlay": { "content": "$3", "example": "1" }
+      "state": {
+        "content": "$1",
+        "example": "Native host connected"
+      },
+      "attached": {
+        "content": "$2",
+        "example": "3"
+      },
+      "overlay": {
+        "content": "$3",
+        "example": "1"
+      }
     }
   },
   "result_stopped_tab": {
     "message": "Stopped control for tab $tabId$.",
     "description": "Confirmation shown after detaching control from one tab.",
     "placeholders": {
-      "tabId": { "content": "$1", "example": "42" }
+      "tabId": {
+        "content": "$1",
+        "example": "42"
+      }
     }
   },
   "result_stopped_count": {
     "message": "Stopped controlled tabs: $count$.",
     "description": "Confirmation shown after detaching control from all tabs. $count$ is the number stopped; phrase it count-agnostically (do not force a singular/plural form).",
     "placeholders": {
-      "count": { "content": "$1", "example": "4" }
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
     }
   },
   "error_command_failed": {
@@ -61,5 +76,13 @@
   "error_status_unreadable": {
     "message": "Unable to read extension status",
     "description": "Status line shown when the popup cannot read the extension's state at all."
+  },
+  "overlay_controlling": {
+    "message": "Hope Agent is controlling this tab",
+    "description": "Label in the on-page overlay shown while Hope Agent controls a tab. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "overlay_stop": {
+    "message": "Stop",
+    "description": "Button in the on-page control overlay that stops Hope Agent's control of the current tab."
   }
 }

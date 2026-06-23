@@ -446,11 +446,12 @@ impl ExtensionBackend {
         if let Err(e) = self
             .broker
             .call(
+                // No label on purpose: the extension localizes the overlay text
+                // to the user's Chrome UI language via chrome.i18n. Core can't
+                // know the browser locale, so sending a fixed English string
+                // here would override that and force English for everyone.
                 "overlay.show",
-                json!({
-                    "tabId": tab_id,
-                    "label": "Hope Agent is controlling this tab"
-                }),
+                json!({ "tabId": tab_id }),
             )
             .await
         {

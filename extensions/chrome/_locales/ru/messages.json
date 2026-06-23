@@ -76,5 +76,13 @@
   "error_status_unreadable": {
     "message": "Не удалось прочитать состояние расширения",
     "description": "Status line shown when the popup cannot read the extension's state at all."
+  },
+  "overlay_controlling": {
+    "message": "Hope Agent управляет этой вкладкой",
+    "description": "Label in the on-page overlay shown while Hope Agent controls a tab. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "overlay_stop": {
+    "message": "Стоп",
+    "description": "Button in the on-page control overlay that stops Hope Agent's control of the current tab."
   }
 }

@@ -76,5 +76,13 @@
   "error_status_unreadable": {
     "message": "Tidak dapat membaca status sambungan",
     "description": "Status line shown when the popup cannot read the extension's state at all."
+  },
+  "overlay_controlling": {
+    "message": "Hope Agent sedang mengawal tab ini",
+    "description": "Label in the on-page overlay shown while Hope Agent controls a tab. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "overlay_stop": {
+    "message": "Hentikan",
+    "description": "Button in the on-page control overlay that stops Hope Agent's control of the current tab."
   }
 }

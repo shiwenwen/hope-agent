@@ -890,13 +890,19 @@ function popupStatus() {
 }
 
 async function showOverlay(tabId, label) {
+  // The overlay text follows the user's Chrome UI language (chrome.i18n), not
+  // the desktop app's locale — the app/core can't know the browser locale, so it
+  // no longer sends a label. A caller-supplied label still wins if present.
   const normalizedLabel =
-    typeof label === "string" && label ? label : "Hope Agent is controlling this tab"
+    typeof label === "string" && label
+      ? label
+      : chrome.i18n.getMessage("overlay_controlling") || "Hope Agent is controlling this tab"
+  const stopLabel = chrome.i18n.getMessage("overlay_stop") || "Stop"
   overlayTabs.set(tabId, normalizedLabel)
   await chrome.scripting.executeScript({
     target: { tabId },
     func: installHopeAgentOverlay,
-    args: [normalizedLabel],
+    args: [normalizedLabel, stopLabel],
   })
 }
 
@@ -908,7 +914,7 @@ async function hideOverlay(tabId) {
   })
 }
 
-function installHopeAgentOverlay(label) {
+function installHopeAgentOverlay(label, stopLabel) {
   const doc = /** @type {any} */ (globalThis).document
   const overlayId = "__hope_agent_control_overlay"
   doc.getElementById(overlayId)?.remove()
@@ -979,7 +985,7 @@ function installHopeAgentOverlay(label) {
 
   const button = doc.createElement("button")
   button.type = "button"
-  button.textContent = "Stop"
+  button.textContent = stopLabel || "Stop"
   button.addEventListener("click", () => {
     doc.getElementById(overlayId)?.remove()
     try {

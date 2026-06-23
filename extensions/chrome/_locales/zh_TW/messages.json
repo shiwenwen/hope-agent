@@ -76,5 +76,13 @@
   "error_status_unreadable": {
     "message": "無法讀取擴充功能狀態",
     "description": "Status line shown when the popup cannot read the extension's state at all."
+  },
+  "overlay_controlling": {
+    "message": "Hope Agent 正在控制此分頁",
+    "description": "Label in the on-page overlay shown while Hope Agent controls a tab. 'Hope Agent' is the product brand and stays untranslated."
+  },
+  "overlay_stop": {
+    "message": "停止",
+    "description": "Button in the on-page control overlay that stops Hope Agent's control of the current tab."
   }
 }
