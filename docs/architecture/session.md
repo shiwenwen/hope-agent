@@ -72,7 +72,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `project_id` | `Option<String>` | 所属项目 ID；项目作用域记忆/文件在该项目内全部会话间共享 |
 | `channel_info` | `Option<ChannelSessionInfo>` | IM Channel 关联信息（LEFT JOIN channel_conversations） |
 | `incognito` | `bool` | 无痕模式开关：true 时不注入被动记忆/awareness、不做自动记忆提取，且关闭即焚 |
-| `working_dir` | `Option<String>` | 会话级工作目录绝对路径（注入到 system prompt 当默认目录）；server 模式下指 server 机器路径 |
+| `working_dir` | `Option<String>` | 会话级工作目录绝对路径（注入 system prompt + 作为 `exec`/`read` 默认 cwd）；server 模式下指 server 机器路径 |
 
 ### SessionMessage
 
@@ -530,7 +530,7 @@ stateDiagram-v2
 
 ## 会话级工作目录
 
-`sessions.working_dir` 持久化用户为该对话指定的绝对路径。`system_prompt::build` 在 Project 段之后、Memory 段之前插入 `# Working Directory` 段告诉模型默认操作目录。详细合并规则见 [Project 系统](project.md)，本节只覆盖会话侧入口。
+`sessions.working_dir` 持久化用户为该对话指定的绝对路径，有两重作用：① `system_prompt::build` 在 Project 段之后、Memory 段之前插入 `# Working Directory` 段告诉模型默认操作目录；② 作为 `exec` 的实际 cwd（[`execution.rs::default_cwd()`](../../crates/ha-core/src/tools/execution.rs)）与 `read` 工具相对路径解析的首选根——**不再是纯 prompt 提示**。详细合并规则见 [Project 系统](project.md)，本节只覆盖会话侧入口。
 
 ### 写入校验
 
@@ -551,7 +551,7 @@ stateDiagram-v2
 会话级 working_dir 与项目级、与无痕模式独立：
 
 - 项目内会话仍可单独设会话级 working_dir，按 [`session.helpers::effective_session_working_dir`](../../crates/ha-core/src/session/helpers.rs) 合并：`session.working_dir > project.working_dir > 不注入`，**lazy resolve**（不复制项目快照——改项目工作目录立即对未单独设置的项目内已有会话生效）
-- 无痕会话也可设会话级 working_dir（与无痕语义不冲突——只是工具默认 cwd 提示）
+- 无痕会话也可设会话级 working_dir（与无痕语义不冲突——它是工具默认 cwd：`exec` 实际工作目录 + `read` 相对路径根）
 
 ## 会话级 Awareness 与 Agent 切换
 

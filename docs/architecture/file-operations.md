@@ -20,6 +20,7 @@
 - **派发 hook** [`useFileActions`](../../src/components/chat/files/useFileActions.ts)：吃一个 `PreviewTarget`（`{kind:"path",path,name,mime?}` | `{kind:"media",item}`），返回 `{ primary, menu, run, … }`。`run(action)` 把 `preview` 派给 `onPreviewFile`、其余派给 transport（`openMedia`/`openFilePath` · `downloadMedia`/`downloadFilePath` · `revealMedia`/`reveal_in_folder`）。
 - **环境注入** [`fileActionsContext.ts`](../../src/components/chat/files/fileActionsContext.ts)：消息树深，`sessionId` + `onPreviewFile` 经 `FileActionsContext` 注入（ChatScreen 在 `MessageList` 外用 `FileActionsContext.Provider` 包裹 + memoized value），叶子组件不用层层 prop 透传。消息树**外**的调用方（工作台面板）用 `useFileActions(target, { sessionId, onPreviewFile })` overrides 显式传入。无 provider 时 `onPreviewFile` 缺失 → 预览降级为打开/下载。
 - **菜单组件** [`FileActionMenu.tsx`](../../src/components/chat/files/FileActionMenu.tsx)：`FileContextMenu`（右键包裹）+ `FileActionsMoreButton`（⋯）。
+- **文件类型图标** [`FileTypeIcon`](../../src/components/icons/FileTypeIcon.tsx)：vscode-icons 彩色格式图标（`unplugin-icons` 构建期内联、仅打包所需、离线 CSP 安全）；`FileMimeIcon` 是其 `(mime, name)` 薄适配。**新增可视化文件图标处一律复用它**、按扩展名 / MIME 扩 `EXT_ICON`，**勿再用单色 lucide `File*`**。
 
 四处接入都只做：主点击 `run(primary)`，外面包 `FileContextMenu` / 加 `FileActionsMoreButton`。工作台 `FileRow` 额外保留「查看 diff」按钮（独有）。
 

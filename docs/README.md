@@ -51,6 +51,7 @@
 | [Ask User](architecture/ask-user.md)        | 通用结构化问答工具、preview 并排对比、超时回退、IM 渠道集成    | `tools/ask_user_question.rs`, `plan/questions.rs`, `channel/worker/ask_user.rs` |
 | [技能系统](architecture/skill-system.md)        | SKILL.md 发现、懒加载、工具隔离、Fork 模式      | `skills/`             |
 | [子 Agent 系统](architecture/subagent.md)      | spawn + 结果注入、Mailbox 实时引导、深度/并发控制 | `subagent/`           |
+| [后台任务（Background Jobs）](architecture/background-jobs.md) | 统一后台任务模型（Tool/Subagent/Group）：`JobManager` 门面、两层并发硬配额 + 公平调度、重试、后台 exec 审批 park、output_tail、完成合并注入、owner 面板与端点、`AsyncToolsConfig` | `async_jobs/`, `runtime_tasks.rs` |
 | [Agent Team](architecture/agent-team.md)     | 多 Agent 协作团队、双向通信、Kanban 任务看板、用户自定义模板（内置模板已移除） | `team/`               |
 | [Side Query 缓存](architecture/side-query.md) | 复用 prompt cache 降低侧查询成本 90%       | `agent/side_query.rs` |
 | [行为感知](architecture/behavior-awareness.md) | 动态 suffix 注入、三层触发器、LLM Digest、prompt cache 双断点 | `awareness/` |
