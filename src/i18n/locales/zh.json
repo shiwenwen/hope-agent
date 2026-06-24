@@ -1724,6 +1724,7 @@
     "video": "视频"
   },
   "notification": {
+    "cronCancelled": "定时任务已取消",
     "cronDisabled": "定时任务已禁用",
     "cronDisabledBody": "{{name}} —— 连续失败 {{count}} 次后已自动禁用（{{reason}}）",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "有 IM 渠道账号凭据被拒绝，需要重新登录",
     "chatCompleted": "对话已完成",
     "chatError": "对话出错",
+    "cronEmpty": "定时任务已完成（无输出）",
     "cronError": "定时任务失败",
     "cronNote": "定时任务通知可在定时任务设置面板中按任务单独配置。",
     "cronNotify": "完成时通知",

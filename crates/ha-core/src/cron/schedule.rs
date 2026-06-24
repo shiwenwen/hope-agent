@@ -112,7 +112,27 @@ fn compute_next_cron(
     after: &DateTime<Utc>,
 ) -> Option<DateTime<Utc>> {
     let schedule = CronExpression::from_str(expression).ok()?;
-    match timezone.and_then(parse_timezone) {
+    // Resolve the zone. An absent / empty name is the intended UTC default (stays
+    // silent). A *non-empty* name that no longer parses (chrono_tz drift, an older
+    // binary, or a tampered row) is logged before falling back to UTC: validation
+    // enforces "禁止静默回退 UTC" at create/update time, and this surfaces the rare
+    // runtime case instead of silently firing at the wrong wall-clock hour.
+    let tz = match timezone {
+        Some(name) if !name.trim().is_empty() => match parse_timezone(name) {
+            Some(tz) => Some(tz),
+            None => {
+                app_warn!(
+                    "cron",
+                    "schedule",
+                    "Cron timezone '{}' is not a known IANA zone; firing in UTC",
+                    name.trim()
+                );
+                None
+            }
+        },
+        _ => None,
+    };
+    match tz {
         Some(tz) => schedule
             .after(&after.with_timezone(&tz))
             .next()

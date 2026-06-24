@@ -491,8 +491,14 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
+            // ORDER BY next_run_at ASC: §4 claims at most `available_slots` due
+            // jobs per pass and defers the rest, so dispatch order is load-bearing
+            // — without it SQLite returns rows in arbitrary rowid order and, under
+            // sustained cap pressure, the most-overdue job could be skipped every
+            // tick (starvation). Most-overdue-first makes the cap fair.
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
-             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
+             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
+             ORDER BY next_run_at ASC"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
             row_to_cron_job(row).map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
@@ -623,6 +629,51 @@ impl CronDB {
         }
     }
 
+    /// Review fix (#4): reschedule after an *infrastructure* failure (e.g. the
+    /// run's session couldn't be created) WITHOUT bumping `consecutive_failures`.
+    /// The agent turn never ran, so a transient infra hiccup must not push a
+    /// healthy job toward auto-disable. Recurring jobs advance to their next
+    /// occurrence; a one-shot `At` retries shortly (its slot was already cleared
+    /// to NULL at claim). Status stays `active`; the failure counter is untouched.
+    pub fn reschedule_without_failure(&self, id: &str, schedule: &CronSchedule) -> Result<()> {
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let next_run = match schedule {
+            // One-shot: retry shortly rather than terminalize (the infra failure
+            // is likely transient). Bounded by the fact that a permanently-broken
+            // session DB is a whole-app outage, not a per-job problem.
+            CronSchedule::At { .. } => Some((now + Duration::seconds(60)).to_rfc3339()),
+            _ => compute_next_run(schedule, &now).map(|dt| dt.to_rfc3339()),
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET next_run_at=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+            params![next_run, now_str, id],
+        )?;
+        Ok(())
+    }
+
+    /// §11 review fix: terminalize a cancelled one-shot `At` job as `completed`.
+    /// Its `next_run_at` was advanced to NULL at claim, so leaving it `active`
+    /// strands an un-fireable zombie until the next restart's `mark_missed_at_jobs`.
+    /// It ran (then was cancelled) and won't fire again, so `completed` is the
+    /// right terminal. Recurring jobs are never passed here (they keep firing).
+    pub fn terminalize_one_shot_completed(&self, id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1 WHERE id=?2",
+            params![now, id],
+        )?;
+        Ok(())
+    }
+
     // ── Run Logs ────────────────────────────────────────────────
 
     /// Add a run log entry. Returns the log ID.
@@ -699,6 +750,54 @@ impl CronDB {
             ],
         )?;
         Ok(())
+    }
+
+    /// Review fix: finalize the in-progress run log if it was opened
+    /// (`Some(id)`), otherwise INSERT a complete terminal row. `add_running_run_log`
+    /// can fail on a transient DB error; without this fallback every terminal path
+    /// would UPDATE a non-existent `id=0` and the whole run would leave no run-log
+    /// at all. One lock acquisition either way (delegates to `finalize_run_log` /
+    /// `add_run_log`, each of which locks internally).
+    #[allow(clippy::too_many_arguments)]
+    pub fn finalize_or_insert_run_log(
+        &self,
+        run_log_id: Option<i64>,
+        job_id: &str,
+        session_id: &str,
+        started_at: &str,
+        status: &str,
+        finished_at: &str,
+        duration_ms: Option<u64>,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+        delivery_status: Option<&str>,
+    ) -> Result<()> {
+        match run_log_id {
+            Some(id) => self.finalize_run_log(
+                id,
+                status,
+                finished_at,
+                duration_ms,
+                result_preview,
+                error,
+                delivery_status,
+            ),
+            None => {
+                let log = CronRunLog {
+                    id: 0,
+                    job_id: job_id.to_string(),
+                    session_id: session_id.to_string(),
+                    status: status.to_string(),
+                    started_at: started_at.to_string(),
+                    finished_at: Some(finished_at.to_string()),
+                    duration_ms,
+                    result_preview: result_preview.map(|s| s.to_string()),
+                    error: error.map(|s| s.to_string()),
+                    delivery_status: delivery_status.map(|s| s.to_string()),
+                };
+                self.add_run_log(&log).map(|_| ())
+            }
+        }
     }
 
     /// Get run logs for a job, ordered by most recent first.
@@ -1189,18 +1288,17 @@ fn match_run_logs_to_occurrences(
         .iter()
         .map(|occ| occ.timestamp_millis())
         .collect();
-    // §10: adapt the match window to the schedule density. The fixed ±2min
-    // window can overlap two occurrences for sub-4min intervals, mis-assigning a
-    // run log (or dropping it). Cap it at half the smallest gap between adjacent
-    // occurrences so a log can match at most one occurrence. (occurrences are
-    // produced in ascending order by compute_occurrences.)
-    let fixed_window_ms = Duration::minutes(CALENDAR_EVENT_WINDOW_MINUTES).num_milliseconds();
-    let window_ms = occurrence_ms
-        .windows(2)
-        .map(|w| (w[1] - w[0]).abs())
-        .min()
-        .map(|min_gap| fixed_window_ms.min(min_gap / 2))
-        .unwrap_or(fixed_window_ms);
+    // §10 / review fix: a cron run starts at or AFTER its scheduled occurrence
+    // (claim + execution latency, plus the 15s scheduler tick), so match each run
+    // log FORWARD to the most recent occurrence at or before it — the slot it
+    // fired for. This is correct for any latency up to the next occurrence,
+    // unlike the old symmetric ±window which dropped (or mis-assigned) runs that
+    // started more than half a gap late — a real problem for dense schedules
+    // (second-/sub-minute cron expressions, where half the gap is below the tick
+    // latency). A small backward tolerance absorbs clock skew when a log is
+    // stamped just before its occurrence. Each log maps to exactly one occurrence,
+    // so a log still can't double-count. (occurrences are ascending.)
+    const BACKWARD_SKEW_MS: i64 = 60_000;
     let mut assignments: Vec<Option<(CronRunLog, i64)>> = vec![None; occurrences.len()];
 
     for log in run_logs {
@@ -1216,29 +1314,20 @@ fn match_run_logs_to_occurrences(
         };
 
         let log_ms = log_time.timestamp_millis();
-        let insertion = match occurrence_ms.binary_search(&log_ms) {
-            Ok(idx) => idx,
-            Err(idx) => idx,
+
+        // Floor occurrence (greatest <= log time). `diff` is the forward latency
+        // (>= 0), used only to keep the closest log when several map to one slot.
+        let candidate = match occurrence_ms.binary_search(&log_ms) {
+            Ok(idx) => Some((idx, 0)),
+            // Before the first occurrence: accept only within skew tolerance.
+            Err(0) => occurrence_ms
+                .first()
+                .filter(|first| **first - log_ms <= BACKWARD_SKEW_MS)
+                .map(|first| (0usize, (*first - log_ms).abs())),
+            Err(idx) => Some((idx - 1, log_ms - occurrence_ms[idx - 1])),
         };
 
-        let candidate_indices = [
-            insertion.checked_sub(1),
-            (insertion < occurrence_ms.len()).then_some(insertion),
-        ];
-
-        let mut best: Option<(usize, i64)> = None;
-        for candidate in candidate_indices.into_iter().flatten() {
-            let diff = (occurrence_ms[candidate] - log_ms).abs();
-            if diff > window_ms {
-                continue;
-            }
-            match best {
-                Some((_, best_diff)) if diff >= best_diff => {}
-                _ => best = Some((candidate, diff)),
-            }
-        }
-
-        if let Some((best_idx, diff)) = best {
+        if let Some((best_idx, diff)) = candidate {
             let replace = match &assignments[best_idx] {
                 Some((_, existing_diff)) => diff < *existing_diff,
                 None => true,
@@ -1358,10 +1447,29 @@ fn backfill_every_schedule_start_at(conn: &Connection) -> Result<()> {
 /// in-backoff rows get the timezone fix only; their `next_run_at` is settled by
 /// the run loop / re-enable path (which recompute with the corrected zone).
 fn backfill_cron_schedule_timezone(conn: &Connection) -> Result<()> {
+    // Review fix #8: run ONCE. Only rows present at the upgrade boundary are
+    // "legacy" zone-less jobs to migrate. A deliberately zone-less (explicit-UTC)
+    // cron job created later — the agent tool documents "Omit for UTC" — must NOT
+    // be rewritten to the host zone on a subsequent boot. A sentinel makes this a
+    // true one-time migration (and skips the per-boot full-table scan).
+    const SENTINEL: &str = "tz_backfill_done";
+    let already_done: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM cron_meta WHERE key=?1",
+        params![SENTINEL],
+        |row| row.get(0),
+    )?;
+    if already_done > 0 {
+        return Ok(());
+    }
+
     let Some(host_tz) = iana_time_zone::get_timezone()
         .ok()
         .filter(|tz| super::schedule::parse_timezone(tz).is_some())
     else {
+        // Host zone undetectable right now — there's nothing meaningful to
+        // migrate, so DON'T set the sentinel: retry on a later boot when the zone
+        // may be detectable (the narrow window before that is the only time a
+        // legacy row stays UTC-interpreted, matching the pre-fix behavior).
         return Ok(());
     };
 
@@ -1442,6 +1550,13 @@ fn backfill_cron_schedule_timezone(conn: &Connection) -> Result<()> {
             updates.len()
         );
     }
+
+    // Mark the one-time migration done (host zone was detectable, so all current
+    // legacy rows have now been scanned). Later zone-less jobs are deliberate.
+    conn.execute(
+        "INSERT OR REPLACE INTO cron_meta (key, value) VALUES (?1, ?2)",
+        params![SENTINEL, Utc::now().to_rfc3339()],
+    )?;
 
     Ok(())
 }

@@ -523,6 +523,14 @@ export function useChatSession({
       } else if (payload.notify) {
         if (payload.status === "success") {
           notify(t("notification.cronSuccess"), payload.job_name)
+        } else if (payload.status === "empty") {
+          // Review fix #5: a zero-output run is neither success nor error —
+          // surface a neutral "completed, no output" notice, not a success toast.
+          notify(t("notification.cronEmpty"), payload.job_name)
+        } else if (payload.status === "cancelled") {
+          // Review fix #6: a cancelled run isn't a failure — don't show the error
+          // toast (the user, or another endpoint, cancelled it deliberately).
+          notify(t("notification.cronCancelled"), payload.job_name)
         } else {
           // §10 (D4): surface *why* it failed (timeout / config / transient), not
           // just the job name, when the backend classified a reason.

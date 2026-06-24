@@ -7,6 +7,12 @@ use super::db::CronDB;
 use super::delivery::{deliver_results, DeliveryOutcome};
 use super::types::*;
 
+/// Grace window after a per-run timeout: the cooperative cancel flag is set and
+/// the engine turn is awaited this much longer so it can unwind cleanly (flush
+/// session rows / stop spawning) before being dropped, instead of a hard
+/// mid-write tear-down. Bounded so a truly wedged run still releases its slot.
+const CRON_TIMEOUT_CANCEL_GRACE_SECS: u64 = 5;
+
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,
@@ -101,11 +107,15 @@ impl Drop for RunningMarkerGuard {
 /// the live flag + any unconsumed pending placeholder.
 struct CancelRegistrationGuard {
     job_id: String,
+    /// This run's claim timestamp — `remove` is run-keyed so a recurring job's
+    /// later run (which re-registers under the same `job_id`) isn't unregistered
+    /// when this run's guard drops.
+    claimed_at: String,
 }
 
 impl Drop for CancelRegistrationGuard {
     fn drop(&mut self) {
-        super::cancel::remove(&self.job_id);
+        super::cancel::remove(&self.job_id, &self.claimed_at);
     }
 }
 
@@ -136,6 +146,7 @@ pub(crate) async fn execute_claimed_job(
     let cancel_flag = super::cancel::register(&job.id, &started_at);
     let _cancel_guard = CancelRegistrationGuard {
         job_id: job.id.clone(),
+        claimed_at: started_at.clone(),
     };
 
     app_info!(
@@ -204,6 +215,7 @@ pub(crate) async fn execute_claimed_job(
                     "",
                     None,
                     None,
+                    false, // infra failure — the turn never ran; don't auto-disable
                 );
                 return;
             }
@@ -213,10 +225,27 @@ pub(crate) async fn execute_claimed_job(
     // mid-run leaves this row open → recover_orphaned_runs closes it as error on
     // the next startup; the running guard finalizes it on a same-process panic;
     // the terminal paths below finalize it to success/error/cancelled.
-    let run_log_id = cron_db
-        .add_running_run_log(&job.id, &session_id, &started_at)
-        .unwrap_or(0);
-    running_guard.run_log_id.store(run_log_id, Ordering::SeqCst);
+    // `None` if the in-progress row couldn't be opened (transient DB error). The
+    // terminal paths below then INSERT a complete row instead of UPDATE-ing a
+    // non-existent id, so a successful/failed/cancelled run is never left with no
+    // run-log at all (review fix — the old `unwrap_or(0)` silently lost the row).
+    let run_log_id = match cron_db.add_running_run_log(&job.id, &session_id, &started_at) {
+        Ok(id) => Some(id),
+        Err(e) => {
+            app_error!(
+                "cron",
+                "executor",
+                "Failed to open in-progress run log for job '{}' ({}): {} — terminal state will be inserted directly",
+                job.name,
+                job.id,
+                e
+            );
+            None
+        }
+    };
+    running_guard
+        .run_log_id
+        .store(run_log_id.unwrap_or(0), Ordering::SeqCst);
 
     // Persist the cron prompt before execution so `run_chat_engine` can reuse
     // the same DB contract as interactive chat without duplicating user rows.
@@ -238,20 +267,38 @@ pub(crate) async fn execute_claimed_job(
     let timeout_secs = crate::config::cached_config()
         .cron
         .effective_job_timeout_secs();
+    let run_fut = build_and_run_agent_with_cancel(
+        &agent_id,
+        &prompt,
+        &session_id,
+        session_db,
+        cancel_flag.clone(),
+    );
+    tokio::pin!(run_fut);
+    let mut timed_out = false;
     let result = match tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        build_and_run_agent_with_cancel(
-            &agent_id,
-            &prompt,
-            &session_id,
-            session_db,
-            cancel_flag.clone(),
-        ),
+        &mut run_fut,
     )
     .await
     {
         Ok(r) => r,
         Err(_) => {
+            timed_out = true;
+            // Review fix: don't hard-drop the in-flight turn. Set the cooperative
+            // cancel flag and give the engine a *bounded* grace to wind down
+            // cleanly (flush its session rows, stop spawning more work) instead of
+            // being torn down mid-write at an arbitrary await point. Detached
+            // subagents / async jobs carry their own budgets + cancel paths; this
+            // at least stops the engine turn gracefully. The flag set here is NOT
+            // counted as a user cancel (see `was_cancelled`) — a timed-out run is
+            // still a Failure(timeout), never Cancelled.
+            cancel_flag.store(true, Ordering::SeqCst);
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(CRON_TIMEOUT_CANCEL_GRACE_SECS),
+                &mut run_fut,
+            )
+            .await;
             app_error!(
                 "cron",
                 "executor",
@@ -268,7 +315,11 @@ pub(crate) async fn execute_claimed_job(
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
-    let was_cancelled = cancel_flag.load(Ordering::SeqCst);
+    // Only a *user / external* cancel counts as cancellation. On a timeout we set
+    // the flag ourselves (above) to wind the engine down, so exclude that case —
+    // otherwise a timed-out run would misclassify as Cancelled instead of a
+    // Failure(timeout).
+    let was_cancelled = !timed_out && cancel_flag.load(Ordering::SeqCst);
 
     // §9 (C4): classify the terminal outcome (pure, unit-tested — see
     // `classify_cron_terminal`). The subtlety: cron runs with
@@ -286,7 +337,15 @@ pub(crate) async fn execute_claimed_job(
                 job.id,
                 duration_ms
             );
-            record_cancelled(cron_db, &job, &finished_at, duration_ms, run_log_id);
+            record_cancelled(
+                cron_db,
+                &job,
+                &session_id,
+                &started_at,
+                &finished_at,
+                duration_ms,
+                run_log_id,
+            );
         }
         CronTerminal::Success => {
             // Classifier returns Success only for `Ok`.
@@ -309,8 +368,11 @@ pub(crate) async fn execute_claimed_job(
             // Deliver first so the run log records the delivery outcome (§8) in
             // the same terminal finalize (§9 D2 — the row was opened at start).
             let report = deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
-            let _ = cron_db.finalize_run_log(
+            let _ = cron_db.finalize_or_insert_run_log(
                 run_log_id,
+                &job.id,
+                &session_id,
+                &started_at,
                 "success",
                 &finished_at,
                 Some(duration_ms),
@@ -337,8 +399,11 @@ pub(crate) async fn execute_claimed_job(
                 duration_ms
             );
             let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
-            let _ = cron_db.finalize_run_log(
+            let _ = cron_db.finalize_or_insert_run_log(
                 run_log_id,
+                &job.id,
+                &session_id,
+                &started_at,
                 "empty",
                 &finished_at,
                 Some(duration_ms),
@@ -347,8 +412,10 @@ pub(crate) async fn execute_claimed_job(
                 None,
             );
             let _ = cron_db.clear_running(&job.id);
-            // Notify as a (content-less) success — the run didn't fail.
-            emit_cron_event(&job.id, &job.name, "success", job.notify_on_complete, None);
+            // Review fix: surface a neutral "empty" status, NOT "success" — a
+            // zero-output run shouldn't pop a success notification (§10 "don't
+            // mask zero output"). The frontend renders a distinct empty notice.
+            emit_cron_event(&job.id, &job.name, "empty", job.notify_on_complete, None);
         }
         CronTerminal::Failure => {
             // Classifier returns Failure only for `Err`.
@@ -379,7 +446,8 @@ pub(crate) async fn execute_claimed_job(
                 &err_text,
                 &session_id,
                 report.run_log_status(),
-                Some(run_log_id),
+                run_log_id,
+                true, // genuine run failure — counts toward auto-disable
             );
         }
     }
@@ -672,10 +740,13 @@ fn persist_failure_message_if_missing(
     let _ = session_db.append_message(session_id, &err_msg);
 }
 
-/// Record a failure run log and update job state. §9 (D2): when `run_log_id` is
-/// `Some` (the normal path, where an in-progress row was opened at run start),
-/// finalize that row; when `None` (the no-session early failure, which never
-/// opened one) insert a complete row.
+/// Record a failure run log and update job state. `run_log_id` `Some` finalizes
+/// the in-progress row opened at run start; `None` inserts a complete row (no
+/// session was created, or the row failed to open). `count_toward_disable`
+/// gates the auto-disable counter (review fix #4): a genuine run failure bumps
+/// `consecutive_failures` and can auto-disable; an *infrastructure* failure
+/// (the agent turn never ran — e.g. session creation failed) must NOT, or a
+/// transient hiccup could disable a healthy job.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn record_failure(
     cron_db: &Arc<CronDB>,
@@ -687,38 +758,41 @@ pub(crate) fn record_failure(
     session_id: &str,
     delivery_status: Option<&str>,
     run_log_id: Option<i64>,
+    count_toward_disable: bool,
 ) {
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
 
-    match run_log_id {
-        Some(id) => {
-            let _ = cron_db.finalize_run_log(
-                id,
-                status,
-                &finished_at,
-                Some(duration_ms),
-                None,
-                Some(error),
-                delivery_status,
-            );
-        }
-        None => {
-            let run_log = CronRunLog {
-                id: 0,
-                job_id: job.id.clone(),
-                session_id: session_id.to_string(),
-                status: status.to_string(),
-                started_at: started_at.to_string(),
-                finished_at: Some(finished_at),
-                duration_ms: Some(duration_ms),
-                result_preview: None,
-                error: Some(error.to_string()),
-                delivery_status: delivery_status.map(|s| s.to_string()),
-            };
-            let _ = cron_db.add_run_log(&run_log);
-        }
+    let _ = cron_db.finalize_or_insert_run_log(
+        run_log_id,
+        &job.id,
+        session_id,
+        started_at,
+        status,
+        &finished_at,
+        Some(duration_ms),
+        None,
+        Some(error),
+        delivery_status,
+    );
+
+    if !count_toward_disable {
+        // Infra failure: the agent turn never ran. Reschedule (so the job retries
+        // on its cadence) and surface the error, but don't bump the disable
+        // counter — never auto-disable a healthy job for a transient hiccup.
+        let _ = cron_db.reschedule_without_failure(&job.id, &job.schedule);
+        let _ = cron_db.clear_running(&job.id);
+        let reason = super::failure::CronFailureClass::classify(error).key();
+        emit_cron_event(
+            &job.id,
+            &job.name,
+            "error",
+            job.notify_on_complete,
+            Some(reason),
+        );
+        return;
     }
+
     let auto_disabled = cron_db
         .update_after_run(&job.id, false, &job.schedule)
         .unwrap_or(false);
@@ -752,18 +826,24 @@ pub(crate) fn record_failure(
     }
 }
 
-/// §9 (D2): finalize the in-progress run log as cancelled. Always has a
-/// `run_log_id` — cancellation only reaches here after the run started (the row
-/// was opened right after session creation).
+/// §9 (D2): finalize the in-progress run log as cancelled. `run_log_id` is
+/// normally `Some` (cancellation only reaches here after the run started), but
+/// tolerates `None` — if the in-progress row failed to open, insert a complete
+/// cancelled row instead of dropping the audit trail (review fix).
 fn record_cancelled(
     cron_db: &Arc<CronDB>,
     job: &CronJob,
+    session_id: &str,
+    started_at: &str,
     finished_at: &str,
     duration_ms: u64,
-    run_log_id: i64,
+    run_log_id: Option<i64>,
 ) {
-    let _ = cron_db.finalize_run_log(
+    let _ = cron_db.finalize_or_insert_run_log(
         run_log_id,
+        &job.id,
+        session_id,
+        started_at,
         "cancelled",
         finished_at,
         Some(duration_ms),
@@ -772,6 +852,14 @@ fn record_cancelled(
         None,
     );
     let _ = cron_db.clear_running(&job.id);
+    // §11 review fix: a cancelled one-shot `At` had its `next_run_at` advanced to
+    // NULL at claim, so leaving it `active` strands an un-fireable zombie until
+    // the next restart's `mark_missed_at_jobs`. Terminalize it now — it ran and
+    // won't fire again. Recurring jobs keep their schedule (their `next_run_at`
+    // already points at the next occurrence), so this is At-only.
+    if matches!(job.schedule, CronSchedule::At { .. }) {
+        let _ = cron_db.terminalize_one_shot_completed(&job.id);
+    }
     emit_cron_event(
         &job.id,
         &job.name,
@@ -974,11 +1062,21 @@ mod tests {
         let run_log_id = db
             .add_running_run_log(&job.id, "session-cancel", &claimed.claimed_at)
             .expect("open in-progress run log");
-        record_cancelled(&db, &claimed.job, "2026-01-01T00:00:42Z", 42, run_log_id);
+        record_cancelled(
+            &db,
+            &claimed.job,
+            "session-cancel",
+            &claimed.claimed_at,
+            "2026-01-01T00:00:42Z",
+            42,
+            Some(run_log_id),
+        );
 
         let stored = db.get_job(&job.id).expect("load").expect("job exists");
         assert!(stored.running_at.is_none());
         assert_eq!(stored.consecutive_failures, 2);
+        // Recurring job stays active after a cancel (it keeps firing).
+        assert_eq!(stored.status, CronJobStatus::Active);
         let logs = db.get_run_logs(&job.id, 10).expect("logs");
         assert_eq!(
             logs.len(),
@@ -989,6 +1087,61 @@ mod tests {
         assert_eq!(logs[0].session_id, "session-cancel");
         assert_eq!(logs[0].duration_ms, Some(42));
         assert_eq!(logs[0].error.as_deref(), Some("Cancelled by user"));
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn record_cancelled_terminalizes_one_shot_at_job() {
+        // §11 review fix: a cancelled one-shot `At` must not be left active with a
+        // NULL next_run_at (an un-fireable zombie until the next restart); it's
+        // terminalized as `completed`.
+        let path = temp_db_path("cancelled-at");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "One-shot".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: "2999-01-01T00:00:00Z".into(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do it once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed job");
+        let run_log_id = db
+            .add_running_run_log(&job.id, "session-at", &claimed.claimed_at)
+            .expect("open in-progress run log");
+
+        record_cancelled(
+            &db,
+            &claimed.job,
+            "session-at",
+            &claimed.claimed_at,
+            "2999-01-01T00:00:42Z",
+            42,
+            Some(run_log_id),
+        );
+
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+        assert_eq!(
+            stored.status,
+            CronJobStatus::Completed,
+            "cancelled one-shot At is terminalized, not left active"
+        );
+        assert!(stored.next_run_at.is_none());
+        assert!(stored.running_at.is_none());
 
         cleanup_db_files(&path);
     }

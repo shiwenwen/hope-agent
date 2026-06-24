@@ -1724,6 +1724,7 @@
     "video": "Vídeo"
   },
   "notification": {
+    "cronCancelled": "Tarefa agendada cancelada",
     "cronDisabled": "Tarefa agendada desativada",
     "cronDisabledBody": "{{name}}: desativada após {{count}} falhas consecutivas ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "Credenciais de uma conta de canal IM foram rejeitadas — autentique-se novamente",
     "chatCompleted": "Conversa concluída",
     "chatError": "Erro na conversa",
+    "cronEmpty": "Tarefa agendada concluída (sem saída)",
     "cronError": "Tarefa agendada falhou",
     "cronNote": "As notificações de tarefas Cron podem ser configuradas por tarefa no painel de Tarefas Agendadas.",
     "cronNotify": "Notificar ao concluir",

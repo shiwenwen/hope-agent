@@ -1724,6 +1724,7 @@
     "video": "動画"
   },
   "notification": {
+    "cronCancelled": "スケジュールタスクをキャンセルしました",
     "cronDisabled": "スケジュールタスクが無効化されました",
     "cronDisabledBody": "{{name}} — {{count}} 回連続で失敗したため無効化されました（{{reason}}）",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "IM チャネルの認証情報が拒否されました — 再認証してください",
     "chatCompleted": "会話が完了しました",
     "chatError": "会話でエラーが発生しました",
+    "cronEmpty": "スケジュールタスク完了（出力なし）",
     "cronError": "定期タスクが失敗しました",
     "cronNote": "定期タスクの通知は、定期タスク設定パネルでタスクごとに設定できます。",
     "cronNotify": "完了時に通知",

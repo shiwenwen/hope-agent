@@ -3,8 +3,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 /// Live cancel flags for jobs that have already registered (i.e. their run has
-/// reached `execute_claimed_job` and called [`register`]).
-static CANCELS: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+/// reached `execute_claimed_job` and called [`register`]). **Keyed by `job_id`,
+/// but the value carries the run's `claimed_at`** so a cancel request can prove
+/// it targets *this* live run and not a later re-claim of a recurring job (see
+/// [`cancel`] / [`remove`] — §9 review fix: the live-flag path used to flip
+/// whatever run was live, regardless of which run the caller meant).
+static CANCELS: LazyLock<Mutex<HashMap<String, (String, Arc<AtomicBool>)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// §9 (C7): pending cancels for jobs claimed (running_at set) but whose run
@@ -36,7 +40,7 @@ pub(crate) fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
     let flag = Arc::new(AtomicBool::new(targets_this_run));
     {
         let mut map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-        map.insert(job_id.to_string(), flag.clone());
+        map.insert(job_id.to_string(), (claimed_at.to_string(), flag.clone()));
     }
     flag
 }
@@ -48,27 +52,44 @@ pub(crate) fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
 pub(crate) fn cancel(job_id: &str, claimed_at: &str) -> bool {
     {
         let map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(flag) = map.get(job_id) {
-            flag.store(true, Ordering::SeqCst);
-            return true;
+        if let Some((live_claimed_at, flag)) = map.get(job_id) {
+            if live_claimed_at.as_str() == claimed_at {
+                flag.store(true, Ordering::SeqCst);
+                return true;
+            }
+            // A *different* run is live now — the run identified by `claimed_at`
+            // already finished and a later run of this (recurring) job re-claimed
+            // the same job_id. Flipping the live flag would cancel that newer run,
+            // which the caller never targeted (the §9 review TOCTOU). The targeted
+            // run is gone, so there is nothing to cancel.
+            return false;
         }
     }
-    // No live flag yet: the run is claimed but hasn't registered. Record a
-    // run-keyed pending cancel for `register` to drain.
+    // No live flag yet: the targeted run is claimed but hasn't registered. Record
+    // a run-keyed pending cancel for `register` to drain (honored only on an
+    // exact `claimed_at` match, so it can't leak onto a different run either).
     let mut pending = PENDING_CANCELS.lock().unwrap_or_else(|p| p.into_inner());
     pending.insert(job_id.to_string(), claimed_at.to_string());
     true
 }
 
-/// Clear a run's cancel state at terminal. Removes both the live flag and any
-/// pending placeholder for the job so nothing leaks into a later run.
-pub(crate) fn remove(job_id: &str) {
+/// Clear a run's cancel state at terminal, **run-keyed by `claimed_at`**. Only
+/// drops the live flag / pending placeholder if it still belongs to THIS run: a
+/// later run of a recurring job may have re-registered under the same `job_id`
+/// between this run clearing `running_at` and its guard dropping, and a blind
+/// `remove(job_id)` would clear that newer run's live flag — dropping a
+/// concurrent cancel targeting it.
+pub(crate) fn remove(job_id: &str, claimed_at: &str) {
     {
         let mut map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-        map.remove(job_id);
+        if matches!(map.get(job_id), Some((live_at, _)) if live_at.as_str() == claimed_at) {
+            map.remove(job_id);
+        }
     }
     let mut pending = PENDING_CANCELS.lock().unwrap_or_else(|p| p.into_inner());
-    pending.remove(job_id);
+    if matches!(pending.get(job_id), Some(p) if p.as_str() == claimed_at) {
+        pending.remove(job_id);
+    }
 }
 
 #[cfg(test)]
@@ -86,7 +107,7 @@ mod tests {
             flag.load(Ordering::SeqCst),
             "register drained pending cancel"
         );
-        remove(job);
+        remove(job, "ts-1");
     }
 
     #[test]
@@ -96,7 +117,28 @@ mod tests {
         assert!(!flag.load(Ordering::SeqCst));
         assert!(cancel(job, "ts-1"));
         assert!(flag.load(Ordering::SeqCst));
-        remove(job);
+        remove(job, "ts-1");
+    }
+
+    #[test]
+    fn live_flag_for_a_different_run_is_not_cancelled() {
+        // §9 review fix: a cancel computed against finished run "ts-1" must NOT
+        // flip the live flag of a *later* run "ts-2" that has already registered
+        // under the same job_id (recurring job re-claimed in the TOCTOU window).
+        let job = "job-recurring-live";
+        let flag = register(job, "ts-2"); // the newer run is live
+        assert!(
+            !cancel(job, "ts-1"),
+            "stale cancel for a finished run reports nothing cancelled"
+        );
+        assert!(
+            !flag.load(Ordering::SeqCst),
+            "the live run ts-2 must not be cancelled by a stale ts-1 request"
+        );
+        // And the matching cancel still works on the live run.
+        assert!(cancel(job, "ts-2"));
+        assert!(flag.load(Ordering::SeqCst));
+        remove(job, "ts-2");
     }
 
     #[test]
@@ -106,7 +148,7 @@ mod tests {
         // keyed to "ts-1"; the NEXT run "ts-2" of a recurring job must NOT be
         // cancelled by it.
         let job = "job-recurring";
-        remove(job); // run ts-1 finished, cleared its state
+        remove(job, "ts-1"); // run ts-1 finished, cleared its state
         assert!(
             cancel(job, "ts-1"),
             "delayed cancel records ts-1 placeholder"
@@ -116,19 +158,19 @@ mod tests {
             !flag.load(Ordering::SeqCst),
             "stale ts-1 placeholder must not cancel run ts-2"
         );
-        remove(job);
+        remove(job, "ts-2");
     }
 
     #[test]
     fn remove_clears_unconsumed_pending() {
         let job = "job-leak";
         assert!(cancel(job, "ts-1"));
-        remove(job);
+        remove(job, "ts-1");
         let flag = register(job, "ts-1");
         assert!(
             !flag.load(Ordering::SeqCst),
             "remove cleared the placeholder before register could drain it"
         );
-        remove(job);
+        remove(job, "ts-1");
     }
 }

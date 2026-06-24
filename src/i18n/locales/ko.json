@@ -1724,6 +1724,7 @@
     "video": "비디오"
   },
   "notification": {
+    "cronCancelled": "예약 작업이 취소되었습니다",
     "cronDisabled": "예약 작업이 비활성화됨",
     "cronDisabledBody": "{{name}} — {{count}}회 연속 실패하여 비활성화됨({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "IM 채널 자격 증명이 거부되었습니다 — 재인증해주세요",
     "chatCompleted": "대화 완료",
     "chatError": "대화 오류",
+    "cronEmpty": "예약 작업 완료(출력 없음)",
     "cronError": "예약 작업 실패",
     "cronNote": "예약 작업 알림은 예약 작업 설정 패널에서 작업별로 구성할 수 있습니다.",
     "cronNotify": "완료 시 알림",

@@ -1724,6 +1724,7 @@
     "video": "فيديو"
   },
   "notification": {
+    "cronCancelled": "تم إلغاء المهمة المجدولة",
     "cronDisabled": "تم تعطيل المهمة المجدولة",
     "cronDisabledBody": "{{name}} — تم تعطيلها بعد {{count}} حالات فشل متتالية ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "تم رفض بيانات اعتماد حساب قناة IM — يرجى إعادة المصادقة",
     "chatCompleted": "اكتمل الدردشة",
     "chatError": "خطأ في الدردشة",
+    "cronEmpty": "اكتملت المهمة المجدولة (بدون مخرجات)",
     "cronError": "فشلت المهمة المجدولة",
     "cronNote": "يمكن تكوين إشعارات Cron لكل مهمة في لوحة المهام المجدولة.",
     "cronNotify": "إشعار عند الاكتمال",

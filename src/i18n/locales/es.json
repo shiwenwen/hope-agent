@@ -1724,6 +1724,7 @@
     "video": "Vídeo"
   },
   "notification": {
+    "cronCancelled": "Tarea programada cancelada",
     "cronDisabled": "Tarea programada deshabilitada",
     "cronDisabledBody": "{{name}}: deshabilitada tras {{count}} fallos consecutivos ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "Las credenciales de una cuenta de canal IM fueron rechazadas — vuelve a autenticarte",
     "chatCompleted": "Conversación completada",
     "chatError": "Error en la conversación",
+    "cronEmpty": "Tarea programada completada (sin resultado)",
     "cronError": "Tarea programada fallida",
     "cronNote": "Las notificaciones de tareas Cron pueden configurarse por trabajo en el panel de Tareas programadas.",
     "cronNotify": "Notificar al completar",

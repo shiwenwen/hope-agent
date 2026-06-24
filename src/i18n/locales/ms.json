@@ -1724,6 +1724,7 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Tugas berjadual dibatalkan",
     "cronDisabled": "Tugas berjadual dilumpuhkan",
     "cronDisabledBody": "{{name}} — dilumpuhkan selepas {{count}} kegagalan berturut-turut ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "Kelayakan akaun saluran IM ditolak — sila sahkan semula",
     "chatCompleted": "Sembang selesai",
     "chatError": "Ralat sembang",
+    "cronEmpty": "Tugas berjadual selesai (tiada output)",
     "cronError": "Tugasan berjadual gagal",
     "cronNote": "Pemberitahuan tugasan Cron boleh dikonfigurasi setiap tugasan dalam panel tetapan Tugasan Berjadual.",
     "cronNotify": "Beritahu apabila selesai",

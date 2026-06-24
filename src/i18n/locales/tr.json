@@ -1724,6 +1724,7 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Zamanlanmış görev iptal edildi",
     "cronDisabled": "Zamanlanmış görev devre dışı bırakıldı",
     "cronDisabledBody": "{{name}} — {{count}} ardışık hatadan sonra devre dışı bırakıldı ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "Bir IM kanalı hesabının kimlik bilgileri reddedildi — yeniden kimlik doğrulayın",
     "chatCompleted": "Sohbet tamamlandı",
     "chatError": "Sohbet hatası",
+    "cronEmpty": "Zamanlanmış görev tamamlandı (çıktı yok)",
     "cronError": "Zamanlanmış görev başarısız",
     "cronNote": "Cron görev bildirimleri Zamanlanmış Görevler ayar panelinde her görev için yapılandırılabilir.",
     "cronNotify": "Tamamlanınca bildir",

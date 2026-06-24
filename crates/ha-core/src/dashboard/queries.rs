@@ -439,10 +439,12 @@ pub fn query_tasks(
     };
 
     let sql = format!(
+        // `total_runs` counts terminal runs only — the transient in-progress
+        // 'running' row is excluded (review fix #3) so a live run doesn't inflate
+        // the total; 'empty'/'cancelled' are terminal and still counted.
         // `failed_runs` counts every non-success terminal failure — including the
-        // §5 `'timeout'` status, otherwise timeouts would be invisible failures
-        // (counted in total but neither success nor failed).
-        "SELECT COUNT(*),
+        // §5 `'timeout'` status, otherwise timeouts would be invisible failures.
+        "SELECT COALESCE(SUM(CASE WHEN status != 'running' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN status IN ('error', 'timeout') THEN 1 ELSE 0 END), 0),
                 COALESCE(AVG(duration_ms), 0.0)

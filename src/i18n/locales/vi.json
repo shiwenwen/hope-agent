@@ -1724,6 +1724,7 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Đã hủy tác vụ theo lịch",
     "cronDisabled": "Tác vụ định kỳ đã bị tắt",
     "cronDisabledBody": "{{name}} — đã bị tắt sau {{count}} lần thất bại liên tiếp ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "Thông tin xác thực một tài khoản kênh IM bị từ chối — vui lòng xác thực lại",
     "chatCompleted": "Cuộc trò chuyện đã hoàn thành",
     "chatError": "Lỗi cuộc trò chuyện",
+    "cronEmpty": "Tác vụ theo lịch đã hoàn tất (không có kết quả)",
     "cronError": "Tác vụ định kỳ thất bại",
     "cronNote": "Thông báo tác vụ Cron có thể được cấu hình cho từng tác vụ trong bảng cài đặt Tác vụ định kỳ.",
     "cronNotify": "Thông báo khi hoàn thành",

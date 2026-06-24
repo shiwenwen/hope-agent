@@ -1724,6 +1724,7 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Scheduled task cancelled",
     "cronDisabled": "Scheduled task disabled",
     "cronDisabledBody": "{{name}} — disabled after {{count}} consecutive failures ({{reason}})",
     "cronReason": {
@@ -1748,6 +1749,7 @@
     "channelAuthFailedFallback": "An IM channel account's credentials were rejected — please re-authenticate",
     "chatCompleted": "Chat completed",
     "chatError": "Chat error",
+    "cronEmpty": "Scheduled task completed (no output)",
     "cronError": "Scheduled task failed",
     "cronNote": "Cron task notifications can be configured per-job in the Scheduled Tasks settings panel.",
     "cronNotify": "Notify on complete",
