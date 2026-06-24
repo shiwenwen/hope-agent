@@ -40,7 +40,7 @@ serde tag 区分，`rename_all = "camelCase"`：
 
 `schedule::validate_schedule(&CronSchedule)`（[`cron/schedule.rs`](../../crates/ha-core/src/cron/schedule.rs)）是「这条排程是否合法」的唯一裁决，三入口共用、绝不各自发散：
 
-- **规则**：`At` timestamp 可 RFC3339 解析；`Every` `interval_ms ≥ MIN_EVERY_INTERVAL_MS`（`60000`，1 分钟地板——太小是「误造全功能 agent turn 跑飞循环」的经典坑）；`Cron` 表达式合法 + 非空 `timezone` 是已知 IANA 名（空 / 空白 = UTC，不校验）。
+- **规则**：`At` timestamp 可 RFC3339 解析；`Every` `interval_ms` 须 **∈ `[MIN_EVERY_INTERVAL_MS, i64::MAX]`**——下限 `60000`（1 分钟地板，太小是「误造全功能 agent turn 跑飞循环」的经典坑），上限 `i64::MAX` ms（超出会在 `as i64` / `i64::try_from` 处溢出 → `compute_next_run` 返 `None` → 落成 `active` + `next_run_at=NULL` 的永不触发、永不回收僵尸，因 `mark_missed_at_jobs` 只管 `At`；C13）；`Cron` 表达式合法 + 非空 `timezone` 是已知 IANA 名（空 / 空白 = UTC，不校验）。
 - **入口①持久化 chokepoint**：`CronDB::add_job` / `update_job` 入口即 `validate_schedule(&schedule)?`。这是红线——owner 平面 Tauri `cron_create_job`/`cron_update_job` + HTTP `create_job`/`update_job` 把**前端构造的 `CronSchedule` 直接喂** add/update，此前只校验 `Cron` expr+tz，于是 `At` 垃圾时间戳、`Every interval_ms=0`（永不触发的死任务）能从 owner 平面绕过持久化。现在全 variant 统一在 chokepoint 拒绝。
 - **入口②模型工具路径**：`parse_schedule`（[`tools/cron.rs`](../../crates/ha-core/src/tools/cron.rs)）提取 + 归一化 JSON 字段（字段缺失给 field-specific 错误）后委托 `validate_schedule`，不再内联各自的值校验。
 - `validate_cron_expression` / `validate_timezone` 仍是 expr / timezone 级原语，被 `validate_schedule` 复用（见下「时区语义」）。
@@ -51,7 +51,7 @@ serde tag 区分，`rename_all = "camelCase"`：
 
 `Cron` 的 `timezone` 是 IANA 名（`Asia/Shanghai` 等），决定 cron 表达式的时/分字段按哪个时区的墙钟解释：
 
-- **计算**：`compute_next_cron`（[`cron/schedule.rs`](../../crates/ha-core/src/cron/schedule.rs)）把 `timezone` 经 `parse_timezone` 解析为 `chrono_tz::Tz`，`schedule.after(&after.with_timezone(&tz)).next()` 再 `.with_timezone(&Utc)` 落库（`cron` 0.13 的 `after<Z: TimeZone>` 泛型直接吃 `DateTime<Tz>`）。`None`/未知名回退 UTC——但创建期已校验（见下），故回退只对 legacy / 显式无时区行生效。
+- **计算**：`compute_next_cron`（[`cron/schedule.rs`](../../crates/ha-core/src/cron/schedule.rs)）把 `timezone` 经 `parse_timezone` 解析为 `chrono_tz::Tz`，对 `schedule.after(&after.with_timezone(&tz))` 迭代取**第一个换算回 UTC 后严格 `> after`** 的 occurrence（`.find(|dt| *dt > *after)` 而非裸 `.next()`）再落库（`cron` 0.13 的 `after<Z: TimeZone>` 泛型直接吃 `DateTime<Tz>`）。`None`/未知名回退 UTC——但创建期已校验（见下），故回退只对 legacy / 显式无时区行生效。**`.find(> after)` 是 DST 秋退红线**：fall-back 当天 ambiguous 墙钟（如 01:30 出现两次）下 `cron` 的下一个本地 occurrence 换算回 UTC 可能**早于** `after`，裸 `.next()` 会把过去时刻写进 `next_run_at`，叠加 `get_due_jobs`（`next_run_at <= now`）→ 该任务在约 30 分钟 ambiguous 窗口内**每 tick 重复触发**（C01，已实测复现）；跳过非严格未来的 occurrence 与 At/Every 路径的 `> after` 契约一致。
 - **日历**：`compute_occurrences`（[`cron/db.rs`](../../crates/ha-core/src/cron/db.rs)）按**同一口径**展开（同样 `parse_timezone` + tz-aware 迭代），保证日历预览与实际触发一致。
 - **校验单一真相源**：`schedule::parse_timezone` / `validate_timezone`（pub，经 `cron::validate_timezone` re-export）。`parse_schedule`（[`tools/cron.rs`](../../crates/ha-core/src/tools/cron.rs)）创建/更新期 trim + 校验，非法 IANA 名直接 `bail!`（不再静默回退 UTC——正是静默回退让旧 bug 隐形）。
 - **前端**：`CronJobForm` 仅 `cron` 类型显示 IANA 选择器（`Intl.supportedValuesOf("timeZone")`），新任务默认填浏览器检测时区（`Intl.DateTimeFormat().resolvedOptions().timeZone`）；`buildSchedule` 下传该名，不再硬编码 `null`。`At`/`Every` 无时区字段（其时间戳已自带 offset、本就正确）。**编辑无时区 legacy 任务**时选择器默认填浏览器时区、保存即落地为该时区（修正语义；backfill 通常已先回填宿主时区，故仅在宿主检测失败时才有差异，且选择器始终可见、非静默）。
@@ -289,7 +289,7 @@ flowchart TD
     M -->|Non-retryable 或重试耗尽| O[尝试下一个模型]
     O --> I
 
-    E -->|超时| TO[置 cancel_flag +<br/>等 CRON_TIMEOUT_CANCEL_GRACE_SECS=5s<br/>协作收尾 → Err timeout]
+    E -->|超时| TO[置 cancel_flag + 等 5s 宽限<br/>resolve_after_timeout_grace<br/>期内非空 Ok→采纳为 Ok，否则 Err timeout]
 
     L --> CT{classify_cron_terminal<br/>result, was_cancelled}
     H1 --> CT
@@ -342,7 +342,7 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 
 ### 失败处理：可配 timeout / 分类 / 自动禁用通知（§5）
 
-- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（`AppConfig.cron`，与 §4 `max_concurrent` 同属一个 `CronConfig`，默认 300，`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里，超时即放弃、记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
+- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（`AppConfig.cron`，与 §4 `max_concurrent` 同属一个 `CronConfig`，默认 300，`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里：超时先置 `cancel_flag` 给 `CRON_TIMEOUT_CANCEL_GRACE_SECS=5s` 协作收尾，**若引擎在宽限期内跑完并返回非空 Ok 则采纳为 Success**（纯函数 `resolve_after_timeout_grace`，C02——否则踩线完成的真实产出被丢、误投 timeout 失败、连续踩线 `max_failures` 次会静默禁用本能跑完的健康任务），否则记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
 - **失败分类**（`cron::failure::CronFailureClass`，纯函数 `classify(error)`）：`Timeout` / `Configuration`（no model / no agent 等重跑也不会好的配置问题）/ `Transient`（默认——未识别错误绝不误判成配置问题）。**只做诊断**：`run_log_status()` 让 timeout 在运行日志里显示 `timeout`（其余仍 `error`，不动既有过滤），`key()` 作为稳定 wire key 喂日志 + 前端本地化。**刻意不改禁用策略**（仍 `max_failures` 连续失败），避免误分类导致过早禁用。
 - **自动禁用通知（红线）**：`update_after_run` 现返回 `bool`——失败把 `consecutive_failures` 推到 `max_failures` 翻 `disabled` 时返 `true`。`record_failure` 据此发**一次性** `emit_cron_disabled_event`：复用 `cron:run_completed` 通道但**强制 `notify=true`**（无视 job 的 `notify_on_complete`——任务静默死掉正是要暴露的失效）+ 带 `auto_disabled` / `consecutive_failures` / `failure_reason`。前端 `useChatSession` 监听到 `auto_disabled` 弹专属通知「任务 X 连续失败 N 次已禁用（原因）」。普通失败仍走原 `emit_cron_event`（受 `notify_on_complete` 控制）。
 
@@ -391,6 +391,15 @@ low 债集中清理：
 - **dashboard 成功率不被新状态污染（#3）**：成功率分母改为 **decided outcomes（success + failed）**，`total_runs` 排除在途 `running`；`'running'` / `'empty'` / `'cancelled'` 既非成功也非失败，不再稀释成功率 / 虚增总数。前端 `TaskSection` 圆环与中心百分比同步按 decided 计算。
 - **时区 fire 时解析失败不再静默（#12）**：`compute_next_cron` 对**非空但解析失败**的时区名（依赖漂移 / 旧二进制 / 篡改行）回退 UTC 前 `app_warn`；空 / 缺省时区仍是静默的 UTC 默认（符合预期）。
 
+### 全链路对抗复核修复（post §1–§10，多 agent 对抗审查）
+
+§1–§10 合入后又跑一轮全链路多场景对抗复核（多 finder × 3 票验证，C01/C13 另有 /tmp 独立实测 / rustc 验证），修掉 4 个 high：
+
+- **DST 秋退重复触发（C01，已实测复现）**：`compute_next_cron` 两条返回路径由裸 `.next()` 改 `.find(|dt| *dt > *after)`（详见上「时区语义 · 计算」）。修前 fall-back ambiguous 墙钟窗口内，`cron` 下一个本地 occurrence 换算回 UTC 早于 `after`，过去时刻写进 `next_run_at` → 每 15s tick 重复跑完整 turn + 投递 IM，持续约 30 分钟，每年秋退命中 ambiguous 墙钟的所有时区 cron 全中招。
+- **超时宽限期内完成被丢弃（C02）**：宽限期结果由 `let _=` 丢弃改为经纯函数 `resolve_after_timeout_grace` 判定——期内跑完的非空 Ok 采纳为 Success（详见上「失败处理 §5」）。修前踩线完成的真实产出被丢、误投 timeout 失败、连续踩线 `max_failures` 次静默禁用本能跑完的健康任务。
+- **Every interval 溢出僵尸（C13）**：`validate_schedule` 的 Every 分支加 `i64::MAX` ms 上限（详见上「排程校验 §6 规则」）。修前 `interval_ms > i64::MAX`（如 `u64::MAX`）通过校验却落成 `active` + `next_run_at=NULL` 的永不触发、永不回收僵尸。
+- **一次性 At 失败/超时重复副作用（Sweep#1）**：`update_after_run` 失败分支对 `At` 终态化 `missed`、不退避重试（详见上「指数退避公式」），与 §7 一次性副作用安全一致。修前失败/超时的 At 按退避重投，最多重复其副作用 `1+max_failures`（默认 6）次。
+
 ## 调度计算：compute_next_run
 
 三种 `CronSchedule` 类型的下次执行时间计算：
@@ -415,8 +424,8 @@ backoff_delay_ms = base_ms * 2^min(consecutive_failures, 20)
 ```
 
 失败后 `next_run_at` 的计算：
-- **At 类型**：`now + backoff_delay`（失败重试）
-- **Every / Cron 类型**：`compute_next_run(schedule, now) + backoff_delay`（正常间隔 + 退避叠加）
+- **At 类型**：**不退避重试**——一次性 `At` 失败 / 超时即在 `update_after_run` 终态化为 `missed`（`next_run_at=NULL`，记失败计数但不再触发；Sweep#1）。其 agent turn 可能已产生副作用（发邮件 / 下单），重投会重复副作用，与 §7「一次性副作用安全」一致。**仅 infra 失败例外**走 `reschedule_without_failure`（turn 未起跑、无副作用，At → `now+60s` 重试）。
+- **Every / Cron 类型**：`compute_next_run(schedule, now) + backoff_delay`（正常间隔 + 退避叠加），连续失败触顶 `max_failures` 自动禁用
 
 退避序列：30s → 60s → 120s → 240s → 480s → 960s → ... → 1h（上限）
 

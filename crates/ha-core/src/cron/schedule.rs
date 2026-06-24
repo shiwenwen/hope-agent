@@ -132,12 +132,21 @@ fn compute_next_cron(
         },
         _ => None,
     };
+    // Take the first occurrence strictly AFTER `after` (in UTC terms). The `.find`
+    // (vs `.next`) is load-bearing for DST fall-back: in the ambiguous wall-clock
+    // window (e.g. 01:30 occurs twice on a fall-back day), `cron`'s next *local*
+    // occurrence converts back to a UTC instant that is *earlier* than `after`;
+    // taking it verbatim writes a past `next_run_at`, which `get_due_jobs`
+    // (`next_run_at <= now`) then re-fires every tick for the ~30-min ambiguous
+    // window. Skipping any occurrence not strictly after `after` matches the
+    // `> after` contract the At/Every paths already enforce. (Normal case: the
+    // first occurrence is already > after, so `.find` returns it immediately.)
     match tz {
         Some(tz) => schedule
             .after(&after.with_timezone(&tz))
-            .next()
-            .map(|dt| dt.with_timezone(&Utc)),
-        None => schedule.after(after).next(),
+            .map(|dt| dt.with_timezone(&Utc))
+            .find(|dt| *dt > *after),
+        None => schedule.after(after).find(|dt| *dt > *after),
     }
 }
 
@@ -210,6 +219,20 @@ pub fn validate_schedule(schedule: &CronSchedule) -> Result<()> {
                     "Interval must be at least {}ms (1 minute), got {}ms",
                     MIN_EVERY_INTERVAL_MS,
                     interval_ms
+                );
+            }
+            // Upper bound: an interval that overflows i64 milliseconds wraps to a
+            // negative value (`as i64`) in `normalize_every_schedule_start_at` and
+            // makes `compute_next_every_run`'s `i64::try_from` fail → `next_run` is
+            // NULL, but the job persists `active` (only `At` terminalizes on a NULL
+            // next run), leaving an un-fireable zombie that `mark_missed_at_jobs`
+            // (At-only) never reaps. Reject it up front. `i64::MAX` ms is ~292
+            // million years, so this only rejects nonsense (e.g. `u64::MAX`).
+            if i64::try_from(*interval_ms).is_err() {
+                anyhow::bail!(
+                    "Interval {}ms is too large (must not exceed {}ms)",
+                    interval_ms,
+                    i64::MAX
                 );
             }
             Ok(())
@@ -392,6 +415,13 @@ mod tests {
             start_at: None
         })
         .is_err());
+        // C13: reject an interval that overflows i64 ms — it would persist as an
+        // active job with next_run_at=NULL (an un-fireable, un-reaped zombie).
+        assert!(validate_schedule(&CronSchedule::Every {
+            interval_ms: u64::MAX,
+            start_at: None
+        })
+        .is_err());
 
         // Cron: expression + (optional, non-empty) timezone.
         assert!(validate_schedule(&CronSchedule::Cron {
@@ -432,6 +462,31 @@ mod tests {
         );
         assert!(next.is_some(), "DST gap must not yield None");
         assert!(next.unwrap() > after);
+    }
+
+    #[test]
+    fn cron_dst_fall_back_ambiguous_window_returns_future_not_past() {
+        // C01 regression: on a fall-back day America/New_York's 01:30 occurs twice
+        // (clocks go 02:00 EDT → 01:00 EST on 2026-11-01). When `after` lands in
+        // the second (EST) 01:00–01:29 half-hour — i.e. [06:00, 06:30) UTC — cron's
+        // next *local* occurrence converts back to an *earlier* UTC instant
+        // (05:30 UTC). compute_next_run MUST still return a time strictly AFTER
+        // `after` (the next real fire), never a past value that would re-fire every
+        // 15s tick for the whole ~30-min window. With the pre-fix `.next()` this
+        // returned 05:30 UTC (< after) and failed.
+        let after = parse_flexible_timestamp("2026-11-01T06:05:00Z").unwrap();
+        let next = compute_next_run(
+            &CronSchedule::Cron {
+                expression: "0 30 1 * * * *".into(),
+                timezone: Some("America/New_York".into()),
+            },
+            &after,
+        )
+        .expect("next");
+        assert!(
+            next > after,
+            "next_run {next} must be strictly after {after}, not a past ambiguous-window instant"
+        );
     }
 
     #[test]

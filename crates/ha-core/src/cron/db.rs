@@ -592,6 +592,22 @@ impl CronDB {
 
             let new_failures = failures + 1;
 
+            // §7 / Sweep#1: a one-shot `At` that fails or times out must NOT be
+            // retried — its agent turn may have already produced side effects (sent
+            // an email, placed an order). Terminalize it as `missed` (the same
+            // side-effect-safe terminal a claimed-then-crashed At gets), recording
+            // the failure count but never re-firing. Without this, a failed/timed-out
+            // At backoff-retries and repeats its side effect up to 1+max_failures
+            // times — directly contradicting §7's one-shot side-effect safety.
+            // Recurring jobs fall through to the backoff / auto-disable logic below.
+            if matches!(schedule, CronSchedule::At { .. }) {
+                conn.execute(
+                    "UPDATE cron_jobs SET status='missed', next_run_at=NULL, consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+                    params![new_failures, now_str, id],
+                )?;
+                return Ok(false);
+            }
+
             if new_failures >= max_failures {
                 // Auto-disable. Gate on `status != 'disabled'` so ONLY the
                 // active→disabled transition returns true (fires the one-shot
@@ -2461,7 +2477,10 @@ mod tests {
     fn update_after_run_reports_auto_disable_at_threshold() {
         // §5: update_after_run returns true exactly when a failure pushes the job
         // to max_failures and flips it to `disabled` — the signal the executor
-        // uses to fire the one-shot disable notification.
+        // uses to fire the one-shot disable notification. Uses a RECURRING (Every)
+        // schedule: per §7 / Sweep#1 a one-shot `At` now terminalizes (missed) on
+        // its first failure rather than accumulating toward auto-disable, so the
+        // threshold behavior only applies to recurring jobs.
         let path = temp_db_path("auto-disable-signal");
         let db = CronDB::open(&path).expect("open db");
         let job = db
@@ -2469,8 +2488,9 @@ mod tests {
                 name: "flaky".into(),
                 description: None,
                 project_id: None,
-                schedule: CronSchedule::At {
-                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
                 },
                 payload: CronPayload::AgentTurn {
                     prompt: "p".into(),
@@ -2511,6 +2531,51 @@ mod tests {
             "count must not grow once disabled"
         );
         assert_eq!(after3.status, CronJobStatus::Disabled);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn one_shot_at_failure_terminalizes_missed_not_retries() {
+        // §7 / Sweep#1: a one-shot `At` that fails (or times out) must NOT be
+        // rescheduled with backoff — its agent turn may already have produced side
+        // effects, so re-running it would repeat them. It terminalizes as `missed`
+        // on the first failure (next_run_at cleared), never re-firing.
+        let path = temp_db_path("at-fail-terminal");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "one-shot".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: "2999-01-01T00:00:00Z".into(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+            })
+            .expect("add job");
+
+        // First failure → terminalize (not auto-disable, not retry).
+        assert!(!db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd"));
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.status,
+            CronJobStatus::Missed,
+            "failed one-shot At terminalizes as missed, not retried"
+        );
+        assert!(
+            stored.next_run_at.is_none(),
+            "no future retry scheduled for a failed one-shot At"
+        );
 
         cleanup_db_files(&path);
     }

@@ -294,22 +294,28 @@ pub(crate) async fn execute_claimed_job(
             // counted as a user cancel (see `was_cancelled`) — a timed-out run is
             // still a Failure(timeout), never Cancelled.
             cancel_flag.store(true, Ordering::SeqCst);
-            let _ = tokio::time::timeout(
+            // C02 review fix: if the engine actually FINISHES within the grace with
+            // real output, honor that completed work instead of discarding it and
+            // recording a timeout failure. Otherwise a job that always finishes a
+            // hair over budget loses its real result, delivers a bogus "timed out"
+            // failure, and is silently auto-disabled after max_failures.
+            let grace_completed = tokio::time::timeout(
                 std::time::Duration::from_secs(CRON_TIMEOUT_CANCEL_GRACE_SECS),
                 &mut run_fut,
             )
-            .await;
-            app_error!(
-                "cron",
-                "executor",
-                "Job '{}' timed out after {}s",
-                job.name,
-                timeout_secs
-            );
-            Err(anyhow::anyhow!(
-                "Cron job timed out after {}s",
-                timeout_secs
-            ))
+            .await
+            .ok();
+            let honored = matches!(&grace_completed, Some(Ok(r)) if !r.trim().is_empty());
+            if !honored {
+                app_error!(
+                    "cron",
+                    "executor",
+                    "Job '{}' timed out after {}s",
+                    job.name,
+                    timeout_secs
+                );
+            }
+            resolve_after_timeout_grace(grace_completed, timeout_secs)
         }
     };
 
@@ -484,6 +490,25 @@ pub(crate) fn classify_cron_terminal(result: &Result<String>, was_cancelled: boo
         // cancel surfaces as Err.
         Err(_) if was_cancelled => CronTerminal::Cancelled,
         Err(_) => CronTerminal::Failure,
+    }
+}
+
+/// C02: decide a run's result after a per-run timeout's cooperative grace window.
+/// If the engine finished within the grace with real (non-empty) output, honor
+/// that completed work (so it classifies as Success, is delivered, and does NOT
+/// count toward auto-disable); an empty / `Err` completion (the cancel cut it
+/// short) or no completion at all (`None` = grace elapsed) is a timeout failure.
+/// Pure so the "honor a late completion" rule is unit-testable without a runtime.
+fn resolve_after_timeout_grace(
+    grace_completed: Option<Result<String>>,
+    timeout_secs: u64,
+) -> Result<String> {
+    match grace_completed {
+        Some(Ok(r)) if !r.trim().is_empty() => Ok(r),
+        _ => Err(anyhow::anyhow!(
+            "Cron job timed out after {}s",
+            timeout_secs
+        )),
     }
 }
 
@@ -968,6 +993,18 @@ mod tests {
             classify_cron_terminal(&Err(anyhow::anyhow!("interrupted")), true),
             CronTerminal::Cancelled
         );
+    }
+
+    #[test]
+    fn timeout_grace_honors_late_nonempty_completion() {
+        // C02: engine finished within the grace with real output → honor it (Ok),
+        // so it classifies as Success rather than a discarded timeout failure.
+        assert!(resolve_after_timeout_grace(Some(Ok("done".into())), 300).is_ok());
+        // Empty completion (cancel cut it short), Err completion, or grace elapsed
+        // (None) → still a timeout failure.
+        assert!(resolve_after_timeout_grace(Some(Ok("  \n ".into())), 300).is_err());
+        assert!(resolve_after_timeout_grace(Some(Err(anyhow::anyhow!("x"))), 300).is_err());
+        assert!(resolve_after_timeout_grace(None, 300).is_err());
     }
 
     fn temp_db_path(label: &str) -> PathBuf {
